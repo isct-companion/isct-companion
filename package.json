@@ -1,0 +1,45 @@
+{
+  "name": "science-tokyo-workstation",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "tauri": "node scripts/tauri.mjs",
+    "tauri:dev": "node scripts/tauri.mjs dev",
+    "tauri:build": "node scripts/tauri.mjs build",
+    "desktop:dev": "node scripts/tauri.mjs dev",
+    "desktop:build": "node scripts/tauri.mjs build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write src vite.config.ts",
+    "backend:test": "cargo test --manifest-path backend/Cargo.toml --locked",
+    "backend:check": "cargo check --manifest-path backend/Cargo.toml --locked"
+  },
+  "dependencies": {
+    "@mantine/core": "^9.6.3",
+    "@mantine/hooks": "^9.6.3",
+    "@mantine/notifications": "^9.6.3",
+    "@tauri-apps/api": "^2.12.0",
+    "@tauri-apps/plugin-store": "^2.4.4",
+    "@vitejs/plugin-react": "latest",
+    "i18next": "^26.4.2",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-i18next": "^17.0.13",
+    "typescript": "latest",
+    "vite": "latest",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "jsdom": "latest",
+    "prettier": "latest",
+    "vitest": "latest"
+  }
+}

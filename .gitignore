@@ -1,0 +1,44 @@
+# Dependencies and build output
+node_modules/
+dist/
+backend/target/
+backend/gen/
+*.tsbuildinfo
+coverage/
+
+# Local tool and assistant state
+.cache/
+.claude/
+.codex/
+.agents/
+*.ses
+:memory:.ses
+
+# Local previews, QA output, and temporary files
+artifacts/
+docs/
+tmp/
+work/
+ref-demo/
+reference-demo/
+
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+GoogleService-Info.plist
+google-services.json
+credentials.json
+secrets.json
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.swp
