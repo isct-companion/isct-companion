@@ -5,6 +5,7 @@ description = "Science Tokyo Workstation desktop shell"
 authors = ["Science Tokyo Workstation contributors"]
 edition = "2021"
 rust-version = "1.90"
+default-run = "science-tokyo-workstation"
 
 [lib]
 name = "science_tokyo_workstation_lib"
@@ -19,7 +20,10 @@ serde_json = "1"
 tauri = { version = "2.12", features = ["unstable"] }
 tauri-plugin-notification = "2.4"
 tauri-plugin-opener = "2.5"
-tauri-plugin-store = "2.5"
+rusqlite = { version = "0.37", features = ["bundled"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+uuid = { version = "1", features = ["v4"] }
+rrule = "0.14"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"] }

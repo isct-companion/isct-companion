@@ -12,15 +12,22 @@ use school_extract::sanitize_school_url;
 use school_web::{SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds};
 use secrets::OsSecretVault;
 
-mod matrix_red_crops;
-mod matrix_ocr;
 mod cloud;
+pub mod data;
+mod ics;
+mod kyomu_guide;
+mod kyomu_ingest;
 mod lifecycle;
+mod lms_ingest;
+mod matrix_ocr;
+mod matrix_red_crops;
+pub mod plans;
 mod policy;
 mod school_auth;
 mod school_extract;
 mod school_web;
 mod secrets;
+mod subscriptions;
 mod syllabus;
 
 #[derive(Serialize)]
@@ -68,8 +75,29 @@ async fn recognize_matrix_image(
     require_local_main(&webview)?;
     let service = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        service.scan(&data, &preview, |completed| { let _ = on_progress.send(completed); })
-    }).await.map_err(|e| format!("Matrix recognition task failed: {e}"))?
+        service.scan(&data, &preview, |completed| {
+            let _ = on_progress.send(completed);
+        })
+    })
+    .await
+    .map_err(|e| format!("Matrix recognition task failed: {e}"))?
+}
+
+#[cfg(test)]
+mod external_url_tests {
+    use super::external_url;
+
+    #[test]
+    fn opens_school_and_plain_web_links_only() {
+        assert_eq!(
+            external_url("https://syllabus.s.isct.ac.jp/courses?jwc=202602431").as_deref(),
+            Some("https://syllabus.s.isct.ac.jp/courses?jwc=202602431")
+        );
+        assert!(external_url("https://example.org/paper?id=1").is_some());
+        assert!(external_url("file:///etc/passwd").is_none());
+        assert!(external_url("javascript:alert(1)").is_none());
+        assert!(external_url("https://user:pw@example.org/").is_none());
+    }
 }
 
 #[tauri::command]
@@ -86,6 +114,20 @@ fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCapabilities, 
     })
 }
 
+/// School pages keep their sanitized form; any other link must be plain
+/// http(s) without embedded credentials.
+fn external_url(raw: &str) -> Option<String> {
+    if let Some(safe) = sanitize_school_url(raw) {
+        return Some(safe);
+    }
+    let url = url::Url::parse(raw).ok()?;
+    let plain = matches!(url.scheme(), "https" | "http")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none();
+    plain.then(|| url.to_string())
+}
+
 #[tauri::command]
 fn open_external(
     webview: tauri::Webview,
@@ -93,8 +135,7 @@ fn open_external(
     url: String,
 ) -> Result<(), String> {
     require_local_main(&webview)?;
-    let safe = sanitize_school_url(&url)
-        .ok_or_else(|| "external URL is outside the allowed school origins".to_string())?;
+    let safe = external_url(&url).ok_or_else(|| "This link cannot be opened.".to_string())?;
     app.opener()
         .open_url(safe, None::<&str>)
         .map_err(|_| "external URL could not be opened".to_string())
@@ -185,6 +226,60 @@ fn set_school_web_zoom(
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
     controller.set_zoom(site, scale)
+}
+
+/// Runs the LMS or 教務Web extractor in the hidden school view and waits for
+/// its result (one per 教務Web page).
+#[tauri::command]
+async fn pull_school(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    site: SchoolSite,
+) -> Result<Vec<school_web::IngestOutcome>, String> {
+    require_local_main(&webview)?;
+    let controller = app.state::<SchoolWebController>().inner().clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || controller.pull(&handle, site))
+        .await
+        .map_err(|_| "The school pull stopped unexpectedly.".to_string())?
+}
+
+/// School-owned records the workspace does not carry (LMS courses,
+/// registrations, grades, GPA by term, requirements).
+#[tauri::command]
+fn school_records(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    let mut records = serde_json::Map::new();
+    for (key, table) in [
+        ("lmsCourses", "lms_courses"),
+        ("registrations", "registrations"),
+        ("registrationStates", "registration_states"),
+        ("grades", "grades"),
+        ("gpaByTerm", "gpa_by_term"),
+        ("requirements", "requirement_progress"),
+    ] {
+        let rows = store
+            .table_rows(table)?
+            .into_iter()
+            .filter(|row| row.get("deletedAt").map_or(true, serde_json::Value::is_null))
+            .collect();
+        records.insert(key.into(), serde_json::Value::Array(rows));
+    }
+    records.insert("lastRuns".into(), store.last_import_runs()?);
+    Ok(serde_json::Value::Object(records))
+}
+
+#[tauri::command]
+fn set_kyomu_guide(
+    webview: tauri::Webview,
+    controller: tauri::State<'_, SchoolWebController>,
+    items: Vec<kyomu_guide::GuideItem>,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    controller.set_guide(items)
 }
 
 #[tauri::command]
@@ -328,25 +423,457 @@ async fn cloud_request(
 }
 
 #[tauri::command]
-async fn search_syllabus(
+fn load_workspace(
     webview: tauri::Webview,
-    query: String,
-    year: u16,
-    limit: usize,
-    filters: Option<syllabus::SyllabusFilters>,
-    language: Option<String>,
-) -> Result<syllabus::SyllabusSearch, String> {
+    store: tauri::State<'_, data::DataStore>,
+) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    syllabus::search(&query, year, limit, filters, language.as_deref()).await
+    store.load_workspace()
 }
 
 #[tauri::command]
-async fn syllabus_course(
+fn save_workspace(
     webview: tauri::Webview,
-    url: String,
-) -> Result<syllabus::SyllabusCourse, String> {
+    store: tauri::State<'_, data::DataStore>,
+    workspace: serde_json::Value,
+) -> Result<(), String> {
     require_local_main(&webview)?;
-    syllabus::detail(&url).await
+    store.save_workspace(&workspace).map(|_| ())
+}
+
+#[tauri::command]
+fn reset_workspace(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    store.reset_workspace()
+}
+
+#[tauri::command]
+fn export_data(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    store.export_data()
+}
+
+/// Writes the shared export document into app-owned storage. Scheduled tasks
+/// must not trigger browser downloads or reuse an interactive cloud token.
+#[tauri::command]
+fn write_scheduled_export(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    store: tauri::State<'_, data::DataStore>,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    use std::io::Write;
+
+    let document = store.export_data()?;
+    if document.len() > 32 * 1024 * 1024 {
+        return Err("scheduled export exceeds the 32 MiB safety limit".into());
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_str(&document).map_err(|_| "scheduled export is invalid JSON")?;
+    if parsed
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        != Some(3)
+    {
+        return Err("scheduled export schema is unsupported".into());
+    }
+
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("scheduled-exports");
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let destination = directory.join("workspace-latest.json");
+    let temporary = directory.join(format!(".workspace-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<(), String> {
+        let mut options = std::fs::OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temporary)
+            .map_err(|error| error.to_string())?;
+        file.write_all(document.as_bytes())
+            .map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        match std::fs::rename(&temporary, &destination) {
+            Ok(()) => Ok(()),
+            Err(error)
+                if destination.is_file()
+                    && matches!(
+                        error.kind(),
+                        std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
+                    ) =>
+            {
+                std::fs::remove_file(&destination).map_err(|error| error.to_string())?;
+                std::fs::rename(&temporary, &destination).map_err(|error| error.to_string())
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result?;
+    Ok(destination.display().to_string())
+}
+
+#[tauri::command]
+fn import_data(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    document: String,
+) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    store.import_data(&document)
+}
+
+#[tauri::command]
+fn catalog_upsert_offerings(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    offerings: Vec<serde_json::Value>,
+) -> Result<usize, String> {
+    require_local_main(&webview)?;
+    store.catalog_upsert_offerings(&offerings)
+}
+
+fn stored_catalog_search(
+    store: &data::DataStore,
+    query: &str,
+    year: u16,
+    limit: usize,
+) -> Result<syllabus::CatalogSearchResult, String> {
+    let mut items = store
+        .catalog_search(query)?
+        .into_iter()
+        .filter_map(|value| serde_json::from_value::<syllabus::CatalogSearchItem>(value).ok())
+        .filter(|item| item.year == year)
+        .take(limit.clamp(1, 100))
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| left.code.cmp(&right.code).then(left.id.cmp(&right.id)));
+    Ok(syllabus::CatalogSearchResult {
+        returned: items.len(),
+        total: items.len(),
+        items,
+        truncated: false,
+    })
+}
+
+#[tauri::command]
+async fn catalog_search(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    query: String,
+    year: u16,
+    limit: Option<usize>,
+    filters: Option<syllabus::SyllabusFilters>,
+    refresh: Option<bool>,
+) -> Result<syllabus::CatalogSearchResult, String> {
+    require_local_main(&webview)?;
+    let limit = limit.unwrap_or(100).clamp(1, 100);
+    let store = store.inner().clone();
+    let local = stored_catalog_search(&store, &query, year, limit)?;
+    if refresh != Some(true) {
+        return Ok(local);
+    }
+    match syllabus::search_bilingual(&query, year, limit, filters).await {
+        Ok(remote) => {
+            store_search_items(&store, &remote.items)?;
+            Ok(remote)
+        }
+        Err(_) if !local.items.is_empty() => Ok(local),
+        Err(error) => Err(error),
+    }
+}
+
+/// Every stored offering of one academic year, with schedule, credits, language and
+/// format, so the course finder can filter and suggest locally without a round trip.
+#[tauri::command]
+fn catalog_offerings(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    year: u16,
+) -> Result<Vec<serde_json::Value>, String> {
+    require_local_main(&webview)?;
+    Ok(store
+        .catalog_search("")?
+        .into_iter()
+        .filter(|row| {
+            row.get("year").and_then(serde_json::Value::as_u64) == Some(u64::from(year))
+                && row.get("deletedAt").map_or(true, serde_json::Value::is_null)
+        })
+        .collect())
+}
+
+#[tauri::command]
+fn catalog_offering(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    id: String,
+) -> Result<Option<serde_json::Value>, String> {
+    require_local_main(&webview)?;
+    store.catalog_offering(&id)
+}
+
+#[tauri::command]
+async fn catalog_sync_offering(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    id: String,
+) -> Result<syllabus::SyncOfferingResult, String> {
+    require_local_main(&webview)?;
+    let store = store.inner().clone();
+    let offering_id = if id.len() == 9 && id.chars().all(|value| value.is_ascii_digit()) {
+        Some(id.clone())
+    } else {
+        url::Url::parse(&id)
+            .ok()
+            .and_then(|url| url.path_segments()?.next_back().map(str::to_string))
+            .filter(|value| value.len() == 9 && value.chars().all(|c| c.is_ascii_digit()))
+    };
+    if let Some(offering_id) = offering_id {
+        if let Some(stored) = store.catalog_offering(&offering_id)? {
+            let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+            let fresh = ["ja", "en"].iter().all(|language| {
+                stored
+                    .pointer(&format!("/fetchedAt/{language}"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                    .is_some_and(|value| value.with_timezone(&chrono::Utc) >= cutoff)
+            });
+            if fresh {
+                let offering = serde_json::from_value(stored).map_err(|error| error.to_string())?;
+                let content = store
+                    .table_rows("offering_content")?
+                    .into_iter()
+                    .filter(|row| {
+                        row.get("offeringId").and_then(serde_json::Value::as_str)
+                            == Some(offering_id.as_str())
+                    })
+                    .map(serde_json::from_value)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?;
+                if content.len() == 2 {
+                    return Ok(syllabus::SyncOfferingResult {
+                        offering,
+                        content,
+                        warnings: Vec::new(),
+                    });
+                }
+            }
+        }
+    }
+    let result = syllabus::sync_offering(&id).await?;
+    let offering = serde_json::to_value(&result.offering).map_err(|error| error.to_string())?;
+    let content = result
+        .content
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    store.catalog_upsert_offerings(&[offering])?;
+    store.upsert_offering_content(&content)?;
+    Ok(result)
+}
+
+/// Search rows carry no schedule; they only fill gaps and never replace an
+/// offering whose detail page was already stored.
+fn store_search_items(
+    store: &data::DataStore,
+    items: &[syllabus::CatalogSearchItem],
+) -> Result<(), String> {
+    let mut rows = Vec::new();
+    for item in items {
+        if store.catalog_offering(&item.id)?.is_none() {
+            rows.push(serde_json::to_value(item).map_err(|error| error.to_string())?);
+        }
+    }
+    if !rows.is_empty() {
+        store.catalog_upsert_offerings(&rows)?;
+    }
+    Ok(())
+}
+
+/// Fetches detail pages for offerings that have none or a stale one (older
+/// than a week), two at a time, storing each as it arrives.
+async fn sync_stale_details(
+    store: &data::DataStore,
+    targets: Vec<(String, String)>,
+) -> Result<(Vec<syllabus::SyncOfferingResult>, Vec<String>), String> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+    let stale = targets
+        .into_iter()
+        .filter(|(id, _)| {
+            let Ok(Some(stored)) = store.catalog_offering(id) else {
+                return true;
+            };
+            stored.get("schedule").is_none()
+                || ["ja", "en"].iter().any(|language| {
+                    stored
+                        .pointer(&format!("/fetchedAt/{language}"))
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                        .is_none_or(|value| value.with_timezone(&chrono::Utc) < cutoff)
+                })
+        })
+        .collect::<Vec<_>>();
+    let mut offerings = Vec::with_capacity(stale.len());
+    let mut warnings = Vec::new();
+    for (index, pair) in stale.chunks(2).enumerate() {
+        if index > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+        let handles = pair
+            .iter()
+            .map(|(_, url)| {
+                let url = url.clone();
+                tauri::async_runtime::spawn(async move { syllabus::sync_offering(&url).await })
+            })
+            .collect::<Vec<_>>();
+        for ((id, _), handle) in pair.iter().zip(handles) {
+            match handle.await {
+                Ok(Ok(synced)) => {
+                    let offering = serde_json::to_value(&synced.offering)
+                        .map_err(|error| error.to_string())?;
+                    let content = synced
+                        .content
+                        .iter()
+                        .map(serde_json::to_value)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| error.to_string())?;
+                    store.catalog_upsert_offerings(&[offering])?;
+                    store.upsert_offering_content(&content)?;
+                    offerings.push(synced);
+                }
+                Ok(Err(error)) => warnings.push(format!("{id}: {error}")),
+                Err(_) => warnings.push(format!("{id}: syllabus worker stopped unexpectedly")),
+            }
+        }
+    }
+    Ok((offerings, warnings))
+}
+
+#[tauri::command]
+async fn catalog_sync_department(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    year: u16,
+    scope_path: String,
+    quarter: Option<String>,
+) -> Result<syllabus::DepartmentSyncResult, String> {
+    require_local_main(&webview)?;
+    let store = store.inner().clone();
+    let catalog = syllabus::department_catalog(year, &scope_path, quarter.as_deref()).await?;
+    let targets = catalog
+        .items
+        .iter()
+        .map(|item| (item.id.clone(), item.syllabus_url.clone()))
+        .collect();
+    let (offerings, warnings) = sync_stale_details(&store, targets).await?;
+    Ok(syllabus::DepartmentSyncResult {
+        listed: catalog.items.len(),
+        synced: offerings.len(),
+        truncated: catalog.truncated,
+        offerings,
+        warnings,
+    })
+}
+
+/// One syllabus search, exactly as the official site answers it (at most 100
+/// rows, no paging). Rows are stored without replacing fetched details.
+#[tauri::command]
+async fn catalog_query(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    query: String,
+    year: u16,
+    filters: Option<syllabus::SyllabusFilters>,
+) -> Result<syllabus::CatalogSearchResult, String> {
+    require_local_main(&webview)?;
+    let store = store.inner().clone();
+    let result = syllabus::search_bilingual(&query, year, 100, filters).await?;
+    store_search_items(&store, &result.items)?;
+    Ok(result)
+}
+
+/// Detail pages for the given stored offerings (schedule, credits, format).
+#[tauri::command]
+async fn catalog_sync_offerings(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    require_local_main(&webview)?;
+    if ids.len() > 20 {
+        return Err("Too many offerings in one request.".into());
+    }
+    let store = store.inner().clone();
+    let mut targets = Vec::new();
+    for id in ids {
+        let url = store
+            .catalog_offering(&id)?
+            .and_then(|row| row.get("syllabusUrl").and_then(serde_json::Value::as_str).map(str::to_string))
+            .ok_or_else(|| format!("{id}: not in the catalog"))?;
+        targets.push((id, url));
+    }
+    let (_, warnings) = sync_stale_details(&store, targets).await?;
+    Ok(warnings)
+}
+
+#[tauri::command]
+fn preview_plan_recurrence(
+    webview: tauri::Webview,
+    start: String,
+    rrule: String,
+    exdates: Vec<String>,
+    limit: Option<u16>,
+) -> Result<plans::RecurrencePreview, String> {
+    require_local_main(&webview)?;
+    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5))
+}
+
+#[tauri::command]
+fn export_quarter_ics(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    term: String,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    ics::export_quarter(&store.load_workspace()?, &term)
+}
+
+#[tauri::command]
+fn agent_command(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    Ok(format!("campus-mcp --db {}", store.path().display()))
+}
+
+#[tauri::command]
+fn apply_bundled_subscriptions(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    academic_year: i32,
+    admission_year: i32,
+) -> Result<usize, String> {
+    require_local_main(&webview)?;
+    let (calendar, departments) = subscriptions::bundled_selection(academic_year, admission_year)?;
+    let mut connection =
+        rusqlite::Connection::open(store.path()).map_err(|error| error.to_string())?;
+    subscriptions::apply_subscription(&mut connection, &calendar, &departments)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -354,7 +881,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_secure_storage::init())
         .manage(SchoolWebController::new())
         .manage(matrix_ocr::MatrixOcrService::default())
@@ -369,6 +895,9 @@ pub fn run() {
             reload_school_web,
             navigate_school_web,
             set_school_web_zoom,
+            pull_school,
+            school_records,
+            set_kyomu_guide,
             school_credential_status,
             save_school_credentials,
             delete_school_credentials,
@@ -378,11 +907,40 @@ pub fn run() {
             request_notification_permission,
             notify,
             connect_cloud,
-            cloud_request
-            ,search_syllabus,
-            syllabus_course
+            cloud_request,
+            load_workspace,
+            save_workspace,
+            reset_workspace,
+            export_data,
+            write_scheduled_export,
+            import_data,
+            catalog_upsert_offerings,
+            catalog_search,
+            catalog_offering,
+            catalog_offerings,
+            catalog_sync_offering,
+            catalog_sync_department,
+            catalog_query,
+            catalog_sync_offerings,
+            preview_plan_recurrence,
+            export_quarter_ics,
+            agent_command,
+            apply_bundled_subscriptions
         ])
         .setup(|app| {
+            let app_data_dir = app.path().app_data_dir()?;
+            let (data_store, rebuilt) =
+                data::DataStore::initialize(app_data_dir.join("school.db"))
+                    .map_err(std::io::Error::other)?;
+            if rebuilt {
+                for legacy in ["workspace.json"] {
+                    let path = app_data_dir.join(legacy);
+                    if path.is_file() {
+                        std::fs::remove_file(path)?;
+                    }
+                }
+            }
+            app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
             app.manage(
                 DesktopCloudService::new(vault.clone())

@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Local bundled application shell only",
   "windows": ["main"],
-  "permissions": ["core:default", "store:default"]
+  "permissions": ["core:default"]
 }

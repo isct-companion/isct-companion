@@ -1,0 +1,15 @@
+{
+  "academicYears": {
+    "2026": {
+      "academicCalendar": "data/2026/academic-calendar.json"
+    }
+  },
+  "admissionYears": {
+    "2025": {
+      "departments": "data/2025/departments.json"
+    },
+    "2026": {
+      "departments": "data/2026/departments.json"
+    }
+  }
+}

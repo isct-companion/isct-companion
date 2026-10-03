@@ -1,86 +1,27 @@
+#[cfg(test)]
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::HashSet;
+#[cfg(test)]
 use std::fs::{self, OpenOptions};
+#[cfg(test)]
 use std::io::Write;
+#[cfg(test)]
 use std::path::Path;
 use url::Url;
 
+#[cfg(test)]
 const MAX_RAW_BYTES: usize = 8 * 1024 * 1024;
+#[cfg(test)]
 const MAX_COURSES: usize = 500;
+#[cfg(test)]
 const MAX_ITEMS: usize = 5_000;
 
-/// Fixed T2SCHOLA DOM reader. It receives no Tauri IPC object and returns only
-/// bounded academic fields. Portal and syllabus pages deliberately do not run
-/// this extractor: every source owns its selectors and contract.
-pub const T2SCHOLA_EXTRACT_SCRIPT: &str = r#"(() => {
-  const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
-  const href = node => { try { return new URL(node.href, location.href).href; } catch { return ''; } };
-  const login = /\/(login|auth)(\/|$)/i.test(location.pathname)
-    || !!document.querySelector('input[type=password], form[action*="login" i]');
-  if (login) return { status: 'login', sourceUrl: location.href, courses: [] };
+/// The resident school WebView still imports this historical symbol. Its
+/// implementation now lives in the typed LMS ingestion module.
+pub const T2SCHOLA_EXTRACT_SCRIPT: &str = crate::lms_ingest::LMS_EXTRACT_SCRIPT;
 
-  if (location.hostname !== 't2schola.titech.ac.jp')
-    return { status: 'unsupported', sourceUrl: location.href, courses: [] };
-
-  const courseMap = new Map();
-  const courseLinks = [...document.querySelectorAll(
-    '[data-region="course-content"] a[href*="/course/view.php?id="],\n' +
-    '.dashboard-card a[href*="/course/view.php?id="],\n' +
-    '.coursebox a[href*="/course/view.php?id="],\n' +
-    'a[href*="/course/view.php?id="]'
-  )].slice(0, 1000);
-  for (const link of courseLinks) {
-    const url = href(link);
-    let id = '';
-    try { id = new URL(url).searchParams.get('id') || ''; } catch {}
-    if (!id || courseMap.has(id)) continue;
-    const root = link.closest('.dashboard-card,.coursebox,[data-region="course-content"],li,article') || link;
-    const named = root.querySelector('.coursename,.fullname,[data-region="course-name"],.multiline') || link;
-    const title = clean(named.textContent);
-    if (!title) continue;
-    courseMap.set(id, { externalId: id, code: clean(root.getAttribute('data-course-code')), title, url, items: [] });
-  }
-
-  const currentCourseId = new URL(location.href).searchParams.get('id');
-  if (currentCourseId) {
-    const heading = document.querySelector('h1,h2.page-header-headings');
-    const existing = courseMap.get(currentCourseId);
-    const current = existing || {
-      externalId: currentCourseId,
-      code: '',
-      title: clean(heading?.textContent),
-      url: location.href,
-      items: []
-    };
-    const seen = new Set();
-    for (const activity of [...document.querySelectorAll('.activity,.activity-wrapper,[data-for="sectioninfo"]')].slice(0, 1000)) {
-      const link = activity.querySelector('a[href*="/mod/"]');
-      if (!link) continue;
-      const url = href(link);
-      if (!url || seen.has(url)) continue;
-      const title = clean(
-        activity.querySelector('.activityname,.instancename,[data-region="activity-name"]')?.textContent || link.textContent
-      );
-      if (!title) continue;
-      seen.add(url);
-      const path = new URL(url).pathname;
-      const assignment = /\/mod\/(assign|quiz|workshop|choice)\//.test(path);
-      const time = activity.querySelector('time[datetime]');
-      current.items.push({
-        externalId: url,
-        title,
-        url,
-        kind: assignment ? 'assignment' : 'material',
-        dueAt: time?.getAttribute('datetime') || null
-      });
-    }
-    if (current.title) courseMap.set(currentCourseId, current);
-  }
-
-  const courses = [...courseMap.values()].slice(0, 500);
-  return { status: courses.length ? 'ok' : 'empty', sourceUrl: location.href, courses };
-})()"#;
-
+#[cfg(test)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractedItem {
@@ -91,6 +32,7 @@ pub struct ExtractedItem {
     pub due_at: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractedCourse {
@@ -102,6 +44,7 @@ pub struct ExtractedCourse {
     pub items: Vec<ExtractedItem>,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractedPayload {
@@ -111,6 +54,7 @@ pub struct ExtractedPayload {
     pub courses: Vec<ExtractedCourse>,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StageState {
     Fresh,
@@ -118,6 +62,7 @@ pub enum StageState {
     ReconnectRequired,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct StagedSchoolData {
     pub state: StageState,
@@ -145,6 +90,7 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
                 | "mailv4.m.titech.ac.jp"
                 | "kyomu0.gakumu.titech.ac.jp"
                 | "request.libra.titech.ac.jp"
+                | "portal.t4.gsic.titech.ac.jp"
         )
     ) {
         return None;
@@ -158,6 +104,8 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
             (matches!(key.as_ref(), "id" | "course" | "page" | "section") && safe_identifier)
+                // Syllabus course pages: `courses?jwc={9-digit offering id}`.
+                || (key == "jwc" && value.len() == 9 && value.bytes().all(|b| b.is_ascii_digit()))
                 || (key == "lang" && matches!(value.as_ref(), "ja" | "en"))
                 || (key == "plang" && matches!(value.as_ref(), "jpn" | "eng"))
         })
@@ -170,6 +118,7 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
     Some(url.to_string())
 }
 
+#[cfg(test)]
 fn valid_rfc3339(value: &str) -> bool {
     if value.len() < 20 || value.len() > 35 {
         return false;
@@ -232,6 +181,7 @@ fn valid_rfc3339(value: &str) -> bool {
     matches!((offset[0..2].parse::<u32>(), offset[3..5].parse::<u32>()), (Ok(h), Ok(m)) if h <= 23 && m <= 59)
 }
 
+#[cfg(test)]
 pub fn stage_school_payload(raw: &str, cached: Option<ExtractedPayload>) -> StagedSchoolData {
     if raw.len() > MAX_RAW_BYTES {
         return StagedSchoolData {
@@ -340,6 +290,7 @@ pub fn stage_school_payload(raw: &str, cached: Option<ExtractedPayload>) -> Stag
     }
 }
 
+#[cfg(test)]
 pub fn merge_school_payload(
     previous: Option<ExtractedPayload>,
     mut fresh: ExtractedPayload,
@@ -380,6 +331,7 @@ pub fn merge_school_payload(
     fresh
 }
 
+#[cfg(test)]
 pub fn publish_school_cache(path: &Path, payload: &ExtractedPayload) -> Result<(), String> {
     let parent = path
         .parent()
@@ -424,5 +376,17 @@ mod tests {
             None,
         );
         assert_eq!(empty.state, StageState::Cached);
+    }
+
+    #[test]
+    fn syllabus_course_links_keep_their_offering_id() {
+        assert_eq!(
+            sanitize_school_url("https://syllabus.s.isct.ac.jp/courses?jwc=202602431&x=1").as_deref(),
+            Some("https://syllabus.s.isct.ac.jp/courses?jwc=202602431")
+        );
+        assert_eq!(
+            sanitize_school_url("https://syllabus.s.isct.ac.jp/courses?jwc=javascript").as_deref(),
+            Some("https://syllabus.s.isct.ac.jp/courses")
+        );
     }
 }

@@ -1,11 +1,12 @@
+use crate::kyomu_ingest::{
+    apply_kyomu_payload, parse_kyomu_payload, KyomuStage, KYOMU_EXTRACT_SCRIPT,
+};
 use crate::lifecycle::SchoolSite;
+use crate::lms_ingest::{apply_lms_payload, parse_lms_payload, LmsStage};
 use crate::school_auth::{
     upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
 };
-use crate::school_extract::{
-    merge_school_payload, publish_school_cache, sanitize_school_url, stage_school_payload,
-    ExtractedPayload, T2SCHOLA_EXTRACT_SCRIPT,
-};
+use crate::school_extract::{sanitize_school_url, T2SCHOLA_EXTRACT_SCRIPT};
 use crate::secrets::OsSecretVault;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::RngCore;
@@ -13,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::webview::{PageLoadEvent, WebviewBuilder};
@@ -82,6 +84,18 @@ pub struct SchoolWebResult {
     pub phase: &'static str,
 }
 
+/// One extractor result, reported to waiting pulls and to the main window.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestOutcome {
+    pub site: SchoolSite,
+    pub kind: String,
+    /// `ok`, `reconnect-required` or `error`.
+    pub state: &'static str,
+    pub changed: usize,
+    pub message: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolLoginEvent {
@@ -137,6 +151,41 @@ struct ActiveLogin {
     /// and stale relays from an earlier attempt are ignored.
     run: String,
 }
+
+fn outcome(site: SchoolSite, kind: &str, result: Result<usize, String>) -> IngestOutcome {
+    match result {
+        Ok(changed) => IngestOutcome {
+            site,
+            kind: kind.into(),
+            state: "ok",
+            changed,
+            message: format!("{changed} rows changed"),
+        },
+        Err(message) if message == "reconnect-required" => IngestOutcome {
+            site,
+            kind: kind.into(),
+            state: "reconnect-required",
+            changed: 0,
+            message: "Sign-in required".into(),
+        },
+        Err(message) => IngestOutcome {
+            site,
+            kind: kind.into(),
+            state: "error",
+            changed: 0,
+            message,
+        },
+    }
+}
+
+const KYOMU_ROOT: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/";
+/// Read-only pages the 教務Web pull loads, in order (GPA first: Today needs it).
+const KYOMU_PULL_PAGES: [&str; 4] = [
+    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
+    "Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx",
+    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx",
+    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx",
+];
 
 fn new_run_id() -> String {
     let mut bytes = [0u8; 12];
@@ -235,6 +284,14 @@ struct ControllerState {
     /// A launch-time session check waiting for its portal page to load.
     heartbeat: Option<SchoolAuthProfile>,
     creating: HashSet<SchoolSite>,
+    ingestion_relays: HashMap<SchoolSite, String>,
+    pending_ingestion: HashSet<SchoolSite>,
+    /// Pulls waiting for their site's next extractor result.
+    ingest_waiters: HashMap<SchoolSite, Vec<mpsc::Sender<IngestOutcome>>>,
+    /// Pulls waiting for a page whose URL starts with the prefix to finish loading.
+    load_waiters: Vec<(SchoolSite, String, mpsc::Sender<String>)>,
+    /// Registration queue shown on 教務Web pages while set.
+    guide: Vec<crate::kyomu_guide::GuideItem>,
 }
 
 impl Default for ControllerState {
@@ -251,6 +308,11 @@ impl Default for ControllerState {
             auto_blocked: HashSet::new(),
             heartbeat: None,
             creating: HashSet::new(),
+            ingestion_relays: HashMap::new(),
+            pending_ingestion: HashSet::new(),
+            ingest_waiters: HashMap::new(),
+            load_waiters: Vec::new(),
+            guide: Vec::new(),
         }
     }
 }
@@ -279,12 +341,25 @@ fn site_for_url(raw: &str) -> Option<SchoolSite> {
         "mailv4.m.titech.ac.jp" => Some(SchoolSite::TokyoMail),
         "kyomu0.gakumu.titech.ac.jp" => Some(SchoolSite::Kyomu),
         "request.libra.titech.ac.jp" => Some(SchoolSite::Library),
+        "portal.t4.gsic.titech.ac.jp" => Some(SchoolSite::Tsubame),
         _ => None,
     }
 }
 
-fn is_lms_url(raw: &str) -> bool {
-    matches!(site_for_url(raw), Some(SchoolSite::ScienceLms))
+fn ingestion_script(raw: &str) -> Option<&'static str> {
+    let url = Url::parse(raw).ok()?;
+    if url.host_str() == Some("lms.s.isct.ac.jp") && url.path().starts_with("/2025/") {
+        return Some(T2SCHOLA_EXTRACT_SCRIPT);
+    }
+    (url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
+        && matches!(
+            url.path(),
+            "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx"
+                | "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx"
+                | "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx"
+                | "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx"
+        ))
+    .then_some(KYOMU_EXTRACT_SCRIPT)
 }
 
 const SCHOOL_LOGIN_SCRIPT: &str = include_str!("../scripts/school-login.js");
@@ -420,6 +495,11 @@ fn login_succeeded(raw_url: &str, profile: SchoolAuthProfile) -> bool {
         SchoolAuthProfile::TokyoTech => {
             (host == "portal.nap.gsic.titech.ac.jp" && url.path().contains("ResourceList"))
                 || host == "kyomu0.gakumu.titech.ac.jp"
+                // TSUBAME after its GetAccess SSO (not its own mail-code login page).
+                || (host == "portal.t4.gsic.titech.ac.jp"
+                    && url.path().starts_with("/ptl/")
+                    && !matches!(url.path(), "/ptl/" | "/ptl/requestLogin")
+                    && !url.path().starts_with("/ptl/ga/"))
         }
     }
 }
@@ -454,6 +534,10 @@ mod tests {
         assert_eq!(
             site_for_url("https://request.libra.titech.ac.jp/portal/user.php"),
             Some(SchoolSite::Library)
+        );
+        assert_eq!(
+            site_for_url("https://portal.t4.gsic.titech.ac.jp/ptl/ga/sso/"),
+            Some(SchoolSite::Tsubame)
         );
     }
 
@@ -720,10 +804,13 @@ impl SchoolWebController {
 
     pub fn reload(&self, app: &AppHandle, site: SchoolSite) -> Result<bool, String> {
         let webview = {
-            let state = self
+            let mut state = self
                 .state
                 .lock()
                 .map_err(|_| "School web state is unavailable.")?;
+            if matches!(site, SchoolSite::ScienceLms | SchoolSite::Kyomu) {
+                state.pending_ingestion.insert(site);
+            }
             state.webviews.get(&site).cloned()
         };
         let _ = app;
@@ -860,7 +947,17 @@ impl SchoolWebController {
                 .state
                 .lock()
                 .map_err(|_| "School web state is unavailable.")?;
-            if state.active.is_some() || state.login.is_some() || !state.creating.is_empty() {
+            let busy = if state.active.is_some() {
+                Some("school view is open")
+            } else if state.login.is_some() {
+                Some("a sign-in is running")
+            } else if !state.creating.is_empty() {
+                Some("a school view is being created")
+            } else {
+                None
+            };
+            if let Some(reason) = busy {
+                eprintln!("[school-session] {profile:?} check deferred: {reason}");
                 return Ok(false);
             }
             state.heartbeat = Some(profile);
@@ -897,6 +994,103 @@ impl SchoolWebController {
         )
     }
 
+    /// Sets (or clears, when empty) the 教務Web registration queue. Applies to
+    /// the next 教務Web page load.
+    pub fn set_guide(&self, items: Vec<crate::kyomu_guide::GuideItem>) -> Result<bool, String> {
+        let items = crate::kyomu_guide::validate(items)?;
+        self.state
+            .lock()
+            .map_err(|_| "School web state is unavailable.")?
+            .guide = items;
+        Ok(true)
+    }
+
+    /// Loads `url` in the site's resident view without showing it. Creates
+    /// the view hidden when it does not exist yet.
+    fn load_hidden(&self, app: &AppHandle, site: SchoolSite, url: &str) -> Result<(), String> {
+        let (webview, active) = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "School web state is unavailable.")?;
+            (state.webviews.get(&site).cloned(), state.active)
+        };
+        if let Some(webview) = webview {
+            let parsed = Url::parse(url).map_err(|_| "School URL is invalid.")?;
+            return webview
+                .navigate(parsed)
+                .map_err(|_| "School view could not navigate.".to_string());
+        }
+        if active.is_some() {
+            return Err("Leave the Web page, then pull again.".into());
+        }
+        self.open_internal(
+            app,
+            site,
+            String::new(),
+            String::new(),
+            None,
+            Some(url.to_string()),
+            false,
+        )
+        .map(|_| ())
+    }
+
+    fn expect_ingest(&self, site: SchoolSite) -> Result<mpsc::Receiver<IngestOutcome>, String> {
+        let (sender, receiver) = mpsc::channel();
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "School web state is unavailable.")?;
+        state.pending_ingestion.insert(site);
+        state.ingest_waiters.entry(site).or_default().push(sender);
+        Ok(receiver)
+    }
+
+    /// Runs the site's read-only extractor and waits for its result. Expired
+    /// sessions are renewed by the usual saved-credential sign-in on the way.
+    /// Blocking: call from a worker thread.
+    pub fn pull(&self, app: &AppHandle, site: SchoolSite) -> Result<Vec<IngestOutcome>, String> {
+        let wait = |receiver: mpsc::Receiver<IngestOutcome>, seconds: u64| {
+            receiver.recv_timeout(Duration::from_secs(seconds)).map_err(|_| {
+                "The school page did not answer in time. Check the account in Settings.".to_string()
+            })
+        };
+        match site {
+            SchoolSite::ScienceLms => {
+                let receiver = self.expect_ingest(site)?;
+                self.load_hidden(app, site, "https://lms.s.isct.ac.jp/2025/my/")?;
+                Ok(vec![wait(receiver, 150)?])
+            }
+            SchoolSite::Kyomu => {
+                // Sub-pages bounce to the portal until Default.aspx opens the session.
+                let (sender, loaded) = mpsc::channel();
+                self.state
+                    .lock()
+                    .map_err(|_| "School web state is unavailable.")?
+                    .load_waiters
+                    .push((site, format!("{KYOMU_ROOT}Student/"), sender));
+                self.load_hidden(app, site, &format!("{KYOMU_ROOT}Default.aspx"))?;
+                loaded.recv_timeout(Duration::from_secs(150)).map_err(|_| {
+                    "教務Web did not open. Check the Tokyo Tech account in Settings.".to_string()
+                })?;
+                let mut results = Vec::new();
+                for page in KYOMU_PULL_PAGES {
+                    let receiver = self.expect_ingest(site)?;
+                    self.load_hidden(app, site, &format!("{KYOMU_ROOT}{page}"))?;
+                    let result = wait(receiver, 60)?;
+                    let stop = result.state == "reconnect-required";
+                    results.push(result);
+                    if stop {
+                        break;
+                    }
+                }
+                Ok(results)
+            }
+            _ => Err("Only LMS and 教務Web can be pulled.".into()),
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn open_internal(
         &self,
@@ -916,7 +1110,7 @@ impl SchoolWebController {
             return Err("School URL is outside the allowed official origins.".into());
         }
         let restored = self.restored_target(app, site);
-        let (existing, other_views, target, view_bounds, should_navigate) = {
+        let (existing, other_views, target, view_bounds, should_navigate, existing_relay) = {
             let mut state = self
                 .state
                 .lock()
@@ -942,6 +1136,9 @@ impl SchoolWebController {
             state.current_site = site;
             state.urls.insert(site, target.clone());
             state.customizations.insert(site, (css, javascript));
+            if visible && matches!(site, SchoolSite::ScienceLms | SchoolSite::Kyomu) {
+                state.pending_ingestion.insert(site);
+            }
             (
                 state
                     .webviews
@@ -952,6 +1149,7 @@ impl SchoolWebController {
                 target,
                 state.bounds,
                 should_navigate,
+                state.ingestion_relays.get(&site).cloned(),
             )
         };
 
@@ -973,6 +1171,17 @@ impl SchoolWebController {
                     .show()
                     .map_err(|_| "School view could not be shown.".to_string())?;
                 let _ = webview.set_focus();
+                if !should_navigate {
+                    if let (Some(script), Some(relay)) =
+                        (ingestion_script(&target), existing_relay.as_deref())
+                    {
+                        if let Ok(mut state) = self.state.lock() {
+                            state.pending_ingestion.remove(&site);
+                        }
+                        let extraction = format!("Promise.resolve({script}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))");
+                        let _ = webview.eval(&extraction);
+                    }
+                }
             } else {
                 webview
                     .hide()
@@ -1008,12 +1217,10 @@ impl SchoolWebController {
             rand::rng().fill_bytes(&mut bytes);
             URL_SAFE_NO_PAD.encode(bytes)
         };
-        let cache_path = app
-            .path()
-            .app_cache_dir()
-            .map_err(|_| "School cache path is unavailable.")?
-            .join("school-cache.json");
         let relay_prefix = format!("stws-extract://{nonce}/");
+        if let Ok(mut state) = self.state.lock() {
+            state.ingestion_relays.insert(site, relay_prefix.clone());
+        }
         // Login reports arrive through the page title: unlike a relay
         // navigation, a title change can never cancel the page's own form
         // POST or redirect.
@@ -1029,6 +1236,8 @@ impl SchoolWebController {
         let app_for_title = app.clone();
         let state_for_load = self.state.clone();
         let app_for_load = app.clone();
+        let app_for_navigation = app.clone();
+        let state_for_navigation = self.state.clone();
         let main = app
             .get_window(MAIN_WINDOW)
             .ok_or_else(|| "Main window is unavailable.".to_string())?;
@@ -1104,7 +1313,8 @@ impl SchoolWebController {
                             }
                             login => (login, None),
                         };
-                        let heartbeat = state.heartbeat.and_then(|profile| {
+                        // Only the profile's own view can answer its check.
+                        let heartbeat = state.heartbeat.filter(|profile| profile.start_site() == site).and_then(|profile| {
                             let signing_in = state
                                 .login
                                 .as_ref()
@@ -1168,8 +1378,28 @@ impl SchoolWebController {
                 if !javascript.trim().is_empty() {
                     let _ = webview.eval(&javascript);
                 }
-                if is_lms_url(raw_url) {
-                    let extraction = format!("Promise.resolve({T2SCHOLA_EXTRACT_SCRIPT}).then(v=>location.href='{}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))", relay_for_load);
+                let guide = state_for_load
+                    .lock()
+                    .ok()
+                    .and_then(|state| crate::kyomu_guide::script(&state.guide));
+                if let Some(guide) = guide.filter(|_| site_for_url(raw_url) == Some(SchoolSite::Kyomu)) {
+                    let _ = webview.eval(&guide);
+                }
+                if let Ok(mut state) = state_for_load.lock() {
+                    let waiters = std::mem::take(&mut state.load_waiters);
+                    for (waiting_site, prefix, sender) in waiters {
+                        if waiting_site == site && raw_url.starts_with(&prefix) {
+                            let _ = sender.send(raw_url.to_string());
+                        } else {
+                            state.load_waiters.push((waiting_site, prefix, sender));
+                        }
+                    }
+                }
+                let should_ingest = state_for_load.lock().ok().is_some_and(|mut state| {
+                    ingestion_script(raw_url).is_some() && state.pending_ingestion.remove(&site)
+                });
+                if let Some(script) = should_ingest.then(|| ingestion_script(raw_url)).flatten() {
+                    let extraction = format!("Promise.resolve({script}).then(v=>location.href='{}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))", relay_for_load);
                     let _ = webview.eval(&extraction);
                 }
             })
@@ -1225,16 +1455,68 @@ impl SchoolWebController {
                         if encoded.len() <= 11 * 1024 * 1024 {
                             if let Ok(bytes) = URL_SAFE_NO_PAD.decode(encoded) {
                                 if let Ok(raw) = String::from_utf8(bytes) {
-                                    let cached = fs::read(&cache_path).ok().and_then(|bytes| {
-                                        serde_json::from_slice::<ExtractedPayload>(&bytes).ok()
-                                    });
-                                    let staged = stage_school_payload(&raw, cached.clone());
-                                    if let Some(payload) = staged.payload {
-                                        if staged.state == crate::school_extract::StageState::Fresh {
-                                            let merged = merge_school_payload(cached, payload);
-                                            let _ = publish_school_cache(&cache_path, &merged);
+                                    let store = app_for_navigation.try_state::<crate::data::DataStore>();
+                                    let apply = |apply: &dyn Fn(&mut rusqlite::Connection) -> Result<usize, String>| {
+                                        store
+                                            .as_ref()
+                                            .ok_or_else(|| "Data store is unavailable.".to_string())
+                                            .and_then(|store| {
+                                                rusqlite::Connection::open(store.path())
+                                                    .map_err(|error| error.to_string())
+                                            })
+                                            .and_then(|mut connection| apply(&mut connection))
+                                    };
+                                    let from_lms = serde_json::from_str::<serde_json::Value>(&raw)
+                                        .ok()
+                                        .and_then(|value| value.get("sourceUrl")?.as_str().map(str::to_string))
+                                        .is_some_and(|source| site_for_url(&source) == Some(SchoolSite::ScienceLms));
+                                    let outcome = if from_lms {
+                                        match parse_lms_payload(&raw) {
+                                            Ok((LmsStage::Ready, Some(payload))) => {
+                                                outcome(site, "lms", apply(&|c| apply_lms_payload(c, &payload)))
+                                            }
+                                            Ok(_) => outcome(site, "lms", Err("reconnect-required".into())),
+                                            Err(error) => {
+                                                // The extractor's own reason (e.g. a Moodle errorcode) is the useful part.
+                                                let reason = serde_json::from_str::<serde_json::Value>(&raw)
+                                                    .ok()
+                                                    .and_then(|value| value.get("error")?.as_str().map(str::to_string))
+                                                    .map(|reason| format!("{error}: {reason}"))
+                                                    .unwrap_or(error);
+                                                outcome(site, "lms", Err(reason))
+                                            }
                                         }
+                                    } else if let Ok((stage, payload)) = parse_lms_payload(&raw) {
+                                        match (stage, payload) {
+                                            (LmsStage::Ready, Some(payload)) => {
+                                                outcome(site, "lms", apply(&|c| apply_lms_payload(c, &payload)))
+                                            }
+                                            _ => outcome(site, "lms", Err("reconnect-required".into())),
+                                        }
+                                    } else if let Ok((stage, payload)) = parse_kyomu_payload(&raw) {
+                                        let kind = payload.as_ref().map(|p| p.kind.clone()).unwrap_or_default();
+                                        match (stage, payload) {
+                                            (KyomuStage::Ready, Some(payload)) => {
+                                                outcome(site, &kind, apply(&|c| apply_kyomu_payload(c, &payload)))
+                                            }
+                                            _ => outcome(site, &kind, Err("reconnect-required".into())),
+                                        }
+                                    } else {
+                                        outcome(site, "unknown", Err("The page returned an unexpected result.".into()))
+                                    };
+                                    eprintln!(
+                                        "[school-ingest] {:?} {} {} {}",
+                                        outcome.site, outcome.kind, outcome.state, outcome.message
+                                    );
+                                    let waiters = state_for_navigation
+                                        .lock()
+                                        .ok()
+                                        .and_then(|mut state| state.ingest_waiters.remove(&site))
+                                        .unwrap_or_default();
+                                    for waiter in waiters {
+                                        let _ = waiter.send(outcome.clone());
                                     }
+                                    let _ = app_for_navigation.emit_to(MAIN_WINDOW, "school-ingest", outcome);
                                 }
                             }
                         }
