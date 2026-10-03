@@ -107,6 +107,7 @@ describe("Tauri bridge contract", () => {
       if (command === "ensure_school_session") return false;
       if (command === "navigate_school_web") return true;
       if (command === "set_school_web_zoom") return true;
+      if (command === "school_web_back") return false;
       if (command === "open_school_site")
         return {
           site: "science-portal",
@@ -135,6 +136,7 @@ describe("Tauri bridge contract", () => {
       "https://isct.ex-tic.com/idm/user/portal/",
     );
     await bridge.setSchoolWebZoom?.("science-portal", 1.2);
+    await expect(bridge.schoolWebBack?.("kyomu")).resolves.toBe(false);
     expect(invoke).toHaveBeenNthCalledWith(1, "save_school_credentials", {
       profile: "science",
       credentials,
@@ -156,6 +158,9 @@ describe("Tauri bridge contract", () => {
     expect(invoke).toHaveBeenNthCalledWith(5, "set_school_web_zoom", {
       site: "science-portal",
       scale: 1.2,
+    });
+    expect(invoke).toHaveBeenNthCalledWith(6, "school_web_back", {
+      site: "kyomu",
     });
   });
 

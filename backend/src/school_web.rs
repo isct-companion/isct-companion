@@ -293,6 +293,12 @@ struct ControllerState {
     load_waiters: Vec<(SchoolSite, String, mpsc::Sender<String>)>,
     /// Registration queue shown on 教務Web pages while set.
     guide: Vec<crate::kyomu_guide::GuideItem>,
+    /// Pages the person visited in each view, for the app's own Back.
+    history: HashMap<SchoolSite, PageHistory>,
+    /// Sites whose next load comes from Back and must not be recorded again.
+    suppress_history: HashSet<SchoolSite>,
+    /// Same-service popups shown in place, and the page each was opened from.
+    popups: HashMap<SchoolSite, PopupReturn>,
 }
 
 impl Default for ControllerState {
@@ -314,6 +320,9 @@ impl Default for ControllerState {
             ingest_waiters: HashMap::new(),
             load_waiters: Vec::new(),
             guide: Vec::new(),
+            history: HashMap::new(),
+            suppress_history: HashSet::new(),
+            popups: HashMap::new(),
         }
     }
 }
@@ -384,6 +393,156 @@ fn new_window_target(raw: &str) -> NewWindowTarget {
 struct SchoolWebOpen {
     site: SchoolSite,
     url: String,
+}
+
+const HISTORY_LIMIT: usize = 50;
+
+/// Back stack of one view. Back always loads an earlier page as a fresh GET:
+/// `history.back()` would resubmit 教務Web's WebForms postbacks (ViewState,
+/// "不正な画面遷移" guards, a second 申告).
+#[derive(Debug, Default)]
+struct PageHistory {
+    pages: Vec<String>,
+}
+
+impl PageHistory {
+    /// Records a loaded page; a postback reloading the same URL is one entry.
+    fn push(&mut self, url: String) {
+        if self.pages.last() == Some(&url) {
+            return;
+        }
+        self.pages.push(url);
+        if self.pages.len() > HISTORY_LIMIT {
+            self.pages.remove(0);
+        }
+    }
+
+    /// The newest page that is not the current one. Entries after it (the
+    /// current page) are dropped; the target stays as the new current page.
+    fn back_target(&mut self, current: Option<&str>) -> Option<String> {
+        let index = self
+            .pages
+            .iter()
+            .rposition(|page| Some(page.as_str()) != current)?;
+        self.pages.truncate(index + 1);
+        self.pages.last().cloned()
+    }
+
+    /// Forgets everything after the newest visit to `url`.
+    fn rewind_to(&mut self, url: &str) {
+        if let Some(index) = self.pages.iter().rposition(|page| page == url) {
+            self.pages.truncate(index + 1);
+        }
+    }
+}
+
+/// Pages worth returning to: the view's own service, never a sign-in step
+/// or SAML hand-off (an IdP host only counts once its portal is reached).
+fn history_entry(site: SchoolSite, raw_url: &str) -> Option<String> {
+    let safe = sanitize_school_url(raw_url)?;
+    if site_for_url(&safe) != Some(site) {
+        return None;
+    }
+    let host = Url::parse(&safe).ok()?.host_str()?.to_string();
+    match SchoolAuthProfile::for_auth_host(&host) {
+        Some(profile) if !login_succeeded(&safe, profile) => None,
+        _ => Some(safe),
+    }
+}
+
+/// A same-service popup shown in place of the page that opened it.
+#[derive(Clone, Debug, PartialEq)]
+struct PopupReturn {
+    opener: String,
+    popup: String,
+}
+
+#[derive(Debug, PartialEq)]
+enum PopupStep {
+    /// Still on the popup (its own postbacks included).
+    Stay,
+    /// Back on the opener, e.g. after 閉じる.
+    Returned,
+    /// Anywhere else: the popup is over.
+    Left,
+}
+
+/// Same document, ignoring the query (postbacks and sanitizing change it).
+fn same_page(left: &str, right: &str) -> bool {
+    match (Url::parse(left), Url::parse(right)) {
+        (Ok(left), Ok(right)) => {
+            left.scheme() == right.scheme()
+                && left.host_str() == right.host_str()
+                && left.path() == right.path()
+        }
+        _ => false,
+    }
+}
+
+impl PopupReturn {
+    fn step(&self, loaded: &str) -> PopupStep {
+        if same_page(loaded, &self.popup) {
+            PopupStep::Stay
+        } else if same_page(loaded, &self.opener) {
+            PopupStep::Returned
+        } else {
+            PopupStep::Left
+        }
+    }
+}
+
+/// WebKit ignores `window.close()` on a page no script opened, so a popup's
+/// 閉じる button would do nothing in place. It returns to the opener with a
+/// fresh GET when known, else steps back. Sign-in pages are left alone.
+fn close_override_script(raw_url: &str, return_to: Option<&str>) -> Option<String> {
+    sanitize_school_url(raw_url)?;
+    let host = Url::parse(raw_url).ok()?.host_str()?.to_string();
+    if SchoolAuthProfile::for_auth_host(&host).is_some() {
+        return None;
+    }
+    let action = match return_to.filter(|url| sanitize_school_url(url).is_some()) {
+        Some(url) => format!(
+            "location.replace({})",
+            serde_json::to_string(url)
+                .ok()?
+                .replace('<', "\\u003c")
+                .replace('>', "\\u003e")
+        ),
+        None => "history.back()".into(),
+    };
+    Some(format!("window.close=()=>{action};"))
+}
+
+/// Updates the Back stack and popup state for a finished load, and returns
+/// the `window.close` override the page needs.
+fn track_page(state: &mut ControllerState, site: SchoolSite, raw_url: &str) -> Option<String> {
+    let suppressed = state.suppress_history.remove(&site);
+    let mut return_to = None;
+    if let (Some(popup), Some(safe)) = (
+        state.popups.get(&site).cloned(),
+        sanitize_school_url(raw_url),
+    ) {
+        match popup.step(&safe) {
+            PopupStep::Stay => return_to = Some(popup.opener),
+            PopupStep::Returned => {
+                state.popups.remove(&site);
+                // Closing the popup drops it from Back, like a closed window.
+                if let Some(history) = state.history.get_mut(&site) {
+                    history.rewind_to(&popup.opener);
+                }
+            }
+            PopupStep::Left => {
+                state.popups.remove(&site);
+            }
+        }
+    }
+    // Hidden loads (pulls) are not the person's browsing.
+    if !suppressed && state.active == Some(site) {
+        if let Some(entry) = history_entry(site, raw_url) {
+            state.history.entry(site).or_default().push(entry);
+        }
+    }
+    close_override_script(raw_url, return_to.as_deref())
 }
 
 fn ingestion_script(raw: &str) -> Option<&'static str> {
@@ -575,6 +734,164 @@ mod tests {
             "not a url",
         ] {
             assert_eq!(new_window_target(ignored), NewWindowTarget::Ignored, "{ignored}");
+        }
+    }
+
+    const KYOMU_OPENER: &str =
+        "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx";
+    const KYOMU_POPUP: &str =
+        "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_3_1.aspx";
+    const KYOMU_TOP: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+
+    #[test]
+    fn history_skips_postbacks_and_keeps_the_newest_pages() {
+        let mut history = PageHistory::default();
+        history.push("a".into());
+        history.push("a".into());
+        history.push("b".into());
+        history.push("a".into());
+        assert_eq!(history.pages, ["a", "b", "a"]);
+        let mut long = PageHistory::default();
+        for index in 0..HISTORY_LIMIT + 5 {
+            long.push(index.to_string());
+        }
+        assert_eq!(long.pages.len(), HISTORY_LIMIT);
+        assert_eq!(long.pages.first().map(String::as_str), Some("5"));
+    }
+
+    #[test]
+    fn back_targets_the_newest_other_page() {
+        let mut history = PageHistory {
+            pages: vec!["a".into(), "b".into(), "c".into()],
+        };
+        assert_eq!(history.back_target(Some("c")).as_deref(), Some("b"));
+        assert_eq!(history.pages, ["a", "b"]);
+        // A page the stack never saw (a hidden pull): back to the last one seen.
+        assert_eq!(history.back_target(Some("pulled")).as_deref(), Some("b"));
+        assert_eq!(history.back_target(Some("b")).as_deref(), Some("a"));
+        assert_eq!(history.back_target(Some("a")), None);
+        assert_eq!(history.pages, ["a"]);
+        assert_eq!(PageHistory::default().back_target(None), None);
+    }
+
+    #[test]
+    fn history_records_only_the_views_own_signed_in_pages() {
+        assert_eq!(
+            history_entry(SchoolSite::Kyomu, &format!("{KYOMU_POPUP}?token=x#top")).as_deref(),
+            Some(KYOMU_POPUP)
+        );
+        assert_eq!(
+            history_entry(
+                SchoolSite::SciencePortal,
+                "https://isct.ex-tic.com/idm/user/portal/"
+            )
+            .as_deref(),
+            Some("https://isct.ex-tic.com/idm/user/portal/")
+        );
+        for (site, url) in [
+            (
+                SchoolSite::Kyomu,
+                "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login",
+            ),
+            (SchoolSite::Kyomu, "https://lms.s.isct.ac.jp/2025/my/"),
+            (
+                SchoolSite::SciencePortal,
+                "https://isct.ex-tic.com/auth/session",
+            ),
+            (
+                SchoolSite::Kyomu,
+                "http://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx",
+            ),
+        ] {
+            assert_eq!(history_entry(site, url), None, "{url}");
+        }
+    }
+
+    fn visible_kyomu() -> ControllerState {
+        ControllerState {
+            active: Some(SchoolSite::Kyomu),
+            ..ControllerState::default()
+        }
+    }
+
+    #[test]
+    fn popup_close_returns_to_the_opener_until_the_popup_is_left() {
+        let site = SchoolSite::Kyomu;
+        let mut state = visible_kyomu();
+        track_page(&mut state, site, KYOMU_TOP);
+        track_page(&mut state, site, KYOMU_OPENER);
+        state.popups.insert(
+            site,
+            PopupReturn {
+                opener: KYOMU_OPENER.into(),
+                popup: KYOMU_POPUP.into(),
+            },
+        );
+        let close = track_page(&mut state, site, KYOMU_POPUP).unwrap();
+        assert!(close.contains(&format!("location.replace(\"{KYOMU_OPENER}\")")));
+        // The popup's own postbacks keep the way back.
+        let close = track_page(&mut state, site, &format!("{KYOMU_POPUP}?page=2")).unwrap();
+        assert!(close.contains("location.replace("));
+        // 閉じる: back on the opener, the popup is gone from Back too.
+        let close = track_page(&mut state, site, KYOMU_OPENER).unwrap();
+        assert!(close.contains("history.back()"));
+        assert!(state.popups.is_empty());
+        assert_eq!(state.history[&site].pages, [KYOMU_TOP, KYOMU_OPENER]);
+
+        state.popups.insert(
+            site,
+            PopupReturn {
+                opener: KYOMU_OPENER.into(),
+                popup: KYOMU_POPUP.into(),
+            },
+        );
+        track_page(&mut state, site, KYOMU_POPUP);
+        track_page(&mut state, site, KYOMU_TOP);
+        assert!(state.popups.is_empty());
+    }
+
+    #[test]
+    fn back_loads_are_not_recorded_twice_and_hidden_loads_not_at_all() {
+        let site = SchoolSite::Kyomu;
+        let mut state = ControllerState::default();
+        track_page(&mut state, site, KYOMU_TOP);
+        assert!(!state.history.contains_key(&site));
+        state.active = Some(site);
+        track_page(&mut state, site, KYOMU_TOP);
+        state.suppress_history.insert(site);
+        track_page(&mut state, site, KYOMU_OPENER);
+        assert!(state.suppress_history.is_empty());
+        assert_eq!(state.history[&site].pages, [KYOMU_TOP]);
+    }
+
+    #[test]
+    fn close_override_is_escaped_and_skips_sign_in_pages() {
+        assert_eq!(
+            close_override_script(KYOMU_POPUP, None).as_deref(),
+            Some("window.close=()=>history.back();")
+        );
+        let script = close_override_script(
+            KYOMU_POPUP,
+            Some("https://kyomu0.gakumu.titech.ac.jp/Titech/a\"</script>.aspx"),
+        )
+        .unwrap();
+        assert!(!script.contains("</script>"));
+        assert!(!script.contains("a\"<"));
+        // Only official https pages are valid return targets.
+        assert_eq!(
+            close_override_script(KYOMU_POPUP, Some("https://example.com/")).as_deref(),
+            Some("window.close=()=>history.back();")
+        );
+        for url in [
+            "https://isct.ex-tic.com/auth/session",
+            "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login",
+            "https://example.com/",
+        ] {
+            assert_eq!(
+                close_override_script(url, Some(KYOMU_OPENER)),
+                None,
+                "{url}"
+            );
         }
     }
 
@@ -918,6 +1235,40 @@ impl SchoolWebController {
             Self::write_restore(app, site, &target)?;
         }
         Ok(true)
+    }
+
+    /// Loads the previous page of the site's view as a fresh GET. False when
+    /// there is no earlier page (or no view).
+    pub fn back(&self, app: &AppHandle, site: SchoolSite) -> Result<bool, String> {
+        let target = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "School web state is unavailable.")?;
+            if !state.webviews.contains_key(&site) {
+                return Ok(false);
+            }
+            let current = state.urls.get(&site).cloned();
+            let target = state
+                .history
+                .get_mut(&site)
+                .and_then(|history| history.back_target(current.as_deref()));
+            if target.is_some() {
+                state.suppress_history.insert(site);
+            }
+            target
+        };
+        let Some(target) = target else {
+            return Ok(false);
+        };
+        eprintln!("[school-web] {site:?} back");
+        let navigated = self.navigate(app, site, &target);
+        if !matches!(navigated, Ok(true)) {
+            if let Ok(mut state) = self.state.lock() {
+                state.suppress_history.remove(&site);
+            }
+        }
+        navigated
     }
 
     pub fn set_zoom(&self, site: SchoolSite, scale: f64) -> Result<bool, String> {
@@ -1314,6 +1665,7 @@ impl SchoolWebController {
         let app_for_navigation = app.clone();
         let state_for_navigation = self.state.clone();
         let app_for_new_window = app.clone();
+        let state_for_new_window = self.state.clone();
         let main = app
             .get_window(MAIN_WINDOW)
             .ok_or_else(|| "Main window is unavailable.".to_string())?;
@@ -1446,6 +1798,13 @@ impl SchoolWebController {
                     {
                         let _ = webview.eval(&script);
                     }
+                }
+                let close_override = state_for_load
+                    .lock()
+                    .ok()
+                    .and_then(|mut state| track_page(&mut state, site, raw_url));
+                if let Some(script) = close_override {
+                    let _ = webview.eval(&script);
                 }
                 if !css.trim().is_empty() {
                     if let Ok(css_json) = serde_json::to_string(&css) {
@@ -1617,6 +1976,19 @@ impl SchoolWebController {
                     // Same service: open in place, like a same-window link.
                     // Deferred so the load starts after WebKit's delegate call returns.
                     NewWindowTarget::School(target) if target == site => {
+                        // Remember the opener so the popup's 閉じる can return to it.
+                        if let (Ok(mut state), Some(popup)) =
+                            (state_for_new_window.lock(), sanitize_school_url(raw))
+                        {
+                            match state.urls.get(&site).cloned() {
+                                Some(opener) if !same_page(&opener, &popup) => {
+                                    state.popups.insert(site, PopupReturn { opener, popup });
+                                }
+                                _ => {
+                                    state.popups.remove(&site);
+                                }
+                            }
+                        }
                         if let Some(view) = app_for_new_window.get_webview(site.webview_label()) {
                             std::thread::spawn(move || {
                                 let _ = view.navigate(url);

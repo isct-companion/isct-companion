@@ -156,7 +156,12 @@ export function Web({
     if (!embedded || !desktopBridge || !active) return;
     // Settings → "Show page" asks for a site while this page is kept alive.
     const requested = sessionStorage.getItem("stws-active-school-site");
-    if (!requestedUrl && requested && requested in official && requested !== site) {
+    if (
+      !requestedUrl &&
+      requested &&
+      requested in official &&
+      requested !== site
+    ) {
       setSite(requested as SchoolSite);
       return;
     }
@@ -289,6 +294,15 @@ export function Web({
     [],
   );
 
+  const goBack = async () => {
+    try {
+      const moved = await desktopBridge?.schoolWebBack?.(site);
+      setStatus(moved ? "" : "No previous page.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unavailable");
+    }
+  };
+
   const setPageZoom = (next: number) => {
     const value = Math.round(clamp(next, 0.5, 2) * 10) / 10;
     setZoom(value);
@@ -374,6 +388,17 @@ export function Web({
           <span className="webStatus" role="status">
             {status}
           </span>
+          {embedded && desktopBridge?.schoolWebBack && (
+            <UiButton
+              type="button"
+              className="iconButton"
+              title="Previous page"
+              aria-label="Previous page"
+              onClick={() => void goBack()}
+            >
+              ←
+            </UiButton>
+          )}
           {embedded && desktopBridge?.reloadSchoolWeb && (
             <UiButton
               type="button"
@@ -383,6 +408,21 @@ export function Web({
               onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
             >
               ↻
+            </UiButton>
+          )}
+          {embedded && site === "kyomu" && (
+            <UiButton
+              type="button"
+              title="教務Web top page"
+              onClick={() =>
+                void openTarget(official.kyomu.url, "kyomu").catch((error) =>
+                  setStatus(
+                    error instanceof Error ? error.message : "Unavailable",
+                  ),
+                )
+              }
+            >
+              Top
             </UiButton>
           )}
         </div>

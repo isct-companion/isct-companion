@@ -197,6 +197,8 @@ export interface DesktopBridge {
   hideSchoolWeb?(): Promise<boolean>;
   reloadSchoolWeb?(site: SchoolSite): Promise<boolean>;
   navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
+  /** Load the view's previous page as a fresh GET; false when there is none. */
+  schoolWebBack?(site: SchoolSite): Promise<boolean>;
   setSchoolWebZoom?(site: SchoolSite, scale: number): Promise<boolean>;
   onSchoolWebUrl?(callback: (url: string) => void): () => void;
   /** A school page asked for a new window showing another service's page. */
@@ -466,6 +468,7 @@ export function createTauriDesktopBridge(
     reloadSchoolWeb: (site) => booleanCommand("reload_school_web", { site }),
     navigateSchoolWeb: (site, url) =>
       booleanCommand("navigate_school_web", { site, url }),
+    schoolWebBack: (site) => booleanCommand("school_web_back", { site }),
     setSchoolWebZoom: (site, scale) =>
       booleanCommand("set_school_web_zoom", { site, scale }),
     onSchoolWebUrl: (callback) => {

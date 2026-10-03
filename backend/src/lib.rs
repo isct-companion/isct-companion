@@ -229,6 +229,19 @@ fn navigate_school_web(
     controller.navigate(&app, site, &url)
 }
 
+/// The app's own Back for the school view: reloads the previous page as a
+/// GET instead of `history.back()` (which would resubmit postbacks).
+#[tauri::command]
+fn school_web_back(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+    site: SchoolSite,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    controller.back(&app, site)
+}
+
 #[tauri::command]
 fn set_school_web_zoom(
     webview: tauri::Webview,
@@ -946,6 +959,7 @@ pub fn run() {
             hide_school_web,
             reload_school_web,
             navigate_school_web,
+            school_web_back,
             set_school_web_zoom,
             pull_school,
             school_records,
