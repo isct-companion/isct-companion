@@ -89,20 +89,6 @@ export function AdvancedSettings({
           }
         />
       </Row>
-      <label className="editor">
-        <span>{t("App CSS")}</span>
-        <UiTextarea
-          spellCheck={false}
-          placeholder=":root { --accent: #b0713f; }"
-          value={custom.appCss}
-          onChange={(event) =>
-            update((d) => {
-              d.settings.customization!.appCss = event.target.value;
-              return d;
-            })
-          }
-        />
-      </label>
       <h3>{t("School sites")}</h3>
       {(Object.keys(custom.sites) as CustomizationSite[]).map((site) => {
         const key = `stws-site-consent-${site}`;

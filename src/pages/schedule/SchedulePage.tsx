@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 
 import { detectConflicts } from "../../core/academic";
-import type { PersonalEvent, TermId, Workspace } from "../../core/model";
+import type { PersonalEvent, Plan, TermId, Workspace } from "../../core/model";
+import { Button } from "@mantine/core";
 import {
   WeekTimetable,
   type Block,
@@ -27,11 +28,15 @@ export function Schedule({
   term,
   openCourse,
   openEvent,
+  openPlan,
+  newPlan,
 }: {
   data: Workspace;
   term: TermId;
   openCourse: (courseId: string) => void;
   openEvent: (event: PersonalEvent) => void;
+  openPlan: (plan: Plan) => void;
+  newPlan: () => void;
 }) {
   const [anchor, setAnchor] = useState(() => new Date());
   const courses = timetableCourses(data, term);
@@ -57,9 +62,14 @@ export function Schedule({
     });
   const select = (block: Block) => {
     if (block.kind === "course") openCourse(block.id);
-    else {
+    else if (block.kind === "event") {
       const event = events.find((item) => item.id === block.id);
       if (event) openEvent(event);
+    } else {
+      const plan = data.plans.find(
+        (item) => item.id === block.id && !item.deletedAt,
+      );
+      if (plan) openPlan(plan);
     }
   };
 
@@ -71,6 +81,9 @@ export function Schedule({
           <span>{weekLabel(columns)}</span>
         </div>
         <div className="scheduleControls">
+          <Button variant="default" onClick={newPlan}>
+            ＋ Plan
+          </Button>
           <UiButton
             type="button"
             aria-label="Previous week"

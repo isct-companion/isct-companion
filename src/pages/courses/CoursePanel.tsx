@@ -1,0 +1,182 @@
+import { ExternalLink } from "../../components/ExternalLink";
+import { Button, Paper } from "@mantine/core";
+import { t } from "../../i18n";
+import type { Course, Workspace } from "../../core/model";
+import type { FinderCourse } from "../../core/course-query";
+import { getDesktopBridge } from "../../platform/desktop-bridge";
+import { SyllabusDetails } from "./syllabus-details";
+import { CourseDetails } from "./CourseDetails";
+
+/**
+ * A course's details, shown over the syllabus search after a timetable click.
+ * Removing lives only here, at the bottom, so it always takes two clicks.
+ */
+export function CoursePanel({
+  course,
+  data,
+  readOnly,
+  close,
+  remove,
+  editIntensive,
+  lmsUrl,
+  openWeb,
+  fetchLms,
+  fetching,
+}: {
+  course: Course;
+  data: Workspace;
+  readOnly: boolean;
+  close: () => void;
+  remove: () => void;
+  editIntensive: () => void;
+  /** The course's LMS page, when it is linked to one. */
+  lmsUrl?: string;
+  /** Opens an official URL in the Web page. */
+  openWeb: (url: string) => void;
+  /** Pulls LMS (assignments and materials) without changing the timetable. */
+  fetchLms?: () => void;
+  fetching?: boolean;
+}) {
+  const registered = data.memberships.some(
+    (item) =>
+      item.courseId === course.id &&
+      !item.deletedAt &&
+      ["registered", "declared", "completed"].includes(item.status) &&
+      item.evidence?.provider !== "manual",
+  );
+  return (
+    <Paper
+      component="aside"
+      className="listCard coursePanel"
+      withBorder
+      shadow="xs"
+      radius="md"
+      style={{ "--course": course.color } as React.CSSProperties}
+    >
+      <header>
+        <div className="finderTitle">
+          <b>{course.title}</b>
+          <span>
+            {course.code} · {course.termId.replace("-", " ")}
+          </span>
+        </div>
+        <div className="courseListTools">
+          <button type="button" onClick={close}>
+            {t("Close")}
+          </button>
+        </div>
+      </header>
+      <CourseDetails
+        key={course.id}
+        course={course}
+        data={data}
+        lmsUrl={lmsUrl}
+        openWeb={openWeb}
+        fetchLms={fetchLms}
+        fetching={fetching}
+      />
+      {!readOnly && (
+        <footer className="coursePanelFoot">
+          {!course.meetings.length && (
+            <Button variant="default" onClick={editIntensive}>
+              {t("Intensive dates")}
+            </Button>
+          )}
+          <Button color="red" variant="light" onClick={remove}>
+            {registered ? t("Remove from local timetable") : t("Remove")}
+          </Button>
+        </footer>
+      )}
+    </Paper>
+  );
+}
+
+const FINDER_DAYS = ["月", "火", "水", "木", "金", "土", "日"];
+const pickText = (value: { ja?: string; en?: string } | undefined, locale: string) =>
+  (locale === "ja" ? value?.ja ?? value?.en : value?.en ?? value?.ja) ?? "";
+
+/**
+ * A syllabus search result, shown over the timetable: what the syllabus says
+ * about it, with Add at the bottom.
+ */
+export function OfferingPanel({
+  course,
+  locale,
+  placed,
+  replaces = [],
+  readOnly,
+  close,
+  add,
+}: {
+  course: FinderCourse;
+  locale: string;
+  placed: boolean;
+  /** Timetable courses that Add would replace (same periods). */
+  replaces?: string[];
+  readOnly: boolean;
+  close: () => void;
+  add: () => void;
+}) {
+  const bridge = getDesktopBridge();
+  const times = course.schedule
+    .map((entry) =>
+      entry.kind === "weekly" && entry.day && entry.periods
+        ? `${FINDER_DAYS[entry.day - 1]}${entry.periods[0]}-${entry.periods[1]}${entry.room ? ` · ${pickText(entry.room, locale)}` : ""}`
+        : t("集中・時間未定"),
+    )
+    .join(" / ");
+  return (
+    <Paper component="aside" className="listCard coursePanel" withBorder shadow="xs" radius="md">
+      <header>
+        <div className="finderTitle">
+          <b>{pickText(course.title, locale)}</b>
+          <span>
+            {course.code} · {course.quarters.join(" ")}
+          </span>
+        </div>
+        <div className="courseListTools">
+          <ExternalLink href={course.syllabusUrl}>
+            {t("Syllabus")} ↗
+          </ExternalLink>
+          <button type="button" onClick={close}>
+            {t("Close")}
+          </button>
+        </div>
+      </header>
+      <div className="coursePanelBody">
+        <dl>
+          <dt>{t("Schedule")}</dt>
+          <dd>{course.detailed === false ? "…" : times || "—"}</dd>
+          <dt>{t("Instructor")}</dt>
+          <dd>{course.instructors.map((name) => pickText(name, locale)).join(" / ") || "—"}</dd>
+          <dt>{t("Credits")}</dt>
+          <dd>
+            {course.detailed === false
+              ? "…"
+              : `${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
+          </dd>
+        </dl>
+        <SyllabusDetails
+          url={course.syllabusUrl}
+          fetchCourse={
+            bridge
+              ? (url) => bridge.syllabusCourse(url, locale === "ja" ? "ja" : "en")
+              : undefined
+          }
+        />
+      </div>
+      {!readOnly && (
+        <footer className="coursePanelFoot">
+          {!placed && replaces.length > 0 && (
+            <span className="coursePanelNote">
+              {t("Replaces")} {replaces.join(", ")}
+            </span>
+          )}
+          <Button disabled={placed} color={replaces.length ? "orange" : undefined} onClick={add}>
+            {placed ? t("On timetable") : replaces.length ? t("Replace") : t("Add")}
+          </Button>
+        </footer>
+      )}
+    </Paper>
+  );
+}

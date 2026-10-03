@@ -7,6 +7,7 @@ import type {
 import { effectiveWeekday } from "../../core/academic";
 import { dayNames, type Block, type DayColumn } from "./timetable";
 import { stamp, jstDate } from "../../app/shared";
+import { clockForPeriods, planOccursOn } from "../../core/user-schedule";
 export function enrolledCourses(data: Workspace, term: TermId) {
   const ids = new Set(
     data.memberships
@@ -18,7 +19,7 @@ export function enrolledCourses(data: Workspace, term: TermId) {
 export function onTimetable(data: Workspace, course: Course) {
   return (
     data.memberships.some((m) => m.courseId === course.id && !m.deletedAt) ||
-    data.drafts.some((x) => x.courseId === course.id && !x.deletedAt)
+    data.planItems.some((x) => x.courseId === course.id && !x.deletedAt)
   );
 }
 export function setTimetable(d: Workspace, course: Course, on: boolean) {
@@ -26,7 +27,9 @@ export function setTimetable(d: Workspace, course: Course, on: boolean) {
   const membership = d.memberships.find(
     (m) => m.courseId === course.id && !m.deletedAt,
   );
-  const draft = d.drafts.find((x) => x.courseId === course.id && !x.deletedAt);
+  const draft = d.planItems.find(
+    (x) => x.courseId === course.id && !x.deletedAt,
+  );
   if (on) {
     if (membership || draft) return;
     d.memberships.push({
@@ -37,7 +40,7 @@ export function setTimetable(d: Workspace, course: Course, on: boolean) {
       updatedBy: d.deviceId,
       termId: course.termId,
       courseId: course.id,
-      status: "enrolled",
+      status: "declared",
       evidence: { provider: "manual" },
     });
     return;
@@ -54,7 +57,7 @@ export function timetableCourses(data: Workspace, term: TermId) {
     ...data.memberships
       .filter((m) => m.termId === term && !m.deletedAt)
       .map((m) => m.courseId),
-    ...data.drafts
+    ...data.planItems
       .filter((x) => x.termId === term && !x.deletedAt)
       .map((x) => x.courseId),
   ]);
@@ -142,13 +145,28 @@ export function weekColumnsAt(
     date.setUTCDate(date.getUTCDate() + mondayShift + index);
     const iso = jstDate(date);
     const effective = effectiveWeekday(date, data.exceptions);
+    const blocks = effective
+      ? dayBlocks(courses, events, effective, iso, conflicts, match)
+      : [];
+    for (const intensive of data.intensiveSchedules.filter((item) => !item.deletedAt)) {
+      const override = intensive.days?.find((item) => item.date === iso);
+      if (!override?.periods) continue;
+      const course = courses.find((item) => item.id === intensive.courseId);
+      if (!course) continue;
+      const clock = clockForPeriods(override.periods);
+      blocks.push({ key: `${intensive.id}-${iso}`, id: course.id, kind: "course", title: course.title, subtitle: course.code, room: intensive.room ?? "", startTime: clock.start, endTime: clock.end, color: course.color });
+    }
+    for (const plan of data.plans.filter((item) => !item.deletedAt && planOccursOn(item, iso))) {
+      const startTime = plan.start.includes("T") ? plan.start.slice(11, 16) : "08:50";
+      const [hour, minute] = startTime.split(":").map(Number);
+      const end = new Date(2000, 0, 1, hour, minute + plan.duration);
+      blocks.push({ key: `${plan.id}-${iso}`, id: plan.id, kind: "plan", title: plan.title, room: plan.room ?? "", startTime, endTime: `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`, color: "#5f6b8a" });
+    }
     return {
       label,
       date: iso,
       isToday: iso === todayIso,
-      blocks: effective
-        ? dayBlocks(courses, events, effective, iso, conflicts, match)
-        : [],
+      blocks: blocks.sort((a, b) => a.startTime.localeCompare(b.startTime)),
     };
   });
 }
