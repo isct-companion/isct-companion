@@ -16,7 +16,6 @@ coverage/
 
 # Local previews, QA output, and temporary files
 artifacts/
-docs/
 tmp/
 work/
 ref-demo/
@@ -42,3 +41,4 @@ secrets.json
 .vscode/
 *.log
 *.swp
+scripts/research/syllabus-sample-output/
