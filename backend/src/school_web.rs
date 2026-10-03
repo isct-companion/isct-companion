@@ -18,8 +18,9 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::utils::config::BackgroundThrottlingPolicy;
-use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl};
+use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
 const MAIN_WINDOW: &str = "main";
@@ -346,6 +347,45 @@ fn site_for_url(raw: &str) -> Option<SchoolSite> {
     }
 }
 
+/// Where a link that asks for a new window (`target="_blank"`, `window.open`)
+/// goes. Embedded views have no tabs, and WebKit silently drops such a click
+/// unless the view answers it, so every request is routed and none opens a
+/// real popup.
+#[derive(Debug, PartialEq)]
+enum NewWindowTarget {
+    /// An official school page, shown by that service's resident view.
+    School(SchoolSite),
+    /// Any other plain web page, handed to the system browser.
+    External(String),
+    Ignored,
+}
+
+fn new_window_target(raw: &str) -> NewWindowTarget {
+    if sanitize_school_url(raw).is_some() {
+        if let Some(site) = site_for_url(raw) {
+            return NewWindowTarget::School(site);
+        }
+    }
+    let Ok(url) = Url::parse(raw) else {
+        return NewWindowTarget::Ignored;
+    };
+    let plain = matches!(url.scheme(), "https" | "http")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none();
+    if plain {
+        NewWindowTarget::External(url.to_string())
+    } else {
+        NewWindowTarget::Ignored
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct SchoolWebOpen {
+    site: SchoolSite,
+    url: String,
+}
+
 fn ingestion_script(raw: &str) -> Option<&'static str> {
     let url = Url::parse(raw).ok()?;
     if url.host_str() == Some("lms.s.isct.ac.jp") && url.path().starts_with("/2025/") {
@@ -507,6 +547,36 @@ fn login_succeeded(raw_url: &str, profile: SchoolAuthProfile) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_window_links_are_routed_instead_of_dropped() {
+        assert_eq!(
+            new_window_target("https://syllabus.s.isct.ac.jp/courses?jwc=202512345"),
+            NewWindowTarget::School(SchoolSite::Syllabus)
+        );
+        assert_eq!(
+            new_window_target("https://lms.s.isct.ac.jp/2025/my/"),
+            NewWindowTarget::School(SchoolSite::ScienceLms)
+        );
+        assert_eq!(
+            new_window_target("https://www.isct.ac.jp/ja/timetable.pdf"),
+            NewWindowTarget::External("https://www.isct.ac.jp/ja/timetable.pdf".into())
+        );
+        // Plain http school pages are not embeddable but still open outside.
+        assert_eq!(
+            new_window_target("http://kyomu0.gakumu.titech.ac.jp/Titech/"),
+            NewWindowTarget::External("http://kyomu0.gakumu.titech.ac.jp/Titech/".into())
+        );
+        for ignored in [
+            "about:blank",
+            "javascript:void(0)",
+            "file:///etc/passwd",
+            "https://user:secret@example.com/",
+            "not a url",
+        ] {
+            assert_eq!(new_window_target(ignored), NewWindowTarget::Ignored, "{ignored}");
+        }
+    }
 
     #[test]
     fn maps_every_embedded_destination_to_the_single_controller() {
@@ -1015,6 +1085,11 @@ impl SchoolWebController {
                 .map_err(|_| "School web state is unavailable.")?;
             (state.webviews.get(&site).cloned(), state.active)
         };
+        // Navigating the visible view would cancel whatever the person just
+        // clicked (a TTL refresh can start while they browse).
+        if active == Some(site) {
+            return Err("Leave the Web page, then pull again.".into());
+        }
         if let Some(webview) = webview {
             let parsed = Url::parse(url).map_err(|_| "School URL is invalid.")?;
             return webview
@@ -1238,6 +1313,7 @@ impl SchoolWebController {
         let app_for_load = app.clone();
         let app_for_navigation = app.clone();
         let state_for_navigation = self.state.clone();
+        let app_for_new_window = app.clone();
         let main = app
             .get_window(MAIN_WINDOW)
             .ok_or_else(|| "Main window is unavailable.".to_string())?;
@@ -1266,7 +1342,8 @@ impl SchoolWebController {
                 let raw_url = payload.url().as_str();
                 if let Ok(url) = Url::parse(raw_url) {
                     eprintln!(
-                        "[school-web] loaded {}{}",
+                        "[school-web] {} loaded {}{}",
+                        webview.label(),
                         url.host_str().unwrap_or_default(),
                         url.path()
                     );
@@ -1523,7 +1600,49 @@ impl SchoolWebController {
                     }
                     return false;
                 }
-                sanitize_school_url(url.as_str()).is_some()
+                let allowed = sanitize_school_url(url.as_str()).is_some();
+                if !allowed && cfg!(debug_assertions) {
+                    eprintln!(
+                        "[school-web] blocked {}://{}{}",
+                        url.scheme(),
+                        url.host_str().unwrap_or_default(),
+                        url.path()
+                    );
+                }
+                allowed
+            })
+            .on_new_window(move |url, _features| {
+                let raw = url.as_str();
+                match new_window_target(raw) {
+                    // Same service: open in place, like a same-window link.
+                    // Deferred so the load starts after WebKit's delegate call returns.
+                    NewWindowTarget::School(target) if target == site => {
+                        if let Some(view) = app_for_new_window.get_webview(site.webview_label()) {
+                            std::thread::spawn(move || {
+                                let _ = view.navigate(url);
+                            });
+                        }
+                    }
+                    // Another service: the Web page switches to it, as with the address bar.
+                    NewWindowTarget::School(target) => {
+                        if let Some(url) = sanitize_school_url(raw) {
+                            let _ = app_for_new_window.emit_to(
+                                MAIN_WINDOW,
+                                "school-web-open",
+                                SchoolWebOpen { site: target, url },
+                            );
+                        }
+                    }
+                    NewWindowTarget::External(url) => {
+                        let _ = app_for_new_window.opener().open_url(url, None::<&str>);
+                    }
+                    NewWindowTarget::Ignored => {
+                        if cfg!(debug_assertions) {
+                            eprintln!("[school-web] ignored new window {}:", url.scheme());
+                        }
+                    }
+                }
+                NewWindowResponse::Deny
             });
 
         let initial_position = if visible {

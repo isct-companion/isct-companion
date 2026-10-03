@@ -194,6 +194,10 @@ export interface DesktopBridge {
   navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
   setSchoolWebZoom?(site: SchoolSite, scale: number): Promise<boolean>;
   onSchoolWebUrl?(callback: (url: string) => void): () => void;
+  /** A school page asked for a new window showing another service's page. */
+  onSchoolWebOpen?(
+    callback: (request: { site: SchoolSite; url: string }) => void,
+  ): () => void;
   onSchoolLoginStatus?(callback: (event: SchoolLoginEvent) => void): () => void;
   /**
    * Makes sure the profile is signed in: loads its portal home in the hidden
@@ -465,6 +469,29 @@ export function createTauriDesktopBridge(
       void listen<string>("school-web-url", (payload) => {
         if (!disposed && typeof payload === "string") callback(payload);
       }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
+    onSchoolWebOpen: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<{ site: SchoolSite; url: string }>(
+        "school-web-open",
+        (payload) => {
+          if (
+            !disposed &&
+            payload &&
+            typeof payload.site === "string" &&
+            typeof payload.url === "string"
+          )
+            callback(payload);
+        },
+      ).then((fn) => {
         if (disposed) quietly(fn);
         else unlisten = fn;
       });

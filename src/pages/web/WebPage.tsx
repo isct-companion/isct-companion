@@ -231,41 +231,63 @@ export function Web({
       const destination = siteForAddress(target);
       if (!destination)
         throw new Error("Use an official Science Tokyo school URL.");
-      setAddress(target);
-      setStatus("Opening…");
-      if (embedded && desktopBridge?.navigateSchoolWeb) {
-        const navigated = await desktopBridge.navigateSchoolWeb(
-          destination,
-          target,
-        );
-        if (!navigated) {
-          const customizationSite = official[destination].customization;
-          const custom = data.settings.customization?.sites[customizationSite];
-          const permitted =
-            platform === "native-desktop" &&
-            localStorage.getItem(`stws-site-consent-${customizationSite}`) ===
-              "true";
-          await desktopBridge.openSchoolSite(
-            destination,
-            permitted ? (custom?.css ?? "") : "",
-            permitted ? (custom?.js ?? "") : "",
-            bounds(),
-            target,
-          );
-        }
-      }
-      if (destination !== site) {
-        sessionStorage.setItem("stws-active-school-site", destination);
-        if (localStorage.getItem("stws-restore-school-page") === "true")
-          localStorage.setItem("stws-active-school-site", destination);
-        setSite(destination);
-      }
-      setCurrentUrl(target);
-      setStatus("");
+      await openTarget(target, destination);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Invalid address");
     }
   };
+
+  /** Shows `target` in its service's view and switches the picker to it. */
+  const openTarget = async (target: string, destination: SchoolSite) => {
+    setAddress(target);
+    setStatus("Opening…");
+    if (embedded && desktopBridge?.navigateSchoolWeb) {
+      const navigated = await desktopBridge.navigateSchoolWeb(
+        destination,
+        target,
+      );
+      if (!navigated) {
+        const customizationSite = official[destination].customization;
+        const custom = data.settings.customization?.sites[customizationSite];
+        const permitted =
+          platform === "native-desktop" &&
+          localStorage.getItem(`stws-site-consent-${customizationSite}`) ===
+            "true";
+        await desktopBridge.openSchoolSite(
+          destination,
+          permitted ? (custom?.css ?? "") : "",
+          permitted ? (custom?.js ?? "") : "",
+          bounds(),
+          target,
+        );
+      }
+    }
+    if (destination !== site) {
+      sessionStorage.setItem("stws-active-school-site", destination);
+      if (localStorage.getItem("stws-restore-school-page") === "true")
+        localStorage.setItem("stws-active-school-site", destination);
+      setSite(destination);
+    }
+    setCurrentUrl(target);
+    setStatus("");
+  };
+  const openTargetRef = useRef(openTarget);
+  openTargetRef.current = openTarget;
+
+  // `target="_blank"` links to another service (e.g. 教務Web → LMS) switch
+  // the picker, like a browser opening a new tab.
+  useEffect(
+    () =>
+      desktopBridge?.onSchoolWebOpen?.(({ site: destination, url }) => {
+        if (schoolWebExit.pending || !(destination in official)) return;
+        openTargetRef
+          .current(url, destination)
+          .catch((error) =>
+            setStatus(error instanceof Error ? error.message : "Unavailable"),
+          );
+      }),
+    [],
+  );
 
   const setPageZoom = (next: number) => {
     const value = Math.round(clamp(next, 0.5, 2) * 10) / 10;
