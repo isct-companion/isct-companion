@@ -223,6 +223,31 @@ impl<V: SecretVault> SchoolAuthService<V> {
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
         })
     }
+
+    pub fn matrix_file(&self) -> Result<String, String> {
+        let credentials = self
+            .load(SchoolAuthProfile::TokyoTech)?
+            .ok_or_else(|| "Save the Tokyo Tech Matrix before exporting it.".to_string())?;
+        matrix_file_json(&credentials.matrix)
+    }
+}
+
+const MATRIX_ROWS: usize = 7;
+const MATRIX_COLUMNS: usize = 10;
+
+/// Matrix files list the card column by column (A1…A7, B1…B7, …), while
+/// credentials keep it row by row (A1…J1, A2…). Mirrors `parseMatrixFile` in
+/// src/core/matrix-ocr.ts.
+fn matrix_file_json(matrix: &str) -> Result<String, String> {
+    let cells: Vec<char> = matrix.chars().collect();
+    if cells.len() != MATRIX_ROWS * MATRIX_COLUMNS {
+        return Err("Matrix must contain 7 rows × 10 columns.".into());
+    }
+    let by_column: Vec<String> = (0..MATRIX_COLUMNS)
+        .flat_map(|column| (0..MATRIX_ROWS).map(move |row| row * MATRIX_COLUMNS + column))
+        .map(|index| cells[index].to_string())
+        .collect();
+    serde_json::to_string_pretty(&by_column).map_err(|_| "Matrix could not be encoded.".to_string())
 }
 
 struct OtpConfig {
@@ -402,6 +427,30 @@ mod tests {
         credentials.validate(SchoolAuthProfile::TokyoTech).unwrap();
         assert_eq!(credentials.username, "user");
         assert_eq!(credentials.matrix, "A".repeat(70));
+    }
+
+    #[test]
+    fn matrix_file_lists_the_saved_card_column_by_column() {
+        let service = SchoolAuthService::new(MemoryVault::default());
+        assert!(service.matrix_file().is_err());
+        // Row-major A1…J1, A2…: cell i holds the i-th letter, wrapping after Z.
+        let matrix: String = (0..70u8).map(|i| (b'A' + i % 26) as char).collect();
+        service
+            .save(
+                SchoolAuthProfile::TokyoTech,
+                SchoolCredentials {
+                    username: "user".into(),
+                    password: "password".into(),
+                    otp_secret: String::new(),
+                    matrix,
+                },
+            )
+            .unwrap();
+        let file: Vec<String> = serde_json::from_str(&service.matrix_file().unwrap()).unwrap();
+        assert_eq!(file.len(), 70);
+        assert_eq!(file[..7], ["A", "K", "U", "E", "O", "Y", "I"]); // A1…A7
+        assert_eq!(file[7], "B"); // B1
+        assert_eq!(file[69], "R"); // J7
     }
 
     #[test]

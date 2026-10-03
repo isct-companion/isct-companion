@@ -159,6 +159,13 @@ describe("Tauri bridge contract", () => {
     });
   });
 
+  it("exports the saved Matrix through its own native command", async () => {
+    const invoke = vi.fn(async () => true);
+    const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
+    await expect(bridge.exportSchoolMatrix()).resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith("export_school_matrix", undefined);
+  });
+
   it("rejects malformed native return values", async () => {
     const bridge = createTauriDesktopBridge(
       vi.fn(async () => "yes"),

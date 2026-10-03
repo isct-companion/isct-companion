@@ -154,6 +154,8 @@ export interface DesktopBridge {
     credentials: SchoolCredentials,
   ): Promise<boolean>;
   deleteSchoolCredentials(profile: SchoolAuthProfile): Promise<boolean>;
+  /** Native save dialog; false when the person cancels. */
+  exportSchoolMatrix(): Promise<boolean>;
   testSchoolConnection(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -413,6 +415,7 @@ export function createTauriDesktopBridge(
       booleanCommand("save_school_credentials", { profile, credentials }),
     deleteSchoolCredentials: (profile) =>
       booleanCommand("delete_school_credentials", { profile }),
+    exportSchoolMatrix: () => booleanCommand("export_school_matrix"),
     testSchoolConnection: (profile, credentials) =>
       result("test_school_connection", { profile, credentials }),
     loginSchool: (profile) => result("login_school", { profile, bounds: null }),

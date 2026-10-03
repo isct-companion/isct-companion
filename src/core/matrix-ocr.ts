@@ -20,6 +20,31 @@ export function normalizeMatrixText(value: string): string {
     .slice(0, MATRIX_SIZE);
 }
 
+/** Matrix files list the card column by column (A1…A7, B1…B7, …) as a JSON
+ * array of 70 letters; cells here run row by row. Mirrors `matrix_file_json`
+ * in backend/src/school_auth.rs. */
+export function parseMatrixFile(text: string): string[] {
+  let cells: unknown;
+  try {
+    cells = JSON.parse(text);
+  } catch {
+    cells = undefined;
+  }
+  if (
+    !Array.isArray(cells) ||
+    cells.length !== MATRIX_SIZE ||
+    !cells.every((cell) => typeof cell === "string" && /^[A-Z]$/i.test(cell))
+  )
+    throw new Error(
+      "A Matrix file is a JSON array of 70 letters, column by column (A1…A7, B1…B7, …).",
+    );
+  return Array.from({ length: MATRIX_SIZE }, (_, index) => {
+    const row = Math.floor(index / MATRIX_COLUMNS);
+    const column = index % MATRIX_COLUMNS;
+    return (cells[column * MATRIX_ROWS + row] as string).toUpperCase();
+  });
+}
+
 /** Keep the established WebView decoding/resampling; native code consumes these
  * exact PNG pixels without resizing again. Inference and filters remain Rust. */
 export async function prepareMatrixCanvases(file: File) {

@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
         };
       }),
       deleteSchoolCredentials: vi.fn(async () => true),
+      exportSchoolMatrix: vi.fn(async () => true),
       onSchoolLoginStatus: vi.fn((callback: (event: unknown) => void) => {
         mocks.loginListeners.push(callback);
         return vi.fn();
@@ -84,14 +85,7 @@ function button(scope: ParentNode, name: string) {
   return match as HTMLButtonElement;
 }
 
-beforeEach(async () => {
-  vi.clearAllMocks();
-  mocks.order.length = 0;
-  mocks.loginListeners.length = 0;
-  mocks.sessionListeners.length = 0;
-  schoolSessions.reset();
-  host = document.createElement("div");
-  document.body.append(host);
+async function mount() {
   root = createRoot(host);
   await act(async () => {
     root.render(
@@ -101,6 +95,17 @@ beforeEach(async () => {
     );
   });
   await flush();
+}
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  mocks.order.length = 0;
+  mocks.loginListeners.length = 0;
+  mocks.sessionListeners.length = 0;
+  schoolSessions.reset();
+  host = document.createElement("div");
+  document.body.append(host);
+  await mount();
 });
 
 afterEach(() => {
@@ -354,4 +359,100 @@ describe("repeat matrix scans", () => {
       ).toBe("B");
     },
   );
+});
+
+// Cell i (row by row) holds the i-th letter; the file lists A1…A7, B1…B7, …
+const matrixLetters = Array.from({ length: 70 }, (_, i) =>
+  String.fromCharCode(65 + (i % 26)),
+);
+const matrixFile = Array.from(
+  { length: 70 },
+  (_, k) => matrixLetters[(k % 7) * 10 + Math.floor(k / 7)],
+);
+
+async function importMatrix(text: string) {
+  const input = host.querySelector<HTMLInputElement>(
+    'input[accept=".json,application/json"]',
+  )!;
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: [new File([text], "matrix.json", { type: "application/json" })],
+  });
+  await act(async () =>
+    input.dispatchEvent(new Event("change", { bubbles: true })),
+  );
+  await flush();
+}
+
+const matrixInputs = () => [
+  ...host
+    .querySelectorAll("section")[1]
+    .querySelectorAll<HTMLInputElement>(".matrixGrid input"),
+];
+
+describe("matrix files", () => {
+  it("imports a column-by-column file into the grid and saves it row by row", async () => {
+    await importMatrix(JSON.stringify(matrixFile, null, 2));
+    expect(matrixInputs().map((input) => input.value)).toEqual(matrixLetters);
+    expect(matrixInputs().every((input) => !input.dataset.confidence)).toBe(
+      true,
+    );
+    expect(notify).toHaveBeenCalledWith(
+      "Matrix imported. Verify it against your card, then Connect.",
+    );
+    const card = host.querySelectorAll("section")[1];
+    await act(async () => button(card, "Connect").click());
+    await flush();
+    expect(mocks.bridge.saveSchoolCredentials).toHaveBeenCalledWith(
+      "tokyo-tech",
+      expect.objectContaining({ matrix: matrixLetters.join("") }),
+    );
+  });
+
+  it("reports an invalid file and leaves the grid untouched", async () => {
+    await importMatrix(JSON.stringify(matrixFile.slice(1)));
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining("JSON array of 70 letters"),
+    );
+    expect(matrixInputs().every((input) => input.value === "")).toBe(true);
+  });
+
+  it("treats pasted Matrix JSON as a file, not as row-by-row letters", async () => {
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { getData: () => JSON.stringify(matrixFile) },
+    });
+    await act(async () => matrixInputs()[5].dispatchEvent(paste));
+    expect(matrixInputs().map((input) => input.value)).toEqual(matrixLetters);
+  });
+
+  it("offers Export only for a saved Matrix and asks before writing it", async () => {
+    const labels = () =>
+      [...host.querySelectorAll("section")[1].querySelectorAll("button")].map(
+        (item) => item.textContent?.trim(),
+      );
+    expect(labels()).not.toContain("Export");
+
+    act(() => root.unmount());
+    mocks.bridge.schoolCredentialStatus.mockResolvedValueOnce({
+      science: { saved: false, username: "", hasOtp: false, hasMatrix: false },
+      tokyoTech: {
+        saved: true,
+        username: "id",
+        hasOtp: false,
+        hasMatrix: true,
+      },
+    });
+    await mount();
+    const card = host.querySelectorAll("section")[1];
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    await act(async () => button(card, "Export").click());
+    expect(mocks.bridge.exportSchoolMatrix).not.toHaveBeenCalled();
+
+    confirm.mockReturnValueOnce(true);
+    await act(async () => button(card, "Export").click());
+    await flush();
+    expect(mocks.bridge.exportSchoolMatrix).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledWith("Matrix exported.");
+  });
 });

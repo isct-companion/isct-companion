@@ -16,6 +16,7 @@ import {
   recognizeMatrixImage,
   matrixConfidence,
   normalizeMatrixText,
+  parseMatrixFile,
 } from "./matrix-ocr";
 beforeEach(() => {
   vi.clearAllMocks();
@@ -108,4 +109,42 @@ it("releases the image bitmap when canvas preparation fails", async () => {
   ).rejects.toThrow("Cannot prepare");
   expect(mocks.bitmap.close).toHaveBeenCalledOnce();
   expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+// Same card as the backend export test: cell i (row by row) holds the i-th letter.
+const rowMajor = Array.from({ length: 70 }, (_, i) =>
+  String.fromCharCode(65 + (i % 26)),
+);
+const matrixFile = Array.from(
+  { length: 70 },
+  (_, k) => rowMajor[(k % 7) * 10 + Math.floor(k / 7)],
+);
+it("reads Matrix files column by column into row-by-row cells", () => {
+  expect(matrixFile.slice(0, 8)).toEqual([
+    "A",
+    "K",
+    "U",
+    "E",
+    "O",
+    "Y",
+    "I",
+    "B",
+  ]);
+  expect(parseMatrixFile(JSON.stringify(matrixFile, null, 2))).toEqual(
+    rowMajor,
+  );
+  expect(
+    parseMatrixFile(
+      JSON.stringify(matrixFile.map((cell) => cell.toLowerCase())),
+    ),
+  ).toEqual(rowMajor);
+});
+it.each([
+  ["invalid JSON", "[A, B]"],
+  ["an object", JSON.stringify({ matrix: matrixFile })],
+  ["69 cells", JSON.stringify(matrixFile.slice(1))],
+  ["a digit", JSON.stringify(["1", ...matrixFile.slice(1)])],
+  ["two letters in a cell", JSON.stringify(["AB", ...matrixFile.slice(1)])],
+])("rejects a Matrix file with %s", (_, text) => {
+  expect(() => parseMatrixFile(text)).toThrow("JSON array of 70 letters");
 });
