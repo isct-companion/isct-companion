@@ -1,5 +1,6 @@
 import { t } from "../../i18n";
 import { useState } from "react";
+import { blockLanes } from "./lanes";
 import {
   teachingPeriods,
   timetableOffset,
@@ -16,10 +17,14 @@ export const dayNames = [
   "Sunday",
 ];
 
+const CLOCK = /^\d{1,2}:\d{2}$/;
+// Classes run Monday to Saturday; Sunday has no teaching slots to pick.
+const SLOT_DAYS = 6;
+
 export type Block = {
   key: string;
   id: string;
-  kind: "course" | "event";
+  kind: "course" | "event" | "plan";
   title: string;
   subtitle?: string;
   room: string;
@@ -57,6 +62,8 @@ export function WeekTimetable({
   showNow = false,
   initialDay = 1,
   emptyLabel = "Nothing scheduled",
+  onSlot,
+  activeSlots,
 }: {
   days: DayColumn[];
   onSelect?: (block: Block) => void;
@@ -64,6 +71,10 @@ export function WeekTimetable({
   showNow?: boolean;
   initialDay?: number;
   emptyLabel?: string;
+  /** Clicking the free area of a teaching slot (day is 1 = Monday); `append` with ⌘/Ctrl. */
+  onSlot?: (day: number, from: number, to: number, append: boolean) => void;
+  /** Slots to highlight, as `${day}:${from}-${to}`. */
+  activeSlots?: ReadonlySet<string>;
 }) {
   const [day, setDay] = useState(
     Math.min(Math.max(initialDay, 1), Math.max(days.length, 1)),
@@ -71,7 +82,7 @@ export function WeekTimetable({
   const nowOffset = showNow ? timetableOffset(jstMinutes()) : undefined;
   const agenda = days[day - 1]?.blocks ?? [];
   return (
-    <div className="tt">
+    <div className="tt" style={{ "--days": days.length } as React.CSSProperties}>
       <div className="ttGrid" role="grid" aria-label={t("Weekly timetable")}>
         <div className="ttCorner" />
         {days.map((column) => (
@@ -103,11 +114,32 @@ export function WeekTimetable({
             );
           })}
         </div>
-        {days.map((column) => (
+        {days.map((column, dayIndex) => (
           <div
             className={`ttCol${column.isToday ? " today" : ""}`}
             key={column.label}
           >
+            {onSlot &&
+              dayIndex < SLOT_DAYS &&
+              teachingPeriods
+                .filter((period) => period.periods.length > 0)
+                .map((period) => {
+                  const position = timetablePosition(period.start, period.end);
+                  const [from, to] = period.periods as readonly [number, number];
+                  const active = activeSlots?.has(`${dayIndex + 1}:${from}-${to}`);
+                  return (
+                    <button
+                      type="button"
+                      className={`ttSlot${active ? " active" : ""}`}
+                      key={`slot-${period.label}`}
+                      aria-pressed={Boolean(active)}
+                      aria-label={`${t(column.label)} ${period.label}`}
+                      title={t("Find courses at this time")}
+                      style={{ top: `${position.topPercent}%`, height: `${position.heightPercent}%` }}
+                      onClick={(event) => onSlot(dayIndex + 1, from, to, event.metaKey || event.ctrlKey)}
+                    />
+                  );
+                })}
             {teachingPeriods.map((period) => {
               const position = timetablePosition(period.start, period.end);
               return (
@@ -124,11 +156,16 @@ export function WeekTimetable({
                 />
               );
             })}
-            {column.blocks.map((block) => {
+            {(() => {
+              const lanes = blockLanes(column.blocks.filter((block) => CLOCK.test(block.startTime) && CLOCK.test(block.endTime)));
+              return column.blocks.map((block) => {
+              // A block without readable times is left out rather than breaking the page.
+              if (!CLOCK.test(block.startTime) || !CLOCK.test(block.endTime)) return null;
               const position = timetablePosition(
                 block.startTime,
                 block.endTime,
               );
+              const lane = lanes.get(block.key) ?? { lane: 0, lanes: 1 };
               return (
                 <UiButton
                   type="button"
@@ -146,18 +183,22 @@ export function WeekTimetable({
                       "--course": block.color,
                       top: `${position.topPercent}%`,
                       height: `${position.heightPercent}%`,
+                      // Overlapping blocks share the column side by side.
+                      "--lane": lane.lane,
+                      "--lanes": lane.lanes,
                     } as React.CSSProperties
                   }
-                  title={`${block.title} · ${block.startTime}–${block.endTime}${block.room ? ` · ${block.room}` : ""}`}
+                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.startTime}–${block.endTime}${block.room ? ` · ${block.room}` : ""}`}
                   key={block.key}
                   onClick={() => onSelect?.(block)}
                 >
                   <b>{block.title}</b>
-                  {block.subtitle && <span>{block.subtitle}</span>}
-                  {block.room && <small>{block.room}</small>}
+                  {block.room && <small className="ttRoom">{block.room}</small>}
+                  {block.subtitle && <span className="ttCode">{block.subtitle}</span>}
                 </UiButton>
               );
-            })}
+              });
+            })()}
             {column.isToday && nowOffset !== undefined && (
               <i className="ttNow" style={{ top: `${nowOffset}%` }} />
             )}

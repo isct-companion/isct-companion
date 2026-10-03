@@ -25,7 +25,7 @@ describe("refactored application architecture", () => {
 
   it("keeps user CSS and JavaScript customization in Settings", () => {
     const advanced = read("src/pages/settings/AdvancedSettings.tsx");
-    expect(advanced).toContain("appCss");
+    expect(advanced).not.toContain("appCss");
     expect(advanced).toContain("custom.sites[site].css");
     expect(advanced).toContain("custom.sites[site].js");
     const bridge = read("src/platform/desktop-bridge.ts");
@@ -33,11 +33,13 @@ describe("refactored application architecture", () => {
     expect(bridge).toContain("js: string");
   });
 
-  it("registers Tauri Store as the native shared data layer", () => {
-    expect(read("backend/src/lib.rs")).toContain("tauri_plugin_store::Builder");
-    expect(read("backend/capabilities/main.json")).toContain("store:default");
+  it("uses the Rust-owned SQLite database as the native shared data layer", () => {
+    expect(read("backend/src/lib.rs")).toContain("DataStore::initialize");
+    expect(read("backend/src/data/migrations.rs")).toContain(
+      "CREATE TABLE timetable_courses",
+    );
     expect(read("src/storage/repository.ts")).toContain(
-      'new LazyStore("workspace.json"',
+      'invoke<Workspace>("load_workspace")',
     );
   });
 

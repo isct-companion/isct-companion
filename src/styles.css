@@ -212,6 +212,11 @@ p {
   height: 100dvh;
   overflow: hidden;
 }
+/* Courses fits the window; the syllabus list scrolls inside its panel. */
+.workspaceMain.coursesMain {
+  height: 100dvh;
+  overflow: hidden;
+}
 .workspaceMain.webMain {
   padding: 0;
   padding-inline-start: var(--app-shell-navbar-offset, 0rem);
@@ -328,7 +333,7 @@ p {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 50px repeat(7, minmax(0, 1fr));
+  grid-template-columns: 50px repeat(var(--days, 7), minmax(0, 1fr));
   grid-template-rows: 40px minmax(0, 1fr);
 }
 .ttCorner,
@@ -398,6 +403,27 @@ p {
   box-shadow:
     inset 1px 0 color-mix(in srgb, var(--accent) 18%, transparent),
     inset -1px 0 color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.ttSlot {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  z-index: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.ttSlot:hover {
+  background: color-mix(in srgb, var(--accent, #1f4e9a) 7%, transparent);
+}
+.ttSlot.active {
+  background: color-mix(in srgb, var(--accent, #1f4e9a) 12%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent, #1f4e9a);
+}
+.ttSlot:focus-visible {
+  outline: 2px solid var(--accent, #1f4e9a);
+  outline-offset: -2px;
 }
 .ttRule,
 .ttLunch {
@@ -493,7 +519,7 @@ p {
 }
 .ttDayTabs {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(var(--days, 7), 1fr);
   border-bottom: 1px solid var(--line);
 }
 .ttDayTabs button {
@@ -552,6 +578,8 @@ p {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
+  /* One row the height of the page: long side panels scroll instead of stretching the timetable. */
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
 }
 .ttCard {
@@ -777,6 +805,54 @@ p {
   background: var(--surface);
   display: flex;
   flex-direction: column;
+}
+.coursePlanner {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.coursePlannerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.coursePlanner .catalogControls {
+  padding: 10px 14px;
+}
+.coursePlanner .catalogResult {
+  padding: 12px 14px;
+  gap: 8px;
+}
+.coursePlanner .catalogCount {
+  padding: 0 14px 8px;
+}
+.catalogDepartmentToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.catalogDepartmentToggle label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.catalogDepartmentToggle small {
+  margin-left: auto;
+}
+.recommendationBadge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
 }
 .catalogCount {
   color: var(--muted);
@@ -1924,18 +2000,6 @@ p {
   color: var(--muted);
   font-size: calc(13px * var(--text));
 }
-.todayEmpty {
-  flex: 1;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 18px;
-}
-.todayEmpty h2 {
-  font-size: clamp(24px, 4vw, 42px);
-  letter-spacing: -0.04em;
-}
-
 .scheduleHeader {
   padding: 14px 0 12px;
   border-bottom: 1px solid var(--line);
@@ -2585,3 +2649,372 @@ p {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* ---------- Course finder (address-bar style search) ---------- */
+.courseFinder { display: flex; flex-direction: column; min-height: 0; }
+.courseFinder > header { padding-block: 8px; }
+.finderTitle { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.finderTitle span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.courseFinder .courseListTools { flex: none; }
+.courseFinder .courseListTools button { white-space: nowrap; }
+.finderEmpty { display: grid; justify-items: center; gap: 10px; }
+.finderStatus .textButton, .finderFoot .textButton { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
+.finderStatus .textButton { margin-left: auto; }
+.finderWarn { color: var(--warn); flex-basis: 100%; }
+.finderPager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 6px; border-top: 1px solid var(--line); font-size: calc(12px * var(--text)); color: var(--muted); }
+.finderPager .textButton { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.finderPager .textButton:disabled { color: var(--muted); opacity: 0.5; cursor: default; }
+.courseFinder .finderResults { flex: 1; min-height: 0; overflow-y: auto; }
+.intensiveLane { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; min-height: 36px; }
+.intensiveLane > b, .intensiveToggle { font: inherit; font-size: calc(12px * var(--text)); font-weight: 600; color: var(--muted); white-space: nowrap; }
+.intensiveToggle { border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; padding: 4px 8px; cursor: pointer; }
+.intensiveToggle:hover { background: var(--accent-soft); color: var(--accent); }
+.intensiveToggle.active { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.intensiveLane > div { display: flex; gap: 6px; overflow-x: auto; min-width: 0; }
+.intensiveLane > div button { font: inherit; font-size: calc(12px * var(--text)); white-space: nowrap; padding: 3px 8px; border: 0; border-left: 3px solid var(--course, var(--accent)); border-radius: 4px; background: var(--surface-2); color: var(--ink); cursor: pointer; }
+.intensiveLane > div small { color: var(--muted); font-size: calc(11.5px * var(--text)); }
+.finderOmni { position: relative; padding: 8px 12px 4px; }
+.finderBar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  border: 1px solid var(--line-strong); border-radius: 10px; padding: 4px 6px; background: var(--surface); cursor: text;
+}
+.finderBar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.finderBar input { flex: 1 1 140px; min-width: 120px; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: calc(14px * var(--text)); padding: 4px 2px; }
+.finderPillGroup { display: inline-flex; align-items: center; gap: 2px; }
+.finderOr { color: var(--muted); font-size: 11px; }
+.finderPill {
+  display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 999px; padding: 2px 8px; cursor: pointer;
+  font: inherit; font-size: calc(12px * var(--text)); background: var(--accent-soft); color: var(--accent);
+}
+.finderPill b { font-weight: 500; font-size: calc(10.5px * var(--text)); opacity: 0.75; }
+.finderPill span { opacity: 0.6; }
+.finderPill:hover span { opacity: 1; }
+.finderPill.mark, .finderPill.group { background: var(--warn-soft); color: var(--warn); }
+.finderPill.code { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.finderPill.quarter, .finderPill.text { background: var(--surface-3); color: var(--ink); }
+.finderPill.exclude { background: var(--danger-soft); color: var(--danger); }
+.finderPill.free, .finderPill.format, .finderPill.lang, .finderPill.kind, .finderPill.dept, .finderPill.level, .finderPill.credits { background: var(--ok-soft); color: var(--ok); }
+.finderLocal { font-style: normal; font-size: calc(9.5px * var(--text)); border-radius: 3px; padding: 0 3px; background: var(--surface); opacity: 0.8; }
+.finderSuggestions {
+  position: absolute; left: 12px; right: 12px; top: calc(100% - 2px); z-index: 20; background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); max-height: 340px; overflow-y: auto; padding-block: 4px;
+}
+.finderHead { font-size: calc(10.5px * var(--text)); font-weight: 600; letter-spacing: 0.04em; color: var(--muted); padding: 6px 12px 2px; }
+.finderSuggestion { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 12px; cursor: pointer; font-size: calc(13px * var(--text)); }
+.finderSuggestion[aria-selected="true"] { background: var(--accent-soft); }
+.finderSuggestion b { font-weight: 500; font-size: calc(10.5px * var(--text)); color: var(--muted); margin-right: 6px; }
+.finderSuggestion em { font-style: normal; color: var(--muted); font-size: calc(11.5px * var(--text)); margin-left: 6px; }
+.finderSuggestion small { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.finderSuggestion small.zero { color: var(--danger); }
+.finderSuggestion mark, .finderRow mark { background: var(--warn-soft); color: inherit; border-radius: 2px; }
+.finderCheck { font-style: normal; color: var(--ok); margin-right: 5px; }
+.finderKeys { display: flex; flex-wrap: wrap; gap: 12px; padding: 6px 12px 2px; margin-top: 4px; border-top: 1px solid var(--line); font-size: calc(10.5px * var(--text)); color: var(--muted); }
+.finderKeys kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
+.finderStatus { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; padding: 2px 14px 6px; font-size: calc(11.5px * var(--text)); color: var(--muted); }
+.finderError { color: var(--danger); }
+.finderResults { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); }
+.finderRow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--line); }
+.finderRow:hover, .finderRow.active { background: var(--surface-2); }
+.finderRow.active { box-shadow: inset 3px 0 0 var(--accent); }
+.finderRow.placed .finderMain { opacity: 0.6; }
+.finderRow input { accent-color: var(--accent); }
+.finderMain { display: grid; gap: 1px; min-width: 0; border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.finderMain .finderBadges { display: flex; gap: 4px; justify-items: start; }
+.finderMain .finderBadges:empty { display: none; }
+.finderAdd { font: inherit; font-size: calc(12px * var(--text)); padding: 3px 10px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; white-space: nowrap; }
+.finderAdd:hover { background: var(--accent); color: var(--surface); }
+.finderPlaced { font-style: normal; font-size: calc(11px * var(--text)); color: var(--ok); white-space: nowrap; padding-inline: 4px; }
+.finderMain b { font-weight: 500; font-size: calc(13px * var(--text)); }
+.finderMain small { color: var(--muted); font-size: calc(11.5px * var(--text)); }
+.finderMain code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); }
+.finderMain em { font-style: normal; color: var(--accent); }
+.finderBadges { display: grid; gap: 3px; justify-items: end; }
+.finderBadges i { font-style: normal; font-size: calc(10.5px * var(--text)); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
+.finderBadges .rec { background: var(--warn-soft); color: var(--warn); }
+.finderBadges .placed { background: var(--ok-soft); color: var(--ok); }
+.finderBadges .clash { background: var(--danger-soft); color: var(--danger); }
+.finderFoot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: calc(12.5px * var(--text)); font-variant-numeric: tabular-nums; }
+.finderFoot > span { flex: 1; color: var(--muted); }
+
+/* Keep-alive page slots: inactive pages stay mounted but are not shown. */
+.pageSlot { display: contents; }
+.pageSlot.inactive { display: none; }
+
+/* ---------- Courses: syllabus side panel and course details over it ---------- */
+.coursesLeft { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.coursesLeft > .ttCard { flex: 1; }
+.coursesSide { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.coursesSide > .courseFinder { flex: 1; }
+.coursesSidePanel { position: absolute; inset: 0; z-index: 5; display: flex; animation: enter 0.14s ease; }
+.coursesSidePanel > .coursePanel { flex: 1; }
+.coursePanel > header { border-top: 3px solid var(--course, var(--accent)); padding-block: 8px; }
+.coursePanel .courseListTools a { color: var(--muted); font-size: calc(11px * var(--text)); padding: 5px 7px; text-decoration: none; white-space: nowrap; }
+.coursePanel .courseListTools a:hover { color: var(--ink); }
+.coursePanel .courseListTools button { white-space: nowrap; }
+.coursePanelBody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px; display: grid; align-content: start; gap: 12px; }
+.coursePanelBody > * { min-width: 0; }
+.coursePanelBody > dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: calc(12.5px * var(--text)); }
+.coursePanelBody > dl > dt { color: var(--muted); }
+.coursePanelBody > dl > dd { margin: 0; }
+/* The side panel is narrow: syllabus labels sit above their values. */
+.coursePanelBody .syllabusMetadata > div { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 6px 0; font-size: calc(12.5px * var(--text)); }
+.coursePanelBody .syllabusMetadata dt { font-size: calc(11.5px * var(--text)); }
+.coursePanelBody .syllabusLessonPlan > div { grid-template-columns: 56px minmax(0, 1fr); gap: 8px; font-size: calc(12.5px * var(--text)); }
+.coursePanelBody .syllabusProse { font-size: calc(12.5px * var(--text)); overflow-wrap: anywhere; }
+.coursePanelFoot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.finderTitle b small { font-weight: 400; color: var(--muted); font-size: calc(11.5px * var(--text)); }
+
+.pageError { flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; color: var(--ink); background: var(--bg, transparent); }
+.pageError code { max-width: 60ch; white-space: pre-wrap; color: var(--danger); font-size: calc(12px * var(--text)); }
+.finderAdd.replace { border-color: var(--warn); color: var(--warn); }
+.finderAdd.replace:hover { background: var(--warn); color: var(--surface); }
+.coursePanelNote { margin-right: auto; align-self: center; color: var(--warn); font-size: calc(12px * var(--text)); }
+
+/* Courses bar: GPA / credits chip */
+.academicChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.academicChip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.academicChip:hover { border-color: var(--line-strong); }
+.academicChipTerm { padding-left: 10px; border-left: 1px solid var(--line); }
+.academicPopover table { border-collapse: collapse; font-size: 12px; }
+.academicPopover th,
+.academicPopover td { padding: 3px 10px; text-align: right; font-variant-numeric: tabular-nums; }
+.academicPopover tbody th { text-align: left; color: var(--muted); font-weight: 500; }
+.academicPopover thead th { color: var(--muted); font-weight: 500; }
+.academicPopover footer { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.academicPopover footer small { flex: 1; color: var(--muted); }
+
+/* LMS pull review */
+.mergeBody { display: flex; flex-direction: column; gap: 12px; }
+.mergeGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 12px;
+  height: min(60vh, 560px);
+}
+.mergeSides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+.mergeColumn {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.mergeColumn > header {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.mergeColumn > header span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.mergeList { flex: 1; overflow: auto; padding: 6px; display: grid; align-content: start; gap: 4px; }
+.mergeEmpty { padding: 10px; color: var(--muted); }
+.mergeItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.mergeItem.common { cursor: default; flex-direction: column; align-items: flex-start; gap: 0; }
+.mergeItem > span { display: grid; flex: 1; min-width: 0; }
+.mergeItem b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mergeItem small { color: var(--muted); font-size: 11px; }
+.mergeItem.conflict {
+  border-color: var(--conflict);
+  box-shadow: inset 4px 0 0 var(--conflict);
+  background: color-mix(in srgb, var(--conflict) 9%, var(--surface));
+}
+.mergeConflictBadge { background: var(--conflict); flex: none; }
+.mergeFoot { display: flex; align-items: center; gap: 8px; }
+.mergeFoot small { flex: 1; color: var(--muted); }
+.mergeItem.retime { border-color: var(--warn); background: var(--warn-soft); }
+.dueEarlier { margin-top: 6px; }
+.dueEarlier > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 0; list-style-position: inside; }
+.dueLater { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.dueLater > small { display: block; color: var(--muted); font-size: 12px; padding-bottom: 4px; }
+
+/* Today: assignment rows (title + course stacked, deadline aligned right) */
+.dueRow {
+  grid-template-columns: 3px minmax(0, 1fr) auto;
+}
+.dueAssignment {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dueAssignment > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.dueRow .textButton { opacity: 0; transition: opacity 120ms; }
+.dueRow:hover .textButton,
+.dueRow .textButton:focus-visible { opacity: 1; }
+.moreToggle { justify-self: start; margin-top: 4px; }
+.quietEmpty.compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding: 8px 0 10px;
+}
+.nextClass {
+  color: var(--ink);
+  font-size: calc(13px * var(--text));
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.nextClass:hover b { text-decoration: underline; }
+.nextClass span { color: var(--muted); }
+/* Smaller date header so classes and deadlines start higher. */
+.todayHeader { padding: 12px 4px 14px; }
+.todayHeader h1 { font-size: clamp(28px, 3vw, 40px); }
+.todaySection { padding-top: 16px; }
+
+/* Shared course details (Courses panel and Today/Schedule drawer) */
+.courseDetails {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.courseDetailsBody { flex: 1; min-height: 0; }
+.courseDetailsBody dl {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px 12px;
+  padding: 14px 16px 6px;
+  font-size: 13px;
+}
+.courseDetailsBody dt { color: var(--muted); }
+.courseDetailsLinks { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 16px 14px; }
+.courseDetailsLinks .officialLink {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 4px 3px 10px;
+}
+.officialLink { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.officialLink button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.officialLink button:hover { text-decoration: underline; }
+.officialLink .officialOutside {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-align: center;
+}
+.officialLink .officialOutside:hover { background: var(--surface-2); text-decoration: none; }
+.detailsList { padding: 6px 16px 16px; display: grid; gap: 2px; }
+.detailsList > header { display: flex; justify-content: space-between; min-height: 26px; }
+.detailsList h4 {
+  margin: 10px 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.detailsRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  font-size: 13px;
+}
+.detailsRow > b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detailsRow small { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.detailsRow small.overdue { color: var(--danger); }
+.detailsRow small.warning { color: var(--warn); }
+.coursePanel { display: flex; flex-direction: column; min-height: 0; }
+
+/* Timetable blocks: room always visible, code only when the column is wide,
+   title at most two lines; overlapping blocks get side-by-side lanes. */
+.ttCol { container-type: inline-size; }
+.tt .ttBlock {
+  left: calc(3px + (100% - 6px) * var(--lane, 0) / var(--lanes, 1));
+  right: auto;
+  width: calc((100% - 6px) / var(--lanes, 1) - 2px);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tt .ttBlock b {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  flex: none;
+}
+.tt .ttBlock .ttRoom {
+  flex: none;
+  color: var(--ink);
+  opacity: 0.72;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt .ttBlock .ttCode { display: none; }
+@container (min-width: 150px) {
+  .tt .ttBlock .ttCode {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+.tt .ttBlock.conflict { z-index: 3; }
+.weekLength {
+  margin-left: auto;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: calc(11.5px * var(--text));
+  color: var(--muted);
+  background: transparent;
+}
+.weekLength:hover { color: var(--ink); border-color: var(--line-strong); }

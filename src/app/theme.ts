@@ -60,7 +60,7 @@ export const appTheme = createTheme({
   },
 });
 
-// Keep the public CSS variables stable so user-injected App CSS remains valid.
+// Keep the public CSS variables stable; per-site CSS and hooks may rely on them.
 export const cssVariablesResolver: CSSVariablesResolver = () => ({
   variables: {
     "--mantine-primary-color-filled": "var(--accent)",

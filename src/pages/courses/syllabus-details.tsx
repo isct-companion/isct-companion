@@ -1,14 +1,8 @@
+import { ExternalLink } from "../../components/ExternalLink";
 import { t } from "../../i18n";
-import { useTranslation } from "react-i18next";
-import {
-  hydrateSyllabusLanguages,
-  syllabusLanguageUrl,
-} from "../../cache/syllabus-languages";
 import { useEffect, useRef, useState } from "react";
 import type { SyllabusCourse } from "../../core/syllabus";
 import {
-  cacheSyllabusContent,
-  readSyllabusContent,
   syllabusIdentity,
   validSyllabusContent,
   type SyllabusContent,
@@ -21,55 +15,38 @@ export function SyllabusDetails({
   url: string;
   fetchCourse?: (url: string) => Promise<SyllabusCourse>;
 }) {
-  const { i18n } = useTranslation();
-  const identity = syllabusIdentity(url)
-    ? syllabusLanguageUrl(url, i18n.language)
-    : undefined;
-  const [content, setContent] = useState<SyllabusContent | undefined>(() =>
-    identity ? readSyllabusContent(identity) : undefined,
-  );
+  const identity = syllabusIdentity(url);
+  const [content, setContent] = useState<SyllabusContent>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const generation = useRef(0);
   const fetchRef = useRef(fetchCourse);
   fetchRef.current = fetchCourse;
-  async function refresh(target: string, request: number, force = false) {
+  async function refresh(target: string, request: number) {
     if (!fetchRef.current) return;
     setBusy(true);
     setError("");
     try {
-      const course = await hydrateSyllabusLanguages(
-        target,
-        i18n.language,
-        fetchRef.current,
-        force,
-      );
+      const course = await fetchRef.current(target);
+      // The same course in either language (English sources carry ?hl=en).
+      const page = (value: string) => syllabusIdentity(value)?.replace(/\?hl=en$/, "");
       if (
         !validSyllabusContent(course.content) ||
-        syllabusIdentity(course.content.sourceUrl) !==
-          syllabusIdentity(course.url)
+        page(course.content.sourceUrl) !== page(course.url)
       )
         throw new Error("Invalid syllabus");
       if (request !== generation.current) return;
-      const persisted = cacheSyllabusContent(course.content);
       setContent(course.content);
-      if (!persisted)
-        setError("Showing fetched syllabus. Local cache is unavailable.");
     } catch {
       if (request === generation.current)
-        setError(
-          readSyllabusContent(target)
-            ? "Could not refresh the syllabus. Saved content is kept."
-            : "Could not fetch the syllabus. Try Refresh.",
-        );
+        setError(t("The syllabus could not be loaded."));
     } finally {
       if (request === generation.current) setBusy(false);
     }
   }
   useEffect(() => {
     const request = ++generation.current;
-    const cached = identity ? readSyllabusContent(identity) : undefined;
-    setContent(cached);
+    setContent(undefined);
     setError("");
     setBusy(false);
     const timer =
@@ -83,44 +60,11 @@ export function SyllabusDetails({
   }, [identity, Boolean(fetchCourse)]);
   return (
     <section className="syllabusDetails" aria-label={t("Official syllabus")}>
-      <div className="syllabusDetailsHeader">
-        <div>
-          <h2>{t("Official syllabus")}</h2>
-          <p>{t("Reference content. Your course edits stay unchanged.")}</p>
-        </div>
-        {identity && (
-          <div className="syllabusDetailsActions">
-            <a href={identity} target="_blank" rel="noreferrer">
-              {t("Open source ↗")}
-            </a>
-            <UiButton
-              className="button small"
-              type="button"
-              disabled={!fetchCourse || busy}
-              onClick={() => void refresh(identity, ++generation.current, true)}
-            >
-              {busy ? "Refreshing…" : "Refresh"}
-            </UiButton>
-          </div>
-        )}
-      </div>
-      <p className="syllabusStatus" role="status">
-        {error ||
-          (content
-            ? `${t("Updated")} ${new Date(content.fetchedAt).toLocaleString(i18n.language)}` +
-              ` · ${content.sourceLanguage.toUpperCase()}${content.sourceUpdated ? ` · Source updated ${content.sourceUpdated}` : ""}`
-            : !identity
-              ? "Add an official syllabus course URL above to load its details."
-              : busy
-                ? "Fetching public course details…"
-                : "Syllabus not fetched. Connect through the macOS app to load it.")}
-      </p>
-      {content &&
-        content.sourceLanguage !== (i18n.language === "ja" ? "ja" : "en") && (
-          <p className="syllabusStatus">
-            {t("Fetched syllabus language differs from your preference")}
-          </p>
-        )}
+      {(error || (!content && busy)) && (
+        <p className="syllabusStatus" role="status">
+          {error || t("Loading the syllabus…")}
+        </p>
+      )}
       {content && (
         <>
           {!!content.metadata.length && (
@@ -161,9 +105,9 @@ export function SyllabusDetails({
                   )}
                   {section.links.map((link, j) => (
                     <p key={`link-${j}`}>
-                      <a href={link.url} target="_blank" rel="noreferrer">
+                      <ExternalLink href={link.url}>
                         {link.label || link.url} ↗
-                      </a>
+                      </ExternalLink>
                     </p>
                   ))}
                 </div>
@@ -209,4 +153,3 @@ export function SyllabusDetails({
     </section>
   );
 }
-import { UiButton } from "../../components/mantine";

@@ -23,7 +23,7 @@ const serviceTiers: Array<{
     frequency: "medium",
     sites: ["science-portal", "tokyo-portal", "tokyo-mail", "syllabus"],
   },
-  { frequency: "low", sites: ["library"] },
+  { frequency: "low", sites: ["library", "tsubame"] },
 ];
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -51,6 +51,7 @@ const siteForAddress = (raw: string): SchoolSite | undefined => {
   if (host === "mailv4.m.titech.ac.jp") return "tokyo-mail";
   if (host === "kyomu0.gakumu.titech.ac.jp") return "kyomu";
   if (host === "request.libra.titech.ac.jp") return "library";
+  if (host === "portal.t4.gsic.titech.ac.jp") return "tsubame";
   if (host === "syllabus.s.isct.ac.jp") return "syllabus";
   return undefined;
 };
@@ -63,7 +64,10 @@ export function Web({
   requestedUrl,
   returnLabel,
   onReturn,
+  active = true,
 }: {
+  /** False while another page is shown; the page stays mounted (keep alive). */
+  active?: boolean;
   platform: Platform;
   data: Workspace;
   notify: (s: string) => void;
@@ -73,7 +77,7 @@ export function Web({
   onReturn?: () => void;
 }) {
   const [site, setSite] = useState<SchoolSite>(() => {
-    if (requestedUrl) return "science-lms";
+    if (requestedUrl) return siteForAddress(requestedUrl) ?? "science-lms";
     const active = sessionStorage.getItem("stws-active-school-site");
     if (active && active in official) return active as SchoolSite;
     if (localStorage.getItem("stws-restore-school-page") !== "true")
@@ -149,7 +153,13 @@ export function Web({
   }, []);
 
   useEffect(() => {
-    if (!embedded || !desktopBridge) return;
+    if (!embedded || !desktopBridge || !active) return;
+    // Settings → "Show page" asks for a site while this page is kept alive.
+    const requested = sessionStorage.getItem("stws-active-school-site");
+    if (!requestedUrl && requested && requested in official && requested !== site) {
+      setSite(requested as SchoolSite);
+      return;
+    }
     let cancelled = false;
     const customizationSite = official[site].customization;
     const custom = data.settings.customization?.sites[customizationSite];
@@ -163,7 +173,9 @@ export function Web({
         permitted ? (custom?.css ?? "") : "",
         permitted ? (custom?.js ?? "") : "",
         bounds(),
-        site === "science-lms" ? requestedUrl : undefined,
+        requestedUrl && siteForAddress(requestedUrl) === site
+          ? requestedUrl
+          : undefined,
       )
       .then(async (state) => {
         if (cancelled) return;
@@ -199,7 +211,7 @@ export function Web({
     };
     // Site changes intentionally reuse the resident view and its shared session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site, embedded]);
+  }, [site, embedded, active]);
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;

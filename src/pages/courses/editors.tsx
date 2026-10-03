@@ -1,9 +1,16 @@
+import { COURSE_PALETTE } from "../../core/course-colors";
 import { t } from "../../i18n";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import { SyllabusDetails } from "./syllabus-details";
 import type { SyllabusCourse } from "../../core/syllabus";
 import { useState, type FormEvent } from "react";
-import type { Course, Meeting, PersonalEvent, TermId } from "../../core/model";
+import type {
+  Course,
+  InstructionLanguage,
+  Meeting,
+  PersonalEvent,
+  TermId,
+} from "../../core/model";
 import { classSlots } from "../../core/timetable-layout";
 import { dayNames } from "../../components/timetable/timetable";
 import {
@@ -16,16 +23,7 @@ import {
   Text,
 } from "@mantine/core";
 
-const palette = [
-  "#355ba7",
-  "#4f8a8b",
-  "#668879",
-  "#7b8f3a",
-  "#b0713f",
-  "#a34e5d",
-  "#806a9d",
-  "#5c7d93",
-];
+const palette = COURSE_PALETTE;
 
 type MeetingRow = {
   days: number[];
@@ -40,7 +38,7 @@ export type CourseDraft = {
   code: string;
   instructor: string;
   credits: number;
-  language: string;
+  language: InstructionLanguage;
   color: string;
   url: string;
   meetings: Meeting[];
@@ -114,7 +112,7 @@ export function CourseEditor({
     code: course?.code ?? "",
     instructor: course?.instructor ?? "",
     credits: course?.credits ?? 2,
-    language: course?.language ?? "Japanese",
+    language: course?.instructionLanguage ?? "ja",
     color: course?.color ?? palette[0],
     url: course?.url ?? "",
     onTimetable,
@@ -222,14 +220,16 @@ export function CourseEditor({
               <UiSelect
                 value={values.language}
                 onChange={(e) =>
-                  setValues({ ...values, language: e.target.value })
+                  setValues({
+                    ...values,
+                    language: e.target.value as InstructionLanguage,
+                  })
                 }
               >
-                {["Japanese", "English", "Japanese / English", "Other"].map(
-                  (option) => (
-                    <option key={option}>{option}</option>
-                  ),
-                )}
+                <option value="ja">Japanese</option>
+                <option value="en">English</option>
+                <option value="ja-en">Japanese / English</option>
+                <option value="other">Other</option>
               </UiSelect>
             </label>
             <div className="field">
