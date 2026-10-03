@@ -19,7 +19,9 @@ mod kyomu_guide;
 mod kyomu_ingest;
 mod lifecycle;
 mod lms_ingest;
+#[cfg(matrix_ocr)]
 mod matrix_ocr;
+#[cfg(matrix_ocr)]
 mod matrix_red_crops;
 pub mod plans;
 mod policy;
@@ -64,6 +66,7 @@ fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(matrix_ocr)]
 #[tauri::command]
 async fn recognize_matrix_image(
     webview: tauri::Webview,
@@ -81,6 +84,14 @@ async fn recognize_matrix_image(
     })
     .await
     .map_err(|e| format!("Matrix recognition task failed: {e}"))?
+}
+
+/// Intel macOS has no prebuilt ONNX Runtime; manual matrix entry still works.
+#[cfg(not(matrix_ocr))]
+#[tauri::command]
+fn recognize_matrix_image(webview: tauri::Webview) -> Result<(), String> {
+    require_local_main(&webview)?;
+    Err("Scan image is not available on Intel Macs yet. Type or paste the 70 letters instead.".into())
 }
 
 #[cfg(test)]
@@ -878,12 +889,14 @@ fn apply_bundled_subscriptions(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_secure_storage::init())
-        .manage(SchoolWebController::new())
-        .manage(matrix_ocr::MatrixOcrService::default())
+        .manage(SchoolWebController::new());
+    #[cfg(matrix_ocr)]
+    let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
+    builder
         .invoke_handler(tauri::generate_handler![
             runtime_capabilities,
             recognize_matrix_image,
