@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "academicYear": 2026,
+  "source": [
+    {
+      "title": "Science Tokyo 2026 Academic Calendar",
+      "url": "https://g-www.jim.titech.ac.jp/student/students/life/schedules"
+    }
+  ],
+  "quarters": {
+    "1Q": { "start": "2026-04-03", "end": "2026-06-09" },
+    "2Q": { "start": "2026-06-10", "end": "2026-08-06" },
+    "3Q": { "start": "2026-09-28", "end": "2026-12-02" },
+    "4Q": { "start": "2026-12-03", "end": "2027-02-08" }
+  },
+  "days": [
+    { "date": "2026-05-23", "type": "no-class", "label": { "ja": "ホームカミングデイ（大岡山）のため授業休み", "en": "No classes due to Homecoming Day in Ookayama" } },
+    { "date": "2026-07-23", "type": "replacement", "replacementDay": 1, "label": { "ja": "月曜日の授業", "en": "Monday classes" } },
+    { "date": "2026-10-09", "type": "no-class", "label": { "ja": "工大祭のため授業休み", "en": "No classes due to Campus Festival" } },
+    { "date": "2026-10-10", "type": "no-class", "label": { "ja": "工大祭のため授業休み", "en": "No classes due to Campus Festival" } },
+    { "date": "2026-10-11", "type": "no-class", "label": { "ja": "工大祭のため授業休み", "en": "No classes due to Campus Festival" } },
+    { "date": "2026-10-12", "type": "no-class", "label": { "ja": "工大祭のため授業休み", "en": "No classes due to Campus Festival" } },
+    { "date": "2026-10-15", "type": "replacement", "replacementDay": 1, "label": { "ja": "月曜日の授業", "en": "Monday classes" } },
+    { "date": "2027-01-14", "type": "replacement", "replacementDay": 1, "label": { "ja": "月曜日の授業", "en": "Monday classes" } },
+    { "date": "2027-01-22", "type": "no-class", "label": { "ja": "入試関係業務のため授業休み", "en": "No classes due to admissions-related duties" } },
+    { "date": "2027-01-23", "type": "no-class", "label": { "ja": "入試関係業務のため授業休み", "en": "No classes due to admissions-related duties" } }
+  ]
+}

@@ -2,70 +2,101 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { seedWorkspace, type Workspace } from "../core/model";
 
-const nativeStore = vi.hoisted(() => ({
-  values: new Map<string, unknown>(),
-  constructors: [] as Array<{ path: string; options: unknown }>,
-  saves: 0,
+const native = vi.hoisted(() => ({
+  calls: [] as Array<{ command: string; payload: unknown }>,
+  workspace: undefined as Workspace | undefined,
+  exported: "",
 }));
 
-vi.mock("@tauri-apps/plugin-store", () => ({
-  LazyStore: class {
-    constructor(path: string, options: unknown) {
-      nativeStore.constructors.push({ path, options });
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (command: string, payload: unknown) => {
+    native.calls.push({ command, payload });
+    if (command === "load_workspace") return structuredClone(native.workspace);
+    if (command === "save_workspace") {
+      native.workspace = structuredClone(
+        (payload as { workspace: Workspace }).workspace,
+      );
+      return;
     }
-    async get<T>(key: string) {
-      return nativeStore.values.get(key) as T | undefined;
-    }
-    async set(key: string, value: unknown) {
-      nativeStore.values.set(key, structuredClone(value));
-    }
-    async save() {
-      nativeStore.saves += 1;
-    }
-  },
+    if (command === "export_data") return native.exported;
+    if (command === "import_data") return structuredClone(native.workspace);
+    if (command === "reset_workspace") return structuredClone(seedWorkspace());
+    throw new Error(`Unexpected command ${command}`);
+  }),
 }));
 
 import {
   LocalRepository,
-  TauriStoreRepository,
+  SqliteRepository,
   UnsupportedWorkspaceSchemaError,
+  type ExportDocument,
 } from "./repository";
 
-const LEGACY_KEY = "stws-workspace-v2";
+const STORAGE_KEY = "stws-workspace-v3";
 
 beforeEach(() => {
   localStorage.clear();
-  nativeStore.values.clear();
-  nativeStore.constructors.length = 0;
-  nativeStore.saves = 0;
+  native.calls.length = 0;
+  native.workspace = seedWorkspace();
+  native.exported = JSON.stringify({
+    schemaVersion: 3,
+    exportedAt: "2026-09-29T00:00:00.000Z",
+    deviceId: native.workspace.deviceId,
+    tables: {},
+  });
 });
 
 describe("LocalRepository browser preview", () => {
-  it("seeds and persists an empty preview", async () => {
+  it("seeds and persists a real empty v3 preview", async () => {
     const repository = new LocalRepository();
     const value = await repository.load();
-    expect(value.schemaVersion).toBe(2);
-    expect(JSON.parse(localStorage.getItem(LEGACY_KEY) ?? "null")).toEqual(
+    expect(value.schemaVersion).toBe(3);
+    expect(value.courses).toEqual([]);
+    expect(value.assignments).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null")).toEqual(
       value,
     );
   });
 
-  it("round-trips workspace data and exports formatted JSON", async () => {
+  it("round-trips workspace data and exports the shared document format", async () => {
     const repository = new LocalRepository();
     const value = seedWorkspace();
     value.settings.locale = "zh";
     await repository.save(value);
-    const loaded = await repository.load();
-    expect(loaded.settings.locale).toBe("zh");
-    expect(JSON.parse(await repository.export())).toEqual(loaded);
+    expect((await repository.load()).settings.locale).toBe("zh");
+    const exported = JSON.parse(
+      await repository.export(),
+    ) as ExportDocument;
+    expect(exported.schemaVersion).toBe(3);
+    expect(exported.deviceId).toBe(value.deviceId);
+    expect(exported.tables.settings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "settings",
+          value: expect.objectContaining({ locale: "zh" }),
+        }),
+      ]),
+    );
+    expect(exported.tables).not.toHaveProperty("offering_content");
   });
 
-  it("normalizes fields introduced by later versions of schema 2", async () => {
-    const legacy = seedWorkspace() as Workspace;
-    legacy.terms = undefined;
-    legacy.settings.customization = undefined;
-    legacy.settings.cloud.redirectUri = undefined;
-    localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy));
+  it("imports the same document format read-only previews export", async () => {
+    const repository = new LocalRepository();
+    const workspace = seedWorkspace();
+    workspace.settings.appearance = "dark";
+    await repository.save(workspace);
+    const document = await repository.export();
+    await repository.reset();
+    const imported = await repository.import(document);
+    expect(imported.settings.appearance).toBe("dark");
+  });
+
+  it("normalizes optional v3 fields", async () => {
+    const value = seedWorkspace();
+    value.terms = undefined;
+    value.settings.customization = undefined;
+    value.settings.cloud.redirectUri = undefined;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
     const loaded = await new LocalRepository().load();
     expect(loaded.terms).toEqual([]);
     expect(loaded.settings.customization?.sites.portal.enabled).toBe(false);
@@ -73,58 +104,41 @@ describe("LocalRepository browser preview", () => {
   });
 
   it("preserves unsupported and corrupt bytes", async () => {
-    localStorage.setItem(LEGACY_KEY, JSON.stringify({ schemaVersion: 1 }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ schemaVersion: 2 }));
     await expect(new LocalRepository().load()).rejects.toBeInstanceOf(
       UnsupportedWorkspaceSchemaError,
     );
-    expect(localStorage.getItem(LEGACY_KEY)).toBe('{"schemaVersion":1}');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('{"schemaVersion":2}');
 
-    localStorage.setItem(LEGACY_KEY, "not-json");
+    localStorage.setItem(STORAGE_KEY, "not-json");
     await expect(new LocalRepository().load()).rejects.toThrow("corrupt");
-    expect(localStorage.getItem(LEGACY_KEY)).toBe("not-json");
-  });
-
-  it("reset replaces the preview with a fresh workspace", async () => {
-    const repository = new LocalRepository();
-    const changed = seedWorkspace();
-    changed.settings.appearance = "dark";
-    await repository.save(changed);
-    const reset = await repository.reset();
-    expect(reset.settings.appearance).toBe("system");
-    expect(await repository.load()).toEqual({ ...reset, terms: [] });
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("not-json");
   });
 });
 
-describe("Tauri Store repository", () => {
-  it("uses one explicit workspace store and durable save", async () => {
-    const repository = new TauriStoreRepository();
-    const value = seedWorkspace();
+describe("SqliteRepository desktop bridge", () => {
+  it("loads and saves only through narrow Rust commands", async () => {
+    const repository = new SqliteRepository();
+    const value = await repository.load();
     value.settings.locale = "ja";
     await repository.save(value);
-    expect(nativeStore.constructors).toEqual([
-      { path: "workspace.json", options: { autoSave: false } },
+    expect(native.calls.map((call) => call.command)).toEqual([
+      "load_workspace",
+      "save_workspace",
     ]);
-    expect(nativeStore.values.get("workspace")).toEqual(value);
-    expect(nativeStore.saves).toBe(1);
-    expect((await repository.load()).settings.locale).toBe("ja");
+    expect(native.workspace?.settings.locale).toBe("ja");
   });
 
-  it("migrates the former local workspace once", async () => {
-    const legacy = seedWorkspace();
-    legacy.settings.appearance = "dark";
-    localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy));
-    const repository = new TauriStoreRepository();
-    const migrated = await repository.load();
-    expect(migrated.settings.appearance).toBe("dark");
-    expect(nativeStore.values.get("workspace")).toEqual(migrated);
-    expect(nativeStore.saves).toBe(1);
-  });
-
-  it("does not replace a stored unsupported native schema", async () => {
-    nativeStore.values.set("workspace", { schemaVersion: 9 });
-    const repository = new TauriStoreRepository();
-    await expect(repository.load()).rejects.toThrow("schema 9");
-    expect(nativeStore.saves).toBe(0);
-    expect(nativeStore.values.get("workspace")).toEqual({ schemaVersion: 9 });
+  it("delegates export, import and reset to Rust", async () => {
+    const repository = new SqliteRepository();
+    expect(await repository.export()).toBe(native.exported);
+    await repository.import(native.exported);
+    const reset = await repository.reset();
+    expect(reset.schemaVersion).toBe(3);
+    expect(native.calls.map((call) => call.command)).toEqual([
+      "export_data",
+      "import_data",
+      "reset_workspace",
+    ]);
   });
 });

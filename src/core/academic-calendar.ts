@@ -2,6 +2,8 @@ import type { Quarter, TermId } from "./model";
 
 export type AcademicProfile = {
   name: string;
+  /** Curriculum/study-guide cohort, independent from the current academic year. */
+  admissionYear?: number;
   gradePath: Array<{ grade: string; academicYear: number }>;
   years: Array<{
     academicYear: number;
@@ -29,6 +31,11 @@ export function validateAcademicProfile(value: unknown): AcademicProfile {
   const input = value as Record<string, unknown>;
   if (typeof input.name !== "string" || !input.name.trim())
     throw new Error("Academic profile needs a name");
+  if (
+    input.admissionYear !== undefined &&
+    (!Number.isInteger(input.admissionYear) || Number(input.admissionYear) < 2000)
+  )
+    throw new Error("Academic profile has an invalid admission year");
   if (!Array.isArray(input.gradePath) || !input.gradePath.length)
     throw new Error("Academic profile needs at least one grade path entry");
   const gradePath = input.gradePath.map((raw, index) => {
@@ -98,6 +105,8 @@ export function validateAcademicProfile(value: unknown): AcademicProfile {
     throw new Error("Every grade path year must have quarter starts");
   return {
     name: input.name.trim(),
+    admissionYear:
+      input.admissionYear === undefined ? undefined : Number(input.admissionYear),
     gradePath,
     years: years.sort((a, b) => a.academicYear - b.academicYear),
   };

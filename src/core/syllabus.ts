@@ -1,10 +1,12 @@
-import type { Course, Meeting, TermId, Workspace } from "./model";
+import type {
+  Course,
+  InstructionLanguage,
+  Meeting,
+  TermId,
+  Workspace,
+} from "./model";
 
-import {
-  cacheSyllabusContent,
-  syllabusIdentity,
-  type SyllabusContent,
-} from "./syllabus-content";
+import { syllabusIdentity, type SyllabusContent } from "./syllabus-content";
 
 export type SyllabusCourse = {
   externalId: string;
@@ -30,8 +32,16 @@ export const isSyllabusCourse = (course: Course) =>
   (course.source.provider === "school" &&
     Boolean(course.url && syllabusIdentity(course.url)));
 
+const instructionLanguage = (value?: string): InstructionLanguage => {
+  const normalized = value?.toLocaleLowerCase() ?? "";
+  if (normalized.includes("japanese") && normalized.includes("english"))
+    return "ja-en";
+  if (normalized === "japanese" || normalized === "日本語") return "ja";
+  if (normalized === "english" || normalized === "英語") return "en";
+  return "other";
+};
+
 export function addSyllabusDraft(workspace: Workspace, item: SyllabusCourse) {
-  if (item.content) cacheSyllabusContent(item.content);
   const termId = `${item.year}-${item.quarter}` as TermId;
   const now = new Date().toISOString();
   let course = workspace.courses.find(
@@ -49,16 +59,14 @@ export function addSyllabusDraft(workspace: Workspace, item: SyllabusCourse) {
       updatedAt: now,
       updatedBy: workspace.deviceId,
       termId,
+      offeringId: item.externalId,
+      names: { title: { en: item.title }, instructor: { en: item.instructor } },
       code: item.code,
       title: item.title,
-      syllabusSource: {
-        title: item.title,
-        instructor: item.instructor,
-        language: item.language ?? "",
-      },
       instructor: item.instructor,
       credits: item.credits ?? 0,
-      language: item.language ?? "",
+      creditSplit: { lecture: item.credits ?? 0, exercise: 0, lab: 0 },
+      instructionLanguage: instructionLanguage(item.language),
       color: "#556b8d",
       meetings: item.meetings ?? [],
       url: item.url,
@@ -83,7 +91,7 @@ export function addSyllabusDraft(workspace: Workspace, item: SyllabusCourse) {
       },
     });
   }
-  let draft = workspace.drafts.find(
+  let draft = workspace.planItems.find(
     (candidate) =>
       candidate.termId === termId && candidate.courseId === course!.id,
   );
@@ -95,14 +103,16 @@ export function addSyllabusDraft(workspace: Workspace, item: SyllabusCourse) {
   } else {
     draft = {
       id: crypto.randomUUID(),
-      kind: "draft",
+      kind: "plan-item",
       rev: 1,
       updatedAt: now,
       updatedBy: workspace.deviceId,
       termId,
       courseId: course.id,
+      offeringId: item.externalId,
+      state: "planned",
     };
-    workspace.drafts.push(draft);
+    workspace.planItems.push(draft);
   }
   return { course, draft, sourceKey: key(item) };
 }
@@ -112,7 +122,7 @@ export function removeSyllabusDraft(
   courseId: string,
   termId: TermId,
 ) {
-  const draft = workspace.drafts.find(
+  const draft = workspace.planItems.find(
     (candidate) =>
       candidate.courseId === courseId &&
       candidate.termId === termId &&

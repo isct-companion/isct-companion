@@ -14,6 +14,8 @@ pub enum SchoolSite {
     Kyomu,
     #[serde(rename = "library")]
     Library,
+    #[serde(rename = "tsubame")]
+    Tsubame,
     #[serde(rename = "syllabus")]
     Syllabus,
 }
@@ -27,6 +29,7 @@ impl SchoolSite {
             Self::TokyoMail => "school-web-tokyo-mail",
             Self::Kyomu => "school-web-kyomu",
             Self::Library => "school-web-library",
+            Self::Tsubame => "school-web-tsubame",
             Self::Syllabus => "school-web-syllabus",
         }
     }
@@ -41,6 +44,9 @@ impl SchoolSite {
             Self::TokyoMail => "https://mailv4.m.titech.ac.jp/cgi-bin/loginweb",
             Self::Kyomu => "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx",
             Self::Library => "https://request.libra.titech.ac.jp/portal/user.php?plang=jpn",
+            // The Tokyo Tech portal SSO entry; it signs in with the same
+            // GetAccess login as 教務Web instead of a mailed one-time code.
+            Self::Tsubame => "https://portal.t4.gsic.titech.ac.jp/ptl/ga/sso/",
             Self::Syllabus => "https://syllabus.s.isct.ac.jp/",
         }
     }

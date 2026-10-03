@@ -1,4 +1,4 @@
-import type { Workspace } from "../core/model";
+import type { ExportDocument } from "../storage/repository";
 import {
   AuthenticationError,
   AuthorizationRedirectError,
@@ -35,8 +35,8 @@ export interface PayloadCipher {
 export interface CloudAdapter {
   provider: CloudProvider;
   connect(): Promise<void>;
-  pull(): Promise<Workspace>;
-  push(data: Workspace): Promise<void>;
+  pull(): Promise<string>;
+  push(document: string): Promise<void>;
 }
 export interface CloudAdapterOptions {
   redirectUri?: string;
@@ -61,20 +61,24 @@ async function sha256(bytes: Uint8Array) {
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
 }
-function parseWorkspace(bytes: Uint8Array): Workspace {
+function parseExport(bytes: Uint8Array): string {
   let value: unknown;
+  let document: string;
   try {
-    value = JSON.parse(decode.decode(bytes));
+    document = decode.decode(bytes);
+    value = JSON.parse(document);
   } catch {
     throw new CloudTransportError("Cloud backup is not valid JSON.");
   }
   if (
     !value ||
     typeof value !== "object" ||
-    (value as Workspace).schemaVersion !== 2
+    (value as ExportDocument).schemaVersion !== 3 ||
+    typeof (value as ExportDocument).deviceId !== "string" ||
+    !(value as ExportDocument).tables
   )
     throw new CloudTransportError("Cloud backup schema is unsupported.");
-  return value as Workspace;
+  return document;
 }
 
 class VersionedBackupAdapter implements CloudAdapter {
@@ -135,11 +139,11 @@ class VersionedBackupAdapter implements CloudAdapter {
         409,
         true,
       );
-    const workspace = parseWorkspace(await this.cipher.decrypt(encrypted));
+    const document = parseExport(await this.cipher.decrypt(encrypted));
     this.observedVersion = manifest.version;
-    return workspace;
+    return document;
   }
-  async push(workspace: Workspace) {
+  async push(document: string) {
     if (this.options.readOnly)
       throw new ConfigurationError(
         "This browser preview is read-only. Create backups from the desktop app.",
@@ -156,9 +160,15 @@ class VersionedBackupAdapter implements CloudAdapter {
         remote,
         "Cloud backup changed since it was read. Choose Keep current, Use latest, or Resolve manually.",
       );
-    const encrypted = await this.cipher.encrypt(
-      encode.encode(JSON.stringify(workspace)),
-    );
+    let data: ExportDocument;
+    try {
+      data = JSON.parse(document) as ExportDocument;
+    } catch {
+      throw new CloudTransportError("Export is not valid JSON.");
+    }
+    if (data.schemaVersion !== 3 || !data.deviceId || !data.tables)
+      throw new CloudTransportError("Export schema is unsupported.");
+    const encrypted = await this.cipher.encrypt(encode.encode(document));
     const manifest: BackupManifest = {
       format: "isct-backup-meta",
       schemaVersion: 1,
@@ -166,7 +176,7 @@ class VersionedBackupAdapter implements CloudAdapter {
       sha256: await sha256(encrypted),
       size: encrypted.byteLength,
       createdAt: (this.options.now ?? (() => new Date()))().toISOString(),
-      createdBy: this.options.deviceId ?? workspace.deviceId,
+      createdBy: this.options.deviceId ?? data.deviceId,
       keyId: this.cipher.keyId,
     };
     await this.transport.writeBackup(encrypted);

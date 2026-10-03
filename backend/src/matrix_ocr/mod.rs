@@ -1,10 +1,10 @@
 mod geometry;
 mod preprocess;
+#[cfg(test)]
+mod private_parity;
 mod recognition;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod private_parity;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{DynamicImage, ImageDecoder, ImageReader, Rgb, RgbImage};

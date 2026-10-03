@@ -1,5 +1,8 @@
+import { clockForPeriods } from "../core/user-schedule";
+import type { FinderCourse } from "../core/course-query";
 import type { SyllabusFilters } from "../core/syllabus-filters";
 import { validSyllabusContent } from "../core/syllabus-content";
+import { pickLocalized, type Localized } from "../core/model";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type { SchoolImportResult } from "./capabilities";
@@ -14,6 +17,7 @@ export type SchoolSite =
   | "tokyo-mail"
   | "kyomu"
   | "library"
+  | "tsubame"
   | "syllabus";
 export type Schedule = "off" | "launch" | "hourly";
 export type SchoolAuthProfile = "science" | "tokyo-tech";
@@ -58,6 +62,59 @@ export type SchoolLoginEvent = {
 export type SchoolSessionEvent = {
   profile: SchoolAuthProfile;
   state: "active" | "failed";
+};
+/** One extractor result from LMS or one 教務Web page. */
+export type SchoolIngestOutcome = {
+  site: SchoolSite;
+  kind: string;
+  state: "ok" | "reconnect-required" | "error";
+  changed: number;
+  message: string;
+};
+/** An LMS course row as imported (`lms_courses`). */
+export type LmsCourseRecord = {
+  id: string;
+  lmsId: number;
+  offeringId?: string | null;
+  shortname: string;
+  title: Localized;
+  year?: number | null;
+  quarters: string[];
+  url: string;
+  hidden?: boolean;
+  /** Weekly meetings per term, read from the LMS dashboard timetable grid. */
+  timetables?: Record<string, { day: number; periods: [number, number] }[]>;
+};
+/** School-owned rows the workspace does not carry. */
+export type SchoolRecords = {
+  /** Last complete import per `provider:scope` (ISO time). */
+  lastRuns: Record<string, string>;
+  lmsCourses: LmsCourseRecord[];
+  registrations: {
+    id: string;
+    offeringId: string;
+    code: string;
+    title: string;
+    courseState?: string;
+    declaredOnly?: boolean;
+  }[];
+  registrationStates: { id: string; state: string; raw: string; savedAt?: string | null }[];
+  grades: Record<string, unknown>[];
+  gpaByTerm: { id: string; cells: string[] }[];
+  requirements: {
+    id: string;
+    table: number;
+    category: string;
+    label: string;
+    value: string;
+  }[];
+};
+export type KyomuGuideItem = {
+  offeringId: string;
+  code: string;
+  title: string;
+  day?: number;
+  slot: string;
 };
 export type SchoolWebBounds = {
   x: number;
@@ -146,12 +203,25 @@ export interface DesktopBridge {
    */
   ensureSchoolSession?(profile: SchoolAuthProfile): Promise<boolean>;
   onSchoolSession?(callback: (event: SchoolSessionEvent) => void): () => void;
+  /**
+   * Runs the LMS or 教務Web extractor in the hidden school view and waits for
+   * the result (one outcome per 教務Web page). Expired sessions are renewed
+   * with the saved credentials on the way.
+   */
+  pullSchool?(site: "science-lms" | "kyomu"): Promise<SchoolIngestOutcome[]>;
+  schoolRecords?(): Promise<SchoolRecords>;
+  /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
+  setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
+  /** An extractor finished while the person browsed LMS / 教務Web. */
+  onSchoolIngest?(callback: (outcome: SchoolIngestOutcome) => void): () => void;
   configureSchoolSchedule(schedule: Schedule): Promise<boolean>;
   onScheduledSchoolResult(
     callback: (result: SchoolImportResult) => void,
   ): () => void;
   updateExportWorkspace(workspace: unknown): Promise<boolean>;
   configureExportSchedule(schedule: Schedule): Promise<boolean>;
+  /** Saves a validated workspace export under app-owned local storage. */
+  writeScheduledExport(): Promise<string>;
   connectCloud(
     provider: "google-drive" | "onedrive",
     clientId: string,
@@ -179,9 +249,36 @@ export interface DesktopBridge {
     filters?: SyllabusFilters,
     language?: "en" | "ja",
   ): Promise<{ items: SyllabusCourse[]; total: number; truncated: boolean }>;
-  syllabusCourse(url: string): Promise<SyllabusCourse>;
+  syllabusCourse(url: string, language?: "en" | "ja"): Promise<SyllabusCourse>;
+  catalogSyncDepartment(
+    year: number,
+    scopePath: string,
+    quarter?: "1Q" | "2Q" | "3Q" | "4Q",
+  ): Promise<{
+    listed: number;
+    synced: number;
+    truncated: boolean;
+    warnings: string[];
+  }>;
+  /** Every stored offering of a year, for the course finder's local search. */
+  catalogOfferings?(year: number): Promise<FinderCourse[]>;
+  /** One official syllabus search (≤100 rows, no paging); rows are stored. */
+  catalogQuery?(
+    year: number,
+    query: { q: string; scope?: string; code?: string; groups?: string[] },
+  ): Promise<{ ids: string[]; total: number; truncated: boolean }>;
+  /** Fetches detail pages (schedule, credits) for up to 20 stored offerings. */
+  catalogSyncOfferings?(ids: string[]): Promise<string[]>;
 }
 
+/** Tauri's unlisten throws, or rejects, once the runtime is gone (window closing, tests). */
+const quietly = (unlisten: () => unknown) => {
+  try {
+    void Promise.resolve(unlisten()).catch(() => undefined);
+  } catch {
+    // Already gone.
+  }
+};
 const requireBoolean = (command: string, value: unknown) => {
   if (typeof value !== "boolean")
     throw new Error(`${command} returned an invalid result.`);
@@ -192,38 +289,92 @@ const requireObject = <T>(command: string, value: unknown): T => {
     throw new Error(`${command} returned an invalid result.`);
   return value as T;
 };
-const requireSyllabusCourse = (value: unknown): SyllabusCourse => {
-  const row = requireObject<Record<string, unknown>>("syllabus course", value);
-  if (
-    typeof row.externalId !== "string" ||
-    typeof row.year !== "number" ||
-    !["1Q", "2Q", "3Q", "4Q"].includes(String(row.quarter)) ||
-    typeof row.code !== "string" ||
-    typeof row.title !== "string" ||
-    typeof row.instructor !== "string" ||
-    typeof row.url !== "string" ||
-    !Array.isArray(row.meetings)
-  )
-    throw new Error("syllabus course returned an invalid result.");
-  if (row.content != null && !validSyllabusContent(row.content))
-    throw new Error("syllabus content returned an invalid result.");
-  return row as unknown as SyllabusCourse;
+type CatalogItem = {
+  id: string;
+  year: number;
+  quarters: SyllabusCourse["quarter"][];
+  code: string;
+  title: Localized;
+  instructors: Localized[];
+  syllabusUrl: string;
 };
-const requireSyllabusSearch = (value: unknown) => {
-  const response = requireObject<Record<string, unknown>>(
-    "search_syllabus",
-    value,
-  );
+type CatalogOffering = CatalogItem & {
+  credits: { lecture: number; exercise: number; lab: number };
+  instructionLanguage: string;
+  schedule: {
+    kind: string;
+    day?: number;
+    periods?: [number, number];
+    room?: Localized;
+  }[];
+  sourceUpdated?: string;
+};
+// Any period range (e.g. 5-8 → 13:30–17:05), not only the standard two-period slots.
+const periodTimes = (periods: [number, number]) => {
+  const clock = clockForPeriods(periods);
+  return [clock.start, clock.end] as const;
+};
+export const catalogCourse = (
+  value: unknown,
+  locale: "en" | "ja",
+  content?: unknown,
+): SyllabusCourse => {
+  const row = requireObject<CatalogItem>("catalog offering", value);
   if (
-    !Array.isArray(response.items) ||
-    typeof response.total !== "number" ||
-    typeof response.truncated !== "boolean"
+    typeof row.id !== "string" ||
+    typeof row.year !== "number" ||
+    !Array.isArray(row.quarters) ||
+    typeof row.code !== "string" ||
+    typeof row.syllabusUrl !== "string"
   )
-    throw new Error("search_syllabus returned an invalid result.");
+    throw new Error("catalog offering returned an invalid result.");
+  const full = row as CatalogOffering;
+  const meetings = Array.isArray(full.schedule)
+    ? full.schedule.flatMap((entry) => {
+        if (
+          entry.kind !== "weekly" ||
+          typeof entry.day !== "number" ||
+          !Array.isArray(entry.periods)
+        )
+          return [];
+        const [startTime, endTime] = periodTimes(entry.periods);
+        return [
+          {
+            days: [entry.day],
+            periods: Array.from(
+              { length: entry.periods[1] - entry.periods[0] + 1 },
+              (_, index) => entry.periods![0] + index,
+            ),
+            startTime,
+            endTime,
+            room: pickLocalized(entry.room, locale),
+            roomNames: entry.room,
+          },
+        ];
+      })
+    : [];
   return {
-    items: response.items.map(requireSyllabusCourse),
-    total: response.total,
-    truncated: response.truncated,
+    externalId: row.id,
+    year: row.year,
+    quarter: row.quarters[0] ?? "1Q",
+    quarters: row.quarters,
+    code: row.code,
+    title: pickLocalized(row.title, locale),
+    instructor: Array.isArray(row.instructors)
+      ? row.instructors
+          .map((name) => pickLocalized(name, locale))
+          .filter(Boolean)
+          .join(" / ")
+      : "",
+    credits: full.credits
+      ? full.credits.lecture + full.credits.exercise + full.credits.lab
+      : undefined,
+    language: full.instructionLanguage,
+    meetings,
+    url: row.syllabusUrl,
+    updated: full.sourceUpdated,
+    content:
+      content != null && validSyllabusContent(content) ? content : undefined,
   };
 };
 
@@ -279,12 +430,12 @@ export function createTauriDesktopBridge(
         )
           callback(payload);
       }).then((fn) => {
-        if (disposed) fn();
+        if (disposed) quietly(fn);
         else unlisten = fn;
       });
       return () => {
         disposed = true;
-        unlisten?.();
+        if (unlisten) quietly(unlisten);
       };
     },
     importSchool: () => result("import_school"),
@@ -311,12 +462,12 @@ export function createTauriDesktopBridge(
       void listen<string>("school-web-url", (payload) => {
         if (!disposed && typeof payload === "string") callback(payload);
       }).then((fn) => {
-        if (disposed) fn();
+        if (disposed) quietly(fn);
         else unlisten = fn;
       });
       return () => {
         disposed = true;
-        unlisten?.();
+        if (unlisten) quietly(unlisten);
       };
     },
     onSchoolLoginStatus: (callback) => {
@@ -332,12 +483,71 @@ export function createTauriDesktopBridge(
         )
           callback(payload);
       }).then((fn) => {
-        if (disposed) fn();
+        if (disposed) quietly(fn);
         else unlisten = fn;
       });
       return () => {
         disposed = true;
-        unlisten?.();
+        if (unlisten) quietly(unlisten);
+      };
+    },
+    pullSchool: async (site) => {
+      const value = await invoke("pull_school", { site });
+      if (!Array.isArray(value))
+        throw new Error("pull_school returned an invalid result.");
+      return value as SchoolIngestOutcome[];
+    },
+    schoolRecords: async () => {
+      const value = requireObject<Partial<SchoolRecords>>(
+        "school_records",
+        await invoke("school_records"),
+      );
+      const rows = <T,>(list: unknown): T[] =>
+        Array.isArray(list) ? (list.filter((row) => row && typeof row === "object") as T[]) : [];
+      const lastRuns =
+        value.lastRuns && typeof value.lastRuns === "object"
+          ? Object.fromEntries(
+              Object.entries(value.lastRuns).filter(
+                (entry): entry is [string, string] => typeof entry[1] === "string",
+              ),
+            )
+          : {};
+      return {
+        lastRuns,
+        lmsCourses: rows<LmsCourseRecord>(value.lmsCourses).filter(
+          (row) => typeof row.lmsId === "number" && typeof row.shortname === "string",
+        ),
+        registrations: rows(value.registrations),
+        registrationStates: rows(value.registrationStates),
+        grades: rows(value.grades),
+        gpaByTerm: rows(value.gpaByTerm),
+        requirements: rows(value.requirements),
+      };
+    },
+    setKyomuGuide: (items) => booleanCommand("set_kyomu_guide", { items }),
+    onSchoolIngest: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<SchoolIngestOutcome>("school-ingest", (payload) => {
+        if (!disposed && payload && typeof payload.state === "string")
+          callback(payload);
+      }).then((fn) => {
+        if (disposed) {
+          try {
+            void Promise.resolve(fn() as unknown).catch(() => undefined);
+          } catch {
+            // The runtime is already gone (window closing, tests).
+          }
+        } else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        try {
+          // Tauri's unlisten may also reject asynchronously.
+          void Promise.resolve(unlisten?.() as unknown).catch(() => undefined);
+        } catch {
+          // The runtime is already gone (window closing, tests).
+        }
       };
     },
     configureSchoolWebPolicy: (policy) =>
@@ -350,18 +560,24 @@ export function createTauriDesktopBridge(
       void listen<SchoolImportResult>("scheduled-school-result", (payload) => {
         if (!disposed) callback(payload);
       }).then((fn) => {
-        if (disposed) fn();
+        if (disposed) quietly(fn);
         else unlisten = fn;
       });
       return () => {
         disposed = true;
-        unlisten?.();
+        if (unlisten) quietly(unlisten);
       };
     },
     updateExportWorkspace: (workspace) =>
       booleanCommand("update_export_workspace", { workspace }),
     configureExportSchedule: (schedule) =>
       booleanCommand("configure_export_schedule", { schedule }),
+    writeScheduledExport: async () => {
+      const value = await invoke("write_scheduled_export");
+      if (typeof value !== "string" || !value)
+        throw new Error("write_scheduled_export returned an invalid result.");
+      return value;
+    },
     connectCloud: (provider, clientId, redirectUri) =>
       booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
     cloudRequest: (provider, url, init) =>
@@ -383,18 +599,95 @@ export function createTauriDesktopBridge(
             "Restart the updated macOS app to use syllabus filters.",
           );
       }
-      return requireSyllabusSearch(
-        await invoke("search_syllabus", {
+      const locale = language ?? "en";
+      const refresh = Boolean(
+        query.trim() ||
+        (filters &&
+          Object.values(filters).some(
+            (value) => value !== undefined && value !== "",
+          )),
+      );
+      const response = requireObject<{
+        items: unknown[];
+        total: number;
+        truncated: boolean;
+      }>(
+        "catalog_search",
+        await invoke("catalog_search", {
           query,
           year,
           limit,
           filters,
-          ...(language ? { language } : {}),
+          refresh,
         }),
       );
+      return {
+        items: response.items.map((item) => catalogCourse(item, locale)),
+        total: response.total,
+        truncated: response.truncated,
+      };
     },
-    syllabusCourse: async (url) =>
-      requireSyllabusCourse(await invoke("syllabus_course", { url })),
+    syllabusCourse: async (url, language = "en") => {
+      const synced = requireObject<{
+        offering: unknown;
+        content: { lang: string; content: unknown }[];
+      }>(
+        "catalog_sync_offering",
+        await invoke("catalog_sync_offering", { id: url }),
+      );
+      const preferred =
+        synced.content.find((row) => row.lang === language) ??
+        synced.content.find((row) => row.lang !== language);
+      return catalogCourse(synced.offering, language, preferred?.content);
+    },
+    catalogSyncDepartment: (year, scopePath, quarter) =>
+      result("catalog_sync_department", { year, scopePath, quarter }),
+    catalogQuery: async (year, { q, scope, code, groups }) => {
+      const response = requireObject<{
+        items: { id: string }[];
+        total: number;
+        truncated: boolean;
+      }>(
+        "catalog_query",
+        await invoke("catalog_query", {
+          query: q,
+          year,
+          filters: { department: scope, code, groups },
+        }),
+      );
+      return {
+        ids: response.items.map((item) => item.id),
+        total: response.total,
+        truncated: response.truncated,
+      };
+    },
+    catalogSyncOfferings: async (ids) => {
+      const warnings = await invoke("catalog_sync_offerings", { ids });
+      return Array.isArray(warnings) ? warnings.map(String) : [];
+    },
+    catalogOfferings: async (year) => {
+      const rows = await invoke("catalog_offerings", { year });
+      if (!Array.isArray(rows))
+        throw new Error("catalog_offerings returned an invalid result.");
+      // Rows that do not have the finder's shape are skipped, not fatal. A row
+      // stored from a search result has no schedule or credits yet.
+      return rows.filter(
+        (row): row is FinderCourse =>
+          Boolean(row) &&
+          typeof row.id === "string" &&
+          typeof row.code === "string" &&
+          Array.isArray(row.quarters) &&
+          typeof row.title === "object",
+      ).map((row) => ({
+        ...row,
+        detailed: Array.isArray(row.schedule) && typeof row.credits === "object",
+        schedule: Array.isArray(row.schedule) ? row.schedule : [],
+        credits: typeof row.credits === "object" && row.credits ? row.credits : { lecture: 0, exercise: 0, lab: 0 },
+        instructors: Array.isArray(row.instructors) ? row.instructors : [],
+        format: row.format && Array.isArray(row.format.kinds) ? row.format : { kinds: [] },
+        instructionLanguage: typeof row.instructionLanguage === "string" ? row.instructionLanguage : "other",
+      }));
+    },
   };
 }
 
