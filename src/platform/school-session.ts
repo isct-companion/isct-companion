@@ -8,9 +8,10 @@ import type {
 
 /**
  * A school sign-in is only ever working, failed, or not set up. There is no
- * polling: the app signs in once at launch, and afterwards any school page
- * that gets redirected to sign-in is renewed natively with the saved
- * credentials, which reports here through the same session events.
+ * polling: the app signs in once at launch and checks again when its window
+ * regains focus; in between, any school page that gets redirected to sign-in
+ * is renewed natively with the saved credentials. All of it reports here
+ * through the same session events.
  */
 export type SchoolSessionState = "active" | "failed" | "not-configured";
 
@@ -21,9 +22,18 @@ type SessionBridge = Pick<
 
 // How long one launch sign-in may take before the next account starts.
 export const LAUNCH_SIGN_IN_TIMEOUT_MS = 90_000;
+// Returning to the window re-checks at most this often.
+export const FOCUS_CHECK_INTERVAL_MS = 2 * 60_000;
+
+// A busy school view (another sign-in, or the person browsing) is retried this often.
+const BUSY_RETRIES = 10;
+const BUSY_RETRY_MS = 1_500;
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const states = new Map<SchoolAuthProfile, SchoolSessionState>();
 const listeners = new Set<() => void>();
+// Every native report, even one that repeats the current state.
+const reports = new Set<(profile: SchoolAuthProfile) => void>();
 let attached: SessionBridge | undefined;
 
 export const schoolSessions = {
@@ -42,9 +52,10 @@ export const schoolSessions = {
   attach(bridge: SessionBridge | undefined) {
     if (!bridge?.onSchoolSession || attached === bridge) return;
     attached = bridge;
-    bridge.onSchoolSession((event: SchoolSessionEvent) =>
-      schoolSessions.set(event.profile, event.state),
-    );
+    bridge.onSchoolSession((event: SchoolSessionEvent) => {
+      schoolSessions.set(event.profile, event.state);
+      reports.forEach((report) => report(event.profile));
+    });
   },
   /** Test hook. */
   reset() {
@@ -54,16 +65,17 @@ export const schoolSessions = {
   },
 };
 
+// Resolves on the profile's next report (an unchanged "active" counts) or the timeout.
 const settled = (profile: SchoolAuthProfile, timeoutMs: number) =>
   new Promise<void>((resolve) => {
     const timer = setTimeout(done, timeoutMs);
-    const before = schoolSessions.get(profile);
-    const unsubscribe = schoolSessions.subscribe(() => {
-      if (schoolSessions.get(profile) !== before) done();
-    });
+    const report = (from: SchoolAuthProfile) => {
+      if (from === profile) done();
+    };
+    reports.add(report);
     function done() {
       clearTimeout(timer);
-      unsubscribe();
+      reports.delete(report);
       resolve();
     }
   });
@@ -75,6 +87,7 @@ const settled = (profile: SchoolAuthProfile, timeoutMs: number) =>
 export async function signInAtLaunch(
   bridge: SessionBridge | undefined,
   timeoutMs = LAUNCH_SIGN_IN_TIMEOUT_MS,
+  quiet = false,
 ) {
   if (!bridge?.ensureSchoolSession) return;
   schoolSessions.attach(bridge);
@@ -89,13 +102,48 @@ export async function signInAtLaunch(
       schoolSessions.set(profile, "not-configured");
       continue;
     }
-    schoolSessions.set(profile, undefined);
+    const previous = schoolSessions.get(profile);
+    // A focus re-check keeps the current badge until the result arrives.
+    if (!quiet) schoolSessions.set(profile, undefined);
     const result = settled(profile, timeoutMs);
-    const started = await bridge
-      .ensureSchoolSession(profile)
-      .catch(() => false);
+    // The shared school view may still be busy with the previous account.
+    let started = false;
+    for (let attempt = 0; attempt < BUSY_RETRIES && !started; attempt++) {
+      if (attempt) await wait(BUSY_RETRY_MS);
+      started = await bridge.ensureSchoolSession(profile).catch(() => false);
+    }
     if (started) await result;
+    else if (!quiet) schoolSessions.set(profile, previous);
   }
+}
+
+/**
+ * Re-checks saved sessions when the window comes back to the front, so an
+ * expired sign-in is renewed before the person opens a school page.
+ */
+export function checkSessionsOnFocus(
+  bridge: SessionBridge | undefined,
+  intervalMs = FOCUS_CHECK_INTERVAL_MS,
+  now = () => Date.now(),
+) {
+  if (!bridge?.ensureSchoolSession) return () => undefined;
+  let last = now();
+  let running = false;
+  const check = () => {
+    if (running || document.visibilityState === "hidden") return;
+    if (now() - last < intervalMs) return;
+    last = now();
+    running = true;
+    void signInAtLaunch(bridge, LAUNCH_SIGN_IN_TIMEOUT_MS, true).finally(() => {
+      running = false;
+    });
+  };
+  window.addEventListener("focus", check);
+  document.addEventListener("visibilitychange", check);
+  return () => {
+    window.removeEventListener("focus", check);
+    document.removeEventListener("visibilitychange", check);
+  };
 }
 
 export function useSchoolSession(

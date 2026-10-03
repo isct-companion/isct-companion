@@ -30,6 +30,11 @@ export const official: Record<
     name: "教務 Web システム",
     customization: "portal",
   },
+  tsubame: {
+    url: "https://portal.t4.gsic.titech.ac.jp/ptl/ga/sso/",
+    name: "TSUBAME",
+    customization: "portal",
+  },
   library: {
     url: "https://request.libra.titech.ac.jp/portal/user.php?plang=jpn",
     name: "図書館サービス",

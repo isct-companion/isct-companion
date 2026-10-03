@@ -21,7 +21,7 @@ export function filterCourseCatalog(
     .filter(Boolean);
   return courses.filter((course) => {
     const haystack =
-      `${course.title} ${course.code} ${course.instructor} ${course.language} ${course.meetings.map((meeting) => meeting.room).join(" ")}`.toLocaleLowerCase();
+      `${course.title} ${course.code} ${course.instructor} ${course.instructionLanguage} ${course.meetings.map((meeting) => meeting.room).join(" ")}`.toLocaleLowerCase();
     const meeting =
       (!filters.weekday && !filters.period) ||
       course.meetings.some(
@@ -32,7 +32,8 @@ export function filterCourseCatalog(
     const planned = plannedIds.has(course.id);
     return (
       tokens.every((token) => haystack.includes(token)) &&
-      (filters.language === "all" || course.language === filters.language) &&
+      (filters.language === "all" ||
+        course.instructionLanguage === filters.language) &&
       meeting &&
       (filters.status === "all" ||
         (filters.status === "planned" && planned) ||
@@ -54,8 +55,8 @@ export function deleteLocalCourseBatch(
     ...workspace.memberships.filter(
       (item) => ids.has(item.courseId) && !item.deletedAt,
     ),
-    ...workspace.drafts.filter(
-      (item) => ids.has(item.courseId) && !item.deletedAt,
+    ...workspace.planItems.filter(
+      (item) => Boolean(item.courseId && ids.has(item.courseId)) && !item.deletedAt,
     ),
   ];
   for (const item of records) {
@@ -87,7 +88,9 @@ export function editCourseBatch(
     (course) => ids.has(course.id) && !course.deletedAt,
   );
   for (const course of courses) {
-    if (language) course.language = language;
+    if (language && ["ja", "en", "ja-en", "other"].includes(language))
+      course.instructionLanguage =
+        language as Course["instructionLanguage"];
     if (instructor) course.instructor = instructor;
     if (changes.credits !== undefined) course.credits = changes.credits;
     course.rev += 1;

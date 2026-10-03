@@ -178,7 +178,25 @@ describe("workspace action boundary", () => {
   });
 
   it("keeps academic edits inside their permitted envelope", async () => {
-    const store = createWorkspaceStore(memoryRepository());
+    const initial = seedWorkspace();
+    initial.courses.push({
+      id: "course-1",
+      kind: "course",
+      rev: 1,
+      updatedAt: "2026-09-29T00:00:00.000Z",
+      updatedBy: initial.deviceId,
+      termId: initial.selectedTerm,
+      code: "TEST.1",
+      title: "Original title",
+      instructor: "Teacher",
+      credits: 1,
+      creditSplit: { lecture: 1, exercise: 0, lab: 0 },
+      instructionLanguage: "en",
+      color: "#000000",
+      meetings: [],
+      source: { provider: "manual" },
+    });
+    const store = createWorkspaceStore(memoryRepository(initial));
     await store.initialize();
     const hooks = createWorkspaceHooks(store, () => "native-desktop");
     hooks.actions.editAcademic((draft) => {

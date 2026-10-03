@@ -1,4 +1,3 @@
-import { browserCacheStorage, createCache } from "../cache";
 /** Public syllabus text only. No LMS state, raw HTML, or downloaded resources. */
 export type SyllabusContent = {
   schemaVersion: 1;
@@ -20,7 +19,6 @@ export type SyllabusContent = {
   lecturePlan: { label: string; topic: string; objective: string }[];
   competencies: { label: string; selected: boolean }[];
 };
-const cacheKey = "stws:syllabus-content:v1";
 export function syllabusIdentity(value: string): string | undefined {
   try {
     const url = new URL(value);
@@ -35,7 +33,7 @@ export function syllabusIdentity(value: string): string | undefined {
       return;
     const language = url.searchParams.get("hl") ?? "ja";
     if (!["en", "ja"].includes(language)) return;
-    return `${url.origin}${url.pathname}?hl=${language}`;
+    return `${url.origin}${url.pathname}${language === "en" ? "?hl=en" : ""}`;
   } catch {
     return;
   }
@@ -49,13 +47,16 @@ export function validSyllabusContent(value: unknown): value is SyllabusContent {
     v.length <= max &&
     v.every((row) => row != null && check(row));
   try {
+    const identity = syllabusIdentity(c.sourceUrl);
+    const sourceLocale = identity
+      ? (new URL(identity).searchParams.get("hl") ?? "ja")
+      : undefined;
     return (
       JSON.stringify(c).length <= 400000 &&
       c.schemaVersion === 1 &&
-      !!syllabusIdentity(c.sourceUrl) &&
+      !!identity &&
       ["en", "ja"].includes(c.sourceLanguage) &&
-      new URL(syllabusIdentity(c.sourceUrl)!).searchParams.get("hl") ===
-        c.sourceLanguage &&
+      sourceLocale === c.sourceLanguage &&
       (c.metadata?.length > 0 ||
         c.sections?.some(
           (s) => s.blocks?.some((b) => b.text?.trim()) || s.links?.length > 0,
@@ -105,46 +106,4 @@ export function validSyllabusContent(value: unknown): value is SyllabusContent {
   } catch {
     return false;
   }
-}
-const contentCache = createCache<SyllabusContent>({
-  namespace: "syllabus-content",
-  version: 1,
-  ttlMs: 24 * 60 * 60 * 1000,
-  maxEntries: 30,
-  maxChars: 2500000,
-  validate: validSyllabusContent,
-  storage: browserCacheStorage,
-});
-function migrateLegacyContent() {
-  try {
-    const raw = localStorage.getItem(cacheKey);
-    if (!raw || raw.length > 3000000) return;
-    const values: unknown = JSON.parse(raw);
-    if (Array.isArray(values))
-      for (const content of values
-        .filter(validSyllabusContent)
-        .slice(0, 30)
-        .reverse()) {
-        const identity = syllabusIdentity(content.sourceUrl)!;
-        if (!contentCache.read(identity))
-          contentCache.set(identity, content, Date.parse(content.fetchedAt));
-      }
-    localStorage.removeItem(cacheKey);
-  } catch {
-    /* An invalid legacy cache cannot block course editing. */
-  }
-}
-export const readSyllabusContent = (url: string) => {
-  migrateLegacyContent();
-  const identity = syllabusIdentity(url);
-  return identity ? contentCache.read(identity)?.value : undefined;
-};
-export function cacheSyllabusContent(content: SyllabusContent) {
-  if (!validSyllabusContent(content)) return false;
-  migrateLegacyContent();
-  return contentCache.set(
-    syllabusIdentity(content.sourceUrl)!,
-    content,
-    Date.parse(content.fetchedAt),
-  );
 }

@@ -25,7 +25,7 @@ function freeze<T>(value: T): T {
 }
 function validate(value: Workspace) {
   if (
-    value.schemaVersion !== 2 ||
+    value.schemaVersion !== 3 ||
     !value.deviceId ||
     !value.settings ||
     !value.academicProfile ||
@@ -39,8 +39,17 @@ function validate(value: Workspace) {
     "assignments",
     "materials",
     "events",
-    "drafts",
+    "planItems",
     "exceptions",
+    "offerings",
+    "intensiveSchedules",
+    "plans",
+    "academicCalendar",
+    "gpaSummary",
+    "departments",
+    "recommendedCourses",
+    "subscriptions",
+    "scheduledTasks",
   ] as const) {
     if (!Array.isArray(value[key]))
       throw new Error(`Invalid workspace ${key}.`);
@@ -142,6 +151,19 @@ export function createWorkspaceStore(
         });
       return loading;
     },
+    async reload() {
+      await writes;
+      const data = await storage.load();
+      validate(data);
+      const current = state.getState();
+      publish({
+        workspace: freeze(structuredClone(data)),
+        status: "ready",
+        revision: current.revision + 1,
+        persistedRevision: current.revision + 1,
+        error: undefined,
+      });
+    },
     // Application services use this transaction after their own command capability checks.
     update,
     reset() {
@@ -173,6 +195,7 @@ export const workspaceStore = {
   getInitialState: internalWorkspaceStore.getInitialState,
   subscribe: internalWorkspaceStore.subscribe,
   initialize: internalWorkspaceStore.initialize,
+  reload: internalWorkspaceStore.reload,
   flush: internalWorkspaceStore.flush,
   retrySave: internalWorkspaceStore.retrySave,
 };
@@ -196,11 +219,20 @@ export function createWorkspaceHooks(
               assignments,
               materials,
               events,
-              drafts,
+              planItems,
               selectedTerm,
               terms,
               academicProfile,
               exceptions,
+              offerings,
+              intensiveSchedules,
+              plans,
+              academicCalendar,
+              gpaSummary,
+              departments,
+              recommendedCourses,
+              subscriptions,
+              scheduledTasks,
               settings: _settings,
               ...rest
             } = value;
@@ -268,6 +300,7 @@ const protectedWorkspaceEnvelope = (workspace: Workspace) => {
   const {
     settings: _settings,
     syncStatus: _syncStatus,
+    scheduledTasks: _scheduledTasks,
     ...protectedData
   } = workspace;
   return JSON.stringify(protectedData);
@@ -289,6 +322,34 @@ export const workspaceActions = {
       return next;
     });
   },
+  /** The timetable was compared with LMS; its cache TTL restarts now. */
+  markTimetableReviewed(at = new Date().toISOString()) {
+    internalWorkspaceStore.update((draft) => {
+      draft.importStatus = { ...draft.importStatus, timetableReviewedAt: at };
+      return draft;
+    });
+  },
+  recordScheduledTaskRun(
+    taskId: string,
+    occurrenceAt: string,
+    runAt: string,
+    result: string,
+  ) {
+    requireAction("change-local-preference", detectPlatform());
+    internalWorkspaceStore.update((draft) => {
+      const task = draft.scheduledTasks.find(
+        (candidate) => candidate.id === taskId && !candidate.deletedAt,
+      );
+      if (!task) throw new Error("Scheduled task no longer exists.");
+      task.lastOccurrenceAt = occurrenceAt;
+      task.lastRunAt = runAt;
+      task.lastResult = result;
+      task.rev += 1;
+      task.updatedAt = runAt;
+      task.updatedBy = draft.deviceId;
+    });
+    return internalWorkspaceStore.flush();
+  },
   applySchoolImport(result: SchoolImportResult) {
     requireAction("import-school", detectPlatform());
     internalWorkspaceStore.update((draft) =>
@@ -299,10 +360,19 @@ export const workspaceActions = {
     requireAction("resolve-cloud-manually", detectPlatform());
     internalWorkspaceStore.update(() => workspace);
   },
-  reset() {
-    internalWorkspaceStore.reset();
+  async reset() {
+    const workspace = await repository.reset();
+    internalWorkspaceStore.update(() => workspace);
+    await internalWorkspaceStore.flush();
   },
   exportData() {
-    return internalWorkspaceStore.export();
+    return repository.export();
+  },
+  async importData(document: string) {
+    if (!repository.import)
+      throw new Error("This repository cannot import an export document.");
+    const workspace = await repository.import(document);
+    internalWorkspaceStore.update(() => workspace);
+    await internalWorkspaceStore.flush();
   },
 };

@@ -23,7 +23,6 @@
     "@mantine/hooks": "^9.6.3",
     "@mantine/notifications": "^9.6.3",
     "@tauri-apps/api": "^2.12.0",
-    "@tauri-apps/plugin-store": "^2.4.4",
     "@vitejs/plugin-react": "latest",
     "i18next": "^26.4.2",
     "react": "latest",
