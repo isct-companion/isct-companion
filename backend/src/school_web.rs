@@ -562,6 +562,10 @@ fn ingestion_script(raw: &str) -> Option<&'static str> {
 }
 
 const SCHOOL_LOGIN_SCRIPT: &str = include_str!("../scripts/school-login.js");
+/// Shows 教務Web's popups in an overlay frame inside the opener page, with a
+/// working `window.opener` and `window.close()`. Gated to 教務Web by the
+/// script itself; runs at document start in every frame.
+const KYOMU_POPUP_SCRIPT: &str = include_str!("../scripts/kyomu-popup.js");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -862,6 +866,15 @@ mod tests {
         track_page(&mut state, site, KYOMU_OPENER);
         assert!(state.suppress_history.is_empty());
         assert_eq!(state.history[&site].pages, [KYOMU_TOP]);
+    }
+
+    #[test]
+    fn popup_overlay_script_only_runs_on_kyomu() {
+        // Every school view runs it in every frame, sign-in pages included.
+        assert!(KYOMU_POPUP_SCRIPT.contains(r#"const HOST = "kyomu0.gakumu.titech.ac.jp";"#));
+        assert!(KYOMU_POPUP_SCRIPT.contains(
+            r#"if (location.protocol !== "https:" || location.hostname !== HOST) return;"#
+        ));
     }
 
     #[test]
@@ -1685,6 +1698,7 @@ impl SchoolWebController {
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         let builder = builder;
         let builder = builder
+            .initialization_script_for_all_frames(KYOMU_POPUP_SCRIPT)
             .on_page_load(move |webview, payload| {
                 // Started fires in the outgoing document; only act once the
                 // new page exists, or every script would run twice.
