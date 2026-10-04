@@ -242,6 +242,19 @@ fn school_web_back(
     controller.back(&app, site)
 }
 
+/// Shows a file a school page saved this session in Finder; other paths are
+/// refused.
+#[tauri::command]
+fn reveal_school_download(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+    path: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    controller.reveal_download(&app, &path)
+}
+
 #[tauri::command]
 fn set_school_web_zoom(
     webview: tauri::Webview,
@@ -969,6 +982,7 @@ pub fn run() {
             reload_school_web,
             navigate_school_web,
             school_web_back,
+            reveal_school_download,
             set_school_web_zoom,
             pull_school,
             school_records,
