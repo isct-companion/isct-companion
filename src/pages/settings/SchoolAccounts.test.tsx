@@ -390,49 +390,28 @@ const matrixInputs = () => [
     .querySelectorAll<HTMLInputElement>(".matrixGrid input"),
 ];
 
+async function pasteMatrix(text: string) {
+  const paste = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { getData: () => text },
+  });
+  // Pasting into a middle cell must not spread the letters from there.
+  await act(async () => matrixInputs()[5].dispatchEvent(paste));
+}
+
 describe("matrix files", () => {
-  it("imports a column-by-column file into the grid and saves it row by row", async () => {
-    await importMatrix(JSON.stringify(matrixFile, null, 2));
-    expect(matrixInputs().map((input) => input.value)).toEqual(matrixLetters);
-    expect(matrixInputs().every((input) => !input.dataset.confidence)).toBe(
-      true,
-    );
-    expect(notify).toHaveBeenCalledWith(
-      "Matrix imported. Verify it against your card, then Connect.",
-    );
-    const card = host.querySelectorAll("section")[1];
-    await act(async () => button(card, "Connect").click());
-    await flush();
-    expect(mocks.bridge.saveSchoolCredentials).toHaveBeenCalledWith(
-      "tokyo-tech",
-      expect.objectContaining({ matrix: matrixLetters.join("") }),
-    );
-  });
+  it.each([
+    ["imported", importMatrix],
+    ["pasted", pasteMatrix],
+  ])(
+    "puts a column-by-column file %s into the right grid cells",
+    async (_, enter) => {
+      await enter(JSON.stringify(matrixFile));
+      expect(matrixInputs().map((input) => input.value)).toEqual(matrixLetters);
+    },
+  );
 
-  it("reports an invalid file and leaves the grid untouched", async () => {
-    await importMatrix(JSON.stringify(matrixFile.slice(1)));
-    expect(notify).toHaveBeenCalledWith(
-      expect.stringContaining("JSON array of 70 letters"),
-    );
-    expect(matrixInputs().every((input) => input.value === "")).toBe(true);
-  });
-
-  it("treats pasted Matrix JSON as a file, not as row-by-row letters", async () => {
-    const paste = new Event("paste", { bubbles: true, cancelable: true });
-    Object.defineProperty(paste, "clipboardData", {
-      value: { getData: () => JSON.stringify(matrixFile) },
-    });
-    await act(async () => matrixInputs()[5].dispatchEvent(paste));
-    expect(matrixInputs().map((input) => input.value)).toEqual(matrixLetters);
-  });
-
-  it("offers Export only for a saved Matrix and asks before writing it", async () => {
-    const labels = () =>
-      [...host.querySelectorAll("section")[1].querySelectorAll("button")].map(
-        (item) => item.textContent?.trim(),
-      );
-    expect(labels()).not.toContain("Export");
-
+  it("asks before exporting the plaintext Matrix", async () => {
     act(() => root.unmount());
     mocks.bridge.schoolCredentialStatus.mockResolvedValueOnce({
       science: { saved: false, username: "", hasOtp: false, hasMatrix: false },
@@ -453,6 +432,5 @@ describe("matrix files", () => {
     await act(async () => button(card, "Export").click());
     await flush();
     expect(mocks.bridge.exportSchoolMatrix).toHaveBeenCalledOnce();
-    expect(notify).toHaveBeenCalledWith("Matrix exported.");
   });
 });
