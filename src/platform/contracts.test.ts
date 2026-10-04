@@ -171,6 +171,45 @@ describe("Tauri bridge contract", () => {
     expect(invoke).toHaveBeenCalledWith("export_school_matrix", undefined);
   });
 
+  it("reveals saved school downloads and filters download events", async () => {
+    const invoke = vi.fn(async () => true);
+    let handler: ((value: unknown) => void) | undefined;
+    const unlisten = vi.fn();
+    const listen = vi.fn(
+      async (_event: string, callback: (value: unknown) => void) => {
+        handler = callback;
+        return unlisten;
+      },
+    );
+    const bridge = createTauriDesktopBridge(invoke, listen, "native-desktop");
+    const path = "/Users/student/Downloads/LAIIAssignment1.pdf";
+    await expect(bridge.revealSchoolDownload?.(path)).resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith("reveal_school_download", { path });
+
+    const callback = vi.fn();
+    const dispose = bridge.onSchoolDownload?.(callback);
+    await Promise.resolve();
+    expect(listen).toHaveBeenCalledWith(
+      "school-download",
+      expect.any(Function),
+    );
+    const site = "science-lms";
+    handler?.({ site, state: "started", name: "a.docx", url: "https://x" });
+    handler?.({ site, state: "done", name: "a.docx", path });
+    handler?.({ site, state: "failed", name: "a.docx" });
+    handler?.({ site, state: "done", name: "a.docx" });
+    handler?.({ site, state: "paused", name: "a.docx" });
+    handler?.({ site, state: "done", name: 1, path });
+    handler?.(null);
+    expect(callback.mock.calls.map(([event]) => event)).toEqual([
+      { site, state: "started", name: "a.docx", path: undefined },
+      { site, state: "done", name: "a.docx", path },
+      { site, state: "failed", name: "a.docx", path: undefined },
+    ]);
+    dispose?.();
+    expect(unlisten).toHaveBeenCalledOnce();
+  });
+
   it("rejects malformed native return values", async () => {
     const bridge = createTauriDesktopBridge(
       vi.fn(async () => "yes"),

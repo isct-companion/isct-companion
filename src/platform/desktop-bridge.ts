@@ -20,6 +20,14 @@ export type SchoolSite =
   | "tsubame"
   | "syllabus";
 export type Schedule = "off" | "launch" | "hourly";
+/** A file a school page saved to Downloads (download or PDF viewer ↓). */
+export type SchoolDownloadEvent = {
+  site: SchoolSite;
+  state: "started" | "done" | "failed";
+  name: string;
+  /** Set on `done`: the saved file, accepted by `revealSchoolDownload`. */
+  path?: string;
+};
 export type SchoolAuthProfile = "science" | "tokyo-tech";
 export type SchoolCredentials = {
   username: string;
@@ -206,6 +214,9 @@ export interface DesktopBridge {
     callback: (request: { site: SchoolSite; url: string }) => void,
   ): () => void;
   onSchoolLoginStatus?(callback: (event: SchoolLoginEvent) => void): () => void;
+  onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
+  /** Shows a file saved from a school page this session in Finder; false for any other path. */
+  revealSchoolDownload?(path: string): Promise<boolean>;
   /**
    * Makes sure the profile is signed in: loads its portal home in the hidden
    * school view, and if that lands on sign-in, signs in with the saved
@@ -529,6 +540,38 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
+    onSchoolDownload: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<SchoolDownloadEvent>("school-download", (payload) => {
+        if (
+          !disposed &&
+          payload &&
+          typeof payload.site === "string" &&
+          (payload.state === "started" ||
+            payload.state === "done" ||
+            payload.state === "failed") &&
+          typeof payload.name === "string" &&
+          (payload.path === undefined || typeof payload.path === "string") &&
+          (payload.state !== "done" || typeof payload.path === "string")
+        )
+          callback({
+            site: payload.site,
+            state: payload.state,
+            name: payload.name,
+            path: payload.path,
+          });
+      }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
+    revealSchoolDownload: (path) =>
+      booleanCommand("reveal_school_download", { path }),
     pullSchool: async (site) => {
       const value = await invoke("pull_school", { site });
       if (!Array.isArray(value))
