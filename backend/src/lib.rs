@@ -942,7 +942,16 @@ fn apply_bundled_subscriptions(
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
+        // The plugin's default link script runs in every webview and turns a
+        // `target="_blank"` click into an `open_url` IPC call, which no
+        // capability grants: links in school pages silently did nothing.
+        // School views route new-window links natively (see school_web.rs);
+        // the shell's links use the `open_external` command.
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(SchoolWebController::new());

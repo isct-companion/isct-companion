@@ -566,6 +566,9 @@ const SCHOOL_LOGIN_SCRIPT: &str = include_str!("../scripts/school-login.js");
 /// working `window.opener` and `window.close()`. Gated to 教務Web by the
 /// script itself; runs at document start in every frame.
 const KYOMU_POPUP_SCRIPT: &str = include_str!("../scripts/kyomu-popup.js");
+/// Sends cross-origin `target="_blank"` links through `window.open`, so they
+/// reach `on_new_window` instead of the navigation policy.
+const SCHOOL_LINKS_SCRIPT: &str = include_str!("../scripts/school-links.js");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1699,6 +1702,7 @@ impl SchoolWebController {
         let builder = builder;
         let builder = builder
             .initialization_script_for_all_frames(KYOMU_POPUP_SCRIPT)
+            .initialization_script_for_all_frames(SCHOOL_LINKS_SCRIPT)
             .on_page_load(move |webview, payload| {
                 // Started fires in the outgoing document; only act once the
                 // new page exists, or every script would run twice.
