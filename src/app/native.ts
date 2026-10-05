@@ -54,3 +54,12 @@ export const customizationNames: Record<CustomizationSite, string> = {
 export const desktopBridge = getDesktopBridge();
 export const schoolWebExit = createSchoolWebExit(desktopBridge);
 export const hideNativeSchoolWeb = () => schoolWebExit.close();
+let schoolViewOwner: symbol | undefined;
+export const claimSchoolView = (owner: symbol) => {
+  schoolViewOwner = owner;
+};
+export const releaseSchoolView = (owner: symbol) => {
+  if (schoolViewOwner !== owner) return Promise.resolve();
+  schoolViewOwner = undefined;
+  return hideNativeSchoolWeb();
+};

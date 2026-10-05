@@ -249,7 +249,10 @@ export function applyLmsMerge(
         meetings: entry.gridMeetings
           ? meetingsFromGrid(entry.gridMeetings, fromSyllabus?.meetings)
           : (fromSyllabus?.meetings ?? []),
-        url: entry.offering?.syllabusUrl ?? entry.lms.url,
+        // The LMS page is reached through the LMS record; `url` is the syllabus.
+        url:
+          entry.offering?.syllabusUrl ??
+          (entry.lms.offeringId ? `https://syllabus.s.isct.ac.jp/courses/-/-/-/${entry.lms.offeringId}` : undefined),
         source: { provider: "lms", externalId: String(entry.lms.lmsId), fetchedAt: now },
       };
       draft.courses.push(course);
@@ -271,15 +274,34 @@ export function applyLmsMerge(
     if (!linked.has(entry.lms.lmsId)) linked.set(entry.lms.lmsId, id);
   }
 
-  // Courses added from LMS follow its current name (e.g. once `&amp;` is decoded).
+  // Courses added from LMS follow its current name (e.g. once `&amp;` is
+  // decoded) and take credits the syllabus had not given yet.
   for (const pair of diff.common) {
     const course = draft.courses.find((item) => item.id === pair.local.id);
-    if (!course || course.source.provider !== "lms" || course.overrides?.title) continue;
+    if (!course || course.source.provider !== "lms") continue;
+    let changed = false;
     const names = pair.lms.offering?.title ?? pair.lms.lms.title;
-    if (JSON.stringify(course.names?.title ?? {}) === JSON.stringify(names) && course.title === pair.lms.title)
-      continue;
-    course.names = { title: names, instructor: course.names?.instructor ?? {} };
-    course.title = pair.lms.title;
+    if (
+      !course.overrides?.title &&
+      (JSON.stringify(course.names?.title ?? {}) !== JSON.stringify(names) || course.title !== pair.lms.title)
+    ) {
+      course.names = { title: names, instructor: course.names?.instructor ?? {} };
+      course.title = pair.lms.title;
+      changed = true;
+    }
+    const credits = pair.lms.offering?.credits;
+    const total = credits ? credits.lecture + credits.exercise + credits.lab : 0;
+    const syllabus = pair.lms.offering?.syllabusUrl;
+    if (syllabus && !course.url?.startsWith("https://syllabus.s.isct.ac.jp/")) {
+      course.url = syllabus;
+      changed = true;
+    }
+    if (credits && total > 0 && course.credits === 0) {
+      course.credits = total;
+      course.creditSplit = { ...credits };
+      changed = true;
+    }
+    if (!changed) continue;
     course.rev += 1;
     course.updatedAt = now;
     course.updatedBy = draft.deviceId;

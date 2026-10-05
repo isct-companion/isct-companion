@@ -1,0 +1,179 @@
+/** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
+export function safeContent(html: string, language?: "ja" | "en"): string {
+  const source = new DOMParser().parseFromString(
+    html.slice(0, 100000),
+    "text/html",
+  );
+  source
+    .querySelectorAll(
+      "script,style,iframe,object,embed,form,input,button,textarea,select,svg",
+    )
+    .forEach((n) => n.remove());
+  // Cached imports can still contain Moodle's own expand/collapse controls.
+  for (const link of [...source.getElementsByTagName("a")]) {
+    const href = safeUrl(link.getAttribute("href"));
+    if (!href) continue;
+    const url = new URL(href);
+    if (url.hostname === "lms.s.isct.ac.jp" && url.pathname.endsWith("/course/view.php") && (href.endsWith("#") || /^#coursecontentcollapse\d+$/.test(url.hash))) link.remove();
+  }
+  // Only explicit block language metadata can filter arbitrary content.
+  if (language)
+    source.body.querySelectorAll("[lang]").forEach((n) => {
+      const lang = n.getAttribute("lang")?.toLowerCase();
+      if ((lang === "ja" || lang === "en") && lang !== language) n.remove();
+    });
+  const out = document.createElement("div");
+  const tags = new Set([
+    "ARTICLE",
+    "TIME",
+    "P",
+    "DIV",
+    "SPAN",
+    "BR",
+    "B",
+    "STRONG",
+    "I",
+    "EM",
+    "U",
+    "S",
+    "UL",
+    "OL",
+    "LI",
+    "TABLE",
+    "THEAD",
+    "TBODY",
+    "TR",
+    "TH",
+    "TD",
+    "PRE",
+    "CODE",
+    "BLOCKQUOTE",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "HR",
+    "A",
+  ]);
+  const copy = (node: Node, parent: HTMLElement) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parent.append(document.createTextNode(node.textContent ?? ""));
+      return;
+    }
+    if (!(node instanceof Element)) return;
+    if (node.tagName === "IMG") {
+      const url = safeUrl(node.getAttribute("src"));
+      if (url && !new URL(url).pathname.includes("/theme/image.php/")) {
+        const link = document.createElement("a");
+        link.href = url;
+        link.className = "lmsAttachmentCard";
+        link.textContent = node.getAttribute("alt") || "Image";
+        const placeholder = document.createElement("span");
+        placeholder.dataset.imageSrc = url;
+        placeholder.dataset.imageAlt = link.textContent;
+        if (parent.tagName === "A") { parent.classList.add("lmsImageCard"); parent.append(placeholder, document.createTextNode(link.textContent)); }
+        else { link.classList.add("lmsImageCard"); link.prepend(placeholder); parent.append(link); }
+      }
+      return;
+    }
+    const el = tags.has(node.tagName)
+      ? document.createElement(node.tagName.toLowerCase())
+      : parent;
+    if (el !== parent) {
+      if (node.tagName === "ARTICLE") el.className = "lmsAnnouncement";
+      if (node.tagName === "A") {
+        const url = safeUrl(node.getAttribute("href"));
+        if (url) {
+          el.setAttribute("href", url);
+          if (new URL(url).pathname.includes("/pluginfile.php/")) el.className = "lmsAttachmentCard";
+        }
+      }
+      for (const attr of ["colspan", "rowspan"]) {
+        const value = node.getAttribute(attr);
+        if (/^\d{1,2}$/.test(value ?? "")) el.setAttribute(attr, value!);
+      }
+      parent.append(el);
+    }
+    node.childNodes.forEach((child) => copy(child, el));
+  };
+  source.body.childNodes.forEach((node) => copy(node, out));
+  if (language) {
+    // Narrow fallback: complete paired, labelled lines only. Keep mixed or
+    // unlabelled content unchanged, including tables, code and continuation.
+    out.querySelectorAll("div,p").forEach((el) => {
+      if (el.querySelector("div,p,table,pre,code,ul,ol,img")) return;
+      const lines = el.innerHTML
+        .split(/<br\s*\/?\s*>/i)
+        .filter((line) => line.trim());
+      const languages = lines.map((line) => {
+        const text =
+          new DOMParser()
+            .parseFromString(line, "text/html")
+            .body.textContent?.trim() ?? "";
+        if (/^(授業計画|課題|連絡先|オフィスアワー)\s*[：:]/.test(text))
+          return "ja";
+        if (
+          /^(Course schedule|Objectives|Contact|Office\s*hours)\s*:/i.test(text)
+        )
+          return "en";
+        return undefined;
+      });
+      if (
+        languages.includes("ja") &&
+        languages.includes("en") &&
+        languages.every(Boolean)
+      )
+        el.innerHTML = lines
+          .filter((_, index) => languages[index] === language)
+          .join("<br>");
+    });
+  }
+  return out.innerHTML;
+}
+
+export function safeUrl(raw?: string | null): string | undefined {
+  try {
+    const url = new URL(raw ?? "");
+    return url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function textPreview(html?: string): string {
+  return contentText(html).trim().replace(/\s+/g, " ").slice(0, 110);
+}
+
+export function contentText(html?: string): string {
+  if (!html) return "";
+  const body = new DOMParser().parseFromString(
+    html.slice(0, 100000),
+    "text/html",
+  ).body;
+  body
+    .querySelectorAll("script,style,iframe,object,embed,form")
+    .forEach((node) => node.remove());
+  body.querySelectorAll("br").forEach((node) => node.replaceWith(" "));
+  return body.textContent ?? "";
+}
+
+export function announcements(html?: string) {
+  if (!html) return [];
+  const page = new DOMParser().parseFromString(html.slice(0, 100000), "text/html");
+  return [...page.getElementsByTagName("article")].map((article, index) => {
+    const titleNode = article.getElementsByTagName("h5")[0];
+    const title = titleNode?.textContent?.trim() || "Announcement";
+    const time = article.getElementsByTagName("time")[0] || (article.getElementsByTagName("p")[0]?.textContent?.match(/^\d{4}年/) ? article.getElementsByTagName("p")[0] : undefined);
+    const date = time?.textContent || "";
+    titleNode?.remove(); time?.remove();
+    return { id: article.id || String(index), title, date, html: article.innerHTML, url: safeUrl(article.getAttribute("data-source-url")) };
+  });
+}
+
+export function formatLmsDate(value: string, locale: string) {
+  const parts = value.match(/(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日.*?(\d{1,2}):(\d{2})/);
+  if (!parts || locale === "ja") return value;
+  const [,year,month,day,hour,minute] = parts;
+  const date = new Date(`${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}T${hour.padStart(2,"0")}:${minute}:00+09:00`);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(locale, {year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:"Asia/Tokyo"}).format(date);
+}

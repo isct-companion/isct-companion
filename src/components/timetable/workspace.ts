@@ -4,10 +4,10 @@ import type {
   TermId,
   Workspace,
 } from "../../core/model";
-import { effectiveWeekday } from "../../core/academic";
+import { calendarState, occurrencesOnDate, quarterRange, scheduledCourses } from "../../core/schedule";
 import { dayNames, type Block, type DayColumn } from "./timetable";
 import { stamp, jstDate } from "../../app/shared";
-import { clockForPeriods, planOccursOn } from "../../core/user-schedule";
+
 export function enrolledCourses(data: Workspace, term: TermId) {
   const ids = new Set(
     data.memberships
@@ -53,17 +53,7 @@ export function setTimetable(d: Workspace, course: Course, on: boolean) {
     }
 }
 export function timetableCourses(data: Workspace, term: TermId) {
-  const ids = new Set([
-    ...data.memberships
-      .filter((m) => m.termId === term && !m.deletedAt)
-      .map((m) => m.courseId),
-    ...data.planItems
-      .filter((x) => x.termId === term && !x.deletedAt)
-      .map((x) => x.courseId),
-  ]);
-  return data.courses.filter(
-    (c) => ids.has(c.id) && c.termId === term && !c.deletedAt,
-  );
+  return scheduledCourses(data, term);
 }
 export function allTerms(data: Workspace, currentTerm: TermId): TermId[] {
   return [
@@ -74,11 +64,10 @@ export function allTerms(data: Workspace, currentTerm: TermId): TermId[] {
     ]),
   ].sort();
 }
-export function dayBlocks(
+function templateDayBlocks(
   courses: Course[],
   events: PersonalEvent[],
   day: number,
-  iso?: string,
   conflicts = new Set<string>(),
   match?: (course: Course) => boolean,
 ): Block[] {
@@ -86,8 +75,6 @@ export function dayBlocks(
   for (const course of courses)
     for (const [index, meeting] of course.meetings.entries()) {
       if (!meeting.days.includes(day)) continue;
-      if (iso && meeting.validFrom && iso < meeting.validFrom) continue;
-      if (iso && meeting.validTo && iso > meeting.validTo) continue;
       blocks.push({
         key: `${course.id}-${index}-${day}`,
         id: course.id,
@@ -104,7 +91,7 @@ export function dayBlocks(
     }
   for (const event of events) {
     if (event.deletedAt) continue;
-    if (!(event.days?.includes(day) || (iso && event.date === iso))) continue;
+    if (event.date || !event.days?.includes(day)) continue;
     blocks.push({
       key: `${event.id}-${day}`,
       id: event.id,
@@ -119,15 +106,6 @@ export function dayBlocks(
   }
   return blocks.sort((a, b) => a.startTime.localeCompare(b.startTime));
 }
-export function weekColumns(
-  data: Workspace,
-  courses: Course[],
-  events: PersonalEvent[],
-  conflicts?: Set<string>,
-  match?: (course: Course) => boolean,
-): DayColumn[] {
-  return weekColumnsAt(data, courses, events, new Date(), conflicts, match);
-}
 export function weekColumnsAt(
   data: Workspace,
   courses: Course[],
@@ -135,6 +113,7 @@ export function weekColumnsAt(
   anchor: Date,
   conflicts?: Set<string>,
   match?: (course: Course) => boolean,
+  term: TermId = courses[0]?.termId ?? events[0]?.termId ?? data.selectedTerm,
 ): DayColumn[] {
   const todayIso = jstDate(new Date());
   const anchorIso = jstDate(anchor);
@@ -144,29 +123,38 @@ export function weekColumnsAt(
     const date = new Date(`${anchorIso}T12:00:00+09:00`);
     date.setUTCDate(date.getUTCDate() + mondayShift + index);
     const iso = jstDate(date);
-    const effective = effectiveWeekday(date, data.exceptions);
-    const blocks = effective
-      ? dayBlocks(courses, events, effective, iso, conflicts, match)
-      : [];
-    for (const intensive of data.intensiveSchedules.filter((item) => !item.deletedAt)) {
-      const override = intensive.days?.find((item) => item.date === iso);
-      if (!override?.periods) continue;
-      const course = courses.find((item) => item.id === intensive.courseId);
-      if (!course) continue;
-      const clock = clockForPeriods(override.periods);
-      blocks.push({ key: `${intensive.id}-${iso}`, id: course.id, kind: "course", title: course.title, subtitle: course.code, room: intensive.room ?? "", startTime: clock.start, endTime: clock.end, color: course.color });
-    }
-    for (const plan of data.plans.filter((item) => !item.deletedAt && planOccursOn(item, iso))) {
-      const startTime = plan.start.includes("T") ? plan.start.slice(11, 16) : "08:50";
-      const [hour, minute] = startTime.split(":").map(Number);
-      const end = new Date(2000, 0, 1, hour, minute + plan.duration);
-      blocks.push({ key: `${plan.id}-${iso}`, id: plan.id, kind: "plan", title: plan.title, room: plan.room ?? "", startTime, endTime: `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`, color: "#5f6b8a" });
-    }
+    const calendar = calendarState(data, iso);
+    const rawLabel = calendar?.label;
+    const range = quarterRange(data, term);
+    const outsideTeaching = iso >= range.from && iso <= range.to && Boolean(range.teachingRanges && calendar?.type !== "replacement" && !range.teachingRanges.some(r => iso >= r.start && iso <= r.end));
+    const noClasses = outsideTeaching || ["holiday", "no-class", "break"].includes(calendar?.type ?? "");
+    const fullNotice = typeof rawLabel === "string" ? rawLabel : rawLabel ? rawLabel[data.settings.locale === "ja" ? "ja" : "en"] || rawLabel.en || rawLabel.ja : noClasses ? (data.settings.locale === "ja" ? "授業休み" : "No classes") : undefined;
+    const blocks = occurrencesOnDate(data, term, iso, {
+      courses,
+      includeCancelledCourses: true,
+      events,
+      conflicts,
+      match,
+    });
     return {
       label,
       date: iso,
       isToday: iso === todayIso,
+      calendarNotice: fullNotice?.replace(/^No classes due to\s+/i, ""),
+      noClasses,
       blocks: blocks.sort((a, b) => a.startTime.localeCompare(b.startTime)),
     };
   });
+}
+
+/** Courses is a planning template, including future quarters, not an actual dated week. */
+export function templateWeekColumns(
+  courses: Course[],
+  events: PersonalEvent[],
+  conflicts?: Set<string>,
+): DayColumn[] {
+  return dayNames.map((label, index) => ({
+    label,
+    blocks: templateDayBlocks(courses, events, index + 1, conflicts),
+  }));
 }

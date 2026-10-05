@@ -1,3 +1,4 @@
+import { CourseStorage } from "./CourseStorage";
 import { t } from "../../i18n";
 import {
   UiButton,
@@ -76,6 +77,24 @@ export function AdvancedSettings({
   void consentRevision;
   return (
     <>
+      <h2>LMS</h2>
+      <CourseStorage />
+      <Row
+        title={t("Prefer one language in bilingual LMS content")}
+        hint={t(
+          "Only clearly separated Japanese and English blocks are filtered. Original content is always available.",
+        )}
+      >
+        <Toggle
+          checked={data.settings.lmsBilingualFilter ?? false}
+          onChange={(checked) =>
+            update((d) => {
+              d.settings.lmsBilingualFilter = checked;
+              return d;
+            })
+          }
+        />
+      </Row>
       <h2>{t("Customize")}</h2>
       <Row title={t("Background image URL")}>
         <UiInput

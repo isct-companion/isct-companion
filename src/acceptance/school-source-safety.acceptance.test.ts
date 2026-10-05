@@ -10,8 +10,13 @@ function rustRawString(source: string, constant: string): string {
   const match = source.match(
     new RegExp(`pub const ${constant}: &str = r#\\"([\\s\\S]*?)\\"#;`),
   );
-  if (!match) throw new Error(`Rust raw string ${constant} was not found.`);
-  return match[1];
+  if (match) return match[1];
+  const start = source.indexOf(`pub const ${constant}: &str = concat!(`);
+  const end = source.indexOf('})()"#);', start);
+  if (start < 0 || end < 0) throw new Error(`Rust script ${constant} was not found.`);
+  const expression = source.slice(start, end + '})()"#);'.length);
+  return [...expression.matchAll(/r#"([\s\S]*?)"#|include_str!\("([^"]+)"\)/g)]
+    .map((part) => part[1] ?? read(`backend/src/${part[2]}`)).join("");
 }
 
 describe("public syllabus fixture provenance", () => {

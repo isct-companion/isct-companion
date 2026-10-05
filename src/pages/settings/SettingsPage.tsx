@@ -1,6 +1,8 @@
+import { Switch } from "@mantine/core";
 import { t } from "../../i18n";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "../../core/departments";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
+import { ReferenceSubscriptions } from "./ReferenceSubscriptions";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { SchoolAccounts } from "./SchoolAccounts";
 
@@ -72,10 +74,14 @@ export function Settings({
 }) {
   const [recoveryPhrase, setRecoveryPhrase] = useState("");
   const [cloudConflict, setCloudConflict] = useState<string | null>(null);
-  const [agentCommand, setAgentCommand] = useState("campus-mcp --db /absolute/path/to/school.db");
+  const [agentCommand, setAgentCommand] = useState(
+    "campus-mcp --db /absolute/path/to/school.db",
+  );
   useEffect(() => {
     if (!desktopBridge) return;
-    void invoke<string>("agent_command").then(setAgentCommand).catch(() => undefined);
+    void invoke<string>("agent_command")
+      .then(setAgentCommand)
+      .catch(() => undefined);
   }, []);
   const pendingCloud = useRef<CloudAdapter | null>(null);
   const cloudAvailable =
@@ -221,7 +227,9 @@ export function Settings({
           throw error;
       }
       await performAction("push-cloud", detectPlatform(), () =>
-        workspaceActions.exportData().then((document) => adapter.push(document)),
+        workspaceActions
+          .exportData()
+          .then((document) => adapter.push(document)),
       );
       notify("Encrypted backup uploaded.");
     } catch (error) {
@@ -371,6 +379,9 @@ export function Settings({
                 <option value="en">{t("English")}</option>
                 <option value="ja">日本語</option>
               </UiSelect>
+            </Row>
+            <Row title={t("Automatically save course files")} hint={t("Keep opened files in your course folder for offline use. Otherwise previews use temporary storage.")}>
+              <Switch checked={data.settings.autoSaveCourseFiles ?? false} aria-label={t("Automatically save course files")} onChange={event => { const checked = event.currentTarget.checked; update(d => { d.settings.autoSaveCourseFiles = checked; return d; }); }} />
             </Row>
             <Row title="Department">
               <UiSelect
@@ -613,79 +624,19 @@ export function Settings({
             readOnly={platform !== "native-desktop"}
           />
         ) : section === "subscriptions" ? (
-          <>
-            <h2>Subscriptions</h2>
-            {data.subscriptions.map((subscription) => (
-              <Row
-                key={subscription.id}
-                title={subscription.kind}
-                hint={
-                  subscription.lastError ??
-                  (subscription.fetchedAt
-                    ? `Updated ${new Date(subscription.fetchedAt).toLocaleString()}`
-                    : subscription.url || "Bundled 2026 data")
-                }
-              >
-                <Toggle
-                  checked={subscription.enabled}
-                  onChange={(enabled) =>
-                    update((draft) => {
-                      const target = draft.subscriptions.find(
-                        (item) => item.id === subscription.id,
-                      );
-                      if (target) {
-                        target.enabled = enabled;
-                        target.rev += 1;
-                        target.updatedAt = new Date().toISOString();
-                      }
-                      return draft;
-                    })
-                  }
-                />
-              </Row>
-            ))}
-            {!data.subscriptions.length && (
-              <p className="muted">
-                No reference data has been applied for this profile.
-              </p>
-            )}
-            <div className="actions end">
-              <UiButton
-                className="button primary"
-                disabled={
-                  !desktopBridge ||
-                  data.academicProfile.admissionYear === undefined
-                }
-                onClick={async () => {
-                  const academicYear = Number(data.selectedTerm.slice(0, 4));
-                  const admissionYear = data.academicProfile.admissionYear;
-                  if (!admissionYear)
-                    return notify("Choose your admission year in General first.");
-                  try {
-                    const changed = await invoke<number>(
-                      "apply_bundled_subscriptions",
-                      { academicYear, admissionYear },
-                    );
-                    await workspaceStore.reload();
-                    notify(`Verified reference data updated (${changed} changes).`);
-                  } catch (error) {
-                    notify(
-                      error instanceof Error
-                        ? error.message
-                        : String(error),
-                    );
-                  }
-                }}
-              >
-                Update verified data
-              </UiButton>
-            </div>
-          </>
+          <ReferenceSubscriptions
+            data={data}
+            update={advancedCalendarUpdate}
+            available={platform === "native-desktop" && !!desktopBridge}
+            notify={notify}
+          />
         ) : section === "hidden" ? (
           <>
             <h2>Hidden items</h2>
             {data.assignments
-              .filter((assignment) => assignment.hidden && !assignment.deletedAt)
+              .filter(
+                (assignment) => assignment.hidden && !assignment.deletedAt,
+              )
               .map((assignment) => (
                 <Row
                   key={assignment.id}
@@ -740,7 +691,7 @@ export function Settings({
                 hint={
                   task.lastRunAt
                     ? `Last run ${task.lastRunAt.slice(0, 10)} · ${task.lastResult ?? task.schedule}`
-                    : task.lastResult ?? task.schedule
+                    : (task.lastResult ?? task.schedule)
                 }
               >
                 <div className="actions">
@@ -767,16 +718,20 @@ export function Settings({
                       try {
                         if (runScheduledTask)
                           result = await runScheduledTask(task);
-                        else if (task.action === "school-refresh") await refreshSchool();
+                        else if (task.action === "school-refresh")
+                          await refreshSchool();
                         else if (task.action === "export") {
                           await exportData();
                           result = "Export completed";
                         } else result = "Hook queued";
                       } catch (error) {
-                        result = error instanceof Error ? error.message : "Run failed";
+                        result =
+                          error instanceof Error ? error.message : "Run failed";
                       }
                       update((draft) => {
-                        const target = draft.scheduledTasks.find((item) => item.id === task.id);
+                        const target = draft.scheduledTasks.find(
+                          (item) => item.id === task.id,
+                        );
                         if (target) {
                           target.lastRunAt = new Date().toISOString();
                           target.lastResult = result;

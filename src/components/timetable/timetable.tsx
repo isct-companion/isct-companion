@@ -33,12 +33,15 @@ export type Block = {
   color: string;
   conflict?: boolean;
   dim?: boolean;
+  cancelled?: boolean;
 };
 
 export type DayColumn = {
   label: string;
   date?: string;
   isToday?: boolean;
+  calendarNotice?: string;
+  noClasses?: boolean;
   blocks: Block[];
 };
 
@@ -82,18 +85,19 @@ export function WeekTimetable({
   const nowOffset = showNow ? timetableOffset(jstMinutes()) : undefined;
   const agenda = days[day - 1]?.blocks ?? [];
   return (
-    <div className="tt" style={{ "--days": days.length } as React.CSSProperties}>
+    <div className={`tt${days.some(column => column.calendarNotice) ? " hasCalendarNotice" : ""}`} style={{ "--days": days.length } as React.CSSProperties}>
       <div className="ttGrid" role="grid" aria-label={t("Weekly timetable")}>
         <div className="ttCorner" />
         {days.map((column) => (
           <div
-            className={`ttHead${column.isToday ? " today" : ""}`}
+            className={`ttHead${column.isToday ? " today" : ""}${column.noClasses ? " noClasses" : ""}`}
             key={column.label}
           >
             <b>{t(column.label.slice(0, 3))}</b>
             {column.date && (
               <small>{column.date.slice(5).replace("-", "/")}</small>
             )}
+            {column.calendarNotice && <span className="ttCalendarNotice" title={column.calendarNotice}>{column.calendarNotice}</span>}
           </div>
         ))}
         <div className="ttAxis">
@@ -116,7 +120,7 @@ export function WeekTimetable({
         </div>
         {days.map((column, dayIndex) => (
           <div
-            className={`ttCol${column.isToday ? " today" : ""}`}
+            className={`ttCol${column.isToday ? " today" : ""}${column.noClasses ? " noClasses" : ""}`}
             key={column.label}
           >
             {onSlot &&
@@ -174,6 +178,7 @@ export function WeekTimetable({
                     block.kind,
                     block.conflict ? "conflict" : "",
                     block.dim ? "dim" : "",
+                    block.cancelled ? "cancelled" : "",
                     selectedId === block.id ? "selected" : "",
                   ]
                     .filter(Boolean)
@@ -219,12 +224,13 @@ export function WeekTimetable({
             </UiButton>
           ))}
         </div>
-        <div className="ttAgendaList">
+        <div className={`ttAgendaList${days[day - 1]?.noClasses ? " noClasses" : ""}`}>
+          {days[day - 1]?.calendarNotice && <div className="ttCalendarNotice">{days[day - 1].calendarNotice}</div>}
           {agenda.length ? (
             agenda.map((block) => (
               <UiButton
                 type="button"
-                className="ttAgendaRow"
+                className={`ttAgendaRow${block.cancelled ? " cancelled" : ""}`}
                 style={{ "--course": block.color } as React.CSSProperties}
                 key={block.key}
                 onClick={() => onSelect?.(block)}

@@ -71,6 +71,14 @@ export type SchoolIngestOutcome = {
   changed: number;
   message: string;
 };
+export type LmsSection = {
+  id: number;
+  number: number;
+  title: string;
+  visible: boolean;
+  bodyHtml?: string;
+};
+
 /** An LMS course row as imported (`lms_courses`). */
 export type LmsCourseRecord = {
   id: string;
@@ -82,6 +90,7 @@ export type LmsCourseRecord = {
   quarters: string[];
   url: string;
   hidden?: boolean;
+  sections?: LmsSection[];
   /** Weekly meetings per term, read from the LMS dashboard timetable grid. */
   timetables?: Record<string, { day: number; periods: [number, number] }[]>;
 };
@@ -97,8 +106,17 @@ export type SchoolRecords = {
     title: string;
     courseState?: string;
     declaredOnly?: boolean;
+    /** Rows from 科目から (`kind: "declared"`). */
+    kind?: string;
+    quarters?: number[];
+    effectiveCredits?: number;
   }[];
-  registrationStates: { id: string; state: string; raw: string; savedAt?: string | null }[];
+  registrationStates: {
+    id: string;
+    state: string;
+    raw: string;
+    savedAt?: string | null;
+  }[];
   grades: Record<string, unknown>[];
   gpaByTerm: { id: string; cells: string[] }[];
   requirements: {
@@ -502,20 +520,24 @@ export function createTauriDesktopBridge(
         "school_records",
         await invoke("school_records"),
       );
-      const rows = <T,>(list: unknown): T[] =>
-        Array.isArray(list) ? (list.filter((row) => row && typeof row === "object") as T[]) : [];
+      const rows = <T>(list: unknown): T[] =>
+        Array.isArray(list)
+          ? (list.filter((row) => row && typeof row === "object") as T[])
+          : [];
       const lastRuns =
         value.lastRuns && typeof value.lastRuns === "object"
           ? Object.fromEntries(
               Object.entries(value.lastRuns).filter(
-                (entry): entry is [string, string] => typeof entry[1] === "string",
+                (entry): entry is [string, string] =>
+                  typeof entry[1] === "string",
               ),
             )
           : {};
       return {
         lastRuns,
         lmsCourses: rows<LmsCourseRecord>(value.lmsCourses).filter(
-          (row) => typeof row.lmsId === "number" && typeof row.shortname === "string",
+          (row) =>
+            typeof row.lmsId === "number" && typeof row.shortname === "string",
         ),
         registrations: rows(value.registrations),
         registrationStates: rows(value.registrationStates),
@@ -671,22 +693,34 @@ export function createTauriDesktopBridge(
         throw new Error("catalog_offerings returned an invalid result.");
       // Rows that do not have the finder's shape are skipped, not fatal. A row
       // stored from a search result has no schedule or credits yet.
-      return rows.filter(
-        (row): row is FinderCourse =>
-          Boolean(row) &&
-          typeof row.id === "string" &&
-          typeof row.code === "string" &&
-          Array.isArray(row.quarters) &&
-          typeof row.title === "object",
-      ).map((row) => ({
-        ...row,
-        detailed: Array.isArray(row.schedule) && typeof row.credits === "object",
-        schedule: Array.isArray(row.schedule) ? row.schedule : [],
-        credits: typeof row.credits === "object" && row.credits ? row.credits : { lecture: 0, exercise: 0, lab: 0 },
-        instructors: Array.isArray(row.instructors) ? row.instructors : [],
-        format: row.format && Array.isArray(row.format.kinds) ? row.format : { kinds: [] },
-        instructionLanguage: typeof row.instructionLanguage === "string" ? row.instructionLanguage : "other",
-      }));
+      return rows
+        .filter(
+          (row): row is FinderCourse =>
+            Boolean(row) &&
+            typeof row.id === "string" &&
+            typeof row.code === "string" &&
+            Array.isArray(row.quarters) &&
+            typeof row.title === "object",
+        )
+        .map((row) => ({
+          ...row,
+          detailed:
+            Array.isArray(row.schedule) && typeof row.credits === "object",
+          schedule: Array.isArray(row.schedule) ? row.schedule : [],
+          credits:
+            typeof row.credits === "object" && row.credits
+              ? row.credits
+              : { lecture: 0, exercise: 0, lab: 0 },
+          instructors: Array.isArray(row.instructors) ? row.instructors : [],
+          format:
+            row.format && Array.isArray(row.format.kinds)
+              ? row.format
+              : { kinds: [] },
+          instructionLanguage:
+            typeof row.instructionLanguage === "string"
+              ? row.instructionLanguage
+              : "other",
+        }));
     },
   };
 }
