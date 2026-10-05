@@ -20,29 +20,16 @@ export function normalizeMatrixText(value: string): string {
     .slice(0, MATRIX_SIZE);
 }
 
-/** Matrix files list the card column by column (A1…A7, B1…B7, …) as a JSON
- * array of 70 letters; cells here run row by row. Mirrors `matrix_file_json`
- * in backend/src/school_auth.rs. */
-export function parseMatrixFile(text: string): string[] {
-  let cells: unknown;
-  try {
-    cells = JSON.parse(text);
-  } catch {
-    cells = undefined;
-  }
-  if (
-    !Array.isArray(cells) ||
-    cells.length !== MATRIX_SIZE ||
-    !cells.every((cell) => typeof cell === "string" && /^[A-Z]$/i.test(cell))
-  )
+/** Reads a complete Matrix in the editor's visual row order (A1…J1, A2…).
+ * Spaces, tabs and line breaks are formatting only; everything else must be a
+ * letter so a bad paste is rejected instead of silently shifted or truncated. */
+export function parseMatrixText(text: string): string[] {
+  const compact = text.toUpperCase().replace(/\s/g, "");
+  if (!/^[A-Z]{70}$/.test(compact))
     throw new Error(
-      "A Matrix file is a JSON array of 70 letters, column by column (A1…A7, B1…B7, …).",
+      "Paste exactly 70 letters in row order (A1…J1, A2…J2, …). Spaces and line breaks are ignored.",
     );
-  return Array.from({ length: MATRIX_SIZE }, (_, index) => {
-    const row = Math.floor(index / MATRIX_COLUMNS);
-    const column = index % MATRIX_COLUMNS;
-    return (cells[column * MATRIX_ROWS + row] as string).toUpperCase();
-  });
+  return [...compact];
 }
 
 /** Keep the established WebView decoding/resampling; native code consumes these

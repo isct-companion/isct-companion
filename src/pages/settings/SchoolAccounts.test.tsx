@@ -40,7 +40,7 @@ const mocks = vi.hoisted(() => {
         };
       }),
       deleteSchoolCredentials: vi.fn(async () => true),
-      exportSchoolMatrix: vi.fn(async () => true),
+      copySchoolMatrix: vi.fn(async () => true),
       onSchoolLoginStatus: vi.fn((callback: (event: unknown) => void) => {
         mocks.loginListeners.push(callback);
         return vi.fn();
@@ -85,12 +85,16 @@ function button(scope: ParentNode, name: string) {
   return match as HTMLButtonElement;
 }
 
-async function mount() {
+async function mount(matrixOcrAvailable = true) {
   root = createRoot(host);
   await act(async () => {
     root.render(
       <MantineProvider theme={appTheme} defaultColorScheme="light">
-        <SchoolAccounts notify={notify} showLoginPage={showLoginPage} />
+        <SchoolAccounts
+          notify={notify}
+          showLoginPage={showLoginPage}
+          matrixOcrAvailable={matrixOcrAvailable}
+        />
       </MantineProvider>,
     );
   });
@@ -233,6 +237,16 @@ async function scanMatrix(results: { text: string; confidence: number }[]) {
 }
 
 describe("matrix review and save", () => {
+  it("hides image scanning when OCR is unavailable on this target", async () => {
+    act(() => root.unmount());
+    await mount(false);
+    expect(
+      [...host.querySelectorAll("button")].map((item) =>
+        item.textContent?.trim(),
+      ),
+    ).not.toContain("Scan image");
+  });
+
   it("shows three confidence bands in plaintext, then clears and masks after Connect saves", async () => {
     const result = Array.from({ length: 70 }, (_, i) => ({
       text: "A",
@@ -361,28 +375,10 @@ describe("repeat matrix scans", () => {
   );
 });
 
-// Cell i (row by row) holds the i-th letter; the file lists A1…A7, B1…B7, …
+// Cell i follows the grid's visual row order: A1…J1, A2…J2, …
 const matrixLetters = Array.from({ length: 70 }, (_, i) =>
   String.fromCharCode(65 + (i % 26)),
 );
-const matrixFile = Array.from(
-  { length: 70 },
-  (_, k) => matrixLetters[(k % 7) * 10 + Math.floor(k / 7)],
-);
-
-async function importMatrix(text: string) {
-  const input = host.querySelector<HTMLInputElement>(
-    'input[accept=".json,application/json"]',
-  )!;
-  Object.defineProperty(input, "files", {
-    configurable: true,
-    value: [new File([text], "matrix.json", { type: "application/json" })],
-  });
-  await act(async () =>
-    input.dispatchEvent(new Event("change", { bubbles: true })),
-  );
-  await flush();
-}
 
 const matrixInputs = () => [
   ...host
@@ -400,18 +396,15 @@ async function pasteMatrix(text: string) {
 }
 
 describe("matrix files", () => {
-  it.each([
-    ["imported", importMatrix],
-    ["pasted", pasteMatrix],
-  ])(
-    "puts a column-by-column file %s into the right grid cells",
-    async (_, enter) => {
-      await enter(JSON.stringify(matrixFile));
-      expect(matrixInputs().map((input) => input.value)).toEqual(matrixLetters);
-    },
-  );
+  it("pastes whitespace-formatted text into the right grid cells", async () => {
+    const text = Array.from({ length: 7 }, (_, row) =>
+      matrixLetters.slice(row * 10, row * 10 + 10).join(" "),
+    ).join("\n");
+    await pasteMatrix(text);
+    expect(matrixInputs().map((input) => input.value)).toEqual(matrixLetters);
+  });
 
-  it("asks before exporting the plaintext Matrix", async () => {
+  it("asks before copying the plaintext Matrix", async () => {
     act(() => root.unmount());
     mocks.bridge.schoolCredentialStatus.mockResolvedValueOnce({
       science: { saved: false, username: "", hasOtp: false, hasMatrix: false },
@@ -425,12 +418,12 @@ describe("matrix files", () => {
     await mount();
     const card = host.querySelectorAll("section")[1];
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
-    await act(async () => button(card, "Export").click());
-    expect(mocks.bridge.exportSchoolMatrix).not.toHaveBeenCalled();
+    await act(async () => button(card, "Copy").click());
+    expect(mocks.bridge.copySchoolMatrix).not.toHaveBeenCalled();
 
     confirm.mockReturnValueOnce(true);
-    await act(async () => button(card, "Export").click());
+    await act(async () => button(card, "Copy").click());
     await flush();
-    expect(mocks.bridge.exportSchoolMatrix).toHaveBeenCalledOnce();
+    expect(mocks.bridge.copySchoolMatrix).toHaveBeenCalledOnce();
   });
 });

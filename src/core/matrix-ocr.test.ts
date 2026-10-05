@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import {
   matrixConfidence,
   normalizeMatrixText,
-  parseMatrixFile,
+  parseMatrixText,
 } from "./matrix-ocr";
 
 it("keeps review bands and manual matrix normalization", () => {
@@ -14,37 +14,21 @@ it("keeps review bands and manual matrix normalization", () => {
   expect(normalizeMatrixText("a, b 0 1 8")).toBe("AB");
 });
 
-// Same card as the backend export test: cell i (row by row) holds the i-th letter.
+// Same card as the backend clipboard test: cell i (row by row) holds the i-th letter.
 const rowMajor = Array.from({ length: 70 }, (_, i) =>
   String.fromCharCode(65 + (i % 26)),
 );
-const matrixFile = Array.from(
-  { length: 70 },
-  (_, k) => rowMajor[(k % 7) * 10 + Math.floor(k / 7)],
-);
-it("reads Matrix files column by column into row-by-row cells", () => {
-  expect(matrixFile.slice(0, 8)).toEqual([
-    "A",
-    "K",
-    "U",
-    "E",
-    "O",
-    "Y",
-    "I",
-    "B",
-  ]);
-  expect(parseMatrixFile(JSON.stringify(matrixFile, null, 2))).toEqual(
-    rowMajor,
-  );
-  expect(
-    parseMatrixFile(
-      JSON.stringify(matrixFile.map((cell) => cell.toLowerCase())),
-    ),
-  ).toEqual(rowMajor);
+it("reads whitespace-formatted Matrix text in visual row order", () => {
+  const rows = Array.from({ length: 7 }, (_, row) =>
+    rowMajor.slice(row * 10, row * 10 + 10).join(" "),
+  ).join("\n");
+  expect(parseMatrixText(rows)).toEqual(rowMajor);
+  expect(parseMatrixText(rowMajor.join("").toLowerCase())).toEqual(rowMajor);
 });
 it.each([
-  ["invalid JSON", "[A, B]"],
-  ["69 cells", JSON.stringify(matrixFile.slice(1))],
-])("rejects a Matrix file with %s", (_, text) => {
-  expect(() => parseMatrixFile(text)).toThrow("JSON array of 70 letters");
+  ["69 letters", rowMajor.slice(1).join("")],
+  ["71 letters", `${rowMajor.join("")}A`],
+  ["punctuation", `${rowMajor.slice(0, 69).join("")}-`],
+])("rejects Matrix text with %s", (_, text) => {
+  expect(() => parseMatrixText(text)).toThrow("exactly 70 letters");
 });

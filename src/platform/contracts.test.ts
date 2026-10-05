@@ -52,6 +52,7 @@ const runtime = (
     notifications: true,
     backgroundSchedule: true,
     cloudSync: true,
+    matrixOcr: true,
   },
   school: { status: "not-configured" },
   background: { scheduler: "off" },
@@ -164,11 +165,11 @@ describe("Tauri bridge contract", () => {
     });
   });
 
-  it("exports the saved Matrix through its own native command", async () => {
+  it("copies the saved Matrix through its own native command", async () => {
     const invoke = vi.fn(async () => true);
     const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
-    await expect(bridge.exportSchoolMatrix()).resolves.toBe(true);
-    expect(invoke).toHaveBeenCalledWith("export_school_matrix", undefined);
+    await expect(bridge.copySchoolMatrix()).resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith("copy_school_matrix", undefined);
   });
 
   it("reveals saved school downloads and filters download events", async () => {

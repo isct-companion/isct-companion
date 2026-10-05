@@ -20,7 +20,7 @@ import {
   MATRIX_SIZE,
   matrixConfidence,
   normalizeMatrixText,
-  parseMatrixFile,
+  parseMatrixText,
   recognizeMatrixImage,
 } from "../../core/matrix-ocr";
 import type {
@@ -129,7 +129,8 @@ function MatrixEditor({
   notify,
   disabled,
   onScanState,
-  onExport,
+  onCopy,
+  matrixOcrAvailable,
 }: {
   disabled: boolean;
   onScanState: (scanning: boolean) => void;
@@ -138,12 +139,12 @@ function MatrixEditor({
   onBeginEdit: () => void;
   onChange: (value: string[]) => void;
   notify: (message: string) => void;
-  onExport: () => void;
+  onCopy: () => void;
+  matrixOcrAvailable: boolean;
 }) {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const [recognizing, setRecognizing] = useState(false);
   const resetScanInput = useRef<(() => void) | null>(null);
-  const resetImportInput = useRef<(() => void) | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [confidence, setConfidence] = useState<Array<number | undefined>>([]);
   useEffect(() => {
@@ -171,23 +172,14 @@ function MatrixEditor({
   };
   const load = (text: string) => {
     try {
-      const cells = parseMatrixFile(text);
+      const cells = parseMatrixText(text);
       onBeginEdit();
       onChange(cells);
       setConfidence([]);
-      notify("Matrix imported. Verify it against your card, then Connect.");
+      notify("Matrix pasted. Verify it against your card, then Connect.");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Matrix import failed.");
+      notify(error instanceof Error ? error.message : "Matrix paste failed.");
     }
-  };
-  const importFile = async (file?: File) => {
-    resetImportInput.current?.();
-    if (!file || disabled) return;
-    if (file.size > 64 * 1024) {
-      notify("Choose a Matrix JSON file smaller than 64 KB.");
-      return;
-    }
-    load(await file.text());
   };
   const recognize = async (file?: File) => {
     if (!file || recognizing || disabled) return;
@@ -221,49 +213,34 @@ function MatrixEditor({
       <div className="matrixTools">
         <b>Matrix</b>
         <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
-        <FileButton
-          resetRef={resetScanInput}
-          disabled={recognizing || disabled}
-          onChange={(file) => void recognize(file ?? undefined)}
-          accept="image/*"
-        >
-          {(props) => (
-            <Button
-              {...props}
-              variant="default"
-              size="compact-xs"
-              loading={recognizing}
-              disabled={disabled}
-            >
-              {recognizing ? `Reading ${scanProgress}/70…` : "Scan image"}
-            </Button>
-          )}
-        </FileButton>
-        <FileButton
-          resetRef={resetImportInput}
-          disabled={recognizing || disabled}
-          onChange={(file) => void importFile(file ?? undefined)}
-          accept=".json,application/json"
-        >
-          {(props) => (
-            <Button
-              {...props}
-              variant="default"
-              size="compact-xs"
-              disabled={recognizing || disabled}
-            >
-              Import
-            </Button>
-          )}
-        </FileButton>
+        {matrixOcrAvailable && (
+          <FileButton
+            resetRef={resetScanInput}
+            disabled={recognizing || disabled}
+            onChange={(file) => void recognize(file ?? undefined)}
+            accept="image/*"
+          >
+            {(props) => (
+              <Button
+                {...props}
+                variant="default"
+                size="compact-xs"
+                loading={recognizing}
+                disabled={disabled}
+              >
+                {recognizing ? `Reading ${scanProgress}/70…` : "Scan image"}
+              </Button>
+            )}
+          </FileButton>
+        )}
         {masked && (
           <Button
             variant="default"
             size="compact-xs"
             disabled={recognizing || disabled}
-            onClick={onExport}
+            onClick={onCopy}
           >
-            Export
+            Copy
           </Button>
         )}
       </div>
@@ -336,8 +313,10 @@ function MatrixEditor({
                   onPaste={(event) => {
                     event.preventDefault();
                     const text = event.clipboardData.getData("text");
-                    // A pasted Matrix file runs column by column; letters run row by row.
-                    if (text.trim().startsWith("[")) load(text);
+                    // A complete Matrix always replaces the grid from A1;
+                    // shorter snippets continue from the focused cell.
+                    if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
+                      load(text);
                     else write(index, text);
                   }}
                   onKeyDown={(event) => {
@@ -392,6 +371,7 @@ function Account({
   refresh,
   notify,
   showLoginPage,
+  matrixOcrAvailable,
 }: {
   profile: SchoolAuthProfile;
   title: string;
@@ -401,6 +381,7 @@ function Account({
   refresh: () => Promise<void>;
   notify: (message: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
+  matrixOcrAvailable: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [matrixReplacing, setMatrixReplacing] = useState(false);
@@ -504,16 +485,17 @@ function Account({
       setBusy(false);
     }
   };
-  const exportMatrix = async () => {
+  const copyMatrix = async () => {
     if (
       !desktopBridge ||
       !confirm(
-        "Export the saved Matrix as a plain-text JSON file? Anyone with the file can answer Matrix challenges.",
+        "Copy the saved Matrix as plain text? Other apps may be able to read the clipboard until you replace it.",
       )
     )
       return;
     try {
-      if (await desktopBridge.exportSchoolMatrix()) notify("Matrix exported.");
+      if (await desktopBridge.copySchoolMatrix())
+        notify("Matrix copied. Paste it soon, then replace your clipboard.");
     } catch (error) {
       // Native commands reject with their error string.
       notify(error instanceof Error ? error.message : String(error));
@@ -624,7 +606,8 @@ function Account({
           onBeginEdit={() => setMatrixReplacing(true)}
           onChange={(matrix) => setDraft({ ...draft, matrix })}
           notify={notify}
-          onExport={() => void exportMatrix()}
+          onCopy={() => void copyMatrix()}
+          matrixOcrAvailable={matrixOcrAvailable}
         />
       )}
       <div className="actions schoolAccountActions">
@@ -653,9 +636,11 @@ function Account({
 export function SchoolAccounts({
   notify,
   showLoginPage,
+  matrixOcrAvailable,
 }: {
   notify: (message: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
+  matrixOcrAvailable: boolean;
 }) {
   const [status, setStatus] = useState(emptyStatus);
   const [science, setScience] = useState(emptyDraft);
@@ -699,6 +684,7 @@ export function SchoolAccounts({
         refresh={refresh}
         notify={notify}
         showLoginPage={showLoginPage}
+        matrixOcrAvailable={matrixOcrAvailable}
       />
       <Account
         profile="tokyo-tech"
@@ -709,6 +695,7 @@ export function SchoolAccounts({
         refresh={refresh}
         notify={notify}
         showLoginPage={showLoginPage}
+        matrixOcrAvailable={matrixOcrAvailable}
       />
     </div>
   );

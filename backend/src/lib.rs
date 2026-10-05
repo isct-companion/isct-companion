@@ -1,6 +1,6 @@
 use serde::Serialize;
 use tauri::{plugin::PermissionState, Manager, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -28,6 +28,10 @@ pub mod plans;
 mod policy;
 mod school_auth;
 mod school_extract;
+#[cfg(not(mobile))]
+mod school_web;
+#[cfg(mobile)]
+#[path = "school_web_mobile.rs"]
 mod school_web;
 mod secrets;
 mod subscriptions;
@@ -43,6 +47,7 @@ struct RuntimeCapabilities {
     cloud_sync: bool,
     syllabus_search: bool,
     syllabus_filters: bool,
+    matrix_ocr: bool,
 }
 
 fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
@@ -92,7 +97,10 @@ async fn recognize_matrix_image(
 #[tauri::command]
 fn recognize_matrix_image(webview: tauri::Webview) -> Result<(), String> {
     require_local_main(&webview)?;
-    Err("Scan image is not available on Intel Macs yet. Type or paste the 70 letters instead.".into())
+    Err(
+        "Scan image is not available on Intel Macs yet. Type or paste the 70 letters instead."
+            .into(),
+    )
 }
 
 #[cfg(test)]
@@ -117,12 +125,13 @@ fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCapabilities, 
     require_local_main(&webview)?;
     Ok(RuntimeCapabilities {
         school_import: false,
-        school_web: true,
+        school_web: cfg!(not(mobile)),
         notifications: true,
         background_schedule: false,
         cloud_sync: true,
         syllabus_search: true,
         syllabus_filters: true,
+        matrix_ocr: cfg!(matrix_ocr),
     })
 }
 
@@ -350,40 +359,19 @@ fn delete_school_credentials(
     service.delete(profile)
 }
 
-/// Writes the saved Matrix from the vault straight to a file the person picks,
+/// Copies the saved Matrix directly from the vault to the system clipboard,
 /// so the plaintext never passes through the WebView.
 #[tauri::command]
-async fn export_school_matrix(
+fn copy_school_matrix(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    use std::io::Write;
-
-    let document = auth.matrix_file()?;
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Export Matrix")
-        .set_file_name("matrix.json")
-        .add_filter("JSON", &["json"]);
-    #[cfg(desktop)]
-    let dialog = dialog.set_parent(&webview.window());
-    let Some(path) = dialog.blocking_save_file() else {
-        return Ok(false);
-    };
-    let path = path
-        .into_path()
-        .map_err(|_| "Choose a file on this device.".to_string())?;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options
-        .open(&path)
-        .and_then(|mut file| file.write_all(document.as_bytes()))
-        .map_err(|_| "Matrix file could not be written.".to_string())?;
+    let text = auth.matrix_text()?;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|_| "Matrix could not be copied to the clipboard.".to_string())?;
     Ok(true)
 }
 
@@ -966,7 +954,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_secure_storage::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(SchoolWebController::new());
     #[cfg(matrix_ocr)]
     let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
@@ -990,7 +978,7 @@ pub fn run() {
             school_credential_status,
             save_school_credentials,
             delete_school_credentials,
-            export_school_matrix,
+            copy_school_matrix,
             login_school,
             test_school_connection,
             ensure_school_session,

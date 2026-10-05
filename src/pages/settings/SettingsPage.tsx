@@ -58,6 +58,7 @@ export function Settings({
   notify,
   showLoginPage,
   runScheduledTask,
+  matrixOcrAvailable,
 }: {
   platform: Platform;
   data: Workspace;
@@ -69,6 +70,7 @@ export function Settings({
   notify: (s: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
+  matrixOcrAvailable: boolean;
 }) {
   const [recoveryPhrase, setRecoveryPhrase] = useState("");
   const [cloudConflict, setCloudConflict] = useState<string | null>(null);
@@ -426,7 +428,11 @@ export function Settings({
             <p className="settingsIntro">
               Connect once. School services reuse the same signed-in session.
             </p>
-            <SchoolAccounts notify={notify} showLoginPage={showLoginPage} />
+            <SchoolAccounts
+              notify={notify}
+              showLoginPage={showLoginPage}
+              matrixOcrAvailable={matrixOcrAvailable}
+            />
             {desktopBridge &&
               caps["school-web-session"].support === "supported" && (
                 <div className="actions end">

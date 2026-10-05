@@ -224,30 +224,29 @@ impl<V: SecretVault> SchoolAuthService<V> {
         })
     }
 
-    pub fn matrix_file(&self) -> Result<String, String> {
+    pub fn matrix_text(&self) -> Result<String, String> {
         let credentials = self
             .load(SchoolAuthProfile::TokyoTech)?
-            .ok_or_else(|| "Save the Tokyo Tech Matrix before exporting it.".to_string())?;
-        matrix_file_json(&credentials.matrix)
+            .ok_or_else(|| "Save the Tokyo Tech Matrix before copying it.".to_string())?;
+        matrix_plain_text(&credentials.matrix)
     }
 }
 
 const MATRIX_ROWS: usize = 7;
 const MATRIX_COLUMNS: usize = 10;
 
-/// Matrix files list the card column by column (A1…A7, B1…B7, …), while
-/// credentials keep it row by row (A1…J1, A2…). Mirrors `parseMatrixFile` in
-/// src/core/matrix-ocr.ts.
-fn matrix_file_json(matrix: &str) -> Result<String, String> {
+/// A paste-friendly rendering in the same row-major order as the editor:
+/// A1…J1, A2…J2, …, A7…J7.
+fn matrix_plain_text(matrix: &str) -> Result<String, String> {
     let cells: Vec<char> = matrix.chars().collect();
     if cells.len() != MATRIX_ROWS * MATRIX_COLUMNS {
         return Err("Matrix must contain 7 rows × 10 columns.".into());
     }
-    let by_column: Vec<String> = (0..MATRIX_COLUMNS)
-        .flat_map(|column| (0..MATRIX_ROWS).map(move |row| row * MATRIX_COLUMNS + column))
-        .map(|index| cells[index].to_string())
-        .collect();
-    serde_json::to_string_pretty(&by_column).map_err(|_| "Matrix could not be encoded.".to_string())
+    Ok(cells
+        .chunks(MATRIX_COLUMNS)
+        .map(|row| row.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 struct OtpConfig {
@@ -430,9 +429,9 @@ mod tests {
     }
 
     #[test]
-    fn matrix_file_lists_the_saved_card_column_by_column() {
+    fn matrix_text_follows_the_editors_visual_row_order() {
         let service = SchoolAuthService::new(MemoryVault::default());
-        assert!(service.matrix_file().is_err());
+        assert!(service.matrix_text().is_err());
         // Row-major A1…J1, A2…: cell i holds the i-th letter, wrapping after Z.
         let matrix: String = (0..70u8).map(|i| (b'A' + i % 26) as char).collect();
         service
@@ -446,11 +445,12 @@ mod tests {
                 },
             )
             .unwrap();
-        let file: Vec<String> = serde_json::from_str(&service.matrix_file().unwrap()).unwrap();
-        assert_eq!(file.len(), 70);
-        assert_eq!(file[..7], ["A", "K", "U", "E", "O", "Y", "I"]); // A1…A7
-        assert_eq!(file[7], "B"); // B1
-        assert_eq!(file[69], "R"); // J7
+        let text = service.matrix_text().unwrap();
+        let rows = text.lines().collect::<Vec<_>>();
+        assert_eq!(rows.len(), 7);
+        assert!(rows.iter().all(|row| row.len() == 10));
+        assert_eq!(rows[0], "ABCDEFGHIJ");
+        assert_eq!(rows[6], "IJKLMNOPQR");
     }
 
     #[test]
