@@ -13,14 +13,20 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::utils::config::BackgroundThrottlingPolicy;
-use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl};
+use tauri_plugin_opener::OpenerExt;
 use url::Url;
+
+#[cfg(target_os = "macos")]
+#[path = "school_pdf_save.rs"]
+mod pdf_save;
 
 const MAIN_WINDOW: &str = "main";
 // Stable UUID shared by every embedded school view. On Apple platforms this
@@ -294,6 +300,20 @@ struct ControllerState {
     load_waiters: Vec<(SchoolSite, String, mpsc::Sender<String>)>,
     /// Registration queue shown on 教務Web pages while set.
     guide: Vec<crate::kyomu_guide::GuideItem>,
+    /// Pages the person visited in each view, for the app's own Back.
+    history: HashMap<SchoolSite, PageHistory>,
+    /// Sites whose next load comes from Back and must not be recorded again.
+    suppress_history: HashSet<SchoolSite>,
+    /// Same-service popups shown in place, and the page each was opened from.
+    popups: HashMap<SchoolSite, PopupReturn>,
+    /// Downloads WebKit is writing: original request URL and destination
+    /// (macOS reports no path when a download finishes).
+    downloads: Vec<(String, PathBuf)>,
+    /// Files saved from school pages this session; only these can be revealed.
+    saved_files: HashSet<PathBuf>,
+    /// The PDF save shim per view (`WKWebView.UIDelegate` is weak).
+    #[cfg(target_os = "macos")]
+    ui_delegates: HashMap<SchoolSite, pdf_save::DelegateHandle>,
 }
 
 impl Default for ControllerState {
@@ -316,6 +336,13 @@ impl Default for ControllerState {
             ingest_waiters: HashMap::new(),
             load_waiters: Vec::new(),
             guide: Vec::new(),
+            history: HashMap::new(),
+            suppress_history: HashSet::new(),
+            popups: HashMap::new(),
+            downloads: Vec::new(),
+            saved_files: HashSet::new(),
+            #[cfg(target_os = "macos")]
+            ui_delegates: HashMap::new(),
         }
     }
 }
@@ -349,6 +376,195 @@ fn site_for_url(raw: &str) -> Option<SchoolSite> {
     }
 }
 
+/// Where a link that asks for a new window (`target="_blank"`, `window.open`)
+/// goes. Embedded views have no tabs, and WebKit silently drops such a click
+/// unless the view answers it, so every request is routed and none opens a
+/// real popup.
+#[derive(Debug, PartialEq)]
+enum NewWindowTarget {
+    /// An official school page, shown by that service's resident view.
+    School(SchoolSite),
+    /// Any other plain web page, handed to the system browser.
+    External(String),
+    Ignored,
+}
+
+fn new_window_target(raw: &str) -> NewWindowTarget {
+    if sanitize_school_url(raw).is_some() {
+        if let Some(site) = site_for_url(raw) {
+            return NewWindowTarget::School(site);
+        }
+    }
+    let Ok(url) = Url::parse(raw) else {
+        return NewWindowTarget::Ignored;
+    };
+    let plain = matches!(url.scheme(), "https" | "http")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none();
+    if plain {
+        NewWindowTarget::External(url.to_string())
+    } else {
+        NewWindowTarget::Ignored
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct SchoolWebOpen {
+    site: SchoolSite,
+    url: String,
+}
+
+const HISTORY_LIMIT: usize = 50;
+
+/// Back stack of one view. Back always loads an earlier page as a fresh GET:
+/// `history.back()` would resubmit 教務Web's WebForms postbacks (ViewState,
+/// "不正な画面遷移" guards, a second 申告).
+#[derive(Debug, Default)]
+struct PageHistory {
+    pages: Vec<String>,
+}
+
+impl PageHistory {
+    /// Records a loaded page; a postback reloading the same URL is one entry.
+    fn push(&mut self, url: String) {
+        if self.pages.last() == Some(&url) {
+            return;
+        }
+        self.pages.push(url);
+        if self.pages.len() > HISTORY_LIMIT {
+            self.pages.remove(0);
+        }
+    }
+
+    /// The newest page that is not the current one. Entries after it (the
+    /// current page) are dropped; the target stays as the new current page.
+    fn back_target(&mut self, current: Option<&str>) -> Option<String> {
+        let index = self
+            .pages
+            .iter()
+            .rposition(|page| Some(page.as_str()) != current)?;
+        self.pages.truncate(index + 1);
+        self.pages.last().cloned()
+    }
+
+    /// Forgets everything after the newest visit to `url`.
+    fn rewind_to(&mut self, url: &str) {
+        if let Some(index) = self.pages.iter().rposition(|page| page == url) {
+            self.pages.truncate(index + 1);
+        }
+    }
+}
+
+/// Pages worth returning to: the view's own service, never a sign-in step
+/// or SAML hand-off (an IdP host only counts once its portal is reached).
+fn history_entry(site: SchoolSite, raw_url: &str) -> Option<String> {
+    let safe = sanitize_school_url(raw_url)?;
+    if site_for_url(&safe) != Some(site) {
+        return None;
+    }
+    let host = Url::parse(&safe).ok()?.host_str()?.to_string();
+    match SchoolAuthProfile::for_auth_host(&host) {
+        Some(profile) if !login_succeeded(&safe, profile) => None,
+        _ => Some(safe),
+    }
+}
+
+/// A same-service popup shown in place of the page that opened it.
+#[derive(Clone, Debug, PartialEq)]
+struct PopupReturn {
+    opener: String,
+    popup: String,
+}
+
+#[derive(Debug, PartialEq)]
+enum PopupStep {
+    /// Still on the popup (its own postbacks included).
+    Stay,
+    /// Back on the opener, e.g. after 閉じる.
+    Returned,
+    /// Anywhere else: the popup is over.
+    Left,
+}
+
+/// Same document, ignoring the query (postbacks and sanitizing change it).
+fn same_page(left: &str, right: &str) -> bool {
+    match (Url::parse(left), Url::parse(right)) {
+        (Ok(left), Ok(right)) => {
+            left.scheme() == right.scheme()
+                && left.host_str() == right.host_str()
+                && left.path() == right.path()
+        }
+        _ => false,
+    }
+}
+
+impl PopupReturn {
+    fn step(&self, loaded: &str) -> PopupStep {
+        if same_page(loaded, &self.popup) {
+            PopupStep::Stay
+        } else if same_page(loaded, &self.opener) {
+            PopupStep::Returned
+        } else {
+            PopupStep::Left
+        }
+    }
+}
+
+/// WebKit ignores `window.close()` on a page no script opened, so a popup's
+/// 閉じる button would do nothing in place. It returns to the opener with a
+/// fresh GET when known, else steps back. Sign-in pages are left alone.
+fn close_override_script(raw_url: &str, return_to: Option<&str>) -> Option<String> {
+    sanitize_school_url(raw_url)?;
+    let host = Url::parse(raw_url).ok()?.host_str()?.to_string();
+    if SchoolAuthProfile::for_auth_host(&host).is_some() {
+        return None;
+    }
+    let action = match return_to.filter(|url| sanitize_school_url(url).is_some()) {
+        Some(url) => format!(
+            "location.replace({})",
+            serde_json::to_string(url)
+                .ok()?
+                .replace('<', "\\u003c")
+                .replace('>', "\\u003e")
+        ),
+        None => "history.back()".into(),
+    };
+    Some(format!("window.close=()=>{action};"))
+}
+
+/// Updates the Back stack and popup state for a finished load, and returns
+/// the `window.close` override the page needs.
+fn track_page(state: &mut ControllerState, site: SchoolSite, raw_url: &str) -> Option<String> {
+    let suppressed = state.suppress_history.remove(&site);
+    let mut return_to = None;
+    if let (Some(popup), Some(safe)) = (
+        state.popups.get(&site).cloned(),
+        sanitize_school_url(raw_url),
+    ) {
+        match popup.step(&safe) {
+            PopupStep::Stay => return_to = Some(popup.opener),
+            PopupStep::Returned => {
+                state.popups.remove(&site);
+                // Closing the popup drops it from Back, like a closed window.
+                if let Some(history) = state.history.get_mut(&site) {
+                    history.rewind_to(&popup.opener);
+                }
+            }
+            PopupStep::Left => {
+                state.popups.remove(&site);
+            }
+        }
+    }
+    // Hidden loads (pulls) are not the person's browsing.
+    if !suppressed && state.active == Some(site) {
+        if let Some(entry) = history_entry(site, raw_url) {
+            state.history.entry(site).or_default().push(entry);
+        }
+    }
+    close_override_script(raw_url, return_to.as_deref())
+}
+
 fn ingestion_script(raw: &str) -> Option<&'static str> {
     let url = Url::parse(raw).ok()?;
     if url.host_str() == Some("lms.s.isct.ac.jp") && url.path().starts_with("/2025/") {
@@ -367,6 +583,13 @@ fn ingestion_script(raw: &str) -> Option<&'static str> {
 }
 
 const SCHOOL_LOGIN_SCRIPT: &str = include_str!("../scripts/school-login.js");
+/// Shows 教務Web's popups in an overlay frame inside the opener page, with a
+/// working `window.opener` and `window.close()`. Gated to 教務Web by the
+/// script itself; runs at document start in every frame.
+const KYOMU_POPUP_SCRIPT: &str = include_str!("../scripts/kyomu-popup.js");
+/// Sends cross-origin `target="_blank"` links through `window.open`, so they
+/// reach `on_new_window` instead of the navigation policy.
+const SCHOOL_LINKS_SCRIPT: &str = include_str!("../scripts/school-links.js");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -508,9 +731,404 @@ fn login_succeeded(raw_url: &str, profile: SchoolAuthProfile) -> bool {
     }
 }
 
+/// A file a school page handed over: a download, or a save from the PDF viewer.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SchoolDownloadEvent {
+    site: SchoolSite,
+    /// `started`, `done` or `failed`.
+    state: &'static str,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+}
+
+fn emit_download(
+    app: &AppHandle,
+    site: SchoolSite,
+    state: &'static str,
+    name: String,
+    url: Option<String>,
+    path: Option<&Path>,
+) {
+    eprintln!("[school-download] {site:?} {state} {name}");
+    let _ = app.emit_to(
+        MAIN_WINDOW,
+        "school-download",
+        SchoolDownloadEvent {
+            site,
+            state,
+            name,
+            url,
+            path: path.and_then(Path::to_str).map(str::to_string),
+        },
+    );
+}
+
+/// Only official school pages, and only in the view the person is looking at
+/// (hidden pulls never download).
+fn download_allowed(raw_url: &str, site: SchoolSite, active: Option<SchoolSite>) -> bool {
+    active == Some(site) && sanitize_school_url(raw_url).is_some()
+}
+
+fn safe_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name.len() <= 255
+        && !name
+            .chars()
+            .any(|character| matches!(character, '/' | '\\') || character.is_control())
+}
+
+/// WebKit picks `~/Downloads/<suggested name>`; anything else is refused.
+fn download_destination_ok(destination: &Path, download_dir: &Path) -> bool {
+    destination.parent() == Some(download_dir)
+        && destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(safe_file_name)
+}
+
+/// UTF-8 bytes: macOS allows 255 per name, which leaves room for ` (n)`.
+const DOWNLOAD_NAME_LIMIT: usize = 200;
+
+/// `name.ext` → (`name`, `.ext`); short trailing extensions only.
+fn split_extension(name: &str) -> (&str, &str) {
+    match name.rfind('.') {
+        Some(index) if index > 0 && name.len() - index <= 16 => name.split_at(index),
+        _ => (name, ""),
+    }
+}
+
+/// A plain file name for data the PDF viewer hands over: no separators,
+/// control characters or leading dots, bounded, never empty.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn download_file_name(suggested: &str, mime_type: &str) -> String {
+    let cleaned = suggested
+        .chars()
+        .filter(|character| !character.is_control())
+        .map(|character| {
+            if matches!(character, '/' | '\\' | ':') {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let cleaned = cleaned.trim().trim_start_matches('.').trim_start();
+    let pdf = mime_type.eq_ignore_ascii_case("application/pdf");
+    let mut name = match cleaned {
+        "" if pdf => "download.pdf".to_string(),
+        "" => "download".to_string(),
+        cleaned => cleaned.to_string(),
+    };
+    if pdf && !name.to_ascii_lowercase().ends_with(".pdf") {
+        name.push_str(".pdf");
+    }
+    if name.len() <= DOWNLOAD_NAME_LIMIT {
+        return name;
+    }
+    let (stem, extension) = split_extension(&name);
+    let mut keep = DOWNLOAD_NAME_LIMIT.saturating_sub(extension.len());
+    while !stem.is_char_boundary(keep) {
+        keep -= 1;
+    }
+    format!("{}{extension}", stem[..keep].trim_end())
+}
+
+/// `name.ext`, then `name (1).ext`, `name (2).ext`, … like WebKit downloads.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn download_candidates(name: &str) -> impl Iterator<Item = String> + '_ {
+    let (stem, extension) = split_extension(name);
+    std::iter::once(name.to_string())
+        .chain((1..1000).map(move |number| format!("{stem} ({number}){extension}")))
+}
+
+/// Writes `bytes` under the first free candidate name; never overwrites.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn write_unique(directory: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
+    for candidate in download_candidates(name) {
+        let path = directory.join(candidate);
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                if let Err(error) = file.write_all(bytes).and_then(|_| file.sync_all()) {
+                    let _ = fs::remove_file(&path);
+                    return Err(error);
+                }
+                return Ok(path);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "no free file name",
+    ))
+}
+
+/// Records a finished file and tells the Web page.
+fn finish_download(
+    app: &AppHandle,
+    state: &Arc<Mutex<ControllerState>>,
+    site: SchoolSite,
+    name: String,
+    saved: Option<PathBuf>,
+) {
+    match saved {
+        Some(path) => {
+            if let Ok(mut state) = state.lock() {
+                state.saved_files.insert(path.clone());
+            }
+            emit_download(app, site, "done", name, None, Some(&path));
+        }
+        None => emit_download(app, site, "failed", name, None, None),
+    }
+}
+
+/// The PDF viewer's ↓ button (macOS): writes the bytes it hands over to
+/// `~/Downloads` off the main thread.
+#[cfg(target_os = "macos")]
+fn save_viewer_data(
+    app: &AppHandle,
+    state: &Arc<Mutex<ControllerState>>,
+    site: SchoolSite,
+    saved: pdf_save::SavedData,
+) {
+    let active = state.lock().ok().and_then(|state| state.active);
+    let allowed = saved
+        .origin
+        .as_deref()
+        .is_some_and(|origin| download_allowed(origin, site, active));
+    if !allowed {
+        eprintln!("[school-download] {site:?} PDF save refused");
+        return;
+    }
+    let name = download_file_name(&saved.suggested_name, &saved.mime_type);
+    let Ok(directory) = app.path().download_dir() else {
+        emit_download(app, site, "failed", name, None, None);
+        return;
+    };
+    let app = app.clone();
+    let state = state.clone();
+    std::thread::spawn(move || {
+        let written = write_unique(&directory, &name, &saved.bytes);
+        if let Err(error) = &written {
+            eprintln!("[school-download] {site:?} PDF save failed: {error}");
+        }
+        let name = written
+            .as_ref()
+            .ok()
+            .and_then(|path| path.file_name())
+            .map(|file| file.to_string_lossy().into_owned())
+            .unwrap_or(name);
+        finish_download(&app, &state, site, name, written.ok());
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_window_links_are_routed_instead_of_dropped() {
+        assert_eq!(
+            new_window_target("https://syllabus.s.isct.ac.jp/courses?jwc=202512345"),
+            NewWindowTarget::School(SchoolSite::Syllabus)
+        );
+        assert_eq!(
+            new_window_target("https://lms.s.isct.ac.jp/2025/my/"),
+            NewWindowTarget::School(SchoolSite::ScienceLms)
+        );
+        assert_eq!(
+            new_window_target("https://www.isct.ac.jp/ja/timetable.pdf"),
+            NewWindowTarget::External("https://www.isct.ac.jp/ja/timetable.pdf".into())
+        );
+        // Plain http school pages are not embeddable but still open outside.
+        assert_eq!(
+            new_window_target("http://kyomu0.gakumu.titech.ac.jp/Titech/"),
+            NewWindowTarget::External("http://kyomu0.gakumu.titech.ac.jp/Titech/".into())
+        );
+        for ignored in [
+            "about:blank",
+            "javascript:void(0)",
+            "file:///etc/passwd",
+            "https://user:secret@example.com/",
+            "not a url",
+        ] {
+            assert_eq!(new_window_target(ignored), NewWindowTarget::Ignored, "{ignored}");
+        }
+    }
+
+    const KYOMU_OPENER: &str =
+        "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx";
+    const KYOMU_POPUP: &str =
+        "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_3_1.aspx";
+    const KYOMU_TOP: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+
+    #[test]
+    fn history_skips_postbacks_and_keeps_the_newest_pages() {
+        let mut history = PageHistory::default();
+        history.push("a".into());
+        history.push("a".into());
+        history.push("b".into());
+        history.push("a".into());
+        assert_eq!(history.pages, ["a", "b", "a"]);
+        let mut long = PageHistory::default();
+        for index in 0..HISTORY_LIMIT + 5 {
+            long.push(index.to_string());
+        }
+        assert_eq!(long.pages.len(), HISTORY_LIMIT);
+        assert_eq!(long.pages.first().map(String::as_str), Some("5"));
+    }
+
+    #[test]
+    fn back_targets_the_newest_other_page() {
+        let mut history = PageHistory {
+            pages: vec!["a".into(), "b".into(), "c".into()],
+        };
+        assert_eq!(history.back_target(Some("c")).as_deref(), Some("b"));
+        assert_eq!(history.pages, ["a", "b"]);
+        // A page the stack never saw (a hidden pull): back to the last one seen.
+        assert_eq!(history.back_target(Some("pulled")).as_deref(), Some("b"));
+        assert_eq!(history.back_target(Some("b")).as_deref(), Some("a"));
+        assert_eq!(history.back_target(Some("a")), None);
+        assert_eq!(history.pages, ["a"]);
+        assert_eq!(PageHistory::default().back_target(None), None);
+    }
+
+    #[test]
+    fn history_records_only_the_views_own_signed_in_pages() {
+        assert_eq!(
+            history_entry(SchoolSite::Kyomu, &format!("{KYOMU_POPUP}?token=x#top")).as_deref(),
+            Some(KYOMU_POPUP)
+        );
+        assert_eq!(
+            history_entry(
+                SchoolSite::SciencePortal,
+                "https://isct.ex-tic.com/idm/user/portal/"
+            )
+            .as_deref(),
+            Some("https://isct.ex-tic.com/idm/user/portal/")
+        );
+        for (site, url) in [
+            (
+                SchoolSite::Kyomu,
+                "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login",
+            ),
+            (SchoolSite::Kyomu, "https://lms.s.isct.ac.jp/2025/my/"),
+            (
+                SchoolSite::SciencePortal,
+                "https://isct.ex-tic.com/auth/session",
+            ),
+            (
+                SchoolSite::Kyomu,
+                "http://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx",
+            ),
+        ] {
+            assert_eq!(history_entry(site, url), None, "{url}");
+        }
+    }
+
+    fn visible_kyomu() -> ControllerState {
+        ControllerState {
+            active: Some(SchoolSite::Kyomu),
+            ..ControllerState::default()
+        }
+    }
+
+    #[test]
+    fn popup_close_returns_to_the_opener_until_the_popup_is_left() {
+        let site = SchoolSite::Kyomu;
+        let mut state = visible_kyomu();
+        track_page(&mut state, site, KYOMU_TOP);
+        track_page(&mut state, site, KYOMU_OPENER);
+        state.popups.insert(
+            site,
+            PopupReturn {
+                opener: KYOMU_OPENER.into(),
+                popup: KYOMU_POPUP.into(),
+            },
+        );
+        let close = track_page(&mut state, site, KYOMU_POPUP).unwrap();
+        assert!(close.contains(&format!("location.replace(\"{KYOMU_OPENER}\")")));
+        // The popup's own postbacks keep the way back.
+        let close = track_page(&mut state, site, &format!("{KYOMU_POPUP}?page=2")).unwrap();
+        assert!(close.contains("location.replace("));
+        // 閉じる: back on the opener, the popup is gone from Back too.
+        let close = track_page(&mut state, site, KYOMU_OPENER).unwrap();
+        assert!(close.contains("history.back()"));
+        assert!(state.popups.is_empty());
+        assert_eq!(state.history[&site].pages, [KYOMU_TOP, KYOMU_OPENER]);
+
+        state.popups.insert(
+            site,
+            PopupReturn {
+                opener: KYOMU_OPENER.into(),
+                popup: KYOMU_POPUP.into(),
+            },
+        );
+        track_page(&mut state, site, KYOMU_POPUP);
+        track_page(&mut state, site, KYOMU_TOP);
+        assert!(state.popups.is_empty());
+    }
+
+    #[test]
+    fn back_loads_are_not_recorded_twice_and_hidden_loads_not_at_all() {
+        let site = SchoolSite::Kyomu;
+        let mut state = ControllerState::default();
+        track_page(&mut state, site, KYOMU_TOP);
+        assert!(!state.history.contains_key(&site));
+        state.active = Some(site);
+        track_page(&mut state, site, KYOMU_TOP);
+        state.suppress_history.insert(site);
+        track_page(&mut state, site, KYOMU_OPENER);
+        assert!(state.suppress_history.is_empty());
+        assert_eq!(state.history[&site].pages, [KYOMU_TOP]);
+    }
+
+    #[test]
+    fn popup_overlay_script_only_runs_on_kyomu() {
+        // Every school view runs it in every frame, sign-in pages included.
+        assert!(KYOMU_POPUP_SCRIPT.contains(r#"const HOST = "kyomu0.gakumu.titech.ac.jp";"#));
+        assert!(KYOMU_POPUP_SCRIPT.contains(
+            r#"if (location.protocol !== "https:" || location.hostname !== HOST) return;"#
+        ));
+    }
+
+    #[test]
+    fn close_override_is_escaped_and_skips_sign_in_pages() {
+        assert_eq!(
+            close_override_script(KYOMU_POPUP, None).as_deref(),
+            Some("window.close=()=>history.back();")
+        );
+        let script = close_override_script(
+            KYOMU_POPUP,
+            Some("https://kyomu0.gakumu.titech.ac.jp/Titech/a\"</script>.aspx"),
+        )
+        .unwrap();
+        assert!(!script.contains("</script>"));
+        assert!(!script.contains("a\"<"));
+        // Only official https pages are valid return targets.
+        assert_eq!(
+            close_override_script(KYOMU_POPUP, Some("https://example.com/")).as_deref(),
+            Some("window.close=()=>history.back();")
+        );
+        for url in [
+            "https://isct.ex-tic.com/auth/session",
+            "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login",
+            "https://example.com/",
+        ] {
+            assert_eq!(
+                close_override_script(url, Some(KYOMU_OPENER)),
+                None,
+                "{url}"
+            );
+        }
+    }
 
     #[test]
     fn maps_every_embedded_destination_to_the_single_controller() {
@@ -715,6 +1333,105 @@ mod tests {
     }
 
     #[test]
+    fn downloads_are_limited_to_the_visible_school_view() {
+        let lms = SchoolSite::ScienceLms;
+        let file = "https://lms.s.isct.ac.jp/2025/pluginfile.php/224823/mod_resource/content/3/LAIIAssignment1.pdf";
+        assert!(download_allowed(file, lms, Some(lms)));
+        // Hidden views (pulls) and other views never download.
+        assert!(!download_allowed(file, lms, None));
+        assert!(!download_allowed(file, lms, Some(SchoolSite::Kyomu)));
+        for url in [
+            "https://example.com/file.pdf",
+            "http://lms.s.isct.ac.jp/2025/pluginfile.php/1/file.pdf",
+            "https://user:secret@lms.s.isct.ac.jp/file.pdf",
+            "blob:https://lms.s.isct.ac.jp/uuid",
+            "data:application/pdf;base64,AAAA",
+        ] {
+            assert!(!download_allowed(url, lms, Some(lms)), "{url}");
+        }
+    }
+
+    #[test]
+    fn download_destinations_stay_directly_in_the_download_folder() {
+        let downloads = Path::new("/Users/student/Downloads");
+        assert!(download_destination_ok(
+            &downloads.join("Lecture 1 (2).pptx"),
+            downloads
+        ));
+        for bad in [
+            "/Users/student/Downloads/../.zshrc",
+            "/Users/student/Downloads/nested/file.docx",
+            "/Users/student/Desktop/file.docx",
+            "/Users/student/Downloads/line\nbreak.pdf",
+            "/Users/student/Downloads/back\\slash.pdf",
+            "/Users/student/Downloads",
+        ] {
+            assert!(
+                !download_destination_ok(Path::new(bad), downloads),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn viewer_file_names_are_plain_and_bounded() {
+        let pdf = "application/pdf";
+        assert_eq!(
+            download_file_name("LAIIAssignment1.pdf", pdf),
+            "LAIIAssignment1.pdf"
+        );
+        assert_eq!(
+            download_file_name("../../etc/passwd", pdf),
+            "_.._etc_passwd.pdf"
+        );
+        assert_eq!(download_file_name("..hidden.pdf", pdf), "hidden.pdf");
+        assert_eq!(download_file_name("a\u{0}b\nc.pdf", pdf), "abc.pdf");
+        assert_eq!(download_file_name("C:\\x\\講義.pdf", pdf), "C__x_講義.pdf");
+        assert_eq!(download_file_name("Slides", pdf), "Slides.pdf");
+        assert_eq!(download_file_name("Slides.PDF", pdf), "Slides.PDF");
+        assert_eq!(download_file_name(" .. ", pdf), "download.pdf");
+        assert_eq!(download_file_name("", "application/zip"), "download");
+        assert_eq!(download_file_name("notes.txt", "text/plain"), "notes.txt");
+        let long = download_file_name(&format!("{}.pdf", "講".repeat(400)), pdf);
+        assert!(long.len() <= DOWNLOAD_NAME_LIMIT, "{}", long.len());
+        assert!(long.ends_with("講.pdf"));
+        assert!(safe_file_name(&long));
+    }
+
+    #[test]
+    fn unique_names_number_before_the_extension() {
+        let names = download_candidates("Report.final.pdf")
+            .take(3)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            [
+                "Report.final.pdf",
+                "Report.final (1).pdf",
+                "Report.final (2).pdf"
+            ]
+        );
+        assert_eq!(
+            download_candidates("README").nth(1).as_deref(),
+            Some("README (1)")
+        );
+    }
+
+    #[test]
+    fn viewer_saves_never_overwrite_existing_files() {
+        let directory = std::env::temp_dir().join(format!("stws-download-test-{}", new_run_id()));
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("a.pdf"), b"old").unwrap();
+        let first = write_unique(&directory, "a.pdf", b"new").unwrap();
+        let second = write_unique(&directory, "a.pdf", b"newer").unwrap();
+        assert_eq!(first, directory.join("a (1).pdf"));
+        assert_eq!(second, directory.join("a (2).pdf"));
+        assert_eq!(fs::read(directory.join("a.pdf")).unwrap(), b"old");
+        assert_eq!(fs::read(&second).unwrap(), b"newer");
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
     fn portal_error_text_is_normalized_and_bounded() {
         assert_eq!(
             clean_login_message("  Invalid\n\tpassword  "),
@@ -852,6 +1569,59 @@ impl SchoolWebController {
             Self::write_restore(app, site, &target)?;
         }
         Ok(true)
+    }
+
+    /// Loads the previous page of the site's view as a fresh GET. False when
+    /// there is no earlier page (or no view).
+    pub fn back(&self, app: &AppHandle, site: SchoolSite) -> Result<bool, String> {
+        let target = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "School web state is unavailable.")?;
+            if !state.webviews.contains_key(&site) {
+                return Ok(false);
+            }
+            let current = state.urls.get(&site).cloned();
+            let target = state
+                .history
+                .get_mut(&site)
+                .and_then(|history| history.back_target(current.as_deref()));
+            if target.is_some() {
+                state.suppress_history.insert(site);
+            }
+            target
+        };
+        let Some(target) = target else {
+            return Ok(false);
+        };
+        eprintln!("[school-web] {site:?} back");
+        let navigated = self.navigate(app, site, &target);
+        if !matches!(navigated, Ok(true)) {
+            if let Ok(mut state) = self.state.lock() {
+                state.suppress_history.remove(&site);
+            }
+        }
+        navigated
+    }
+
+    /// Shows a file saved from a school page this session in Finder. Any
+    /// other path is refused (false).
+    pub fn reveal_download(&self, app: &AppHandle, path: &str) -> Result<bool, String> {
+        let path = PathBuf::from(path);
+        let known = self
+            .state
+            .lock()
+            .map_err(|_| "School web state is unavailable.")?
+            .saved_files
+            .contains(&path);
+        if !known {
+            return Ok(false);
+        }
+        app.opener()
+            .reveal_item_in_dir(&path)
+            .map(|_| true)
+            .map_err(|_| "The file could not be shown. It may have been moved.".into())
     }
 
     pub fn set_zoom(&self, site: SchoolSite, scale: f64) -> Result<bool, String> {
@@ -1039,6 +1809,11 @@ impl SchoolWebController {
                 .map_err(|_| "School web state is unavailable.")?;
             (state.webviews.get(&site).cloned(), state.active)
         };
+        // Navigating the visible view would cancel whatever the person just
+        // clicked (a TTL refresh can start while they browse).
+        if active == Some(site) {
+            return Err("Leave the Web page, then pull again.".into());
+        }
         if let Some(webview) = webview {
             let parsed = Url::parse(url).map_err(|_| "School URL is invalid.")?;
             return webview
@@ -1262,6 +2037,10 @@ impl SchoolWebController {
         let app_for_load = app.clone();
         let app_for_navigation = app.clone();
         let state_for_navigation = self.state.clone();
+        let app_for_new_window = app.clone();
+        let state_for_new_window = self.state.clone();
+        let app_for_download = app.clone();
+        let state_for_download = self.state.clone();
         let main = app
             .get_window(MAIN_WINDOW)
             .ok_or_else(|| "Main window is unavailable.".to_string())?;
@@ -1281,6 +2060,8 @@ impl SchoolWebController {
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         let builder = builder;
         let builder = builder
+            .initialization_script_for_all_frames(KYOMU_POPUP_SCRIPT)
+            .initialization_script_for_all_frames(SCHOOL_LINKS_SCRIPT)
             .on_page_load(move |webview, payload| {
                 // Started fires in the outgoing document; only act once the
                 // new page exists, or every script would run twice.
@@ -1293,7 +2074,8 @@ impl SchoolWebController {
                 }
                 if let Ok(url) = Url::parse(raw_url) {
                     eprintln!(
-                        "[school-web] loaded {}{}",
+                        "[school-web] {} loaded {}{}",
+                        webview.label(),
                         url.host_str().unwrap_or_default(),
                         url.path()
                     );
@@ -1396,6 +2178,13 @@ impl SchoolWebController {
                     {
                         let _ = webview.eval(&script);
                     }
+                }
+                let close_override = state_for_load
+                    .lock()
+                    .ok()
+                    .and_then(|mut state| track_page(&mut state, site, raw_url));
+                if let Some(script) = close_override {
+                    let _ = webview.eval(&script);
                 }
                 if !css.trim().is_empty() {
                     if let Ok(css_json) = serde_json::to_string(&css) {
@@ -1550,7 +2339,115 @@ impl SchoolWebController {
                     }
                     return false;
                 }
-                sanitize_school_url(url.as_str()).is_some()
+                let allowed = sanitize_school_url(url.as_str()).is_some();
+                if !allowed && cfg!(debug_assertions) {
+                    eprintln!(
+                        "[school-web] blocked {}://{}{}",
+                        url.scheme(),
+                        url.host_str().unwrap_or_default(),
+                        url.path()
+                    );
+                }
+                allowed
+            })
+            // Files WebKit cannot show (docx, zip, `download` links). Runs on
+            // the main thread: bookkeeping and events only.
+            .on_download(move |_webview, event| match event {
+                DownloadEvent::Requested { url, destination } => {
+                    let download_dir = app_for_download.path().download_dir().ok();
+                    let accepted = download_dir
+                        .is_some_and(|directory| download_destination_ok(destination, &directory))
+                        && state_for_download.lock().ok().is_some_and(|mut state| {
+                            if !download_allowed(url.as_str(), site, state.active) {
+                                return false;
+                            }
+                            state.downloads.push((url.to_string(), destination.clone()));
+                            true
+                        });
+                    if !accepted {
+                        eprintln!("[school-download] {site:?} download refused");
+                        return false;
+                    }
+                    let name = destination
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    emit_download(
+                        &app_for_download,
+                        site,
+                        "started",
+                        name,
+                        sanitize_school_url(url.as_str()),
+                        None,
+                    );
+                    true
+                }
+                DownloadEvent::Finished { url, success, .. } => {
+                    let destination = state_for_download.lock().ok().and_then(|mut state| {
+                        let index = state
+                            .downloads
+                            .iter()
+                            .position(|(pending, _)| pending == url.as_str())?;
+                        Some(state.downloads.remove(index).1)
+                    });
+                    // Refused downloads also finish (unsuccessfully); they were never announced.
+                    if let Some(destination) = destination {
+                        let name = destination
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let saved = success.then_some(destination);
+                        finish_download(&app_for_download, &state_for_download, site, name, saved);
+                    }
+                    true
+                }
+                _ => true,
+            })
+            .on_new_window(move |url, _features| {
+                let raw = url.as_str();
+                match new_window_target(raw) {
+                    // Same service: open in place, like a same-window link.
+                    // Deferred so the load starts after WebKit's delegate call returns.
+                    NewWindowTarget::School(target) if target == site => {
+                        // Remember the opener so the popup's 閉じる can return to it.
+                        if let (Ok(mut state), Some(popup)) =
+                            (state_for_new_window.lock(), sanitize_school_url(raw))
+                        {
+                            match state.urls.get(&site).cloned() {
+                                Some(opener) if !same_page(&opener, &popup) => {
+                                    state.popups.insert(site, PopupReturn { opener, popup });
+                                }
+                                _ => {
+                                    state.popups.remove(&site);
+                                }
+                            }
+                        }
+                        if let Some(view) = app_for_new_window.get_webview(site.webview_label()) {
+                            std::thread::spawn(move || {
+                                let _ = view.navigate(url);
+                            });
+                        }
+                    }
+                    // Another service: the Web page switches to it, as with the address bar.
+                    NewWindowTarget::School(target) => {
+                        if let Some(url) = sanitize_school_url(raw) {
+                            let _ = app_for_new_window.emit_to(
+                                MAIN_WINDOW,
+                                "school-web-open",
+                                SchoolWebOpen { site: target, url },
+                            );
+                        }
+                    }
+                    NewWindowTarget::External(url) => {
+                        let _ = app_for_new_window.opener().open_url(url, None::<&str>);
+                    }
+                    NewWindowTarget::Ignored => {
+                        if cfg!(debug_assertions) {
+                            eprintln!("[school-web] ignored new window {}:", url.scheme());
+                        }
+                    }
+                }
+                NewWindowResponse::Deny
             });
 
         let initial_position = if visible {
@@ -1572,6 +2469,28 @@ impl SchoolWebController {
                 return Err(format!("School view could not be created: {error}"));
             }
         };
+
+        #[cfg(target_os = "macos")]
+        {
+            let app_for_save = app.clone();
+            let state_for_save = self.state.clone();
+            let installed = webview.with_webview(move |platform| {
+                let state_for_callback = state_for_save.clone();
+                let on_save = Box::new(move |saved: pdf_save::SavedData| {
+                    save_viewer_data(&app_for_save, &state_for_callback, site, saved);
+                });
+                // SAFETY: `inner()` is this view's live WKWebView, and
+                // `with_webview` runs the closure on the main thread.
+                if let Some(handle) = unsafe { pdf_save::install(platform.inner(), on_save) } {
+                    if let Ok(mut state) = state_for_save.lock() {
+                        state.ui_delegates.insert(site, handle);
+                    }
+                }
+            });
+            if let Err(error) = installed {
+                eprintln!("[school-download] {site:?} PDF save hook unavailable: {error}");
+            }
+        }
 
         let (is_active, bounds) = {
             let mut state = self

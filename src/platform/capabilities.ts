@@ -22,6 +22,7 @@ export type CapabilityRuntime = {
     notifications: boolean;
     backgroundSchedule: boolean;
     cloudSync: boolean;
+    matrixOcr: boolean;
   };
   school: {
     status: "not-configured" | "connected" | "reconnect-required" | "error";

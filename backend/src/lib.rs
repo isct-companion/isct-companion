@@ -1,5 +1,6 @@
 use serde::Serialize;
 use tauri::{plugin::PermissionState, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -19,12 +20,18 @@ mod kyomu_ingest;
 mod lifecycle;
 mod lms_ingest;
 mod lms_files;
+#[cfg(matrix_ocr)]
 mod matrix_ocr;
+#[cfg(matrix_ocr)]
 mod matrix_red_crops;
 pub mod plans;
 mod policy;
 mod school_auth;
 mod school_extract;
+#[cfg(not(mobile))]
+mod school_web;
+#[cfg(mobile)]
+#[path = "school_web_mobile.rs"]
 mod school_web;
 mod secrets;
 mod subscriptions;
@@ -40,6 +47,7 @@ struct RuntimeCapabilities {
     cloud_sync: bool,
     syllabus_search: bool,
     syllabus_filters: bool,
+    matrix_ocr: bool,
 }
 
 fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
@@ -64,6 +72,7 @@ fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(matrix_ocr)]
 #[tauri::command]
 async fn recognize_matrix_image(
     webview: tauri::Webview,
@@ -81,6 +90,17 @@ async fn recognize_matrix_image(
     })
     .await
     .map_err(|e| format!("Matrix recognition task failed: {e}"))?
+}
+
+/// Intel macOS has no prebuilt ONNX Runtime; manual matrix entry still works.
+#[cfg(not(matrix_ocr))]
+#[tauri::command]
+fn recognize_matrix_image(webview: tauri::Webview) -> Result<(), String> {
+    require_local_main(&webview)?;
+    Err(
+        "Scan image is not available on Intel Macs yet. Type or paste the 70 letters instead."
+            .into(),
+    )
 }
 
 #[cfg(test)]
@@ -105,12 +125,13 @@ fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCapabilities, 
     require_local_main(&webview)?;
     Ok(RuntimeCapabilities {
         school_import: false,
-        school_web: true,
+        school_web: cfg!(not(mobile)),
         notifications: true,
         background_schedule: false,
         cloud_sync: true,
         syllabus_search: true,
         syllabus_filters: true,
+        matrix_ocr: cfg!(matrix_ocr),
     })
 }
 
@@ -217,6 +238,32 @@ fn navigate_school_web(
     controller.navigate(&app, site, &url)
 }
 
+/// The app's own Back for the school view: reloads the previous page as a
+/// GET instead of `history.back()` (which would resubmit postbacks).
+#[tauri::command]
+fn school_web_back(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+    site: SchoolSite,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    controller.back(&app, site)
+}
+
+/// Shows a file a school page saved this session in Finder; other paths are
+/// refused.
+#[tauri::command]
+fn reveal_school_download(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+    path: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    controller.reveal_download(&app, &path)
+}
+
 #[tauri::command]
 fn set_school_web_zoom(
     webview: tauri::Webview,
@@ -310,6 +357,22 @@ fn delete_school_credentials(
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
     service.delete(profile)
+}
+
+/// Copies the saved Matrix directly from the vault to the system clipboard,
+/// so the plaintext never passes through the WebView.
+#[tauri::command]
+fn copy_school_matrix(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    let text = auth.matrix_text()?;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|_| "Matrix could not be copied to the clipboard.".to_string())?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -884,14 +947,33 @@ async fn refresh_reference_source(webview: tauri::Webview, store: tauri::State<'
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
+        // The plugin's default link script runs in every webview and turns a
+        // `target="_blank"` click into an `open_url` IPC call, which no
+        // capability grants: links in school pages silently did nothing.
+        // School views route new-window links natively (see school_web.rs);
+        // the shell's links use the `open_external` command.
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
-        .manage(lms_files::FileStore(std::sync::Mutex::new(()), std::sync::Arc::new(tauri::async_runtime::Mutex::new(())), std::env::temp_dir().join(format!("isct-course-preview-{}", uuid::Uuid::new_v4()))))
         .plugin(tauri_plugin_secure_storage::init())
-        .manage(SchoolWebController::new())
-        .manage(matrix_ocr::MatrixOcrService::default())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(lms_files::FileStore(
+            std::sync::Mutex::new(()),
+            std::sync::Arc::new(tauri::async_runtime::Mutex::new(())),
+            std::env::temp_dir().join(format!(
+                "isct-course-preview-{}",
+                uuid::Uuid::new_v4()
+            )),
+        ))
+        .manage(SchoolWebController::new());
+    #[cfg(matrix_ocr)]
+    let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
+    builder
         .invoke_handler(tauri::generate_handler![
             runtime_capabilities,
             lms_files::course_storage_info,
@@ -910,6 +992,8 @@ pub fn run() {
             hide_school_web,
             reload_school_web,
             navigate_school_web,
+            school_web_back,
+            reveal_school_download,
             set_school_web_zoom,
             pull_school,
             school_records,
@@ -917,6 +1001,7 @@ pub fn run() {
             school_credential_status,
             save_school_credentials,
             delete_school_credentials,
+            copy_school_matrix,
             login_school,
             test_school_connection,
             ensure_school_session,

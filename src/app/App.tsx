@@ -1539,6 +1539,7 @@ function WorkspaceApp() {
             setSection={setSection}
             notify={setToast}
             runScheduledTask={executeScheduledTask}
+            matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
             showLoginPage={(profile) => {
               sessionStorage.setItem(
                 "stws-active-school-site",
