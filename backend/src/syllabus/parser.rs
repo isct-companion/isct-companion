@@ -214,9 +214,17 @@ fn parse_date(value: &str) -> Option<String> {
 fn course_identity(url: &Url) -> Option<(u16, String)> {
     let segments = url.path_segments()?.collect::<Vec<_>>();
     let courses = segments.iter().position(|segment| *segment == "courses")?;
-    let year = segments.get(courses + 1)?.parse().ok()?;
     let id = segments.last()?.to_string();
-    (id.len() == 9 && id.chars().all(|value| value.is_ascii_digit())).then_some((year, id))
+    if id.len() != 9 || !id.chars().all(|value| value.is_ascii_digit()) {
+        return None;
+    }
+    // `courses/{year}/…/{id}`, or the id-only form `courses/-/-/-/{id}`
+    // whose id starts with the academic year.
+    let year = segments
+        .get(courses + 1)
+        .and_then(|segment| segment.parse().ok())
+        .or_else(|| id[..4].parse().ok())?;
+    Some((year, id))
 }
 
 fn canonical_url(url: &Url) -> String {
@@ -784,4 +792,20 @@ pub(crate) fn parse_detail(url: &Url, html: &str, language: &str) -> Result<Deta
         content,
         warnings,
     })
+}
+
+#[cfg(test)]
+mod course_identity_tests {
+    use super::course_identity;
+    use url::Url;
+
+    #[test]
+    fn identity_comes_from_the_path_or_the_id_prefix() {
+        let full = Url::parse("https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602421").unwrap();
+        assert_eq!(course_identity(&full), Some((2026, "202602421".into())));
+        let short = Url::parse("https://syllabus.s.isct.ac.jp/courses/-/-/-/202608712").unwrap();
+        assert_eq!(course_identity(&short), Some((2026, "202608712".into())));
+        let bad = Url::parse("https://syllabus.s.isct.ac.jp/courses/-/-/-/abc").unwrap();
+        assert_eq!(course_identity(&bad), None);
+    }
 }

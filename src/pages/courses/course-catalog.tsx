@@ -448,7 +448,7 @@ export function CourseCatalog({
                   <b>{course.title}</b>
                   {recommended && (
                     <strong className="recommendationBadge">
-                      {recommended.group} {recommended.mark === "required" ? "◎" : "○"}
+                      {recommended.group} {recommended.mark === "required" ? "◎" : recommended.mark === "recommended" ? "○" : "Guide"}
                     </strong>
                   )}
                   <p>

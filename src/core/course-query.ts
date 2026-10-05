@@ -263,7 +263,7 @@ type VocabEntry = { key: string; aliases: string[] };
 export function vocabulary(ctx: FinderContext): VocabEntry[] {
   const en = ["mon", "tue", "wed", "thu", "fri", "sat"];
   const long = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-  const groups = [...new Set([...ctx.recommended.values()].map((r) => r.group))].sort();
+  const groups = [...new Set([...ctx.recommended.values()].map((r) => r.group).filter(Boolean))].sort();
   return [
     { key: "curr", aliases: ["curr", "current", "当前", "今期"] },
     ...[1, 2, 3, 4].map((q) => ({ key: `${q}Q`, aliases: [`${q}q`, `q${q}`] })),

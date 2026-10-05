@@ -7,8 +7,21 @@ import { addSyllabusDraft } from "../core/syllabus";
 import { catalogCourse } from "../platform/desktop-bridge";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as never;
-window.matchMedia = ((query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as never;
+globalThis.ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as never;
+window.matchMedia = ((query: string) => ({
+  matches: false,
+  media: query,
+  addEventListener() {},
+  removeEventListener() {},
+  addListener() {},
+  removeListener() {},
+  onchange: null,
+  dispatchEvent: () => false,
+})) as never;
 
 const offering = (id: string, code: string, title: string) => ({
   id,
@@ -30,7 +43,10 @@ let saved = (() => {
   const workspace = seedWorkspace();
   workspace.selectedTerm = "2026-3Q";
   workspace.terms = ["2026-3Q"];
-  addSyllabusDraft(workspace, { ...catalogCourse(placed, "en"), quarter: "3Q" });
+  addSyllabusDraft(workspace, {
+    ...catalogCourse(placed, "en"),
+    quarter: "3Q",
+  });
   return workspace;
 })();
 (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
@@ -46,15 +62,32 @@ let saved = (() => {
       case "catalog_offerings":
         return [placed, clashing];
       case "catalog_query":
-        return { items: [{ id: placed.id }, { id: clashing.id }], total: 2, returned: 2, truncated: false };
+        return {
+          items: [{ id: placed.id }, { id: clashing.id }],
+          total: 2,
+          returned: 2,
+          truncated: false,
+        };
       case "catalog_sync_offerings":
         return [];
+      case "school_records":
+        return { lastRuns: {}, lmsCourses: [], registrations: [], registrationStates: [], grades: [], gpaByTerm: [], requirements: [] };
       case "runtime_capabilities":
         return {};
       case "school_credential_status":
         return {
-          science: { saved: false, username: "", hasOtp: false, hasMatrix: false },
-          tokyoTech: { saved: false, username: "", hasOtp: false, hasMatrix: false },
+          science: {
+            saved: false,
+            username: "",
+            hasOtp: false,
+            hasMatrix: false,
+          },
+          tokyoTech: {
+            saved: false,
+            username: "",
+            hasOtp: false,
+            hasMatrix: false,
+          },
         };
       default:
         return null;
@@ -62,8 +95,13 @@ let saved = (() => {
   },
 };
 
-const wait = (ms: number) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
-const titles = (host: HTMLElement) => [...new Set([...host.querySelectorAll(".ttBlock b")].map((b) => b.textContent))];
+const wait = (ms: number) =>
+  act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+const titles = (host: HTMLElement) => [
+  ...new Set(
+    [...host.querySelectorAll(".ttBlock b")].map((b) => b.textContent),
+  ),
+];
 
 it("adds a clashing course as a replacement, and Undo brings the old one back", async () => {
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -74,23 +112,28 @@ it("adds a clashing course as a replacement, and Undo brings the old one back", 
   await act(async () => root.render(<App />));
   const nav = await vi.waitFor(() => {
     const button = [...host.querySelectorAll("button")].find((b) =>
-      /^Courses/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""),
+      /^Schedule/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""),
     );
     if (!button) throw new Error("app not ready");
     return button;
   });
   await act(async () => nav!.click());
+  const edit = host.querySelector<HTMLInputElement>('input[role="switch"]')!;
+  await act(async () => edit.click());
   const input = host.querySelector<HTMLInputElement>("#course-finder-input")!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "CSC ");
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input, "CSC ");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   expect(titles(host)).toEqual(["Placed"]);
   const replace = await vi.waitFor(
     () => {
-      const button = [...host.querySelectorAll<HTMLButtonElement>(".finderAdd")].find(
-        (candidate) => candidate.textContent === "Replace",
-      );
+      const button = [
+        ...host.querySelectorAll<HTMLButtonElement>(".finderAdd"),
+      ].find((candidate) => candidate.textContent === "Replace");
       if (!button) throw new Error("no Replace yet");
       return button;
     },
@@ -99,13 +142,17 @@ it("adds a clashing course as a replacement, and Undo brings the old one back", 
   await act(async () => replace.click());
   await vi.waitFor(() => expect(titles(host)).toEqual(["Clashing"]));
 
-  const undo = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Undo");
+  const undo = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (b) => b.textContent === "Undo",
+  );
   await act(async () => undo!.click());
   await vi.waitFor(() => expect(titles(host)).toEqual(["Placed"]));
   await wait(50);
   expect(host.querySelector(".pageError")).toBeNull();
   // React's "not wrapped in act" notices come from async polling, not from the app.
-  const real = errors.mock.calls.filter((call) => !String(call[0]).includes("not wrapped in act"));
+  const real = errors.mock.calls.filter(
+    (call) => !String(call[0]).includes("not wrapped in act"),
+  );
   expect(real).toEqual([]);
   errors.mockRestore();
   act(() => root.unmount());

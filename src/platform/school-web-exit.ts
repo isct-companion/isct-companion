@@ -9,6 +9,9 @@ export function createSchoolWebExit(
     get pending() {
       return Boolean(pending);
     },
+    settled(): Promise<void> {
+      return pending ?? Promise.resolve();
+    },
     close(): Promise<void> {
       if (pending) return pending;
       pending = Promise.resolve()

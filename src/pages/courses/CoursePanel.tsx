@@ -21,7 +21,7 @@ export function CoursePanel({
   lmsUrl,
   openWeb,
   fetchLms,
-  fetching,
+  progress,
 }: {
   course: Course;
   data: Workspace;
@@ -35,7 +35,7 @@ export function CoursePanel({
   openWeb: (url: string) => void;
   /** Pulls LMS (assignments and materials) without changing the timetable. */
   fetchLms?: () => void;
-  fetching?: boolean;
+  progress?: number | null;
 }) {
   const registered = data.memberships.some(
     (item) =>
@@ -73,7 +73,7 @@ export function CoursePanel({
         lmsUrl={lmsUrl}
         openWeb={openWeb}
         fetchLms={fetchLms}
-        fetching={fetching}
+        progress={progress}
       />
       {!readOnly && (
         <footer className="coursePanelFoot">

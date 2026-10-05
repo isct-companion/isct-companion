@@ -1,12 +1,21 @@
 import { Badge, Button, ScrollArea, Tabs } from "@mantine/core";
 import { useState } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
+import { PullRing } from "../../components/PullRing";
 import { dayNames } from "../../components/timetable/timetable";
 import { deadlineState } from "../../core/academic";
 import { pickLocalized, type Course, type Workspace } from "../../core/model";
 import { t } from "../../i18n";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
 import { SyllabusDetails } from "./syllabus-details";
+
+/** The course's official syllabus page: its own URL when that is one, else by offering id. */
+export function syllabusUrl(course: Pick<Course, "url" | "offeringId">): string | undefined {
+  if (course.url?.startsWith("https://syllabus.s.isct.ac.jp/")) return course.url;
+  return /^\d{9}$/.test(course.offeringId ?? "")
+    ? `https://syllabus.s.isct.ac.jp/courses/-/-/-/${course.offeringId}`
+    : undefined;
+}
 
 export type CourseTab = "overview" | "materials" | "assignments" | "syllabus";
 
@@ -66,7 +75,7 @@ export function CourseDetails({
   lmsUrl,
   openWeb,
   fetchLms,
-  fetching,
+  progress = null,
 }: {
   course: Course;
   data: Workspace;
@@ -76,7 +85,8 @@ export function CourseDetails({
   openWeb: (url: string) => void;
   /** Pulls LMS materials and assignments (the timetable is unchanged). */
   fetchLms?: () => void;
-  fetching?: boolean;
+  /** 0–100 while an LMS pull runs, else null. */
+  progress?: number | null;
 }) {
   const [tab, setTab] = useState<CourseTab>(initialTab);
   const bridge = getDesktopBridge();
@@ -102,8 +112,14 @@ export function CourseDetails({
   );
   const count = (value: number) => (value > 0 ? <Badge size="xs">{value}</Badge> : null);
   const refresh = fetchLms && (
-    <Button size="compact-xs" variant="subtle" loading={fetching} onClick={fetchLms}>
-      {t("Fetch")}
+    <Button
+      size="compact-xs"
+      variant="subtle"
+      disabled={progress !== null}
+      leftSection={progress !== null ? <PullRing value={progress} size={14} /> : undefined}
+      onClick={fetchLms}
+    >
+      {progress !== null ? `${Math.round(progress)}%` : t("Fetch")}
     </Button>
   );
 
@@ -158,7 +174,6 @@ export function CourseDetails({
             </dl>
             <div className="courseDetailsLinks">
               {lmsUrl && <OfficialLink url={lmsUrl} label="LMS" openWeb={openWeb} />}
-              {course.url && <OfficialLink url={course.url} label={t("Syllabus")} openWeb={openWeb} />}
             </div>
           </>
         )}
@@ -214,9 +229,9 @@ export function CourseDetails({
           </div>
         )}
         {tab === "syllabus" &&
-          (course.url ? (
+          (syllabusUrl(course) ? (
             <SyllabusDetails
-              url={course.url}
+              url={syllabusUrl(course)!}
               fetchCourse={
                 bridge
                   ? (url) => bridge.syllabusCourse(url, locale === "ja" ? "ja" : "en")

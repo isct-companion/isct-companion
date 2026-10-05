@@ -410,10 +410,10 @@ fn merge_search(en: SearchPage, ja: SearchPage) -> CatalogSearchResult {
 
 fn offering_url(locator: &str) -> Result<Url, String> {
     if locator.len() == 9 && locator.chars().all(|value| value.is_ascii_digit()) {
-        let mut url =
-            Url::parse(&format!("{ORIGIN}/courses")).map_err(|_| "Syllabus URL is invalid.")?;
-        url.query_pairs_mut().append_pair("jwc", locator);
-        return Ok(url);
+        // The canonical detail path `courses?jwc={id}` redirects to; a query
+        // URL would lose the id once the language is set.
+        return Url::parse(&format!("{ORIGIN}/courses/-/-/-/{locator}"))
+            .map_err(|_| "Syllabus URL is invalid.".to_string());
     }
     let mut url = Url::parse(locator).map_err(|_| "Syllabus URL is invalid.")?;
     url.set_fragment(None);
@@ -730,4 +730,15 @@ pub(crate) fn parse_content(
 
 pub(crate) fn quarters(value: &str) -> Vec<String> {
     parser::quarters(value)
+}
+
+#[cfg(test)]
+mod offering_locator_tests {
+    #[test]
+    fn a_bare_offering_id_uses_the_canonical_detail_path() {
+        let url = super::offering_url("202608712").unwrap();
+        assert_eq!(url.as_str(), "https://syllabus.s.isct.ac.jp/courses/-/-/-/202608712");
+        // Setting the language must keep the id.
+        assert!(super::localized_detail_url(&url, "en").as_str().ends_with("/202608712?hl=en"));
+    }
 }

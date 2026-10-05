@@ -5,10 +5,19 @@ import "@mantine/notifications/styles.css";
 import App from "./app/App";
 import { PageErrorBoundary } from "./app/PageErrorBoundary";
 import "./styles.css";
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <PageErrorBoundary name="app">
-      <App />
-    </PageErrorBoundary>
-  </React.StrictMode>,
-);
+const root = createRoot(document.getElementById("root")!);
+if (
+  import.meta.env.DEV &&
+  new URLSearchParams(location.search).get("preview") === "lms"
+) {
+  void import("./pages/today/lms/LmsPreview").then(({ LmsPreview }) =>
+    root.render(<LmsPreview />),
+  );
+} else
+  root.render(
+    <React.StrictMode>
+      <PageErrorBoundary name="app">
+        <App />
+      </PageErrorBoundary>
+    </React.StrictMode>,
+  );

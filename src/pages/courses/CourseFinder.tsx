@@ -518,7 +518,7 @@ export function CourseFinder({
                   {matched.length > 0 && <em> · {matched.join(" / ")}</em>}
                 </small>
                 <span className="finderBadges">
-                  {rec && <i className="rec">{rec.group}{rec.mark === "required" ? " ◎" : rec.mark ? " ○" : ""}</i>}
+                  {rec && <i className="rec">{rec.group}{rec.mark === "required" ? " ◎" : rec.mark ? " ○" : " Guide"}</i>}
                   {clash && <i className="clash">{t("Conflict")}</i>}
                 </span>
               </button>

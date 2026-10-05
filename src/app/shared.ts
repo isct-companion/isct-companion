@@ -1,5 +1,4 @@
-export type Page =
-  "today" | "schedule" | "courses" | "web" | "settings";
+export type Page = "today" | "schedule" | "web" | "settings";
 export type Section =
   | "general"
   | "accounts"
@@ -14,6 +13,5 @@ export type Section =
   | "advanced";
 export type Platform = "native-desktop" | "native-mobile" | "browser-preview";
 
-export const jstDate = (date: Date) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(date);
+export { tokyoDate as jstDate } from "../core/schedule";
 export const stamp = () => new Date().toISOString();

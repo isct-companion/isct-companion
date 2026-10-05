@@ -12,7 +12,7 @@ export const SCHOOL_TTL_MS = {
 } as const;
 
 /** The 教務Web page kinds one pull reads (`import_runs.scope`). */
-export const KYOMU_PAGES = ["gpa", "registrations", "grades", "requirements"] as const;
+export const KYOMU_PAGES = ["gpa", "registrations", "declared", "grades", "requirements"] as const;
 
 export type StaleSources = {
   assignments: boolean;

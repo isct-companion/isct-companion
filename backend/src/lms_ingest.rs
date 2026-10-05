@@ -15,7 +15,9 @@ const MAX_EVENTS: usize = 5_000;
 
 /// Read-only Moodle transport. Every request passes through `call`, whose
 /// closed allowlist is also checked before the request is constructed.
-pub const LMS_EXTRACT_SCRIPT: &str = r#"(async () => {
+pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
+  const enrichCourseContent = "#, include_str!("lms_course_content.js"), r#";
+  const forumContent = "#, include_str!("lms_forum_content.js"), r#";
   const methods = new Set([
     'core_course_get_enrolled_courses_by_timeline_classification',
     'core_courseformat_get_state',
@@ -125,6 +127,8 @@ pub const LMS_EXTRACT_SCRIPT: &str = r#"(async () => {
     const wanted = new Set([category, category === 4 ? 1 : category + 1]);
     // The category name is the course's quarter ("1"…"4").
     const structures = [];
+    let contentBudget = 3000000;
+    const boundedBody = text => { const body = text.slice(0, Math.min(100000, contentBudget)); contentBudget -= body.length; return body; };
     for (const course of courses) {
       const year = Number(String(course.shortname || '').match(/\[(\d{4})\]\s*$/)?.[1]);
       const quarter = Number(course.coursecategory);
@@ -135,14 +139,75 @@ pub const LMS_EXTRACT_SCRIPT: &str = r#"(async () => {
       try {
         const raw = await call('core_courseformat_get_state', {courseid:Number(course.id)});
         const full = JSON.parse(typeof raw === 'string' ? raw : raw?.data);
-        const state = {section:(full?.section || []).map(item => pick(item, ['id','number','title','visible'])),
-          cm:(full?.cm || []).map(item => pick(item, ['id','name','module','url','sectionid','visible','uservisible']))};
+        const state = {section:(full?.section || []).map(item => pick(item, ['id','number','title','visible','anchor'])),
+          cm:(full?.cm || []).map(item => pick(item, ['id','name','module','url','sectionid','visible','uservisible','anchor']))};
+        // Shared course-format DOM only: preserve teacher content without
+        // interpreting headings, dates or course-specific conventions.
+        try {
+          const response = await fetch('/2025/course/view.php?id=' + Number(course.id), {credentials:'same-origin'});
+          if (response.ok && response.url.includes('/course/view.php')) {
+            const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+            enrichCourseContent(page, state, response.url, boundedBody);
+          }
+        } catch { /* Keep the API outline when the optional body GET fails. */ }
         structures.push({courseId:Number(course.id), complete:true, state});
       } catch (error) {
         structures.push({courseId:Number(course.id), complete:false, state:null,
           error:String(error?.message || error)});
       }
     }
+    // Bounded read-only module details, using the same signed-in session.
+    const detailCms = structures.flatMap(item => item.state?.cm || [])
+      .filter(cm => cm.uservisible !== false && ['resource','folder','url','page','forum','assign'].includes(cm.module)).slice(0, 60);
+    let forumBudget = 16;
+    const readDetail = async cm => {
+      try {
+        const target = new URL(cm.url, sourceUrl);
+        if (target.origin !== location.origin || !/^\/2025\/mod\/(resource|folder|url|page|forum|assign)\/view\.php$/.test(target.pathname)) return;
+        const response = await fetch(target.href, {credentials:'same-origin'});
+        if (!response.ok) return;
+        if (new URL(response.url).origin !== location.origin) { response.body?.cancel(); return; }
+        if (response.url.includes('/pluginfile.php/')) {
+          cm.resourceUrl = response.url; response.body?.cancel(); return;
+        }
+        if (!(response.headers.get('content-type') || '').includes('text/html')) { response.body?.cancel(); return; }
+        const text = await response.text();
+        if (text.length > 1000000) return;
+        const page = new DOMParser().parseFromString(text, 'text/html');
+        if (page.querySelector('input[type=password]') || !page.body.classList.contains('cmid-' + cm.id)) return;
+        const nodes = cm.module === 'forum' ? page.querySelectorAll('#intro, .forumheaderlist')
+          : cm.module === 'folder' ? page.querySelectorAll('#intro, .foldertree')
+          : cm.module === 'page' ? page.querySelectorAll('#intro, .generalbox')
+          : page.querySelectorAll('#intro');
+        if (cm.module === 'forum') {
+          const discussions = [...new Set([...page.getElementsByTagName('a')].map(a => {
+            try { const u = new URL(a.getAttribute('href'), response.url);
+              if (u.origin !== location.origin || u.pathname !== '/2025/mod/forum/discuss.php' || !/^\d+$/.test(u.searchParams.get('d') || '')) return null;
+              const id = u.searchParams.get('d'); u.hash = ''; u.search = '?d=' + id; return u.href;
+            } catch { return null; }
+          }).filter(Boolean))].slice(0, Math.min(8, forumBudget));
+          forumBudget -= discussions.length;
+          const bodies = [];
+          for (const url of discussions) {
+            try {
+              const detail = await fetch(url, {credentials:'same-origin'});
+              if (!detail.ok || new URL(detail.url).origin !== location.origin || !(detail.headers.get('content-type') || '').includes('text/html')) { detail.body?.cancel(); continue; }
+              const html = await detail.text();
+              if (html.length > 1000000) continue;
+              bodies.push(forumContent(new DOMParser().parseFromString(html, 'text/html'), detail.url));
+            } catch { /* Preserve the other announcements when one GET fails. */ }
+          }
+          const intro = page.getElementById('intro')?.innerHTML || '';
+          if (contentBudget > 0) cm.bodyHtml = boundedBody(intro + bodies.join('\n'));
+        } else if (contentBudget > 0) cm.bodyHtml = boundedBody([...nodes].map(node => node.innerHTML).join('\n'));
+        if (cm.module === 'url') {
+          const link = page.querySelector('#region-main a[href^="https://"]');
+          if (link) cm.resourceUrl = link.href;
+        }
+      } catch { /* Keep cached detail on a later incomplete read. */ }
+    };
+    for (let index = 0; index < detailCms.length; index += 4)
+      await Promise.all(detailCms.slice(index, index + 4).map(readDetail));
     // Submission state as the assignment page shows it (a plain GET, read
     // through the classes Moodle puts on the status table), for the
     // assignments of the loaded quarters.
@@ -173,7 +238,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = r#"(async () => {
       courses:[], structures:[], actionEvents:[], datedEvents:[],
       error:String(error?.message || error)};
   }
-})()"#;
+})()"#);
 
 /// Moodle sends ids as numbers in some functions and numeric strings in
 /// others (`core_courseformat_get_state`).
@@ -534,6 +599,10 @@ pub fn parse_lms_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), St
                 if let Some(Value::Array(sections)) = state.get_mut("section") {
                     for section in sections {
                         decode_fields(section, &["title"]);
+                        // Moodle serializes these IDs as strings, unlike material sectionId.
+                        if let Some(id) = id_of(section.get("id")) {
+                            section["id"] = json!(id);
+                        }
                     }
                 }
             }
@@ -759,7 +828,7 @@ pub fn apply_lms_payload(
     connection: &mut Connection,
     payload: &LmsPayload,
 ) -> Result<usize, String> {
-    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
@@ -808,10 +877,29 @@ pub fn apply_lms_payload(
                 map.insert(grid.term.clone(), Value::Array(meetings));
             }
         }
+        let prior_sections: Option<Value> = tx.query_row(
+            "SELECT value FROM lms_courses WHERE id=?1", [&lms_course_id], |row| row.get::<_, String>(0)
+        ).optional().map_err(|e| e.to_string())?
+          .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+          .and_then(|stored| stored.get("sections").cloned());
+        let mut sections = payload.structures.iter().find(|s| s.course_id == course.id && s.complete)
+            .and_then(|s| s.state.as_ref()).and_then(|s| s.get("section")).cloned()
+            .or_else(|| prior_sections.clone()).unwrap_or_else(|| json!([]));
+        if let Some(current) = sections.as_array_mut() {
+            for section in current {
+                if section.get("bodyHtml").is_none() {
+                    if let Some(body) = prior_sections.as_ref().and_then(Value::as_array)
+                        .and_then(|old| old.iter().find(|s| id_of(s.get("id")) == id_of(section.get("id"))))
+                        .and_then(|s| s.get("bodyHtml")) {
+                        section.as_object_mut().unwrap().insert("bodyHtml".into(), body.clone());
+                    }
+                }
+            }
+        }
         let value = json!({"id":lms_course_id,"lmsId":course.id,"offeringId":offering,
             "shortname":course.shortname,"title":split_title(&course.fullname,&payload.language),"year":year,
             "quarters":quarter_of(year,course.coursecategory),"url":course.viewurl,"hidden":course.hidden,
-            "timetables":timetables});
+            "timetables":timetables,"sections":sections});
         changed += usize::from(upsert_versioned(
             &tx,
             "lms_courses",
@@ -907,8 +995,12 @@ pub fn apply_lms_payload(
                 .cloned()
                 .unwrap_or_else(|| format!("course:lms:{}", structure.course_id));
             let name = cm.get("name").and_then(Value::as_str).unwrap_or("");
+            let previous: Option<Value> = tx.query_row("SELECT value FROM lms_items WHERE id=?1", [&item_id], |r| r.get::<_, String>(0))
+                .optional().map_err(|e| e.to_string())?.and_then(|raw| serde_json::from_str(&raw).ok());
+            let body = cm.get("bodyHtml").or_else(|| previous.as_ref().and_then(|v| v.get("bodyHtml")));
+            let resource_url = cm.get("resourceUrl").or_else(|| previous.as_ref().and_then(|v| v.get("resourceUrl")));
             let item = json!({"id":item_id,"kind":"material","courseId":linked_course,"cmid":cmid,"lmsCourseId":structure.course_id,"sectionNumber":section.1,
-                "sectionTitle":section.0,"module":module,"name":cm.get("name").and_then(Value::as_str).unwrap_or(""),
+                "sectionId":id_of(cm.get("sectionid")),"bodyHtml":body,"resourceUrl":resource_url,"sectionTitle":section.0,"module":module,"name":cm.get("name").and_then(Value::as_str).unwrap_or(""),
                 "session":section.1,"title":name,"type":"link","url":url,"visible":cm.get("visible").and_then(Value::as_bool).unwrap_or(false) && cm.get("uservisible").and_then(Value::as_bool).unwrap_or(false)});
             changed += usize::from(upsert_versioned(
                 &tx,

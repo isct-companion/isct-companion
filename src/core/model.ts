@@ -68,12 +68,7 @@ export type Membership = SyncMeta & {
   kind: "membership";
   termId: TermId;
   courseId: string;
-  status:
-    | "declared"
-    | "registered"
-    | "lms-member"
-    | "completed"
-    | "withdrawn";
+  status: "declared" | "registered" | "lms-member" | "completed" | "withdrawn";
   evidence: SourceRef;
 };
 
@@ -89,11 +84,7 @@ export type Assignment = SyncMeta & {
   submission?: "unknown" | "open" | "submitted" | "graded";
   /** Transitional UI field; Task 3 moves all assignment rendering to `submission`. */
   submissionStatus?:
-    | "unknown"
-    | "draft"
-    | "submitted"
-    | "late"
-    | "not-submitted";
+    "unknown" | "draft" | "submitted" | "late" | "not-submitted";
   hidden?: boolean;
   completedAt?: string;
   source: SourceRef;
@@ -105,6 +96,15 @@ export type Material = SyncMeta & {
   session: number;
   title: string;
   type: "pdf" | "link" | "video";
+  cmid?: number;
+  lmsCourseId?: number;
+  sectionId?: number;
+  sectionNumber?: number;
+  sectionTitle?: string;
+  module?: string;
+  visible?: boolean;
+  bodyHtml?: string;
+  resourceUrl?: string;
   url?: string;
   source: SourceRef;
 };
@@ -200,8 +200,13 @@ export type Plan = SyncMeta & {
 };
 
 export type AcademicCalendarDay = SyncMeta & {
+  academicYear?: number;
+  quarter?: Quarter;
+  teachingRanges?: { start: string; end: string }[];
+  examRanges?: { start: string; end: string }[];
   date: string;
-  type: "holiday" | "no-class" | "replacement" | "quarter-start" | "quarter-end";
+  type:
+    "holiday" | "no-class" | "replacement" | "quarter-start" | "quarter-end";
   replacementDay?: number;
   label: Localized;
 };
@@ -232,10 +237,14 @@ export type RecommendedCourse = SyncMeta & {
   group: string;
   mark?: "required" | "recommended";
   title: Localized;
-  credits: CreditSplit;
+  credits?: CreditSplit;
+  sourcePages?: number[];
+  sourceKind?: "curriculum-map" | "standard-plan" | "course-table";
+  note?: string;
 };
 
 export type Subscription = SyncMeta & {
+  dataUrl?: string;
   url: string;
   kind: "calendar" | "departments";
   enabled: boolean;
@@ -257,6 +266,8 @@ export type ScheduledTask = SyncMeta & {
 
 export type Settings = {
   departmentId?: string;
+  lmsBilingualFilter?: boolean;
+  autoSaveCourseFiles?: boolean;
   agentAccess?: {
     enabled: boolean;
     lastWrites?: { at: string; tool: string }[];
@@ -400,6 +411,7 @@ export function seedWorkspace(): Workspace {
     subscriptions: [],
     scheduledTasks: [],
     settings: {
+      autoSaveCourseFiles: false,
       appearance: "system",
       agentAccess: { enabled: false, lastWrites: [] },
       density: "comfortable",
