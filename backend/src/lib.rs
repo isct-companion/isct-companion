@@ -14,11 +14,11 @@ use secrets::OsSecretVault;
 
 mod cloud;
 pub mod data;
-mod ics;
 mod kyomu_guide;
 mod kyomu_ingest;
 mod lifecycle;
 mod lms_ingest;
+mod lms_files;
 mod matrix_ocr;
 mod matrix_red_crops;
 pub mod plans;
@@ -432,13 +432,15 @@ fn load_workspace(
 }
 
 #[tauri::command]
-fn save_workspace(
+async fn save_workspace(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
     workspace: serde_json::Value,
 ) -> Result<(), String> {
     require_local_main(&webview)?;
-    store.save_workspace(&workspace).map(|_| ())
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_workspace(&workspace).map(|_| ()))
+        .await.map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -844,16 +846,6 @@ fn preview_plan_recurrence(
 }
 
 #[tauri::command]
-fn export_quarter_ics(
-    webview: tauri::Webview,
-    store: tauri::State<'_, data::DataStore>,
-    term: String,
-) -> Result<String, String> {
-    require_local_main(&webview)?;
-    ics::export_quarter(&store.load_workspace()?, &term)
-}
-
-#[tauri::command]
 fn agent_command(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
@@ -876,16 +868,40 @@ fn apply_bundled_subscriptions(
     subscriptions::apply_subscription(&mut connection, &calendar, &departments)
 }
 
+#[tauri::command]
+async fn refresh_reference_source(webview: tauri::Webview, store: tauri::State<'_, data::DataStore>, kind: String, index_url: String, year: i32) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    let client = subscriptions::SubscriptionClient::new()?;
+    let (calendar, departments, url) = match kind.as_str() {
+        "calendar" => { let (value, url) = client.fetch_calendar(&index_url, year).await?; (Some(value), None, url) },
+        "departments" => { let (value, url) = client.fetch_departments(&index_url, year).await?; (None, Some(value), url) },
+        _ => return Err("unsupported subscription type".into()),
+    };
+    let mut connection = rusqlite::Connection::open(store.path()).map_err(|e| e.to_string())?;
+    let changed = subscriptions::apply_reference(&mut connection, calendar.as_ref(), departments.as_ref())?;
+    Ok(serde_json::json!({"changed":changed,"dataUrl":url}))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(lms_files::FileStore(std::sync::Mutex::new(()), std::sync::Arc::new(tauri::async_runtime::Mutex::new(())), std::env::temp_dir().join(format!("isct-course-preview-{}", uuid::Uuid::new_v4()))))
         .plugin(tauri_plugin_secure_storage::init())
         .manage(SchoolWebController::new())
         .manage(matrix_ocr::MatrixOcrService::default())
         .invoke_handler(tauri::generate_handler![
             runtime_capabilities,
+            lms_files::course_storage_info,
+            lms_files::choose_course_storage,
+            lms_files::save_course_note,
+            lms_files::read_course_note,
+            lms_files::move_course_note,
+            lms_files::list_course_notes,
+            lms_files::open_course_material,
+            lms_files::save_course_material,
             recognize_matrix_image,
             open_external,
             configure_school_web_policy,
@@ -923,9 +939,9 @@ pub fn run() {
             catalog_query,
             catalog_sync_offerings,
             preview_plan_recurrence,
-            export_quarter_ics,
             agent_command,
-            apply_bundled_subscriptions
+            apply_bundled_subscriptions,
+            refresh_reference_source
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -946,7 +962,7 @@ pub fn run() {
                 DesktopCloudService::new(vault.clone())
                     .expect("failed to initialize the cloud transport"),
             );
-            app.manage(SchoolAuthService::new(vault));
+            app.manage(SchoolAuthService::with_status_cache(vault, app.path().app_data_dir()?.join("school-credential-status.json")));
 
             #[cfg(desktop)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -966,6 +982,11 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("failed to run Science Tokyo Workstation");
+        .build(tauri::generate_context!())
+        .expect("failed to build Science Tokyo Workstation")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                let _ = std::fs::remove_dir_all(&app.state::<lms_files::FileStore>().2);
+            }
+        });
 }

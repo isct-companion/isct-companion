@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Campus Life public exam feed v1",
+  "description": "Public data contract only; the native exam-feed adapter is not implemented.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "academicYear",
+    "timezone",
+    "source",
+    "entries"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "academicYear": {
+      "type": "integer",
+      "minimum": 2000,
+      "maximum": 2200
+    },
+    "timezone": {
+      "const": "Asia/Tokyo"
+    },
+    "source": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+    },
+    "localized": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ja"
+      ],
+      "properties": {
+        "ja": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "url"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "landingPageUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date"
+        },
+        "retrievedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "quarter",
+        "label",
+        "sourceIds",
+        "courseCode",
+        "date",
+        "room",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "kind": {
+          "const": "exam"
+        },
+        "quarter": {
+          "enum": [
+            "1Q",
+            "2Q",
+            "3Q",
+            "4Q"
+          ]
+        },
+        "label": {
+          "$ref": "#/$defs/localized"
+        },
+        "sourceIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "courseCode": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Exact official code, including class suffix such as -07. Do not strip the suffix."
+        },
+        "syllabusCourseId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "classLabel": {
+          "$ref": "#/$defs/localized"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "startTime": {
+          "$ref": "#/$defs/time"
+        },
+        "endTime": {
+          "$ref": "#/$defs/time"
+        },
+        "room": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/localized"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "periods": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "description": "Official allocated first/last teaching periods; not exact exam duration. Relational validator checks first <= last."
+        },
+        "status": {
+          "enum": [
+            "scheduled",
+            "cancelled"
+          ]
+        },
+        "notes": {
+          "$ref": "#/$defs/localized"
+        },
+        "sourcePages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "rooms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/localized"
+          },
+          "description": "Optional distinct rooms exactly as published. Does not assign an individual student to a room."
+        }
+      },
+      "dependentRequired": {
+        "startTime": [
+          "endTime"
+        ],
+        "endTime": [
+          "startTime"
+        ]
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "periods"
+              ]
+            },
+            {
+              "required": [
+                "startTime",
+                "endTime"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

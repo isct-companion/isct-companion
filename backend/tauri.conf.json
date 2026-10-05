@@ -11,6 +11,7 @@
   },
   "app": {
     "security": {
+      "assetProtocol": {"enable": true, "scope": []},
       "capabilities": [
         "main"
       ]

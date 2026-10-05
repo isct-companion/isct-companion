@@ -180,9 +180,10 @@ fn outcome(site: SchoolSite, kind: &str, result: Result<usize, String>) -> Inges
 
 const KYOMU_ROOT: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/";
 /// Read-only pages the 教務Web pull loads, in order (GPA first: Today needs it).
-const KYOMU_PULL_PAGES: [&str; 4] = [
+const KYOMU_PULL_PAGES: [&str; 5] = [
     "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
     "Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx",
+    "Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx",
     "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx",
     "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx",
 ];
@@ -274,6 +275,7 @@ struct ControllerState {
     active: Option<SchoolSite>,
     current_site: SchoolSite,
     urls: HashMap<SchoolSite, String>,
+    loaded_urls: HashMap<SchoolSite, String>,
     restore: bool,
     bounds: WebBounds,
     customizations: HashMap<SchoolSite, (String, String)>,
@@ -301,6 +303,7 @@ impl Default for ControllerState {
             active: None,
             current_site: SchoolSite::SciencePortal,
             urls: HashMap::new(),
+            loaded_urls: HashMap::new(),
             restore: false,
             bounds: WebBounds::default(),
             customizations: HashMap::new(),
@@ -355,6 +358,7 @@ fn ingestion_script(raw: &str) -> Option<&'static str> {
         && matches!(
             url.path(),
             "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx"
+                | "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx"
                 | "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx"
                 | "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx"
                 | "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx"
@@ -937,6 +941,26 @@ impl SchoolWebController {
     /// school page redirected to sign-in). Used once at launch; afterwards
     /// sessions are renewed lazily when a page hits the sign-in redirect.
     /// Skipped while the person is using the school view or a sign-in runs.
+    pub fn attachment_view_ready(&self) -> bool {
+        self.state.lock().ok().and_then(|state| state.loaded_urls.get(&SchoolSite::ScienceLms).cloned())
+            .and_then(|raw| Url::parse(&raw).ok()).is_some_and(|url| {
+                url.host_str() == Some("lms.s.isct.ac.jp") &&
+                (url.path().starts_with("/2025/my/") || url.path().starts_with("/2025/course/"))
+            })
+    }
+
+    pub fn prepare_attachment_view(&self, app: &AppHandle) -> Result<bool, String> {
+        let site = SchoolSite::ScienceLms;
+        if app.get_webview(site.webview_label()).is_some() { return Ok(true); }
+        {
+            let state = self.state.lock().map_err(|_| "School web state is unavailable.")?;
+            // Do not navigate away from a submission or an in-progress sign-in.
+            if state.active.is_some() || state.login.is_some() || !state.creating.is_empty() { return Ok(false); }
+        }
+        self.open_internal(app, site, String::new(), String::new(), None, Some(format!("{}my/", site.start_url())), false)?;
+        Ok(true)
+    }
+
     pub fn ensure_session(
         &self,
         app: &AppHandle,
@@ -1264,6 +1288,9 @@ impl SchoolWebController {
                     return;
                 }
                 let raw_url = payload.url().as_str();
+                if let Ok(mut state) = state_for_load.lock() {
+                    state.loaded_urls.insert(site, raw_url.to_string());
+                }
                 if let Ok(url) = Url::parse(raw_url) {
                     eprintln!(
                         "[school-web] loaded {}{}",

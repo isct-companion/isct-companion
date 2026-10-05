@@ -140,7 +140,9 @@ fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
         )
         .unwrap();
     let rows = statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -178,4 +180,65 @@ fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
         1,
         "one changed calendar day must produce one changed row"
     );
+}
+
+#[test]
+fn calendar_v2_preserves_disjoint_teaching_ranges_and_rejects_exam_overlap() {
+    let mut raw: Value = serde_json::from_str(BUNDLED_ACADEMIC_CALENDAR_2026).unwrap();
+    raw["schemaVersion"] = 2.into();
+    raw["teachingRanges"] = serde_json::json!({});
+    for q in ["1Q", "2Q", "3Q", "4Q"] {
+        raw["teachingRanges"][q] = serde_json::json!([raw["quarters"][q].clone()]);
+    }
+    raw["teachingRanges"]["1Q"] = serde_json::json!([
+        {"start":"2026-04-07","end":"2026-05-27"},
+        {"start":"2026-05-30","end":"2026-06-01"},
+        {"start":"2026-06-03","end":"2026-06-03"}
+    ]);
+    let calendar = validate_academic_calendar(&raw.to_string()).unwrap();
+    assert_eq!(calendar.teaching_ranges["1Q"].len(), 3);
+    raw["teachingRanges"]["1Q"][1]["start"] = "2026-05-27".into();
+    assert!(validate_academic_calendar(&raw.to_string()).is_err());
+}
+
+#[test]
+fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
+    let (calendar, departments) = bundled_2026().unwrap();
+    let mut connection = Connection::open_in_memory().unwrap();
+    data::migrations::migrate(&mut connection).unwrap();
+    apply_subscription(&mut connection, &calendar, &departments).unwrap();
+    let count = |db: &Connection| {
+        db.query_row(
+            "SELECT COUNT(*) FROM recommended_courses WHERE deleted_at IS NULL",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap()
+    };
+    let before = count(&connection);
+    assert!(before > 0);
+    subscriptions::apply_reference(&mut connection, Some(&calendar), None).unwrap();
+    assert_eq!(count(&connection), before);
+    assert_eq!(
+        subscriptions::apply_reference(&mut connection, None, Some(&departments)).unwrap(),
+        0
+    );
+}
+
+#[test]
+fn curriculum_map_courses_do_not_require_invented_groups_or_credits() {
+    let mut raw: Value = serde_json::from_str(BUNDLED_DEPARTMENTS_2026).unwrap();
+    raw["departments"][0]["recommended"] = serde_json::json!([{
+        "category":{"ja":"科目体系図"}, "level":200, "code":"EXAMPLE.C201",
+        "title":{"ja":"体系図掲載科目"}, "sourcePages":[3], "sourceKind":"curriculum-map"
+    }]);
+    let parsed = validate_departments(&raw.to_string()).unwrap();
+    let row = &parsed.departments[0].recommended[0];
+    assert!(row.group.is_empty());
+    assert!(row.credits.is_none());
+    assert!(row.mark.is_none());
+    assert_eq!(row.source_pages, [3]);
+    assert_eq!(row.source_kind.as_deref(), Some("curriculum-map"));
+    raw["departments"][0]["recommended"][0]["sourcePages"] = serde_json::json!([0]);
+    assert!(validate_departments(&raw.to_string()).is_err());
 }

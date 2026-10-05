@@ -5,10 +5,43 @@ mod kyomu_ingest;
 #[path = "../src/lms_ingest.rs"]
 mod lms_ingest;
 
-use kyomu_ingest::{gpa_summaries, parse_kyomu_payload, KyomuStage};
+use kyomu_ingest::{declared_credits, gpa_summaries, parse_kyomu_payload, KyomuStage};
 use lms_ingest::{aggregate_slots, apply_lms_payload, decode_entities, parse_lms_payload, LmsStage};
 use rusqlite::Connection;
 use serde_json::{json, Value};
+
+#[test]
+fn lms_preserves_independent_sections_and_cached_bodies_on_an_outline_only_refresh() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    data::migrations::migrate(&mut connection).unwrap();
+    let base = json!({
+        "status":"ok", "sourceUrl":"https://lms.s.isct.ac.jp/2025/my/", "language":"en", "coursesComplete":true,
+        "courses":[{"id":42,"fullname":"Test","shortname":"TEST[2026]","coursecategory":"3","viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=42"}],
+        "structures":[{"courseId":42,"complete":true,"state":{
+            "section":[{"id":"9","number":9,"title":"Repeated","visible":true,"bodyHtml":"<p>Text only</p>"},{"id":"8","number":8,"title":"Repeated","visible":true}],
+            "cm":[{"id":"100","sectionid":"9","module":"resource","name":"File","url":"https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=100","visible":true,"uservisible":true,"bodyHtml":"<p>File description</p>","resourceUrl":"https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_resource/content/3/file.pdf"}]
+        }}]
+    });
+    let (_, first) = parse_lms_payload(&base.to_string()).unwrap();
+    apply_lms_payload(&mut connection, &first.unwrap()).unwrap();
+    let mut refresh = base.clone();
+    refresh["structures"][0]["state"]["section"][0].as_object_mut().unwrap().remove("bodyHtml");
+    let cm = refresh["structures"][0]["state"]["cm"][0].as_object_mut().unwrap();
+    cm.remove("bodyHtml"); cm.remove("resourceUrl");
+    let (_, second) = parse_lms_payload(&refresh.to_string()).unwrap();
+    apply_lms_payload(&mut connection, &second.unwrap()).unwrap();
+    let course: String = connection.query_row("SELECT value FROM lms_courses WHERE id='lms-course:42'", [], |r| r.get(0)).unwrap();
+    let course: Value = serde_json::from_str(&course).unwrap();
+    assert_eq!(course["sections"].as_array().unwrap().len(), 2);
+    assert_eq!(course["sections"][0]["number"], 9);
+    assert_eq!(course["sections"][0]["id"], 9);
+    assert_eq!(course["sections"][1]["number"], 8);
+    assert_eq!(course["sections"][0]["bodyHtml"], "<p>Text only</p>");
+    let item: String = connection.query_row("SELECT value FROM lms_items WHERE id='lms-item:100'", [], |r| r.get(0)).unwrap();
+    let item: Value = serde_json::from_str(&item).unwrap();
+    assert_eq!(item["bodyHtml"], "<p>File description</p>");
+    assert!(item["resourceUrl"].as_str().unwrap().contains("/content/3/"));
+}
 
 #[test]
 fn lms_login_and_incomplete_results_never_become_importable_data() {
@@ -301,4 +334,27 @@ fn moodle_names_are_unescaped_once() {
     assert_eq!(decode_entities("&lt;b&gt; &#39;x&#39; &#x41;"), "<b> 'x' A");
     // Not an entity, and double escaping is undone only one level.
     assert_eq!(decode_entities("R&D & more &amp;amp;"), "R&D & more &amp;");
+}
+
+#[test]
+fn declared_credits_follow_each_category_total() {
+    let data = json!({"courses": [
+        {"offeringId": "202600702", "unit": "kamokuUnit_110700", "unitTotal": 1.0, "quarters": [3],
+         "credits": {"lecture": 0, "exercise": 0, "lab": 1}},
+        {"offeringId": "202600722", "unit": "kamokuUnit_110700", "unitTotal": 1.0, "quarters": [4],
+         "credits": {"lecture": 0, "exercise": 0, "lab": 1}},
+        {"offeringId": "202602431", "unit": "kamokuUnit_120900", "unitTotal": 2.0, "quarters": [3],
+         "credits": {"lecture": 1, "exercise": 1, "lab": 0}},
+        {"offeringId": "202637648", "unit": "kamokuUnit_110610", "quarters": [3, 4],
+         "credits": {"lecture": 0, "exercise": 2, "lab": 0}}
+    ]});
+    let rows = declared_credits(&data);
+    let credit = |id: &str| rows.iter().find(|r| r["offeringId"] == id).unwrap()["effectiveCredits"].as_f64().unwrap();
+    // Two 0-0-1 PE rows in a category that totals 1.0 count half each.
+    assert_eq!(credit("202600702"), 0.5);
+    assert_eq!(credit("202600722"), 0.5);
+    assert_eq!(credit("202602431"), 2.0);
+    // Without a stated total the row's own split stands.
+    assert_eq!(credit("202637648"), 2.0);
+    assert_eq!(rows[0]["id"], "kyomu-declared:202600702");
 }
