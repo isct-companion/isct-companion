@@ -305,6 +305,30 @@ impl<V: SecretVault> SchoolAuthService<V> {
         self.write_status(&status);
         Ok(status)
     }
+
+    pub fn matrix_text(&self) -> Result<String, String> {
+        let credentials = self
+            .load(SchoolAuthProfile::TokyoTech)?
+            .ok_or_else(|| "Save the Tokyo Tech Matrix before copying it.".to_string())?;
+        matrix_plain_text(&credentials.matrix)
+    }
+}
+
+const MATRIX_ROWS: usize = 7;
+const MATRIX_COLUMNS: usize = 10;
+
+/// A paste-friendly rendering in the same row-major order as the editor:
+/// A1…J1, A2…J2, …, A7…J7.
+fn matrix_plain_text(matrix: &str) -> Result<String, String> {
+    let cells: Vec<char> = matrix.chars().collect();
+    if cells.len() != MATRIX_ROWS * MATRIX_COLUMNS {
+        return Err("Matrix must contain 7 rows × 10 columns.".into());
+    }
+    Ok(cells
+        .chunks(MATRIX_COLUMNS)
+        .map(|row| row.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 struct OtpConfig {
@@ -484,6 +508,31 @@ mod tests {
         credentials.validate(SchoolAuthProfile::TokyoTech).unwrap();
         assert_eq!(credentials.username, "user");
         assert_eq!(credentials.matrix, "A".repeat(70));
+    }
+
+    #[test]
+    fn matrix_text_follows_the_editors_visual_row_order() {
+        let service = SchoolAuthService::new(MemoryVault::default());
+        assert!(service.matrix_text().is_err());
+        // Row-major A1…J1, A2…: cell i holds the i-th letter, wrapping after Z.
+        let matrix: String = (0..70u8).map(|i| (b'A' + i % 26) as char).collect();
+        service
+            .save(
+                SchoolAuthProfile::TokyoTech,
+                SchoolCredentials {
+                    username: "user".into(),
+                    password: "password".into(),
+                    otp_secret: String::new(),
+                    matrix,
+                },
+            )
+            .unwrap();
+        let text = service.matrix_text().unwrap();
+        let rows = text.lines().collect::<Vec<_>>();
+        assert_eq!(rows.len(), 7);
+        assert!(rows.iter().all(|row| row.len() == 10));
+        assert_eq!(rows[0], "ABCDEFGHIJ");
+        assert_eq!(rows[6], "IJKLMNOPQR");
     }
 
     #[test]

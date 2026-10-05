@@ -20,6 +20,7 @@ import {
   MATRIX_SIZE,
   matrixConfidence,
   normalizeMatrixText,
+  parseMatrixText,
   recognizeMatrixImage,
 } from "../../core/matrix-ocr";
 import type {
@@ -128,6 +129,8 @@ function MatrixEditor({
   notify,
   disabled,
   onScanState,
+  onCopy,
+  matrixOcrAvailable,
 }: {
   disabled: boolean;
   onScanState: (scanning: boolean) => void;
@@ -136,6 +139,8 @@ function MatrixEditor({
   onBeginEdit: () => void;
   onChange: (value: string[]) => void;
   notify: (message: string) => void;
+  onCopy: () => void;
+  matrixOcrAvailable: boolean;
 }) {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const [recognizing, setRecognizing] = useState(false);
@@ -164,6 +169,17 @@ function MatrixEditor({
     markManual([...letters].map((_, offset) => start + offset));
     onChange(next);
     inputs.current[Math.min(MATRIX_SIZE - 1, start + letters.length)]?.focus();
+  };
+  const load = (text: string) => {
+    try {
+      const cells = parseMatrixText(text);
+      onBeginEdit();
+      onChange(cells);
+      setConfidence([]);
+      notify("Matrix pasted. Verify it against your card, then Connect.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Matrix paste failed.");
+    }
   };
   const recognize = async (file?: File) => {
     if (!file || recognizing || disabled) return;
@@ -197,24 +213,36 @@ function MatrixEditor({
       <div className="matrixTools">
         <b>Matrix</b>
         <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
-        <FileButton
-          resetRef={resetScanInput}
-          disabled={recognizing || disabled}
-          onChange={(file) => void recognize(file ?? undefined)}
-          accept="image/*"
-        >
-          {(props) => (
-            <Button
-              {...props}
-              variant="default"
-              size="compact-xs"
-              loading={recognizing}
-              disabled={disabled}
-            >
-              {recognizing ? `Reading ${scanProgress}/70…` : "Scan image"}
-            </Button>
-          )}
-        </FileButton>
+        {matrixOcrAvailable && (
+          <FileButton
+            resetRef={resetScanInput}
+            disabled={recognizing || disabled}
+            onChange={(file) => void recognize(file ?? undefined)}
+            accept="image/*"
+          >
+            {(props) => (
+              <Button
+                {...props}
+                variant="default"
+                size="compact-xs"
+                loading={recognizing}
+                disabled={disabled}
+              >
+                {recognizing ? `Reading ${scanProgress}/70…` : "Scan image"}
+              </Button>
+            )}
+          </FileButton>
+        )}
+        {masked && (
+          <Button
+            variant="default"
+            size="compact-xs"
+            disabled={recognizing || disabled}
+            onClick={onCopy}
+          >
+            Copy
+          </Button>
+        )}
       </div>
       {!masked && (
         <div
@@ -284,7 +312,12 @@ function MatrixEditor({
                   }}
                   onPaste={(event) => {
                     event.preventDefault();
-                    write(index, event.clipboardData.getData("text"));
+                    const text = event.clipboardData.getData("text");
+                    // A complete Matrix always replaces the grid from A1;
+                    // shorter snippets continue from the focused cell.
+                    if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
+                      load(text);
+                    else write(index, text);
                   }}
                   onKeyDown={(event) => {
                     if (
@@ -338,6 +371,7 @@ function Account({
   refresh,
   notify,
   showLoginPage,
+  matrixOcrAvailable,
 }: {
   profile: SchoolAuthProfile;
   title: string;
@@ -347,6 +381,7 @@ function Account({
   refresh: () => Promise<void>;
   notify: (message: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
+  matrixOcrAvailable: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [matrixReplacing, setMatrixReplacing] = useState(false);
@@ -448,6 +483,22 @@ function Account({
           error instanceof Error ? error.message : "Sign-in could not start.",
       });
       setBusy(false);
+    }
+  };
+  const copyMatrix = async () => {
+    if (
+      !desktopBridge ||
+      !confirm(
+        "Copy the saved Matrix as plain text? Other apps may be able to read the clipboard until you replace it.",
+      )
+    )
+      return;
+    try {
+      if (await desktopBridge.copySchoolMatrix())
+        notify("Matrix copied. Paste it soon, then replace your clipboard.");
+    } catch (error) {
+      // Native commands reject with their error string.
+      notify(error instanceof Error ? error.message : String(error));
     }
   };
   const forget = async () => {
@@ -555,6 +606,8 @@ function Account({
           onBeginEdit={() => setMatrixReplacing(true)}
           onChange={(matrix) => setDraft({ ...draft, matrix })}
           notify={notify}
+          onCopy={() => void copyMatrix()}
+          matrixOcrAvailable={matrixOcrAvailable}
         />
       )}
       <div className="actions schoolAccountActions">
@@ -583,9 +636,11 @@ function Account({
 export function SchoolAccounts({
   notify,
   showLoginPage,
+  matrixOcrAvailable,
 }: {
   notify: (message: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
+  matrixOcrAvailable: boolean;
 }) {
   const [status, setStatus] = useState(emptyStatus);
   const [science, setScience] = useState(emptyDraft);
@@ -629,6 +684,7 @@ export function SchoolAccounts({
         refresh={refresh}
         notify={notify}
         showLoginPage={showLoginPage}
+        matrixOcrAvailable={matrixOcrAvailable}
       />
       <Account
         profile="tokyo-tech"
@@ -639,6 +695,7 @@ export function SchoolAccounts({
         refresh={refresh}
         notify={notify}
         showLoginPage={showLoginPage}
+        matrixOcrAvailable={matrixOcrAvailable}
       />
     </div>
   );

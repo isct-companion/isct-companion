@@ -20,6 +20,18 @@ export function normalizeMatrixText(value: string): string {
     .slice(0, MATRIX_SIZE);
 }
 
+/** Reads a complete Matrix in the editor's visual row order (A1…J1, A2…).
+ * Spaces, tabs and line breaks are formatting only; everything else must be a
+ * letter so a bad paste is rejected instead of silently shifted or truncated. */
+export function parseMatrixText(text: string): string[] {
+  const compact = text.toUpperCase().replace(/\s/g, "");
+  if (!/^[A-Z]{70}$/.test(compact))
+    throw new Error(
+      "Paste exactly 70 letters in row order (A1…J1, A2…J2, …). Spaces and line breaks are ignored.",
+    );
+  return [...compact];
+}
+
 /** Keep the established WebView decoding/resampling; native code consumes these
  * exact PNG pixels without resizing again. Inference and filters remain Rust. */
 export async function prepareMatrixCanvases(file: File) {
