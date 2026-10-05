@@ -1,0 +1,59 @@
+{
+  "name": "science-tokyo-workstation",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "tauri": "node scripts/tauri.mjs",
+    "tauri:dev": "node scripts/tauri.mjs dev",
+    "tauri:build": "node scripts/tauri.mjs build",
+    "desktop:dev": "node scripts/tauri.mjs dev",
+    "desktop:build": "node scripts/tauri.mjs build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write src vite.config.ts",
+    "backend:test": "cargo test --manifest-path backend/Cargo.toml --locked",
+    "backend:check": "cargo check --manifest-path backend/Cargo.toml --locked"
+  },
+  "dependencies": {
+    "@mantine/core": "^9.6.3",
+    "@mantine/hooks": "^9.6.3",
+    "@mantine/notifications": "^9.6.3",
+    "@milkdown/crepe": "^7.22.2",
+    "@milkdown/kit": "^7.22.2",
+    "@tauri-apps/api": "^2.12.0",
+    "@vitejs/plugin-react": "latest",
+    "i18next": "^26.4.2",
+    "katex": "^0.19.0",
+    "pdfjs-dist": "^6.4.299",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-i18next": "^17.0.13",
+    "rrule": "^2.8.1",
+    "typescript": "latest",
+    "vite": "latest",
+    "zustand": "^5.0.15",
+    "@codemirror/state": "^6.0.0",
+    "@codemirror/view": "^6.0.0",
+    "@codemirror/language": "^6.0.0",
+    "@codemirror/lang-cpp": "^6.0.0",
+    "@codemirror/lang-java": "^6.0.0",
+    "@codemirror/lang-python": "^6.0.0",
+    "@codemirror/legacy-modes": "^6.4.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "jsdom": "latest",
+    "prettier": "latest",
+    "vitest": "latest"
+  },
+  "resolutions": {
+    "katex": "^0.19.0"
+  }
+}

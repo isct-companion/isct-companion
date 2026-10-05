@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://campus-life.example/schema/departments.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "admissionYear",
+    "source",
+    "departments"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "admissionYear": {
+      "type": "integer",
+      "minimum": 2000,
+      "maximum": 2200
+    },
+    "source": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "departments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/department"
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "url"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://"
+        }
+      }
+    },
+    "localized": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ja"
+      ],
+      "properties": {
+        "ja": {
+          "type": "string",
+          "minLength": 1
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "credits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lecture",
+        "exercise",
+        "lab"
+      ],
+      "properties": {
+        "lecture": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exercise": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lab": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "recommended": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "level",
+        "code",
+        "title"
+      ],
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/localized"
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 900
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "group": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mark": {
+          "enum": [
+            "required",
+            "recommended"
+          ]
+        },
+        "title": {
+          "$ref": "#/$defs/localized"
+        },
+        "credits": {
+          "$ref": "#/$defs/credits"
+        },
+        "competencies": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "note": {
+          "type": "string"
+        },
+        "sourcePages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "sourceKind": {
+          "enum": [
+            "curriculum-map",
+            "standard-plan",
+            "course-table"
+          ]
+        }
+      }
+    },
+    "department": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "syllabusScope",
+        "unitCode",
+        "guidePdf",
+        "recommended"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z-]*$"
+        },
+        "name": {
+          "$ref": "#/$defs/localized"
+        },
+        "syllabusScope": {
+          "type": "string",
+          "pattern": "^[1-6]/0-90[1-6]-[0-9]{6}-0-0$"
+        },
+        "unitCode": {
+          "type": "string",
+          "pattern": "^[0-9]{6}$"
+        },
+        "guidePdf": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "recommended": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/recommended"
+          }
+        }
+      }
+    }
+  }
+}

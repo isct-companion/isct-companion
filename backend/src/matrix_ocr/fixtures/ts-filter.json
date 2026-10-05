@@ -1,0 +1,130 @@
+[
+  {
+    "width": 8,
+    "height": 9,
+    "seed": 1,
+    "original": "7724f3bcfda467d02b6a684bef4b58c033e521fd83971c8755430e1262e65bc4",
+    "cleaned": "600c91908ef0cd570ac645bc4e4384f2dab8a92f1169ba8581e9e99c85bfa57c",
+    "ink": 19
+  },
+  {
+    "width": 8,
+    "height": 9,
+    "seed": 17,
+    "original": "62d98dbff980ea6a672d9a8e19a1dcdaccf5a5bdebf5b5384b9bc90866bbbd7d",
+    "cleaned": "9af24b39f666257afd7279dc2a013c05e2ff52d937c743f86ea877838fb1984d",
+    "ink": 26
+  },
+  {
+    "width": 8,
+    "height": 9,
+    "seed": 255,
+    "original": "a6713230099f2f410d4e33273eda6119bfcfba2d3b7e4094fc907900016f135a",
+    "cleaned": "29fb2827eb1c9ebe97df7c4dd9b7de3f71745a72218797d66b31195bd35b3748",
+    "ink": 26
+  },
+  {
+    "width": 8,
+    "height": 9,
+    "seed": 314159,
+    "original": "5f5e9366d31f7bf171538d3d8fcdc5e007a9db2332c6bcab054651aa8ccf245c",
+    "cleaned": "33bbe9467fe9d9d660ba02d973bcafc8110949d581a397cb205c6213b4b34036",
+    "ink": 27
+  },
+  {
+    "width": 32,
+    "height": 32,
+    "seed": 1,
+    "original": "473800ab0703493f9bd882d274b734eb0dc28802baa548672ff35af5e2ce90db",
+    "cleaned": "274adeabf19a1a7c03cefd484faae1f4831c594a2dbfa305d230cd4c2d033590",
+    "ink": 288
+  },
+  {
+    "width": 32,
+    "height": 32,
+    "seed": 17,
+    "original": "6e39f3b3c963458f830610844ae006df08ed5f45797dad9ff4220fc1cc953e84",
+    "cleaned": "048b52f400cf693ad8e4c7c7ac9a6326d2462ae382c2e8dcf9417a5657be738c",
+    "ink": 293
+  },
+  {
+    "width": 32,
+    "height": 32,
+    "seed": 255,
+    "original": "feb1a1b40a18033c379cadf7a77ea91a3dce45a593e0b5f63f9c7d90a6d66487",
+    "cleaned": "1686b67fd85fdb1a36af982749204b56a7b5a5af52d87389ea3929884bff9431",
+    "ink": 304
+  },
+  {
+    "width": 32,
+    "height": 32,
+    "seed": 314159,
+    "original": "4163fbf7f8124543810d4cf974ebd04783a5e5b6bde440f442f12c9764476474",
+    "cleaned": "bc1c30bb4202d83dada42bc8a0f239f5a83f10dfd7641d6b95fac841e688508d",
+    "ink": 281
+  },
+  {
+    "width": 64,
+    "height": 64,
+    "seed": 1,
+    "original": "66e1de42c13b9c205abd63307ccff798d4edd0a4ab1dd6a175856ee92726ed41",
+    "cleaned": "4258af594188e131c207da580d90cda0e73df69e83854f35be884047cbb87430",
+    "ink": 1026
+  },
+  {
+    "width": 64,
+    "height": 64,
+    "seed": 17,
+    "original": "c386ea5b0c9062cbad7416cd9981063426ea4c9ad8e0bcd7ae735b8f4da741c0",
+    "cleaned": "3bc50a3ec935a269ebed6084e20d38972e7d13927e487099ce182dc8a9526331",
+    "ink": 1034
+  },
+  {
+    "width": 64,
+    "height": 64,
+    "seed": 255,
+    "original": "6a0ba52d87f81f45741344df4cdbe4e1ab692309d94cc614e6931591bf54ad1a",
+    "cleaned": "5d2df071c9d797b3fd44b3d8f1157ce67437dda508db3f9cee034530abe17a07",
+    "ink": 1042
+  },
+  {
+    "width": 64,
+    "height": 64,
+    "seed": 314159,
+    "original": "5c7546903a581d87eba2e5f3bd908c55b8795d153d71f0942d6713228d62ef25",
+    "cleaned": "677d86281216ea73744c6a1ad8383201e60810e39865b77953b1221098a1c284",
+    "ink": 1011
+  },
+  {
+    "width": 63,
+    "height": 65,
+    "seed": 1,
+    "original": "59103cf8c296d11e08b46d2df8b55ed89a30ffe326860d87479e55a3d75e15a4",
+    "cleaned": "74dd592e8a290e1cc0aa2e197b788711325aa9544a00d9692ea2ac0190af614e",
+    "ink": 1036
+  },
+  {
+    "width": 63,
+    "height": 65,
+    "seed": 17,
+    "original": "84820ef7c3676d62e092305cb8c25e7aba28d289b31ac26fd76f4bfbe135c766",
+    "cleaned": "a43a50382fc147b972567f882420576101cab87be150087de36a7dc4e8075deb",
+    "ink": 1033
+  },
+  {
+    "width": 63,
+    "height": 65,
+    "seed": 255,
+    "original": "ed3dd49b1e9abfa14399b99c3e9fc989b92a5a21fa8d63a9a14f7beb09046ca4",
+    "cleaned": "f93bbd742c2f0fcb35d5d199104ac6480983443336f9725dcdac40a12e32b833",
+    "ink": 985
+  },
+  {
+    "width": 63,
+    "height": 65,
+    "seed": 314159,
+    "original": "7cecb0bed012fe992423faef04c0d5f19d79c255cf4cb00dd1a16296ce0ad355",
+    "cleaned": "07d28a4cfd7f7372e8f4f77d11647fd104e4fff852da1c54b0966cbfa9cc244e",
+    "ink": 999
+  }
+]
