@@ -3,7 +3,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use url::Url;
 use uuid::Uuid;
 
@@ -19,6 +19,7 @@ pub const KYOMU_EXTRACT_SCRIPT: &str = r#"(() => {
   const sourceUrl = location.href;
   const allowed = new Map([
     ['/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx','registrations'],
+    ['/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx','declared'],
     ['/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx','grades'],
     ['/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx','requirements'],
     ['/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx','gpa']
@@ -81,6 +82,30 @@ pub const KYOMU_EXTRACT_SCRIPT: &str = r#"(() => {
     return {status:document.querySelector('#divSinkokuStatus')?'ok':'login',sourceUrl,kind,
       data:{state:{state:stateMap[rawState]||'unknown',raw:rawState,savedAt},courses}};
   }
+  if (kind === 'declared') {
+    // 科目から: every declared course with its quarter and credit split. Each
+    // category table states its own total (#…_{unit}_spanSum); that total is
+    // authoritative (e.g. two 0-0-1 PE rows that total 1.0).
+    const courses = [];
+    for (const table of document.querySelectorAll('table[id^="kamokuUnit_"][id$="_gvKamoku"]')) {
+      const unit = table.id.replace(/_gvKamoku$/, '');
+      const sumText = text(document, '#ctl00_ContentPlaceHolder1_' + unit + '_spanSum');
+      const sum = Number((sumText.match(/([\d.]+)/) || [])[1]);
+      for (const row of table.querySelectorAll('tr')) {
+        const link = row.querySelector('a.kamokuGridKamokuName');
+        if (!link) continue;
+        const offeringId = new URL(link.href, location.href).searchParams.get('jwc') || '';
+        if (!/^\d{9}$/.test(offeringId)) continue;
+        const range = text(row, 'td.tdQ').match(/^([1-4])(?:\s*-\s*([1-4]))?$/);
+        const credit = text(row, 'span.resultUnitKamokuTaniSP').match(/\[\s*([\d.]+)-([\d.]+)-([\d.]+)\s*\]/);
+        courses.push({offeringId, unit, unitTotal:Number.isFinite(sum) ? sum : null,
+          code:text(row, 'span.resultUnitKamokuCodeSP'), title:clean(link.textContent),
+          quarters:range ? Array.from({length:Number(range[2] || range[1]) - Number(range[1]) + 1}, (_, i) => Number(range[1]) + i) : [],
+          credits:credit ? {lecture:Number(credit[1]), exercise:Number(credit[2]), lab:Number(credit[3])} : null});
+      }
+    }
+    return {status:document.querySelector('table[id^="kamokuUnit_"]') ? 'ok' : 'login', sourceUrl, kind, data:{courses}};
+  }
   if (kind === 'grades') {
     const groups = [], nodes = document.querySelectorAll('h3[id$="_h3"], table[id$="_grid"]');
     let category = '';
@@ -132,6 +157,7 @@ pub enum KyomuStage {
 fn expected_kind(path: &str) -> Option<&'static str> {
     match path {
         "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx" => Some("registrations"),
+        "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx" => Some("declared"),
         "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx" => Some("grades"),
         "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx" => Some("requirements"),
         "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx" => Some("gpa"),
@@ -165,7 +191,7 @@ pub fn parse_kyomu_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload
         return Err("kyomu extraction was incomplete".into());
     }
     let count = match payload.kind.as_str() {
-        "registrations" => payload
+        "registrations" | "declared" => payload
             .data
             .pointer("/courses")
             .and_then(Value::as_array)
@@ -351,6 +377,47 @@ pub fn gpa_summaries(data: &Value) -> Vec<Value> {
         .collect()
 }
 
+/// One row per declared course with the credits 教務Web counts: the row's
+/// split, scaled so each category adds up to the total the page states.
+pub fn declared_credits(data: &Value) -> Vec<Value> {
+    let courses = data
+        .get("courses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let raw = |course: &Value| {
+        ["lecture", "exercise", "lab"]
+            .iter()
+            .filter_map(|key| course.pointer(&format!("/credits/{key}")).and_then(Value::as_f64))
+            .sum::<f64>()
+    };
+    let mut unit_sums: HashMap<String, f64> = HashMap::new();
+    for course in &courses {
+        let unit = course.get("unit").and_then(Value::as_str).unwrap_or_default();
+        *unit_sums.entry(unit.to_string()).or_default() += raw(course);
+    }
+    courses
+        .iter()
+        .filter_map(|course| {
+            let offering = course.get("offeringId")?.as_str()?;
+            let unit = course.get("unit").and_then(Value::as_str).unwrap_or_default();
+            let listed = raw(course);
+            let sum = unit_sums.get(unit).copied().unwrap_or(0.0);
+            let effective = match course.get("unitTotal").and_then(Value::as_f64) {
+                Some(total) if sum > 0.0 => listed * total / sum,
+                _ => listed,
+            };
+            let mut row = course.clone();
+            let object = row.as_object_mut()?;
+            object.insert("id".into(), format!("kyomu-declared:{offering}").into());
+            object.insert("kind".into(), "declared".into());
+            // Two decimals: halves and quarters stay exact, float noise does not.
+            object.insert("effectiveCredits".into(), ((effective * 100.0).round() / 100.0).into());
+            Some(row)
+        })
+        .collect()
+}
+
 pub fn apply_kyomu_payload(
     connection: &mut Connection,
     payload: &KyomuPayload,
@@ -387,6 +454,36 @@ pub fn apply_kyomu_payload(
                     o.insert("id".into(), id.clone().into());
                 }
                 changed += usize::from(upsert(&tx, "registrations", &id, &value, &[])?);
+            }
+        }
+        "declared" => {
+            let rows = declared_credits(&payload.data);
+            let live: HashSet<String> = rows
+                .iter()
+                .filter_map(|row| row["id"].as_str().map(str::to_string))
+                .collect();
+            for row in &rows {
+                let id = row["id"].as_str().unwrap_or_default();
+                changed += usize::from(upsert(&tx, "registrations", id, row, &[])?);
+            }
+            // The page lists every declaration; withdrawn ones leave it.
+            let mut statement = tx
+                .prepare("SELECT id FROM registrations WHERE id LIKE 'kyomu-declared:%' AND deleted_at IS NULL")
+                .map_err(|e| e.to_string())?;
+            let stale = statement
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?;
+            drop(statement);
+            for id in stale.into_iter().filter(|id| !live.contains(id)) {
+                let deleted = Utc::now().to_rfc3339();
+                changed += tx
+                    .execute(
+                        "UPDATE registrations SET deleted_at=?2,rev=rev+1,value=json_set(value,'$.deletedAt',?2) WHERE id=?1",
+                        params![id, deleted],
+                    )
+                    .map_err(|e| e.to_string())?;
             }
         }
         "grades" => {

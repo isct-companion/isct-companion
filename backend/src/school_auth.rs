@@ -94,14 +94,14 @@ impl SchoolCredentials {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolCredentialStatus {
     pub science: CredentialSummary,
     pub tokyo_tech: CredentialSummary,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialSummary {
     pub saved: bool,
@@ -110,11 +110,19 @@ pub struct CredentialSummary {
     pub has_matrix: bool,
 }
 
+const SCHOOL_CREDENTIAL_ACCOUNT: &str = "school-accounts";
+#[derive(Deserialize, Serialize)]
+struct SchoolCredentialBundle {
+    version: u8,
+    accounts: HashMap<SchoolAuthProfile, SchoolCredentials>,
+}
+
 pub struct SchoolAuthService<V: SecretVault> {
     vault: V,
     // Only this native process holds unlocked credentials; never persisted here.
     // Missing accounts are cached too, avoiding repeated legacy-keychain probes.
     unlocked: Mutex<HashMap<SchoolAuthProfile, Option<SchoolCredentials>>>,
+    status_path: Option<std::path::PathBuf>,
 }
 
 impl<V: SecretVault> SchoolAuthService<V> {
@@ -122,7 +130,81 @@ impl<V: SecretVault> SchoolAuthService<V> {
         Self {
             vault,
             unlocked: Mutex::new(HashMap::new()),
+            status_path: None,
         }
+    }
+
+    pub fn with_status_cache(vault: V, path: std::path::PathBuf) -> Self {
+        Self { vault, unlocked: Mutex::new(HashMap::new()), status_path: Some(path) }
+    }
+    fn cached_status(&self) -> Option<SchoolCredentialStatus> {
+        let path = self.status_path.as_ref()?;
+        let text = std::fs::read_to_string(path).ok()?;
+        if text.len() > 4096 { return None; }
+        serde_json::from_str(&text).ok()
+    }
+    fn record_summary(&self, profile: SchoolAuthProfile, credentials: Option<&SchoolCredentials>) {
+        if self.status_path.is_none() { return; }
+        let Some(mut status) = self.cached_status() else { return; };
+        let summary = credentials.map(|c| CredentialSummary { saved: true, username: c.username.clone(), has_otp: !c.otp_secret.is_empty(), has_matrix: !c.matrix.is_empty() }).unwrap_or_default();
+        match profile { SchoolAuthProfile::Science => status.science = summary, SchoolAuthProfile::TokyoTech => status.tokyo_tech = summary }
+        self.write_status(&status);
+    }
+    fn write_status(&self, status: &SchoolCredentialStatus) {
+        let Some(path) = &self.status_path else { return; };
+        let result = (|| -> Result<(), std::io::Error> {
+            std::fs::create_dir_all(path.parent().unwrap())?;
+            let temp = path.with_extension("tmp");
+            std::fs::write(&temp, serde_json::to_vec(&status)?)?;
+            std::fs::rename(temp, path)
+        })();
+        if result.is_err() { let _ = std::fs::remove_file(path); }
+    }
+
+    // The mutex covers the complete read-modify-write operation, so saving one
+    // account cannot overwrite a concurrent update to the other account.
+    fn unlock_accounts(&self, unlocked: &mut HashMap<SchoolAuthProfile, Option<SchoolCredentials>>) -> Result<(), String> {
+        if unlocked.len() == 2 { return Ok(()); }
+        let accounts = if let Some(payload) = self.vault.load(SCHOOL_CREDENTIAL_ACCOUNT)? {
+            let bundle: SchoolCredentialBundle = serde_json::from_str(&payload)
+                .map_err(|_| "Stored school credentials are invalid.".to_string())?;
+            if bundle.version != 1 { return Err("Stored school credentials version is unsupported.".into()); }
+            bundle.accounts
+        } else {
+            let mut accounts = HashMap::new();
+            for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
+                if let Some(payload) = self.vault.load(profile.account())? {
+                    let mut credentials: SchoolCredentials = serde_json::from_str(&payload)
+                        .map_err(|_| "Stored school credentials are invalid.".to_string())?;
+                    credentials.validate(profile)?;
+                    accounts.insert(profile, credentials);
+                }
+            }
+            if !accounts.is_empty() {
+                self.write_accounts(&accounts)?;
+                // Verify the replacement before touching either legacy entry.
+                let payload = self.vault.load(SCHOOL_CREDENTIAL_ACCOUNT)?.ok_or("Credential migration could not be verified")?;
+                let stored: SchoolCredentialBundle = serde_json::from_str(&payload).map_err(|_| "Credential migration could not be verified")?;
+                if stored.version != 1 || stored.accounts != accounts { return Err("Credential migration could not be verified".into()); }
+                for profile in accounts.keys() { let _ = self.vault.delete(profile.account()); }
+            }
+            accounts
+        };
+        let mut validated = HashMap::new();
+        for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
+            let credentials = accounts.get(&profile).cloned().map(|mut credentials| {
+                credentials.validate(profile)?;
+                Ok::<_, String>(credentials)
+            }).transpose()?;
+            validated.insert(profile, credentials);
+        }
+        *unlocked = validated;
+        Ok(())
+    }
+    fn write_accounts(&self, accounts: &HashMap<SchoolAuthProfile, SchoolCredentials>) -> Result<(), String> {
+        let payload = serde_json::to_string(&SchoolCredentialBundle { version: 1, accounts: accounts.clone() })
+            .map_err(|_| "School credentials could not be encoded.".to_string())?;
+        self.vault.store(SCHOOL_CREDENTIAL_ACCOUNT, &payload)
     }
 
     pub fn save(
@@ -144,13 +226,15 @@ impl<V: SecretVault> SchoolAuthService<V> {
             .unlocked
             .lock()
             .map_err(|_| "Credential cache unavailable")?;
+        self.unlock_accounts(&mut unlocked)?;
         if unlocked.get(&profile).and_then(Option::as_ref) == Some(credentials) {
             return Ok(()); // Connect with unchanged credentials must not rewrite Keychain.
         }
-        let payload = serde_json::to_string(&credentials)
-            .map_err(|_| "School credentials could not be encoded.".to_string())?;
-        self.vault.store(profile.account(), &payload)?;
+        let mut accounts: HashMap<_, _> = unlocked.iter().filter_map(|(profile, value)| value.clone().map(|value| (*profile, value))).collect();
+        accounts.insert(profile, credentials.clone());
+        self.write_accounts(&accounts)?;
         unlocked.insert(profile, Some(credentials.clone()));
+        self.record_summary(profile, Some(credentials));
         Ok(())
     }
 
@@ -182,33 +266,29 @@ impl<V: SecretVault> SchoolAuthService<V> {
             .unlocked
             .lock()
             .map_err(|_| "Credential cache unavailable")?;
-        if let Some(cached) = unlocked.get(&profile) {
-            return Ok(cached.clone());
-        }
-        let Some(payload) = self.vault.load(profile.account())? else {
-            unlocked.insert(profile, None);
-            return Ok(None);
-        };
-        let mut credentials: SchoolCredentials = serde_json::from_str(&payload)
-            .map_err(|_| "Stored school credentials are invalid.".to_string())?;
-        credentials.validate(profile)?;
-        unlocked.insert(profile, Some(credentials.clone()));
-        Ok(Some(credentials))
+        self.unlock_accounts(&mut unlocked)?;
+        let credentials = unlocked.get(&profile).cloned().flatten();
+        self.record_summary(profile, credentials.as_ref());
+        Ok(credentials)
     }
 
     pub fn delete(&self, profile: SchoolAuthProfile) -> Result<bool, String> {
-        let mut unlocked = self
-            .unlocked
-            .lock()
-            .map_err(|_| "Credential cache unavailable")?;
-        // Invalidate even if deletion fails: never silently keep using a stale copy.
-        unlocked.remove(&profile);
-        self.vault.delete(profile.account())?;
+        let mut unlocked = self.unlocked.lock().map_err(|_| "Credential cache unavailable")?;
+        self.unlock_accounts(&mut unlocked)?;
+        let mut accounts: HashMap<_, _> = unlocked.iter().filter_map(|(profile, value)| value.clone().map(|value| (*profile, value))).collect();
+        accounts.remove(&profile);
+        // Keep an empty bundle when forgetting the final account: an old legacy
+        // entry whose cleanup failed must never resurrect a forgotten account.
+        self.write_accounts(&accounts)?;
+        let _ = self.vault.delete(profile.account());
         unlocked.insert(profile, None);
+        self.record_summary(profile, None);
         Ok(true)
     }
 
     pub fn status(&self) -> Result<SchoolCredentialStatus, String> {
+        // Metadata only: launch/session checks must not unlock Keychain merely to draw a badge.
+        if let Some(status) = self.cached_status() { return Ok(status); }
         let summary = |credentials: Option<SchoolCredentials>| match credentials {
             Some(credentials) => CredentialSummary {
                 saved: true,
@@ -218,10 +298,12 @@ impl<V: SecretVault> SchoolAuthService<V> {
             },
             None => CredentialSummary::default(),
         };
-        Ok(SchoolCredentialStatus {
+        let status = SchoolCredentialStatus {
             science: summary(self.load(SchoolAuthProfile::Science)?),
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
-        })
+        };
+        self.write_status(&status);
+        Ok(status)
     }
 
     pub fn matrix_file(&self) -> Result<String, String> {
@@ -482,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn stores_each_school_profile_separately() {
+    fn stores_both_school_profiles_in_one_item() {
         let service = SchoolAuthService::new(MemoryVault::default());
         service
             .save(
@@ -511,6 +593,11 @@ mod tests {
         assert_eq!(status.science.username, "science");
         assert!(status.tokyo_tech.has_matrix);
         assert!(!status.tokyo_tech.has_otp);
+        assert_eq!(service.vault.0.lock().unwrap().len(), 1);
+        assert!(service.vault.load(SCHOOL_CREDENTIAL_ACCOUNT).unwrap().is_some());
+        service.delete(SchoolAuthProfile::Science).unwrap();
+        assert!(service.load(SchoolAuthProfile::Science).unwrap().is_none());
+        assert_eq!(service.load(SchoolAuthProfile::TokyoTech).unwrap().unwrap().username, "tokyo");
     }
 
     #[test]
@@ -543,6 +630,29 @@ mod tests {
         assert_eq!(credentials.username, "renamed-user");
         assert_eq!(credentials.password, "password");
         assert_eq!(credentials.otp_secret, "JBSWY3DPEHPK3PXP");
+    }
+
+    #[test]
+    fn persisted_account_status_does_not_unlock_keychain_or_persist_secrets() {
+        let dir = std::env::temp_dir().join(format!("school-status-test-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("status.json");
+        let vault = CountingVault::default();
+        vault.inner.store(SchoolAuthProfile::Science.account(), &serde_json::to_string(&test_credentials()).unwrap()).unwrap();
+        let service = SchoolAuthService::with_status_cache(vault, path.clone());
+        assert!(service.status().unwrap().science.saved);
+        let metadata = std::fs::read_to_string(&path).unwrap();
+        assert!(!metadata.contains("test-password"));
+        assert!(!metadata.contains("otpSecret"));
+        let locked = CountingVault::default();
+        locked.fail_read.store(true, SeqCst);
+        let restarted = SchoolAuthService::with_status_cache(locked, path.clone());
+        assert!(restarted.status().unwrap().science.saved);
+        assert_eq!(restarted.vault.reads.load(SeqCst), 0);
+        // Display metadata cannot authorize an actual login or bypass the vault.
+        assert!(restarted.load(SchoolAuthProfile::Science).is_err());
+        assert!(restarted.delete(SchoolAuthProfile::Science).is_err());
+        assert!(restarted.status().unwrap().science.saved);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[derive(Default)]
@@ -600,9 +710,24 @@ mod tests {
             service.status().unwrap();
             service.resolve(SchoolAuthProfile::Science, saved).unwrap();
         }
-        assert_eq!(service.vault.reads.load(SeqCst), 2); // one per profile, including missing account
-        assert_eq!(service.vault.writes.load(SeqCst), 0);
+        assert_eq!(service.vault.reads.load(SeqCst), 4); // bundle, two legacy items, verified replacement
+        assert_eq!(service.vault.writes.load(SeqCst), 1); // migration only
     }
+    #[test]
+    fn failed_migration_keeps_legacy_credentials_and_can_retry() {
+        let vault = CountingVault::default();
+        vault.inner.store(SchoolAuthProfile::Science.account(), &serde_json::to_string(&test_credentials()).unwrap()).unwrap();
+        vault.fail_write.store(true, SeqCst);
+        let service = SchoolAuthService::new(vault);
+        assert!(service.load(SchoolAuthProfile::Science).is_err());
+        assert!(service.vault.inner.load(SchoolAuthProfile::Science.account()).unwrap().is_some());
+        assert!(service.vault.inner.load(SCHOOL_CREDENTIAL_ACCOUNT).unwrap().is_none());
+        service.vault.fail_write.store(false, SeqCst);
+        assert_eq!(service.load(SchoolAuthProfile::Science).unwrap(), Some(test_credentials()));
+        assert!(service.vault.inner.load(SchoolAuthProfile::Science.account()).unwrap().is_none());
+        assert!(service.vault.inner.load(SCHOOL_CREDENTIAL_ACCOUNT).unwrap().is_some());
+    }
+
     #[test]
     fn changed_credentials_update_cache_only_after_a_successful_write() {
         let service = SchoolAuthService::new(CountingVault::default());
@@ -639,13 +764,13 @@ mod tests {
         assert!(service.load(SchoolAuthProfile::Science).unwrap().is_some());
         service.delete(SchoolAuthProfile::Science).unwrap();
         assert!(service.load(SchoolAuthProfile::Science).unwrap().is_none());
-        assert_eq!(service.vault.reads.load(SeqCst), 2);
+        assert_eq!(service.vault.reads.load(SeqCst), 5);
         // A new application/service instance performs its own unlock.
         let relaunched = SchoolAuthService::new(service.vault);
         assert!(relaunched
             .load(SchoolAuthProfile::Science)
             .unwrap()
             .is_none());
-        assert_eq!(relaunched.vault.reads.load(SeqCst), 3);
+        assert_eq!(relaunched.vault.reads.load(SeqCst), 6);
     }
 }

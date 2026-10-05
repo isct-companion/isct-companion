@@ -156,4 +156,17 @@ describe("LMS pull merge", () => {
     const added = draft.courses.find((item) => item.offeringId === "202602440");
     expect(added?.meetings.map((m) => [m.days[0], m.periods, m.startTime])).toEqual([[3, [5, 6], "13:30"]]);
   });
+
+  it("gives a course added from LMS the syllabus credits it lacked", () => {
+    const data = seedWorkspace();
+    const added = { ...course("lms-added", "LAH.T319", "202636840"), credits: 0, creditSplit: { lecture: 0, exercise: 0, lab: 0 }, source: { provider: "lms" as const } };
+    planned(data, added);
+    const offerings = new Map([["202636840", offering("202636840", "LAH.T319", 1, [5, 6])]]);
+    const diff = diffLms(data, [lms(7, "LAH.T319[2026]", "202636840")], [term], offerings);
+    expect(hasDifferences(diff)).toBe(false);
+    const draft = applyLmsMerge(structuredClone(data), diff, new Set(), new Set());
+    const fixed = draft.courses.find((item) => item.id === "lms-added");
+    expect(fixed?.credits).toBe(2);
+    expect(fixed?.creditSplit.lecture).toBe(2);
+  });
 });

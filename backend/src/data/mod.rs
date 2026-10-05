@@ -28,7 +28,7 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("scheduledTasks", "scheduled_tasks"),
 ];
 
-const SCHOOL_OWNED_TABLES: &[&str] = &["assignments", "lms_items", "gpa_summary"];
+const SCHOOL_OWNED_TABLES: &[&str] = &["assignments", "lms_items", "gpa_summary", "offerings"];
 
 const EXPORTED_TABLES: &[&str] = &[
     "timetable_courses",
@@ -508,6 +508,15 @@ impl DataStore {
         }
         let mut connection = Connection::open(&path).map_err(|error| error.to_string())?;
         let rebuilt = migrations::migrate(&mut connection)?;
+        // Catalog offerings are never deleted by the person; earlier workspace
+        // saves tombstoned rows the window had not loaded yet. Restore them.
+        connection
+            .execute(
+                "UPDATE offerings SET deleted_at=NULL, value=json_remove(value,'$.deletedAt')
+                 WHERE deleted_at IS NOT NULL",
+                [],
+            )
+            .map_err(|error| error.to_string())?;
         Ok((Self { path }, rebuilt))
     }
 
@@ -572,7 +581,7 @@ impl DataStore {
         let device_id = string_field(workspace, "deviceId")?;
         let mut connection = self.open()?;
         let transaction = connection
-            .transaction()
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|error| error.to_string())?;
         let mut changed = 0;
         for (field, table) in COLLECTIONS {
@@ -1038,6 +1047,30 @@ mod tests {
     fn store(name: &str) -> DataStore {
         let path = std::env::temp_dir().join(format!("campus-life-{name}-{}.db", Uuid::new_v4()));
         DataStore::initialize(path).unwrap().0
+    }
+
+    #[test]
+    fn save_waits_for_an_import_writer_without_requiring_manual_retry() {
+        let store = store("concurrent-save");
+        let mut workspace = empty_workspace();
+        store.save_workspace(&workspace).unwrap();
+        let path = store.path().to_path_buf();
+        let (ready, receive) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            let mut connection = Connection::open(path).unwrap();
+            let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+            tx.execute("UPDATE settings SET updated_at=updated_at", []).unwrap();
+            ready.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            tx.commit().unwrap();
+        });
+        receive.recv().unwrap();
+        workspace["settings"]["locale"] = json!("ja");
+        let result = store.save_workspace(&workspace);
+        writer.join().unwrap();
+        assert!(result.is_ok(), "Concurrent save failed: {result:?}");
+        assert_eq!(store.load_workspace().unwrap()["settings"]["locale"], "ja");
+        let _ = fs::remove_file(store.path());
     }
 
     #[test]

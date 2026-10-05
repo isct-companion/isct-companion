@@ -17,7 +17,7 @@ export function CourseDrawer({
   lmsUrl,
   openWeb,
   fetchLms,
-  fetching,
+  progress,
 }: {
   course: Course;
   data: Workspace;
@@ -31,7 +31,7 @@ export function CourseDrawer({
   lmsUrl?: string;
   openWeb: (url: string) => void;
   fetchLms?: () => void;
-  fetching?: boolean;
+  progress?: number | null;
 }) {
   return (
     <Drawer
@@ -70,7 +70,7 @@ export function CourseDrawer({
         lmsUrl={lmsUrl}
         openWeb={openWeb}
         fetchLms={fetchLms}
-        fetching={fetching}
+        progress={progress}
       />
       {!readOnly && (
         <Group className="drawerActions" justify="flex-end" gap="xs">

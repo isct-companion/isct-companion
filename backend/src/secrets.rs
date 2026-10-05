@@ -23,6 +23,7 @@ impl OsSecretVault {
 
 fn secure_key(account: &str) -> Result<String, String> {
     let suffix = match account {
+        "school-accounts" => "passwords.school-accounts",
         "school-science" => "passwords.isct-portal",
         "school-tokyo-tech" => "passwords.titech-portal",
         "google-drive" => "passwords.google-drive",
@@ -64,6 +65,7 @@ impl SecretVault for OsSecretVault {
         if stored.is_some() {
             return Ok(stored);
         }
+        if account == "school-accounts" { return Ok(None); }
         self.load_legacy(account)
     }
 
@@ -129,6 +131,7 @@ mod tests {
 
     #[test]
     fn school_accounts_use_stable_portal_keychain_ids() {
+        assert_eq!(secure_key("school-accounts").unwrap(), "app.campuslife.sciencetokyo.passwords.school-accounts");
         assert_eq!(
             secure_key("school-science").unwrap(),
             "app.campuslife.sciencetokyo.passwords.isct-portal"

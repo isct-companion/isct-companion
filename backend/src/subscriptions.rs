@@ -70,6 +70,10 @@ pub struct AcademicCalendar {
     pub source: Vec<SourceLink>,
     pub quarters: BTreeMap<String, DateRange>,
     pub days: Vec<CalendarDay>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub teaching_ranges: BTreeMap<String, Vec<DateRange>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exam_ranges: BTreeMap<String, Vec<DateRange>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -88,22 +92,28 @@ pub enum RecommendationMark {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecommendedCourse {
     pub category: Localized,
     pub level: u16,
     pub code: String,
+    #[serde(default)]
     pub group: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mark: Option<RecommendationMark>,
     pub title: Localized,
-    pub credits: Credits,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credits: Option<Credits>,
     #[serde(default)]
     pub competencies: Vec<u8>,
     #[serde(default)]
     pub content: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_pages: Vec<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -130,6 +140,10 @@ pub struct Departments {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AcademicYearEntry {
     academic_calendar: String,
+    #[serde(default)]
+    exams: Vec<String>,
+    #[serde(default)]
+    important_dates: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -141,7 +155,9 @@ struct AdmissionYearEntry {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SubscriptionIndex {
+    #[serde(default)]
     academic_years: BTreeMap<String, AcademicYearEntry>,
+    #[serde(default)]
     admission_years: BTreeMap<String, AdmissionYearEntry>,
 }
 
@@ -180,8 +196,8 @@ pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, String>
     }
     let value: AcademicCalendar =
         serde_json::from_str(raw).map_err(|e| format!("invalid academic calendar: {e}"))?;
-    if value.schema_version != 1 {
-        return Err("academic calendar schemaVersion must be 1".into());
+    if !matches!(value.schema_version, 1 | 2) {
+        return Err("academic calendar schemaVersion must be 1 or 2".into());
     }
     if !(2000..=2200).contains(&value.academic_year) {
         return Err("academicYear is out of range".into());
@@ -203,6 +219,40 @@ pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, String>
             return Err("quarter ranges overlap or are unordered".into());
         }
         prior = Some(end);
+    }
+    if value.schema_version == 1
+        && (!value.teaching_ranges.is_empty() || !value.exam_ranges.is_empty())
+    {
+        return Err("teachingRanges and examRanges require schemaVersion 2".into());
+    }
+    if value.schema_version == 2
+        && (value.teaching_ranges.len() != 4
+            || expected
+                .iter()
+                .any(|q| !value.teaching_ranges.contains_key(*q)))
+    {
+        return Err("calendar v2 needs teachingRanges for all four quarters".into());
+    }
+    for ranges in [&value.teaching_ranges, &value.exam_ranges] {
+        for (quarter, items) in ranges {
+            let bounds = value
+                .quarters
+                .get(quarter)
+                .ok_or("range has an unknown quarter")?;
+            let mut prior: Option<NaiveDate> = None;
+            for item in items {
+                let start = date(&item.start)?;
+                let end = date(&item.end)?;
+                if start > end
+                    || start < date(&bounds.start)?
+                    || end > date(&bounds.end)?
+                    || prior.is_some_and(|p| start <= p)
+                {
+                    return Err("invalid, overlapping, or unordered teaching/exam ranges".into());
+                }
+                prior = Some(end);
+            }
+        }
     }
     let mut dates = HashSet::new();
     for day in &value.days {
@@ -286,24 +336,35 @@ pub fn validate_departments(raw: &str) -> Result<Departments, String> {
         }
         let mut courses = HashSet::new();
         for course in &department.recommended {
-            if !(100..=900).contains(&course.level)
-                || course.group.len() != 1
-                || !course.group.bytes().all(|b| b.is_ascii_uppercase())
-                || course.code.trim().is_empty()
-            {
+            if course.title.ja.trim().is_empty() || course.category.ja.trim().is_empty() {
+                return Err("recommended course title and category require Japanese text".into());
+            }
+            if !(100..=900).contains(&course.level) || course.code.trim().is_empty() {
                 return Err("recommended course identity is invalid".into());
             }
             if !courses.insert((course.code.as_str(), course.group.as_str())) {
                 return Err("recommended course is duplicated".into());
             }
-            if !course.credits.lecture.is_finite()
-                || !course.credits.exercise.is_finite()
-                || !course.credits.lab.is_finite()
-                || course.credits.lecture < 0.0
-                || course.credits.exercise < 0.0
-                || course.credits.lab < 0.0
+            if let Some(credits) = &course.credits {
+                if !credits.lecture.is_finite()
+                    || !credits.exercise.is_finite()
+                    || !credits.lab.is_finite()
+                    || credits.lecture < 0.0
+                    || credits.exercise < 0.0
+                    || credits.lab < 0.0
+                {
+                    return Err("recommended course credits are invalid".into());
+                }
+            }
+            if course.source_pages.contains(&0)
+                || course.source_kind.as_ref().is_some_and(|kind| {
+                    !matches!(
+                        kind.as_str(),
+                        "curriculum-map" | "standard-plan" | "course-table"
+                    )
+                })
             {
-                return Err("recommended course credits are invalid".into());
+                return Err("recommended course source is invalid".into());
             }
         }
     }
@@ -317,6 +378,7 @@ pub struct SubscriptionClient {
 impl SubscriptionClient {
     pub fn new() -> Result<Self, String> {
         let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::limited(3))
             .build()
             .map_err(|e| e.to_string())?;
@@ -392,6 +454,54 @@ impl SubscriptionClient {
         Ok((calendar, departments))
     }
 
+    pub async fn fetch_calendar(
+        &self,
+        index_url: &str,
+        year: i32,
+    ) -> Result<(AcademicCalendar, String), String> {
+        let base = https_url(index_url)?;
+        let index: SubscriptionIndex =
+            serde_json::from_str(&self.get(base.clone(), MAX_INDEX_BYTES).await?)
+                .map_err(|e| e.to_string())?;
+        let entry = index
+            .academic_years
+            .get(&year.to_string())
+            .ok_or("calendar year is not published in this index")?;
+        let url = https_url(
+            base.join(&entry.academic_calendar)
+                .map_err(|e| e.to_string())?
+                .as_str(),
+        )?;
+        let calendar = validate_academic_calendar(&self.get(url.clone(), MAX_DATA_BYTES).await?)?;
+        if calendar.academic_year != year {
+            return Err("calendar year does not match the selection".into());
+        }
+        Ok((calendar, url.to_string()))
+    }
+    pub async fn fetch_departments(
+        &self,
+        index_url: &str,
+        year: i32,
+    ) -> Result<(Departments, String), String> {
+        let base = https_url(index_url)?;
+        let index: SubscriptionIndex =
+            serde_json::from_str(&self.get(base.clone(), MAX_INDEX_BYTES).await?)
+                .map_err(|e| e.to_string())?;
+        let entry = index
+            .admission_years
+            .get(&year.to_string())
+            .ok_or("admission year is not published in this index")?;
+        let url = https_url(
+            base.join(&entry.departments)
+                .map_err(|e| e.to_string())?
+                .as_str(),
+        )?;
+        let departments = validate_departments(&self.get(url.clone(), MAX_DATA_BYTES).await?)?;
+        if departments.admission_year != year {
+            return Err("guide year does not match the selection".into());
+        }
+        Ok((departments, url.to_string()))
+    }
     /// Convenience for installations where the current academic year and the
     /// student's admission cohort happen to be the same. Callers with a saved
     /// profile must use `fetch_selection` instead.
@@ -486,6 +596,31 @@ pub fn apply_subscription(
     calendar: &AcademicCalendar,
     departments: &Departments,
 ) -> Result<usize, String> {
+    apply_reference(connection, Some(calendar), Some(departments))
+}
+
+pub fn apply_reference(
+    connection: &mut Connection,
+    selected_calendar: Option<&AcademicCalendar>,
+    selected_departments: Option<&Departments>,
+) -> Result<usize, String> {
+    let empty_calendar = AcademicCalendar {
+        schema_version: 1,
+        academic_year: 0,
+        source: vec![],
+        quarters: BTreeMap::new(),
+        days: vec![],
+        teaching_ranges: BTreeMap::new(),
+        exam_ranges: BTreeMap::new(),
+    };
+    let empty_departments = Departments {
+        schema_version: 1,
+        admission_year: 0,
+        source: vec![],
+        departments: vec![],
+    };
+    let calendar = selected_calendar.unwrap_or(&empty_calendar);
+    let departments = selected_departments.unwrap_or(&empty_departments);
     let calendar_value = serde_json::to_value(calendar).map_err(|e| e.to_string())?;
     let departments_value = serde_json::to_value(departments).map_err(|e| e.to_string())?;
     let calendar_hash = content_hash(&calendar_value)?;
@@ -498,7 +633,15 @@ pub fn apply_subscription(
             let id = format!("calendar:{}:{kind}:{quarter}", calendar.academic_year);
             calendar_ids.insert(id.clone());
             let label = json!({"ja":format!("{quarter} {}",if kind=="quarter-start"{"開始"}else{"終了"}),"en":format!("{quarter} {}",if kind=="quarter-start"{"starts"}else{"ends"})});
-            let value = json!({"id":id,"academicYear":calendar.academic_year,"date":date,"type":kind,"quarter":quarter,"label":label,"provenance":{"source":calendar.source}});
+            let mut value = json!({"id":id,"academicYear":calendar.academic_year,"date":date,"type":kind,"quarter":quarter,"label":label,"provenance":{"source":calendar.source}});
+            if kind == "quarter-start" {
+                if let Some(ranges) = calendar.teaching_ranges.get(quarter) {
+                    value["teachingRanges"] = json!(ranges);
+                }
+                if let Some(ranges) = calendar.exam_ranges.get(quarter) {
+                    value["examRanges"] = json!(ranges);
+                }
+            }
             changed += usize::from(apply_row(
                 &tx,
                 "academic_calendar",
@@ -643,6 +786,11 @@ pub fn apply_subscription(
             recommended_ids,
         ),
     ] {
+        if (table == "academic_calendar" && selected_calendar.is_none())
+            || (table != "academic_calendar" && selected_departments.is_none())
+        {
+            continue;
+        }
         let mut statement = tx
             .prepare(&format!(
                 "SELECT id FROM {table} WHERE id LIKE ?1 AND deleted_at IS NULL"

@@ -11,7 +11,12 @@ import { UiButton, UiInput } from "../../components/mantine";
 import { type SchoolSite } from "../../platform/desktop-bridge";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
 import type { Workspace } from "../../core/model";
-import { desktopBridge, schoolWebExit, official } from "../../app/native";
+import {
+  claimSchoolView,
+  desktopBridge,
+  schoolWebExit,
+  official,
+} from "../../app/native";
 import { type Platform } from "../../app/shared";
 
 const serviceTiers: Array<{
@@ -106,6 +111,7 @@ export function Web({
   const resolvedServiceWidth = clamp(serviceWidth, 132, 360);
   const resolvedZoom = clamp(zoom, 0.5, 2);
   const host = useRef<HTMLDivElement>(null);
+  const owner = useRef(Symbol("web-page"));
   const addressInput = useRef<HTMLInputElement>(null);
   const editingAddress = useRef(false);
   const embedded =
@@ -206,18 +212,23 @@ export function Web({
       platform === "native-desktop" &&
       localStorage.getItem(`stws-site-consent-${customizationSite}`) === "true";
     setStatus("Opening…");
-    void desktopBridge
-      .openSchoolSite(
-        site,
-        permitted ? (custom?.css ?? "") : "",
-        permitted ? (custom?.js ?? "") : "",
-        bounds(),
-        requestedUrl && siteForAddress(requestedUrl) === site
-          ? requestedUrl
-          : undefined,
-      )
+    void schoolWebExit
+      .settled()
+      .then(() => {
+        if (cancelled) return undefined;
+        claimSchoolView(owner.current);
+        return desktopBridge!.openSchoolSite(
+          site,
+          permitted ? (custom?.css ?? "") : "",
+          permitted ? (custom?.js ?? "") : "",
+          bounds(),
+          requestedUrl && siteForAddress(requestedUrl) === site
+            ? requestedUrl
+            : undefined,
+        );
+      })
       .then(async (state) => {
-        if (cancelled) return;
+        if (cancelled || !state) return;
         setCurrentUrl(state.url);
         if (!editingAddress.current) setAddress(state.url);
         setStatus(

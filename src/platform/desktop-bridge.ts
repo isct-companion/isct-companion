@@ -79,6 +79,14 @@ export type SchoolIngestOutcome = {
   changed: number;
   message: string;
 };
+export type LmsSection = {
+  id: number;
+  number: number;
+  title: string;
+  visible: boolean;
+  bodyHtml?: string;
+};
+
 /** An LMS course row as imported (`lms_courses`). */
 export type LmsCourseRecord = {
   id: string;
@@ -90,6 +98,7 @@ export type LmsCourseRecord = {
   quarters: string[];
   url: string;
   hidden?: boolean;
+  sections?: LmsSection[];
   /** Weekly meetings per term, read from the LMS dashboard timetable grid. */
   timetables?: Record<string, { day: number; periods: [number, number] }[]>;
 };
@@ -105,6 +114,10 @@ export type SchoolRecords = {
     title: string;
     courseState?: string;
     declaredOnly?: boolean;
+    /** Rows from 科目から (`kind: "declared"`). */
+    kind?: string;
+    quarters?: number[];
+    effectiveCredits?: number;
   }[];
   registrationStates: {
     id: string;

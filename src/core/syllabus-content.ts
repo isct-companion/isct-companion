@@ -28,7 +28,7 @@ export function syllabusIdentity(value: string): string | undefined {
       url.port ||
       url.username ||
       url.password ||
-      !/^\/courses\/\d{4}\/[^?#]+\/[^/]+$/.test(url.pathname)
+      !/^\/courses\/(?:\d{4}\/[^?#]+\/[^/]+|-\/-\/-\/\d{9})$/.test(url.pathname)
     )
       return;
     const language = url.searchParams.get("hl") ?? "ja";

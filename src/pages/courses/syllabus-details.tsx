@@ -15,6 +15,7 @@ export function SyllabusDetails({
   url: string;
   fetchCourse?: (url: string) => Promise<SyllabusCourse>;
 }) {
+  // Official offering-ID locators redirect to the canonical dated syllabus.
   const identity = syllabusIdentity(url);
   const [content, setContent] = useState<SyllabusContent>();
   const [busy, setBusy] = useState(false);
@@ -30,7 +31,10 @@ export function SyllabusDetails({
       const course = await fetchRef.current(target);
       // The same course in either language (English sources carry ?hl=en).
       const page = (value: string) => syllabusIdentity(value)?.replace(/\?hl=en$/, "");
+      const targetId = new URL(target).pathname.split("/").at(-1);
+      const returnedId = new URL(course.url).pathname.split("/").at(-1);
       if (
+        targetId !== returnedId ||
         !validSyllabusContent(course.content) ||
         page(course.content.sourceUrl) !== page(course.url)
       )
@@ -60,9 +64,9 @@ export function SyllabusDetails({
   }, [identity, Boolean(fetchCourse)]);
   return (
     <section className="syllabusDetails" aria-label={t("Official syllabus")}>
-      {(error || (!content && busy)) && (
+      {(error || !identity || (!content && busy)) && (
         <p className="syllabusStatus" role="status">
-          {error || t("Loading the syllabus…")}
+          {error || (!identity ? t("No syllabus is linked to this course.") : t("Loading the syllabus…"))}
         </p>
       )}
       {content && (

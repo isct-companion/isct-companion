@@ -1,5 +1,7 @@
 # Task 6 — Today (with tasks)
 
+2026-10-05: Today now opens the inline LMS workspace with Classes/Assignments navigation instead of a course drawer or app-wide Web navigation. See `../lms-workspace-inspection.md` for current interaction, retention limits and remaining file/offline work. The older Build list below is the original task specification.
+
 Product spec: `docs/product-definition.md` → Navigation, Today. Depends on tasks 1, 3, 4, 5.
 
 ## Build
