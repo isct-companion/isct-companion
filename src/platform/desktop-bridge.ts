@@ -20,6 +20,14 @@ export type SchoolSite =
   | "tsubame"
   | "syllabus";
 export type Schedule = "off" | "launch" | "hourly";
+/** A file a school page saved to Downloads (download or PDF viewer ↓). */
+export type SchoolDownloadEvent = {
+  site: SchoolSite;
+  state: "started" | "done" | "failed";
+  name: string;
+  /** Set on `done`: the saved file, accepted by `revealSchoolDownload`. */
+  path?: string;
+};
 export type SchoolAuthProfile = "science" | "tokyo-tech";
 export type SchoolCredentials = {
   username: string;
@@ -148,6 +156,7 @@ export type NativeCapabilitySnapshot = {
   cloudSync: boolean;
   syllabusSearch: boolean;
   syllabusFilters?: boolean;
+  matrixOcr: boolean;
 };
 export type InvokeNative = (
   command: string,
@@ -172,6 +181,8 @@ export interface DesktopBridge {
     credentials: SchoolCredentials,
   ): Promise<boolean>;
   deleteSchoolCredentials(profile: SchoolAuthProfile): Promise<boolean>;
+  /** Copies the saved Matrix to the system clipboard without exposing it to the WebView. */
+  copySchoolMatrix(): Promise<boolean>;
   testSchoolConnection(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -208,9 +219,18 @@ export interface DesktopBridge {
   hideSchoolWeb?(): Promise<boolean>;
   reloadSchoolWeb?(site: SchoolSite): Promise<boolean>;
   navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
+  /** Load the view's previous page as a fresh GET; false when there is none. */
+  schoolWebBack?(site: SchoolSite): Promise<boolean>;
   setSchoolWebZoom?(site: SchoolSite, scale: number): Promise<boolean>;
   onSchoolWebUrl?(callback: (url: string) => void): () => void;
+  /** A school page asked for a new window showing another service's page. */
+  onSchoolWebOpen?(
+    callback: (request: { site: SchoolSite; url: string }) => void,
+  ): () => void;
   onSchoolLoginStatus?(callback: (event: SchoolLoginEvent) => void): () => void;
+  onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
+  /** Shows a file saved from a school page this session in Finder; false for any other path. */
+  revealSchoolDownload?(path: string): Promise<boolean>;
   /**
    * Makes sure the profile is signed in: loads its portal home in the hidden
    * school view, and if that lands on sign-in, signs in with the saved
@@ -431,6 +451,7 @@ export function createTauriDesktopBridge(
       booleanCommand("save_school_credentials", { profile, credentials }),
     deleteSchoolCredentials: (profile) =>
       booleanCommand("delete_school_credentials", { profile }),
+    copySchoolMatrix: () => booleanCommand("copy_school_matrix"),
     testSchoolConnection: (profile, credentials) =>
       result("test_school_connection", { profile, credentials }),
     loginSchool: (profile) => result("login_school", { profile, bounds: null }),
@@ -472,6 +493,7 @@ export function createTauriDesktopBridge(
     reloadSchoolWeb: (site) => booleanCommand("reload_school_web", { site }),
     navigateSchoolWeb: (site, url) =>
       booleanCommand("navigate_school_web", { site, url }),
+    schoolWebBack: (site) => booleanCommand("school_web_back", { site }),
     setSchoolWebZoom: (site, scale) =>
       booleanCommand("set_school_web_zoom", { site, scale }),
     onSchoolWebUrl: (callback) => {
@@ -480,6 +502,29 @@ export function createTauriDesktopBridge(
       void listen<string>("school-web-url", (payload) => {
         if (!disposed && typeof payload === "string") callback(payload);
       }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
+    onSchoolWebOpen: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<{ site: SchoolSite; url: string }>(
+        "school-web-open",
+        (payload) => {
+          if (
+            !disposed &&
+            payload &&
+            typeof payload.site === "string" &&
+            typeof payload.url === "string"
+          )
+            callback(payload);
+        },
+      ).then((fn) => {
         if (disposed) quietly(fn);
         else unlisten = fn;
       });
@@ -509,6 +554,38 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
+    onSchoolDownload: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<SchoolDownloadEvent>("school-download", (payload) => {
+        if (
+          !disposed &&
+          payload &&
+          typeof payload.site === "string" &&
+          (payload.state === "started" ||
+            payload.state === "done" ||
+            payload.state === "failed") &&
+          typeof payload.name === "string" &&
+          (payload.path === undefined || typeof payload.path === "string") &&
+          (payload.state !== "done" || typeof payload.path === "string")
+        )
+          callback({
+            site: payload.site,
+            state: payload.state,
+            name: payload.name,
+            path: payload.path,
+          });
+      }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
+    revealSchoolDownload: (path) =>
+      booleanCommand("reveal_school_download", { path }),
     pullSchool: async (site) => {
       const value = await invoke("pull_school", { site });
       if (!Array.isArray(value))

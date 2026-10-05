@@ -94,6 +94,10 @@ export function Web({
   });
   const initialUrl = requestedUrl ?? official[site].url;
   const [status, setStatus] = useState("");
+  /** The last file a school page saved, offered for Reveal for a while. */
+  const [savedFile, setSavedFile] = useState<{ name: string; path: string }>();
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [address, setAddress] = useState(initialUrl);
   const [serviceWidth, setServiceWidth] = useLocalStorage<number>({
@@ -157,6 +161,36 @@ export function Web({
       window.clearTimeout(clear);
     };
   }, []);
+
+  useEffect(() => {
+    let hide: number | undefined;
+    const dispose = desktopBridge?.onSchoolDownload?.((event) => {
+      window.clearTimeout(hide);
+      setSavedFile(undefined);
+      if (event.state === "started") setStatus(`Downloading ${event.name}…`);
+      else if (event.state === "done") {
+        setStatus("");
+        notifyRef.current(`Saved ${event.name}`);
+        if (event.path) {
+          setSavedFile({ name: event.name, path: event.path });
+          hide = window.setTimeout(() => setSavedFile(undefined), 30_000);
+        }
+      } else setStatus(`Download failed: ${event.name}`);
+    });
+    return () => {
+      dispose?.();
+      window.clearTimeout(hide);
+    };
+  }, []);
+
+  const revealSaved = async (path: string) => {
+    try {
+      const shown = await desktopBridge?.revealSchoolDownload?.(path);
+      if (!shown) setStatus("That file can no longer be shown.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unavailable");
+    }
+  };
 
   useEffect(() => {
     if (!embedded || !desktopBridge || !active) return;
@@ -247,39 +281,70 @@ export function Web({
       const destination = siteForAddress(target);
       if (!destination)
         throw new Error("Use an official Science Tokyo school URL.");
-      setAddress(target);
-      setStatus("Opening…");
-      if (embedded && desktopBridge?.navigateSchoolWeb) {
-        const navigated = await desktopBridge.navigateSchoolWeb(
-          destination,
-          target,
-        );
-        if (!navigated) {
-          const customizationSite = official[destination].customization;
-          const custom = data.settings.customization?.sites[customizationSite];
-          const permitted =
-            platform === "native-desktop" &&
-            localStorage.getItem(`stws-site-consent-${customizationSite}`) ===
-              "true";
-          await desktopBridge.openSchoolSite(
-            destination,
-            permitted ? (custom?.css ?? "") : "",
-            permitted ? (custom?.js ?? "") : "",
-            bounds(),
-            target,
-          );
-        }
-      }
-      if (destination !== site) {
-        sessionStorage.setItem("stws-active-school-site", destination);
-        if (localStorage.getItem("stws-restore-school-page") === "true")
-          localStorage.setItem("stws-active-school-site", destination);
-        setSite(destination);
-      }
-      setCurrentUrl(target);
-      setStatus("");
+      await openTarget(target, destination);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Invalid address");
+    }
+  };
+
+  /** Shows `target` in its service's view and switches the picker to it. */
+  const openTarget = async (target: string, destination: SchoolSite) => {
+    setAddress(target);
+    setStatus("Opening…");
+    if (embedded && desktopBridge?.navigateSchoolWeb) {
+      const navigated = await desktopBridge.navigateSchoolWeb(
+        destination,
+        target,
+      );
+      if (!navigated) {
+        const customizationSite = official[destination].customization;
+        const custom = data.settings.customization?.sites[customizationSite];
+        const permitted =
+          platform === "native-desktop" &&
+          localStorage.getItem(`stws-site-consent-${customizationSite}`) ===
+            "true";
+        await desktopBridge.openSchoolSite(
+          destination,
+          permitted ? (custom?.css ?? "") : "",
+          permitted ? (custom?.js ?? "") : "",
+          bounds(),
+          target,
+        );
+      }
+    }
+    if (destination !== site) {
+      sessionStorage.setItem("stws-active-school-site", destination);
+      if (localStorage.getItem("stws-restore-school-page") === "true")
+        localStorage.setItem("stws-active-school-site", destination);
+      setSite(destination);
+    }
+    setCurrentUrl(target);
+    setStatus("");
+  };
+  const openTargetRef = useRef(openTarget);
+  openTargetRef.current = openTarget;
+
+  // `target="_blank"` links to another service (e.g. 教務Web → LMS) switch
+  // the picker, like a browser opening a new tab.
+  useEffect(
+    () =>
+      desktopBridge?.onSchoolWebOpen?.(({ site: destination, url }) => {
+        if (schoolWebExit.pending || !(destination in official)) return;
+        openTargetRef
+          .current(url, destination)
+          .catch((error) =>
+            setStatus(error instanceof Error ? error.message : "Unavailable"),
+          );
+      }),
+    [],
+  );
+
+  const goBack = async () => {
+    try {
+      const moved = await desktopBridge?.schoolWebBack?.(site);
+      setStatus(moved ? "" : "No previous page.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unavailable");
     }
   };
 
@@ -368,6 +433,26 @@ export function Web({
           <span className="webStatus" role="status">
             {status}
           </span>
+          {savedFile && desktopBridge?.revealSchoolDownload && (
+            <UiButton
+              type="button"
+              title={`Show ${savedFile.name} in Finder`}
+              onClick={() => void revealSaved(savedFile.path)}
+            >
+              Reveal
+            </UiButton>
+          )}
+          {embedded && desktopBridge?.schoolWebBack && (
+            <UiButton
+              type="button"
+              className="iconButton"
+              title="Previous page"
+              aria-label="Previous page"
+              onClick={() => void goBack()}
+            >
+              ←
+            </UiButton>
+          )}
           {embedded && desktopBridge?.reloadSchoolWeb && (
             <UiButton
               type="button"
@@ -377,6 +462,21 @@ export function Web({
               onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
             >
               ↻
+            </UiButton>
+          )}
+          {embedded && site === "kyomu" && (
+            <UiButton
+              type="button"
+              title="教務Web top page"
+              onClick={() =>
+                void openTarget(official.kyomu.url, "kyomu").catch((error) =>
+                  setStatus(
+                    error instanceof Error ? error.message : "Unavailable",
+                  ),
+                )
+              }
+            >
+              Top
             </UiButton>
           )}
         </div>
