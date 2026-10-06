@@ -1,0 +1,354 @@
+/* Today course workbench: Today rail, course outline, and one reading pane.
+   Motion only animates opacity/transform so it stays on the compositor. */
+:root {
+  --lms-ease: cubic-bezier(.22, 1, .36, 1);
+  /* Motion scale: hover/colour, content reveal, pane open/close. */
+  --lms-fast: 200ms;
+  --lms-medium: 260ms;
+  --lms-slow: 300ms;
+  --lms-radius: 12px;
+  --lms-radius-sm: 8px;
+  --lms-hover-line: color-mix(in srgb, var(--accent) 35%, var(--line));
+  --lms-active-line: color-mix(in srgb, var(--accent) 55%, var(--line));
+  --lms-icon-file: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5'/%3E%3C/svg%3E");
+  --lms-icon-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M3.5 17l5-5 4 4 2.5-2.5 5 5'/%3E%3C/svg%3E");
+}
+@keyframes lmsFadeIn { from { opacity: 0; } }
+@keyframes lmsPopIn { from { opacity: 0; scale: .97; } }
+@keyframes lmsPaneEnter { from { opacity: 0; transform: translate3d(14px, 0, 0); } }
+@keyframes lmsShimmer { to { background-position: -200% 0; } }
+
+/* ---------- Workbench ---------- */
+.todayWorkbench { display: flex; width: 100%; height: 100%; min-height: 0; gap: 20px; }
+.todayRetained { flex: 0 0 100%; min-width: 0; height: 100%; overflow: auto; overflow-anchor: none; }
+.todayRetained.compact { flex-basis: 180px; padding-right: 16px; border-right: 1px solid var(--line); animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
+.todayWorkbenchContent { flex: 1; min-width: 0; min-height: 0; overflow: hidden; contain: layout paint; transition: opacity var(--lms-medium) var(--lms-ease), transform var(--lms-slow) var(--lms-ease); }
+.todayWorkbench.working .todayWorkbenchContent { animation: lmsPaneEnter var(--lms-slow) var(--lms-ease); }
+.todayWorkbench.leaving .todayWorkbenchContent { opacity: 0; transform: translate3d(12px, 0, 0); pointer-events: none; }
+.todayWorkbenchContent[hidden], .todayCourseSlot[hidden] { display: none; }
+.todayCourseSlot { height: 100%; }
+
+/* ---------- Workspace shell ---------- */
+.lmsWorkspace { display: flex; flex-direction: column; width: 100%; min-width: 0; height: 100%; }
+.lmsWorkspace button { cursor: pointer; color: inherit; font: inherit; }
+.lmsWorkspace button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lmsWorkspace svg { flex: 0 0 auto; }
+.lmsWorkspaceHeader { display: flex; align-items: center; gap: 16px; padding: 4px 4px 16px; border-bottom: 1px solid var(--line); }
+.lmsCourseIdentity { flex: 1; min-width: 0; }
+.lmsCourseIdentity small { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lmsCourseIdentity h1 { margin: 2px 0 0; font-size: 19px; font-weight: 620; line-height: 1.35; letter-spacing: -.015em; }
+.lmsEntryTime { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lmsBack, .lmsRefresh, .lmsOriginal, .lmsOutlineTools button {
+  display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: var(--lms-radius-sm);
+  background: none; color: var(--accent) !important; white-space: nowrap; font-size: 12px !important; font-weight: 550;
+}
+.lmsBack, .lmsRefresh { padding: 7px 10px; }
+.lmsBack:hover, .lmsRefresh:hover:not(:disabled), .lmsOutlineTools button:hover { background: var(--accent-soft); }
+.lmsRefresh:disabled { opacity: .5; cursor: default; }
+
+.lmsWorkspaceBody { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
+.lmsWorkspace.hasViewer .lmsWorkspaceBody { grid-template-columns: minmax(300px, 44%) minmax(0, 1fr); gap: 16px; }
+
+/* ---------- Outline ---------- */
+.lmsOutline { display: flex; flex-direction: column; min-height: 0; }
+/* Card for files the app cannot preview, anchored to the clicked item. */
+.lmsFilePopover { position: absolute; z-index: 20; margin: 0 !important; width: min(360px, calc(100% - 16px)); animation: lmsPopIn var(--lms-fast) var(--lms-ease); }
+.lmsFilePopover .lmsFileCard { width: 100%; padding: 18px; animation: none; box-shadow: 0 2px 6px #00000014, 0 16px 40px #0000001f; }
+.lmsFilePopover .lmsFileCardActions { padding-top: 12px; }
+.lmsOutlineTools { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 900px; align-self: center; padding: 14px 24px 10px; }
+.lmsOutlineTools input {
+  width: 100%; min-width: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius-sm);
+  background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; transition: border-color var(--lms-fast);
+}
+.lmsOutlineTools input:focus { outline: none; border-color: var(--lms-active-line); }
+.lmsOutlineTools button { padding: 7px 8px; }
+.lmsOutlineScroll { position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; padding: 0 24px 60px; }
+.lmsOutlineScroll > * { max-width: 850px; margin-left: auto; margin-right: auto; }
+.lmsOutlineScroll h2 { display: flex; gap: 8px; margin: 28px auto 8px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.lmsOutlineScroll h2:first-child { margin-top: 6px; }
+.lmsOutlineScroll h2 small { font-weight: 500; opacity: .7; }
+.lmsOriginal { justify-content: center; padding: 12px; border-top: 1px solid var(--line); border-radius: 0; }
+
+.lmsSection { padding: 4px 0 8px; border-bottom: 1px solid var(--line); }
+.lmsSectionHeading { display: flex; align-items: center; gap: 6px; }
+.lmsSectionHeading h3 { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 600; }
+.lmsSectionHeading h3 button {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 8px; border: 0; border-radius: var(--lms-radius-sm);
+  background: none; text-align: left; transition: background-color var(--lms-fast);
+}
+.lmsSectionHeading h3 button:hover { background: var(--surface-2); }
+.lmsSectionHeading h3 button > span { flex: 1; min-width: 0; }
+.lmsSectionHeading h3 small { color: var(--muted); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.lmsSectionChevron { color: var(--muted); transition: transform var(--lms-medium) var(--lms-ease), color var(--lms-fast); }
+.lmsSectionHeading [aria-expanded="true"] .lmsSectionChevron { transform: rotate(90deg); }
+.lmsSection.reading .lmsSectionChevron { color: var(--accent); }
+.lmsAddNote {
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--lms-radius-sm);
+  background: none; color: var(--muted) !important; opacity: .7; transition: background-color var(--lms-fast), opacity var(--lms-fast);
+}
+.lmsSection:hover .lmsAddNote, .lmsAddNote:focus-visible { opacity: 1; }
+.lmsAddNote:hover { background: var(--accent-soft); color: var(--accent) !important; }
+.lmsSectionPreview { margin: -2px 16px 8px 32px; color: var(--muted); font-size: 12px; }
+.lmsSectionBody { padding: 2px 8px 8px 32px; animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
+.lmsSectionBody > .lmsRichContent { margin-bottom: 12px; font-size: 14px; line-height: 1.85; }
+.lmsQuiet { padding: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+
+/* Rows and cards share one surface: 12px radius, hairline, accent on hover. */
+.lmsItemRow, .lmsAnnouncementCard {
+  width: 100%; margin: 6px 0; border: 1px solid var(--line); border-radius: var(--lms-radius);
+  background: var(--surface); text-align: left; transition: border-color var(--lms-fast), background-color var(--lms-fast);
+}
+.lmsItemRow:hover, .lmsAnnouncementCard:hover { border-color: var(--lms-hover-line); }
+.lmsItemRow.selected, .lmsAnnouncementCard.selected { border-color: var(--lms-active-line); background: var(--accent-soft); }
+.lmsItemRow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+.lmsItemRow > span:nth-child(2) { flex: 1; min-width: 0; }
+.lmsItemRow b { display: block; font-size: 13px; font-weight: 560; line-height: 1.4; overflow-wrap: anywhere; }
+.lmsItemRow small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.lmsRowAction { color: var(--muted); }
+.lmsAnnouncementCard { position: relative; display: grid; gap: 6px; padding: 14px 40px 14px 16px; }
+.lmsCardType { color: var(--muted); font-size: 11px; }
+.lmsCardExcerpt { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 13px; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.lmsCardArrow { position: absolute; top: 50%; right: 14px; margin-top: -8px; color: var(--muted); }
+
+.lmsFileTile {
+  --tint: var(--muted);
+  position: relative; display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; overflow: hidden;
+  border-radius: 10px; background: color-mix(in srgb, var(--tint) 12%, var(--surface)); color: var(--tint);
+}
+.lmsFileTile[data-family="pdf"] { --tint: #d4483b; }
+.lmsFileTile[data-family="image"] { --tint: #2f9e6e; }
+.lmsFileTile[data-family="video"], .lmsFileTile[data-family="audio"] { --tint: #8b5cf6; }
+.lmsFileTile[data-family="doc"], .lmsFileTile[data-family="page"] { --tint: #3b6fd8; }
+.lmsFileTile[data-family="slides"] { --tint: #e0782f; }
+.lmsFileTile[data-family="sheet"] { --tint: #1f8a4c; }
+.lmsFileTile[data-family="text"], .lmsFileTile[data-family="markdown"] { --tint: #5b6b82; }
+.lmsFileTile[data-family="link"], .lmsFileTile[data-family="forum"], .lmsFileTile[data-family="folder"], .lmsFileTile[data-family="note"] { --tint: var(--accent); }
+.lmsThumbnail img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: white; opacity: 0; transition: opacity var(--lms-medium) var(--lms-ease); }
+.lmsThumbnail.loaded img { opacity: 1; }
+
+.lmsInlineActivity { padding: 16px 0; border-top: 1px solid var(--line); font-size: 14px; line-height: 1.8; scroll-margin: 30px; }
+.lmsInlineActivity h4 { margin: 0; font-size: 15px; font-weight: 600; }
+.lmsInlineActivity .lmsQuiet { padding: 0; }
+.lmsSubmit { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 7px 12px; border: 0; border-radius: var(--lms-radius-sm); background: var(--accent); color: white !important; font-size: 12px !important; font-weight: 550; }
+.lmsPreviousNotes { margin: 8px 0 12px; color: var(--muted); font-size: 12px; }
+.lmsPreviousNotes summary { padding: 6px 4px; cursor: pointer; }
+.lmsNoteUndo { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); font-size: 12px; }
+.lmsNoteUndo button { padding: 5px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent) !important; }
+
+/* ---------- Teacher HTML ---------- */
+.lmsRichContent { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.lmsRichContent p, .lmsRichContent div { margin-bottom: 10px; }
+.lmsRichContent table { display: block; max-width: 100%; margin: 12px 0; overflow: auto; border-collapse: collapse; }
+.lmsRichContent th, .lmsRichContent td { min-width: 75px; padding: 7px; border: 1px solid var(--line); }
+.lmsRichContent pre { overflow: auto; }
+.lmsRichContent a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+/* Attachment links: a card with a tinted type tile, name and meta line. */
+.lmsFileList { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 10px 0; }
+.lmsRichContent a.lmsAttachmentCard {
+  --tint: var(--accent);
+  display: inline-grid; grid-template-columns: 32px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; align-items: center;
+  min-width: min(100%, 220px); max-width: 100%; margin: 4px 0; padding: 9px 12px 9px 9px; vertical-align: middle;
+  border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); color: var(--ink);
+  line-height: 1.35; text-decoration: none; transition: border-color var(--lms-fast);
+}
+.lmsFileList > a.lmsAttachmentCard { display: grid; margin: 0; }
+.lmsRichContent a.lmsAttachmentCard:hover { border-color: var(--lms-hover-line); }
+.lmsAttachmentCard::before {
+  content: ""; grid-area: 1 / 1 / 3 / 2; width: 32px; height: 32px; border-radius: 8px;
+  background: color-mix(in srgb, var(--tint) 12%, var(--surface));
+}
+.lmsAttachmentCard::after {
+  content: ""; grid-area: 1 / 1 / 3 / 2; width: 16px; height: 16px; justify-self: center; background: var(--tint);
+  -webkit-mask: var(--lms-icon-file) center / contain no-repeat; mask: var(--lms-icon-file) center / contain no-repeat;
+}
+.lmsAttachmentName { grid-area: 1 / 2; min-width: 0; overflow: hidden; font-size: 13px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.lmsAttachmentCard small { grid-area: 2 / 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.lmsAttachmentCard[data-family="pdf"] { --tint: #d4483b; }
+.lmsAttachmentCard[data-family="doc"] { --tint: #3b6fd8; }
+.lmsAttachmentCard[data-family="slides"] { --tint: #e0782f; }
+.lmsAttachmentCard[data-family="sheet"] { --tint: #1f8a4c; }
+.lmsAttachmentCard[data-family="video"], .lmsAttachmentCard[data-family="audio"] { --tint: #8b5cf6; }
+.lmsAttachmentCard[data-family="archive"], .lmsAttachmentCard[data-family="text"], .lmsAttachmentCard[data-family="file"] { --tint: #5b6b82; }
+.lmsRichContent a.lmsImageCard { display: inline-flex; flex-direction: column; align-items: stretch; gap: 6px; width: 200px; max-width: 100%; padding: 6px 6px 8px; font-size: 12px; }
+/* Image-only labels: thumbnail tiles in a grid, caption = file name. */
+.lmsImageGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
+.lmsImageGrid .lmsRichContent > *, .lmsImageGrid .lmsRichContent p { margin: 0; }
+.lmsImageGrid a.lmsImageCard { display: flex; width: 100%; margin: 0; }
+.lmsImageGrid .lmsInlineThumbnail { height: 100px; object-fit: cover; object-position: top; }
+.lmsImageCard { overflow: hidden; }
+.lmsImageCaption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lmsRichContent a.lmsImageCard::before, .lmsRichContent a.lmsImageCard::after { content: none; }
+.lmsImageCard [data-image-src] { display: block; border-radius: 6px; overflow: hidden; }
+.lmsImageCard [data-image-src][data-state="loading"] {
+  height: 100px; background: linear-gradient(90deg, var(--surface-2) 30%, color-mix(in srgb, var(--surface-2) 60%, var(--surface)) 50%, var(--surface-2) 70%) 0 0 / 200% 100%;
+  animation: lmsShimmer 1.2s linear infinite;
+}
+.lmsImageCard [data-image-src][data-state="unavailable"] {
+  width: 20px; height: 20px; background: var(--muted);
+  -webkit-mask: var(--lms-icon-image) center / contain no-repeat; mask: var(--lms-icon-image) center / contain no-repeat;
+}
+.lmsInlineThumbnail { display: block; width: 100%; max-height: 130px; object-fit: contain; background: white; animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
+.lmsAnnouncement { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.lmsAnnouncement h5 { margin: 0 0 8px; font-size: 1em; }
+
+/* ---------- Reading pane ---------- */
+.lmsViewer {
+  position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2);
+  animation: lmsPaneEnter var(--lms-slow) var(--lms-ease);
+}
+.lmsViewerClose {
+  position: absolute; top: 9px; right: 9px; z-index: 8; display: grid; place-items: center; width: 28px; height: 28px;
+  padding: 0; border: 0; border-radius: var(--lms-radius-sm); background: var(--surface); color: var(--muted) !important;
+}
+.lmsViewerClose:hover { background: var(--accent-soft); color: var(--ink) !important; }
+.lmsViewerBody { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
+.lmsDocument { min-height: 100%; padding: 20px clamp(20px, 4vw, 48px) 28px; }
+.lmsDocumentHeading { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.lmsDocumentHeading small { display: block; color: var(--muted); font-size: 11px; }
+.lmsDocumentHeading h2 { margin: 6px 0 0; font-size: clamp(19px, 2vw, 24px); font-weight: 620; line-height: 1.4; letter-spacing: -.02em; }
+.lmsDocument > .lmsRichContent { max-width: 78ch; padding: 28px; border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); font-size: 14px; line-height: 1.85; }
+.lmsFileDocument { display: flex; flex-direction: column; padding: 0; }
+.lmsFileDocument > .lmsDocumentHeading { display: none; }
+.lmsFileDocument > .lmsRichContent { margin: 20px; }
+.lmsOfficialHost { position: relative; flex: 1; min-height: 300px; }
+.lmsViewerEmpty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px; color: var(--muted); text-align: center; }
+
+/* Status / toolbar bar: banner above the outline, or flush bar inside the pane. */
+.lmsSourceBar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: var(--lms-radius-sm); background: var(--surface); color: var(--muted); font-size: 11px;
+}
+.lmsSourceBar > [role=status] { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
+.lmsSourceBar button, .lmsSourceBar a { display: inline-flex; align-items: center; gap: 4px; padding: 6px 9px; border: 0; border-radius: 6px; background: none; color: var(--accent) !important; font-size: 11px; font-weight: 550; text-decoration: none; white-space: nowrap; }
+.lmsSourceBar button:hover, .lmsSourceBar a:hover { background: var(--accent-soft); }
+.lmsViewer .lmsSourceBar, .lmsNoteEditor .lmsSourceBar { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+.lmsFileToolbar { position: sticky; top: 0; z-index: 4; padding-right: 44px; }
+.lmsFileAddress { display: flex; flex: 1; align-items: center; min-width: 100px; }
+.lmsFileAddress > span { flex: 1; overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.lmsFileAddress small { display: none; }
+.lmsFileError { margin: 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+
+.lmsAttachmentPreview { display: flex; flex-direction: column; min-height: 0; }
+.lmsLoading { padding: 40px 20px; text-align: center; }
+.lmsFileToolbar > small { color: var(--muted); white-space: nowrap; }
+
+/* Files the pane cannot show: one panel, one primary action. */
+.lmsFileCardStage { display: grid; place-items: center; flex: 1; min-height: 320px; padding: 32px 20px; }
+.lmsFileCard {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px 16px; width: min(100%, 460px);
+  padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
+  box-shadow: 0 1px 2px #0000000a, 0 12px 32px #00000010; animation: lmsFadeIn var(--lms-medium) var(--lms-ease);
+}
+.lmsFileCard .lmsFileTile { flex-basis: 56px; width: 56px; height: 56px; border-radius: 14px; }
+.lmsFileCard .lmsFileTile svg { width: 26px; height: 26px; }
+.lmsFileCardText { min-width: 0; }
+.lmsFileCardText h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.lmsFileCardText small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lmsFileCard > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.lmsFileCard > p[role=alert] { color: var(--ink); }
+.lmsFileCardActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.lmsFileCardActions button, .lmsFileCardActions a {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius-sm);
+  background: var(--surface); color: var(--ink) !important; font-size: 12.5px !important; font-weight: 550; text-decoration: none;
+  transition: border-color var(--lms-fast), background-color var(--lms-fast);
+}
+.lmsFileCardActions button:hover:not(:disabled), .lmsFileCardActions a:hover { border-color: var(--lms-hover-line); }
+.lmsFileCardActions button:disabled { opacity: .6; cursor: default; }
+.lmsPrimaryAction { display: contents; }
+.lmsPrimaryAction > button { border-color: var(--accent); background: var(--accent); color: white !important; }
+.lmsPrimaryAction > button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 88%, black); }
+.lmsFileToolbar button, .lmsFileToolbar a { gap: 5px; }
+.lmsImageStage.actual { display: block; overflow: auto; }
+.lmsImagePreview { background: white; cursor: zoom-in; }
+.lmsImageStage.actual .lmsImagePreview { max-width: none; max-height: none; cursor: zoom-out; }
+.lmsImagePreview, .lmsMediaPreview { display: block; max-width: 100%; max-height: calc(100dvh - 220px); object-fit: contain; border-radius: var(--lms-radius-sm); box-shadow: 0 1px 2px #0000000d, 0 8px 24px #00000014; }
+.lmsMediaPreview { width: 100%; background: black; }
+.lmsAudioStage { padding: 32px 24px; }
+.lmsAudioStage audio { width: 100%; }
+
+/* ---------- PDF ---------- */
+.lmsPdfReader { background: var(--surface-2); }
+.lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 7px 44px 7px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.lmsPdfHeader > .lmsFileToolbar { position: static; flex: 1 1 240px; flex-wrap: nowrap; gap: 5px; min-width: 0; padding: 0; border: 0; }
+.lmsPdfHeader .lmsFileAddress { min-width: 60px; padding: 4px 0; }
+.lmsPdfControls { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.lmsPdfPagination, .lmsPdfZoom { display: flex; align-items: center; gap: 4px; }
+.lmsPdfControls input, .lmsPdfControls select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: inherit; }
+.lmsPdfControls input { width: 40px; text-align: center; appearance: textfield; }
+.lmsPdfControls input::-webkit-inner-spin-button { appearance: none; }
+.lmsPdfControls select { max-width: 98px; }
+.lmsPdfControls button, .lmsPdfSearch button { appearance: none; border: 0; background: transparent; color: var(--accent); cursor: pointer; }
+.lmsPdfControls button { width: 27px; height: 27px; padding: 0; border-radius: 6px; font-size: 17px; }
+.lmsPdfControls button:hover:not(:disabled), .lmsPdfSearch button:hover:not(:disabled) { background: var(--accent-soft); }
+.lmsPdfControls button:disabled { opacity: .3; cursor: default; }
+.lmsPdfSearch { position: sticky; top: 48px; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 11px; }
+.lmsPdfSearch input { flex: 1; min-width: 90px; padding: 4px; border: 0; background: transparent; color: var(--ink); font: inherit; }
+.lmsPdfSearch input:focus { outline: none; }
+.lmsPdfSearch button { padding: 5px 8px; border-radius: 6px; font-size: 11px; white-space: nowrap; }
+.lmsPdfSearch button:disabled { color: var(--muted); opacity: .6; cursor: default; }
+.lmsPdfSearch span { color: var(--muted); white-space: nowrap; }
+.lmsPdfDocument { width: 100%; padding: 20px; overflow-x: auto; touch-action: pan-x pan-y; }
+.lmsPdfPages { min-width: 200px; margin: 0 auto; }
+.lmsPdfPage { position: relative; width: 100%; margin: 0 0 20px; background: white; box-shadow: 0 1px 2px #0000000d, 0 4px 14px #00000012; contain: layout paint; scroll-margin-top: 65px; }
+.lmsPdfPaper { position: absolute; inset: 0; }
+.lmsPdfPage canvas { display: block; width: 100%; height: 100%; object-fit: contain; background: white; }
+.lmsPdfPage .textLayer { inset: 0; --scale-round-x: 1px; --scale-round-y: 1px; }
+
+/* ---------- Text, Markdown, notes ---------- */
+.lmsTextDocument { overflow: hidden; background: var(--surface); }
+.lmsTextMeta { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.lmsTextMeta > span:first-child { color: var(--ink); font-weight: 600; }
+.lmsTextDocument .cm-editor { outline: none; }
+.lmsTextDocument .cm-scroller { max-height: 75dvh; }
+.lmsMarkdownDocument { flex: 1; min-height: 0; overflow: auto; background: var(--surface); }
+.lmsMarkdownDocument .milkdown {
+  --crepe-color-background: var(--surface);
+  --crepe-color-on-background: var(--ink);
+  --crepe-color-surface: var(--surface);
+  --crepe-color-on-surface: var(--ink);
+  --crepe-color-on-surface-variant: var(--muted);
+  --crepe-color-outline: var(--line);
+  --crepe-color-primary: var(--ink);
+  --crepe-color-surface-low: var(--surface-2);
+  --crepe-color-hover: var(--surface-2);
+  --crepe-color-selected: var(--surface-2);
+  --crepe-font-title: inherit;
+  --crepe-font-default: inherit;
+  --crepe-base-font-size: 15px;
+  min-height: 100%;
+}
+.lmsMarkdownDocument .milkdown > .ProseMirror { min-height: 380px; padding: 28px 40px 120px; line-height: 1.8; }
+.lmsMarkdownDocument .milkdown > .ProseMirror h1 { font-size: 25px; }
+.lmsMarkdownDocument .milkdown > .ProseMirror h2 { font-size: 21px; }
+.lmsMarkdownDocument .milkdown button:focus-visible { outline: 2px solid var(--accent); }
+.lmsNoteEditor { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.lmsNoteEditor > div:not(.lmsSourceBar) { flex: 1; min-height: 0; }
+.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror { max-width: 760px; margin: 0 auto; padding: 36px clamp(24px, 4vw, 54px) 120px; line-height: 1.85; }
+.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h1 { margin-bottom: 24px; font-size: 28px; letter-spacing: -.03em; }
+.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h2 { margin-top: 32px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+
+/* ---------- Development preview (?preview=lms) ---------- */
+.lmsPreviewShell { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); }
+.lmsPreviewNotice { display: flex; justify-content: space-between; padding: 9px 24px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.lmsPreviewNotice label { display: flex; align-items: center; gap: 6px; }
+.lmsPreviewMain { display: flex; flex: 1; min-height: 0; padding: 20px 24px; }
+
+/* ---------- Narrow windows: outline and pane take turns ---------- */
+@media (max-width: 850px) {
+  .todayWorkbench { gap: 10px; }
+  .todayRetained.compact { flex-basis: 135px; padding-right: 10px; }
+  .lmsWorkspaceHeader { flex-wrap: wrap; gap: 12px; }
+  .lmsEntryTime { display: none; }
+  .lmsWorkspaceBody, .lmsWorkspace.hasViewer .lmsWorkspaceBody { display: block; }
+  .lmsOutline, .lmsViewer { height: 100%; }
+  .lmsViewer, .lmsWorkspace.viewing .lmsOutline { display: none; }
+  .lmsWorkspace.viewing .lmsViewer { display: flex; }
+  .lmsOutlineTools, .lmsOutlineScroll { padding-left: 12px; padding-right: 12px; }
+  .lmsDocument { padding: 20px 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .todayRetained.compact, .todayWorkbench.working .todayWorkbenchContent, .lmsViewer, .lmsSectionBody, .lmsInlineThumbnail, .lmsFileCard, .lmsFilePopover { animation: none; }
+  .todayWorkbenchContent, .lmsItemRow, .lmsAnnouncementCard, .lmsSectionChevron, .lmsThumbnail img { transition: none; }
+  .lmsImageCard [data-image-src][data-state="loading"] { animation: none; }
+}

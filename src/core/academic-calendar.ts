@@ -1,15 +1,4 @@
-import type { Quarter, TermId } from "./model";
-
-export type AcademicProfile = {
-  name: string;
-  /** Curriculum/study-guide cohort, independent from the current academic year. */
-  admissionYear?: number;
-  gradePath: Array<{ grade: string; academicYear: number }>;
-  years: Array<{
-    academicYear: number;
-    quarterStarts: Record<Quarter, string>;
-  }>;
-};
+import type { AcademicProfile, Quarter, TermId } from "./model";
 
 const quarters: Quarter[] = ["1Q", "2Q", "3Q", "4Q"];
 

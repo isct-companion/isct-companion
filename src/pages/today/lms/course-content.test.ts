@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { safeContent } from "./content";
+import { imageOnly, safeContent } from "./content";
 const enrich = new Function(
   `return ${readFileSync(`${process.cwd()}/backend/src/lms_course_content.js`, "utf8")}`,
 )() as (
@@ -93,4 +93,44 @@ it("filters LMS expand/collapse chrome with an empty fragment", () => {
 });
 it("also filters Moodle collapse controls from old cached HTML at rendering", () => {
   expect(safeContent('<p>Teacher text</p><a href="https://lms.s.isct.ac.jp/2025/course/view.php?id=11677#">すべてを折りたたむ すべてを展開する</a>')).not.toContain('すべてを折りたたむ');
+});
+
+it("creates thumbnail targets for plain image links as well as embedded images", () => {
+  for (const extension of ["png", "jpg", "webp", "gif", "svg", "avif"]) {
+    const url = `https://lms.s.isct.ac.jp/2025/pluginfile.php/223879/mod_label/intro/schedule.${extension}?forcedownload=1`;
+    const parsed = new DOMParser().parseFromString(safeContent(`<a href="${url}">schedule.${extension}</a>`), "text/html");
+    expect(parsed.querySelector(".lmsImageCard [data-image-src]")?.getAttribute("data-image-src")).toBe(url);
+    expect(parsed.querySelector("a")?.textContent).toBe(`schedule.${extension}`);
+  }
+});
+
+it("turns Moodle attachment lists into a card grid with type and upload time", () => {
+  const url = "https://lms.s.isct.ac.jp/2025/pluginfile.php/225786/mod_assign/introattachment/0/OOP-2026-1A-problem.zip?forcedownload=1";
+  const html = `<div><ul><li><div><div class="fileuploadsubmission"><img class="icon" alt="zip" src="https://lms.s.isct.ac.jp/2025/theme/image.php/remui/core/1/f/archive"> <a href="${url}">OOP-2026-1A-problem.zip</a></div><div class="fileuploadsubmissiontime">2026年 10月 5日 12:14</div></div></li></ul></div>`;
+  const parsed = new DOMParser().parseFromString(safeContent(html), "text/html");
+  expect(parsed.querySelector("ul, li")).toBeNull();
+  const card = parsed.querySelector(".lmsFileList > a.lmsAttachmentCard")!;
+  expect(card.getAttribute("data-family")).toBe("archive");
+  expect(card.querySelector(".lmsAttachmentName")?.textContent).toBe("OOP-2026-1A-problem.zip");
+  expect(card.querySelector("small")?.textContent).toBe("ZIP · 2026年 10月 5日 12:14");
+});
+
+it("keeps ordinary lists that mix text and links as lists", () => {
+  const parsed = new DOMParser().parseFromString(safeContent('<ul><li>Read chapter 2</li><li><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf">Slides</a></li></ul>'), "text/html");
+  expect(parsed.querySelectorAll("li")).toHaveLength(2);
+});
+
+it("keeps the thumbnail of an image wrapped in its full-size link", () => {
+  const full = "https://lms.s.isct.ac.jp/2025/pluginfile.php/223879/mod_label/intro/oop2026-schedule.png";
+  const small = "https://lms.s.isct.ac.jp/2025/pluginfile.php/223879/mod_label/intro/s_oop2026-schedule.png";
+  const parsed = new DOMParser().parseFromString(safeContent(`<a href="${full}"><img src="${small}" alt="schedule"></a>`), "text/html");
+  expect(parsed.querySelector("a.lmsImageCard [data-image-src]")?.getAttribute("data-image-src")).toBe(small);
+  expect(parsed.querySelector(".lmsAttachmentName")).toBeNull();
+});
+
+it("recognises image-only labels but not labels with text", () => {
+  const image = '<a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.png"><img src="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/s_a.png" alt="A"></a>';
+  expect(imageOnly(`<div><p>${image}</p></div>`)).toBe(true);
+  expect(imageOnly(`<p>Week 1 schedule</p>${image}`)).toBe(false);
+  expect(imageOnly("<p>No images</p>")).toBe(false);
 });

@@ -112,14 +112,6 @@ impl SchoolWebController {
         Ok(false)
     }
 
-    pub fn attachment_view_ready(&self) -> bool {
-        false
-    }
-
-    pub fn prepare_attachment_view(&self, _app: &AppHandle) -> Result<bool, String> {
-        Ok(false)
-    }
-
     pub fn login_in_background(
         &self,
         _app: &AppHandle,

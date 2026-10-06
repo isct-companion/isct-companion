@@ -32,7 +32,7 @@ const MAIN_WINDOW: &str = "main";
 // Stable UUID shared by every embedded school view. On Apple platforms this
 // selects one WKWebsiteDataStore, so cookies/session storage survive view
 // switches and are shared by the resident pool.
-const SCHOOL_DATA_STORE: [u8; 16] = [
+pub(crate) const SCHOOL_DATA_STORE: [u8; 16] = [
     0x63, 0x61, 0x6d, 0x70, 0x75, 0x73, 0x2d, 0x6c, 0x69, 0x66, 0x65, 0x2d, 0x77, 0x65, 0x62, 0x31,
 ];
 
@@ -567,7 +567,11 @@ fn track_page(state: &mut ControllerState, site: SchoolSite, raw_url: &str) -> O
 
 fn ingestion_script(raw: &str) -> Option<&'static str> {
     let url = Url::parse(raw).ok()?;
-    if url.host_str() == Some("lms.s.isct.ac.jp") && url.path().starts_with("/2025/") {
+    // Files (`pluginfile.php`) shown in the view are documents, not LMS pages.
+    if url.host_str() == Some("lms.s.isct.ac.jp")
+        && url.path().starts_with("/2025/")
+        && !url.path().contains("/pluginfile.php/")
+    {
         return Some(T2SCHOLA_EXTRACT_SCRIPT);
     }
     (url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
@@ -931,6 +935,12 @@ fn save_viewer_data(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn syncs_from_lms_pages_but_not_from_files_shown_in_the_view() {
+        assert!(ingestion_script("https://lms.s.isct.ac.jp/2025/my/").is_some());
+        assert!(ingestion_script("https://lms.s.isct.ac.jp/2025/pluginfile.php/223879/mod_label/intro/oop2026-schedule.png").is_none());
+    }
+
     use super::*;
 
     #[test]
@@ -1711,26 +1721,6 @@ impl SchoolWebController {
     /// school page redirected to sign-in). Used once at launch; afterwards
     /// sessions are renewed lazily when a page hits the sign-in redirect.
     /// Skipped while the person is using the school view or a sign-in runs.
-    pub fn attachment_view_ready(&self) -> bool {
-        self.state.lock().ok().and_then(|state| state.loaded_urls.get(&SchoolSite::ScienceLms).cloned())
-            .and_then(|raw| Url::parse(&raw).ok()).is_some_and(|url| {
-                url.host_str() == Some("lms.s.isct.ac.jp") &&
-                (url.path().starts_with("/2025/my/") || url.path().starts_with("/2025/course/"))
-            })
-    }
-
-    pub fn prepare_attachment_view(&self, app: &AppHandle) -> Result<bool, String> {
-        let site = SchoolSite::ScienceLms;
-        if app.get_webview(site.webview_label()).is_some() { return Ok(true); }
-        {
-            let state = self.state.lock().map_err(|_| "School web state is unavailable.")?;
-            // Do not navigate away from a submission or an in-progress sign-in.
-            if state.active.is_some() || state.login.is_some() || !state.creating.is_empty() { return Ok(false); }
-        }
-        self.open_internal(app, site, String::new(), String::new(), None, Some(format!("{}my/", site.start_url())), false)?;
-        Ok(true)
-    }
-
     pub fn ensure_session(
         &self,
         app: &AppHandle,

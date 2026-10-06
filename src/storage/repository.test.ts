@@ -12,12 +12,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (command: string, payload: unknown) => {
     native.calls.push({ command, payload });
     if (command === "load_workspace") return structuredClone(native.workspace);
-    if (command === "save_workspace") {
-      native.workspace = structuredClone(
-        (payload as { workspace: Workspace }).workspace,
-      );
+    if (command === "put_workspace_setting") {
+      const { key, value } = payload as { key: string; value: unknown };
+      if (key === "devicePreferences" && native.workspace)
+        Object.assign(native.workspace.settings, value);
       return;
     }
+    if (command === "put_user_record" || command === "delete_user_record") return;
     if (command === "export_data") return native.exported;
     if (command === "import_data") return structuredClone(native.workspace);
     if (command === "reset_workspace") return structuredClone(seedWorkspace());
@@ -39,9 +40,11 @@ beforeEach(() => {
   native.calls.length = 0;
   native.workspace = seedWorkspace();
   native.exported = JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     exportedAt: "2026-09-29T00:00:00.000Z",
-    deviceId: native.workspace.deviceId,
+    deviceId: "local-backup",
+    kind: "campus-life-local-backup",
+    localNotes: [],
     tables: {},
   });
 });
@@ -67,13 +70,12 @@ describe("LocalRepository browser preview", () => {
     const exported = JSON.parse(
       await repository.export(),
     ) as ExportDocument;
-    expect(exported.schemaVersion).toBe(3);
-    expect(exported.deviceId).toBe(value.deviceId);
+    expect(exported.schemaVersion).toBe(4);
+    expect(exported.deviceId).toBe("local-backup");
     expect(exported.tables.settings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          key: "settings",
-          value: expect.objectContaining({ locale: "zh" }),
+          key: "userPreferences",
         }),
       ]),
     );
@@ -83,12 +85,12 @@ describe("LocalRepository browser preview", () => {
   it("imports the same document format read-only previews export", async () => {
     const repository = new LocalRepository();
     const workspace = seedWorkspace();
-    workspace.settings.appearance = "dark";
+    workspace.settings.notifications.classes = false;
     await repository.save(workspace);
     const document = await repository.export();
     await repository.reset();
     const imported = await repository.import(document);
-    expect(imported.settings.appearance).toBe("dark");
+    expect(imported.settings.notifications.classes).toBe(false);
   });
 
   it("normalizes optional v3 fields", async () => {
@@ -124,7 +126,7 @@ describe("SqliteRepository desktop bridge", () => {
     await repository.save(value);
     expect(native.calls.map((call) => call.command)).toEqual([
       "load_workspace",
-      "save_workspace",
+      "put_workspace_setting",
     ]);
     expect(native.workspace?.settings.locale).toBe("ja");
   });

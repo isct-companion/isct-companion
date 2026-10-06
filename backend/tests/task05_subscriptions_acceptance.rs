@@ -1,3 +1,5 @@
+#[path = "../src/contracts.rs"]
+mod contracts;
 #[path = "../src/data/mod.rs"]
 mod data;
 #[path = "../src/subscriptions.rs"]

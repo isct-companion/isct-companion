@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import type { PersonalEvent, TermId, Workspace } from "../../core/model";
+import { newUserRecordId } from "../../storage/ids";
 import "./events.css";
 
 type Props = {
@@ -127,7 +128,7 @@ export function EventManager({ data, update, notify, readOnly }: Props) {
     );
     return course?.overrides?.title || course?.title;
   };
-  const save = (event: FormEvent) => {
+  const save = async (event: FormEvent) => {
     event.preventDefault();
     if (readOnly) return;
     if (
@@ -159,6 +160,7 @@ export function EventManager({ data, update, notify, readOnly }: Props) {
       return;
     }
     const now = new Date().toISOString();
+    const eventId = editing === "new" ? await newUserRecordId() : "";
     update((workspace) => ({
       ...workspace,
       events:
@@ -167,7 +169,7 @@ export function EventManager({ data, update, notify, readOnly }: Props) {
               ...workspace.events,
               {
                 ...draft,
-                id: crypto.randomUUID(),
+                id: eventId,
                 kind: "event",
                 rev: 1,
                 updatedAt: now,

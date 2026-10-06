@@ -175,33 +175,33 @@ fn visible_rows(workspace: &Value, key: &str) -> Vec<Value> {
         .collect()
 }
 
-fn stamp_mcp(row: &mut Value) {
-    let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    if let Some(object) = row.as_object_mut() {
-        let rev = object.get("rev").and_then(Value::as_u64).unwrap_or(0) + 1;
-        object.insert("rev".into(), Value::from(rev));
-        object.insert("updatedAt".into(), Value::String(timestamp));
-        object.insert("updatedBy".into(), Value::String("mcp".into()));
-    }
-}
-
-fn write_result(store: &DataStore, mut workspace: Value, tool_name: &str) -> Result<Value, String> {
-    if let Some(writes) = workspace
-        .pointer_mut("/settings/agentAccess/lastWrites")
-        .and_then(Value::as_array_mut)
-    {
-        writes.insert(
-            0,
-            json!({"at": chrono::Utc::now().to_rfc3339(), "tool": tool_name}),
-        );
-        writes.truncate(20);
-    }
-    store.save_workspace(&workspace)?;
+fn write_result(store: &DataStore, tool_name: &str) -> Result<Value, String> {
+    store.record_agent_write(tool_name)?;
     Ok(json!({"ok": true}))
 }
 
+fn valid_plan_time(value: &str) -> Result<(), String> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|_| ())
+        .map_err(|_| "start must be an RFC 3339 timestamp".to_string())
+}
+
+fn duration(args: &Value, required: bool) -> Result<Option<u64>, String> {
+    let value = args.get("duration").and_then(Value::as_u64);
+    if required && value.is_none() {
+        return Err("duration is required".into());
+    }
+    if value.is_some_and(|minutes| !(1..=10_080).contains(&minutes)) {
+        return Err("duration must be between 1 and 10080 minutes".into());
+    }
+    Ok(value)
+}
+
 fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
-    let mut workspace = store.load_workspace()?;
+    if !store.agent_access_enabled()? {
+        return Err("Campus Life agent access is disabled in Settings.".into());
+    }
+    let workspace = store.load_workspace()?;
     match name {
         "today" => Ok(json!({
             "courses": visible_rows(&workspace, "courses"),
@@ -276,59 +276,60 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
         "plan_add" => {
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
-            if !workspace["planItems"].as_array().is_some_and(|rows| {
-                rows.iter().any(|row| {
+            if !store.user_rows("plan_items")?.iter().any(|row| {
                     row.get("offeringId").and_then(Value::as_str) == Some(offering_id)
                         && row.get("termId").and_then(Value::as_str) == Some(term)
                         && row.get("deletedAt").is_none()
-                })
-            }) {
-                workspace["planItems"].as_array_mut().unwrap().push(json!({
-                    "id": uuid::Uuid::new_v4().to_string(), "kind": "plan-item",
+                }) {
+                store.put_user_record("plan_items", json!({
+                    "kind": "plan-item",
                     "termId": term, "offeringId": offering_id, "state": "planned",
-                    "rev": 1, "updatedAt": chrono::Utc::now().to_rfc3339(),
-                    "updatedBy": "mcp"
-                }));
+                    "source": {"provider":"mcp"}
+                }), "mcp")?;
             }
-            write_result(store, workspace, name)
+            write_result(store, name)
         }
         "plan_remove" => {
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
-            for row in workspace["planItems"].as_array_mut().unwrap() {
+            for row in store.user_rows("plan_items")? {
                 if row.get("offeringId").and_then(Value::as_str) == Some(offering_id)
                     && row.get("termId").and_then(Value::as_str) == Some(term)
                     && row.get("deletedAt").is_none()
                 {
-                    stamp_mcp(row);
-                    row["deletedAt"] = Value::String(chrono::Utc::now().to_rfc3339());
+                    if let Some(id) = row.get("id").and_then(Value::as_str) {
+                        store.delete_user_record("plan_items", id, "mcp")?;
+                    }
                 }
             }
-            write_result(store, workspace, name)
+            write_result(store, name)
         }
         "plan_event_create" => {
+            let start = required(args, "start")?;
+            valid_plan_time(start)?;
+            let duration = duration(args, true)?.unwrap();
             let rule = args.get("rrule").and_then(Value::as_str);
             if let Some(rule) = rule {
                 science_tokyo_workstation_lib::plans::validate_rrule(rule)?;
             }
-            workspace["plans"].as_array_mut().unwrap().push(json!({
-                "id": uuid::Uuid::new_v4().to_string(),
+            store.put_user_record("plans", json!({
                 "title": required(args, "title")?,
-                "start": required(args, "start")?,
-                "duration": args.get("duration").and_then(Value::as_u64).ok_or("duration is required")?,
-                "rrule": rule, "room": args.get("room"), "exdates": [],
-                "rev": 1, "updatedAt": chrono::Utc::now().to_rfc3339(), "updatedBy": "mcp"
-            }));
-            write_result(store, workspace, name)
+                "start": start, "duration": duration,
+                "rrule": rule, "room": args.get("room").cloned().unwrap_or(Value::Null),
+                "exdates": [], "source": {"provider":"mcp"}
+            }), "mcp")?;
+            write_result(store, name)
         }
         "plan_event_update" => {
             let id = required(args, "id")?;
-            let row = workspace["plans"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
+            let mut row = store.user_rows("plans")?
+                .into_iter()
                 .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
                 .ok_or_else(|| "plan was not found".to_string())?;
+            if let Some(start) = args.get("start").and_then(Value::as_str) {
+                valid_plan_time(start)?;
+            }
+            duration(args, false)?;
             if let Some(rule) = args.get("rrule").and_then(Value::as_str) {
                 science_tokyo_workstation_lib::plans::validate_rrule(rule)?;
             }
@@ -337,32 +338,30 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                     row[key] = value.clone();
                 }
             }
-            stamp_mcp(row);
-            write_result(store, workspace, name)
+            store.put_user_record("plans", row, "mcp")?;
+            write_result(store, name)
         }
         "plan_event_delete" => {
             let id = required(args, "id")?;
-            let row = workspace["plans"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                .ok_or_else(|| "plan was not found".to_string())?;
-            stamp_mcp(row);
-            row["deletedAt"] = Value::String(chrono::Utc::now().to_rfc3339());
-            write_result(store, workspace, name)
+            if !store.delete_user_record("plans", id, "mcp")? {
+                return Err("plan was not found".into());
+            }
+            write_result(store, name)
         }
         "hide_assignment" | "restore_assignment" => {
             let id = required(args, "id")?;
-            let row = workspace["assignments"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
+            let assignment = workspace["assignments"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row.get("id").and_then(Value::as_str) == Some(id)))
                 .ok_or_else(|| "assignment was not found".to_string())?;
-            row["hidden"] = Value::Bool(name == "hide_assignment");
-            stamp_mcp(row);
-            write_result(store, workspace, name)
+            let source_key = assignment.get("sourceKey").and_then(Value::as_str).unwrap_or(id);
+            let mut mark = store.user_rows("assignment_marks")?
+                .into_iter()
+                .find(|row| row.get("sourceKey").and_then(Value::as_str) == Some(source_key))
+                .unwrap_or_else(|| json!({"sourceKey":source_key,"assignmentId":id}));
+            mark["hidden"] = Value::Bool(name == "hide_assignment");
+            store.put_user_record("assignment_marks", mark, "mcp")?;
+            write_result(store, name)
         }
         _ => Err("unknown tool".into()),
     }
@@ -387,15 +386,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let enabled = store
-        .load_workspace()
-        .ok()
-        .and_then(|workspace| {
-            workspace
-                .pointer("/settings/agentAccess/enabled")
-                .and_then(Value::as_bool)
-        })
-        .unwrap_or(false);
+    let enabled = store.agent_access_enabled().unwrap_or(false);
     if !enabled {
         eprintln!("Campus Life agent access is disabled in Settings.");
         std::process::exit(3);

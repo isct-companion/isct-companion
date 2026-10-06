@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use serde::Serialize;
 use tauri::{plugin::PermissionState, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -15,11 +17,14 @@ use secrets::OsSecretVault;
 
 mod cloud;
 pub mod data;
+pub mod contracts;
 mod kyomu_guide;
 mod kyomu_ingest;
 mod lifecycle;
 mod lms_ingest;
 mod lms_files;
+#[cfg(desktop)]
+mod lms_downloader;
 #[cfg(matrix_ocr)]
 mod matrix_ocr;
 #[cfg(matrix_ocr)]
@@ -495,15 +500,42 @@ fn load_workspace(
 }
 
 #[tauri::command]
-async fn save_workspace(
+fn new_user_record_id(webview: tauri::Webview) -> Result<String, String> {
+    require_local_main(&webview)?;
+    Ok(uuid::Uuid::now_v7().to_string())
+}
+
+#[tauri::command]
+fn put_user_record(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
-    workspace: serde_json::Value,
+    table: String,
+    record: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    store.put_user_record(&table, record, "desktop")
+}
+
+#[tauri::command]
+fn delete_user_record(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    table: String,
+    id: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    store.delete_user_record(&table, &id, "desktop")
+}
+
+#[tauri::command]
+fn put_workspace_setting(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    key: String,
+    value: serde_json::Value,
 ) -> Result<(), String> {
     require_local_main(&webview)?;
-    let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || store.save_workspace(&workspace).map(|_| ()))
-        .await.map_err(|error| error.to_string())?
+    store.put_workspace_setting(&key, value, "desktop")
 }
 
 #[tauri::command]
@@ -518,10 +550,13 @@ fn reset_workspace(
 #[tauri::command]
 fn export_data(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    store.export_data()
+    let notes = serde_json::to_value(lms_files::export_notes(&app)?)
+        .map_err(|error| error.to_string())?;
+    store.export_data(notes)
 }
 
 /// Writes the shared export document into app-owned storage. Scheduled tasks
@@ -535,7 +570,9 @@ fn write_scheduled_export(
     require_local_main(&webview)?;
     use std::io::Write;
 
-    let document = store.export_data()?;
+    let notes = serde_json::to_value(lms_files::export_notes(&app)?)
+        .map_err(|error| error.to_string())?;
+    let document = store.export_data(notes)?;
     if document.len() > 32 * 1024 * 1024 {
         return Err("scheduled export exceeds the 32 MiB safety limit".into());
     }
@@ -544,7 +581,7 @@ fn write_scheduled_export(
     if parsed
         .get("schemaVersion")
         .and_then(serde_json::Value::as_u64)
-        != Some(3)
+        != Some(4)
     {
         return Err("scheduled export schema is unsupported".into());
     }
@@ -596,10 +633,20 @@ fn write_scheduled_export(
 #[tauri::command]
 fn import_data(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
     document: String,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&document).map_err(|_| "import is not valid JSON")?;
+    let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
+        parsed.get("localNotes").cloned().unwrap_or(serde_json::Value::Null),
+    )
+    .map_err(|_| "import localNotes is invalid")?;
+    // Validate and restore local user notes under the file-store lock. School
+    // materials are never present in this document.
+    lms_files::restore_notes(&app, &notes)?;
     store.import_data(&document)
 }
 
@@ -709,7 +756,8 @@ async fn catalog_sync_offering(
     };
     if let Some(offering_id) = offering_id {
         if let Some(stored) = store.catalog_offering(&offering_id)? {
-            let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+            let cutoff = chrono::Utc::now()
+                - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
             let fresh = ["ja", "en"].iter().all(|language| {
                 stored
                     .pointer(&format!("/fetchedAt/{language}"))
@@ -765,7 +813,7 @@ fn store_search_items(
         }
     }
     if !rows.is_empty() {
-        store.catalog_upsert_offerings(&rows)?;
+        store.catalog_upsert_search_items(&rows)?;
     }
     Ok(())
 }
@@ -776,7 +824,8 @@ async fn sync_stale_details(
     store: &data::DataStore,
     targets: Vec<(String, String)>,
 ) -> Result<(Vec<syllabus::SyncOfferingResult>, Vec<String>), String> {
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+    let cutoff = chrono::Utc::now()
+        - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
     let stale = targets
         .into_iter()
         .filter(|(id, _)| {
@@ -962,15 +1011,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(lms_files::FileStore(
-            std::sync::Mutex::new(()),
-            std::sync::Arc::new(tauri::async_runtime::Mutex::new(())),
-            std::env::temp_dir().join(format!(
-                "isct-course-preview-{}",
-                uuid::Uuid::new_v4()
-            )),
-        ))
+        .manage(lms_files::FileStore(std::sync::Mutex::new(())))
         .manage(SchoolWebController::new());
+    #[cfg(desktop)]
+    let builder = builder.manage(lms_downloader::Downloader::default());
     #[cfg(matrix_ocr)]
     let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
     builder
@@ -983,7 +1027,8 @@ pub fn run() {
             lms_files::move_course_note,
             lms_files::list_course_notes,
             lms_files::open_course_material,
-            lms_files::save_course_material,
+            lms_files::open_course_file,
+            lms_files::clean_course_materials,
             recognize_matrix_image,
             open_external,
             configure_school_web_policy,
@@ -1010,7 +1055,10 @@ pub fn run() {
             connect_cloud,
             cloud_request,
             load_workspace,
-            save_workspace,
+            new_user_record_id,
+            put_user_record,
+            delete_user_record,
+            put_workspace_setting,
             reset_workspace,
             export_data,
             write_scheduled_export,
@@ -1069,9 +1117,5 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("failed to build Science Tokyo Workstation")
-        .run(|app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                let _ = std::fs::remove_dir_all(&app.state::<lms_files::FileStore>().2);
-            }
-        });
+        .run(|_, _| {});
 }

@@ -523,16 +523,21 @@ fn apply_row(
     extra: &[(&str, rusqlite::types::Value)],
 ) -> Result<bool, String> {
     let hash = content_hash(value)?;
-    let old: Option<(String, u64)> = tx
+    let old: Option<(String, u64, Option<String>)> = tx
         .query_row(
-            &format!("SELECT hash,rev FROM {table} WHERE id=?1"),
+            &format!("SELECT hash,rev,missing_since FROM {table} WHERE id=?1"),
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    if old.as_ref().is_some_and(|(h, _)| h == &hash) {
-        return Ok(false);
+    let timestamp = Utc::now().to_rfc3339();
+    if old.as_ref().is_some_and(|(h, _, _)| h == &hash) {
+        let changed = old.as_ref().is_some_and(|(_, _, missing)| missing.is_some());
+        tx.execute(&format!("UPDATE {table} SET last_seen_at=?2,missing_since=NULL,deleted_at=NULL,
+            value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"), rusqlite::params![id,timestamp])
+            .map_err(|e|e.to_string())?;
+        return Ok(changed);
     }
     let mut names = vec![
         "id",
@@ -543,9 +548,10 @@ fn apply_row(
         "rev",
         "source",
         "deleted_at",
+        "last_seen_at",
+        "missing_since",
     ];
     names.extend(extra.iter().map(|(n, _)| *n));
-    let timestamp = Utc::now().to_rfc3339();
     let rev = old.map_or(0, |x| x.1) + 1;
     let mut stored = value.clone();
     if let Some(object) = stored.as_object_mut() {
@@ -556,6 +562,10 @@ fn apply_row(
             "source".into(),
             json!({"provider":"subscription","hash":source_hash}),
         );
+        object.insert("sourceKey".into(), format!("reference:{table}:{source_hash}:{id}").into());
+        object.insert("lastSeenAt".into(), timestamp.clone().into());
+        object.remove("missingSince");
+        object.remove("deletedAt");
     }
     let mut values = vec![
         id.to_string().into(),
@@ -563,10 +573,12 @@ fn apply_row(
             .map_err(|e| e.to_string())?
             .into(),
         hash.into(),
-        timestamp.into(),
+        timestamp.clone().into(),
         String::from("subscription").into(),
         (rev as i64).into(),
         source_hash.to_string().into(),
+        rusqlite::types::Value::Null,
+        timestamp.clone().into(),
         rusqlite::types::Value::Null,
     ];
     values.extend(extra.iter().map(|(_, v)| v.clone()));
@@ -793,7 +805,7 @@ pub fn apply_reference(
         }
         let mut statement = tx
             .prepare(&format!(
-                "SELECT id FROM {table} WHERE id LIKE ?1 AND deleted_at IS NULL"
+                "SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"
             ))
             .map_err(|e| e.to_string())?;
         let old = statement
@@ -803,8 +815,8 @@ pub fn apply_reference(
             .map_err(|e| e.to_string())?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live.contains(id)) {
-            let deleted = Utc::now().to_rfc3339();
-            changed+=tx.execute(&format!("UPDATE {table} SET deleted_at=?2,rev=rev+1,value=json_set(value,'$.deletedAt',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),rusqlite::params![id,deleted]).map_err(|e|e.to_string())?;
+            let missing = Utc::now().to_rfc3339();
+            changed+=tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),rusqlite::params![id,missing]).map_err(|e|e.to_string())?;
         }
     }
     tx.commit().map_err(|e| e.to_string())?;

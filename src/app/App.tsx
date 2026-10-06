@@ -8,6 +8,7 @@ import { UiButton } from "../components/mantine";
 import i18n, { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import { desktopBridge, hideNativeSchoolWeb } from "./native";
+import { cleanMaterials, retentionDays } from "../pages/today/lms/files";
 import { stamp, type Page, type Section } from "./shared";
 import {
   onTimetable,
@@ -87,6 +88,7 @@ import {
   isSyllabusCourse,
   removeSyllabusDraft,
 } from "../core/syllabus";
+import { newUserRecordId } from "../storage/ids";
 
 import {
   CourseEditor,
@@ -341,11 +343,16 @@ function WorkspaceApp() {
     };
   }, []);
   const [mergeDiff, setMergeDiff] = useState<MergeDiff | null>(null);
-  const schoolRecords = useWorkspace(state => state.schoolRecords);
+  const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const loadSchoolRecords = () => workspaceActions.refreshSchool();
-  useEffect(() => desktopBridge?.onSchoolIngest?.(outcome => {
-    if (outcome.state === "ok") void workspaceActions.refreshSchool().catch(() => undefined);
-  }), []);
+  useEffect(
+    () =>
+      desktopBridge?.onSchoolIngest?.((outcome) => {
+        if (outcome.state === "ok")
+          void workspaceActions.refreshSchool().catch(() => undefined);
+      }),
+    [],
+  );
   const [schedulerState, setSchedulerState] =
     useState<SchedulerRuntimeState>("off");
   const [nativeCapabilities, setNativeCapabilities] =
@@ -470,6 +477,13 @@ function WorkspaceApp() {
       workspaceActions.applySchoolImport(result),
     );
   }, [nativeCapabilities]);
+  // Once per launch, after settings load: drop downloaded course files left unused.
+  const cleaned = useRef(false);
+  useEffect(() => {
+    if (!data || cleaned.current) return;
+    cleaned.current = true;
+    void cleanMaterials(retentionDays(data.settings)).catch(() => undefined);
+  }, [Boolean(data)]);
   useEffect(() => {
     if (!data) return;
     document.documentElement.dataset.appearance = data.settings.appearance;
@@ -677,11 +691,15 @@ function WorkspaceApp() {
   const termCredits =
     declaredTermCredits(schoolRecords?.registrations ?? [], courseTerm) ??
     finderTermCourses.reduce((sum, course) => sum + course.credits, 0);
-  const addFinderCourses = (rows: FinderCourse[]) =>
+  const addFinderCourses = async (rows: FinderCourse[]) => {
+    const ids = await Promise.all(rows.map(async () => ({
+      course: await newUserRecordId(),
+      planItem: await newUserRecordId(),
+    })));
     academicUpdate((draft) => {
       const quarter = courseTerm.slice(5) as Quarter;
       const replaced: string[] = [];
-      for (const row of rows) {
+      for (const [index, row] of rows.entries()) {
         // Add replaces: a planned course in the same periods leaves the timetable.
         // Courses registered at school stay; only local drafts are replaced.
         for (const victim of clashingCourses(
@@ -699,11 +717,12 @@ function WorkspaceApp() {
           ...course,
           year: Number(courseTerm.slice(0, 4)),
           quarter,
-        });
+        }, ids[index]);
       }
       replacedByAdd.current = replaced;
       return draft;
     });
+  };
   const removeFromTimetable = (course: Course) => {
     const school = data.memberships.some(
       (item) =>
@@ -729,7 +748,8 @@ function WorkspaceApp() {
     setPanelCourseId(null);
   };
 
-  const saveCourse = (draft: CourseDraft, term: TermId, existing?: Course) =>
+  const saveCourse = async (draft: CourseDraft, term: TermId, existing?: Course) => {
+    const [courseId, membershipId] = await Promise.all([newUserRecordId(), newUserRecordId()]);
     academicUpdate((d) => {
       const now = stamp();
       let course = existing
@@ -737,7 +757,7 @@ function WorkspaceApp() {
         : undefined;
       if (!course) {
         course = {
-          id: crypto.randomUUID(),
+          id: courseId,
           kind: "course",
           rev: 0,
           updatedAt: now,
@@ -789,9 +809,10 @@ function WorkspaceApp() {
         updatedAt: now,
         updatedBy: d.deviceId,
       });
-      setTimetable(d, course, draft.onTimetable);
+      setTimetable(d, course, draft.onTimetable, membershipId);
       return d;
     });
+  };
   const deleteCourse = (course: Course) =>
     academicUpdate((d) => {
       const now = stamp();
@@ -807,17 +828,19 @@ function WorkspaceApp() {
       }
       return d;
     });
-  const toggleTimetable = (course: Course) =>
+  const toggleTimetable = async (course: Course) => {
+    const membershipId = await newUserRecordId();
     academicUpdate((d) => {
       const target = d.courses.find((c) => c.id === course.id);
-      if (target) setTimetable(d, target, !onTimetable(d, target));
+      if (target) setTimetable(d, target, !onTimetable(d, target), membershipId);
       return d;
     });
+  };
   const saveEvent = (
     draft: EventDraft,
     term: TermId,
     existing?: PersonalEvent,
-  ) =>
+  ) => newUserRecordId().then((eventId) =>
     academicUpdate((d) => {
       const now = stamp();
       const target = existing
@@ -832,7 +855,7 @@ function WorkspaceApp() {
       else
         d.events.push({
           ...draft,
-          id: crypto.randomUUID(),
+          id: eventId,
           kind: "event",
           rev: 1,
           updatedAt: now,
@@ -840,7 +863,7 @@ function WorkspaceApp() {
           termId: term,
         });
       return d;
-    });
+    }));
   const deleteEvent = (event: PersonalEvent) =>
     academicUpdate((d) => {
       const target = d.events.find((e) => e.id === event.id);
@@ -850,7 +873,7 @@ function WorkspaceApp() {
       }
       return d;
     });
-  const savePlan = (draft: PlanDraft, existing?: Plan) =>
+  const savePlan = (draft: PlanDraft, existing?: Plan) => newUserRecordId().then((planId) =>
     academicUpdate((workspace) => {
       const now = stamp();
       const target = existing
@@ -865,13 +888,13 @@ function WorkspaceApp() {
       else
         workspace.plans.push({
           ...draft,
-          id: crypto.randomUUID(),
+          id: planId,
           rev: 1,
           updatedAt: now,
           updatedBy: workspace.deviceId,
         });
       return workspace;
-    });
+    }));
   const deletePlan = (plan: Plan) =>
     academicUpdate((workspace) => {
       const target = workspace.plans.find((item) => item.id === plan.id);
@@ -1512,6 +1535,7 @@ function WorkspaceApp() {
             active={page === "web"}
             platform={platform}
             data={data}
+            update={update}
             notify={setToast}
             schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
             requestedUrl={webContext?.url}
@@ -1633,7 +1657,8 @@ function WorkspaceApp() {
               opened
               value={existing}
               close={() => setIntensiveCourseId(null)}
-              save={(value) => {
+              save={async (value) => {
+                const scheduleId = await newUserRecordId();
                 academicUpdate((workspace) => {
                   const now = stamp();
                   const target = workspace.intensiveSchedules.find(
@@ -1648,7 +1673,7 @@ function WorkspaceApp() {
                   else
                     workspace.intensiveSchedules.push({
                       ...value,
-                      id: crypto.randomUUID(),
+                      id: scheduleId,
                       courseId: course.id,
                       rev: 1,
                       updatedAt: now,

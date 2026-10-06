@@ -1,5 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { desktopBridge } from "../../../app/native";
+import { COURSE_FILE_POLICY } from "../../../core/course-file-policy";
+import type { Settings } from "../../../core/model";
 export type CourseFolder = { term: string; course: string; section: string };
 export type LocalFile = {
   id: string;
@@ -20,25 +22,27 @@ export const folderComponent = (value: string) => {
   return !name || name === "." || name === ".." ? "course" : name;
 };
 export const fileSrc = (file: LocalFile) => convertFileSrc(file.path);
-export function previewKind(
-  url: string,
-): "pdf" | "markdown" | "text" | "image" | undefined {
-  let path: string;
-  try {
-    path = new URL(url).pathname;
-  } catch {
-    path = url;
-  }
-  if (/\.pdf$/i.test(path)) return "pdf";
-  if (/\.(md|markdown)$/i.test(path)) return "markdown";
-  if (
-    /\.(txt|tex|js|jsx|ts|tsx|java|py|r|c|cpp|cxx|cc|h|hpp|rs|go|rb|sh|sql|json|yaml|yml|toml|xml|css|csv|log)$/i.test(
-      path,
-    )
-  )
-    return "text";
-  if (/\.(png|jpe?g|gif|webp)$/i.test(path)) return "image";
-}
+const boundedInteger = (
+  value: number | undefined,
+  policy: { default: number; min: number; max: number },
+) => {
+  const integer = Number.isFinite(value) ? Math.round(value!) : policy.default;
+  return Math.min(policy.max, Math.max(policy.min, integer));
+};
+/** Byte limit for automatic downloads, from the settings value in MB. */
+export const downloadLimit = (
+  settings: Pick<Settings, "autoDownloadLimitMb">,
+) =>
+  boundedInteger(
+    settings.autoDownloadLimitMb,
+    COURSE_FILE_POLICY.autoDownloadLimitMb,
+  ) *
+  1024 *
+  1024;
+/** Days a downloaded file may remain unopened before launch cleanup removes it. */
+export const retentionDays = (settings: Pick<Settings, "autoCleanDays">) =>
+  boundedInteger(settings.autoCleanDays, COURSE_FILE_POLICY.retentionDays);
+export { previewKind } from "./file-types";
 export async function storageInfo(): Promise<StorageInfo> {
   return desktopBridge
     ? invoke("course_storage_info")
@@ -99,7 +103,10 @@ export function saveNote(
   id: string,
   text: string,
 ): Promise<LocalFile> {
-  const name = key(context, id);
+  // Production IDs come from Rust (UUIDv7). Browser preview has no backend,
+  // so its fallback is intentionally confined to localStorage.
+  const recordId = id || (desktopBridge ? "" : crypto.randomUUID());
+  const name = key(context, recordId || "new");
   const previous = queues.get(name) ?? Promise.resolve();
   const next = previous
     .catch(() => undefined)
@@ -107,13 +114,14 @@ export function saveNote(
       if (new TextEncoder().encode(text).length > 1_000_000)
         throw new Error("Notes are limited to 1 MB");
       if (desktopBridge)
-        return invoke<LocalFile>("save_course_note", { context, id, text });
-      localStorage.setItem(name, text);
+        return invoke<LocalFile>("save_course_note", { context, id: recordId, text });
+      const storageKey = key(context, recordId);
+      localStorage.setItem(storageKey, text);
       return {
-        id,
+        id: recordId,
         section: context.section,
         name: text.split("\n")[0].replace(/^#+\s*/, "") || "Note",
-        path: name,
+        path: storageKey,
         bytes: text.length,
         cached: false,
       };
@@ -126,31 +134,69 @@ export function saveNote(
     .catch(() => undefined);
   return next;
 }
+/** A course file on disk, or why it is not (yet). */
+export type Material =
+  | { state: "ready"; file: LocalFile }
+  | { state: "missing" }
+  | { state: "tooLarge"; bytes: number };
+/**
+ * Read a course file from the course folder; with `download`, fetch it first
+ * through the signed-in LMS view. Files over `limit` bytes report their size.
+ */
 export async function openMaterial(
   context: CourseFolder,
   url: string,
-  download: boolean,
-  readText: boolean,
-  autoSave = false,
-): Promise<LocalFile | null> {
-  if (!desktopBridge) return null;
-  return invoke("open_course_material", { context, url, download, readText, autoSave });
+  {
+    download = false,
+    readText = false,
+    limit,
+  }: { download?: boolean; readText?: boolean; limit?: number } = {},
+): Promise<Material> {
+  if (!desktopBridge) return { state: "missing" };
+  return invoke("open_course_material", {
+    context,
+    url,
+    download,
+    readText,
+    limit,
+  });
 }
+export const openStoredFile = (path: string, reveal = false): Promise<void> =>
+  invoke("open_course_file", { path, reveal });
+/** Remove downloaded files not opened for `days` days. */
+export const cleanMaterials = (days: number): Promise<number> =>
+  desktopBridge
+    ? invoke("clean_course_materials", { days })
+    : Promise.resolve(0);
 
-export async function downloadMaterial(context: CourseFolder, url: string): Promise<string | null> { return invoke("save_course_material", { context, url }); }
-
-export async function moveNote(context: CourseFolder, id: string, restore = false): Promise<void> {
+export async function moveNote(
+  context: CourseFolder,
+  id: string,
+  restore = false,
+): Promise<void> {
   const name = key(context, id);
   const previous = queues.get(name) ?? Promise.resolve();
-  const operation = previous.catch(() => undefined).then(async () => {
-    if (desktopBridge) { await invoke("move_course_note", { context, id, restore }); return; }
-    const trash = `${name}:deleted`;
-    const source = restore ? trash : name; const target = restore ? name : trash;
-    const text = localStorage.getItem(source);
-    if (text === null) throw new Error("Note was not found");
-    if (localStorage.getItem(target) !== null) throw new Error("A note already exists at the destination");
-    localStorage.setItem(target, text); localStorage.removeItem(source);
-  });
+  const operation = previous
+    .catch(() => undefined)
+    .then(async () => {
+      if (desktopBridge) {
+        await invoke("move_course_note", { context, id, restore });
+        return;
+      }
+      const trash = `${name}:deleted`;
+      const source = restore ? trash : name;
+      const target = restore ? name : trash;
+      const text = localStorage.getItem(source);
+      if (text === null) throw new Error("Note was not found");
+      if (localStorage.getItem(target) !== null)
+        throw new Error("A note already exists at the destination");
+      localStorage.setItem(target, text);
+      localStorage.removeItem(source);
+    });
   queues.set(name, operation);
-  try { await operation; } finally { if (queues.get(name) === operation) queues.delete(name); }
+  try {
+    await operation;
+  } finally {
+    if (queues.get(name) === operation) queues.delete(name);
+  }
 }

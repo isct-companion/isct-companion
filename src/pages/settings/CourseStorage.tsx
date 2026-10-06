@@ -32,7 +32,7 @@ export function CourseStorage() {
       <p>{info?.root}</p>
       <small>
         {t(
-          "Organized by year–quarter / course code / section. Changing the folder keeps existing files in their original location.",
+          "Organized by year–quarter / course code (notes by section). Changing the folder keeps existing files in their original location.",
         )}
       </small>
       <div className="actions">

@@ -32,6 +32,8 @@ export function deadlineState(
   a: Assignment,
   now = new Date(),
 ): { label: string; tone: "warning" | "normal"; ms: number } {
+  if (!a.dueAt)
+    return { label: "No deadline", tone: "normal", ms: Infinity };
   const ms = new Date(a.dueAt).getTime() - now.getTime();
   if (ms < 0)
     return { label: `${relative(Math.abs(ms))} ago`, tone: "normal", ms };

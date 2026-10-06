@@ -1,14 +1,16 @@
+import { DATA_POLICY } from "../generated/persistence";
+
 /**
  * School data is cached in SQLite and pulled again only when it is older
  * than its TTL. Assignments change daily; the timetable rarely does.
  */
 export const SCHOOL_TTL_MS = {
   /** LMS assignments and materials. */
-  assignments: 12 * 60 * 60_000,
+  assignments: DATA_POLICY.lms.staleAfterSeconds * 1000,
   /** Comparing the timetable with LMS (and reviewing differences). */
-  timetable: 30 * 24 * 60 * 60_000,
+  timetable: DATA_POLICY.timetable.staleAfterSeconds * 1000,
   /** 教務Web: GPA, registration state, grades, requirements. */
-  kyomu: 7 * 24 * 60 * 60_000,
+  kyomu: DATA_POLICY.kyomu.staleAfterSeconds * 1000,
 } as const;
 
 /** The 教務Web page kinds one pull reads (`import_runs.scope`). */

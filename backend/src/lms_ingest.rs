@@ -204,6 +204,17 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
           const link = page.querySelector('#region-main a[href^="https://"]');
           if (link) cm.resourceUrl = link.href;
         }
+        // "Automatic"/embed display (Moodle's default for images and PDFs)
+        // answers with a page that embeds the file instead of redirecting.
+        if (cm.module === 'resource') {
+          for (const [selector, attr] of [['.resourcecontent img', 'src'], ['.resourcecontent object', 'data'],
+            ['.resourcecontent iframe', 'src'], ['.resourcecontent video source, .resourcecontent audio source', 'src'],
+            ['.resourceworkaround a', 'href'], ['.resourcecontent a', 'href']]) {
+            const raw = page.querySelector(selector)?.getAttribute(attr);
+            const file = raw && new URL(raw, response.url);
+            if (file && file.origin === location.origin && file.pathname.includes('/pluginfile.php/')) { cm.resourceUrl = file.href; break; }
+          }
+        }
       } catch { /* Keep cached detail on a later incomplete read. */ }
     };
     for (let index = 0; index < detailCms.length; index += 4)
@@ -694,18 +705,24 @@ fn upsert_versioned(
     columns: &[(&str, rusqlite::types::Value)],
 ) -> Result<bool, String> {
     let hash = content_hash(value)?;
-    let existing: Option<String> = tx
+    let existing: Option<(String, Option<String>)> = tx
         .query_row(
-            &format!("SELECT hash FROM {table} WHERE id=?1"),
+            &format!("SELECT hash, missing_since FROM {table} WHERE id=?1"),
             [id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    if existing.as_deref() == Some(&hash) {
-        return Ok(false);
-    }
     let timestamp = Utc::now().to_rfc3339();
+    if existing.as_ref().is_some_and(|(stored, _)| stored == &hash) {
+        let changed = existing.as_ref().is_some_and(|(_, missing)| missing.is_some());
+        tx.execute(
+            &format!("UPDATE {table} SET last_seen_at=?2, missing_since=NULL, deleted_at=NULL,
+                value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"),
+            params![id, timestamp],
+        ).map_err(|e| e.to_string())?;
+        return Ok(changed);
+    }
     let mut names = vec![
         "id",
         "value",
@@ -715,6 +732,8 @@ fn upsert_versioned(
         "rev",
         "source",
         "deleted_at",
+        "last_seen_at",
+        "missing_since",
     ];
     names.extend(columns.iter().map(|(name, _)| *name));
     let marks = (1..=names.len())
@@ -741,16 +760,21 @@ fn upsert_versioned(
         object.insert("updatedAt".into(), timestamp.clone().into());
         object.insert("updatedBy".into(), "lms".into());
         object.insert("source".into(), json!({"provider":"lms"}));
+        object.insert("lastSeenAt".into(), timestamp.clone().into());
+        object.remove("missingSince");
+        object.remove("deletedAt");
     }
     let json = serde_json::to_string(&stored).map_err(|e| e.to_string())?;
     let mut values = vec![
         id.to_string().into(),
         json.into(),
         hash.into(),
-        timestamp.into(),
+        timestamp.clone().into(),
         String::from("lms").into(),
         (rev as i64).into(),
         String::from("lms").into(),
+        rusqlite::types::Value::Null,
+        timestamp.clone().into(),
         rusqlite::types::Value::Null,
     ];
     values.extend(columns.iter().map(|(_, value)| value.clone()));
@@ -783,11 +807,11 @@ fn write_assignment(
     page_state: Option<&str>,
 ) -> Result<bool, String> {
     let cmid = source.cmid;
-    let prior: Option<String> = tx
+    let prior: Option<(String, Option<String>)> = tx
         .query_row(
-            "SELECT submission FROM assignments WHERE lms_cmid=?1 AND deleted_at IS NULL",
+            "SELECT submission, due_at FROM assignments WHERE lms_cmid=?1 AND missing_since IS NULL",
             [cmid],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
@@ -796,13 +820,16 @@ fn write_assignment(
         state
     } else if listed_open {
         "open"
-    } else if prior.as_deref() == Some("open") && due.is_some_and(|d| d > Utc::now().timestamp()) {
+    } else if prior.as_ref().map(|value| value.0.as_str()) == Some("open") && due.is_some_and(|d| d > Utc::now().timestamp()) {
         "submitted"
     } else {
-        prior.as_deref().filter(|p| *p == "submitted").unwrap_or("unknown")
+        prior.as_ref().map(|value| value.0.as_str()).filter(|p| *p == "submitted").unwrap_or("unknown")
     };
-    let due_at = due.and_then(|d| chrono::DateTime::from_timestamp(d, 0)).map(|d| d.to_rfc3339());
-    let assignment = json!({"id":format!("lms-assignment:{cmid}"),"kind":"assignment","courseId":source.course,
+    let due_at = due
+        .and_then(|d| chrono::DateTime::from_timestamp(d, 0))
+        .map(|d| d.to_rfc3339())
+        .or_else(|| prior.as_ref().and_then(|value| value.1.clone()));
+    let assignment = json!({"id":format!("lms-assignment:{cmid}"),"sourceKey":format!("lms:default:assignment:{cmid}"),"kind":"assignment","courseId":source.course,
         "lmsCmid":cmid,"lmsCourseId":source.lms_course,"title":source.title,"details":"","sourceUrl":source.url,
         "dueAt":due_at,"submission":submission});
     upsert_versioned(
@@ -841,7 +868,7 @@ pub fn apply_lms_payload(
     let dated: HashMap<u64, i64> = payload
         .dated_events
         .iter()
-        .filter(|v| v.get("eventtype").and_then(Value::as_str) == Some("due"))
+        .filter(|v| matches!(v.get("eventtype").and_then(Value::as_str), Some("due" | "close")))
         .filter_map(|v| Some((id_of(v.get("instance"))?, v.get("timesort")?.as_i64()?)))
         .collect();
     // Due dates: the calendar's due event, else the open-work event's time.
@@ -896,7 +923,7 @@ pub fn apply_lms_payload(
                 }
             }
         }
-        let value = json!({"id":lms_course_id,"lmsId":course.id,"offeringId":offering,
+        let value = json!({"id":lms_course_id,"sourceKey":format!("lms:default:course:{}",course.id),"lmsId":course.id,"offeringId":offering,
             "shortname":course.shortname,"title":split_title(&course.fullname,&payload.language),"year":year,
             "quarters":quarter_of(year,course.coursecategory),"url":course.viewurl,"hidden":course.hidden,
             "timetables":timetables,"sections":sections});
@@ -913,7 +940,7 @@ pub fn apply_lms_payload(
         let offering_id = value.get("offeringId").and_then(Value::as_str);
         let linked = offering_id.and_then(|id| {
             tx.query_row(
-                "SELECT id FROM timetable_courses WHERE deleted_at IS NULL
+                "SELECT id FROM timetable_courses WHERE missing_since IS NULL
                  AND json_extract(value,'$.offeringId')=?1 ORDER BY updated_at DESC LIMIT 1",
                 [id],
                 |row| row.get::<_, String>(0),
@@ -937,7 +964,7 @@ pub fn apply_lms_payload(
             .map(|c| format!("lms-course:{}", c.id))
             .collect();
         let mut statement = tx
-            .prepare("SELECT id FROM lms_courses WHERE deleted_at IS NULL")
+            .prepare("SELECT id FROM lms_courses WHERE missing_since IS NULL")
             .map_err(|e| e.to_string())?;
         let old = statement
             .query_map([], |r| r.get::<_, String>(0))
@@ -946,11 +973,12 @@ pub fn apply_lms_payload(
             .map_err(|e| e.to_string())?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live.contains(id)) {
-            let deleted = Utc::now().to_rfc3339();
-            changed += tx.execute("UPDATE lms_courses SET deleted_at=?2,rev=rev+1,value=json_set(value,'$.deletedAt',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND deleted_at IS NULL",params![id,deleted]).map_err(|e|e.to_string())?;
+            let missing = Utc::now().to_rfc3339();
+            changed += tx.execute("UPDATE lms_courses SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
         }
     }
     for structure in payload.structures.iter().filter(|s| s.complete) {
+        let mut live_assignments = HashSet::new();
         let state = structure
             .state
             .as_ref()
@@ -999,7 +1027,7 @@ pub fn apply_lms_payload(
                 .optional().map_err(|e| e.to_string())?.and_then(|raw| serde_json::from_str(&raw).ok());
             let body = cm.get("bodyHtml").or_else(|| previous.as_ref().and_then(|v| v.get("bodyHtml")));
             let resource_url = cm.get("resourceUrl").or_else(|| previous.as_ref().and_then(|v| v.get("resourceUrl")));
-            let item = json!({"id":item_id,"kind":"material","courseId":linked_course,"cmid":cmid,"lmsCourseId":structure.course_id,"sectionNumber":section.1,
+            let item = json!({"id":item_id,"sourceKey":format!("lms:default:material:{cmid}"),"kind":"material","courseId":linked_course,"cmid":cmid,"lmsCourseId":structure.course_id,"sectionNumber":section.1,
                 "sectionId":id_of(cm.get("sectionid")),"bodyHtml":body,"resourceUrl":resource_url,"sectionTitle":section.0,"module":module,"name":cm.get("name").and_then(Value::as_str).unwrap_or(""),
                 "session":section.1,"title":name,"type":"link","url":url,"visible":cm.get("visible").and_then(Value::as_bool).unwrap_or(false) && cm.get("uservisible").and_then(Value::as_bool).unwrap_or(false)});
             changed += usize::from(upsert_versioned(
@@ -1019,9 +1047,10 @@ pub fn apply_lms_payload(
                     payload.assign_status.get(&cmid).map(String::as_str),
                 )?);
                 written.insert(cmid);
+                live_assignments.insert(format!("lms-assignment:{cmid}"));
             }
         }
-        let mut statement = tx.prepare("SELECT id FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1 AND deleted_at IS NULL").map_err(|e|e.to_string())?;
+        let mut statement = tx.prepare("SELECT id FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1 AND missing_since IS NULL").map_err(|e|e.to_string())?;
         let old = statement
             .query_map([structure.course_id], |r| r.get::<_, String>(0))
             .map_err(|e| e.to_string())?
@@ -1029,8 +1058,16 @@ pub fn apply_lms_payload(
             .map_err(|e| e.to_string())?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live.contains(id)) {
-            let deleted = Utc::now().to_rfc3339();
-            changed += tx.execute("UPDATE lms_items SET deleted_at=?2,rev=rev+1,value=json_set(value,'$.deletedAt',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND deleted_at IS NULL",params![id,deleted]).map_err(|e|e.to_string())?;
+            let missing = Utc::now().to_rfc3339();
+            changed += tx.execute("UPDATE lms_items SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
+        }
+        let mut statement = tx.prepare("SELECT id FROM assignments WHERE lms_course_id=?1 AND missing_since IS NULL").map_err(|e|e.to_string())?;
+        let old = statement.query_map([structure.course_id], |r| r.get::<_, String>(0))
+            .map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        drop(statement);
+        for id in old.into_iter().filter(|id| !live_assignments.contains(id)) {
+            let missing = Utc::now().to_rfc3339();
+            changed += tx.execute("UPDATE assignments SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
         }
     }
     // Open work in courses whose structure was not loaded (other quarters).

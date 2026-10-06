@@ -89,9 +89,14 @@ export function Today({
         assignment.submission === "graded"
       )
         return false;
-      return Number.isFinite(new Date(assignment.dueAt).getTime());
+      return (
+        assignment.dueAt !== null &&
+        Number.isFinite(new Date(assignment.dueAt).getTime())
+      );
     })
-    .sort((left, right) => left.dueAt.localeCompare(right.dueAt));
+    .sort((left, right) =>
+      (left.dueAt ?? "").localeCompare(right.dueAt ?? ""),
+    );
   // Every open assignment of this quarter, however far its deadline; work
   // from earlier quarters (never-submitted reports of finished courses)
   // stays folded.
@@ -101,16 +106,17 @@ export function Today({
     );
     return course
       ? course.termId === term
-      : new Date(assignment.dueAt).getTime() >= now.getTime();
+      : assignment.dueAt !== null &&
+        new Date(assignment.dueAt).getTime() >= now.getTime();
   };
   const current = assignments.filter(inThisQuarter);
   // This week (overdue included) first; later deadlines in their own group.
   const weekEnd = now.getTime() + 7 * 86_400_000;
   const soon = current.filter(
-    (item) => new Date(item.dueAt).getTime() <= weekEnd,
+    (item) => new Date(item.dueAt!).getTime() <= weekEnd,
   );
   const later = current.filter(
-    (item) => new Date(item.dueAt).getTime() > weekEnd,
+    (item) => new Date(item.dueAt!).getTime() > weekEnd,
   );
   const earlier = assignments.filter(
     (assignment) => !inThisQuarter(assignment),

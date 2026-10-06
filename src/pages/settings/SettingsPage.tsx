@@ -100,7 +100,6 @@ export function Settings({
     { id: "calendar", label: "Academic calendar" },
     { id: "subscriptions", label: "Subscriptions" },
     { id: "hidden", label: "Hidden items" },
-    { id: "scheduled", label: "Scheduled tasks" },
     { id: "data", label: "Data" },
     { id: "agent", label: "Agent access" },
     ...(advancedAvailable
@@ -382,9 +381,6 @@ export function Settings({
                 <option value="ja">日本語</option>
               </UiSelect>
             </Row>
-            <Row title={t("Automatically save course files")} hint={t("Keep opened files in your course folder for offline use. Otherwise previews use temporary storage.")}>
-              <Switch checked={data.settings.autoSaveCourseFiles ?? false} aria-label={t("Automatically save course files")} onChange={event => { const checked = event.currentTarget.checked; update(d => { d.settings.autoSaveCourseFiles = checked; return d; }); }} />
-            </Row>
             <Row title="Department">
               <UiSelect
                 value={departmentById(data.settings.departmentId)?.id ?? ""}
@@ -647,7 +643,11 @@ export function Settings({
                 <Row
                   key={assignment.id}
                   title={assignment.title}
-                  hint={new Date(assignment.dueAt).toLocaleString()}
+                  hint={
+                    assignment.dueAt
+                      ? new Date(assignment.dueAt).toLocaleString()
+                      : "No deadline"
+                  }
                 >
                   <UiButton
                     className="button"

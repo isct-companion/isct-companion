@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { validateAcademicProfile } from "../../core/academic-calendar";
 import type { CalendarException, Workspace } from "../../core/model";
+import { newUserRecordId } from "../../storage/ids";
 import "./events.css";
 
 type Props = {
@@ -163,7 +164,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
   const exceptions = data.exceptions
     .filter((item) => !item.deletedAt)
     .sort((a, b) => a.date.localeCompare(b.date));
-  const save = (event: FormEvent) => {
+  const save = async (event: FormEvent) => {
     event.preventDefault();
     if (readOnly) return;
     if (
@@ -196,6 +197,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
       return;
     }
     const now = new Date().toISOString();
+    const exceptionId = editing === "new" ? await newUserRecordId() : "";
     update((workspace) => ({
       ...workspace,
       exceptions:
@@ -208,7 +210,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
                   draft.type === "replacement"
                     ? draft.replacementDay
                     : undefined,
-                id: crypto.randomUUID(),
+                id: exceptionId,
                 kind: "exception",
                 rev: 1,
                 updatedAt: now,
@@ -304,6 +306,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
         }
       }
       const now = new Date().toISOString();
+      const incomingIds = await Promise.all(incoming.map(() => newUserRecordId()));
       update((workspace) => {
         const retained = workspace.exceptions.filter(
           (item) =>
@@ -314,9 +317,9 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
           academicProfile: incomingProfile,
           exceptions: [
             ...retained,
-            ...incoming.map((item) => ({
+            ...incoming.map((item, index) => ({
               ...item,
-              id: crypto.randomUUID(),
+              id: incomingIds[index],
               kind: "exception" as const,
               rev: 1,
               updatedAt: now,

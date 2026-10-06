@@ -22,7 +22,7 @@ export function onTimetable(data: Workspace, course: Course) {
     data.planItems.some((x) => x.courseId === course.id && !x.deletedAt)
   );
 }
-export function setTimetable(d: Workspace, course: Course, on: boolean) {
+export function setTimetable(d: Workspace, course: Course, on: boolean, membershipId?: string) {
   const now = stamp();
   const membership = d.memberships.find(
     (m) => m.courseId === course.id && !m.deletedAt,
@@ -32,8 +32,9 @@ export function setTimetable(d: Workspace, course: Course, on: boolean) {
   );
   if (on) {
     if (membership || draft) return;
+    if (!membershipId) throw new Error("A backend-generated membership ID is required");
     d.memberships.push({
-      id: crypto.randomUUID(),
+      id: membershipId,
       kind: "membership",
       rev: 1,
       updatedAt: now,

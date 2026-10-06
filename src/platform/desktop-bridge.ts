@@ -192,8 +192,6 @@ export interface DesktopBridge {
     url: string;
     phase: string;
   }>;
-  importSchool(): Promise<SchoolImportResult>;
-  cachedSchool(): Promise<SchoolImportResult>;
   openSchoolSite(
     site: SchoolSite,
     css: string,
@@ -477,8 +475,6 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
-    importSchool: () => result("import_school"),
-    cachedSchool: () => result("cached_school"),
     openSchoolSite: (site, css, js, bounds, targetUrl) =>
       result("open_school_site", {
         site,

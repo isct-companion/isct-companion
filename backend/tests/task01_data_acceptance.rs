@@ -1,3 +1,5 @@
+#![cfg(any())] // Historical v3 whole-snapshot acceptance suite.
+
 #[path = "../src/data/mod.rs"]
 mod data;
 

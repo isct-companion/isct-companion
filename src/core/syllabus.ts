@@ -41,7 +41,11 @@ const instructionLanguage = (value?: string): InstructionLanguage => {
   return "other";
 };
 
-export function addSyllabusDraft(workspace: Workspace, item: SyllabusCourse) {
+export function addSyllabusDraft(
+  workspace: Workspace,
+  item: SyllabusCourse,
+  ids: { course: string; planItem: string },
+) {
   const termId = `${item.year}-${item.quarter}` as TermId;
   const now = new Date().toISOString();
   let course = workspace.courses.find(
@@ -53,7 +57,7 @@ export function addSyllabusDraft(workspace: Workspace, item: SyllabusCourse) {
   );
   if (!course) {
     course = {
-      id: crypto.randomUUID(),
+      id: ids.course,
       kind: "course",
       rev: 1,
       updatedAt: now,
@@ -102,7 +106,7 @@ export function addSyllabusDraft(workspace: Workspace, item: SyllabusCourse) {
     draft.updatedBy = workspace.deviceId;
   } else {
     draft = {
-      id: crypto.randomUUID(),
+      id: ids.planItem,
       kind: "plan-item",
       rev: 1,
       updatedAt: now,

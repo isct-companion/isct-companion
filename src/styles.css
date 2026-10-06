@@ -2740,18 +2740,9 @@ p {
 .pageSlot { display: contents; }
 .pageSlot.inactive { display: none; }
 
-/* Today: same-layer course workspace, with one outline and one reading area. */
-.lmsPreviewShell { height: 100dvh; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); }
-.lmsPreviewNotice { display: flex; justify-content: space-between; padding: 9px 24px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); }
-.lmsPreviewNotice label { display: flex; gap: 6px; align-items: center; }
-.lmsPreviewMain { padding: 20px 24px; flex: 1; min-height: 0; display: flex; }
+
 .workspaceMain.todayWorkspaceMain { height: 100dvh; overflow: hidden; }
-.todayWorkbench { display: flex; width: 100%; height: 100%; min-height: 0; gap: 20px; }
-.todayRetained { flex: 1; min-width: 0; height: 100%; overflow: auto; overflow-anchor: none; }
-.todayRetained.compact { flex: 0 0 180px; border-right: 1px solid var(--line); padding-right: 16px; }
-.todayWorkbenchContent { flex: 1; min-width: 0; min-height: 0; }
-.todayWorkbenchContent[hidden], .todayCourseSlot[hidden] { display: none; }
-.todayCourseSlot { height: 100%; }
+
 .todayNavigation { width: 100%; padding: 0 !important; }
 .todayNavigation .todayHeader { padding: 12px 0 16px; }
 .todayNavigation .todayHeader h1 { font-size: 15px; line-height: 1.3; font-weight: 550; }
@@ -2775,88 +2766,6 @@ p {
 .todayNavigation .dueAssignment small { display: none; }
 .todayNavigation .dueAssignment time { font-size: 10px; }
 .todayNavigation .quietEmpty, .todayNavigation .moreToggle { font-size: 11px; }
-.lmsWorkspace { width: 100%; min-width: 0; display: flex; flex-direction: column; height: 100%; }
-.lmsWorkspaceHeader { display: flex; align-items: center; gap: 20px; padding: 8px 4px 20px; border-bottom: 1px solid var(--line); }
-.lmsWorkspace button { cursor: pointer; color: inherit; font: inherit; }
-.lmsBack, .lmsRefresh, .lmsOutlineTools button, .lmsOriginal, .lmsMobileBack { border: 0; background: none; color: var(--accent) !important; white-space: nowrap; }
-.lmsBack { padding: 8px 0; }
-.lmsCourseIdentity { flex: 1; min-width: 0; }
-.lmsCourseIdentity small, .lmsDocumentHeading small { color: var(--muted); font-size: 12px; }
-.lmsCourseIdentity h1 { font-size: 20px; line-height: 1.35; margin: 2px 0 0; }
-.lmsEntryTime { font-size: 12px; color: var(--muted); }
-.lmsWorkspaceBody { display: grid; grid-template-columns: minmax(280px, 36%) minmax(0, 1fr); flex: 1; min-height: 0; }
-.lmsOutline { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
-.lmsOutlineTools { padding: 18px 18px 12px 0; display: flex; gap: 10px; align-items: center; }
-.lmsOutlineTools input { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 7px; padding: 8px 10px; font: inherit; font-size: 13px; }
-.lmsOutlineTools button { font-size: 11px; padding: 6px 0; }
-.lmsOutlineScroll { overflow: auto; min-height: 0; flex: 1; padding: 0 18px 28px 0; scroll-padding: 12px; overflow-anchor: none; }
-.lmsOutlineScroll h2 { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; margin: 24px 0 10px; display: flex; gap: 8px; }
-.lmsOutlineScroll h2:first-child { margin-top: 8px; }
-.lmsOutlineScroll h2 small { opacity: .65; }
-.lmsSection { border-bottom: 1px solid var(--line); border-left: 2px solid transparent; transition: border-color .12s; }
-.lmsSection.reading { border-left-color: var(--accent); }
-.lmsActivityGroup { border-left: 2px solid transparent; }
-.lmsActivityGroup.reading { border-left-color: var(--accent); }
-.lmsSection h3 { margin: 0; font-size: 14px; }
-.lmsSection h3 button { width: 100%; padding: 12px 8px; display: flex; gap: 10px; text-align: left; border: 0; background: none; }
-.lmsSection h3 button:hover, .lmsItemRow:hover { background: var(--surface-2); }
-.lmsSection h3 button span:nth-child(2) { flex: 1; }
-.lmsSection h3 small { color: var(--muted); font-size: 11px; }
-.lmsSectionPreview { color: var(--muted); margin: -3px 16px 12px 28px; font-size: 12px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.lmsSectionBody { padding: 2px 0 12px 20px; }
-.lmsRichContent { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.lmsRichContent p, .lmsRichContent div { margin-bottom: 10px; }
-.lmsRichContent table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; margin: 12px 0; }
-.lmsRichContent th, .lmsRichContent td { padding: 7px; border: 1px solid var(--line); min-width: 75px; }
-.lmsRichContent pre { overflow: auto; }
-.lmsRichContent a { color: var(--accent); text-decoration: underline; }
-.lmsItemRow { display: flex; width: 100%; align-items: center; gap: 10px; border: 0; background: none; text-align: left; padding: 10px 8px; border-radius: 5px; }
-.lmsItemRow.selected { background: var(--accent-soft); color: var(--accent); }
-.lmsItemRow > span:nth-child(2) { flex: 1; min-width: 0; }
-.lmsItemRow b { display: block; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
-.lmsItemRow small { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
-.lmsItemGlyph { color: var(--muted); width: 16px; }
-.lmsQuiet { font-size: 12px; color: var(--muted); padding: 8px; line-height: 1.7; }
-.lmsOriginal { font-size: 12px !important; padding: 12px; border-top: 1px solid var(--line); }
-.lmsViewer { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
-.lmsTabBar { display: flex; min-height: 48px; border-bottom: 1px solid var(--line); }
-.lmsTabBar > div { display: flex; overflow-x: auto; width: 100%; }
-.lmsTab { display: flex; border-right: 1px solid var(--line); border-bottom: 2px solid transparent; align-items: center; flex-shrink: 0; max-width: 240px; }
-.lmsTab.active { border-bottom-color: var(--accent); background: var(--accent-soft); }
-.lmsTab button { border: 0; background: none; padding: 13px 12px; font-size: 12px; min-width: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-.lmsTab button + button { padding: 10px 9px; color: var(--muted); }
-.lmsViewerBody { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-.lmsViewerEmpty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 40px; gap: 12px; }
-.lmsViewerEmpty > span { font-size: 40px; opacity: .35; }
-.lmsViewerEmpty h2 { font-size: 18px; color: var(--ink); font-weight: 550; }
-.lmsViewerEmpty p { max-width: 300px; font-size: 13px; line-height: 1.7; }
-.lmsDocument { padding: 28px; min-height: 100%; }
-.lmsDocumentHeading { padding-bottom: 20px; }
-.lmsDocumentHeading h2 { font-size: 23px; font-weight: 600; line-height: 1.4; margin-top: 5px; }
-.lmsAssignmentFacts { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; font-size: 13px; margin-bottom: 28px; }
-.lmsAssignmentFacts dt { color: var(--muted); }
-.lmsSubmit { border: 0; background: var(--accent); color: white !important; padding: 10px 16px; border-radius: 6px; margin-top: 24px; }
-.lmsSourceBar { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); }
-.lmsSourceBar a { color: var(--accent); }
-.lmsFilePreview { width: 100%; height: 65dvh; border: 0; margin-top: 16px; }
-.lmsOfficialHost { flex: 1; min-height: 300px; position: relative; }
-.lmsMobileBack { display: none; }
-.lmsWorkspace button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-@media (max-width: 850px) {
-  .todayWorkbench { gap: 10px; }
-  .todayRetained.compact { flex-basis: 135px; padding-right: 10px; }
-  .lmsWorkspaceHeader { gap: 12px; flex-wrap: wrap; }
-  .lmsEntryTime { display: none; }
-  .lmsWorkspaceBody { display: block; min-height: 0; }
-  .lmsOutline, .lmsViewer { height: 100%; }
-  .lmsViewer { display: none; }
-  .lmsWorkspace.viewing .lmsOutline { display: none; }
-  .lmsWorkspace.viewing .lmsViewer { display: flex; }
-  .lmsMobileBack { display: block; padding: 10px; }
-  .lmsOutline { border: 0; }
-  .lmsDocument { padding: 20px; }
-}
-@media (prefers-reduced-motion: reduce) { .lmsSection { transition: none; } }
 
 /* ---------- Courses: syllabus side panel and course details over it ---------- */
 .coursesLeft { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -3150,216 +3059,27 @@ p {
   .scheduleTitleRow { align-items: flex-start; }
 }
 
-
 .academicSummaryTrigger { display: inline-flex; align-items: center; min-height: 26px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: calc(12px * var(--text)); white-space: nowrap; overflow: hidden; }
 .academicQuarterLabel { padding: 0 10px; font-variant-numeric: tabular-nums; }
 .academicQuarterLabel b { font-weight: 700; }
 .academicDetailsTrigger { border-left: 1px solid var(--line); border-radius: 0; }
 
-/* Course reader: a second surface exists only while a document is open. */
-.lmsWorkspaceBody { grid-template-columns: minmax(0, 1fr); }
-.lmsWorkspace.hasViewer .lmsWorkspaceBody { grid-template-columns: minmax(300px, 44%) minmax(0, 1fr); }
-.lmsOutline { border-right: 0; }
-.lmsWorkspace.hasViewer .lmsOutline { border-right: 1px solid var(--line); }
-.lmsOutlineTools { max-width: 900px; width: 100%; padding: 16px 24px; align-self: center; }
-.lmsOutlineScroll { padding: 0 24px 60px; }
-.lmsOutlineScroll > * { max-width: 850px; margin-left: auto; margin-right: auto; }
-.lmsSection { padding: 12px 4px 20px; }
-.lmsSectionHeading { display: flex; align-items: center; gap: 8px; }
-.lmsSectionHeading h3 { flex: 1; min-width: 0; font-size: 16px; }
-.lmsSectionHeading h3 button { padding: 12px 8px; }
-.lmsAddNote { background: none; border: 1px solid var(--line); border-radius: 6px; width: 28px; height: 28px; font-size: 20px !important; color: var(--muted) !important; }
-.lmsAddNote:hover { color: var(--accent) !important; background: var(--accent-soft); }
-.lmsSectionBody { padding: 4px 10px 8px 26px; }
-.lmsSectionBody .lmsRichContent { font-size: 14px; line-height: 1.85; margin-bottom: 16px; }
-.lmsInlineActivity { border-top: 1px solid var(--line); padding: 18px 8px; font-size: 14px; line-height: 1.8; scroll-margin: 30px; }
-.lmsInlineActivity h4 { font-size: 15px; margin: 0; }
-.lmsInlineActivity .lmsQuiet { padding: 0; }
-.lmsInlineActivity .lmsSubmit { margin-top: 12px; font-size: 12px; padding: 7px 12px; }
-.lmsAttachmentPreview { display: flex; flex-direction: column; min-height: 0; }
-.lmsFilePreview { flex: 1; width: 100%; height: 65dvh; margin-top: 0; }
-.lmsImagePreview { max-width: 100%; object-fit: contain; }
-.lmsCodePreview { white-space: pre; overflow: auto; tab-size: 4; font-size: 12px; line-height: 1.7; padding: 20px; }
-.lmsNoteEditor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.lmsNoteEditor > div:not(.lmsSourceBar) { flex: 1; min-height: 0; }
-/* Native proximity snapping attracts nearby section starts, without locking long sections. */
-.lmsOutlineScroll { scroll-snap-type: y proximity; scroll-padding-block: 22% 0; }
-.lmsOutlineScroll .lmsSection { scroll-snap-align: start; scroll-snap-stop: normal; }
-.lmsOutlineScroll.searching { scroll-snap-type: none; }
-.lmsMarkdownDocument { min-height: 0; overflow: auto; flex: 1; }
-.lmsMarkdownDocument .milkdown {
-  --crepe-color-background: var(--surface);
-  --crepe-color-on-background: var(--ink);
-  --crepe-color-surface: var(--surface);
-  --crepe-color-on-surface: var(--ink);
-  --crepe-color-on-surface-variant: var(--muted);
-  --crepe-color-outline: var(--line);
-  --crepe-color-primary: var(--ink);
-  --crepe-color-surface-low: var(--surface-2);
-  --crepe-color-hover: var(--surface-2);
-  --crepe-color-selected: var(--surface-2);
-  --crepe-font-title: inherit;
-  --crepe-font-default: inherit;
-  --crepe-base-font-size: 15px;
-  min-height: 100%;
-}
-.lmsMarkdownDocument .milkdown > .ProseMirror { padding: 28px 40px 120px; min-height: 380px; line-height: 1.8; }
-.lmsMarkdownDocument .milkdown > .ProseMirror h1 { font-size: 25px; }
-.lmsMarkdownDocument .milkdown > .ProseMirror h2 { font-size: 21px; }
-.lmsMarkdownDocument .milkdown button:focus-visible { outline: 2px solid var(--accent); }
-@media (prefers-reduced-motion: reduce) { .lmsOutlineScroll { scroll-snap-type: none; } }
 
-.lmsSourceBar button { border: 0; background: none; color: var(--accent) !important; font-size: 11px; padding: 0; }
+/* Native proximity snapping attracts nearby section starts, without locking long sections. */
+
 .courseStorageSettings { padding: 12px 0 20px; border-bottom: 1px solid var(--line); }
 .courseStorageSettings p { overflow-wrap: anywhere; font-size: 13px; margin: 8px 0; }
 .courseStorageSettings small { color: var(--muted); font-size: 12px; }
-@media (max-width: 850px) {
-  .lmsWorkspace.hasViewer .lmsWorkspaceBody { display: block; }
-  .lmsOutlineTools, .lmsOutlineScroll { padding-left: 12px; padding-right: 12px; }
-  .lmsWorkspace.hasViewer .lmsOutline { border-right: 0; }
-}
+.numberSetting { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.numberSetting input { width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Workstation feedback stays local and brief; no continuously running animation. */
-@keyframes lmsWorkspaceEnter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
-@keyframes lmsPaneEnter { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
-.lmsWorkspace { animation: lmsWorkspaceEnter 180ms ease-out; }
-.lmsViewer { animation: lmsPaneEnter 220ms cubic-bezier(.2,.75,.25,1); }
-.lmsSectionBody { animation: lmsWorkspaceEnter 150ms ease-out; }
-.lmsItemRow { transition: background-color 140ms ease, transform 140ms ease; }
-.lmsItemRow:hover { transform: translateX(2px); }
-.lmsTabs button { transition: color 140ms ease, background-color 140ms ease; }
-@media (prefers-reduced-motion: reduce) {
-  .lmsWorkspace, .lmsViewer, .lmsSectionBody { animation: none; }
-  .lmsItemRow, .lmsTabs button { transition: none; }
-  .lmsItemRow:hover { transform: none; }
-}
-.lmsPdfDocument { width: 100%; padding-top: 12px; }
-.lmsPdfDocument canvas { display: block; width: 100%; height: auto; background: white; }
-.lmsPdfControls { display: flex; justify-content: center; align-items: center; gap: 16px; margin-bottom: 12px; position: sticky; top: 0; background: var(--surface, white); padding: 6px; z-index: 1; }
-.lmsAnnouncement { padding: 16px 0; border-bottom: 1px solid var(--border, #ddd); }
-.lmsAnnouncement h5 { font-size: 1em; margin: 0 0 8px; }
-.lmsPdfPage { width: 100%; margin: 0 0 20px; background: white; contain: layout paint; }
-.lmsPdfPage canvas { width: 100%; height: 100%; object-fit: contain; }
-.lmsAnnouncementCard { position: relative; display: grid; gap: 9px; width: 100%; text-align: left; padding: 20px 42px 20px 20px; margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); transition: background 140ms, border-color 140ms, transform 140ms; }
-.lmsAnnouncementCard:hover, .lmsAnnouncementCard.selected { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
-.lmsCardType { font-size: .78rem; color: var(--muted); }
-.lmsCardExcerpt { color: var(--muted); font-size: .9rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.lmsCardArrow { position: absolute; right: 18px; top: 22px; color: var(--accent); }
-.lmsItemRow { border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin: 10px 0; background: var(--surface); }
-.lmsItemGlyph { display: grid; place-items: center; width: 36px; height: 40px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); flex: 0 0 36px; }
-.lmsRichContent a.lmsAttachmentCard { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; margin: 6px 6px 6px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); text-decoration: none; overflow-wrap: anywhere; }
-.lmsAttachmentCard::before { content: '↧'; color: var(--accent); }
-.lmsAttachmentCard:hover { border-color: var(--accent); background: var(--accent-soft); }
-@media (prefers-reduced-motion: reduce) { .lmsAnnouncementCard { transition: none; } .lmsAnnouncementCard:hover { transform: none; } }
+
 /* Reading surface: quiet document chrome, comfortable measures, bounded previews. */
-.lmsViewer { background: var(--surface-2); }
-.lmsTabBar { background: var(--surface); }
-.lmsDocument { padding: 28px clamp(20px, 4vw, 48px); }
-.lmsDocumentHeading { padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
-.lmsDocumentHeading small { display: block; font-size: 11px; letter-spacing: .02em; color: var(--muted); }
-.lmsDocumentHeading h2 { font-size: clamp(19px, 2vw, 25px); letter-spacing: -.025em; margin: 7px 0 0; }
-.lmsDocument > .lmsRichContent { background: var(--surface); padding: 28px; border: 1px solid var(--line); border-radius: 12px; font-size: 14px; line-height: 1.85; max-width: 78ch; }
-.lmsSourceBar { align-items: center; flex-wrap: wrap; justify-content: flex-end; background: var(--surface); border: 1px solid var(--line); padding: 10px 12px; border-radius: 9px; gap: 8px; font-size: 11px; }
-.lmsSourceBar > [role=status] { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
-.lmsSourceBar button, .lmsSourceBar a { border-radius: 5px; padding: 6px 9px; white-space: nowrap; font-weight: 550; text-decoration: none; }
-.lmsSourceBar button:hover, .lmsSourceBar a:hover { background: var(--accent-soft); }
-.lmsAttachmentPreview { gap: 16px; }
-.lmsPdfReader { border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
-.lmsPdfControls { justify-content: space-between; margin: 0; border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; top: 0; z-index: 3; padding: 9px 12px; font-size: 12px; gap: 8px; }
-.lmsPdfPagination, .lmsPdfZoom { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-.lmsPdfControls input, .lmsPdfControls select { color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; font: inherit; padding: 5px 7px; }
-.lmsPdfControls input { width: 48px; text-align: center; appearance: textfield; }
-.lmsPdfControls button { width: 27px; height: 27px; padding: 0; border-radius: 5px; font-size: 18px; }
-.lmsPdfControls button:hover { background: var(--accent-soft); }
-.lmsPdfControls button:disabled { opacity: .3; }
-.lmsPdfDocument { padding: 20px; overflow-x: auto; }
-.lmsPdfPages { margin: 0 auto; min-width: 200px; }
-.lmsPdfPage { position: relative; box-shadow: 0 2px 8px #00000012; scroll-margin-top: 65px; }
-.lmsPdfPage .textLayer { inset: 0; }
-.lmsTextDocument { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.lmsTextMeta { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--muted); }
-.lmsTextMeta > span:first-child { color: var(--ink); font-weight: 600; }
-.lmsTextDocument .cm-editor { outline: none; }
-.lmsTextDocument .cm-scroller { max-height: 75dvh; }
-.lmsAttachmentPreview > .lmsMarkdownDocument { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-@media (max-width: 850px) { .lmsDocument { padding: 20px 16px; } .lmsPdfControls { flex-wrap: wrap; } }
-.lmsPdfSearch { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 11px; }
-.lmsPdfSearch input { flex: 1; min-width: 90px; border: 0; background: transparent; color: var(--ink); font: inherit; padding: 4px; }
-.lmsPdfSearch button { font-size: 11px; white-space: nowrap; border-radius: 5px; padding: 5px 8px; background: var(--surface-2); }
-.lmsPdfSearch span { color: var(--muted); white-space: nowrap; }
-.lmsPdfPage .textLayer { --scale-round-x: 1px; --scale-round-y: 1px; }
-.lmsPdfControls button, .lmsPdfSearch button { appearance: none; border: 0; box-shadow: none; background: transparent; color: var(--accent); cursor: pointer; }
-.lmsPdfSearch button:hover { background: var(--accent-soft); }
-.lmsPdfSearch button:disabled { color: var(--muted); opacity: .6; cursor: default; }
-.lmsPdfControls input::-webkit-inner-spin-button { appearance: none; }
-.lmsFileDocument { padding: 20px 24px; }
-.lmsFileDocument .lmsDocumentHeading { padding-bottom: 14px; margin-bottom: 14px; }
-.lmsFileDocument .lmsDocumentHeading h2 { font-size: 19px; }
+
 /* Workspace chrome follows a browser: rounded tabs, one toolbar, full reading canvas. */
-.lmsViewer { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-.lmsTabBar { background: var(--surface-2); border-bottom: 1px solid var(--line); padding: 6px 8px; align-items: center; gap: 6px; min-height: 49px; }
-.lmsTabBar > div { gap: 4px; }
-.lmsTab { border: 1px solid transparent; border-radius: 9px; max-width: 260px; color: var(--muted); }
-.lmsTab.active { border-color: var(--line); background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px #00000005; }
-.lmsTab button[role=tab] { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; }
-.lmsTab button + button { padding: 6px 8px; border-radius: 5px; font-size: 16px; }
-.lmsTab button + button:hover { background: var(--surface-2); }
-.lmsTabIcon { width: 16px; height: 16px; flex: 0 0 16px; }
-.lmsNewTab { border: 0; background: transparent; color: var(--muted); font-size: 22px; width: 30px; height: 30px; flex-shrink: 0; border-radius: 7px; }
-.lmsNewTab:hover { background: var(--surface); color: var(--ink); }
-.lmsFileDocument { padding: 0; }
-.lmsFileDocument > .lmsDocumentHeading { display: none; }
-.lmsFileDocument > .lmsRichContent { margin: 20px; }
-.lmsFileDocument .lmsAttachmentPreview { gap: 0; }
-.lmsFileToolbar { position: sticky; top: 0; z-index: 4; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 9px 12px; gap: 8px; }
-.lmsFileAddress { flex: 1; min-width: 100px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface-2); display: flex; align-items: center; gap: 10px; }
-.lmsFileAddress > span { flex: 1; color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lmsFileAddress small { max-width: 40%; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lmsFileDocument .lmsPdfReader { border: 0; border-radius: 0; }
-.lmsFileDocument .lmsPdfControls { border-radius: 0; top: 53px; }
-.lmsFileDocument .lmsTextDocument, .lmsFileDocument .lmsMarkdownDocument { border: 0; border-radius: 0; }
-.lmsFileDocument .lmsTextMeta { padding: 10px 18px; }
-.todayRetained { flex: 0 0 100%; transition: flex-basis 240ms cubic-bezier(.2,.75,.25,1), padding 240ms; }
-.todayRetained.compact { flex: 0 0 180px; }
-.todayWorkbenchContent { opacity: 1; transform: translateX(0); transition: opacity 180ms, transform 240ms cubic-bezier(.2,.75,.25,1); overflow: hidden; }
-.todayWorkbench.leaving .todayWorkbenchContent { opacity: 0; transform: translateX(16px); pointer-events: none; }
-.todayWorkbench.working .todayWorkbenchContent { animation: lmsPaneEnter 240ms cubic-bezier(.2,.75,.25,1); }
-@media (max-width: 850px) { .todayRetained.compact { flex-basis: 135px; } .lmsFileAddress small { display: none; } }
-@media (prefers-reduced-motion: reduce) { .todayRetained, .todayWorkbenchContent { transition: none; } .todayWorkbench.working .todayWorkbenchContent { animation: none; } }
-.lmsPreviousNotes { margin: 8px 0 12px; font-size: 12px; color: var(--muted); }
-.lmsPreviousNotes summary { cursor: pointer; padding: 6px 4px; }
-.lmsNoteUndo { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
-.lmsNoteUndo button { background: var(--accent-soft); border: 0; border-radius: 5px; padding: 5px 9px; color: var(--accent); }
-.lmsNoteEditor .lmsSourceBar { border-radius: 0; border: 0; border-bottom: 1px solid var(--line); }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror { max-width: 760px; margin: 0 auto; padding: 36px clamp(24px, 4vw, 54px) 120px; line-height: 1.85; }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h1 { font-size: 28px; letter-spacing: -.03em; margin-bottom: 24px; }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h2 { padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-top: 32px; }
-.lmsFileError { margin: 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; background: var(--surface); }
 
-/* One document surface: no parallel tab navigation or permanently stacked search. */
-.lmsViewer { position: relative; }
-.lmsViewerClose { position: absolute; right: 8px; top: 8px; z-index: 8; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 20px; cursor: pointer; }
-.lmsViewerClose:hover { background: var(--accent-soft); color: var(--ink); }
-.lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; flex-wrap: wrap; padding: 7px 44px 7px 12px; gap: 4px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.lmsPdfHeader > .lmsFileToolbar { flex: 1 1 240px; position: static; min-width: 0; padding: 0; border: 0; flex-wrap: nowrap; gap: 5px; }
-.lmsPdfHeader .lmsFileAddress { min-width: 60px; border: 0; border-radius: 0; background: none; padding: 4px 0; }
-.lmsPdfHeader .lmsFileAddress small { display: none; }
-.lmsFileToolbar:not(.lmsPdfHeader > *) { padding-right: 44px; }
-.lmsFileAddress { border: 0; border-radius: 0; background: transparent; padding-left: 0; }
-.lmsFileAddress small { display: none; }
-.lmsPdfHeader > .lmsPdfControls { position: static; flex: 0 0 auto; border: 0; padding: 0; gap: 6px; background: none; }
-.lmsPdfHeader .lmsPdfControls input { width: 36px; padding: 4px; }
-.lmsPdfHeader .lmsPdfControls select { max-width: 98px; }
-.lmsPdfHeader .lmsPdfPagination, .lmsPdfHeader .lmsPdfZoom { gap: 4px; }
-.lmsPdfHeader + .lmsPdfSearch { position: sticky; top: 48px; z-index: 3; }
-.lmsPdfDocument { touch-action: pan-x pan-y; }
-.lmsPdfPages { will-change: auto; }
-.lmsViewerBody > .lmsDocument { padding-top: 20px; }
 
-.lmsRichContent a.lmsImageCard { display: inline-flex; flex-direction: column; align-items: flex-start; max-width: min(100%, 280px); padding: 8px; gap: 7px; font-size: 11px; }
-.lmsRichContent a.lmsImageCard::before { content: none; }
-.lmsInlineThumbnail { display: block; max-width: 100%; width: auto; max-height: 160px; object-fit: contain; border-radius: 4px; }
-.lmsImageCard [data-image-src] { display: block; max-width: 100%; }
 
 /* Academic years reveal one inline quarter drawer, keeping the schedule toolbar quiet. */
 .yearQuarterPicker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
