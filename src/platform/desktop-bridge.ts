@@ -79,6 +79,20 @@ export type SchoolIngestOutcome = {
   changed: number;
   message: string;
 };
+export type SchoolPullProgress = {
+  site: "science-lms" | "kyomu";
+  phase: "catalog" | "course" | "material" | "assignment";
+  completed: number;
+  total: number;
+  courseId: number;
+  courseTitle: string;
+  term: string;
+  itemTitle: string;
+};
+export type SchoolPullOptions = {
+  /** Limit the expensive LMS content pass to one Moodle course. */
+  lmsCourseId?: number;
+};
 export type LmsSection = {
   id: number;
   number: number;
@@ -244,12 +258,19 @@ export interface DesktopBridge {
    * the result (one outcome per 教務Web page). Expired sessions are renewed
    * with the saved credentials on the way.
    */
-  pullSchool?(site: "science-lms" | "kyomu"): Promise<SchoolIngestOutcome[]>;
+  pullSchool?(
+    site: "science-lms" | "kyomu",
+    options?: SchoolPullOptions,
+  ): Promise<SchoolIngestOutcome[]>;
   schoolRecords?(): Promise<SchoolRecords>;
   /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
   setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
   /** An extractor finished while the person browsed LMS / 教務Web. */
   onSchoolIngest?(callback: (outcome: SchoolIngestOutcome) => void): () => void;
+  /** Fine-grained progress from a running hidden LMS extraction. */
+  onSchoolPullProgress?(
+    callback: (progress: SchoolPullProgress) => void,
+  ): () => void;
   configureSchoolSchedule(schedule: Schedule): Promise<boolean>;
   onScheduledSchoolResult(
     callback: (result: SchoolImportResult) => void,
@@ -582,8 +603,11 @@ export function createTauriDesktopBridge(
     },
     revealSchoolDownload: (path) =>
       booleanCommand("reveal_school_download", { path }),
-    pullSchool: async (site) => {
-      const value = await invoke("pull_school", { site });
+    pullSchool: async (site, options) => {
+      const value = await invoke("pull_school", {
+        site,
+        lmsCourseId: options?.lmsCourseId,
+      });
       if (!Array.isArray(value))
         throw new Error("pull_school returned an invalid result.");
       return value as SchoolIngestOutcome[];
@@ -639,6 +663,35 @@ export function createTauriDesktopBridge(
         disposed = true;
         try {
           // Tauri's unlisten may also reject asynchronously.
+          void Promise.resolve(unlisten?.() as unknown).catch(() => undefined);
+        } catch {
+          // The runtime is already gone (window closing, tests).
+        }
+      };
+    },
+    onSchoolPullProgress: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<SchoolPullProgress>("school-pull-progress", (payload) => {
+        if (
+          !disposed &&
+          payload?.site === "science-lms" &&
+          typeof payload.completed === "number" &&
+          typeof payload.total === "number"
+        )
+          callback(payload);
+      }).then((fn) => {
+        if (disposed) {
+          try {
+            void Promise.resolve(fn() as unknown).catch(() => undefined);
+          } catch {
+            // The runtime is already gone (window closing, tests).
+          }
+        } else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        try {
           void Promise.resolve(unlisten?.() as unknown).catch(() => undefined);
         } catch {
           // The runtime is already gone (window closing, tests).

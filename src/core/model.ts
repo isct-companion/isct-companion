@@ -48,6 +48,25 @@ function newDeviceId() {
 }
 
 export const REFERENCE_REFRESH_TASK_ID = "builtin:reference-subscriptions";
+export const LMS_BACKGROUND_REFRESH_TASK_ID = "builtin:lms-background-refresh";
+
+export function lmsBackgroundRefreshTask(
+  deviceId: string,
+  updatedAt = new Date().toISOString(),
+): ScheduledTask {
+  return {
+    id: LMS_BACKGROUND_REFRESH_TASK_ID,
+    rev: 1,
+    updatedAt,
+    updatedBy: deviceId,
+    name: "LMS background refresh",
+    action: "lms-refresh",
+    schedule: "RRULE:FREQ=HOURLY;INTERVAL=4;BYMINUTE=0",
+    // Full LMS reads are deliberately opt-in. The task also checks Wi-Fi and
+    // foreground activity immediately before starting.
+    enabled: false,
+  };
+}
 
 export function referenceRefreshTask(
   deviceId: string,
@@ -94,7 +113,10 @@ export function seedWorkspace(): Workspace {
     exams: [],
     scheduleOverrides: [],
     subscriptions: [],
-    scheduledTasks: [referenceRefreshTask(deviceId)],
+    scheduledTasks: [
+      referenceRefreshTask(deviceId),
+      lmsBackgroundRefreshTask(deviceId),
+    ],
     settings: {
       autoDownloadLimitMb: COURSE_FILE_POLICY.autoDownloadLimitMb.default,
       autoCleanDays: COURSE_FILE_POLICY.retentionDays.default,

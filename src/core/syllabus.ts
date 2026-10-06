@@ -32,6 +32,9 @@ export const isSyllabusCourse = (course: Course) =>
   (course.source.provider === "school" &&
     Boolean(course.url && syllabusIdentity(course.url)));
 
+export const canonicalCourseId = (academicYear: number, offeringId: string) =>
+  `${academicYear}-${offeringId}`;
+
 const instructionLanguage = (value?: string): InstructionLanguage => {
   const normalized = value?.toLocaleLowerCase() ?? "";
   if (normalized.includes("japanese") && normalized.includes("english"))
@@ -47,17 +50,18 @@ export function addSyllabusDraft(
   ids: { course: string; planItem: string },
 ) {
   const termId = `${item.year}-${item.quarter}` as TermId;
+  const courseId = canonicalCourseId(item.year, item.externalId);
   const now = new Date().toISOString();
   let course = workspace.courses.find(
     (candidate) =>
       !candidate.deletedAt &&
-      candidate.termId === termId &&
-      isSyllabusCourse(candidate) &&
-      candidate.source.externalId === item.externalId,
+      (candidate.id === courseId ||
+        (isSyllabusCourse(candidate) &&
+          candidate.source.externalId === item.externalId)),
   );
   if (!course) {
     course = {
-      id: ids.course,
+      id: courseId,
       kind: "course",
       rev: 1,
       updatedAt: now,

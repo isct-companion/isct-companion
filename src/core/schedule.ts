@@ -334,8 +334,9 @@ export function resolveDayAgenda(
     const targetKey = exam.sourceKey ?? exam.id;
     const override = overrides.find((row) => row.targetKey === targetKey);
     if (override?.hidden) continue;
-    const course = override?.courseId
-      ? data.courses.find((row) => row.id === override.courseId && !row.deletedAt)
+    const mappedCourseId = override?.courseId ?? exam.courseId;
+    const course = mappedCourseId
+      ? data.courses.find((row) => row.id === mappedCourseId && !row.deletedAt)
       : registeredByCode.get(exam.courseCode.trim().toUpperCase());
     if (!course) continue;
     const periods = override?.periods ?? exam.periods;

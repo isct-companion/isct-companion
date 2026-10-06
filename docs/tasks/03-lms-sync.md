@@ -4,6 +4,8 @@
 
 Import the person's LMS courses, course structure, assignments and deadlines from Science Tokyo LMS (Moodle) into `lms_courses`, `lms_items`, `assignments` (task 1), using Moodle's own read-only AJAX functions instead of scraping. HTML only for the few things the API does not expose, on demand.
 
+Course identity is provider-independent. `course_identity_map` records `(provider, external_id, academic_year) -> course_id`; an official 9-digit offering ID produces the canonical internal ID `<academicYear>-<offeringId>` (for example `2026-202602427`). LMS, syllabus and 教務 imports must resolve this mapping before writing any `courseId`. Display course codes are never treated as unique, and term/quarter belongs to membership or planning records rather than the course identity.
+
 ## Today
 
 `backend/src/school_extract.rs` holds `T2SCHOLA_EXTRACT_SCRIPT`, evaluated by `backend/src/school_web.rs` on every LMS page load; it scrapes the DOM and relays JSON to Rust through a `stws-extract://{nonce}/…` navigation, which `stage_school_payload` / `publish_school_cache` validate into `school-cache.json`. Keep the relay and staging idea; replace the scraping and the JSON file.

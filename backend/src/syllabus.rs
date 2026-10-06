@@ -5,7 +5,7 @@ mod transport;
 
 pub use api::{
     department_catalog, detail, search, search_bilingual, sync_department, sync_offering,
-    SyllabusCourse, SyllabusFilters, SyllabusMeeting, SyllabusSearch,
+    sync_offering_summary, SyllabusCourse, SyllabusFilters, SyllabusMeeting, SyllabusSearch,
 };
 pub use model::{
     CatalogSearchItem, CatalogSearchResult, ClassFormat, Credits, DeliveryKind,

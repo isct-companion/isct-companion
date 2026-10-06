@@ -16,15 +16,17 @@
 @keyframes lmsFadeIn { from { opacity: 0; } }
 @keyframes lmsPopIn { from { opacity: 0; scale: .97; } }
 @keyframes lmsPaneEnter { from { opacity: 0; transform: translate3d(14px, 0, 0); } }
+@keyframes todayPaneIn { from { opacity: 0; transform: translate3d(28px, 0, 0) scale(.985); } }
 @keyframes lmsShimmer { to { background-position: -200% 0; } }
 
 /* ---------- Workbench ---------- */
-.todayWorkbench { display: flex; width: 100%; height: 100%; min-height: 0; gap: 20px; }
+.todayWorkbench { position: relative; display: flex; width: 100%; height: 100%; min-height: 0; gap: 20px; }
 .todayRetained { flex: 0 0 100%; min-width: 0; height: 100%; overflow: auto; overflow-anchor: none; }
-.todayRetained.compact { flex-basis: 180px; padding-right: 16px; border-right: 1px solid var(--line); animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
+.todayRetained.compact { flex-basis: 180px; padding-right: 16px; border-right: 1px solid var(--line); }
 .todayWorkbenchContent { flex: 1; min-width: 0; min-height: 0; overflow: hidden; contain: layout paint; transition: opacity var(--lms-medium) var(--lms-ease), transform var(--lms-slow) var(--lms-ease); }
-.todayWorkbench.working .todayWorkbenchContent { animation: lmsPaneEnter var(--lms-slow) var(--lms-ease); }
-.todayWorkbench.leaving .todayWorkbenchContent { opacity: 0; transform: translate3d(12px, 0, 0); pointer-events: none; }
+.todayWorkbench.working .todayWorkbenchContent { transform-origin: left center; animation: todayPaneIn 380ms var(--lms-ease); }
+/* Leaving: the pane fades out over the returning full Today instead of collapsing to zero width. */
+.todayWorkbench.leaving .todayWorkbenchContent { position: absolute; top: 0; right: 0; bottom: 0; left: 200px; opacity: 0; transform: translate3d(16px, 0, 0) scale(.99); pointer-events: none; }
 .todayWorkbenchContent[hidden], .todayCourseSlot[hidden] { display: none; }
 .todayCourseSlot { height: 100%; }
 
@@ -348,7 +350,7 @@
   .lmsDocument { padding: 20px 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .todayRetained.compact, .todayWorkbench.working .todayWorkbenchContent, .lmsViewer, .lmsSectionBody, .lmsInlineThumbnail, .lmsFileCard, .lmsFilePopover { animation: none; }
+  .todayWorkbench.working .todayWorkbenchContent, .lmsViewer, .lmsSectionBody, .lmsInlineThumbnail, .lmsFileCard, .lmsFilePopover { animation: none; }
   .todayWorkbenchContent, .lmsItemRow, .lmsAnnouncementCard, .lmsSectionChevron, .lmsThumbnail img { transition: none; }
   .lmsImageCard [data-image-src][data-state="loading"] { animation: none; }
 }

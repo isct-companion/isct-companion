@@ -1,5 +1,9 @@
 import { getDesktopBridge } from "../platform/desktop-bridge";
-import type { SchoolRecords, SchoolIngestOutcome } from "../platform/desktop-bridge";
+import type {
+  SchoolIngestOutcome,
+  SchoolPullOptions,
+  SchoolRecords,
+} from "../platform/desktop-bridge";
 import type { Workspace } from "../core/model";
 import { seedWorkspace } from "../core/model";
 import { repository, type WorkspaceRepository } from "../storage/repository";
@@ -81,7 +85,13 @@ function validate(value: Workspace) {
 
 export function createWorkspaceStore(
   storage: Pick<WorkspaceRepository, "load" | "save">,
-  school?: { read(): Promise<SchoolRecords>; pull?(site: "science-lms" | "kyomu"): Promise<SchoolIngestOutcome[]> },
+  school?: {
+    read(): Promise<SchoolRecords>;
+    pull?(
+      site: "science-lms" | "kyomu",
+      options?: SchoolPullOptions,
+    ): Promise<SchoolIngestOutcome[]>;
+  },
 ) {
   const state = createStore<WorkspaceSnapshot>(() =>
     Object.freeze({
@@ -185,12 +195,17 @@ export function createWorkspaceStore(
       return loading;
     },
     reload,
-    pullSchool(site: "science-lms" | "kyomu") {
+    pullSchool(
+      site: "science-lms" | "kyomu",
+      options?: SchoolPullOptions,
+    ) {
       if (!school?.pull) return Promise.reject(new Error("School pull needs the desktop app."));
       const operation = pulls.catch(() => undefined).then(async () => {
         await writes;
         if (state.getState().error) throw new Error(state.getState().error);
-        const outcomes = await school.pull!(site);
+        const outcomes = options
+          ? await school.pull!(site, options)
+          : await school.pull!(site);
         await reload();
         return outcomes;
       });
@@ -223,7 +238,9 @@ export function createWorkspaceStore(
 const desktopBridge = typeof window === "undefined" ? undefined : getDesktopBridge();
 const internalWorkspaceStore = createWorkspaceStore(repository, desktopBridge?.schoolRecords ? {
   read: () => desktopBridge!.schoolRecords!(),
-  pull: desktopBridge.pullSchool ? site => desktopBridge!.pullSchool!(site) : undefined,
+  pull: desktopBridge.pullSchool
+    ? (site, options) => desktopBridge!.pullSchool!(site, options)
+    : undefined,
 } : undefined);
 
 /** Read/lifecycle surface. Mutations are available only through workspaceActions. */
@@ -351,9 +368,9 @@ const protectedWorkspaceEnvelope = (workspace: Workspace) => {
 export const workspaceActions = {
   /** Refresh canonical workspace and parsed school records in one publication. */
   refreshSchool() { return internalWorkspaceStore.reload(); },
-  pullSchool(site: "science-lms" | "kyomu") {
+  pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
     requireAction("import-school", detectPlatform());
-    return internalWorkspaceStore.pullSchool(site);
+    return internalWorkspaceStore.pullSchool(site, options);
   },
   editAcademic: workspaceHooks.actions.editAcademic,
   editCalendar(edit: WorkspaceEdit) {

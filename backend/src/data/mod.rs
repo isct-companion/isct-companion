@@ -244,6 +244,19 @@ fn reference_refresh_task(device_id: &str) -> Value {
     })
 }
 
+fn lms_background_refresh_task(device_id: &str) -> Value {
+    json!({
+        "id": "builtin:lms-background-refresh",
+        "rev": 1,
+        "updatedAt": now(),
+        "updatedBy": device_id,
+        "name": "LMS background refresh",
+        "action": "lms-refresh",
+        "schedule": "RRULE:FREQ=HOURLY;INTERVAL=4;BYMINUTE=0",
+        "enabled": false
+    })
+}
+
 fn content_value(value: &Value) -> Value {
     let mut value = value.clone();
     if let Some(object) = value.as_object_mut() {
@@ -330,7 +343,9 @@ fn read_visible_rows(connection: &Connection, table: &str) -> Result<Vec<Value>,
         return read_rows(connection, table);
     }
     let sql = format!("SELECT value FROM {table} WHERE missing_since IS NULL ORDER BY id");
-    let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
     let rows = statement
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?
@@ -340,6 +355,87 @@ fn read_visible_rows(connection: &Connection, table: &str) -> Result<Vec<Value>,
         })
         .collect();
     rows
+}
+
+fn fill_missing(value: &mut Value, fallback: &Value) {
+    match (value, fallback) {
+        (Value::Object(value), Value::Object(fallback)) => {
+            for (key, fallback) in fallback {
+                if let Some(current) = value.get_mut(key) {
+                    fill_missing(current, fallback);
+                } else {
+                    value.insert(key.clone(), fallback.clone());
+                }
+            }
+        }
+        (Value::Array(value), Value::Array(fallback)) if value.len() == fallback.len() => {
+            for (current, fallback) in value.iter_mut().zip(fallback) {
+                fill_missing(current, fallback);
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn canonical_course_id(academic_year: i32, offering_id: &str) -> Result<String, String> {
+    if !(1000..=9999).contains(&academic_year)
+        || offering_id.len() != 9
+        || !offering_id.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err("course identity requires an academic year and 9-digit offering id".into());
+    }
+    Ok(format!("{academic_year}-{offering_id}"))
+}
+
+/// Resolve every school-facing identifier through one internal course id.
+/// Offering ids are authoritative; source-only courses keep a deterministic
+/// provider-scoped id until an offering becomes known.
+pub(crate) fn resolve_course_id(
+    transaction: &Transaction<'_>,
+    provider: &str,
+    external_id: &str,
+    academic_year: i32,
+    offering_id: Option<&str>,
+) -> Result<String, String> {
+    if !matches!(provider, "lms" | "syllabus" | "kyomu" | "manual") || external_id.trim().is_empty()
+    {
+        return Err("invalid course identity source".into());
+    }
+    let stored: Option<String> = transaction
+        .query_row(
+            "SELECT course_id FROM course_identity_map
+             WHERE provider=?1 AND external_id=?2 AND academic_year=?3",
+            params![provider, external_id, academic_year],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let course_id = if let Some(offering_id) = offering_id {
+        canonical_course_id(academic_year, offering_id)?
+    } else if let Some(stored) = stored {
+        stored
+    } else {
+        format!("{academic_year}-{provider}-{external_id}")
+    };
+    transaction
+        .execute(
+            "INSERT INTO course_identity_map
+             (provider,external_id,academic_year,course_id,offering_id,updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6)
+             ON CONFLICT(provider,external_id,academic_year) DO UPDATE SET
+               course_id=excluded.course_id,offering_id=excluded.offering_id,
+               updated_at=excluded.updated_at",
+            params![
+                provider,
+                external_id,
+                academic_year,
+                course_id,
+                offering_id,
+                now()
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(course_id)
 }
 
 fn read_stored_row(
@@ -481,10 +577,7 @@ fn setting_version(row: &Value) -> Result<VersionedValue, String> {
     })
 }
 
-fn import_setting(
-    transaction: &Transaction<'_>,
-    row: &Value,
-) -> Result<(), String> {
+fn import_setting(transaction: &Transaction<'_>, row: &Value) -> Result<(), String> {
     let key = string_field(row, "key")?;
     let incoming = setting_version(row)?;
     transaction
@@ -585,9 +678,19 @@ impl DataStore {
             .as_ref()
             .and_then(Value::as_str)
             .unwrap_or(string_field(&workspace, "deviceId")?);
-        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
         if existing_device_id.is_none() {
-            for key in ["deviceId", "selectedTerm", "terms", "academicProfile", "importStatus", "syncStatus", "logs"] {
+            for key in [
+                "deviceId",
+                "selectedTerm",
+                "terms",
+                "academicProfile",
+                "importStatus",
+                "syncStatus",
+                "logs",
+            ] {
                 if let Some(value) = workspace.get(key) {
                     save_setting(&transaction, key, value, device_id)?;
                 }
@@ -601,6 +704,12 @@ impl DataStore {
             &transaction,
             "scheduled_tasks",
             &reference_refresh_task(device_id),
+            false,
+        )?;
+        upsert_row(
+            &transaction,
+            "scheduled_tasks",
+            &lms_background_refresh_task(device_id),
             false,
         )?;
         transaction.commit().map_err(|error| error.to_string())
@@ -638,15 +747,31 @@ impl DataStore {
         let object = value
             .as_object_mut()
             .ok_or_else(|| "record must be an object".to_string())?;
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        if table == "manual_courses" {
+            let offering = object.get("offeringId").and_then(Value::as_str).map(str::to_string);
+            let year = object.get("termId").and_then(Value::as_str)
+                .and_then(|term| term.get(..4)).and_then(|year| year.parse::<i32>().ok());
+            if let (Some(offering), Some(year)) = (offering, year) {
+                let source_provider = object.get("source").and_then(|source| source.get("provider")).and_then(Value::as_str);
+                let provider = match source_provider {
+                    Some(provider @ ("lms" | "syllabus" | "kyomu")) => provider,
+                    _ => "manual",
+                };
+                let external = object.get("source").and_then(|source| source.get("externalId"))
+                    .and_then(Value::as_str).unwrap_or(&offering).to_string();
+                let course_id = resolve_course_id(&transaction, provider, &external, year, Some(&offering))?;
+                object.insert("id".into(), Value::String(course_id));
+            }
+        }
         let requested_id = object
             .get("id")
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
             .map(str::to_string);
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
         let source_key = object.get("sourceKey").and_then(Value::as_str).map(str::to_string);
         let target_key = object.get("targetKey").and_then(Value::as_str).map(str::to_string);
         let overlay_id = if matches!(table, "assignment_marks" | "course_overrides") {
@@ -746,9 +871,11 @@ impl DataStore {
             )
             .optional()
             .map_err(|error| error.to_string())?;
-        let Some((raw, revision)) = raw else { return Ok(false) };
-        let mut value: Value = serde_json::from_str(&raw)
-            .map_err(|_| format!("{table} contains invalid JSON"))?;
+        let Some((raw, revision)) = raw else {
+            return Ok(false);
+        };
+        let mut value: Value =
+            serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))?;
         let timestamp = now();
         let object = value
             .as_object_mut()
@@ -773,7 +900,11 @@ impl DataStore {
         let connection = self.open()?;
         Ok(read_setting(&connection, "devicePreferences")?
             .or(read_setting(&connection, "settings")?)
-            .and_then(|value| value.pointer("/agentAccess/enabled").and_then(Value::as_bool))
+            .and_then(|value| {
+                value
+                    .pointer("/agentAccess/enabled")
+                    .and_then(Value::as_bool)
+            })
             .unwrap_or(false))
     }
 
@@ -796,7 +927,12 @@ impl DataStore {
             .or_insert_with(|| json!({"enabled":false,"lastWrites":[]}));
         let writes = access
             .as_object_mut()
-            .and_then(|access| access.entry("lastWrites").or_insert_with(|| json!([])).as_array_mut())
+            .and_then(|access| {
+                access
+                    .entry("lastWrites")
+                    .or_insert_with(|| json!([]))
+                    .as_array_mut()
+            })
             .ok_or_else(|| "agent access history must be an array".to_string())?;
         writes.insert(0, json!({"at": now(), "tool": tool}));
         writes.truncate(20);
@@ -804,8 +940,24 @@ impl DataStore {
         transaction.commit().map_err(|error| error.to_string())
     }
 
-    pub fn put_workspace_setting(&self, key: &str, value: Value, actor: &str) -> Result<(), String> {
-        if !matches!(key, "selectedTerm" | "terms" | "academicProfile" | "userPreferences" | "devicePreferences" | "cloud" | "importStatus" | "syncStatus" | "logs") {
+    pub fn put_workspace_setting(
+        &self,
+        key: &str,
+        value: Value,
+        actor: &str,
+    ) -> Result<(), String> {
+        if !matches!(
+            key,
+            "selectedTerm"
+                | "terms"
+                | "academicProfile"
+                | "userPreferences"
+                | "devicePreferences"
+                | "cloud"
+                | "importStatus"
+                | "syncStatus"
+                | "logs"
+        ) {
             return Err("setting key is not writable".into());
         }
         let mut connection = self.open()?;
@@ -825,7 +977,10 @@ impl DataStore {
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
             courses.extend(read_rows(&connection, "manual_courses")?);
         }
-        if let Some(memberships) = workspace.get_mut("memberships").and_then(Value::as_array_mut) {
+        if let Some(memberships) = workspace
+            .get_mut("memberships")
+            .and_then(Value::as_array_mut)
+        {
             memberships.extend(read_rows(&connection, "manual_memberships")?);
         }
         let marks = read_rows(&connection, "assignment_marks")?;
@@ -837,7 +992,10 @@ impl DataStore {
                 let Some(id) = assignment.get("id").and_then(Value::as_str) else {
                     continue;
                 };
-                let source_key = assignment.get("sourceKey").and_then(Value::as_str).unwrap_or(id);
+                let source_key = assignment
+                    .get("sourceKey")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id);
                 let Some(mark) = marks.iter().find(|mark| {
                     mark.get("deletedAt").is_none()
                         && (mark.get("sourceKey").and_then(Value::as_str) == Some(source_key)
@@ -921,6 +1079,7 @@ impl DataStore {
                 "manual_memberships",
                 "course_overrides",
                 "assignment_marks",
+                "course_identity_map",
             ])
             .collect::<HashSet<_>>();
         for table in reset_tables {
@@ -953,10 +1112,7 @@ impl DataStore {
                     .is_some_and(|key| USER_BACKUP_SETTINGS.contains(&key))
             })
             .collect();
-        tables.insert(
-            "settings".into(),
-            Value::Array(settings),
-        );
+        tables.insert("settings".into(), Value::Array(settings));
 
         serde_json::to_string_pretty(&json!({
             "schemaVersion": 4,
@@ -973,8 +1129,7 @@ impl DataStore {
         let parsed: Value =
             serde_json::from_str(document).map_err(|_| "import is not valid JSON".to_string())?;
         if parsed.get("schemaVersion").and_then(Value::as_u64) != Some(4)
-            || parsed.get("kind").and_then(Value::as_str)
-                != Some("campus-life-local-backup")
+            || parsed.get("kind").and_then(Value::as_str) != Some("campus-life-local-backup")
         {
             return Err("import must be a version 4 local backup".into());
         }
@@ -1017,10 +1172,7 @@ impl DataStore {
         let transaction = connection
             .transaction()
             .map_err(|error| error.to_string())?;
-        let allowed: HashSet<_> = USER_BACKUP_TABLES
-            .iter()
-            .copied()
-            .collect();
+        let allowed: HashSet<_> = USER_BACKUP_TABLES.iter().copied().collect();
         // A local backup restore is an explicit replacement, not sync/merge.
         for table in USER_BACKUP_TABLES {
             transaction
@@ -1068,6 +1220,26 @@ impl DataStore {
         let mut changed = 0;
         for offering in offerings {
             let mut offering = offering.clone();
+            let offering_id = string_field(&offering, "id")?.to_string();
+            let search_item: Option<String> = transaction
+                .query_row(
+                    "SELECT value FROM catalog_search_items WHERE id=?1",
+                    [&offering_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| error.to_string())?;
+            if let Some(search_item) = search_item
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            {
+                for field in ["title", "instructors", "academicUnit"] {
+                    if let (Some(current), Some(fallback)) =
+                        (offering.get_mut(field), search_item.get(field))
+                    {
+                        fill_missing(current, fallback);
+                    }
+                }
+            }
             let timestamp = now();
             let source_key = format!(
                 "syllabus:{}:offering:{}",
@@ -1215,7 +1387,27 @@ impl DataStore {
     pub fn catalog_search(&self, query: &str) -> Result<Vec<Value>, String> {
         let connection = self.open()?;
         if query.trim().is_empty() {
-            return read_rows(&connection, "offerings");
+            let mut statement = connection
+                .prepare(
+                    "SELECT value FROM offerings
+                     WHERE deleted_at IS NULL AND missing_since IS NULL
+                     UNION ALL
+                     SELECT s.value FROM catalog_search_items s
+                     WHERE NOT EXISTS (
+                       SELECT 1 FROM offerings o
+                       WHERE o.id=s.id AND o.deleted_at IS NULL AND o.missing_since IS NULL
+                     )
+                     ORDER BY 1",
+                )
+                .map_err(|error| error.to_string())?;
+            return statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|error| error.to_string())?
+                .map(|row| {
+                    serde_json::from_str(&row.map_err(|error| error.to_string())?)
+                        .map_err(|_| "catalog row contains invalid JSON".to_string())
+                })
+                .collect();
         }
         let expression = query
             .split_whitespace()
@@ -1341,27 +1533,52 @@ mod tests {
     }
 
     #[test]
+    fn summary_metadata_keeps_other_search_languages() {
+        let mut summary = json!({
+            "title": {"en": "Assembly Language"},
+            "instructors": [{"en": "Teacher"}]
+        });
+        let search = json!({
+            "title": {"ja": "アセンブリ言語", "en": "Old English"},
+            "instructors": [{"ja": "教員", "en": "Old Teacher"}]
+        });
+        fill_missing(&mut summary, &search);
+        assert_eq!(summary["title"]["en"], "Assembly Language");
+        assert_eq!(summary["title"]["ja"], "アセンブリ言語");
+        assert_eq!(summary["instructors"][0]["ja"], "教員");
+    }
+
+    #[test]
     fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
         let store = store("reference-refresh-task");
         let workspace = store.load_workspace().unwrap();
         let tasks = workspace["scheduledTasks"].as_array().unwrap();
-        assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0]["id"], "builtin:reference-subscriptions");
-        assert_eq!(tasks[0]["action"], "reference-refresh");
-        assert_eq!(tasks[0]["enabled"], true);
+        assert_eq!(tasks.len(), 2);
+        let reference = tasks
+            .iter()
+            .find(|task| task["id"] == "builtin:reference-subscriptions")
+            .unwrap();
+        assert_eq!(reference["action"], "reference-refresh");
+        assert_eq!(reference["enabled"], true);
+        let lms = tasks
+            .iter()
+            .find(|task| task["id"] == "builtin:lms-background-refresh")
+            .unwrap();
+        assert_eq!(lms["action"], "lms-refresh");
+        assert_eq!(lms["enabled"], false);
 
         store
-            .delete_user_record(
-                "scheduled_tasks",
-                "builtin:reference-subscriptions",
-                "test",
-            )
+            .delete_user_record("scheduled_tasks", "builtin:reference-subscriptions", "test")
             .unwrap();
         store.ensure_defaults().unwrap();
         let workspace = store.load_workspace().unwrap();
         let tasks = workspace["scheduledTasks"].as_array().unwrap();
-        assert_eq!(tasks.len(), 1);
-        assert!(tasks[0]["deletedAt"].is_string());
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks
+            .iter()
+            .find(|task| task["id"] == "builtin:reference-subscriptions")
+            .unwrap()["deletedAt"]
+            .is_string());
         let _ = fs::remove_file(store.path());
     }
 
@@ -1383,7 +1600,9 @@ mod tests {
     fn explicit_delete_is_a_user_tombstone() {
         let store = store("explicit-delete");
         let row = store.put_user_record("plans", json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}), "test").unwrap();
-        assert!(store.delete_user_record("plans", row["id"].as_str().unwrap(), "test").unwrap());
+        assert!(store
+            .delete_user_record("plans", row["id"].as_str().unwrap(), "test")
+            .unwrap());
         assert!(store.user_rows("plans").unwrap()[0]["deletedAt"].is_string());
         let _ = fs::remove_file(store.path());
     }
@@ -1398,6 +1617,41 @@ mod tests {
             "rev":1, "updatedAt":"2026-10-06T00:00:00Z", "updatedBy":"lms"
         }), true).unwrap();
         transaction.commit().unwrap();
+    }
+
+    #[test]
+    fn course_identity_is_shared_by_every_provider() {
+        let store = store("course-identity");
+        let mut connection = store.open().unwrap();
+        let transaction = connection.transaction().unwrap();
+        let lms = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
+        let syllabus = resolve_course_id(&transaction, "syllabus", "202602440", 2026, Some("202602440")).unwrap();
+        let kyomu = resolve_course_id(&transaction, "kyomu", "202602440", 2026, Some("202602440")).unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(lms, "2026-202602440");
+        assert_eq!(syllabus, lms);
+        assert_eq!(kyomu, lms);
+        let rows: i64 = store.open().unwrap().query_row(
+            "SELECT count(*) FROM course_identity_map WHERE course_id='2026-202602440'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(rows, 3);
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn catalog_list_includes_search_rows_until_details_replace_them() {
+        let store = store("catalog-search-fallback");
+        store.catalog_upsert_search_items(&[json!({
+            "id":"202602427", "year":2026, "code":"CSC.T263",
+            "title":{"en":"Assembly Language"}, "instructors":[],
+            "quarters":["3Q"], "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/CSC.T263/202602427"
+        })]).unwrap();
+        let rows = store.catalog_search("").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "202602427");
+        assert_eq!(rows[0]["detailed"], Value::Null);
+        let _ = fs::remove_file(store.path());
     }
 
     #[test]

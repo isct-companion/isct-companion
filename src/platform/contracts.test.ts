@@ -102,6 +102,18 @@ describe("runtime capabilities", () => {
 });
 
 describe("Tauri bridge contract", () => {
+  it("passes an optional LMS course scope to the native pull", async () => {
+    const invoke = vi.fn(async () => []);
+    const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
+
+    await bridge.pullSchool?.("science-lms", { lmsCourseId: 42 });
+
+    expect(invoke).toHaveBeenCalledWith("pull_school", {
+      site: "science-lms",
+      lmsCourseId: 42,
+    });
+  });
+
   it("maps credential, session, and webview calls to narrow commands", async () => {
     const invoke = vi.fn(async (command: string) => {
       if (command === "save_school_credentials") return true;

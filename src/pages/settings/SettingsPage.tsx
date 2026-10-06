@@ -725,6 +725,8 @@ export function Settings({
                     : (task.lastResult ??
                       (task.action === "reference-refresh"
                         ? t("Daily hash check · Wi-Fi preferred")
+                        : task.action === "lms-refresh"
+                          ? t("Every 4 hours · Wi-Fi and active app only")
                         : task.schedule))
                 }
               >
@@ -758,6 +760,8 @@ export function Settings({
                           await exportData();
                           result = "Export completed";
                         } else if (task.action === "reference-refresh") {
+                          result = "Desktop app required";
+                        } else if (task.action === "lms-refresh") {
                           result = "Desktop app required";
                         } else result = "Hook queued";
                       } catch (error) {

@@ -93,7 +93,10 @@ impl Downloader {
             }
             if attempt == 0 {
                 let school = app.state::<crate::school_web::SchoolWebController>();
-                let _ = school.ensure_session(app, crate::school_auth::SchoolAuthProfile::Science);
+                let _ = school.request_session(
+                    app,
+                    crate::school_auth::SchoolAuthProfile::Science,
+                );
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 view.navigate(Url::parse(HOME).expect("valid LMS URL")).map_err(|e| e.to_string())?;
             }

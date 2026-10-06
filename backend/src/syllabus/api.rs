@@ -440,6 +440,15 @@ pub async fn sync_offering(locator: &str) -> Result<SyncOfferingResult, String> 
     merge_detail(ja, en)
 }
 
+/// Course Finder only needs language-neutral list metadata. Fetch one detail
+/// page now; opening the syllabus later still performs the full bilingual sync.
+pub async fn sync_offering_summary(locator: &str) -> Result<SyncOfferingResult, String> {
+    let initial = offering_url(locator)?;
+    let page = transport::get(localized_detail_url(&initial, "en")).await?;
+    let parsed = parser::parse_detail(&page.url, &page.html, "en")?;
+    single_detail(parsed)
+}
+
 pub async fn detail(url: &str) -> Result<SyllabusCourse, String> {
     let requested = Url::parse(url).map_err(|_| "Syllabus URL is invalid.")?;
     let language = requested
@@ -496,6 +505,83 @@ fn class_code(code: &str, class_label: Option<&str>) -> Option<String> {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         })
+}
+
+fn single_detail(page: DetailPage) -> Result<SyncOfferingResult, String> {
+    let DetailPage {
+        id,
+        year,
+        title,
+        instructors,
+        academic_unit,
+        code,
+        quarters,
+        instruction_language,
+        format,
+        format_raw,
+        media,
+        class_label,
+        credits,
+        schedule,
+        schedule_raw,
+        source_updated,
+        unit_code,
+        syllabus_url,
+        fetched_at,
+        content,
+        warnings,
+        ..
+    } = page;
+    let schedule_missing = schedule.is_none();
+    let schedule = schedule
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| ScheduleEntry {
+            kind: entry.kind,
+            day: entry.day,
+            periods: entry.periods,
+            room: entry.room.map(|room| Localized::one("en", room)),
+        })
+        .collect::<Vec<_>>();
+    let format_missing = format.is_none();
+    let offering = Offering {
+        id: id.clone(),
+        year,
+        quarters,
+        code: code.clone(),
+        class_code: class_code(&code, class_label.as_deref()),
+        unit_code,
+        title: Localized::one("en", title),
+        instructors: instructors
+            .into_iter()
+            .map(|name| Localized::one("en", name))
+            .collect(),
+        instruction_language,
+        format: format.unwrap_or_default(),
+        media: Localized::one("en", media),
+        class_label,
+        credits,
+        intensive: schedule
+            .iter()
+            .any(|entry| entry.kind == ScheduleKind::Intensive),
+        schedule,
+        academic_unit: Localized::one("en", academic_unit),
+        syllabus_url,
+        source_updated,
+        fetched_at: Localized::one("en", fetched_at),
+        schedule_raw: schedule_missing.then(|| Localized::one("en", schedule_raw)),
+        format_raw: format_missing.then(|| Localized::one("en", format_raw)),
+        warnings: warnings.clone(),
+    };
+    Ok(SyncOfferingResult {
+        offering,
+        content: vec![OfferingContent {
+            offering_id: id,
+            lang: "en".into(),
+            content,
+        }],
+        warnings,
+    })
 }
 
 fn merge_detail(ja: DetailPage, en: DetailPage) -> Result<SyncOfferingResult, String> {
@@ -740,5 +826,26 @@ mod offering_locator_tests {
         assert_eq!(url.as_str(), "https://syllabus.s.isct.ac.jp/courses/-/-/-/202608712");
         // Setting the language must keep the id.
         assert!(super::localized_detail_url(&url, "en").as_str().ends_with("/202608712?hl=en"));
+    }
+
+    #[test]
+    fn finder_summary_keeps_filter_metadata_without_claiming_bilingual_content() {
+        let url = url::Url::parse(
+            "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602440?hl=en",
+        )
+        .unwrap();
+        let page = super::parser::parse_detail(
+            &url,
+            include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
+            "en",
+        )
+        .unwrap();
+        let summary = super::single_detail(page).unwrap();
+        assert_eq!(summary.offering.id, "202602440");
+        assert_eq!(summary.offering.credits.total(), 2.0);
+        assert_eq!(summary.offering.schedule.len(), 2);
+        assert!(summary.offering.fetched_at.ja.is_none());
+        assert_eq!(summary.content.len(), 1);
+        assert_eq!(summary.content[0].lang, "en");
     }
 }

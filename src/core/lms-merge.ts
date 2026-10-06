@@ -9,6 +9,7 @@ import {
 } from "./model";
 import type { LmsCourseRecord } from "../platform/desktop-bridge";
 import { catalogCourse } from "../platform/desktop-bridge";
+import { canonicalCourseId } from "./syllabus";
 import { stamp } from "../app/shared";
 import { clockForPeriods } from "./user-schedule";
 import { decodeEntities } from "./text";
@@ -223,8 +224,8 @@ export function applyLmsMerge(
     if (!add.has(entry.key)) continue;
     const year = Number(entry.termId.slice(0, 4));
     const id = entry.lms.offeringId
-      ? `course:${entry.termId}:${entry.lms.offeringId}`
-      : `course:${entry.termId}:lms-${entry.lms.lmsId}`;
+      ? canonicalCourseId(year, entry.lms.offeringId)
+      : `${year}-lms-${entry.lms.lmsId}`;
     let course = draft.courses.find((item) => item.id === id);
     const fromSyllabus = entry.offering ? catalogCourse(entry.offering, locale) : undefined;
     const credits = entry.offering?.credits ?? { lecture: 0, exercise: 0, lab: 0 };

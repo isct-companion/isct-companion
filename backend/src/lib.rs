@@ -16,15 +16,15 @@ use school_web::{SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBound
 use secrets::OsSecretVault;
 
 mod cloud;
-pub mod data;
 pub mod contracts;
+pub mod data;
 mod kyomu_guide;
 mod kyomu_ingest;
 mod lifecycle;
-mod lms_ingest;
-mod lms_files;
 #[cfg(desktop)]
 mod lms_downloader;
+mod lms_files;
+mod lms_ingest;
 #[cfg(matrix_ocr)]
 mod matrix_ocr;
 #[cfg(matrix_ocr)]
@@ -287,11 +287,14 @@ async fn pull_school(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     site: SchoolSite,
+    lms_course_id: Option<u64>,
 ) -> Result<Vec<school_web::IngestOutcome>, String> {
     require_local_main(&webview)?;
     let controller = app.state::<SchoolWebController>().inner().clone();
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || controller.pull(&handle, site))
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.request_pull(&handle, site, lms_course_id)
+    })
         .await
         .map_err(|_| "The school pull stopped unexpectedly.".to_string())?
 }
@@ -316,7 +319,10 @@ fn school_records(
         let rows = store
             .table_rows(table)?
             .into_iter()
-            .filter(|row| row.get("deletedAt").map_or(true, serde_json::Value::is_null))
+            .filter(|row| {
+                row.get("deletedAt")
+                    .map_or(true, serde_json::Value::is_null)
+            })
             .collect();
         records.insert(key.into(), serde_json::Value::Array(rows));
     }
@@ -394,7 +400,13 @@ async fn login_school(
         .load(profile)?
         .ok_or_else(|| "Save this school account before signing in.".to_string())?;
     let _ = bounds;
-    controller.login_in_background(&app, profile, credentials)
+    let controller = controller.inner().clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.request_login(&handle, profile, credentials)
+    })
+    .await
+    .map_err(|_| "The queued school sign-in stopped unexpectedly.".to_string())?
 }
 
 #[tauri::command]
@@ -405,7 +417,7 @@ async fn ensure_school_session(
     profile: SchoolAuthProfile,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    controller.ensure_session(&app, profile)
+    controller.request_session(&app, profile)
 }
 
 #[tauri::command]
@@ -419,7 +431,13 @@ async fn test_school_connection(
 ) -> Result<SchoolWebResult, String> {
     require_local_main(&webview)?;
     let credentials = auth.resolve(profile, credentials)?;
-    controller.login_in_background(&app, profile, credentials)
+    let controller = controller.inner().clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.request_login(&handle, profile, credentials)
+    })
+    .await
+    .map_err(|_| "The queued school sign-in stopped unexpectedly.".to_string())?
 }
 
 #[tauri::command]
@@ -554,8 +572,8 @@ fn export_data(
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    let notes = serde_json::to_value(lms_files::export_notes(&app)?)
-        .map_err(|error| error.to_string())?;
+    let notes =
+        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
     store.export_data(notes)
 }
 
@@ -570,8 +588,8 @@ fn write_scheduled_export(
     require_local_main(&webview)?;
     use std::io::Write;
 
-    let notes = serde_json::to_value(lms_files::export_notes(&app)?)
-        .map_err(|error| error.to_string())?;
+    let notes =
+        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
     let document = store.export_data(notes)?;
     if document.len() > 32 * 1024 * 1024 {
         return Err("scheduled export exceeds the 32 MiB safety limit".into());
@@ -641,7 +659,10 @@ fn import_data(
     let parsed: serde_json::Value =
         serde_json::from_str(&document).map_err(|_| "import is not valid JSON")?;
     let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
-        parsed.get("localNotes").cloned().unwrap_or(serde_json::Value::Null),
+        parsed
+            .get("localNotes")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
     )
     .map_err(|_| "import localNotes is invalid")?;
     // Validate and restore local user notes under the file-store lock. School
@@ -723,7 +744,9 @@ fn catalog_offerings(
         .into_iter()
         .filter(|row| {
             row.get("year").and_then(serde_json::Value::as_u64) == Some(u64::from(year))
-                && row.get("deletedAt").map_or(true, serde_json::Value::is_null)
+                && row
+                    .get("deletedAt")
+                    .map_or(true, serde_json::Value::is_null)
         })
         .collect())
 }
@@ -819,13 +842,14 @@ fn store_search_items(
 }
 
 /// Fetches detail pages for offerings that have none or a stale one (older
-/// than a week), two at a time, storing each as it arrives.
+/// than a week), storing each bounded batch as it arrives.
 async fn sync_stale_details(
     store: &data::DataStore,
     targets: Vec<(String, String)>,
+    summary_only: bool,
 ) -> Result<(Vec<syllabus::SyncOfferingResult>, Vec<String>), String> {
-    let cutoff = chrono::Utc::now()
-        - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
+    let cutoff =
+        chrono::Utc::now() - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
     let stale = targets
         .into_iter()
         .filter(|(id, _)| {
@@ -833,7 +857,13 @@ async fn sync_stale_details(
                 return true;
             };
             stored.get("schedule").is_none()
-                || ["ja", "en"].iter().any(|language| {
+                || (if summary_only {
+                    &["en"][..]
+                } else {
+                    &["ja", "en"][..]
+                })
+                .iter()
+                .any(|language| {
                     stored
                         .pointer(&format!("/fetchedAt/{language}"))
                         .and_then(serde_json::Value::as_str)
@@ -844,15 +874,26 @@ async fn sync_stale_details(
         .collect::<Vec<_>>();
     let mut offerings = Vec::with_capacity(stale.len());
     let mut warnings = Vec::new();
-    for (index, pair) in stale.chunks(2).enumerate() {
+    let chunk_size = if summary_only { 4 } else { 2 };
+    for (index, pair) in stale.chunks(chunk_size).enumerate() {
         if index > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(400));
+            std::thread::sleep(std::time::Duration::from_millis(if summary_only {
+                150
+            } else {
+                400
+            }));
         }
         let handles = pair
             .iter()
             .map(|(_, url)| {
                 let url = url.clone();
-                tauri::async_runtime::spawn(async move { syllabus::sync_offering(&url).await })
+                tauri::async_runtime::spawn(async move {
+                    if summary_only {
+                        syllabus::sync_offering_summary(&url).await
+                    } else {
+                        syllabus::sync_offering(&url).await
+                    }
+                })
             })
             .collect::<Vec<_>>();
         for ((id, _), handle) in pair.iter().zip(handles) {
@@ -894,7 +935,7 @@ async fn catalog_sync_department(
         .iter()
         .map(|item| (item.id.clone(), item.syllabus_url.clone()))
         .collect();
-    let (offerings, warnings) = sync_stale_details(&store, targets).await?;
+    let (offerings, warnings) = sync_stale_details(&store, targets, false).await?;
     Ok(syllabus::DepartmentSyncResult {
         listed: catalog.items.len(),
         synced: offerings.len(),
@@ -937,11 +978,15 @@ async fn catalog_sync_offerings(
     for id in ids {
         let url = store
             .catalog_offering(&id)?
-            .and_then(|row| row.get("syllabusUrl").and_then(serde_json::Value::as_str).map(str::to_string))
+            .and_then(|row| {
+                row.get("syllabusUrl")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
             .ok_or_else(|| format!("{id}: not in the catalog"))?;
         targets.push((id, url));
     }
-    let (_, warnings) = sync_stale_details(&store, targets).await?;
+    let (_, warnings) = sync_stale_details(&store, targets, true).await?;
     Ok(warnings)
 }
 
@@ -993,39 +1038,89 @@ async fn probe_reference_source(
 }
 
 #[tauri::command]
-async fn refresh_reference_source(webview: tauri::Webview, store: tauri::State<'_, data::DataStore>, kind: String, index_url: String, year: i32, expected_index_hash: Option<String>, known_hash: Option<String>) -> Result<serde_json::Value, String> {
+async fn refresh_reference_source(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    kind: String,
+    index_url: String,
+    year: i32,
+    expected_index_hash: Option<String>,
+    known_hash: Option<String>,
+) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
     let client = subscriptions::SubscriptionClient::new()?;
     let mut connection = rusqlite::Connection::open(store.path()).map_err(|e| e.to_string())?;
     match kind.as_str() {
         "calendar" => {
-            let fetched = client.fetch_calendar(&index_url, year, expected_index_hash.as_deref(), known_hash.as_deref()).await?;
+            let fetched = client
+                .fetch_calendar(
+                    &index_url,
+                    year,
+                    expected_index_hash.as_deref(),
+                    known_hash.as_deref(),
+                )
+                .await?;
             let Some(value) = fetched.value else {
-                return Ok(serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}));
+                return Ok(
+                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
+                );
             };
             let changed = subscriptions::apply_reference(&mut connection, Some(&value), None)?;
-            Ok(serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}))
+            Ok(
+                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
+            )
         }
         "departments" => {
-            let fetched = client.fetch_departments(&index_url, year, expected_index_hash.as_deref(), known_hash.as_deref()).await?;
+            let fetched = client
+                .fetch_departments(
+                    &index_url,
+                    year,
+                    expected_index_hash.as_deref(),
+                    known_hash.as_deref(),
+                )
+                .await?;
             let Some(value) = fetched.value else {
-                return Ok(serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}));
+                return Ok(
+                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
+                );
             };
             let changed = subscriptions::apply_reference(&mut connection, None, Some(&value))?;
-            Ok(serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}))
+            Ok(
+                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
+            )
         }
         "important-dates" => {
-            let fetched = client.fetch_important_dates(&index_url, year, expected_index_hash.as_deref(), known_hash.as_deref()).await?;
+            let fetched = client
+                .fetch_important_dates(
+                    &index_url,
+                    year,
+                    expected_index_hash.as_deref(),
+                    known_hash.as_deref(),
+                )
+                .await?;
             let Some(value) = fetched.value else {
-                return Ok(serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}));
+                return Ok(
+                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
+                );
             };
             let changed = subscriptions::apply_important_dates(&mut connection, &value)?;
-            Ok(serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}))
+            Ok(
+                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
+            )
         }
         "exams" => {
-            let fetched = client.fetch_exams(&index_url, year, expected_index_hash.as_deref(), known_hash.as_deref()).await?;
+            let fetched = client
+                .fetch_exams(
+                    &index_url,
+                    year,
+                    expected_index_hash.as_deref(),
+                    known_hash.as_deref(),
+                )
+                .await?;
             let Some(feeds) = fetched.value else {
-                return Ok(serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}));
+                return Ok(
+                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
+                );
             };
             let mut changed = 0;
             let mut files = Vec::new();
@@ -1033,7 +1128,9 @@ async fn refresh_reference_source(webview: tauri::Webview, store: tauri::State<'
                 changed += subscriptions::apply_exam_feed(&mut connection, &feed)?;
                 files.push(serde_json::json!({"level":feed.level,"quarter":feed.quarter.to_ascii_uppercase(),"dataUrl":feed.url}));
             }
-            Ok(serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"files":files,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}))
+            Ok(
+                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"files":files,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
+            )
         }
         _ => Err("unsupported subscription type".into()),
     }

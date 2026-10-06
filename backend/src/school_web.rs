@@ -11,7 +11,7 @@ use crate::secrets::OsSecretVault;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -108,6 +108,63 @@ pub struct SchoolLoginEvent {
     pub profile: SchoolAuthProfile,
     pub state: String,
     pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolPullProgress {
+    pub site: SchoolSite,
+    pub phase: String,
+    pub completed: usize,
+    pub total: usize,
+    #[serde(default)]
+    pub course_id: u64,
+    #[serde(default)]
+    pub course_title: String,
+    #[serde(default)]
+    pub term: String,
+    #[serde(default)]
+    pub item_title: String,
+}
+
+enum SchoolJob {
+    Session(SchoolAuthProfile),
+    Login {
+        profile: SchoolAuthProfile,
+        credentials: SchoolCredentials,
+        started: mpsc::Sender<Result<SchoolWebResult, String>>,
+    },
+    Pull {
+        site: SchoolSite,
+        lms_course_id: Option<u64>,
+        finished: mpsc::Sender<Result<Vec<IngestOutcome>, String>>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ActiveSchoolJob {
+    Session(SchoolAuthProfile),
+    Login(SchoolAuthProfile),
+    Pull {
+        site: SchoolSite,
+        lms_course_id: Option<u64>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SchoolPullProgressRelay {
+    phase: String,
+    completed: usize,
+    total: usize,
+    #[serde(default)]
+    course_id: u64,
+    #[serde(default)]
+    course_title: String,
+    #[serde(default)]
+    term: String,
+    #[serde(default)]
+    item_title: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -294,8 +351,20 @@ struct ControllerState {
     creating: HashSet<SchoolSite>,
     ingestion_relays: HashMap<SchoolSite, String>,
     pending_ingestion: HashSet<SchoolSite>,
+    /// Limits the next hidden LMS extraction to one course.
+    pending_lms_course: Option<u64>,
+    /// The next LMS extraction was explicitly requested as a full background pull.
+    /// Ordinary page loads derive their narrow scope from the loaded Moodle page.
+    pending_lms_full: bool,
     /// Pulls waiting for their site's next extractor result.
     ingest_waiters: HashMap<SchoolSite, Vec<mpsc::Sender<IngestOutcome>>>,
+    /// School pulls are serialized because sign-in state and hidden navigation
+    /// are shared even though each service has its own resident WebView.
+    pulling: Option<SchoolSite>,
+    /// The single owner of school navigation/authentication. Every request,
+    /// including scheduled work, enters this queue before touching a WebView.
+    active_job: Option<ActiveSchoolJob>,
+    jobs: VecDeque<SchoolJob>,
     /// Pulls waiting for a page whose URL starts with the prefix to finish loading.
     load_waiters: Vec<(SchoolSite, String, mpsc::Sender<String>)>,
     /// Registration queue shown on 教務Web pages while set.
@@ -333,7 +402,12 @@ impl Default for ControllerState {
             creating: HashSet::new(),
             ingestion_relays: HashMap::new(),
             pending_ingestion: HashSet::new(),
+            pending_lms_course: None,
+            pending_lms_full: false,
             ingest_waiters: HashMap::new(),
+            pulling: None,
+            active_job: None,
+            jobs: VecDeque::new(),
             load_waiters: Vec::new(),
             guide: Vec::new(),
             history: HashMap::new(),
@@ -679,7 +753,7 @@ fn handle_login_relay(state: &Arc<Mutex<ControllerState>>, app: &AppHandle, enco
     else {
         return;
     };
-    let Some(outcome) = relay_outcome(&relay.state, &relay.message) else {
+    let Some(relay_result) = relay_outcome(&relay.state, &relay.message) else {
         return;
     };
     let mut failed = false;
@@ -688,7 +762,7 @@ fn handle_login_relay(state: &Arc<Mutex<ControllerState>>, app: &AppHandle, enco
             .login
             .as_ref()
             .is_some_and(|active| active.profile == relay.profile && active.run == relay.run);
-        if matches && outcome == RelayOutcome::Failed {
+        if matches && relay_result == RelayOutcome::Failed {
             state.login = None;
             state.auto_blocked.insert(relay.profile);
             if state.heartbeat == Some(relay.profile) {
@@ -707,7 +781,79 @@ fn handle_login_relay(state: &Arc<Mutex<ControllerState>>, app: &AppHandle, enco
     }
     if failed {
         emit_session(app, relay.profile, "failed");
+        let interrupted = state.lock().ok().and_then(|mut state| {
+            let site = state.pulling?;
+            let waiters = state.ingest_waiters.remove(&site).unwrap_or_default();
+            state.pending_ingestion.remove(&site);
+            Some((site, waiters))
+        });
+        if let Some((site, waiters)) = interrupted {
+            let stopped = outcome(
+                site,
+                if site == SchoolSite::ScienceLms {
+                    "lms"
+                } else {
+                    "session"
+                },
+                Err("reconnect-required".into()),
+            );
+            for waiter in waiters {
+                let _ = waiter.send(stopped.clone());
+            }
+            let _ = app.emit_to(MAIN_WINDOW, "school-ingest", stopped);
+        }
+        SchoolWebController {
+            state: state.clone(),
+        }
+        .complete_session_job(app, relay.profile);
     }
+}
+
+fn handle_pull_progress(
+    state: &Arc<Mutex<ControllerState>>,
+    app: &AppHandle,
+    encoded: &str,
+) {
+    if encoded.len() > 4 * 1024 {
+        return;
+    }
+    let Some(progress) = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<SchoolPullProgressRelay>(&bytes).ok())
+    else {
+        return;
+    };
+    if !matches!(progress.phase.as_str(), "catalog" | "course" | "material" | "assignment")
+        || progress.total > 10_000
+        || progress.completed > progress.total
+        || progress.course_title.len() > 512
+        || progress.item_title.len() > 512
+        || progress.term.len() > 16
+    {
+        return;
+    }
+    let active = state
+        .lock()
+        .ok()
+        .is_some_and(|state| state.pulling == Some(SchoolSite::ScienceLms));
+    if !active {
+        return;
+    }
+    let _ = app.emit_to(
+        MAIN_WINDOW,
+        "school-pull-progress",
+        SchoolPullProgress {
+            site: SchoolSite::ScienceLms,
+            phase: progress.phase,
+            completed: progress.completed,
+            total: progress.total,
+            course_id: progress.course_id,
+            course_title: progress.course_title,
+            term: progress.term,
+            item_title: progress.item_title,
+        },
+    );
 }
 
 fn login_succeeded(raw_url: &str, profile: SchoolAuthProfile) -> bool {
@@ -969,7 +1115,11 @@ mod tests {
             "https://user:secret@example.com/",
             "not a url",
         ] {
-            assert_eq!(new_window_target(ignored), NewWindowTarget::Ignored, "{ignored}");
+            assert_eq!(
+                new_window_target(ignored),
+                NewWindowTarget::Ignored,
+                "{ignored}"
+            );
         }
     }
 
@@ -1458,6 +1608,209 @@ impl SchoolWebController {
         }
     }
 
+    fn advance_jobs(&self, app: &AppHandle) {
+        let job = {
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            if state.active_job.is_some() || state.active.is_some() {
+                return;
+            }
+            let Some(job) = state.jobs.pop_front() else {
+                return;
+            };
+            state.active_job = Some(match &job {
+                SchoolJob::Session(profile) => ActiveSchoolJob::Session(*profile),
+                SchoolJob::Login { profile, .. } => ActiveSchoolJob::Login(*profile),
+                SchoolJob::Pull {
+                    site,
+                    lms_course_id,
+                    ..
+                } => ActiveSchoolJob::Pull {
+                    site: *site,
+                    lms_course_id: *lms_course_id,
+                },
+            });
+            eprintln!(
+                "[school-queue] starting {:?} · {} queued",
+                state.active_job,
+                state.jobs.len()
+            );
+            job
+        };
+        match job {
+            SchoolJob::Session(profile) => {
+                if let Err(error) = self.ensure_session_now(app, profile) {
+                    emit_session(app, profile, "failed");
+                    eprintln!("[school-queue] session failed to start: {error}");
+                    self.complete_session_job(app, profile);
+                }
+            }
+            SchoolJob::Login {
+                profile,
+                credentials,
+                started,
+            } => {
+                let result = self.login_now(app, profile, credentials);
+                let failed = result.is_err();
+                let _ = started.send(result);
+                if failed {
+                    self.complete_session_job(app, profile);
+                }
+            }
+            SchoolJob::Pull {
+                site,
+                lms_course_id,
+                finished,
+            } => {
+                let controller = self.clone();
+                let handle = app.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    let result = controller.pull_now(&handle, site, lms_course_id);
+                    let _ = finished.send(result);
+                    controller.complete_pull_job(&handle, site, lms_course_id);
+                });
+            }
+        }
+    }
+
+    fn complete_session_job(&self, app: &AppHandle, profile: SchoolAuthProfile) {
+        let completed = self.state.lock().ok().is_some_and(|mut state| {
+            if matches!(
+                state.active_job,
+                Some(ActiveSchoolJob::Session(active) | ActiveSchoolJob::Login(active))
+                    if active == profile
+            ) {
+                state.active_job = None;
+                true
+            } else {
+                false
+            }
+        });
+        if completed {
+            eprintln!("[school-queue] session {profile:?} finished");
+            self.advance_jobs(app);
+        }
+    }
+
+    fn complete_pull_job(
+        &self,
+        app: &AppHandle,
+        site: SchoolSite,
+        lms_course_id: Option<u64>,
+    ) {
+        let completed = self.state.lock().ok().is_some_and(|mut state| {
+            if state.active_job
+                == Some(ActiveSchoolJob::Pull {
+                    site,
+                    lms_course_id,
+                })
+            {
+                state.active_job = None;
+                true
+            } else {
+                false
+            }
+        });
+        if completed {
+            eprintln!("[school-queue] pull {site:?} finished");
+            self.advance_jobs(app);
+        }
+    }
+
+    pub fn request_session(
+        &self,
+        app: &AppHandle,
+        profile: SchoolAuthProfile,
+    ) -> Result<bool, String> {
+        let accepted = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "School web state is unavailable.".to_string())?;
+            let duplicate = matches!(
+                state.active_job,
+                Some(ActiveSchoolJob::Session(active) | ActiveSchoolJob::Login(active))
+                    if active == profile
+            ) || state.jobs.iter().any(
+                |job| matches!(job, SchoolJob::Session(queued) if *queued == profile),
+            );
+            if duplicate {
+                eprintln!("[school-queue] duplicate {profile:?} session discarded");
+                false
+            } else {
+                state.jobs.push_back(SchoolJob::Session(profile));
+                eprintln!("[school-queue] queued {profile:?} session");
+                true
+            }
+        };
+        if accepted {
+            self.advance_jobs(app);
+        }
+        Ok(accepted)
+    }
+
+    pub fn request_login(
+        &self,
+        app: &AppHandle,
+        profile: SchoolAuthProfile,
+        credentials: SchoolCredentials,
+    ) -> Result<SchoolWebResult, String> {
+        let (sender, receiver) = mpsc::channel();
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "School web state is unavailable.".to_string())?;
+            state.jobs.push_back(SchoolJob::Login {
+                profile,
+                credentials,
+                started: sender,
+            });
+        }
+        self.advance_jobs(app);
+        receiver
+            .recv_timeout(Duration::from_secs(180))
+            .map_err(|_| "The queued school sign-in did not start in time.".to_string())?
+    }
+
+    pub fn request_pull(
+        &self,
+        app: &AppHandle,
+        site: SchoolSite,
+        lms_course_id: Option<u64>,
+    ) -> Result<Vec<IngestOutcome>, String> {
+        let (sender, receiver) = mpsc::channel();
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "School web state is unavailable.".to_string())?;
+            // A full LMS pull is authoritative. Later refresh clicks and
+            // scheduled refreshes are discarded rather than replayed.
+            if matches!(
+                state.active_job,
+                Some(ActiveSchoolJob::Pull {
+                    site: SchoolSite::ScienceLms,
+                    lms_course_id: None
+                })
+            ) {
+                eprintln!("[school-queue] refresh discarded during full LMS pull");
+                return Ok(Vec::new());
+            }
+            state.jobs.push_back(SchoolJob::Pull {
+                site,
+                lms_course_id,
+                finished: sender,
+            });
+            eprintln!("[school-queue] queued {site:?} pull");
+        }
+        self.advance_jobs(app);
+        receiver
+            .recv_timeout(Duration::from_secs(600))
+            .map_err(|_| "The queued school pull did not finish in time.".to_string())?
+    }
+
     pub fn prepare_login(
         &self,
         profile: SchoolAuthProfile,
@@ -1529,7 +1882,7 @@ impl SchoolWebController {
                 .hide()
                 .map_err(|error| format!("School view could not be hidden: {error}"))?;
         }
-        let _ = app;
+        self.advance_jobs(app);
         Ok(true)
     }
 
@@ -1539,8 +1892,18 @@ impl SchoolWebController {
                 .state
                 .lock()
                 .map_err(|_| "School web state is unavailable.")?;
+            // A full pull owns hidden navigation and ingestion. An update click
+            // during it is intentionally discarded instead of being replayed
+            // against whatever page the pull happens to reach next.
+            if state.active_job.is_some() || state.pulling.is_some() {
+                return Ok(false);
+            }
             if matches!(site, SchoolSite::ScienceLms | SchoolSite::Kyomu) {
                 state.pending_ingestion.insert(site);
+            }
+            if site == SchoolSite::ScienceLms {
+                state.pending_lms_course = None;
+                state.pending_lms_full = false;
             }
             state.webviews.get(&site).cloned()
         };
@@ -1721,7 +2084,7 @@ impl SchoolWebController {
     /// school page redirected to sign-in). Used once at launch; afterwards
     /// sessions are renewed lazily when a page hits the sign-in redirect.
     /// Skipped while the person is using the school view or a sign-in runs.
-    pub fn ensure_session(
+    fn ensure_session_now(
         &self,
         app: &AppHandle,
         profile: SchoolAuthProfile,
@@ -1735,6 +2098,8 @@ impl SchoolWebController {
                 Some("school view is open")
             } else if state.login.is_some() {
                 Some("a sign-in is running")
+            } else if state.pulling.is_some() {
+                Some("a school pull is running")
             } else if !state.creating.is_empty() {
                 Some("a school view is being created")
             } else {
@@ -1759,7 +2124,7 @@ impl SchoolWebController {
         .map(|_| true)
     }
 
-    pub fn login_in_background(
+    fn login_now(
         &self,
         app: &AppHandle,
         profile: SchoolAuthProfile,
@@ -1839,14 +2204,43 @@ impl SchoolWebController {
     /// Runs the site's read-only extractor and waits for its result. Expired
     /// sessions are renewed by the usual saved-credential sign-in on the way.
     /// Blocking: call from a worker thread.
-    pub fn pull(&self, app: &AppHandle, site: SchoolSite) -> Result<Vec<IngestOutcome>, String> {
+    fn pull_now(
+        &self,
+        app: &AppHandle,
+        site: SchoolSite,
+        lms_course_id: Option<u64>,
+    ) -> Result<Vec<IngestOutcome>, String> {
         let wait = |receiver: mpsc::Receiver<IngestOutcome>, seconds: u64| {
             receiver.recv_timeout(Duration::from_secs(seconds)).map_err(|_| {
                 "The school page did not answer in time. Check the account in Settings.".to_string()
             })
         };
-        match site {
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "School web state is unavailable.".to_string())?;
+            if state.login.is_some() {
+                return Err("Wait for the current school sign-in to finish, then pull again.".into());
+            }
+            if state.pulling.is_some() {
+                return Err("Another school pull is already running.".into());
+            }
+            state.pulling = Some(site);
+        }
+        let result = (|| match site {
             SchoolSite::ScienceLms => {
+                if lms_course_id == Some(0) {
+                    return Err("LMS course ID must be positive.".into());
+                }
+                {
+                    let mut state = self
+                        .state
+                        .lock()
+                        .map_err(|_| "School web state is unavailable.".to_string())?;
+                    state.pending_lms_course = lms_course_id;
+                    state.pending_lms_full = lms_course_id.is_none();
+                }
                 let receiver = self.expect_ingest(site)?;
                 self.load_hidden(app, site, "https://lms.s.isct.ac.jp/2025/my/")?;
                 Ok(vec![wait(receiver, 150)?])
@@ -1877,7 +2271,24 @@ impl SchoolWebController {
                 Ok(results)
             }
             _ => Err("Only LMS and 教務Web can be pulled.".into()),
+        })();
+        if let Ok(mut state) = self.state.lock() {
+            if state.pulling == Some(site) {
+                state.pulling = None;
+            }
+            if result.is_err() {
+                state.pending_ingestion.remove(&site);
+                state.ingest_waiters.remove(&site);
+                state
+                    .load_waiters
+                    .retain(|(waiting_site, _, _)| *waiting_site != site);
+                if site == SchoolSite::ScienceLms {
+                    state.pending_lms_course = None;
+                    state.pending_lms_full = false;
+                }
+            }
         }
+        result
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1904,6 +2315,9 @@ impl SchoolWebController {
                 .state
                 .lock()
                 .map_err(|_| "School web state is unavailable.")?;
+            if visible && state.active_job.is_some() {
+                return Err("Wait for the school pull to finish before opening this page.".into());
+            }
             if let Some(bounds) = bounds {
                 state.bounds = bounds.sanitized();
             }
@@ -1927,6 +2341,10 @@ impl SchoolWebController {
             state.customizations.insert(site, (css, javascript));
             if visible && matches!(site, SchoolSite::ScienceLms | SchoolSite::Kyomu) {
                 state.pending_ingestion.insert(site);
+            }
+            if visible && site == SchoolSite::ScienceLms {
+                state.pending_lms_course = None;
+                state.pending_lms_full = false;
             }
             (
                 state
@@ -1967,7 +2385,7 @@ impl SchoolWebController {
                         if let Ok(mut state) = self.state.lock() {
                             state.pending_ingestion.remove(&site);
                         }
-                        let extraction = format!("Promise.resolve({script}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))");
+                        let extraction = format!("delete globalThis.__STWS_LMS_COURSE_ID__;globalThis.__STWS_LMS_FULL__=false;Promise.resolve({script}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))");
                         let _ = webview.eval(&extraction);
                     }
                 }
@@ -2014,11 +2432,14 @@ impl SchoolWebController {
         // navigation, a title change can never cancel the page's own form
         // POST or redirect.
         let auth_relay_prefix = format!("stws-auth:{nonce}:");
+        let progress_relay_prefix = format!("stws-progress:{nonce}:");
         let debug_relay_prefix = format!("stws-login-debug://{nonce}/");
         let relay_for_navigation = relay_prefix.clone();
         let relay_for_load = relay_prefix;
         let auth_relay_for_title = auth_relay_prefix.clone();
         let auth_relay_for_load = auth_relay_prefix;
+        let progress_relay_for_title = progress_relay_prefix.clone();
+        let progress_relay_for_load = progress_relay_prefix;
         let debug_relay_for_navigation = debug_relay_prefix.clone();
         let debug_relay_for_load = debug_relay_prefix;
         let state_for_title = self.state.clone();
@@ -2153,10 +2574,22 @@ impl SchoolWebController {
                 if let Some(profile) = completed {
                     emit_login_status(&app_for_load, profile, "connected", "Connected");
                 }
-                match (heartbeat, completed) {
-                    (Some((profile, outcome)), _) => emit_session(&app_for_load, profile, outcome),
-                    (None, Some(profile)) => emit_session(&app_for_load, profile, "active"),
-                    _ => {}
+                let settled_profile = match (heartbeat, completed) {
+                    (Some((profile, outcome)), _) => {
+                        emit_session(&app_for_load, profile, outcome);
+                        Some(profile)
+                    }
+                    (None, Some(profile)) => {
+                        emit_session(&app_for_load, profile, "active");
+                        Some(profile)
+                    }
+                    _ => None,
+                };
+                if let Some(profile) = settled_profile {
+                    SchoolWebController {
+                        state: state_for_load.clone(),
+                    }
+                    .complete_session_job(&app_for_load, profile);
                 }
                 if let Some(active) = login {
                     // Page capture is opt-in: STWS_LOGIN_DEBUG=1 yarn desktop:dev
@@ -2201,17 +2634,34 @@ impl SchoolWebController {
                         }
                     }
                 }
-                let should_ingest = state_for_load.lock().ok().is_some_and(|mut state| {
-                    ingestion_script(raw_url).is_some() && state.pending_ingestion.remove(&site)
-                });
+                let (should_ingest, lms_course_id, lms_full) = state_for_load
+                    .lock()
+                    .ok()
+                    .map(|mut state| {
+                        let should = ingestion_script(raw_url).is_some()
+                            && state.pending_ingestion.remove(&site);
+                        let course = (should && site == SchoolSite::ScienceLms)
+                            .then(|| state.pending_lms_course.take())
+                            .flatten();
+                        let full = should
+                            && site == SchoolSite::ScienceLms
+                            && std::mem::take(&mut state.pending_lms_full);
+                        (should, course, full)
+                    })
+                    .unwrap_or((false, None, false));
                 if let Some(script) = should_ingest.then(|| ingestion_script(raw_url)).flatten() {
-                    let extraction = format!("Promise.resolve({script}).then(v=>location.href='{}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))", relay_for_load);
+                    let course_config = lms_course_id
+                        .map(|id| format!("globalThis.__STWS_LMS_COURSE_ID__={id};"))
+                        .unwrap_or_else(|| "delete globalThis.__STWS_LMS_COURSE_ID__;".into());
+                    let extraction = format!("{course_config}globalThis.__STWS_LMS_FULL__={lms_full};globalThis.__STWS_LMS_PROGRESS__=v=>document.title='{progress_relay_for_load}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');Promise.resolve({script}).then(v=>location.href='{}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))", relay_for_load);
                     let _ = webview.eval(&extraction);
                 }
             })
             .on_document_title_changed(move |_webview, title| {
                 if let Some(encoded) = title.strip_prefix(&auth_relay_for_title) {
                     handle_login_relay(&state_for_title, &app_for_title, encoded);
+                } else if let Some(encoded) = title.strip_prefix(&progress_relay_for_title) {
+                    handle_pull_progress(&state_for_title, &app_for_title, encoded);
                 }
             })
             .on_navigation(move |url| {

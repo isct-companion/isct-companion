@@ -1,4 +1,4 @@
-use crate::data::versioned::content_hash;
+use crate::data::{resolve_course_id, versioned::content_hash};
 use chrono::{Datelike, NaiveDate, NaiveTime, Utc};
 use reqwest::{Client, Url};
 use rusqlite::{Connection, OptionalExtension, Transaction};
@@ -296,8 +296,8 @@ fn exam_manifest_hash(sources: &[IndexedSource]) -> Result<String, String> {
 }
 
 fn verify_source_hash(raw: &str, expected: &str) -> Result<(), String> {
-    let value: Value = serde_json::from_str(raw)
-        .map_err(|error| format!("invalid subscription JSON: {error}"))?;
+    let value: Value =
+        serde_json::from_str(raw).map_err(|error| format!("invalid subscription JSON: {error}"))?;
     let actual = content_hash(&value)?;
     if actual != expected.to_ascii_lowercase() {
         return Err("subscription data does not match the hash declared by index.json".into());
@@ -750,7 +750,12 @@ impl SubscriptionClient {
             .academic_calendar;
         let url = source_url(&base, source)?;
         if known_hash == Some(source.hash.as_str()) {
-            return Ok(ReferenceFetch { value: None, data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() });
+            return Ok(ReferenceFetch {
+                value: None,
+                data_url: url.to_string(),
+                remote_hash: source.hash.clone(),
+                source_ts: source.ts.clone(),
+            });
         }
         let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
         verify_source_hash(&raw, &source.hash)?;
@@ -758,7 +763,12 @@ impl SubscriptionClient {
         if calendar.academic_year != year {
             return Err("calendar year does not match the selection".into());
         }
-        Ok(ReferenceFetch { value: Some(calendar), data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() })
+        Ok(ReferenceFetch {
+            value: Some(calendar),
+            data_url: url.to_string(),
+            remote_hash: source.hash.clone(),
+            source_ts: source.ts.clone(),
+        })
     }
     pub async fn fetch_departments(
         &self,
@@ -775,7 +785,12 @@ impl SubscriptionClient {
             .departments;
         let url = source_url(&base, source)?;
         if known_hash == Some(source.hash.as_str()) {
-            return Ok(ReferenceFetch { value: None, data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() });
+            return Ok(ReferenceFetch {
+                value: None,
+                data_url: url.to_string(),
+                remote_hash: source.hash.clone(),
+                source_ts: source.ts.clone(),
+            });
         }
         let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
         verify_source_hash(&raw, &source.hash)?;
@@ -783,7 +798,12 @@ impl SubscriptionClient {
         if departments.admission_year != year {
             return Err("guide year does not match the selection".into());
         }
-        Ok(ReferenceFetch { value: Some(departments), data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() })
+        Ok(ReferenceFetch {
+            value: Some(departments),
+            data_url: url.to_string(),
+            remote_hash: source.hash.clone(),
+            source_ts: source.ts.clone(),
+        })
     }
     pub async fn fetch_important_dates(
         &self,
@@ -800,12 +820,22 @@ impl SubscriptionClient {
             .ok_or("important dates are not published for this year")?;
         let url = source_url(&base, source)?;
         if known_hash == Some(source.hash.as_str()) {
-            return Ok(ReferenceFetch { value: None, data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() });
+            return Ok(ReferenceFetch {
+                value: None,
+                data_url: url.to_string(),
+                remote_hash: source.hash.clone(),
+                source_ts: source.ts.clone(),
+            });
         }
         let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
         verify_source_hash(&raw, &source.hash)?;
         let value = validate_important_dates(&raw, year)?;
-        Ok(ReferenceFetch { value: Some(value), data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() })
+        Ok(ReferenceFetch {
+            value: Some(value),
+            data_url: url.to_string(),
+            remote_hash: source.hash.clone(),
+            source_ts: source.ts.clone(),
+        })
     }
 
     pub async fn fetch_exams(
@@ -825,14 +855,25 @@ impl SubscriptionClient {
             validate_indexed_source(source)?;
         }
         let remote_hash = exam_manifest_hash(sources)?;
-        let source_ts = sources.iter().map(|source| source.ts.as_str()).max().unwrap_or_default().to_string();
+        let source_ts = sources
+            .iter()
+            .map(|source| source.ts.as_str())
+            .max()
+            .unwrap_or_default()
+            .to_string();
         if known_hash == Some(remote_hash.as_str()) {
-            return Ok(ReferenceFetch { value: None, data_url: index_url.to_string(), remote_hash, source_ts });
+            return Ok(ReferenceFetch {
+                value: None,
+                data_url: index_url.to_string(),
+                remote_hash,
+                source_ts,
+            });
         }
         let mut feeds = Vec::new();
         for source in sources {
-            let (level, quarter) = exam_scope(&source.source, year)
-                .ok_or_else(|| format!("invalid exam path in subscription index: {}", source.source))?;
+            let (level, quarter) = exam_scope(&source.source, year).ok_or_else(|| {
+                format!("invalid exam path in subscription index: {}", source.source)
+            })?;
             let url = source_url(&base, source)?;
             let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
             verify_source_hash(&raw, &source.hash)?;
@@ -844,7 +885,12 @@ impl SubscriptionClient {
                 feed,
             });
         }
-        Ok(ReferenceFetch { value: Some(feeds), data_url: index_url.to_string(), remote_hash, source_ts })
+        Ok(ReferenceFetch {
+            value: Some(feeds),
+            data_url: index_url.to_string(),
+            remote_hash,
+            source_ts,
+        })
     }
     /// Convenience for installations where the current academic year and the
     /// student's admission cohort happen to be the same. Callers with a saved
@@ -1265,6 +1311,16 @@ pub fn apply_exam_feed(
         object.insert("id".into(), id.clone().into());
         object.insert("academicYear".into(), published.feed.academic_year.into());
         object.insert("level".into(), published.level.clone().into());
+        if let Some(offering_id) = entry.syllabus_course_id.as_deref() {
+            let course_id = resolve_course_id(
+                &tx,
+                "syllabus",
+                offering_id,
+                published.feed.academic_year,
+                Some(offering_id),
+            )?;
+            object.insert("courseId".into(), course_id.into());
+        }
         object.insert(
             "sourceKey".into(),
             format!(
@@ -1364,7 +1420,10 @@ mod tests {
             cohort_2025.departments.hash.as_str(),
             cohort_2026.departments.hash.as_str(),
         ];
-        assert_eq!(actual.iter().map(String::as_str).collect::<Vec<_>>(), expected);
+        assert_eq!(
+            actual.iter().map(String::as_str).collect::<Vec<_>>(),
+            expected
+        );
     }
 
     #[test]

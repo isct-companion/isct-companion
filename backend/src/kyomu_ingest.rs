@@ -1,4 +1,4 @@
-use crate::data::versioned::content_hash;
+use crate::data::{resolve_course_id, versioned::content_hash};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
@@ -243,7 +243,9 @@ fn upsert(
         .map_err(|e| e.to_string())?;
     let timestamp = Utc::now().to_rfc3339();
     if old.as_ref().is_some_and(|(h, _, _)| h == &hash) {
-        let changed = old.as_ref().is_some_and(|(_, _, missing)| missing.is_some());
+        let changed = old
+            .as_ref()
+            .is_some_and(|(_, _, missing)| missing.is_some());
         tx.execute(&format!("UPDATE {table} SET last_seen_at=?2,missing_since=NULL,deleted_at=NULL,
             value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"), params![id,timestamp])
             .map_err(|e|e.to_string())?;
@@ -269,7 +271,10 @@ fn upsert(
         object.insert("updatedAt".into(), timestamp.clone().into());
         object.insert("updatedBy".into(), "kyomu".into());
         object.insert("source".into(), json!({"provider":"kyomu"}));
-        object.insert("sourceKey".into(), format!("kyomu:default:{table}:{id}").into());
+        object.insert(
+            "sourceKey".into(),
+            format!("kyomu:default:{table}:{id}").into(),
+        );
         object.insert("lastSeenAt".into(), timestamp.clone().into());
         object.remove("missingSince");
         object.remove("deletedAt");
@@ -317,7 +322,9 @@ fn mark_missing(
     live: &HashSet<String>,
 ) -> Result<usize, String> {
     let mut statement = tx
-        .prepare(&format!("SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"))
+        .prepare(&format!(
+            "SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"
+        ))
         .map_err(|e| e.to_string())?;
     let pattern = format!("{prefix}%");
     let stale = statement
@@ -391,7 +398,9 @@ pub fn gpa_summaries(data: &Value) -> Vec<Value> {
             entry.insert("fetchedAt".into(), fetched.clone().into());
             current = Some(entry);
         }
-        let Some(entry) = current.as_mut() else { continue };
+        let Some(entry) = current.as_mut() else {
+            continue;
+        };
         let key = if label.eq_ignore_ascii_case("GPA") {
             "gpa"
         } else if label.eq_ignore_ascii_case("GPT") {
@@ -427,19 +436,29 @@ pub fn declared_credits(data: &Value) -> Vec<Value> {
     let raw = |course: &Value| {
         ["lecture", "exercise", "lab"]
             .iter()
-            .filter_map(|key| course.pointer(&format!("/credits/{key}")).and_then(Value::as_f64))
+            .filter_map(|key| {
+                course
+                    .pointer(&format!("/credits/{key}"))
+                    .and_then(Value::as_f64)
+            })
             .sum::<f64>()
     };
     let mut unit_sums: HashMap<String, f64> = HashMap::new();
     for course in &courses {
-        let unit = course.get("unit").and_then(Value::as_str).unwrap_or_default();
+        let unit = course
+            .get("unit")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         *unit_sums.entry(unit.to_string()).or_default() += raw(course);
     }
     courses
         .iter()
         .filter_map(|course| {
             let offering = course.get("offeringId")?.as_str()?;
-            let unit = course.get("unit").and_then(Value::as_str).unwrap_or_default();
+            let unit = course
+                .get("unit")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let listed = raw(course);
             let sum = unit_sums.get(unit).copied().unwrap_or(0.0);
             let effective = match course.get("unitTotal").and_then(Value::as_f64) {
@@ -451,7 +470,10 @@ pub fn declared_credits(data: &Value) -> Vec<Value> {
             object.insert("id".into(), format!("kyomu-declared:{offering}").into());
             object.insert("kind".into(), "declared".into());
             // Two decimals: halves and quarters stay exact, float noise does not.
-            object.insert("effectiveCredits".into(), ((effective * 100.0).round() / 100.0).into());
+            object.insert(
+                "effectiveCredits".into(),
+                ((effective * 100.0).round() / 100.0).into(),
+            );
             Some(row)
         })
         .collect()
@@ -488,6 +510,9 @@ pub fn apply_kyomu_payload(
                 let Some(offering) = course.get("offeringId").and_then(Value::as_str) else {
                     continue;
                 };
+                if let Some(Ok(year)) = offering.get(..4).map(str::parse::<i32>) {
+                    resolve_course_id(&tx, "kyomu", offering, year, Some(offering))?;
+                }
                 let id = format!("kyomu-registration:{offering}");
                 ids.insert(id.clone());
                 let mut value = course.clone();
@@ -497,7 +522,12 @@ pub fn apply_kyomu_payload(
                 changed += usize::from(upsert(&tx, "registrations", &id, &value, &[])?);
             }
             changed += mark_missing(&tx, "registrations", "kyomu-registration:", &ids)?;
-            changed += mark_missing(&tx, "registration_states", "kyomu-registration-state", &state_ids)?;
+            changed += mark_missing(
+                &tx,
+                "registration_states",
+                "kyomu-registration-state",
+                &state_ids,
+            )?;
         }
         "declared" => {
             let rows = declared_credits(&payload.data);

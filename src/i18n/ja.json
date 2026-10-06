@@ -434,6 +434,7 @@
   "Scheduled tasks": "定期タスク",
   "No scheduled tasks": "定期タスクはありません",
   "Daily hash check · Wi-Fi preferred": "毎日ハッシュを確認・Wi-Fi優先",
+  "Every 4 hours · Wi-Fi and active app only": "4時間ごと・Wi-Fi接続中かつアプリ使用中のみ",
   "Last run": "前回実行",
   "Run now": "今すぐ実行",
   "Agent access": "エージェント連携",

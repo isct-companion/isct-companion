@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { clockForPeriods } from "../core/user-schedule";
 import {
+  LMS_BACKGROUND_REFRESH_TASK_ID,
   REFERENCE_REFRESH_TASK_ID,
+  lmsBackgroundRefreshTask,
   referenceRefreshTask,
   seedWorkspace,
   type Workspace,
@@ -51,6 +53,12 @@ function normalize(data: Workspace): Workspace {
   data.scheduledTasks ??= [];
   if (!data.scheduledTasks.some((task) => task.id === REFERENCE_REFRESH_TASK_ID))
     data.scheduledTasks.push(referenceRefreshTask(data.deviceId));
+  if (
+    !data.scheduledTasks.some(
+      (task) => task.id === LMS_BACKGROUND_REFRESH_TASK_ID,
+    )
+  )
+    data.scheduledTasks.push(lmsBackgroundRefreshTask(data.deviceId));
   data.importantDates ??= [];
   data.exams ??= [];
   data.scheduleOverrides ??= [];

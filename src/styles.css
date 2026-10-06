@@ -203,7 +203,7 @@ p {
 }
 .workspaceMain {
   min-width: 0;
-  padding: 20px;
+  padding: 20px 20px 72px;
   padding-inline-start: calc(var(--app-shell-navbar-offset, 0rem) + 20px);
   display: flex;
   transition: margin-right 0.18s ease;
@@ -218,7 +218,7 @@ p {
   overflow: hidden;
 }
 .workspaceMain.webMain {
-  padding: 0;
+  padding: 0 0 52px;
   padding-inline-start: var(--app-shell-navbar-offset, 0rem);
 }
 .mobileRail {
@@ -309,7 +309,7 @@ p {
 }
 .toast {
   position: fixed;
-  bottom: 22px;
+  bottom: 66px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--ink);
@@ -320,6 +320,121 @@ p {
   z-index: 60;
   max-width: 80vw;
   box-shadow: var(--shadow);
+}
+
+/* ---------- school status ---------- */
+.schoolStatusBar {
+  position: fixed;
+  z-index: 50;
+  left: var(--app-shell-navbar-offset, 0rem);
+  right: 0;
+  bottom: 0;
+  min-height: 52px;
+  padding: 7px 16px;
+  display: grid;
+  grid-template-columns: max-content minmax(260px, 1fr);
+  align-items: center;
+  gap: 18px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px color-mix(in srgb, var(--ink) 5%, transparent);
+  backdrop-filter: blur(16px);
+}
+.schoolStatusAccounts {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.schoolStatusAccount {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+}
+.schoolStatusAccount > i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 12%, transparent);
+}
+.schoolStatusAccount[data-state="active"] > i {
+  background: #2f9e62;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #2f9e62 14%, transparent);
+}
+.schoolStatusAccount[data-state="failed"] > i {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.schoolStatusAccount[data-state="checking"] > i {
+  background: var(--accent);
+  animation: schoolStatusPulse 1.5s ease-in-out infinite;
+}
+.schoolStatusAccount > span {
+  display: grid;
+  line-height: 1.15;
+}
+.schoolStatusAccount b,
+.lmsStatus b {
+  color: var(--ink);
+  font-size: calc(11.5px * var(--text));
+  font-weight: 700;
+}
+.schoolStatusAccount small {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(10px * var(--text));
+}
+.lmsStatus {
+  min-width: 0;
+}
+.lmsStatusLine {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 9px;
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+}
+.lmsStatusLine span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lmsStatusLine output {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.lmsStatus progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-top: 5px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  appearance: none;
+  background: var(--surface-3);
+}
+.lmsStatus progress::-webkit-progress-bar {
+  background: var(--surface-3);
+}
+.lmsStatus progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.lmsStatus progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--accent);
+}
+@keyframes schoolStatusPulse {
+  50% { opacity: 0.4; }
 }
 
 /* ---------- timetable ---------- */
@@ -1674,8 +1789,33 @@ p {
 }
 @media (max-width: 760px) {
   .workspaceMain {
-    padding: 12px 12px 74px;
+    padding: 12px 12px 154px;
     padding-inline-start: calc(var(--app-shell-navbar-offset, 0rem) + 12px);
+  }
+  .workspaceMain.webMain {
+    padding: 0 0 134px;
+    padding-inline-start: var(--app-shell-navbar-offset, 0rem);
+  }
+  .schoolStatusBar {
+    left: 0;
+    bottom: 62px;
+    min-height: 78px;
+    padding: 7px 12px;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .schoolStatusAccounts {
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .schoolStatusAccount {
+    flex: 1 1 0;
+  }
+  .schoolStatusAccount small {
+    max-width: min(34vw, 150px);
+  }
+  .toast {
+    bottom: 150px;
   }
   .coursesBody {
     grid-template-columns: 1fr;
@@ -3215,3 +3355,72 @@ p {
 .actions > label.button { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: calc(12px * var(--text)); font-weight: 600; cursor: pointer; }
 .actions > label.button:hover { background: var(--surface-2); }
 .profileLine.columnHeads span { color: var(--muted); font-size: calc(11px * var(--text)); font-weight: 600; padding-left: 2px; }
+
+/* ---------- today: week strip ---------- */
+.todayWeek { display: grid; justify-items: end; gap: 6px; }
+.todayWeek .teachingState { display: flex; align-items: center; gap: 10px; padding-bottom: 0; }
+.todayWeek .teachingState .textButton { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.weekStrip { display: flex; align-items: stretch; gap: 2px; }
+.weekStrip button { border: 0; background: none; cursor: pointer; color: var(--muted); border-radius: 8px; }
+.weekShift { width: 22px; font-size: 16px; line-height: 1; }
+.weekShift:hover { color: var(--ink); }
+.weekDay { position: relative; width: 34px; padding: 5px 0 9px; display: grid; justify-items: center; gap: 1px; }
+.weekDay small { font-size: calc(10px * var(--text)); font-weight: 600; letter-spacing: .04em; }
+.weekDay b { font-size: calc(13.5px * var(--text)); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
+.weekDay:hover { background: var(--surface-3); }
+.weekDay.today b { color: var(--accent); }
+.weekDay.active { background: var(--accent); }
+.weekDay.active small, .weekDay.active b { color: #fff; }
+.weekDay.busy::after { content: ""; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; opacity: .55; }
+.weekDay.active.busy::after { background: #fff; opacity: .85; }
+@media (max-width: 640px) {
+  .todayHeader { flex-wrap: wrap; }
+  .todayWeek { justify-items: stretch; width: 100%; }
+  .weekStrip { justify-content: space-between; }
+  .weekDay { flex: 1; width: auto; }
+}
+
+/* ---------- workstation: course finder ---------- */
+.courseFinder { position: relative; padding-top: 12px; }
+.courseFinder input { width: 100%; height: 30px; font-size: 12px; }
+.courseFinderList { position: fixed; z-index: 1000; overflow: auto; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 28px rgba(0, 0, 0, .18); }
+.courseFinderList section + section { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 4px; }
+.courseFinderList small { display: block; padding: 6px 8px 4px; color: var(--muted); font-size: 10.5px; font-weight: 650; letter-spacing: .04em; }
+.courseFinderList button { width: 100%; display: grid; grid-template-columns: 6px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: 5px; background: none; color: var(--ink); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.courseFinderList button.active { background: var(--accent-soft); color: var(--accent); }
+.courseFinderList button i { width: 6px; height: 6px; border-radius: 50%; }
+.courseFinderList button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.courseFinderList code { color: var(--muted); font-size: 10.5px; }
+.courseFinderList p { padding: 10px 8px; color: var(--muted); font-size: 12px; }
+
+/* ---------- today: motion ----------
+   Opacity/transform only. Full Today rises in, the workstation rail slides in
+   from the left, and a picked day slides from the side it came from. */
+@keyframes todayRise { from { opacity: 0; transform: translate3d(0, 10px, 0); } }
+@keyframes todayRailIn { from { opacity: 0; transform: translate3d(-12px, 0, 0); } }
+@keyframes daySwap { from { opacity: 0; transform: translate3d(calc(var(--swap, 0) * 14px), 0, 0); } }
+.todayPage:not(.todayNavigation) > .todayHeader,
+.todayPage:not(.todayNavigation) > .todayFlow > * { animation: todayRise 460ms cubic-bezier(.22, 1, .36, 1) both; }
+.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(1) { animation-delay: 50ms; }
+.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(2) { animation-delay: 100ms; }
+.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(3) { animation-delay: 150ms; }
+.todayNavigation > *,
+.todayNavigation > .todayFlow > * { animation: todayRailIn 340ms cubic-bezier(.22, 1, .36, 1) both; }
+.todayNavigation > .todayFlow { animation: none; }
+.todayNavigation > .todayHeader { animation-delay: 30ms; }
+.todayNavigation > .todayFlow > :nth-child(1) { animation-delay: 60ms; }
+.todayNavigation > .todayFlow > :nth-child(2) { animation-delay: 90ms; }
+.todayNavigation > .todayFlow > :nth-child(3) { animation-delay: 120ms; }
+.daySwap, .weekDay b { animation: daySwap 260ms cubic-bezier(.22, 1, .36, 1) both; }
+/* Sliding highlight behind the picked day (fixed-width cells only). */
+@media (min-width: 641px) {
+  .weekStrip { position: relative; }
+  .weekStrip::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(24px + var(--day, 0) * 36px); width: 34px; border-radius: 8px; background: var(--accent); transition: left 280ms cubic-bezier(.22, 1, .36, 1); }
+  .weekDay.active { background: none; }
+  .weekDay { z-index: 1; }
+  .weekDay.active:hover { background: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .todayPage > *, .todayFlow > *, .daySwap, .weekDay b { animation: none !important; }
+  .weekStrip::before { transition: none; }
+}

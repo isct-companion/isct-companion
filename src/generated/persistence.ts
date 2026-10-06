@@ -58,13 +58,13 @@ export type RecommendedCourse = { admissionYear: number, departmentId: string, c
 
 export type ImportantDate = { academicYear: number, startDate: string, endDate: string, label: Localized, category: string, sourceIds: Array<string>, labelEnglishSource?: string, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
-export type Exam = { academicYear: number, level: "undergraduate" | "graduate", quarter: Quarter, courseCode: string, date: string, label: Localized, classLabel?: Localized, syllabusCourseId?: string, periods?: [number, number], startTime?: string, endTime?: string, room: Localized | null, rooms: Array<Localized>, status: "scheduled" | "cancelled", notes?: Localized, sourceIds: Array<string>, sourcePages: Array<number>, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Exam = { academicYear: number, level: "undergraduate" | "graduate", quarter: Quarter, courseCode: string, date: string, label: Localized, courseId?: string, classLabel?: Localized, syllabusCourseId?: string, periods?: [number, number], startTime?: string, endTime?: string, room: Localized | null, rooms: Array<Localized>, status: "scheduled" | "cancelled", notes?: Localized, sourceIds: Array<string>, sourcePages: Array<number>, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
 export type ScheduleOverride = { targetKey: string, targetKind?: "course" | "exam", courseId?: string, date?: string, periods?: [number, number], startTime?: string, endTime?: string, room?: string, title?: string, hidden: boolean, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
 export type Subscription = { dataUrl?: string, url: string, kind: "calendar" | "departments" | "important-dates" | "exams", enabled: boolean, hashSource?: string, indexHash?: string, remoteHash?: string, sourceTs?: string, fetchedAt?: string, lastError?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
-export type ScheduledTask = { name: string, action: "school-refresh" | "reference-refresh" | "export" | "hook", hookId?: string, schedule: string, enabled: boolean, lastOccurrenceAt?: string, lastRunAt?: string, lastResult?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type ScheduledTask = { name: string, action: "school-refresh" | "lms-refresh" | "reference-refresh" | "export" | "hook", hookId?: string, schedule: string, enabled: boolean, lastOccurrenceAt?: string, lastRunAt?: string, lastResult?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
 export type AssignmentMark = { sourceKey: string, hidden: boolean, completedAt?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 

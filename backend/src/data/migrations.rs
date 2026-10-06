@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 const CREATE_SCHEMA: &str = r#"
 CREATE TABLE timetable_courses (
@@ -16,6 +16,15 @@ CREATE TABLE manual_courses (
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT
 );
+CREATE TABLE course_identity_map (
+  provider TEXT NOT NULL, external_id TEXT NOT NULL, academic_year INTEGER NOT NULL,
+  course_id TEXT NOT NULL, offering_id TEXT, updated_at TEXT NOT NULL,
+  PRIMARY KEY (provider, external_id, academic_year)
+);
+CREATE INDEX course_identity_by_course ON course_identity_map(course_id);
+CREATE INDEX course_identity_by_offering
+  ON course_identity_map(academic_year, offering_id)
+  WHERE offering_id IS NOT NULL;
 CREATE TABLE manual_memberships (
   id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
@@ -253,13 +262,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creates_schema_five() {
+    fn creates_schema_six() {
         let mut connection = Connection::open_in_memory().unwrap();
         assert!(migrate(&mut connection).unwrap());
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         let count: i64 = connection
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE name = 'timetable_courses'",
@@ -268,6 +277,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
+        let identities: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'course_identity_map'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(identities, 1);
     }
 
     #[test]

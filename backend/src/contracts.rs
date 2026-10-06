@@ -11,15 +11,28 @@ macro_rules! contract {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub enum Quarter {
-    #[serde(rename = "1Q")] #[ts(rename = "1Q")] Q1,
-    #[serde(rename = "2Q")] #[ts(rename = "2Q")] Q2,
-    #[serde(rename = "3Q")] #[ts(rename = "3Q")] Q3,
-    #[serde(rename = "4Q")] #[ts(rename = "4Q")] Q4,
+    #[serde(rename = "1Q")]
+    #[ts(rename = "1Q")]
+    Q1,
+    #[serde(rename = "2Q")]
+    #[ts(rename = "2Q")]
+    Q2,
+    #[serde(rename = "3Q")]
+    #[ts(rename = "3Q")]
+    Q3,
+    #[serde(rename = "4Q")]
+    #[ts(rename = "4Q")]
+    Q4,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
-pub enum InstructionLanguage { Ja, En, JaEn, Other }
+pub enum InstructionLanguage {
+    Ja,
+    En,
+    JaEn,
+    Other,
+}
 
 contract!(Localized {
     #[serde(default)] #[ts(optional)] pub ja: Option<String>,
@@ -36,7 +49,17 @@ contract!(SyncMeta {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
-pub enum SourceProvider { Sample, School, Syllabus, Lms, Kyomu, Manual, Import, Mcp, Subscription }
+pub enum SourceProvider {
+    Sample,
+    School,
+    Syllabus,
+    Lms,
+    Kyomu,
+    Manual,
+    Import,
+    Mcp,
+    Subscription,
+}
 
 contract!(SourceRef {
     pub provider: SourceProvider,
@@ -153,13 +176,36 @@ contract!(CalendarException {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ScheduleEntry {
-    Weekly { day: u8, periods: (u8, u8), #[serde(default)] room: Option<Localized> },
-    Intensive { #[serde(default)] room: Option<Localized> },
-    Seminar { #[serde(default)] room: Option<Localized> },
-    Internship { #[serde(default)] room: Option<Localized> },
-    OnDemand { #[serde(default)] room: Option<Localized> },
-    Tba { #[serde(default)] room: Option<Localized> },
-    RegistrationOnly { #[serde(default)] room: Option<Localized> },
+    Weekly {
+        day: u8,
+        periods: (u8, u8),
+        #[serde(default)]
+        room: Option<Localized>,
+    },
+    Intensive {
+        #[serde(default)]
+        room: Option<Localized>,
+    },
+    Seminar {
+        #[serde(default)]
+        room: Option<Localized>,
+    },
+    Internship {
+        #[serde(default)]
+        room: Option<Localized>,
+    },
+    OnDemand {
+        #[serde(default)]
+        room: Option<Localized>,
+    },
+    Tba {
+        #[serde(default)]
+        room: Option<Localized>,
+    },
+    RegistrationOnly {
+        #[serde(default)]
+        room: Option<Localized>,
+    },
 }
 contract!(ClassFormat {
     pub kinds: Vec<String>, #[serde(default)] #[ts(optional)] pub delivery: Option<String>,
@@ -254,6 +300,7 @@ contract!(Exam {
     pub academic_year: i32,
     #[ts(type = "\"undergraduate\" | \"graduate\"")] pub level: String,
     pub quarter: Quarter, pub course_code: String, pub date: String, pub label: Localized,
+    #[serde(default)] #[ts(optional)] pub course_id: Option<String>,
     #[serde(default)] #[ts(optional)] pub class_label: Option<Localized>,
     #[serde(default)] #[ts(optional)] pub syllabus_course_id: Option<String>,
     #[serde(default)] #[ts(optional)] pub periods: Option<(u8, u8)>,
@@ -293,7 +340,7 @@ contract!(Subscription {
 });
 contract!(ScheduledTask {
     #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
-    pub name: String, #[ts(type = "\"school-refresh\" | \"reference-refresh\" | \"export\" | \"hook\"")] pub action: String,
+    pub name: String, #[ts(type = "\"school-refresh\" | \"lms-refresh\" | \"reference-refresh\" | \"export\" | \"hook\"")] pub action: String,
     #[serde(default)] #[ts(optional)] pub hook_id: Option<String>, pub schedule: String, pub enabled: bool,
     #[serde(default)] #[ts(optional)] pub last_occurrence_at: Option<String>,
     #[serde(default)] #[ts(optional)] pub last_run_at: Option<String>,
@@ -437,40 +484,106 @@ pub const COURSE_MATERIAL_UNUSED_SECONDS: u64 = 30 * 24 * 60 * 60;
 
 pub fn data_policy() -> DataPolicy {
     DataPolicy {
-        lms: RefreshPolicy { stale_after_seconds: LMS_STALE_SECONDS, refresh_mode: "on-access".into() },
-        timetable: RefreshPolicy { stale_after_seconds: TIMETABLE_STALE_SECONDS, refresh_mode: "manual-review".into() },
-        kyomu: RefreshPolicy { stale_after_seconds: KYOMU_STALE_SECONDS, refresh_mode: "on-access".into() },
-        syllabus: RefreshPolicy { stale_after_seconds: SYLLABUS_STALE_SECONDS, refresh_mode: "on-access".into() },
-        course_materials: EvictionPolicy { evict_after_unused_seconds: COURSE_MATERIAL_UNUSED_SECONDS, max_bytes: None },
+        lms: RefreshPolicy {
+            stale_after_seconds: LMS_STALE_SECONDS,
+            refresh_mode: "on-access".into(),
+        },
+        timetable: RefreshPolicy {
+            stale_after_seconds: TIMETABLE_STALE_SECONDS,
+            refresh_mode: "manual-review".into(),
+        },
+        kyomu: RefreshPolicy {
+            stale_after_seconds: KYOMU_STALE_SECONDS,
+            refresh_mode: "on-access".into(),
+        },
+        syllabus: RefreshPolicy {
+            stale_after_seconds: SYLLABUS_STALE_SECONDS,
+            refresh_mode: "on-access".into(),
+        },
+        course_materials: EvictionPolicy {
+            evict_after_unused_seconds: COURSE_MATERIAL_UNUSED_SECONDS,
+            max_bytes: None,
+        },
     }
 }
 
 pub fn course_file_policy() -> CourseFilePolicy {
     CourseFilePolicy {
-        auto_download_limit_mb: IntegerPolicy { default: 20, min: 1, max: 1024 },
-        retention_days: IntegerPolicy { default: 30, min: 1, max: 3650 },
+        auto_download_limit_mb: IntegerPolicy {
+            default: 20,
+            min: 1,
+            max: 1024,
+        },
+        retention_days: IntegerPolicy {
+            default: 30,
+            min: 1,
+            max: 3650,
+        },
     }
 }
 
 pub fn declarations() -> Vec<String> {
     vec![
-        Quarter::decl(), InstructionLanguage::decl(), Localized::decl(), SyncMeta::decl(),
-        SourceProvider::decl(), SourceRef::decl(), CreditSplit::decl(), Meeting::decl(),
-        CourseNames::decl(), CourseOverrides::decl(), Course::decl(), Membership::decl(),
-        Assignment::decl(), Material::decl(), PersonalEvent::decl(), PlanItem::decl(),
-        CalendarException::decl(), ScheduleEntry::decl(), ClassFormat::decl(), Offering::decl(),
-        IntensiveDay::decl(), IntensiveSchedule::decl(), Plan::decl(), DateRange::decl(),
-        AcademicCalendarDay::decl(), GpaSummary::decl(), Department::decl(),
-        RecommendedCourse::decl(), ImportantDate::decl(), Exam::decl(), ScheduleOverride::decl(),
-        Subscription::decl(), ScheduledTask::decl(),
-        AssignmentMark::decl(), CourseOverride::decl(), AgentWrite::decl(), AgentAccess::decl(),
-        Notifications::decl(), CloudSettings::decl(), SubscriptionRefreshSettings::decl(),
-        SiteCustomization::decl(), SiteCustomizations::decl(),
-        CustomizationHook::decl(), Customization::decl(), SiteConsents::decl(), Settings::decl(),
-        GradePathEntry::decl(), QuarterStarts::decl(), AcademicYearConfig::decl(), AcademicProfile::decl(),
-        ImportStatus::decl(), SyncStatus::decl(), WorkspaceLog::decl(), Workspace::decl(),
-        CatalogSearchItem::decl(), LifetimePolicy::decl(),
-        RefreshPolicy::decl(), EvictionPolicy::decl(), DataPolicy::decl(),
-        IntegerPolicy::decl(), CourseFilePolicy::decl(),
+        Quarter::decl(),
+        InstructionLanguage::decl(),
+        Localized::decl(),
+        SyncMeta::decl(),
+        SourceProvider::decl(),
+        SourceRef::decl(),
+        CreditSplit::decl(),
+        Meeting::decl(),
+        CourseNames::decl(),
+        CourseOverrides::decl(),
+        Course::decl(),
+        Membership::decl(),
+        Assignment::decl(),
+        Material::decl(),
+        PersonalEvent::decl(),
+        PlanItem::decl(),
+        CalendarException::decl(),
+        ScheduleEntry::decl(),
+        ClassFormat::decl(),
+        Offering::decl(),
+        IntensiveDay::decl(),
+        IntensiveSchedule::decl(),
+        Plan::decl(),
+        DateRange::decl(),
+        AcademicCalendarDay::decl(),
+        GpaSummary::decl(),
+        Department::decl(),
+        RecommendedCourse::decl(),
+        ImportantDate::decl(),
+        Exam::decl(),
+        ScheduleOverride::decl(),
+        Subscription::decl(),
+        ScheduledTask::decl(),
+        AssignmentMark::decl(),
+        CourseOverride::decl(),
+        AgentWrite::decl(),
+        AgentAccess::decl(),
+        Notifications::decl(),
+        CloudSettings::decl(),
+        SubscriptionRefreshSettings::decl(),
+        SiteCustomization::decl(),
+        SiteCustomizations::decl(),
+        CustomizationHook::decl(),
+        Customization::decl(),
+        SiteConsents::decl(),
+        Settings::decl(),
+        GradePathEntry::decl(),
+        QuarterStarts::decl(),
+        AcademicYearConfig::decl(),
+        AcademicProfile::decl(),
+        ImportStatus::decl(),
+        SyncStatus::decl(),
+        WorkspaceLog::decl(),
+        Workspace::decl(),
+        CatalogSearchItem::decl(),
+        LifetimePolicy::decl(),
+        RefreshPolicy::decl(),
+        EvictionPolicy::decl(),
+        DataPolicy::decl(),
+        IntegerPolicy::decl(),
+        CourseFilePolicy::decl(),
     ]
 }
