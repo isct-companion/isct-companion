@@ -12,9 +12,10 @@ function rustRawString(source: string, constant: string): string {
   );
   if (match) return match[1];
   const start = source.indexOf(`pub const ${constant}: &str = concat!(`);
-  const end = source.indexOf('})()"#);', start);
-  if (start < 0 || end < 0) throw new Error(`Rust script ${constant} was not found.`);
-  const expression = source.slice(start, end + '})()"#);'.length);
+  const ending = start < 0 ? undefined : source.slice(start).match(/\}\)\(\)"#\s*\);/);
+  if (start < 0 || !ending || ending.index === undefined)
+    throw new Error(`Rust script ${constant} was not found.`);
+  const expression = source.slice(start, start + ending.index + ending[0].length);
   return [...expression.matchAll(/r#"([\s\S]*?)"#|include_str!\("([^"]+)"\)/g)]
     .map((part) => part[1] ?? read(`backend/src/${part[2]}`)).join("");
 }

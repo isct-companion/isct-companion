@@ -1,4 +1,3 @@
-import { useLocalStorage } from "@mantine/hooks";
 import {
   useEffect,
   useRef,
@@ -64,6 +63,7 @@ const siteForAddress = (raw: string): SchoolSite | undefined => {
 export function Web({
   platform,
   data,
+  update,
   notify,
   schoolWebAvailable,
   requestedUrl,
@@ -75,6 +75,7 @@ export function Web({
   active?: boolean;
   platform: Platform;
   data: Workspace;
+  update: (f: (d: Workspace) => Workspace) => void;
   notify: (s: string) => void;
   schoolWebAvailable: boolean;
   requestedUrl?: string;
@@ -83,11 +84,11 @@ export function Web({
 }) {
   const [site, setSite] = useState<SchoolSite>(() => {
     if (requestedUrl) return siteForAddress(requestedUrl) ?? "science-lms";
-    const active = sessionStorage.getItem("stws-active-school-site");
+    const active = sessionStorage.getItem("isct-companion-active-school-site");
     if (active && active in official) return active as SchoolSite;
-    if (localStorage.getItem("stws-restore-school-page") !== "true")
+    if (!data.settings.restoreSchoolPage)
       return "science-portal";
-    const saved = localStorage.getItem("stws-active-school-site");
+    const saved = data.settings.activeSchoolSite;
     return saved && saved in official
       ? (saved as SchoolSite)
       : "science-portal";
@@ -100,13 +101,13 @@ export function Web({
   notifyRef.current = notify;
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [address, setAddress] = useState(initialUrl);
-  const [serviceWidth, setServiceWidth] = useLocalStorage<number>({
-    key: "stws-school-service-width",
-    defaultValue: 168,
+  const serviceWidth = data.settings.schoolServiceWidth ?? 168;
+  const zoom = data.settings.schoolWebZoom ?? 1;
+  const setServiceWidth = (value: number) => update((draft) => {
+    draft.settings.schoolServiceWidth = value; return draft;
   });
-  const [zoom, setZoom] = useLocalStorage<number>({
-    key: "stws-school-web-zoom",
-    defaultValue: 1,
+  const setZoom = (value: number) => update((draft) => {
+    draft.settings.schoolWebZoom = value; return draft;
   });
   const resolvedServiceWidth = clamp(serviceWidth, 132, 360);
   const resolvedZoom = clamp(zoom, 0.5, 2);
@@ -123,14 +124,11 @@ export function Web({
 
   useEffect(() => {
     if (!desktopBridge || !schoolWebAvailable) return;
-    if (localStorage.getItem("stws-restore-school-page") !== "true")
-      localStorage.removeItem("stws-active-school-site");
     void desktopBridge.configureSchoolWebPolicy({
-      restoreAcrossRestarts:
-        localStorage.getItem("stws-restore-school-page") === "true",
+      restoreAcrossRestarts: data.settings.restoreSchoolPage ?? false,
       idleMinutes: 10,
     });
-  }, [schoolWebAvailable]);
+  }, [schoolWebAvailable, data.settings.restoreSchoolPage]);
 
   useEffect(
     () =>
@@ -195,7 +193,7 @@ export function Web({
   useEffect(() => {
     if (!embedded || !desktopBridge || !active) return;
     // Settings → "Show page" asks for a site while this page is kept alive.
-    const requested = sessionStorage.getItem("stws-active-school-site");
+    const requested = sessionStorage.getItem("isct-companion-active-school-site");
     if (
       !requestedUrl &&
       requested &&
@@ -210,7 +208,7 @@ export function Web({
     const custom = data.settings.customization?.sites[customizationSite];
     const permitted =
       platform === "native-desktop" &&
-      localStorage.getItem(`stws-site-consent-${customizationSite}`) === "true";
+      (data.settings.siteConsents?.[customizationSite] ?? false);
     setStatus("Opening…");
     void schoolWebExit
       .settled()
@@ -265,9 +263,10 @@ export function Web({
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
-    sessionStorage.setItem("stws-active-school-site", next);
-    if (localStorage.getItem("stws-restore-school-page") === "true")
-      localStorage.setItem("stws-active-school-site", next);
+    sessionStorage.setItem("isct-companion-active-school-site", next);
+    if (data.settings.restoreSchoolPage) update((draft) => {
+      draft.settings.activeSchoolSite = next; return draft;
+    });
     const nextUrl = official[next].url;
     setCurrentUrl(nextUrl);
     setAddress(nextUrl);
@@ -301,8 +300,7 @@ export function Web({
         const custom = data.settings.customization?.sites[customizationSite];
         const permitted =
           platform === "native-desktop" &&
-          localStorage.getItem(`stws-site-consent-${customizationSite}`) ===
-            "true";
+          (data.settings.siteConsents?.[customizationSite] ?? false);
         await desktopBridge.openSchoolSite(
           destination,
           permitted ? (custom?.css ?? "") : "",
@@ -313,9 +311,10 @@ export function Web({
       }
     }
     if (destination !== site) {
-      sessionStorage.setItem("stws-active-school-site", destination);
-      if (localStorage.getItem("stws-restore-school-page") === "true")
-        localStorage.setItem("stws-active-school-site", destination);
+      sessionStorage.setItem("isct-companion-active-school-site", destination);
+      if (data.settings.restoreSchoolPage) update((draft) => {
+        draft.settings.activeSchoolSite = destination; return draft;
+      });
       setSite(destination);
     }
     setCurrentUrl(target);
@@ -377,8 +376,7 @@ export function Web({
       const customizationSite = official[site].customization;
       const custom = data.settings.customization?.sites[customizationSite];
       const permitted =
-        localStorage.getItem(`stws-site-consent-${customizationSite}`) ===
-        "true";
+        (data.settings.siteConsents?.[customizationSite] ?? false);
       void desktopBridge
         .openSchoolSite(
           site,

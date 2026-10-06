@@ -1,3 +1,4 @@
+import "./lms.css";
 import {
   lazy,
   memo,
@@ -21,20 +22,22 @@ import type {
 } from "../../../platform/desktop-bridge";
 import { t } from "../../../i18n";
 import { desktopBridge } from "../../../app/native";
-import { announcements, formatLmsDate, contentText, safeContent, safeUrl } from "./content";
+import { announcements, formatLmsDate, contentText, imageOnly, safeContent, safeUrl } from "./content";
 import { OfficialLmsView } from "./OfficialLmsView";
+import { FileTile, LmsIcon } from "./LmsIcon";
+import { fileFamily, extension } from "./file-types";
+import { cachedThumbnail, dropThumbnail, loadThumbnail, onSignedIn } from "./thumbnails";
 import {
-  openMaterial as readMaterial,
-  fileSrc,
   type CourseFolder,
   folderComponent,
+  downloadLimit,
+  previewKind,
   listNotes,
   saveNote,
   moveNote,
-  previewKind,
-  downloadMaterial,
   type LocalFile,
 } from "./files";
+const FilePopover = lazy(() => import("./FilePreview").then((m) => ({ default: m.FilePopover })));
 const FilePreview = lazy(() =>
   import("./FilePreview").then((m) => ({ default: m.FilePreview })),
 );
@@ -68,6 +71,19 @@ type ReadingState = {
   anchor?: { id: string; ratio: number };
 };
 const reading = new Map<string, ReadingState>();
+/** Where course files live and how large an automatic download may be. */
+type FileAccess = { context: CourseFolder; limit: number };
+/** Consecutive image-only labels share one grid instead of a block each. */
+function groupImageLabels(items: Material[]): (Material | Material[])[] {
+  const grouped: (Material | Material[])[] = [];
+  for (const item of items) {
+    const tile = item.module === "label" && imageOnly(item.bodyHtml);
+    const last = grouped.at(-1);
+    if (tile && Array.isArray(last)) last.push(item);
+    else grouped.push(tile ? [item] : item);
+  }
+  return grouped;
+}
 const groupFor = (module?: string) =>
   module === "forum"
     ? "Discussions"
@@ -77,56 +93,82 @@ const groupFor = (module?: string) =>
         ? "Course content"
         : "Other activities";
 
+const ImageThumbnail = memo(function ImageThumbnail({ url, files }: { url: string; files: FileAccess }) {
+  const element = useRef<HTMLSpanElement>(null);
+  const [src, setSrc] = useState(() => cachedThumbnail(url));
+  const [loaded, setLoaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => onSignedIn(() => setAttempt(value => value + 1)), []);
+  useEffect(() => {
+    if (src) return;
+    let disposed = false;
+    const load = () => void loadThumbnail(files.context, url, files.limit).then(value => { if (!disposed && value) setSrc(value); }).catch(() => undefined);
+    const observer = typeof IntersectionObserver === "undefined" ? undefined : new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { observer!.disconnect(); load(); }
+    }, { rootMargin: "200px" });
+    if (observer && element.current) observer.observe(element.current); else load();
+    return () => { disposed = true; observer?.disconnect(); };
+  }, [url, src, attempt, files]);
+  return <span ref={element} className={`lmsFileTile lmsThumbnail${loaded ? " loaded" : ""}`} data-family="image" aria-hidden="true">
+    <LmsIcon name="image" size={18} />
+    {src && <img src={src} alt="" decoding="async" onLoad={() => setLoaded(true)} onError={() => { dropThumbnail(url); setSrc(undefined); setLoaded(false); }} />}
+  </span>;
+});
+
 const RichContent = memo(function RichContent({
   html,
   language,
   openLink,
-  context,
+  files,
 }: {
-  context?: CourseFolder;
+  files: FileAccess;
   html: string;
   language?: "ja" | "en";
-  openLink: (url: string, title: string) => void;
+  openLink: (url: string, title: string, anchor?: Element) => void;
 }) {
   const content = useMemo(() => safeContent(html, language), [html, language]);
+  const renderedHtml = useMemo(() => ({ __html: content }), [content]);
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let disposed = false;
     const load = async (placeholder: HTMLElement) => {
       const url = placeholder.dataset.imageSrc!;
+      placeholder.dataset.state = "loading";
       try {
-        let src = url;
-        if (desktopBridge && new URL(url).pathname.includes("/pluginfile.php/")) {
-          if (!context) return;
-          const file = await readMaterial(context, url, false, false) || await readMaterial(context, url, true, false);
-          if (!file || disposed) return;
-          src = fileSrc(file);
-        }
+        const src = await loadThumbnail(files.context, url, files.limit);
         if (disposed) return;
+        if (!src) { placeholder.dataset.state = "unavailable"; return; }
         const image = document.createElement("img");
-        image.src = src; image.alt = placeholder.dataset.imageAlt || "";
+        image.alt = placeholder.dataset.imageAlt || "";
         image.decoding = "async"; image.className = "lmsInlineThumbnail";
+        image.onload = () => { placeholder.dataset.state = "ready"; };
+        image.onerror = () => { dropThumbnail(url); image.remove(); placeholder.dataset.state = "unavailable"; };
+        image.src = src;
         placeholder.replaceChildren(image);
-      } catch { /* The full-size file action remains available if preview fails. */ }
+      } catch (error) { if (!disposed) { placeholder.dataset.state = "unavailable"; placeholder.title = String(error); } }
     };
     const placeholders = element.current?.querySelectorAll<HTMLElement>("[data-image-src]") || [];
     const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(entries => {
       for (const entry of entries) if (entry.isIntersecting) { observer!.unobserve(entry.target); void load(entry.target as HTMLElement); }
     }, {rootMargin:"80px"});
     for (const placeholder of placeholders) { if (observer) observer.observe(placeholder); else void load(placeholder); }
-    return () => { disposed = true; observer?.disconnect(); };
-  }, [content, context?.term, context?.course, context?.section]);
+    const stop = onSignedIn(() => {
+      for (const placeholder of placeholders) if (placeholder.dataset.state === "unavailable") void load(placeholder);
+    });
+    return () => { disposed = true; observer?.disconnect(); stop(); };
+  }, [content, files]);
   return (
     <div
       ref={element}
       className="lmsRichContent"
-      dangerouslySetInnerHTML={{ __html: content }}
+      dangerouslySetInnerHTML={renderedHtml}
       onClick={(event) => {
         const link = (event.target as Element).closest("a");
         if (!link) return;
         event.preventDefault();
         const url = safeUrl(link.getAttribute("href"));
-        if (url) openLink(url, link.textContent || t("Link"));
+        const name = link.querySelector<HTMLElement>("[data-image-alt]")?.dataset.imageAlt || link.querySelector(".lmsAttachmentName")?.textContent;
+        if (url) openLink(url, name || link.textContent || t("Link"), link);
       }}
     />
   );
@@ -199,7 +241,6 @@ export function LmsWorkspace({
   const [deletedNote, setDeletedNote] = useState<{id:string;section:string;title:string} | null>(null);
   const noteCreation = useRef(false);
   const [creatingNote, setCreatingNote] = useState(false);
-  const [fileMessage, setFileMessage] = useState("");
   const folder = useMemo(
     () => ({
       term: folderComponent(course.termId),
@@ -210,6 +251,8 @@ export function LmsWorkspace({
     }),
     [course.termId, course.code, course.id, data.deviceId],
   );
+  const limit = downloadLimit(data.settings);
+  const files = useMemo<FileAccess>(() => ({ context: folder, limit }), [folder, limit]);
   const current = useRef<ReadingState>({
     version: 2,
     expanded,
@@ -297,12 +340,12 @@ export function LmsWorkspace({
     const context = { ...folder, section: `section-${section.id}` };
     try {
       const existing = (await listNotes(folder, [context.section])).sort((a,b) => a.id.localeCompare(b.id))[0];
-      const id = existing?.id || crypto.randomUUID();
-      if (!existing) await saveNote(context, id, `# ${section.title}
+      let id = existing?.id;
+      if (!existing) id = (await saveNote(context, "", `# ${section.title}
 
-`);
+`)).id;
       refreshNotes();
-      open({ id, title: existing?.name.trim() || `${section.title} · ${t("Note")}`, kind: "note", section: context.section });
+      open({ id: id!, title: existing?.name.trim() || `${section.title} · ${t("Note")}`, kind: "note", section: context.section });
     } catch (error) { setNoteError(String(error)); }
     finally { noteCreation.current = false; setCreatingNote(false); }
   };
@@ -322,30 +365,25 @@ export function LmsWorkspace({
     },
     [query],
   );
+  const [fileMenu, setFileMenu] = useState<{ url: string; title: string; anchor: Element }>();
+  const closeFileMenu = useCallback(() => setFileMenu(undefined), []);
+  /**
+   * Files the app cannot preview open as a popover at the clicked item, so the
+   * reading pane is only used for content. Returns false for previewable ones.
+   */
+  const showFileMenu = (url: string | undefined, title: string, anchor?: Element) => {
+    if (!url || !anchor || previewKind(url) || !new URL(url).pathname.includes("/pluginfile.php/")) return false;
+    setFileMenu({ url, title, anchor });
+    return true;
+  };
   const openMaterial = useCallback(
-    (m: Material) => {
-      const url = safeUrl(m.resourceUrl || (m.url?.includes("/pluginfile.php/") ? m.url : undefined));
-      if (
-        url &&
-        !previewKind(url) &&
-        new URL(url).pathname.includes("/pluginfile.php/")
-      ) {
-        if (!desktopBridge) {
-          window.open(url, "_blank", "noopener,noreferrer");
-          return;
-        }
-        setFileMessage(t("Downloading…"));
-        void downloadMaterial({ ...folder, section: `section-${m.sectionId ?? 0}` }, url)
-          .then(path => setFileMessage(path ? `${t("Saved locally")} · ${path}` : t("Save cancelled")))
-          .catch((error) => setFileMessage(String(error)));
-        return;
-      }
+    (m: Material, anchor?: Element) => {
+      if (showFileMenu(safeUrl(m.resourceUrl), m.title, anchor)) return;
       open({ id: m.id, title: m.title, kind: "material" });
     },
-    [open, folder, sections],
+    [open],
   );
   const openAssignment = useCallback((a: Assignment) => {
-    if (outline.current) outline.current.style.scrollSnapType = "none";
     setMobileViewer(false);
     requestAnimationFrame(() =>
       outline.current
@@ -354,25 +392,15 @@ export function LmsWorkspace({
     );
   }, []);
   const openLink = useCallback(
-    (url: string, title: string) => {
-      const material = data.materials.find(
-        (m) => m.url === url || m.resourceUrl === url,
-      );
-      if (material) return openMaterial(material);
+    (url: string, title: string, anchor?: Element) => {
+      const material = data.materials.find((m) => m.url === url || m.resourceUrl === url);
+      if (material) return openMaterial(material, anchor);
       const assignment = data.assignments.find((a) => a.sourceUrl === url);
       if (assignment) return openAssignment(assignment);
-      if (new URL(url).pathname.includes("/pluginfile.php/") && !previewKind(url)) {
-        if (!desktopBridge) { window.open(url, "_blank", "noopener,noreferrer"); return; }
-        const section = sections.find(item => `section:${item.id}` === readingSection);
-        setFileMessage(t("Downloading…"));
-        void downloadMaterial({...folder, section:`section-${section?.id ?? 0}`}, url)
-          .then(path => setFileMessage(path ? `${t("Saved locally")} · ${path}` : t("Save cancelled")))
-          .catch(error => setFileMessage(String(error)));
-        return;
-      }
+      if (showFileMenu(url, title, anchor)) return;
       open({ id: `link:${url}`, title, kind: "link", url });
     },
-    [data.materials, data.assignments, openMaterial, openAssignment, open, folder, sections, readingSection],
+    [data.materials, data.assignments, openMaterial, openAssignment, open],
   );
   useEffect(() => {
     const assignment = assignments.find((a) => a.id === entry.assignmentId);
@@ -393,7 +421,6 @@ export function LmsWorkspace({
     // real reading position rather than guessing the lesson from the week.
     const frame = requestAnimationFrame(() => {
       if (outline.current) {
-        outline.current.style.scrollSnapType = "none";
         const anchor = current.current.anchor;
         const element =
           anchor &&
@@ -508,7 +535,6 @@ export function LmsWorkspace({
     const panel = host.getBoundingClientRect();
     const rect = element.getBoundingClientRect();
     if (panel.height > 0 && rect.height > 0) {
-      host.style.scrollSnapType = "none";
       host.scrollTop +=
         rect.top - panel.top + rect.height * anchor.ratio - panel.height / 2;
     }
@@ -543,7 +569,7 @@ export function LmsWorkspace({
             ` · ${new Date(a.dueAt).toLocaleString(data.settings.locale, { timeZone: "Asia/Tokyo" })}`}
         </p>
         {source?.bodyHtml ? (
-          <RichContent context={{...folder,section:"section-0"}}
+          <RichContent files={files}
             html={source.bodyHtml}
             language={language}
             openLink={openLink}
@@ -564,7 +590,7 @@ export function LmsWorkspace({
               })
             }
           >
-            {t("Submit in LMS")} ↗
+            {t("Submit in LMS")} <LmsIcon name="external" size={14} />
           </button>
         )}
       </article>
@@ -574,33 +600,32 @@ export function LmsWorkspace({
     const posts = announcementCards.filter(post => post.id.startsWith(`announcement:${m.id}:`));
     return <article className="lmsInlineActivity" key={m.id}><h4>{m.title}</h4>{posts.length ? posts.map(post => (
       <button type="button" className={`lmsAnnouncementCard${selected === post.id ? " selected" : ""}`} key={post.id} onClick={() => open({id:post.id, title:post.title, kind:"announcement", url:post.url})}>
-        <span className="lmsCardType">{t("Announcement")} · {formatLmsDate(post.date, data.settings.locale)}</span><strong>{post.title}</strong><span className="lmsCardExcerpt">{contentText(post.html).trim().replace(/\s+/g," ").slice(0,140)}</span><span className="lmsCardArrow" aria-hidden="true">↗</span>
+        <span className="lmsCardType">{t("Announcement")} · {formatLmsDate(post.date, data.settings.locale)}</span><strong>{post.title}</strong><span className="lmsCardExcerpt">{contentText(post.html).trim().replace(/\s+/g," ").slice(0,140)}</span><LmsIcon name="chevron" className="lmsCardArrow" />
       </button>
     )) : row(m)}</article>;
   };
-  const row = (m: Material) => (
-    <button
-      type="button"
-      className={`lmsItemRow${selected === m.id ? " selected" : ""}`}
-      key={m.id}
-      onClick={() => openMaterial(m)}
-    >
-      <span className="lmsItemGlyph" aria-hidden="true">
-        {m.module === "folder"
-          ? "▤"
-          : m.module === "forum"
-            ? "◇"
-            : m.module === "url"
-              ? "↗"
-              : previewKind(m.resourceUrl || m.url || "") === "pdf" ? "PDF" : "↧"}
-      </span>
-      <span>
-        <b>{m.title}</b>
-        <small>{m.sectionTitle || t(m.module ?? "File")}</small>
-      </span>
-      <span aria-hidden="true">›</span>
-    </button>
-  );
+  const row = (m: Material) => {
+    const url = m.resourceUrl || m.url || "";
+    const family = fileFamily(m.resourceUrl || "", m.module);
+    const ext = extension(m.resourceUrl || "");
+    return (
+      <button
+        type="button"
+        className={`lmsItemRow${selected === m.id ? " selected" : ""}`}
+        key={m.id}
+        onClick={(event) => openMaterial(m, event.currentTarget)}
+      >
+        {family === "image" && url.includes("/pluginfile.php/")
+          ? <ImageThumbnail url={url} files={files} />
+          : <FileTile family={family} />}
+        <span>
+          <b>{m.title}</b>
+          <small>{[ext && ext.toUpperCase(), m.sectionTitle || t(m.module ?? "File")].filter(Boolean).join(" · ")}</small>
+        </span>
+        <LmsIcon name="chevron" className="lmsRowAction" />
+      </button>
+    );
+  };
   return (
     <div
       className={`lmsWorkspace${activeTab ? " hasViewer" : ""}${mobileViewer ? " viewing" : ""}`}
@@ -608,7 +633,7 @@ export function LmsWorkspace({
       <header className="lmsWorkspaceHeader">
         {!navigationProvided && (
           <button type="button" className="lmsBack" onClick={close}>
-            ← {t("Today")}
+            <LmsIcon name="back" /> {t("Today")}
           </button>
         )}
         <div className="lmsCourseIdentity">
@@ -621,7 +646,7 @@ export function LmsWorkspace({
             {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
           </span>
         )}
-        {syllabus && <button type="button" className="lmsRefresh" onClick={() => open({ id: "syllabus", title: t("Syllabus"), kind: "syllabus", url: syllabus })}>{t("Open in syllabus")} ↗</button>}
+        {syllabus && <button type="button" className="lmsRefresh" onClick={() => open({ id: "syllabus", title: t("Syllabus"), kind: "syllabus", url: syllabus })}>{t("Open in syllabus")} <LmsIcon name="external" size={14} /></button>}
         {refresh && (
           <button
             type="button"
@@ -633,18 +658,6 @@ export function LmsWorkspace({
           </button>
         )}
       </header>
-      {fileMessage && (
-        <div className="lmsSourceBar" role="status">
-          {fileMessage}
-          <button
-            type="button"
-            aria-label={t("Dismiss")}
-            onClick={() => setFileMessage("")}
-          >
-            ×
-          </button>
-        </div>
-      )}
       <div className="lmsWorkspaceBody">
         <aside className="lmsOutline">
           <div className="lmsOutlineTools">
@@ -669,21 +682,24 @@ export function LmsWorkspace({
             className={`lmsOutlineScroll${query ? " searching" : ""}`}
             ref={outline}
             onScroll={(event) => recordPosition(event.currentTarget)}
-            onWheel={(event) => {
-              event.currentTarget.style.scrollSnapType = "";
-            }}
-            onTouchStart={(event) => {
-              event.currentTarget.style.scrollSnapType = "";
-            }}
-            onKeyDown={(event) => {
-              if (
-                ["PageDown", "PageUp", "ArrowDown", "ArrowUp", " "].includes(
-                  event.key,
-                )
-              )
-                event.currentTarget.style.scrollSnapType = "";
-            }}
           >
+            {fileMenu && (
+              <Suspense fallback={null}>
+                <FilePopover
+                  key={fileMenu.url}
+                  url={fileMenu.url}
+                  title={fileMenu.title}
+                  context={folder}
+                  limit={limit}
+                  anchor={fileMenu.anchor}
+                  onClose={closeFileMenu}
+                  openInApp={() => {
+                    closeFileMenu();
+                    open({ id: `official:${fileMenu.url}`, title: fileMenu.title, kind: "official", url: fileMenu.url });
+                  }}
+                />
+              </Suspense>
+            )}
             {noteError && <p role="alert">{noteError}</p>}
             {deletedNote && <div className="lmsNoteUndo" role="status"><span>{t("Note deleted")}</span><button type="button" onClick={() => { const note=deletedNote; void moveNote({...folder,section:note.section},note.id,true).then(() => {setDeletedNote(null);refreshNotes();open({...note,kind:"note"});}).catch(error => setNoteError(String(error))); }}>{t("Undo")}</button></div>}
             <h2>{t("Course content")}</h2>
@@ -714,12 +730,9 @@ export function LmsWorkspace({
                         aria-controls={`lms-panel-${section.id}`}
                         onClick={() => toggle(id)}
                       >
-                        <span aria-hidden="true">{isOpen ? "⌄" : "›"}</span>
+                        <LmsIcon name="chevron" className="lmsSectionChevron" />
                         <span>{section.title}</span>
-                        <small>
-                          {readingSection === id ? "• " : ""}
-                          {items.length || ""}
-                        </small>
+                        {items.length > 0 && <small>{items.length}</small>}
                       </button>
                     </h3>
                     <button
@@ -730,7 +743,7 @@ export function LmsWorkspace({
                       title={t("New note")}
                       onClick={() => void newNote(section)}
                     >
-                      +
+                      <LmsIcon name="plus" />
                     </button>
                   </div>
                   {!isOpen && section.bodyHtml && (
@@ -744,35 +757,25 @@ export function LmsWorkspace({
                       className="lmsSectionBody"
                     >
                       {section.bodyHtml && (
-                        <RichContent context={{...folder,section:"section-0"}}
+                        <RichContent files={files}
                           html={section.bodyHtml}
                           language={language}
                           openLink={openLink}
                         />
                       )}
-                      {items
-                        .filter(
-                          (m) =>
-                            !query ||
-                            matches(m.title, m.bodyHtml) ||
-                            matches(section.title, section.bodyHtml),
-                        )
+                      {groupImageLabels(items.filter((m) => !query || matches(m.title, m.bodyHtml) || matches(section.title, section.bodyHtml)))
                         .map((m) =>
-                          m.module === "forum" ? forumCards(m) : m.bodyHtml &&
-                          ["page", "label"].includes(
-                            m.module ?? "",
-                          ) ? (
+                          Array.isArray(m) ? (
+                            <div className="lmsImageGrid" key={m[0].id}>
+                              {m.map((label) => <RichContent key={label.id} files={files} html={label.bodyHtml!} language={language} openLink={openLink} />)}
+                            </div>
+                          ) : m.module === "forum" ? forumCards(m)
+                          : m.bodyHtml && ["page", "label"].includes(m.module ?? "") ? (
                             <article className="lmsInlineActivity" key={m.id}>
                               <h4>{m.title}</h4>
-                              <RichContent context={{...folder,section:"section-0"}}
-                                html={m.bodyHtml}
-                                language={language}
-                                openLink={openLink}
-                              />
+                              <RichContent files={files} html={m.bodyHtml} language={language} openLink={openLink} />
                             </article>
-                          ) : (
-                            row(m)
-                          ),
+                          ) : row(m),
                         )}
                       {assignments
                         .filter((a) =>
@@ -788,7 +791,7 @@ export function LmsWorkspace({
                         .map(assignmentContent)}
                       {(() => {
                         const sectionNotes = notes.filter(note => note.section === `section-${section.id}`);
-                        const row = (note: LocalFile) => <button type="button" className="lmsItemRow" key={note.id} onClick={() => open({id:note.id,title:note.name.trim() || `${section.title} · ${t("Note")}`,kind:"note",section:note.section})}><span className="lmsItemGlyph">✎</span><span><b>{note.name.trim() || `${section.title} · ${t("Note")}`}</b><small>{t("Local note")}</small></span><span>›</span></button>;
+                        const row = (note: LocalFile) => <button type="button" className="lmsItemRow" key={note.id} onClick={() => open({id:note.id,title:note.name.trim() || `${section.title} · ${t("Note")}`,kind:"note",section:note.section})}><FileTile family="note" /><span><b>{note.name.trim() || `${section.title} · ${t("Note")}`}</b><small>{t("Local note · stored only on this device")}</small></span><LmsIcon name="chevron" className="lmsRowAction" /></button>;
                         return <>{sectionNotes[0] && row(sectionNotes[0])}{sectionNotes.length > 1 && <details className="lmsPreviousNotes"><summary>{t("Previous notes")} · {sectionNotes.length - 1}</summary>{sectionNotes.slice(1).map(row)}</details>}</>;
                       })()}
                       {!section.bodyHtml && !items.length && (
@@ -872,22 +875,12 @@ export function LmsWorkspace({
         </aside>
         {activeTab && (
           <section className="lmsViewer" aria-label={t("Opened content")}>
-            <button className="lmsViewerClose" type="button" aria-label={`${t("Close")} ${activeTab.title}`} title={t("Close")} onClick={() => closeTab(activeTab.id)}>×</button>
+            <button className="lmsViewerClose" type="button" aria-label={`${t("Close")} ${activeTab.title}`} title={t("Close")} onClick={() => closeTab(activeTab.id)}><LmsIcon name="close" /></button>
             <div className="lmsViewerBody">
-              {!viewerActive &&
-              activeTab?.kind !== "official" ? null : !activeTab ? (
-                <div className="lmsViewerEmpty">
-                  <span aria-hidden="true">▧</span>
-                  <h2>{t("Choose a file or activity")}</h2>
-                  <p>
-                    {t(
-                      "Course content stays on the left. Opened items appear here.",
-                    )}
-                  </p>
-                </div>
-              ) : activeTab.kind === "announcement" ? (
+              {/* Hidden readers release their documents; the official view keeps its webview. */}
+              {!viewerActive && activeTab.kind !== "official" ? null : activeTab.kind === "announcement" ? (
                 <div className="lmsDocument"><div className="lmsDocumentHeading"><small>{formatLmsDate(announcement?.date || "", data.settings.locale)}</small><h2>{activeTab.title}</h2></div>
-                {announcement && <RichContent context={{...folder,section:"section-0"}} html={announcement.html} language={language} openLink={openLink} />}
+                {announcement && <RichContent files={files} html={announcement.html} language={language} openLink={openLink} />}
                 </div>
               ) : activeTab.kind === "syllabus" ? (
                 <div className="lmsDocument"><Suspense fallback={<p>{t("Loading…")}</p>}>
@@ -921,7 +914,7 @@ export function LmsWorkspace({
                     <h2>{activeTab.title}</h2>
                   </div>
                   {material?.bodyHtml && (
-                    <RichContent context={{...folder,section:"section-0"}}
+                    <RichContent files={files}
                       html={material.bodyHtml}
                       language={language}
                       openLink={openLink}
@@ -949,11 +942,11 @@ export function LmsWorkspace({
                           key={url}
                           url={url}
                           title={activeTab.title}
-                          autoSave={data.settings.autoSaveCourseFiles ?? false}
-                          context={{
-                            ...folder,
-                            section: `section-${material?.sectionId ?? sections.find((s) => s.number === (material?.sectionNumber ?? material?.session))?.id ?? 0}`,
-                          }}
+                          context={folder}
+                          limit={limit}
+                          openInApp={new URL(url).hostname === "lms.s.isct.ac.jp"
+                            ? () => open({ id: `official:${url}`, title: activeTab.title, kind: "official", url })
+                            : undefined}
                         />
                       </Suspense>
                     );

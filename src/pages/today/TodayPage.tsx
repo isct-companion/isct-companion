@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { UiButton } from "../../components/mantine";
 import { deadlineState } from "../../core/academic";
-import type { PersonalEvent, Plan, TermId, Workspace } from "../../core/model";
+import { pickLocalized, type PersonalEvent, type Plan, type TermId, type Workspace } from "../../core/model";
 import { timetableCourses } from "../../components/timetable/workspace";
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
+import { CourseFinder } from "./CourseFinder";
 import {
   addDays,
   calendarState,
   civilWeekday,
-  occurrencesOnDate,
+  importantDatesOnDate,
+  resolveDayAgenda,
 } from "../../core/schedule";
 
 const timeLabel = (value: string) => value.replace(/^0/, "");
@@ -65,19 +67,49 @@ export function Today({
     return () => clearInterval(timer);
   }, [active]);
   const todayIso = jstDate(now);
-  const teachingState = calendarState(data, todayIso);
-  const effectiveDay = civilWeekday(todayIso);
+  // Schedule can show another day of the week; assignments stay relative to now.
+  const [pickedDate, setPickedDate] = useState<string | null>(null);
+  // -1 / 1 slides the swapped day in from the side it came from.
+  const [direction, setDirection] = useState(0);
+  const viewIso = pickedDate ?? todayIso;
+  const pick = (date: string | null) => {
+    const target = date ?? todayIso;
+    if (target === viewIso) return;
+    setDirection(target > viewIso ? 1 : -1);
+    setPickedDate(date);
+  };
+  const swap = { "--swap": direction } as React.CSSProperties;
+  const isToday = viewIso === todayIso;
+  const viewDate = new Date(`${viewIso}T12:00:00+09:00`);
+  const weekStart = addDays(viewIso, 1 - civilWeekday(viewIso));
+  const teachingState = calendarState(data, viewIso);
+  const effectiveDay = civilWeekday(viewIso);
   const courses = timetableCourses(data, term);
   const events = data.events.filter(
     (event) => event.termId === term && !event.deletedAt,
   );
-  const blocks = occurrencesOnDate(data, term, todayIso, { courses, events });
+  const blocks = resolveDayAgenda(data, term, viewIso, { courses, events });
+  const importantDates = importantDatesOnDate(data, viewIso);
+  const week = Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(weekStart, index);
+    return {
+      date,
+      busy:
+        date === viewIso
+          ? blocks.length > 0
+          : resolveDayAgenda(data, term, date, { courses, events }).length > 0,
+    };
+  });
   const minutes = jstMinutes(now);
   const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-  const activeIndex = blocks.findIndex(
-    (block) => block.startTime <= clock && block.endTime > clock,
-  );
-  const nextIndex = blocks.findIndex((block) => block.startTime > clock);
+  const activeIndex = isToday
+    ? blocks.findIndex(
+        (block) => block.startTime <= clock && block.endTime > clock,
+      )
+    : -1;
+  const nextIndex = isToday
+    ? blocks.findIndex((block) => block.startTime > clock)
+    : -1;
   const focusIndex = activeIndex >= 0 ? activeIndex : nextIndex;
 
   const assignments = data.assignments
@@ -89,9 +121,14 @@ export function Today({
         assignment.submission === "graded"
       )
         return false;
-      return Number.isFinite(new Date(assignment.dueAt).getTime());
+      return (
+        assignment.dueAt !== null &&
+        Number.isFinite(new Date(assignment.dueAt).getTime())
+      );
     })
-    .sort((left, right) => left.dueAt.localeCompare(right.dueAt));
+    .sort((left, right) =>
+      (left.dueAt ?? "").localeCompare(right.dueAt ?? ""),
+    );
   // Every open assignment of this quarter, however far its deadline; work
   // from earlier quarters (never-submitted reports of finished courses)
   // stays folded.
@@ -101,16 +138,17 @@ export function Today({
     );
     return course
       ? course.termId === term
-      : new Date(assignment.dueAt).getTime() >= now.getTime();
+      : assignment.dueAt !== null &&
+        new Date(assignment.dueAt).getTime() >= now.getTime();
   };
   const current = assignments.filter(inThisQuarter);
   // This week (overdue included) first; later deadlines in their own group.
   const weekEnd = now.getTime() + 7 * 86_400_000;
   const soon = current.filter(
-    (item) => new Date(item.dueAt).getTime() <= weekEnd,
+    (item) => new Date(item.dueAt!).getTime() <= weekEnd,
   );
   const later = current.filter(
-    (item) => new Date(item.dueAt).getTime() > weekEnd,
+    (item) => new Date(item.dueAt!).getTime() > weekEnd,
   );
   const earlier = assignments.filter(
     (assignment) => !inThisQuarter(assignment),
@@ -151,14 +189,14 @@ export function Today({
   const nextClass = (() => {
     if (blocks.length) return undefined;
     for (let offset = 1; offset <= 7; offset++) {
-      const date = addDays(todayIso, offset);
+      const date = addDays(viewIso, offset);
       const day = civilWeekday(date);
-      const first = occurrencesOnDate(data, term, date, { courses, events })[0];
+      const first = resolveDayAgenda(data, term, date, { courses, events })[0];
       if (first)
         return {
           ...first,
           date: date,
-          day: offset === 1 ? "Tomorrow" : DAY_NAMES[day - 1],
+          day: offset === 1 && isToday ? "Tomorrow" : DAY_NAMES[day - 1],
         };
     }
     return undefined;
@@ -186,38 +224,106 @@ export function Today({
       className={`page todayPage${compact ? " todayNavigation" : ""}`}
       ref={page}
     >
+      {compact && (
+        <CourseFinder data={data} term={term} open={(id) => open(id)} />
+      )}
       <header className="todayHeader">
-        <div>
+        <div className="daySwap" key={viewIso} style={swap}>
           <p className="todayEyebrow">
             {new Intl.DateTimeFormat("en-GB", {
               weekday: "long",
               timeZone: "Asia/Tokyo",
-            }).format(now)}
+            }).format(viewDate)}
           </p>
           <h1>
             {new Intl.DateTimeFormat("en-GB", {
               day: "numeric",
               month: "long",
               timeZone: "Asia/Tokyo",
-            }).format(now)}
+            }).format(viewDate)}
           </h1>
         </div>
-        <span className="teachingState">{stateLabel}</span>
+        {!compact && (
+          <div className="todayWeek">
+            <div
+              className="weekStrip"
+              role="group"
+              aria-label="Week"
+              style={
+                {
+                  "--day": effectiveDay - 1,
+                  "--swap": direction,
+                } as React.CSSProperties
+              }
+            >
+              <UiButton
+                className="weekShift"
+                aria-label="Previous week"
+                onClick={() => pick(addDays(viewIso, -7))}
+              >
+                ‹
+              </UiButton>
+              {week.map(({ date, busy }, index) => (
+                <UiButton
+                  key={date}
+                  className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
+                  aria-pressed={date === viewIso}
+                  aria-label={date}
+                  onClick={() => pick(date === todayIso ? null : date)}
+                >
+                  <small>{DAY_NAMES[index].slice(0, 1)}</small>
+                  <b>{Number(date.slice(8))}</b>
+                </UiButton>
+              ))}
+              <UiButton
+                className="weekShift"
+                aria-label="Next week"
+                onClick={() => pick(addDays(viewIso, 7))}
+              >
+                ›
+              </UiButton>
+            </div>
+            <span className="teachingState">
+              {!isToday && (
+                <UiButton
+                  className="textButton"
+                  onClick={() => pick(null)}
+                >
+                  Today
+                </UiButton>
+              )}
+              {stateLabel}
+            </span>
+          </div>
+        )}
       </header>
 
       <div className="todayFlow">
+        {importantDates.length > 0 && (
+          <aside className="importantDates" aria-label="Important dates">
+            {importantDates.map((item) => (
+              <span key={item.id}>
+                <b>{pickLocalized(item.label, data.settings.locale, "Important date")}</b>
+                {item.startDate !== item.endDate && (
+                  <small>{item.startDate}–{item.endDate}</small>
+                )}
+              </span>
+            ))}
+          </aside>
+        )}
         <section className="todaySection" data-today-section="classes">
           <header>
-            <h2>Classes</h2>
+            <h2>Schedule</h2>
             <UiButton className="textButton" onClick={openSchedule}>
               Week
             </UiButton>
           </header>
-          <div className="dayAgenda">
+          <div className="dayAgenda daySwap" key={viewIso} style={swap}>
             {(allClasses ? blocks : blocks.slice(0, CLASS_ROWS)).map(
               (block, index) => {
-                const state =
-                  index === activeIndex
+                const state = !isToday
+                  ? ""
+                  : index === activeIndex
                     ? "Now"
                     : index === nextIndex
                       ? "Next"
@@ -226,7 +332,7 @@ export function Today({
                         : "Later";
                 return (
                   <UiButton
-                    className={`dayAgendaRow${index === focusIndex ? " focus" : ""}${selection?.courseId === block.id && !selection.assignmentId ? " selected" : ""}`}
+                    className={`dayAgendaRow ${block.kind}${index === focusIndex ? " focus" : ""}${selection?.courseId === block.id && !selection.assignmentId ? " selected" : ""}${block.conflict ? " conflict" : ""}`}
                     aria-current={
                       selection?.courseId === block.id &&
                       !selection.assignmentId
@@ -235,9 +341,9 @@ export function Today({
                     }
                     style={{ "--course": block.color } as React.CSSProperties}
                     onClick={() => {
-                      if (block.kind === "course")
+                      if (block.kind === "course" || block.kind === "exam")
                         open(block.id, undefined, {
-                          date: todayIso,
+                          date: viewIso,
                           startTime: block.startTime,
                           endTime: block.endTime,
                         });
@@ -256,11 +362,18 @@ export function Today({
                     key={block.key}
                   >
                     <span className="agendaState">{state}</span>
-                    <time>{timeLabel(block.startTime)}</time>
+                    <time>
+                      {timeLabel(block.startTime)}
+                      {block.kind === "exam" && <small>EXAM · {block.timeLabel}</small>}
+                    </time>
                     <span className="agendaLine" aria-hidden="true" />
                     <span className="agendaCourse">
                       <b>{block.title}</b>
-                      <small>{block.room || block.subtitle || "—"}</small>
+                      <small>
+                        {[block.room || block.subtitle, block.conflictWith?.length ? `Overlaps ${block.conflictWith.join(", ")}` : ""]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </small>
                     </span>
                   </UiButton>
                 );
@@ -274,7 +387,9 @@ export function Today({
               )}
             {!blocks.length && (
               <>
-                <p className="quietEmpty compact">No classes today</p>
+                <p className="quietEmpty compact">
+                  {isToday ? "Nothing scheduled today" : "Nothing scheduled"}
+                </p>
                 {nextClass && (
                   <UiButton
                     className={`dayAgendaRow focus nextClass${selection?.courseId === nextClass.id && !selection.assignmentId ? " selected" : ""}`}

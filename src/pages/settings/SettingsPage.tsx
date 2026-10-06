@@ -1,12 +1,15 @@
-import { Switch } from "@mantine/core";
+import { Badge, Switch } from "@mantine/core";
 import { t } from "../../i18n";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "../../core/departments";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import { ReferenceSubscriptions } from "./ReferenceSubscriptions";
-import { AdvancedSettings } from "./AdvancedSettings";
+import { ConfigsSettings, useDeveloperMode } from "./ConfigsSettings";
+import { ExtensionsSettings } from "./ExtensionsSettings";
+import { FilesSettings } from "./FilesSettings";
+import { HiddenItems } from "./HiddenItems";
 import { SchoolAccounts } from "./SchoolAccounts";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { workspaceActions, workspaceStore } from "../../store/workspace";
@@ -18,9 +21,9 @@ import {
 import {
   CloudTransportError,
   createCloudAdapter,
+  resolveCloudClientId,
   type CloudAdapter,
 } from "../../connectors/cloud";
-import { createRecoveryCipher, type RecoveryKey } from "../../sync/crypto";
 
 import { performAction } from "../../platform/actions";
 
@@ -37,8 +40,11 @@ import type {
 import { desktopBridge } from "../../app/native";
 import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
 import { type Section, type Platform } from "../../app/shared";
+import { subscriptionNetwork } from "../../platform/subscription-polling";
 
 import { Row, Toggle, Capability } from "../../components/forms";
+
+type ActiveCloudProvider = "google-drive" | "onedrive";
 
 const labels: Record<CapabilityId, string> = {
   "local-notifications": "Local reminders",
@@ -48,6 +54,13 @@ const labels: Record<CapabilityId, string> = {
   "background-sync": "Background refresh",
   "site-customization": "School-site customization",
 };
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
 
 export function Settings({
   platform,
@@ -74,10 +87,13 @@ export function Settings({
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
   matrixOcrAvailable: boolean;
 }) {
-  const [recoveryPhrase, setRecoveryPhrase] = useState("");
   const [cloudConflict, setCloudConflict] = useState<string | null>(null);
+  const [authorizedProviders, setAuthorizedProviders] = useState<
+    ActiveCloudProvider[]
+  >([]);
+  const [cloudBusy, setCloudBusy] = useState(false);
   const [agentCommand, setAgentCommand] = useState(
-    "campus-mcp --db /absolute/path/to/school.db",
+    "isct-companion-mcp --db /absolute/path/to/school.db",
   );
   useEffect(() => {
     if (!desktopBridge) return;
@@ -85,26 +101,71 @@ export function Settings({
       .then(setAgentCommand)
       .catch(() => undefined);
   }, []);
+  useEffect(() => {
+    if (!desktopBridge) return;
+    let disposed = false;
+    void desktopBridge
+      .cloudAuthorizationStatus()
+      .then((providers) => {
+        if (!disposed) setAuthorizedProviders(providers);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, []);
   const pendingCloud = useRef<CloudAdapter | null>(null);
   const cloudAvailable =
     platform === "browser-preview" ||
     caps["cloud-sync"].support === "supported";
-  const advancedAvailable =
-    platform === "native-desktop" &&
-    caps["site-customization"].support === "supported";
-  const sections: { id: Section; label: string }[] = [
+  const selectedCloudProvider =
+    data.settings.cloud.provider === "none"
+      ? null
+      : data.settings.cloud.provider;
+  const cloudConnected = Boolean(
+    selectedCloudProvider &&
+    (authorizedProviders.includes(selectedCloudProvider) ||
+      (!desktopBridge && data.syncStatus.state === "idle")),
+  );
+  const desktop = platform === "native-desktop";
+  const mobile = platform === "native-mobile";
+  const extensionsAvailable =
+    desktop && caps["site-customization"].support === "supported";
+  const referenceNetwork = subscriptionNetwork(platform);
+  const [developer, setDeveloper] = useDeveloperMode();
+  const sections: { id: Section; label: string; advanced?: true }[] = [
     { id: "accounts", label: "Accounts" },
     { id: "general", label: "General" },
     { id: "sync", label: "Sync" },
     { id: "notifications", label: "Notifications" },
-    { id: "calendar", label: "Academic calendar" },
+    ...(!mobile
+      ? [{ id: "calendar" as const, label: "Academic calendar" }]
+      : []),
     { id: "subscriptions", label: "Subscriptions" },
     { id: "hidden", label: "Hidden items" },
-    { id: "scheduled", label: "Scheduled tasks" },
-    { id: "data", label: "Data" },
-    { id: "agent", label: "Agent access" },
-    ...(advancedAvailable
-      ? [{ id: "advanced" as const, label: "Advanced" }]
+    ...(desktop ? [{ id: "files" as const, label: "Files" }] : []),
+    { id: "data", label: "Data", advanced: true },
+    { id: "scheduled", label: "Scheduled tasks", advanced: true },
+    ...(!mobile
+      ? [
+          {
+            id: "agent" as const,
+            label: "Agent access",
+            advanced: true as const,
+          },
+        ]
+      : []),
+    ...(extensionsAvailable
+      ? [
+          {
+            id: "extensions" as const,
+            label: "Extensions",
+            advanced: true as const,
+          },
+        ]
+      : []),
+    ...(!mobile
+      ? [{ id: "configs" as const, label: "Configs", advanced: true as const }]
       : []),
   ];
   const cloudAdapter = async () => {
@@ -115,16 +176,10 @@ export function Settings({
       throw new Error(caps["cloud-sync"].reason);
     if (data.settings.cloud.provider === "none")
       throw new Error("Choose Google Drive or OneDrive first.");
-    if (!recoveryPhrase)
-      throw new Error("Enter your recovery phrase for this session.");
-    const stored = localStorage.getItem("stws-cloud-recovery");
-    const prior = stored ? (JSON.parse(stored) as RecoveryKey) : undefined;
-    const { cipher, recovery } = await createRecoveryCipher(
-      recoveryPhrase,
-      prior,
+    const clientId = resolveCloudClientId(
+      data.settings.cloud.provider,
+      data.settings.cloud.clientId,
     );
-    if (!prior)
-      localStorage.setItem("stws-cloud-recovery", JSON.stringify(recovery));
     const bridge = desktopBridge;
     const desktopOAuth = bridge
       ? {
@@ -133,7 +188,7 @@ export function Settings({
               bridge
                 .connectCloud(
                   data.settings.cloud.provider as "google-drive" | "onedrive",
-                  data.settings.cloud.clientId,
+                  clientId,
                   data.settings.cloud.redirectUri!,
                 )
                 .then(() => undefined),
@@ -158,9 +213,7 @@ export function Settings({
                 method: init?.method,
                 headers: Object.fromEntries(new Headers(init?.headers)),
                 bodyText: typeof body === "string" ? body : undefined,
-                bodyBase64: binary
-                  ? btoa(String.fromCharCode(...binary))
-                  : undefined,
+                bodyBase64: binary ? bytesToBase64(binary) : undefined,
               },
             );
             return new Response(
@@ -174,31 +227,99 @@ export function Settings({
           },
         }
       : {};
-    return createCloudAdapter(
-      data.settings.cloud.provider,
-      data.settings.cloud.clientId,
-      {
-        redirectUri: desktopBridge
-          ? data.settings.cloud.redirectUri
-          : `${location.origin}${location.pathname}`,
-        cipher,
-        readOnly: !desktopBridge,
-        deviceId: data.deviceId,
-        ...desktopOAuth,
-      },
+    return createCloudAdapter(data.settings.cloud.provider, clientId, {
+      redirectUri: desktopBridge
+        ? data.settings.cloud.redirectUri
+        : `${location.origin}${location.pathname}`,
+      readOnly: !desktopBridge,
+      deviceId: data.deviceId,
+      ...desktopOAuth,
+    });
+  };
+  const markCloud = (
+    state: Workspace["syncStatus"]["state"],
+    message: string,
+    synced = false,
+  ) =>
+    update((d) => {
+      d.syncStatus.state = state;
+      d.syncStatus.message = message;
+      if (synced) d.syncStatus.lastSyncedAt = new Date().toISOString();
+      return d;
+    });
+  const providerName = (provider: ActiveCloudProvider) =>
+    provider === "google-drive" ? "Google Drive" : "OneDrive";
+  const selectCloudProvider = async (
+    next: Workspace["settings"]["cloud"]["provider"],
+  ) => {
+    if (next === data.settings.cloud.provider) return;
+    const providersToDisconnect = authorizedProviders.filter(
+      (provider) => provider !== next,
     );
+    if (
+      providersToDisconnect.length > 0 &&
+      !confirm(
+        `Switch cloud provider? This will sign out ${providersToDisconnect
+          .map(providerName)
+          .join(" and ")} on this device.`,
+      )
+    )
+      return;
+    try {
+      setCloudBusy(true);
+      const bridge = desktopBridge;
+      if (bridge)
+        await Promise.all(
+          providersToDisconnect.map((provider) =>
+            bridge.disconnectCloud(provider),
+          ),
+        );
+      const remaining = authorizedProviders.filter(
+        (provider) => !providersToDisconnect.includes(provider),
+      );
+      setAuthorizedProviders(remaining);
+      update((d) => {
+        d.settings.cloud.provider = next;
+        d.syncStatus.state =
+          next !== "none" && remaining.includes(next)
+            ? "idle"
+            : "needs-configuration";
+        d.syncStatus.lastSyncedAt = undefined;
+        d.syncStatus.message =
+          next === "none"
+            ? "Cloud sync is off."
+            : remaining.includes(next)
+              ? `Connected to ${providerName(next)}.`
+              : `Authorize ${providerName(next)} to begin.`;
+        return d;
+      });
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Cloud provider switch failed",
+      );
+    } finally {
+      setCloudBusy(false);
+    }
   };
   const saveCloud = async () => {
     try {
+      setCloudBusy(true);
       const a = await cloudAdapter();
       await a.connect();
+      const provider = data.settings.cloud.provider as ActiveCloudProvider;
+      setAuthorizedProviders([provider]);
+      markCloud("idle", `Connected to ${providerName(provider)}. No sync yet.`);
       notify("Cloud authorized. Nothing uploaded yet.");
     } catch (e) {
+      markCloud("error", e instanceof Error ? e.message : "Cloud setup failed");
       notify(e instanceof Error ? e.message : "Cloud setup failed");
+    } finally {
+      setCloudBusy(false);
     }
   };
   const pullCloud = async () => {
     try {
+      setCloudBusy(true);
       const adapter = await cloudAdapter();
       const remote = await adapter.pull();
       const choice = confirm(
@@ -206,13 +327,21 @@ export function Settings({
       );
       if (!choice) return notify("Kept the current workspace.");
       await workspaceActions.importData(remote);
+      markCloud("idle", "Restored the latest cloud workspace.", true);
       notify("Using the latest cloud backup.");
     } catch (error) {
+      markCloud(
+        "error",
+        error instanceof Error ? error.message : "Cloud restore failed",
+      );
       notify(error instanceof Error ? error.message : "Cloud restore failed");
+    } finally {
+      setCloudBusy(false);
     }
   };
   const pushCloud = async () => {
     try {
+      setCloudBusy(true);
       const adapter = await cloudAdapter();
       try {
         const remote = await adapter.pull();
@@ -233,9 +362,16 @@ export function Settings({
           .exportData()
           .then((document) => adapter.push(document)),
       );
-      notify("Encrypted backup uploaded.");
+      markCloud("idle", "Cloud workspace is up to date.", true);
+      notify("Cloud workspace uploaded.");
     } catch (error) {
+      markCloud(
+        "error",
+        error instanceof Error ? error.message : "Cloud backup failed",
+      );
       notify(error instanceof Error ? error.message : "Cloud backup failed");
+    } finally {
+      setCloudBusy(false);
     }
   };
   const requestNotifications = async () => {
@@ -254,7 +390,7 @@ export function Settings({
     });
     if (p === "granted" && desktopBridge)
       await desktopBridge.notify(
-        "Science Tokyo Workstation",
+        "IsctCompanion",
         "Local reminders are enabled.",
       );
   };
@@ -278,7 +414,7 @@ export function Settings({
     });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "science-tokyo-workspace.json";
+    a.download = "IsctCompanion.json";
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -300,17 +436,28 @@ export function Settings({
       notify(error instanceof Error ? error.message : "Import failed.");
     }
   };
+  const customizeSite = (fn: (d: Workspace) => Workspace) => {
+    void performAction("customize-school-site", platform, () =>
+      update(fn),
+    ).catch((error) =>
+      notify(error instanceof Error ? error.message : "Action denied"),
+    );
+  };
   return (
     <div className="page settings">
       <nav className="settingsNav" aria-label="Settings sections">
-        {sections.map((s) => (
-          <UiButton
-            className={section === s.id ? "active" : ""}
-            onClick={() => setSection(s.id)}
-            key={s.id}
-          >
-            {t(s.label)}
-          </UiButton>
+        {sections.map((s, index) => (
+          <Fragment key={s.id}>
+            {s.advanced && !sections[index - 1]?.advanced && (
+              <span className="settingsNavGroup">{t("Advanced")}</span>
+            )}
+            <UiButton
+              className={`${section === s.id ? "active" : ""}${s.advanced ? " nested" : ""}`}
+              onClick={() => setSection(s.id)}
+            >
+              {t(s.label)}
+            </UiButton>
+          </Fragment>
         ))}
       </nav>
       <section className="settingsPane">
@@ -382,9 +529,6 @@ export function Settings({
                 <option value="ja">日本語</option>
               </UiSelect>
             </Row>
-            <Row title={t("Automatically save course files")} hint={t("Keep opened files in your course folder for offline use. Otherwise previews use temporary storage.")}>
-              <Switch checked={data.settings.autoSaveCourseFiles ?? false} aria-label={t("Automatically save course files")} onChange={event => { const checked = event.currentTarget.checked; update(d => { d.settings.autoSaveCourseFiles = checked; return d; }); }} />
-            </Row>
             <Row title="Department">
               <UiSelect
                 value={departmentById(data.settings.departmentId)?.id ?? ""}
@@ -427,6 +571,57 @@ export function Settings({
               />
             </Row>
             <Row
+              title={t("Allow subscription updates on cellular data")}
+              hint={
+                referenceNetwork === "cellular" &&
+                !data.settings.subscriptionRefresh.allowCellular
+                  ? t("Paused on cellular · checks a small hash daily")
+                  : t("Checks a small hash daily · Wi-Fi preferred")
+              }
+            >
+              <Toggle
+                checked={data.settings.subscriptionRefresh.allowCellular}
+                onChange={(enabled) =>
+                  update((draft) => {
+                    draft.settings.subscriptionRefresh.allowCellular = enabled;
+                    return draft;
+                  })
+                }
+              />
+            </Row>
+            <Row title={t("Background image URL")}>
+              <UiInput
+                value={data.settings.customization?.background ?? ""}
+                placeholder="https://…"
+                onChange={(event) =>
+                  update((d) => {
+                    if (d.settings.customization)
+                      d.settings.customization.background = event.target.value;
+                    return d;
+                  })
+                }
+              />
+            </Row>
+            {desktop && (
+              <Row title={t("Reopen last school page on launch")}>
+                <Toggle
+                  disabled={!desktopBridge}
+                  checked={data.settings.restoreSchoolPage ?? false}
+                  onChange={(enabled) => {
+                    update((draft) => {
+                      draft.settings.restoreSchoolPage = enabled;
+                      if (!enabled) draft.settings.activeSchoolSite = undefined;
+                      return draft;
+                    });
+                    void desktopBridge?.configureSchoolWebPolicy({
+                      restoreAcrossRestarts: enabled,
+                      idleMinutes: 10,
+                    });
+                  }}
+                />
+              </Row>
+            )}
+            <Row
               title={t("Shortcuts")}
               hint={t("⌘1–⌘4 switch pages · Esc closes panels")}
             >
@@ -457,39 +652,66 @@ export function Settings({
           <>
             <h2>{t("Sync")}</h2>
             <p className="settingsIntro">
-              Encrypted workspace sync is separate from school accounts.
+              {t("Cloud sync is separate from school accounts.")}
             </p>
+            <div className="cloudNotice" role="note">
+              <b>{t("Readable cloud copy")}</b>
+              <span>
+                {t(
+                  "For convenience, IsctCompanion stores readable JSON without adding encryption. Your cloud account protects access.",
+                )}
+              </span>
+            </div>
+            <div className="cloudStatus" role="status">
+              <span>
+                <Badge
+                  variant="light"
+                  color={cloudConnected ? "green" : "gray"}
+                >
+                  {t(cloudConnected ? "Connected" : "Not connected")}
+                </Badge>
+                <b>
+                  {selectedCloudProvider
+                    ? providerName(selectedCloudProvider)
+                    : t("Cloud sync off")}
+                </b>
+              </span>
+              <span>
+                <small>{t("Last sync")}</small>
+                <b>
+                  {data.syncStatus.lastSyncedAt
+                    ? new Date(data.syncStatus.lastSyncedAt).toLocaleString(
+                        data.settings.locale,
+                      )
+                    : t("Never")}
+                </b>
+              </span>
+              {(selectedCloudProvider || data.syncStatus.message) && (
+                <p>
+                  {selectedCloudProvider
+                    ? data.syncStatus.message
+                    : t("Cloud sync is off.")}
+                </p>
+              )}
+            </div>
             <Row
               title={t("Cloud provider")}
-              hint={t("Private app folder, encrypted")}
+              hint={t("Private app folder, readable JSON")}
             >
               <UiSelect
                 value={data.settings.cloud.provider}
-                onChange={(e) =>
-                  update((d) => {
-                    d.settings.cloud.provider = e.target
-                      .value as Workspace["settings"]["cloud"]["provider"];
-                    d.syncStatus.state = "needs-configuration";
-                    return d;
-                  })
+                disabled={cloudBusy}
+                onChange={(event) =>
+                  void selectCloudProvider(
+                    event.target
+                      .value as Workspace["settings"]["cloud"]["provider"],
+                  )
                 }
               >
                 <option value="none">{t("None")}</option>
                 <option value="google-drive">Google Drive</option>
                 <option value="onedrive">OneDrive</option>
               </UiSelect>
-            </Row>
-            <Row title={t("OAuth client ID")}>
-              <UiInput
-                value={data.settings.cloud.clientId}
-                placeholder={t("Public client ID")}
-                onChange={(e) =>
-                  update((d) => {
-                    d.settings.cloud.clientId = e.target.value;
-                    return d;
-                  })
-                }
-              />
             </Row>
             <Row title={t("When the cloud copy differs")}>
               <UiSelect
@@ -509,31 +731,29 @@ export function Settings({
                 )}
               </UiSelect>
             </Row>
-            <Row title={t("Recovery phrase")} hint={t("Kept in memory only")}>
-              <UiInput
-                type="password"
-                value={recoveryPhrase}
-                placeholder={t("At least 12 characters")}
-                onChange={(event) => setRecoveryPhrase(event.target.value)}
-              />
-            </Row>
             <div className="actions end">
               <UiButton
                 className="button"
-                disabled={!cloudAvailable}
+                disabled={
+                  !cloudAvailable || !selectedCloudProvider || cloudBusy
+                }
                 onClick={saveCloud}
               >
-                {t("Authorize")}
+                {t(cloudConnected ? "Reauthorize" : "Authorize")}
               </UiButton>
               <UiButton
                 className="button"
-                disabled={!cloudAvailable}
+                disabled={!cloudAvailable || !cloudConnected || cloudBusy}
                 onClick={pullCloud}
               >
                 {t("Restore latest")}
               </UiButton>
               {desktopBridge && cloudAvailable && (
-                <UiButton className="button primary" onClick={pushCloud}>
+                <UiButton
+                  className="button primary"
+                  disabled={!cloudConnected || cloudBusy}
+                  onClick={pushCloud}
+                >
                   {t("Back up now")}
                 </UiButton>
               )}
@@ -548,6 +768,7 @@ export function Settings({
                       const document = await workspaceActions.exportData();
                       await pendingCloud.current?.push(document);
                       setCloudConflict(null);
+                      markCloud("idle", "Cloud workspace is up to date.", true);
                       notify("Kept this device and uploaded it.");
                     }}
                   >
@@ -558,6 +779,11 @@ export function Settings({
                     onClick={async () => {
                       await workspaceActions.importData(cloudConflict);
                       setCloudConflict(null);
+                      markCloud(
+                        "idle",
+                        "Restored the latest cloud workspace.",
+                        true,
+                      );
                       notify("Using the latest cloud backup.");
                     }}
                   >
@@ -581,19 +807,21 @@ export function Settings({
         ) : section === "notifications" ? (
           <>
             <h2>{t("Notifications")}</h2>
-            <Capability
-              name="Local reminders"
-              value={caps["local-notifications"]}
-            >
-              {caps["local-notifications"].readiness !== "ready" && (
+            <Row title={t("System notifications")}>
+              {caps["local-notifications"].readiness === "ready" ? (
+                <span className="rowValue">{t("Allowed")}</span>
+              ) : caps["local-notifications"].support === "supported" ||
+                platform === "browser-preview" ? (
                 <UiButton
                   className="button small"
                   onClick={requestNotifications}
                 >
                   {t("Allow")}
                 </UiButton>
+              ) : (
+                <span className="rowValue">{t("Unavailable")}</span>
               )}
-            </Capability>
+            </Row>
             <Row title={t("Class reminders")}>
               <Toggle
                 checked={data.settings.notifications.classes}
@@ -616,11 +844,6 @@ export function Settings({
                 }
               />
             </Row>
-            <Capability name="Remote push" value={caps["remote-push"]} />
-            <Capability
-              name="Background refresh"
-              value={caps["background-sync"]}
-            />
           </>
         ) : section === "calendar" ? (
           <CalendarManager
@@ -637,142 +860,103 @@ export function Settings({
             notify={notify}
           />
         ) : section === "hidden" ? (
-          <>
-            <h2>Hidden items</h2>
-            {data.assignments
-              .filter(
-                (assignment) => assignment.hidden && !assignment.deletedAt,
-              )
-              .map((assignment) => (
-                <Row
-                  key={assignment.id}
-                  title={assignment.title}
-                  hint={new Date(assignment.dueAt).toLocaleString()}
-                >
-                  <UiButton
-                    className="button"
-                    onClick={() =>
-                      update((draft) => {
-                        const target = draft.assignments.find(
-                          (item) => item.id === assignment.id,
-                        );
-                        if (target) {
-                          target.hidden = false;
-                          target.rev += 1;
-                          target.updatedAt = new Date().toISOString();
-                        }
-                        return draft;
-                      })
-                    }
-                  >
-                    Restore
-                  </UiButton>
-                </Row>
-              ))}
-            <UiButton
-              className="button"
-              onClick={() =>
-                update((draft) => {
-                  for (const assignment of draft.assignments) {
-                    if (assignment.hidden) {
-                      assignment.hidden = false;
-                      assignment.rev += 1;
-                      assignment.updatedAt = new Date().toISOString();
-                    }
-                  }
-                  return draft;
-                })
-              }
-            >
-              Clear all
-            </UiButton>
-          </>
+          <HiddenItems data={data} update={update} />
         ) : section === "scheduled" ? (
           <>
-            <h2>Scheduled tasks</h2>
-            {data.scheduledTasks.map((task) => (
-              <Row
-                key={task.id}
-                title={task.name}
-                hint={
-                  task.lastRunAt
-                    ? `Last run ${task.lastRunAt.slice(0, 10)} · ${task.lastResult ?? task.schedule}`
-                    : (task.lastResult ?? task.schedule)
-                }
-              >
-                <div className="actions">
-                  <Toggle
-                    checked={task.enabled}
-                    onChange={(enabled) =>
-                      update((draft) => {
-                        const target = draft.scheduledTasks.find(
-                          (item) => item.id === task.id,
-                        );
-                        if (target) {
-                          target.enabled = enabled;
-                          target.rev += 1;
-                          target.updatedAt = new Date().toISOString();
-                        }
-                        return draft;
-                      })
-                    }
-                  />
-                  <UiButton
-                    className="button small"
-                    onClick={async () => {
-                      let result = "Completed";
-                      try {
-                        if (runScheduledTask)
-                          result = await runScheduledTask(task);
-                        else if (task.action === "school-refresh")
-                          await refreshSchool();
-                        else if (task.action === "export") {
-                          await exportData();
-                          result = "Export completed";
-                        } else result = "Hook queued";
-                      } catch (error) {
-                        result =
-                          error instanceof Error ? error.message : "Run failed";
+            <h2>{t("Scheduled tasks")}</h2>
+            {!data.scheduledTasks.some((task) => !task.deletedAt) && (
+              <p className="paneEmpty">{t("No scheduled tasks")}</p>
+            )}
+            {data.scheduledTasks
+              .filter((task) => !task.deletedAt)
+              .map((task) => (
+                <Row
+                  key={task.id}
+                  title={task.name}
+                  hint={
+                    task.lastRunAt
+                      ? `${t("Last run")} ${task.lastRunAt.slice(0, 10)} · ${task.lastResult ?? task.schedule}`
+                      : (task.lastResult ??
+                        (task.action === "reference-refresh"
+                          ? t("Daily hash check · Wi-Fi preferred")
+                          : task.action === "lms-refresh"
+                            ? t("Every 4 hours · Wi-Fi and active app only")
+                            : task.schedule))
+                  }
+                >
+                  <div className="actions">
+                    <Toggle
+                      checked={task.enabled}
+                      onChange={(enabled) =>
+                        update((draft) => {
+                          const target = draft.scheduledTasks.find(
+                            (item) => item.id === task.id,
+                          );
+                          if (target) {
+                            target.enabled = enabled;
+                            target.rev += 1;
+                            target.updatedAt = new Date().toISOString();
+                          }
+                          return draft;
+                        })
                       }
-                      update((draft) => {
-                        const target = draft.scheduledTasks.find(
-                          (item) => item.id === task.id,
-                        );
-                        if (target) {
-                          target.lastRunAt = new Date().toISOString();
-                          target.lastResult = result;
-                          target.rev += 1;
-                          target.updatedAt = target.lastRunAt;
+                    />
+                    <UiButton
+                      className="button small"
+                      onClick={async () => {
+                        let result = "Completed";
+                        try {
+                          if (runScheduledTask)
+                            result = await runScheduledTask(task);
+                          else if (task.action === "school-refresh")
+                            await refreshSchool();
+                          else if (task.action === "export") {
+                            await exportData();
+                            result = "Export completed";
+                          } else if (task.action === "reference-refresh") {
+                            result = "Desktop app required";
+                          } else if (task.action === "lms-refresh") {
+                            result = "Desktop app required";
+                          } else result = "Hook queued";
+                        } catch (error) {
+                          result =
+                            error instanceof Error
+                              ? error.message
+                              : "Run failed";
                         }
-                        return draft;
-                      });
-                    }}
-                  >
-                    Run now
-                  </UiButton>
-                </div>
-              </Row>
-            ))}
+                        update((draft) => {
+                          const target = draft.scheduledTasks.find(
+                            (item) => item.id === task.id,
+                          );
+                          if (target) {
+                            target.lastRunAt = new Date().toISOString();
+                            target.lastResult = result;
+                            target.rev += 1;
+                            target.updatedAt = target.lastRunAt;
+                          }
+                          return draft;
+                        });
+                      }}
+                    >
+                      {t("Run now")}
+                    </UiButton>
+                  </div>
+                </Row>
+              ))}
           </>
         ) : section === "data" ? (
           <>
             <h2>{t("Data")}</h2>
-            <Row
-              title={
-                platform === "browser-preview"
-                  ? "Browser preview"
-                  : platform === "native-mobile"
-                    ? "Native mobile"
-                    : "Desktop"
-              }
-              hint={t("Everything is stored on this device.")}
-            >
+            <div className="row">
+              <span>
+                <b>{t("Backup")}</b>
+              </span>
               <div className="actions">
                 <UiButton className="button" onClick={exportData}>
                   {t("Export JSON")}
                 </UiButton>
                 <label className="button">
-                  Import JSON
+                  {t("Import JSON")}
                   <input
                     hidden
                     type="file"
@@ -787,7 +971,7 @@ export function Settings({
                   {t("Reset")}
                 </UiButton>
               </div>
-            </Row>
+            </div>
             <details className="diagnostics">
               <summary>{t("Diagnostics")}</summary>
               {Object.entries(caps).map(([k, v]) => (
@@ -811,19 +995,17 @@ export function Settings({
                     </div>
                   ))
                 ) : (
-                  <span className="muted">
-                    {t("No import or cloud activity yet.")}
-                  </span>
+                  <span className="muted">{t("No activity yet")}</span>
                 )}
               </div>
             </details>
           </>
         ) : section === "agent" ? (
           <>
-            <h2>Agent access</h2>
+            <h2>{t("Agent access")}</h2>
             <Row
-              title="Local MCP server"
-              hint="Read school data and write only personal plans or hidden-item state."
+              title={t("Local MCP server")}
+              hint={t("Reads school data; edits only plans and hidden items")}
             >
               <Toggle
                 checked={data.settings.agentAccess?.enabled === true}
@@ -839,26 +1021,35 @@ export function Settings({
                 }
               />
             </Row>
-            <code>{agentCommand}</code>
+            <div className="commandLine">
+              <code>{agentCommand}</code>
+              <UiButton
+                className="button small"
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(agentCommand)
+                    .then(() => notify(t("Copied")))
+                    .catch(() => notify(t("Copy failed")))
+                }
+              >
+                {t("Copy")}
+              </UiButton>
+            </div>
           </>
-        ) : advancedAvailable ? (
-          <AdvancedSettings
+        ) : section === "files" ? (
+          <FilesSettings data={data} update={update} />
+        ) : section === "extensions" && extensionsAvailable ? (
+          <ExtensionsSettings data={data} update={customizeSite} />
+        ) : section === "configs" ? (
+          <ConfigsSettings
             data={data}
-            update={(fn) => {
-              void performAction("customize-school-site", platform, () =>
-                update(fn),
-              ).catch((error) =>
-                notify(
-                  error instanceof Error ? error.message : "Action denied",
-                ),
-              );
-            }}
+            update={update}
+            calendarUpdate={advancedCalendarUpdate}
+            developer={developer}
+            setDeveloper={setDeveloper}
+            notify={notify}
           />
-        ) : (
-          <p className="muted">
-            Customization is available in the desktop app.
-          </p>
-        )}
+        ) : null}
       </section>
     </div>
   );

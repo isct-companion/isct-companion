@@ -34,20 +34,20 @@ const defaultCalendarMetadata = {
 };
 
 const savedCalendarMetadata = (() => {
-  try { return JSON.parse(localStorage.getItem('stws-calendar-metadata') || 'null') || defaultCalendarMetadata; }
+  try { return JSON.parse(localStorage.getItem('isct-companion-calendar-metadata') || 'null') || defaultCalendarMetadata; }
   catch { return defaultCalendarMetadata; }
 })();
 
 const savedNotice = (() => {
   const fallback = { title:'Friday timetable changed', body:'19 June follows the Monday timetable.', action:'View calendar', enabled:true };
-  try { return JSON.parse(localStorage.getItem('stws-notice') || 'null') || fallback; }
+  try { return JSON.parse(localStorage.getItem('isct-companion-notice') || 'null') || fallback; }
   catch { return fallback; }
 })();
 
 let state = {
   page: 'plan', term: '2026-2Q', drawer: null, drawerTab: 'overview', editorOpen: false,
   catalogSelection: 'CSC.T363', courseView: 'table', webSite: 'portal', settingsSection: 'general',
-  appearance: localStorage.getItem('stws-appearance') || 'system', density: localStorage.getItem('stws-density') || 'comfortable',
+  appearance: localStorage.getItem('isct-companion-appearance') || 'system', density: localStorage.getItem('isct-companion-density') || 'comfortable',
   calendarMetadata: savedCalendarMetadata, webSettingsSite: 'portal',
   notice: savedNotice, hookEditor: null,
   planned: new Set(['CSC.T363', 'CSC.T273']), comparing: new Set(['CSC.T363', 'CSC.T273']),
@@ -341,7 +341,7 @@ function webviewSettings() {
   const sites = { portal:['Portal','portal.isct.ac.jp'], lms:['T2SCHOLA','lms.s.isct.ac.jp'], syllabus:['Syllabus','syllabus.s.isct.ac.jp'] };
   const active = sites[state.webSettingsSite];
   const tabs = `<div class="calendar-tabs web-settings-tabs" role="tablist" aria-label="Web viewer sites">${Object.entries(sites).map(([key,site])=>`<button class="${state.webSettingsSite===key?'active':''}" data-web-settings-site="${key}">${site[0]}</button>`).join('')}</div>`;
-  return settingsPanel('Web viewer', tabs+`<div class="viewer-target"><div><span class="pack-kicker">CURRENT TARGET</span><strong>${active[0]}</strong><small>${active[1]}</small></div><span class="status-pill">Electron webview</span></div>`+settingRow('Custom injection',toggleControl('Enabled',false),'This website only')+settingRow('CSS injection',`<textarea class="code-input" id="webview-css" rows="7" placeholder="body { … }">${esc(localStorage.getItem(`stws-webview-${state.webSettingsSite}-css`)||'')}</textarea>`)+settingRow('JavaScript injection',`<textarea class="code-input" id="webview-js" rows="7" placeholder="document.querySelector(…)">${esc(localStorage.getItem(`stws-webview-${state.webSettingsSite}-js`)||'')}</textarea>`), `<button class="button primary small" data-save-custom="webview">Save ${active[0]}</button>`);
+  return settingsPanel('Web viewer', tabs+`<div class="viewer-target"><div><span class="pack-kicker">CURRENT TARGET</span><strong>${active[0]}</strong><small>${active[1]}</small></div><span class="status-pill">Electron webview</span></div>`+settingRow('Custom injection',toggleControl('Enabled',false),'This website only')+settingRow('CSS injection',`<textarea class="code-input" id="webview-css" rows="7" placeholder="body { … }">${esc(localStorage.getItem(`isct-companion-webview-${state.webSettingsSite}-css`)||'')}</textarea>`)+settingRow('JavaScript injection',`<textarea class="code-input" id="webview-js" rows="7" placeholder="document.querySelector(…)">${esc(localStorage.getItem(`isct-companion-webview-${state.webSettingsSite}-js`)||'')}</textarea>`), `<button class="button primary small" data-save-custom="webview">Save ${active[0]}</button>`);
 }
 
 function notificationSettings() {
@@ -383,7 +383,7 @@ function hookEditor() {
 }
 
 function customSettings() {
-  return settingsPanel('Customization', settingRow('Background image',`<input class="setting-control wide" id="background-input" value="${esc(localStorage.getItem('stws-background')||'')}" placeholder="Image URL">`)+settingRow('App CSS override',`<textarea class="code-input" id="custom-css" rows="7" placeholder=".course { … }">${esc(localStorage.getItem('stws-custom-css')||'')}</textarea>`)+`<div class="settings-subhead"><strong>Custom values</strong><button class="button small" data-setting-demo="Custom setting added">Add value</button></div>`+settingRow('campus','Ookayama')+settingRow('default_department','Computer Science')+settingRow('show_room_codes','true'), '<button class="button primary small" data-save-custom="custom">Save</button>');
+  return settingsPanel('Customization', settingRow('Background image',`<input class="setting-control wide" id="background-input" value="${esc(localStorage.getItem('isct-companion-background')||'')}" placeholder="Image URL">`)+settingRow('App CSS override',`<textarea class="code-input" id="custom-css" rows="7" placeholder=".course { … }">${esc(localStorage.getItem('isct-companion-custom-css')||'')}</textarea>`)+`<div class="settings-subhead"><strong>Custom values</strong><button class="button small" data-setting-demo="Custom setting added">Add value</button></div>`+settingRow('campus','Ookayama')+settingRow('default_department','Computer Science')+settingRow('show_room_codes','true'), '<button class="button primary small" data-save-custom="custom">Save</button>');
 }
 
 function logSettings() {
@@ -392,17 +392,17 @@ function logSettings() {
 }
 
 function aboutSettings() {
-  return settingsPanel('About', settingRow('Science Tokyo Workstation','Version 0.1.0')+settingRow('Privacy policy','<button class="button ghost small">Open ↗</button>')+settingRow('Licenses','<button class="button ghost small">Open ↗</button>')+settingRow('Contact','<button class="button ghost small">Open ↗</button>')+settingRow('Source code','<button class="button ghost small">Open ↗</button>'));
+  return settingsPanel('About', settingRow('IsctCompanion','Version 0.1.0')+settingRow('Privacy policy','<button class="button ghost small">Open ↗</button>')+settingRow('Licenses','<button class="button ghost small">Open ↗</button>')+settingRow('Contact','<button class="button ghost small">Open ↗</button>')+settingRow('Source code','<button class="button ghost small">Open ↗</button>'));
 }
 
 function applyPreferences() {
   document.documentElement.dataset.theme=state.appearance;
   document.documentElement.dataset.density=state.density;
-  const background=localStorage.getItem('stws-background')||'';
+  const background=localStorage.getItem('isct-companion-background')||'';
   document.body.style.backgroundImage=background?`url("${background.replace(/["\\]/g,'')}")`:'';
   let style=$('#user-css');
   if (!style) { style=document.createElement('style'); style.id='user-css'; document.head.appendChild(style); }
-  style.textContent=localStorage.getItem('stws-custom-css')||'';
+  style.textContent=localStorage.getItem('isct-companion-custom-css')||'';
 }
 
 function statusBar() {
@@ -466,15 +466,15 @@ function bind() {
   document.querySelectorAll('[data-close-hook]').forEach(b=>b.onclick=()=>{ state.hookEditor=null; render(); });
   document.querySelectorAll('[data-save-hook="generic"]').forEach(b=>b.onclick=()=>{ state.hookEditor=null; render(); toast('Hook settings saved'); });
   document.querySelectorAll('[data-notice-open]').forEach(b=>b.onclick=()=>{ state.drawer={type:'calendar'}; render(); });
-  document.querySelectorAll('[data-pref]').forEach(control=>control.onchange=()=>{ state[control.dataset.pref]=control.value; localStorage.setItem(`stws-${control.dataset.pref}`,control.value); render(); });
+  document.querySelectorAll('[data-pref]').forEach(control=>control.onchange=()=>{ state[control.dataset.pref]=control.value; localStorage.setItem(`isct-companion-${control.dataset.pref}`,control.value); render(); });
   document.querySelectorAll('[data-save-custom]').forEach(b=>b.onclick=()=>{
-    if (b.dataset.saveCustom==='webview') { localStorage.setItem(`stws-webview-${state.webSettingsSite}-css`,$('#webview-css').value); localStorage.setItem(`stws-webview-${state.webSettingsSite}-js`,$('#webview-js').value); }
-    else { localStorage.setItem('stws-background',$('#background-input').value); localStorage.setItem('stws-custom-css',$('#custom-css').value); }
+    if (b.dataset.saveCustom==='webview') { localStorage.setItem(`isct-companion-webview-${state.webSettingsSite}-css`,$('#webview-css').value); localStorage.setItem(`isct-companion-webview-${state.webSettingsSite}-js`,$('#webview-js').value); }
+    else { localStorage.setItem('isct-companion-background',$('#background-input').value); localStorage.setItem('isct-companion-custom-css',$('#custom-css').value); }
     applyPreferences(); toast('Settings saved');
   });
   document.querySelectorAll('[data-setting-demo]').forEach(b=>b.onclick=()=>toast(b.dataset.settingDemo));
   document.querySelectorAll('[data-calendar-subscribe]').forEach(b=>b.onclick=()=>toast('Google Calendar subscription opened'));
-  document.querySelectorAll('[data-reset-metadata]').forEach(b=>b.onclick=()=>{ state.calendarMetadata=structuredClone(defaultCalendarMetadata); localStorage.removeItem('stws-calendar-metadata'); render(); toast('Metadata reset'); });
+  document.querySelectorAll('[data-reset-metadata]').forEach(b=>b.onclick=()=>{ state.calendarMetadata=structuredClone(defaultCalendarMetadata); localStorage.removeItem('isct-companion-calendar-metadata'); render(); toast('Metadata reset'); });
   document.querySelectorAll('[data-cloud-connect]').forEach(b=>b.onclick=()=>toast(`${b.dataset.cloudConnect==='gdrive'?'Google Drive':'OneDrive'} OAuth setup required`));
   document.querySelectorAll('[data-toggle-plan]').forEach(b=>b.onclick=()=>{ const code=b.dataset.togglePlan; const adding=!state.planned.has(code); adding?state.planned.add(code):state.planned.delete(code); render(); toast(`${code} ${adding?'added to':'removed from'} ${state.term}`); });
   document.querySelectorAll('[data-course]').forEach(b=>b.onclick=()=>{ state.drawer={type:'course',key:b.dataset.course}; state.drawerTab='overview'; render(); });
@@ -486,9 +486,9 @@ function bind() {
   document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{ state.planned.delete(b.dataset.remove); render(); });
   document.querySelectorAll('[data-add-result]').forEach(b=>b.onclick=()=>{ toast(`${b.dataset.addResult} added to ${state.term}`); });
   document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>action(b.dataset.action));
-  const form = $('#event-form'); if (form) form.onsubmit=(e)=>{ e.preventDefault(); localStorage.setItem('stws-event', JSON.stringify(Object.fromEntries(new FormData(form)))); state.drawer=null; render(); toast('Event saved locally'); };
-  const metadataForm = $('#metadata-form'); if (metadataForm) metadataForm.onsubmit=(e)=>{ e.preventDefault(); try { const next=JSON.parse($('#metadata-json').value); if (!Array.isArray(next.profileYears) || !next.academicYears || typeof next.academicYears!=='object') throw new Error(); state.calendarMetadata=next; localStorage.setItem('stws-calendar-metadata',JSON.stringify(next)); render(); toast('Metadata parsed and saved'); } catch { toast('Invalid metadata · check profileYears and academicYears'); } };
-  const noticeForm = $('#notice-hook-form'); if (noticeForm) noticeForm.onsubmit=(e)=>{ e.preventDefault(); state.notice={ title:noticeForm.elements.title.value, body:noticeForm.elements.body.value, action:noticeForm.elements.action.value, enabled:noticeForm.elements.enabled.checked }; localStorage.setItem('stws-notice',JSON.stringify(state.notice)); state.hookEditor=null; render(); toast('Today notice updated'); };
+  const form = $('#event-form'); if (form) form.onsubmit=(e)=>{ e.preventDefault(); localStorage.setItem('isct-companion-event', JSON.stringify(Object.fromEntries(new FormData(form)))); state.drawer=null; render(); toast('Event saved locally'); };
+  const metadataForm = $('#metadata-form'); if (metadataForm) metadataForm.onsubmit=(e)=>{ e.preventDefault(); try { const next=JSON.parse($('#metadata-json').value); if (!Array.isArray(next.profileYears) || !next.academicYears || typeof next.academicYears!=='object') throw new Error(); state.calendarMetadata=next; localStorage.setItem('isct-companion-calendar-metadata',JSON.stringify(next)); render(); toast('Metadata parsed and saved'); } catch { toast('Invalid metadata · check profileYears and academicYears'); } };
+  const noticeForm = $('#notice-hook-form'); if (noticeForm) noticeForm.onsubmit=(e)=>{ e.preventDefault(); state.notice={ title:noticeForm.elements.title.value, body:noticeForm.elements.body.value, action:noticeForm.elements.action.value, enabled:noticeForm.elements.enabled.checked }; localStorage.setItem('isct-companion-notice',JSON.stringify(state.notice)); state.hookEditor=null; render(); toast('Today notice updated'); };
 }
 
 function action(a) {

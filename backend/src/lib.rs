@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use serde::Serialize;
 use tauri::{plugin::PermissionState, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -14,12 +16,15 @@ use school_web::{SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBound
 use secrets::OsSecretVault;
 
 mod cloud;
+pub mod contracts;
 pub mod data;
 mod kyomu_guide;
 mod kyomu_ingest;
 mod lifecycle;
-mod lms_ingest;
+#[cfg(desktop)]
+mod lms_downloader;
 mod lms_files;
+mod lms_ingest;
 #[cfg(matrix_ocr)]
 mod matrix_ocr;
 #[cfg(matrix_ocr)]
@@ -282,13 +287,16 @@ async fn pull_school(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     site: SchoolSite,
+    lms_course_id: Option<u64>,
 ) -> Result<Vec<school_web::IngestOutcome>, String> {
     require_local_main(&webview)?;
     let controller = app.state::<SchoolWebController>().inner().clone();
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || controller.pull(&handle, site))
-        .await
-        .map_err(|_| "The school pull stopped unexpectedly.".to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.request_pull(&handle, site, lms_course_id)
+    })
+    .await
+    .map_err(|_| "The school pull stopped unexpectedly.".to_string())?
 }
 
 /// School-owned records the workspace does not carry (LMS courses,
@@ -311,7 +319,10 @@ fn school_records(
         let rows = store
             .table_rows(table)?
             .into_iter()
-            .filter(|row| row.get("deletedAt").map_or(true, serde_json::Value::is_null))
+            .filter(|row| {
+                row.get("deletedAt")
+                    .map_or(true, serde_json::Value::is_null)
+            })
             .collect();
         records.insert(key.into(), serde_json::Value::Array(rows));
     }
@@ -389,7 +400,13 @@ async fn login_school(
         .load(profile)?
         .ok_or_else(|| "Save this school account before signing in.".to_string())?;
     let _ = bounds;
-    controller.login_in_background(&app, profile, credentials)
+    let controller = controller.inner().clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.request_login(&handle, profile, credentials)
+    })
+    .await
+    .map_err(|_| "The queued school sign-in stopped unexpectedly.".to_string())?
 }
 
 #[tauri::command]
@@ -400,7 +417,7 @@ async fn ensure_school_session(
     profile: SchoolAuthProfile,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    controller.ensure_session(&app, profile)
+    controller.request_session(&app, profile)
 }
 
 #[tauri::command]
@@ -414,7 +431,13 @@ async fn test_school_connection(
 ) -> Result<SchoolWebResult, String> {
     require_local_main(&webview)?;
     let credentials = auth.resolve(profile, credentials)?;
-    controller.login_in_background(&app, profile, credentials)
+    let controller = controller.inner().clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.request_login(&handle, profile, credentials)
+    })
+    .await
+    .map_err(|_| "The queued school sign-in stopped unexpectedly.".to_string())?
 }
 
 #[tauri::command]
@@ -474,6 +497,26 @@ async fn connect_cloud(
 }
 
 #[tauri::command]
+fn cloud_authorization_status(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+) -> Result<Vec<CloudProvider>, String> {
+    require_local_main(&webview)?;
+    service.authorized_providers()
+}
+
+#[tauri::command]
+fn disconnect_cloud(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    provider: CloudProvider,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    service.disconnect(provider)?;
+    Ok(true)
+}
+
+#[tauri::command]
 async fn cloud_request(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
@@ -495,15 +538,42 @@ fn load_workspace(
 }
 
 #[tauri::command]
-async fn save_workspace(
+fn new_user_record_id(webview: tauri::Webview) -> Result<String, String> {
+    require_local_main(&webview)?;
+    Ok(uuid::Uuid::now_v7().to_string())
+}
+
+#[tauri::command]
+fn put_user_record(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
-    workspace: serde_json::Value,
+    table: String,
+    record: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    store.put_user_record(&table, record, "desktop")
+}
+
+#[tauri::command]
+fn delete_user_record(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    table: String,
+    id: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    store.delete_user_record(&table, &id, "desktop")
+}
+
+#[tauri::command]
+fn put_workspace_setting(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    key: String,
+    value: serde_json::Value,
 ) -> Result<(), String> {
     require_local_main(&webview)?;
-    let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || store.save_workspace(&workspace).map(|_| ()))
-        .await.map_err(|error| error.to_string())?
+    store.put_workspace_setting(&key, value, "desktop")
 }
 
 #[tauri::command]
@@ -518,10 +588,13 @@ fn reset_workspace(
 #[tauri::command]
 fn export_data(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    store.export_data()
+    let notes =
+        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
+    store.export_data(notes)
 }
 
 /// Writes the shared export document into app-owned storage. Scheduled tasks
@@ -535,7 +608,9 @@ fn write_scheduled_export(
     require_local_main(&webview)?;
     use std::io::Write;
 
-    let document = store.export_data()?;
+    let notes =
+        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
+    let document = store.export_data(notes)?;
     if document.len() > 32 * 1024 * 1024 {
         return Err("scheduled export exceeds the 32 MiB safety limit".into());
     }
@@ -544,7 +619,7 @@ fn write_scheduled_export(
     if parsed
         .get("schemaVersion")
         .and_then(serde_json::Value::as_u64)
-        != Some(3)
+        != Some(6)
     {
         return Err("scheduled export schema is unsupported".into());
     }
@@ -596,10 +671,23 @@ fn write_scheduled_export(
 #[tauri::command]
 fn import_data(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
     document: String,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&document).map_err(|_| "import is not valid JSON")?;
+    let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
+        parsed
+            .get("localNotes")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    )
+    .map_err(|_| "import localNotes is invalid")?;
+    // Validate and restore local user notes under the file-store lock. School
+    // materials are never present in this document.
+    lms_files::restore_notes(&app, &notes)?;
     store.import_data(&document)
 }
 
@@ -676,7 +764,9 @@ fn catalog_offerings(
         .into_iter()
         .filter(|row| {
             row.get("year").and_then(serde_json::Value::as_u64) == Some(u64::from(year))
-                && row.get("deletedAt").map_or(true, serde_json::Value::is_null)
+                && row
+                    .get("deletedAt")
+                    .map_or(true, serde_json::Value::is_null)
         })
         .collect())
 }
@@ -709,7 +799,8 @@ async fn catalog_sync_offering(
     };
     if let Some(offering_id) = offering_id {
         if let Some(stored) = store.catalog_offering(&offering_id)? {
-            let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+            let cutoff = chrono::Utc::now()
+                - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
             let fresh = ["ja", "en"].iter().all(|language| {
                 stored
                     .pointer(&format!("/fetchedAt/{language}"))
@@ -765,18 +856,20 @@ fn store_search_items(
         }
     }
     if !rows.is_empty() {
-        store.catalog_upsert_offerings(&rows)?;
+        store.catalog_upsert_search_items(&rows)?;
     }
     Ok(())
 }
 
 /// Fetches detail pages for offerings that have none or a stale one (older
-/// than a week), two at a time, storing each as it arrives.
+/// than a week), storing each bounded batch as it arrives.
 async fn sync_stale_details(
     store: &data::DataStore,
     targets: Vec<(String, String)>,
+    summary_only: bool,
 ) -> Result<(Vec<syllabus::SyncOfferingResult>, Vec<String>), String> {
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+    let cutoff =
+        chrono::Utc::now() - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
     let stale = targets
         .into_iter()
         .filter(|(id, _)| {
@@ -784,7 +877,13 @@ async fn sync_stale_details(
                 return true;
             };
             stored.get("schedule").is_none()
-                || ["ja", "en"].iter().any(|language| {
+                || (if summary_only {
+                    &["en"][..]
+                } else {
+                    &["ja", "en"][..]
+                })
+                .iter()
+                .any(|language| {
                     stored
                         .pointer(&format!("/fetchedAt/{language}"))
                         .and_then(serde_json::Value::as_str)
@@ -795,15 +894,26 @@ async fn sync_stale_details(
         .collect::<Vec<_>>();
     let mut offerings = Vec::with_capacity(stale.len());
     let mut warnings = Vec::new();
-    for (index, pair) in stale.chunks(2).enumerate() {
+    let chunk_size = if summary_only { 4 } else { 2 };
+    for (index, pair) in stale.chunks(chunk_size).enumerate() {
         if index > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(400));
+            std::thread::sleep(std::time::Duration::from_millis(if summary_only {
+                150
+            } else {
+                400
+            }));
         }
         let handles = pair
             .iter()
             .map(|(_, url)| {
                 let url = url.clone();
-                tauri::async_runtime::spawn(async move { syllabus::sync_offering(&url).await })
+                tauri::async_runtime::spawn(async move {
+                    if summary_only {
+                        syllabus::sync_offering_summary(&url).await
+                    } else {
+                        syllabus::sync_offering(&url).await
+                    }
+                })
             })
             .collect::<Vec<_>>();
         for ((id, _), handle) in pair.iter().zip(handles) {
@@ -845,7 +955,7 @@ async fn catalog_sync_department(
         .iter()
         .map(|item| (item.id.clone(), item.syllabus_url.clone()))
         .collect();
-    let (offerings, warnings) = sync_stale_details(&store, targets).await?;
+    let (offerings, warnings) = sync_stale_details(&store, targets, false).await?;
     Ok(syllabus::DepartmentSyncResult {
         listed: catalog.items.len(),
         synced: offerings.len(),
@@ -888,11 +998,15 @@ async fn catalog_sync_offerings(
     for id in ids {
         let url = store
             .catalog_offering(&id)?
-            .and_then(|row| row.get("syllabusUrl").and_then(serde_json::Value::as_str).map(str::to_string))
+            .and_then(|row| {
+                row.get("syllabusUrl")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
             .ok_or_else(|| format!("{id}: not in the catalog"))?;
         targets.push((id, url));
     }
-    let (_, warnings) = sync_stale_details(&store, targets).await?;
+    let (_, warnings) = sync_stale_details(&store, targets, true).await?;
     Ok(warnings)
 }
 
@@ -914,7 +1028,10 @@ fn agent_command(
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    Ok(format!("campus-mcp --db {}", store.path().display()))
+    Ok(format!(
+        "isct-companion-mcp --db {}",
+        store.path().display()
+    ))
 }
 
 #[tauri::command]
@@ -932,17 +1049,114 @@ fn apply_bundled_subscriptions(
 }
 
 #[tauri::command]
-async fn refresh_reference_source(webview: tauri::Webview, store: tauri::State<'_, data::DataStore>, kind: String, index_url: String, year: i32) -> Result<serde_json::Value, String> {
+async fn probe_reference_source(
+    webview: tauri::Webview,
+    index_url: String,
+) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    let hash = subscriptions::SubscriptionClient::new()?
+        .probe_index_source(&index_url)
+        .await?;
+    Ok(serde_json::json!({"indexHash":hash}))
+}
+
+#[tauri::command]
+async fn refresh_reference_source(
+    webview: tauri::Webview,
+    store: tauri::State<'_, data::DataStore>,
+    kind: String,
+    index_url: String,
+    year: i32,
+    expected_index_hash: Option<String>,
+    known_hash: Option<String>,
+) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
     let client = subscriptions::SubscriptionClient::new()?;
-    let (calendar, departments, url) = match kind.as_str() {
-        "calendar" => { let (value, url) = client.fetch_calendar(&index_url, year).await?; (Some(value), None, url) },
-        "departments" => { let (value, url) = client.fetch_departments(&index_url, year).await?; (None, Some(value), url) },
-        _ => return Err("unsupported subscription type".into()),
-    };
     let mut connection = rusqlite::Connection::open(store.path()).map_err(|e| e.to_string())?;
-    let changed = subscriptions::apply_reference(&mut connection, calendar.as_ref(), departments.as_ref())?;
-    Ok(serde_json::json!({"changed":changed,"dataUrl":url}))
+    match kind.as_str() {
+        "calendar" => {
+            let fetched = client
+                .fetch_calendar(
+                    &index_url,
+                    year,
+                    expected_index_hash.as_deref(),
+                    known_hash.as_deref(),
+                )
+                .await?;
+            let Some(value) = fetched.value else {
+                return Ok(
+                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
+                );
+            };
+            let changed = subscriptions::apply_reference(&mut connection, Some(&value), None)?;
+            Ok(
+                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
+            )
+        }
+        "departments" => {
+            let fetched = client
+                .fetch_departments(
+                    &index_url,
+                    year,
+                    expected_index_hash.as_deref(),
+                    known_hash.as_deref(),
+                )
+                .await?;
+            let Some(value) = fetched.value else {
+                return Ok(
+                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
+                );
+            };
+            let changed = subscriptions::apply_reference(&mut connection, None, Some(&value))?;
+            Ok(
+                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
+            )
+        }
+        "important-dates" => {
+            let fetched = client
+                .fetch_important_dates(
+                    &index_url,
+                    year,
+                    expected_index_hash.as_deref(),
+                    known_hash.as_deref(),
+                )
+                .await?;
+            let Some(value) = fetched.value else {
+                return Ok(
+                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
+                );
+            };
+            let changed = subscriptions::apply_important_dates(&mut connection, &value)?;
+            Ok(
+                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
+            )
+        }
+        "exams" => {
+            let fetched = client
+                .fetch_exams(
+                    &index_url,
+                    year,
+                    expected_index_hash.as_deref(),
+                    known_hash.as_deref(),
+                )
+                .await?;
+            let Some(feeds) = fetched.value else {
+                return Ok(
+                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
+                );
+            };
+            let mut changed = 0;
+            let mut files = Vec::new();
+            for feed in feeds {
+                changed += subscriptions::apply_exam_feed(&mut connection, &feed)?;
+                files.push(serde_json::json!({"level":feed.level,"quarter":feed.quarter.to_ascii_uppercase(),"dataUrl":feed.url}));
+            }
+            Ok(
+                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"files":files,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
+            )
+        }
+        _ => Err("unsupported subscription type".into()),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -962,15 +1176,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(lms_files::FileStore(
-            std::sync::Mutex::new(()),
-            std::sync::Arc::new(tauri::async_runtime::Mutex::new(())),
-            std::env::temp_dir().join(format!(
-                "isct-course-preview-{}",
-                uuid::Uuid::new_v4()
-            )),
-        ))
+        .manage(lms_files::FileStore(std::sync::Mutex::new(())))
         .manage(SchoolWebController::new());
+    #[cfg(desktop)]
+    let builder = builder.manage(lms_downloader::Downloader::default());
     #[cfg(matrix_ocr)]
     let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
     builder
@@ -983,7 +1192,8 @@ pub fn run() {
             lms_files::move_course_note,
             lms_files::list_course_notes,
             lms_files::open_course_material,
-            lms_files::save_course_material,
+            lms_files::open_course_file,
+            lms_files::clean_course_materials,
             recognize_matrix_image,
             open_external,
             configure_school_web_policy,
@@ -1008,9 +1218,14 @@ pub fn run() {
             request_notification_permission,
             notify,
             connect_cloud,
+            cloud_authorization_status,
+            disconnect_cloud,
             cloud_request,
             load_workspace,
-            save_workspace,
+            new_user_record_id,
+            put_user_record,
+            delete_user_record,
+            put_workspace_setting,
             reset_workspace,
             export_data,
             write_scheduled_export,
@@ -1026,6 +1241,7 @@ pub fn run() {
             preview_plan_recurrence,
             agent_command,
             apply_bundled_subscriptions,
+            probe_reference_source,
             refresh_reference_source
         ])
         .setup(|app| {
@@ -1051,27 +1267,23 @@ pub fn run() {
 
             #[cfg(desktop)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Science Tokyo Workstation")
+                .title("IsctCompanion")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(860.0, 620.0)
                 .initialization_script(
-                    "Object.defineProperty(window,'__STWS_NATIVE_TARGET__',{value:'native-desktop',writable:false,configurable:false});",
+                    "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{value:'native-desktop',writable:false,configurable:false});",
                 )
                 .build()?;
 
             #[cfg(mobile)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .initialization_script(
-                    "Object.defineProperty(window,'__STWS_NATIVE_TARGET__',{value:'native-mobile',writable:false,configurable:false});",
+                    "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{value:'native-mobile',writable:false,configurable:false});",
                 )
                 .build()?;
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Science Tokyo Workstation")
-        .run(|app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                let _ = std::fs::remove_dir_all(&app.state::<lms_files::FileStore>().2);
-            }
-        });
+        .expect("failed to build IsctCompanion")
+        .run(|_, _| {});
 }

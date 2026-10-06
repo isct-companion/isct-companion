@@ -1,4 +1,4 @@
-# Campus Life for Science Tokyo
+# IsctCompanion for Science Tokyo
 
 Unofficial student companion for Institute of Science Tokyo.
 
@@ -6,7 +6,7 @@ Unofficial student companion for Institute of Science Tokyo.
 
 Open the app and know today's classes, the next room, and what is due. Reach course materials and official school actions without repeating the portal maze.
 
-Campus Life combines MyStudyLife's academic-day priority with TitechApp's school-system access. It organizes official information but does not submit assignments, register courses, or impersonate an official school service.
+IsctCompanion combines MyStudyLife's academic-day priority with TitechApp's school-system access. It organizes official information but does not submit assignments, register courses, or impersonate an official school service.
 
 ## Primary jobs
 
@@ -123,7 +123,7 @@ Diagnostics and raw provider details stay out of ordinary settings.
 
 Use a short setup with labels and actions, not explanatory pages:
 
-1. `Campus Life` / `for Science Tokyo · Unofficial` / `Continue`
+1. `IsctCompanion` / `for Science Tokyo · Unofficial` / `Continue`
 2. `Accounts` with `Science Tokyo` and `Tokyo Tech` connect actions / `Continue` / `Skip`
 3. `Sync` and `Notifications` optional actions / `Open Today`
 
@@ -159,7 +159,7 @@ School data remains primary. Users may quickly add a plan, task, exam or event w
 
 - All data lives in one local SQLite database owned by the native app.
 - Every stored record is versioned: content hash, timestamp, source and revision. The same mechanism detects changed school data, reconciles imports and updates subscriptions, with `use latest` / `use current` (or manual resolution) when both sides changed.
-- Cloud sync is export/import of one document, client-side encrypted, to Google Drive, OneDrive or later providers. The application has no account or sync server.
+- Cloud sync is export/import of one readable JSON document in the provider's private app folder on Google Drive, OneDrive or later providers. It is a convenience feature, not an application-provided confidentiality guarantee; provider account security is the boundary. The application has no account or sync server.
 - The export includes the person's own data and their school records (courses, registration, grades, requirement progress, assignments); rebuildable caches (full syllabus text, search index) are excluded.
 - Credentials, Matrix/OTP data, cookies, files, raw HTML, WebView state and diagnostic payloads never sync.
 - macOS, Windows and iOS may independently sign in to school systems and reconcile through the same export.

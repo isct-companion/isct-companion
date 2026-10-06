@@ -1,3 +1,5 @@
+#![cfg(any())] // Historical v3 whole-snapshot acceptance suite.
+
 #[path = "../src/data/mod.rs"]
 mod data;
 
@@ -13,7 +15,7 @@ fn temporary_database(label: &str) -> PathBuf {
         .expect("system clock")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "campus-life-acceptance-{label}-{}-{nonce}.db",
+        "isct-companion-acceptance-{label}-{}-{nonce}.db",
         std::process::id()
     ))
 }

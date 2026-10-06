@@ -2,7 +2,7 @@
 
 ## Scope and limits
 
-This check measures local section-summary parsing and production bundle output. It does not measure native macOS RSS, idle CPU, energy, PDF memory, authenticated LMS rendering, or native renderer lifetime. The sandbox rejected `ps` with “operation not permitted”. Consequently, no claim that IsctApp uses less memory than the official LMS is justified. The continuous-reader redesign, editor, and downloader are not yet included in these measurements.
+This check measures local section-summary parsing and production bundle output. It does not measure native macOS RSS, idle CPU, energy, PDF memory, authenticated LMS rendering, or native renderer lifetime. The sandbox rejected `ps` with “operation not permitted”. Consequently, no claim that IsctCompanion uses less memory than the official LMS is justified. The continuous-reader redesign, editor, and downloader are not yet included in these measurements.
 
 ## Reproduce
 
@@ -48,7 +48,7 @@ Production output for the implemented reader is approximately 841 kB main JS, 19
 
 Native downloads are serialized with an async lock before allocating a blocking worker. File bytes stream to a temporary file, with a 128 MB bound, and are renamed only on complete success. Cookies remain in Rust and are used only for an HTTPS request to the LMS attachment host; redirects are rejected. The native asset protocol serves cached files directly, avoiding a base64 copy in JS. Only active UTF-8 text previews and notes cross IPC, bounded to 1 MB. Note writes use a separate lock so downloads do not block autosave. Listing notes returns metadata only, bounded to 1,000 notes per course.
 
-Browser preview notes persist in browser storage under a separate preview course namespace. Desktop storage defaults to the OS Documents directory / Campus Life, with application storage fallback when Documents is unavailable. Mobile uses app storage and does not offer an unsupported folder picker. Desktop Settings / Advanced allows selecting a root. Materials and notes occupy separate child folders; changing the root does not move or delete previous files.
+Browser preview notes persist in browser storage under a separate preview course namespace. Desktop storage defaults to the OS Documents directory / IsctCompanion, with application storage fallback when Documents is unavailable. Mobile uses app storage and does not offer an unsupported folder picker. Desktop Settings / Advanced allows selecting a root. Materials and notes occupy separate child folders; changing the root does not move or delete previous files.
 
 Browser QA verified source/editor split, formula rendering, autosave status, and reading continuity. Unit checks cover ordered note writes, reopening after pending save, save-failure recovery, idle DOM eviction, bounded document previews, and folder/URL validation. Authenticated native attachment downloads, native PDF rendering and OS folder selection still need runtime acceptance in the installed desktop app. Native RSS/CPU comparison with LMS remains unmeasured.
 

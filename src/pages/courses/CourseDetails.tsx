@@ -110,6 +110,15 @@ export function CourseDetails({
   const offering = data.offerings.find(
     (item) => item.id === course.offeringId && !item.deletedAt,
   );
+  const exams = data.exams
+    .filter(
+      (item) =>
+        !item.deletedAt &&
+        !item.missingSince &&
+        item.status === "scheduled" &&
+        item.courseCode.trim().toUpperCase() === course.code.trim().toUpperCase(),
+    )
+    .sort((left, right) => left.date.localeCompare(right.date));
   const count = (value: number) => (value > 0 ? <Badge size="xs">{value}</Badge> : null);
   const refresh = fetchLms && (
     <Button
@@ -169,6 +178,29 @@ export function CourseDetails({
                   </dd>
                   <dt>{t("Academic unit")}</dt>
                   <dd>{pickLocalized(offering.academicUnit, locale, "—")}</dd>
+                </>
+              )}
+              {exams.length > 0 && (
+                <>
+                  <dt>{t("Exams")}</dt>
+                  <dd className="courseExamList">
+                    {exams.map((exam) => {
+                      const override = data.scheduleOverrides.find(
+                        (item) => !item.deletedAt && item.targetKey === (exam.sourceKey ?? exam.id),
+                      );
+                      const periods = override?.periods ?? exam.periods;
+                      return (
+                        <div key={exam.id}>
+                          <b>{override?.date ?? exam.date}</b>
+                          {periods ? ` · ${periods[0]}–${periods[1]}限` : ""}
+                          {(override?.room ?? pickLocalized(exam.room ?? undefined, locale))
+                            ? ` · ${override?.room ?? pickLocalized(exam.room ?? undefined, locale)}`
+                            : ""}
+                          {override && <small> · {t("Edited")}</small>}
+                        </div>
+                      );
+                    })}
+                  </dd>
                 </>
               )}
             </dl>

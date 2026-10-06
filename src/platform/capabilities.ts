@@ -33,11 +33,11 @@ export type CapabilityRuntime = {
 };
 export function detectPlatform(): Platform {
   if ("__TAURI_INTERNALS__" in window)
-    return window.__STWS_NATIVE_TARGET__ ?? "native-desktop";
+    return window.__ISCT_COMPANION_NATIVE_TARGET__ ?? "native-desktop";
   // Dev-only override so the browser preview can exercise desktop editing:
-  //   localStorage.setItem("stws-dev-platform", "native-desktop")
+  //   localStorage.setItem("isct-companion-dev-platform", "native-desktop")
   if (import.meta.env?.DEV) {
-    const forced = localStorage.getItem("stws-dev-platform");
+    const forced = localStorage.getItem("isct-companion-dev-platform");
     if (forced === "native-desktop" || forced === "native-mobile")
       return forced;
   }

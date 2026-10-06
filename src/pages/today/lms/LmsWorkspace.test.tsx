@@ -159,15 +159,30 @@ describe("LMS reading workspace", () => {
     expect(host.querySelector('.lmsViewerClose')?.getAttribute("aria-label")).toContain("Syllabus");
   });
 
-  it("downloads an unpreviewable inline attachment without opening the reader", () => {
+  it("keeps unpreviewable attachments in the outline as a popover card", async () => {
     const f = fixture();
     const url = "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/report.zip?forcedownload=1";
     f.record.sections![0].bodyHtml = `<p><a href="${url}">Report ZIP</a></p>`;
-    const download = vi.spyOn(window, "open").mockReturnValue(null);
+    const popup = vi.spyOn(window, "open").mockReturnValue(null);
     act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:601}} active schoolWebAvailable={false} close={()=>{}} />));
-    click([...host.querySelectorAll("a")].find(link => link.textContent === "Report ZIP")!);
-    expect(download).toHaveBeenCalledWith(url, "_blank", "noopener,noreferrer");
+    click([...host.querySelectorAll("a")].find(link => link.querySelector(".lmsAttachmentName")?.textContent === "Report ZIP")!);
+    await act(async () => { await vi.dynamicImportSettled(); });
+    expect(popup).not.toHaveBeenCalled();
     expect(host.querySelector(".lmsViewer")).toBeNull();
+    expect(host.querySelector(".lmsOutline .lmsFilePopover .lmsFileCard h3")?.textContent).toBe("Report ZIP");
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(host.querySelector(".lmsFilePopover")).toBeNull();
+  });
+
+  it("puts consecutive image-only labels in one grid", () => {
+    const f = fixture();
+    const label = (id: string, name: string) => ({ ...f.data.materials[0], id, title: name, module: "label", resourceUrl: undefined,
+      bodyHtml: `<div><p><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/${name}.png"><img src="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/s_${name}.png" alt=""></a></p></div>` });
+    f.data.materials = [label("l1", "schedule"), label("l2", "discord"), ...f.data.materials];
+    act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:602}} active schoolWebAvailable={false} close={()=>{}} />));
+    const grids = host.querySelectorAll(".lmsImageGrid");
+    expect(grids).toHaveLength(1);
+    expect(grids[0].querySelectorAll(".lmsImageCard")).toHaveLength(2);
   });
 
   it("shows files from an existing cache with string section IDs returned by Moodle", () => {
@@ -250,7 +265,7 @@ describe("LMS reading workspace", () => {
     );
     expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
     expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
-    click(button("×"));
+    click(host.querySelector(".lmsViewerClose")!);
     expect(host.querySelector(".lmsOfficialHost")).toBeNull();
   });
   it("opens a resource in one click, reuses its tab, and restores its expansion after returning", () => {

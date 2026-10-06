@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Campus Life public exam feed v1",
+  "title": "IsctCompanion public exam feed v1",
   "description": "Public data contract only; the native exam-feed adapter is not implemented.",
   "type": "object",
   "additionalProperties": false,

@@ -103,7 +103,7 @@ describe("LMS pull merge", () => {
       rev: 1,
       updatedAt: "2026-09-01T00:00:00Z",
       updatedBy: "lms",
-      courseId: "course:2026:202602440",
+      courseId: "2026-202602440",
       title: "Report",
       details: "",
       dueAt: "2026-10-10T00:00:00Z",
