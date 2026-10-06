@@ -476,13 +476,26 @@ p {
   text-overflow: ellipsis;
 }
 .ttBlock.event {
-  background: repeating-linear-gradient(
-    -45deg,
-    color-mix(in srgb, var(--course) 12%, var(--surface)),
-    color-mix(in srgb, var(--course) 12%, var(--surface)) 6px,
-    color-mix(in srgb, var(--course) 20%, var(--surface)) 6px,
-    color-mix(in srgb, var(--course) 20%, var(--surface)) 7px
-  );
+  background: color-mix(in srgb, var(--surface-2) 82%, var(--surface));
+  border-left-color: var(--muted);
+}
+.ttBlock.exam {
+  z-index: 4;
+  background: color-mix(in srgb, var(--course) 17%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--course) 42%, var(--line));
+}
+.ttBlock .ttExamBand {
+  width: fit-content;
+  max-width: 100%;
+  color: var(--course);
+  font-size: calc(9px * var(--text));
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.ttBlock .ttConflict,
+.ttAgendaRow .ttConflict {
+  color: var(--danger);
+  font-weight: 700;
 }
 .ttBlock.conflict {
   box-shadow: inset 0 0 0 1.5px var(--danger);
@@ -1285,6 +1298,17 @@ p {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.settingsNavGroup {
+  margin: 14px 11px 4px;
+  color: var(--muted);
+  font-size: calc(10.5px * var(--text));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.settingsNav button.nested {
+  padding-left: 19px;
+}
 .settingsPane {
   flex: 1;
   min-width: 0;
@@ -1605,7 +1629,18 @@ p {
   display: none;
 }
 .siteEditor summary b {
+  flex: 1;
   font-size: calc(13px * var(--text));
+}
+.siteEditor summary {
+  gap: 10px;
+}
+.siteEditor label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+  font-weight: 600;
 }
 
 /* ---------- density ---------- */
@@ -1856,6 +1891,19 @@ p {
   overflow: auto;
   padding: 8px 4px 36px;
 }
+.importantDates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+.importantDates > span { display: grid; gap: 2px; }
+.importantDates > span + span { padding-left: 10px; border-left: 1px solid var(--line); }
+.importantDates b { font-size: calc(12px * var(--text)); }
+.importantDates small { color: var(--muted); font-size: calc(10px * var(--text)); }
 .todaySection {
   padding: 24px 0 8px;
 }
@@ -1920,6 +1968,9 @@ p {
   font-size: calc(13px * var(--text));
   font-variant-numeric: tabular-nums;
 }
+.dayAgendaRow time small { display: block; color: var(--course); font-size: calc(9px * var(--text)); font-weight: 800; white-space: nowrap; }
+.dayAgendaRow.exam { background: color-mix(in srgb, var(--course) 5%, transparent); }
+.dayAgendaRow.conflict .agendaCourse small { color: var(--danger); }
 .agendaLine {
   width: 2px;
   height: 34px;
@@ -2967,13 +3018,13 @@ p {
 .detailsRow small.warning { color: var(--warn); }
 .coursePanel { display: flex; flex-direction: column; min-height: 0; }
 
-/* Timetable blocks: room always visible, code only when the column is wide,
-   title at most two lines; overlapping blocks get side-by-side lanes. */
+/* Timetable blocks fill their schedule cell. Conflicts stay legible as an
+   explicit warning instead of shrinking every card into narrow lanes. */
 .ttCol { container-type: inline-size; }
 .tt .ttBlock {
-  left: calc(3px + (100% - 6px) * var(--lane, 0) / var(--lanes, 1));
-  right: auto;
-  width: calc((100% - 6px) / var(--lanes, 1) - 2px);
+  left: 3px;
+  right: 3px;
+  width: auto;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -3005,6 +3056,9 @@ p {
   }
 }
 .tt .ttBlock.conflict { z-index: 3; }
+.tt .ttBlock.exam { z-index: 4; }
+.ttAgendaRow.exam { box-shadow: inset 3px 0 0 var(--course); }
+.ttAgendaRow.conflict { outline: 1px solid color-mix(in srgb, var(--danger) 55%, transparent); }
 .weekLength {
   margin-left: auto;
   flex: none;
@@ -3018,6 +3072,10 @@ p {
 .weekLength:hover { color: var(--ink); border-color: var(--line-strong); }
 
 .calendarExportActions { display: inline-flex; align-items: center; gap: 0; }
+.scheduleOverrideForm { display: grid; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.scheduleConflict { color: var(--danger); font-weight: 650; }
+.courseExamList { display: grid; gap: 5px; }
+.courseExamList small { color: var(--accent); }
 
 .referenceSource { padding: 16px 0; border-bottom: 1px solid var(--line); }
 .referenceSource label { display: grid; gap: 6px; }
@@ -3119,3 +3177,41 @@ p {
   border-left-color: color-mix(in srgb, var(--muted) 55%, var(--surface));
   box-shadow: none;
 }
+
+/* ---------- settings: lists, configs ---------- */
+.paneHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.paneHead h2 { margin-bottom: 0; }
+.paneEmpty { padding: 28px 0; color: var(--muted); text-align: center; font-size: calc(12.5px * var(--text)); }
+.itemList { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.itemList li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.itemList li:last-child { border-bottom: 0; }
+.itemList li:hover { background: var(--surface-2); }
+.itemMain { min-width: 0; display: grid; gap: 2px; }
+.itemMain b { font-size: calc(13px * var(--text)); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.itemMain small { color: var(--muted); font-size: calc(11.5px * var(--text)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rowValue { justify-self: end; color: var(--muted); font-size: calc(12.5px * var(--text)); }
+.row > .actions.reverse, .actions.reverse { flex-direction: row-reverse; justify-self: end; }
+.commandLine { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.commandLine code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: calc(12px * var(--text)); }
+.profileForm { display: grid; gap: 14px; }
+.profileForm section { display: grid; gap: 6px; }
+.profileForm header { display: flex; align-items: center; justify-content: space-between; }
+.profileForm header b { font-size: calc(12.5px * var(--text)); }
+.profileLine { display: grid; grid-template-columns: minmax(0, 1fr) 110px 28px; gap: 6px; align-items: center; }
+.profileLine.quarters { grid-template-columns: 90px repeat(4, minmax(0, 1fr)) 28px; }
+.profileLine .iconButton { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+.profileLine .iconButton:hover { color: var(--danger); }
+.profileForm .textButton, .actions .textButton { border: 0; background: none; padding: 0 4px; color: var(--accent); font: inherit; font-size: calc(12.5px * var(--text)); cursor: pointer; }
+.codeArea textarea, textarea.codeArea { min-height: 220px; font: calc(12px * var(--text))/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.configField { display: grid; gap: 4px; padding: 8px 0; }
+.configField > span { font-size: calc(12.5px * var(--text)); font-weight: 600; }
+.configField a { overflow-wrap: anywhere; font-size: calc(11.5px * var(--text)); color: var(--muted); }
+@media (max-width: 760px) {
+  .settingsNavGroup { display: none; }
+  .settingsNav button.nested { padding-left: 11px; }
+  .profileLine.quarters { grid-template-columns: 1fr 1fr 28px; }
+}
+.row > button { justify-self: end; width: auto; }
+.actions > label.button { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: calc(12px * var(--text)); font-weight: 600; cursor: pointer; }
+.actions > label.button:hover { background: var(--surface-2); }
+.profileLine.columnHeads span { color: var(--muted); font-size: calc(11px * var(--text)); font-weight: 600; padding-left: 2px; }

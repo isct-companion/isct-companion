@@ -56,9 +56,15 @@ export type Department = { admissionYear: number, name: Localized, syllabusScope
 
 export type RecommendedCourse = { admissionYear: number, departmentId: string, category: Localized, level: number, code: string, group: string, mark?: "required" | "recommended", title: Localized, credits?: CreditSplit, sourcePages?: Array<number>, sourceKind?: string, note?: string, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
-export type Subscription = { dataUrl?: string, url: string, kind: "calendar" | "departments", enabled: boolean, fetchedAt?: string, lastError?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type ImportantDate = { academicYear: number, startDate: string, endDate: string, label: Localized, category: string, sourceIds: Array<string>, labelEnglishSource?: string, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
-export type ScheduledTask = { name: string, action: "school-refresh" | "export" | "hook", hookId?: string, schedule: string, enabled: boolean, lastOccurrenceAt?: string, lastRunAt?: string, lastResult?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Exam = { academicYear: number, level: "undergraduate" | "graduate", quarter: Quarter, courseCode: string, date: string, label: Localized, classLabel?: Localized, syllabusCourseId?: string, periods?: [number, number], startTime?: string, endTime?: string, room: Localized | null, rooms: Array<Localized>, status: "scheduled" | "cancelled", notes?: Localized, sourceIds: Array<string>, sourcePages: Array<number>, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+
+export type ScheduleOverride = { targetKey: string, targetKind?: "course" | "exam", courseId?: string, date?: string, periods?: [number, number], startTime?: string, endTime?: string, room?: string, title?: string, hidden: boolean, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+
+export type Subscription = { dataUrl?: string, url: string, kind: "calendar" | "departments" | "important-dates" | "exams", enabled: boolean, hashSource?: string, indexHash?: string, remoteHash?: string, sourceTs?: string, fetchedAt?: string, lastError?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+
+export type ScheduledTask = { name: string, action: "school-refresh" | "reference-refresh" | "export" | "hook", hookId?: string, schedule: string, enabled: boolean, lastOccurrenceAt?: string, lastRunAt?: string, lastResult?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
 export type AssignmentMark = { sourceKey: string, hidden: boolean, completedAt?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
@@ -72,6 +78,8 @@ export type Notifications = { classes: boolean, assignments: boolean, localPermi
 
 export type CloudSettings = { provider: "none" | "google-drive" | "onedrive", clientId: string, redirectUri?: string, frequency: "manual" | "launch" | "hourly" | "daily", conflict: "keep-current" | "use-latest" | "resolve-manually", };
 
+export type SubscriptionRefreshSettings = { frequency: "daily", allowCellular: boolean, lastCheckedAt?: string, };
+
 export type SiteCustomization = { css: string, js: string, enabled: boolean, };
 
 export type SiteCustomizations = { portal: SiteCustomization, lms: SiteCustomization, syllabus: SiteCustomization, };
@@ -82,7 +90,7 @@ export type Customization = { background: string, sites: SiteCustomizations, hoo
 
 export type SiteConsents = { portal: boolean, lms: boolean, syllabus: boolean, };
 
-export type Settings = { departmentId?: string, lmsBilingualFilter?: boolean, autoDownloadLimitMb?: number, autoCleanDays?: number, agentAccess?: AgentAccess, appearance: "system" | "light" | "dark", density: "comfortable" | "compact", textSize?: "small" | "medium" | "large", restoreSchoolPage?: boolean, activeSchoolSite?: string, schoolServiceWidth?: number, schoolWebZoom?: number, showGrades?: boolean, siteConsents?: SiteConsents, locale: "en" | "ja" | "zh", notifications: Notifications, cloud: CloudSettings, customization?: Customization, };
+export type Settings = { departmentId?: string, lmsBilingualFilter?: boolean, autoDownloadLimitMb?: number, autoCleanDays?: number, agentAccess?: AgentAccess, appearance: "system" | "light" | "dark", density: "comfortable" | "compact", textSize?: "small" | "medium" | "large", restoreSchoolPage?: boolean, activeSchoolSite?: string, schoolServiceWidth?: number, schoolWebZoom?: number, showGrades?: boolean, siteConsents?: SiteConsents, locale: "en" | "ja" | "zh", notifications: Notifications, cloud: CloudSettings, subscriptionRefresh: SubscriptionRefreshSettings, customization?: Customization, };
 
 export type GradePathEntry = { grade: string, academicYear: number, };
 
@@ -98,7 +106,7 @@ export type SyncStatus = { state: "idle" | "needs-configuration" | "syncing" | "
 
 export type WorkspaceLog = { at: string, source: string, phase: string, state: string, message: string, retryable: boolean, };
 
-export type Workspace = { schemaVersion: 3, deviceId: string, selectedTerm: `${number}-${Quarter}`, terms?: Array<`${number}-${Quarter}`>, courses: Array<Course>, memberships: Array<Membership>, assignments: Array<Assignment>, materials: Array<Material>, events: Array<PersonalEvent>, planItems: Array<PlanItem>, exceptions: Array<CalendarException>, offerings: Array<Offering>, intensiveSchedules: Array<IntensiveSchedule>, plans: Array<Plan>, academicCalendar: Array<AcademicCalendarDay>, gpaSummary: Array<GpaSummary>, departments: Array<Department>, recommendedCourses: Array<RecommendedCourse>, subscriptions: Array<Subscription>, scheduledTasks: Array<ScheduledTask>, settings: Settings, academicProfile: AcademicProfile, logs?: Array<WorkspaceLog>, importStatus: ImportStatus, syncStatus: SyncStatus, };
+export type Workspace = { schemaVersion: 3, deviceId: string, selectedTerm: `${number}-${Quarter}`, terms?: Array<`${number}-${Quarter}`>, courses: Array<Course>, memberships: Array<Membership>, assignments: Array<Assignment>, materials: Array<Material>, events: Array<PersonalEvent>, planItems: Array<PlanItem>, exceptions: Array<CalendarException>, offerings: Array<Offering>, intensiveSchedules: Array<IntensiveSchedule>, plans: Array<Plan>, academicCalendar: Array<AcademicCalendarDay>, gpaSummary: Array<GpaSummary>, departments: Array<Department>, recommendedCourses: Array<RecommendedCourse>, importantDates: Array<ImportantDate>, exams: Array<Exam>, scheduleOverrides: Array<ScheduleOverride>, subscriptions: Array<Subscription>, scheduledTasks: Array<ScheduledTask>, settings: Settings, academicProfile: AcademicProfile, logs?: Array<WorkspaceLog>, importStatus: ImportStatus, syncStatus: SyncStatus, };
 
 export type CatalogSearchItem = { id: string, year: number, code: string, title: Localized, instructors: Array<Localized>, quarters: Array<Quarter>, syllabusUrl: string, };
 

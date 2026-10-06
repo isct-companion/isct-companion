@@ -10,7 +10,9 @@ export type Section =
   | "scheduled"
   | "agent"
   | "data"
-  | "advanced";
+  | "files"
+  | "extensions"
+  | "configs";
 export type Platform = "native-desktop" | "native-mobile" | "browser-preview";
 
 export { tokyoDate as jstDate } from "../core/schedule";

@@ -1,0 +1,88 @@
+import { Badge } from "@mantine/core";
+import { t } from "../../i18n";
+import { UiButton, UiTextarea } from "../../components/mantine";
+import {
+  customizationNames,
+  desktopBridge,
+  type CustomizationSite,
+} from "../../app/native";
+import type { Workspace } from "../../core/model";
+
+/** Per-site CSS/JS injected into the school web view (styling only). */
+export function ExtensionsSettings({
+  data,
+  update,
+}: {
+  data: Workspace;
+  update: (f: (d: Workspace) => Workspace) => void;
+}) {
+  const custom = data.settings.customization!;
+  return (
+    <>
+      <h2>{t("Extensions")}</h2>
+      <div className="extensionList">
+        {(Object.keys(custom.sites) as CustomizationSite[]).map((site) => {
+          const enabled = data.settings.siteConsents?.[site] ?? false;
+          return (
+            <details className="siteEditor" key={site}>
+              <summary>
+                <b>{customizationNames[site]}</b>
+                <Badge variant="light" color={enabled ? "green" : "gray"}>
+                  {t(enabled ? "On" : "Off")}
+                </Badge>
+                <UiButton
+                  className="button small"
+                  disabled={!desktopBridge}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    update((draft) => {
+                      draft.settings.siteConsents ??= {
+                        portal: false,
+                        lms: false,
+                        syllabus: false,
+                      };
+                      draft.settings.siteConsents[site] = !enabled;
+                      return draft;
+                    });
+                  }}
+                >
+                  {t(enabled ? "Disable" : "Enable")}
+                </UiButton>
+              </summary>
+              <label>
+                CSS
+                <UiTextarea
+                  aria-label={`${site} CSS`}
+                  spellCheck={false}
+                  value={custom.sites[site].css}
+                  onChange={(event) =>
+                    update((d) => {
+                      d.settings.customization!.sites[site].css =
+                        event.target.value;
+                      return d;
+                    })
+                  }
+                />
+              </label>
+              <label>
+                JavaScript
+                <UiTextarea
+                  aria-label={`${site} JavaScript`}
+                  spellCheck={false}
+                  value={custom.sites[site].js}
+                  onChange={(event) =>
+                    update((d) => {
+                      d.settings.customization!.sites[site].js =
+                        event.target.value;
+                      return d;
+                    })
+                  }
+                />
+              </label>
+            </details>
+          );
+        })}
+      </div>
+    </>
+  );
+}

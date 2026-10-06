@@ -2,6 +2,7 @@ import { COURSE_FILE_POLICY } from "./course-file-policy";
 import type {
   Localized,
   Quarter,
+  ScheduledTask,
   Settings,
   Workspace,
 } from "../generated/persistence";
@@ -46,12 +47,33 @@ function newDeviceId() {
   );
 }
 
+export const REFERENCE_REFRESH_TASK_ID = "builtin:reference-subscriptions";
+
+export function referenceRefreshTask(
+  deviceId: string,
+  updatedAt = new Date().toISOString(),
+): ScheduledTask {
+  return {
+    id: REFERENCE_REFRESH_TASK_ID,
+    rev: 1,
+    updatedAt,
+    updatedBy: deviceId,
+    name: "Reference subscriptions",
+    action: "reference-refresh",
+    // The action itself enforces the daily interval. Hourly scheduling makes
+    // an offline/metered pause retry without requiring a background daemon.
+    schedule: "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0",
+    enabled: true,
+  };
+}
+
 /** A real first launch is empty; preview/demo data must be opted into elsewhere. */
 export function seedWorkspace(): Workspace {
   const selectedTerm = defaultTerm();
+  const deviceId = newDeviceId();
   return {
     schemaVersion: 3,
-    deviceId: newDeviceId(),
+    deviceId,
     selectedTerm,
     terms: [selectedTerm],
     courses: [],
@@ -68,8 +90,11 @@ export function seedWorkspace(): Workspace {
     gpaSummary: [],
     departments: [],
     recommendedCourses: [],
+    importantDates: [],
+    exams: [],
+    scheduleOverrides: [],
     subscriptions: [],
-    scheduledTasks: [],
+    scheduledTasks: [referenceRefreshTask(deviceId)],
     settings: {
       autoDownloadLimitMb: COURSE_FILE_POLICY.autoDownloadLimitMb.default,
       autoCleanDays: COURSE_FILE_POLICY.retentionDays.default,
@@ -93,6 +118,10 @@ export function seedWorkspace(): Workspace {
         redirectUri: "http://127.0.0.1:42813/oauth/callback",
         frequency: "launch",
         conflict: "resolve-manually",
+      },
+      subscriptionRefresh: {
+        frequency: "daily",
+        allowCellular: false,
       },
       customization: {
         background: "",

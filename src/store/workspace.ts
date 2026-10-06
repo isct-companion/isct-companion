@@ -51,6 +51,9 @@ function validate(value: Workspace) {
     "gpaSummary",
     "departments",
     "recommendedCourses",
+    "importantDates",
+    "exams",
+    "scheduleOverrides",
     "subscriptions",
     "scheduledTasks",
   ] as const) {
@@ -265,6 +268,9 @@ export function createWorkspaceHooks(
               gpaSummary,
               departments,
               recommendedCourses,
+              importantDates,
+              exams,
+              scheduleOverrides,
               subscriptions,
               scheduledTasks,
               settings: _settings,
@@ -335,6 +341,8 @@ const protectedWorkspaceEnvelope = (workspace: Workspace) => {
     settings: _settings,
     syncStatus: _syncStatus,
     scheduledTasks: _scheduledTasks,
+    importantDates: _importantDates,
+    exams: _exams,
     ...protectedData
   } = workspace;
   return JSON.stringify(protectedData);

@@ -4,7 +4,8 @@ import type {
   TermId,
   Workspace,
 } from "../../core/model";
-import { calendarState, occurrencesOnDate, quarterRange, scheduledCourses } from "../../core/schedule";
+import { pickLocalized } from "../../core/model";
+import { calendarState, importantDatesOnDate, quarterRange, resolveDayAgenda, scheduledCourses } from "../../core/schedule";
 import { dayNames, type Block, type DayColumn } from "./timetable";
 import { stamp, jstDate } from "../../app/shared";
 
@@ -130,7 +131,10 @@ export function weekColumnsAt(
     const outsideTeaching = iso >= range.from && iso <= range.to && Boolean(range.teachingRanges && calendar?.type !== "replacement" && !range.teachingRanges.some(r => iso >= r.start && iso <= r.end));
     const noClasses = outsideTeaching || ["holiday", "no-class", "break"].includes(calendar?.type ?? "");
     const fullNotice = typeof rawLabel === "string" ? rawLabel : rawLabel ? rawLabel[data.settings.locale === "ja" ? "ja" : "en"] || rawLabel.en || rawLabel.ja : noClasses ? (data.settings.locale === "ja" ? "授業休み" : "No classes") : undefined;
-    const blocks = occurrencesOnDate(data, term, iso, {
+    const important = importantDatesOnDate(data, iso)
+      .map((item) => pickLocalized(item.label, data.settings.locale))
+      .filter(Boolean);
+    const blocks = resolveDayAgenda(data, term, iso, {
       courses,
       includeCancelledCourses: true,
       events,
@@ -141,7 +145,9 @@ export function weekColumnsAt(
       label,
       date: iso,
       isToday: iso === todayIso,
-      calendarNotice: fullNotice?.replace(/^No classes due to\s+/i, ""),
+      calendarNotice: [fullNotice?.replace(/^No classes due to\s+/i, ""), ...important]
+        .filter(Boolean)
+        .join(" · ") || undefined,
       noClasses,
       blocks: blocks.sort((a, b) => a.startTime.localeCompare(b.startTime)),
     };

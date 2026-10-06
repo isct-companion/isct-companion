@@ -981,17 +981,62 @@ fn apply_bundled_subscriptions(
 }
 
 #[tauri::command]
-async fn refresh_reference_source(webview: tauri::Webview, store: tauri::State<'_, data::DataStore>, kind: String, index_url: String, year: i32) -> Result<serde_json::Value, String> {
+async fn probe_reference_source(
+    webview: tauri::Webview,
+    hash_source: String,
+) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    let hash = subscriptions::SubscriptionClient::new()?
+        .probe_hash_source(&hash_source)
+        .await?;
+    Ok(serde_json::json!({"indexHash":hash}))
+}
+
+#[tauri::command]
+async fn refresh_reference_source(webview: tauri::Webview, store: tauri::State<'_, data::DataStore>, kind: String, index_url: String, year: i32, expected_index_hash: Option<String>, known_hash: Option<String>) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
     let client = subscriptions::SubscriptionClient::new()?;
-    let (calendar, departments, url) = match kind.as_str() {
-        "calendar" => { let (value, url) = client.fetch_calendar(&index_url, year).await?; (Some(value), None, url) },
-        "departments" => { let (value, url) = client.fetch_departments(&index_url, year).await?; (None, Some(value), url) },
-        _ => return Err("unsupported subscription type".into()),
-    };
     let mut connection = rusqlite::Connection::open(store.path()).map_err(|e| e.to_string())?;
-    let changed = subscriptions::apply_reference(&mut connection, calendar.as_ref(), departments.as_ref())?;
-    Ok(serde_json::json!({"changed":changed,"dataUrl":url}))
+    match kind.as_str() {
+        "calendar" => {
+            let fetched = client.fetch_calendar(&index_url, year, expected_index_hash.as_deref(), known_hash.as_deref()).await?;
+            let Some(value) = fetched.value else {
+                return Ok(serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}));
+            };
+            let changed = subscriptions::apply_reference(&mut connection, Some(&value), None)?;
+            Ok(serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}))
+        }
+        "departments" => {
+            let fetched = client.fetch_departments(&index_url, year, expected_index_hash.as_deref(), known_hash.as_deref()).await?;
+            let Some(value) = fetched.value else {
+                return Ok(serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}));
+            };
+            let changed = subscriptions::apply_reference(&mut connection, None, Some(&value))?;
+            Ok(serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}))
+        }
+        "important-dates" => {
+            let fetched = client.fetch_important_dates(&index_url, year, expected_index_hash.as_deref(), known_hash.as_deref()).await?;
+            let Some(value) = fetched.value else {
+                return Ok(serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}));
+            };
+            let changed = subscriptions::apply_important_dates(&mut connection, &value)?;
+            Ok(serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}))
+        }
+        "exams" => {
+            let fetched = client.fetch_exams(&index_url, year, expected_index_hash.as_deref(), known_hash.as_deref()).await?;
+            let Some(feeds) = fetched.value else {
+                return Ok(serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}));
+            };
+            let mut changed = 0;
+            let mut files = Vec::new();
+            for feed in feeds {
+                changed += subscriptions::apply_exam_feed(&mut connection, &feed)?;
+                files.push(serde_json::json!({"level":feed.level,"quarter":feed.quarter.to_ascii_uppercase(),"dataUrl":feed.url}));
+            }
+            Ok(serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"files":files,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}))
+        }
+        _ => Err("unsupported subscription type".into()),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1074,6 +1119,7 @@ pub fn run() {
             preview_plan_recurrence,
             agent_command,
             apply_bundled_subscriptions,
+            probe_reference_source,
             refresh_reference_source
         ])
         .setup(|app| {

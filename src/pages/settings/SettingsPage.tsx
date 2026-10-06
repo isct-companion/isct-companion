@@ -3,10 +3,13 @@ import { t } from "../../i18n";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "../../core/departments";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import { ReferenceSubscriptions } from "./ReferenceSubscriptions";
-import { AdvancedSettings } from "./AdvancedSettings";
+import { ConfigsSettings, useDeveloperMode } from "./ConfigsSettings";
+import { ExtensionsSettings } from "./ExtensionsSettings";
+import { FilesSettings } from "./FilesSettings";
+import { HiddenItems } from "./HiddenItems";
 import { SchoolAccounts } from "./SchoolAccounts";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { workspaceActions, workspaceStore } from "../../store/workspace";
@@ -37,6 +40,7 @@ import type {
 import { desktopBridge } from "../../app/native";
 import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
 import { type Section, type Platform } from "../../app/shared";
+import { subscriptionNetwork } from "../../platform/subscription-polling";
 
 import { Row, Toggle, Capability } from "../../components/forms";
 
@@ -89,21 +93,33 @@ export function Settings({
   const cloudAvailable =
     platform === "browser-preview" ||
     caps["cloud-sync"].support === "supported";
-  const advancedAvailable =
-    platform === "native-desktop" &&
-    caps["site-customization"].support === "supported";
-  const sections: { id: Section; label: string }[] = [
+  const desktop = platform === "native-desktop";
+  const mobile = platform === "native-mobile";
+  const extensionsAvailable =
+    desktop && caps["site-customization"].support === "supported";
+  const referenceNetwork = subscriptionNetwork(platform);
+  const [developer, setDeveloper] = useDeveloperMode();
+  const sections: { id: Section; label: string; advanced?: true }[] = [
     { id: "accounts", label: "Accounts" },
     { id: "general", label: "General" },
     { id: "sync", label: "Sync" },
     { id: "notifications", label: "Notifications" },
-    { id: "calendar", label: "Academic calendar" },
+    ...(!mobile
+      ? [{ id: "calendar" as const, label: "Academic calendar" }]
+      : []),
     { id: "subscriptions", label: "Subscriptions" },
     { id: "hidden", label: "Hidden items" },
-    { id: "data", label: "Data" },
-    { id: "agent", label: "Agent access" },
-    ...(advancedAvailable
-      ? [{ id: "advanced" as const, label: "Advanced" }]
+    ...(desktop ? [{ id: "files" as const, label: "Files" }] : []),
+    { id: "data", label: "Data", advanced: true },
+    { id: "scheduled", label: "Scheduled tasks", advanced: true },
+    ...(!mobile
+      ? [{ id: "agent" as const, label: "Agent access", advanced: true as const }]
+      : []),
+    ...(extensionsAvailable
+      ? [{ id: "extensions" as const, label: "Extensions", advanced: true as const }]
+      : []),
+    ...(!mobile
+      ? [{ id: "configs" as const, label: "Configs", advanced: true as const }]
       : []),
   ];
   const cloudAdapter = async () => {
@@ -299,17 +315,28 @@ export function Settings({
       notify(error instanceof Error ? error.message : "Import failed.");
     }
   };
+  const customizeSite = (fn: (d: Workspace) => Workspace) => {
+    void performAction("customize-school-site", platform, () =>
+      update(fn),
+    ).catch((error) =>
+      notify(error instanceof Error ? error.message : "Action denied"),
+    );
+  };
   return (
     <div className="page settings">
       <nav className="settingsNav" aria-label="Settings sections">
-        {sections.map((s) => (
-          <UiButton
-            className={section === s.id ? "active" : ""}
-            onClick={() => setSection(s.id)}
-            key={s.id}
-          >
-            {t(s.label)}
-          </UiButton>
+        {sections.map((s, index) => (
+          <Fragment key={s.id}>
+            {s.advanced && !sections[index - 1]?.advanced && (
+              <span className="settingsNavGroup">{t("Advanced")}</span>
+            )}
+            <UiButton
+              className={`${section === s.id ? "active" : ""}${s.advanced ? " nested" : ""}`}
+              onClick={() => setSection(s.id)}
+            >
+              {t(s.label)}
+            </UiButton>
+          </Fragment>
         ))}
       </nav>
       <section className="settingsPane">
@@ -422,6 +449,57 @@ export function Settings({
                 }
               />
             </Row>
+            <Row
+              title={t("Allow subscription updates on cellular data")}
+              hint={
+                referenceNetwork === "cellular" &&
+                !data.settings.subscriptionRefresh.allowCellular
+                  ? t("Paused on cellular · checks a small hash daily")
+                  : t("Checks a small hash daily · Wi-Fi preferred")
+              }
+            >
+              <Toggle
+                checked={data.settings.subscriptionRefresh.allowCellular}
+                onChange={(enabled) =>
+                  update((draft) => {
+                    draft.settings.subscriptionRefresh.allowCellular = enabled;
+                    return draft;
+                  })
+                }
+              />
+            </Row>
+            <Row title={t("Background image URL")}>
+              <UiInput
+                value={data.settings.customization?.background ?? ""}
+                placeholder="https://…"
+                onChange={(event) =>
+                  update((d) => {
+                    if (d.settings.customization)
+                      d.settings.customization.background = event.target.value;
+                    return d;
+                  })
+                }
+              />
+            </Row>
+            {desktop && (
+              <Row title={t("Reopen last school page on launch")}>
+                <Toggle
+                  disabled={!desktopBridge}
+                  checked={data.settings.restoreSchoolPage ?? false}
+                  onChange={(enabled) => {
+                    update((draft) => {
+                      draft.settings.restoreSchoolPage = enabled;
+                      if (!enabled) draft.settings.activeSchoolSite = undefined;
+                      return draft;
+                    });
+                    void desktopBridge?.configureSchoolWebPolicy({
+                      restoreAcrossRestarts: enabled,
+                      idleMinutes: 10,
+                    });
+                  }}
+                />
+              </Row>
+            )}
             <Row
               title={t("Shortcuts")}
               hint={t("⌘1–⌘4 switch pages · Esc closes panels")}
@@ -577,19 +655,21 @@ export function Settings({
         ) : section === "notifications" ? (
           <>
             <h2>{t("Notifications")}</h2>
-            <Capability
-              name="Local reminders"
-              value={caps["local-notifications"]}
-            >
-              {caps["local-notifications"].readiness !== "ready" && (
+            <Row title={t("System notifications")}>
+              {caps["local-notifications"].readiness === "ready" ? (
+                <span className="rowValue">{t("Allowed")}</span>
+              ) : caps["local-notifications"].support === "supported" ||
+                platform === "browser-preview" ? (
                 <UiButton
                   className="button small"
                   onClick={requestNotifications}
                 >
                   {t("Allow")}
                 </UiButton>
+              ) : (
+                <span className="rowValue">{t("Unavailable")}</span>
               )}
-            </Capability>
+            </Row>
             <Row title={t("Class reminders")}>
               <Toggle
                 checked={data.settings.notifications.classes}
@@ -612,11 +692,6 @@ export function Settings({
                 }
               />
             </Row>
-            <Capability name="Remote push" value={caps["remote-push"]} />
-            <Capability
-              name="Background refresh"
-              value={caps["background-sync"]}
-            />
           </>
         ) : section === "calendar" ? (
           <CalendarManager
@@ -633,71 +708,24 @@ export function Settings({
             notify={notify}
           />
         ) : section === "hidden" ? (
-          <>
-            <h2>Hidden items</h2>
-            {data.assignments
-              .filter(
-                (assignment) => assignment.hidden && !assignment.deletedAt,
-              )
-              .map((assignment) => (
-                <Row
-                  key={assignment.id}
-                  title={assignment.title}
-                  hint={
-                    assignment.dueAt
-                      ? new Date(assignment.dueAt).toLocaleString()
-                      : "No deadline"
-                  }
-                >
-                  <UiButton
-                    className="button"
-                    onClick={() =>
-                      update((draft) => {
-                        const target = draft.assignments.find(
-                          (item) => item.id === assignment.id,
-                        );
-                        if (target) {
-                          target.hidden = false;
-                          target.rev += 1;
-                          target.updatedAt = new Date().toISOString();
-                        }
-                        return draft;
-                      })
-                    }
-                  >
-                    Restore
-                  </UiButton>
-                </Row>
-              ))}
-            <UiButton
-              className="button"
-              onClick={() =>
-                update((draft) => {
-                  for (const assignment of draft.assignments) {
-                    if (assignment.hidden) {
-                      assignment.hidden = false;
-                      assignment.rev += 1;
-                      assignment.updatedAt = new Date().toISOString();
-                    }
-                  }
-                  return draft;
-                })
-              }
-            >
-              Clear all
-            </UiButton>
-          </>
+          <HiddenItems data={data} update={update} />
         ) : section === "scheduled" ? (
           <>
-            <h2>Scheduled tasks</h2>
-            {data.scheduledTasks.map((task) => (
+            <h2>{t("Scheduled tasks")}</h2>
+            {!data.scheduledTasks.some((task) => !task.deletedAt) && (
+              <p className="paneEmpty">{t("No scheduled tasks")}</p>
+            )}
+            {data.scheduledTasks.filter((task) => !task.deletedAt).map((task) => (
               <Row
                 key={task.id}
                 title={task.name}
                 hint={
                   task.lastRunAt
-                    ? `Last run ${task.lastRunAt.slice(0, 10)} · ${task.lastResult ?? task.schedule}`
-                    : (task.lastResult ?? task.schedule)
+                    ? `${t("Last run")} ${task.lastRunAt.slice(0, 10)} · ${task.lastResult ?? task.schedule}`
+                    : (task.lastResult ??
+                      (task.action === "reference-refresh"
+                        ? t("Daily hash check · Wi-Fi preferred")
+                        : task.schedule))
                 }
               >
                 <div className="actions">
@@ -729,6 +757,8 @@ export function Settings({
                         else if (task.action === "export") {
                           await exportData();
                           result = "Export completed";
+                        } else if (task.action === "reference-refresh") {
+                          result = "Desktop app required";
                         } else result = "Hook queued";
                       } catch (error) {
                         result =
@@ -748,7 +778,7 @@ export function Settings({
                       });
                     }}
                   >
-                    Run now
+                    {t("Run now")}
                   </UiButton>
                 </div>
               </Row>
@@ -757,22 +787,16 @@ export function Settings({
         ) : section === "data" ? (
           <>
             <h2>{t("Data")}</h2>
-            <Row
-              title={
-                platform === "browser-preview"
-                  ? "Browser preview"
-                  : platform === "native-mobile"
-                    ? "Native mobile"
-                    : "Desktop"
-              }
-              hint={t("Everything is stored on this device.")}
-            >
+            <div className="row">
+              <span>
+                <b>{t("Backup")}</b>
+              </span>
               <div className="actions">
                 <UiButton className="button" onClick={exportData}>
                   {t("Export JSON")}
                 </UiButton>
                 <label className="button">
-                  Import JSON
+                  {t("Import JSON")}
                   <input
                     hidden
                     type="file"
@@ -787,7 +811,7 @@ export function Settings({
                   {t("Reset")}
                 </UiButton>
               </div>
-            </Row>
+            </div>
             <details className="diagnostics">
               <summary>{t("Diagnostics")}</summary>
               {Object.entries(caps).map(([k, v]) => (
@@ -812,7 +836,7 @@ export function Settings({
                   ))
                 ) : (
                   <span className="muted">
-                    {t("No import or cloud activity yet.")}
+                    {t("No activity yet")}
                   </span>
                 )}
               </div>
@@ -820,10 +844,10 @@ export function Settings({
           </>
         ) : section === "agent" ? (
           <>
-            <h2>Agent access</h2>
+            <h2>{t("Agent access")}</h2>
             <Row
-              title="Local MCP server"
-              hint="Read school data and write only personal plans or hidden-item state."
+              title={t("Local MCP server")}
+              hint={t("Reads school data; edits only plans and hidden items")}
             >
               <Toggle
                 checked={data.settings.agentAccess?.enabled === true}
@@ -839,26 +863,35 @@ export function Settings({
                 }
               />
             </Row>
-            <code>{agentCommand}</code>
+            <div className="commandLine">
+              <code>{agentCommand}</code>
+              <UiButton
+                className="button small"
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(agentCommand)
+                    .then(() => notify(t("Copied")))
+                    .catch(() => notify(t("Copy failed")))
+                }
+              >
+                {t("Copy")}
+              </UiButton>
+            </div>
           </>
-        ) : advancedAvailable ? (
-          <AdvancedSettings
+        ) : section === "files" ? (
+          <FilesSettings data={data} update={update} />
+        ) : section === "extensions" && extensionsAvailable ? (
+          <ExtensionsSettings data={data} update={customizeSite} />
+        ) : section === "configs" ? (
+          <ConfigsSettings
             data={data}
-            update={(fn) => {
-              void performAction("customize-school-site", platform, () =>
-                update(fn),
-              ).catch((error) =>
-                notify(
-                  error instanceof Error ? error.message : "Action denied",
-                ),
-              );
-            }}
+            update={update}
+            calendarUpdate={advancedCalendarUpdate}
+            developer={developer}
+            setDeveloper={setDeveloper}
+            notify={notify}
           />
-        ) : (
-          <p className="muted">
-            Customization is available in the desktop app.
-          </p>
-        )}
+        ) : null}
       </section>
     </div>
   );

@@ -1,15 +1,27 @@
 {
   "academicYears": {
     "2026": {
-      "academicCalendar": "data/2026/academic-calendar.json"
+      "academicCalendar": {
+        "source": "data/2026/academic-calendar.json",
+        "hash": "6e1774d809071c59671b998a6eaf1d80e07e15801e416635a5b1092842dffaef",
+        "ts": "2026-10-06T00:00:00Z"
+      }
     }
   },
   "admissionYears": {
     "2025": {
-      "departments": "data/2025/departments.json"
+      "departments": {
+        "source": "data/2025/departments.json",
+        "hash": "df0236c135246ce5eef6fc94f7af9cdb552749c8378f492aef532c1d83cd2d3a",
+        "ts": "2026-10-06T00:00:00Z"
+      }
     },
     "2026": {
-      "departments": "data/2026/departments.json"
+      "departments": {
+        "source": "data/2026/departments.json",
+        "hash": "aef334bbc39c2d5f78c1f601b45f1337b912442ec43545c70a29a4ea8601e6e6",
+        "ts": "2026-10-06T00:00:00Z"
+      }
     }
   }
 }

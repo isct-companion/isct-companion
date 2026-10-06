@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { UiButton } from "../../components/mantine";
 import { deadlineState } from "../../core/academic";
-import type { PersonalEvent, Plan, TermId, Workspace } from "../../core/model";
+import { pickLocalized, type PersonalEvent, type Plan, type TermId, type Workspace } from "../../core/model";
 import { timetableCourses } from "../../components/timetable/workspace";
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
@@ -9,7 +9,8 @@ import {
   addDays,
   calendarState,
   civilWeekday,
-  occurrencesOnDate,
+  importantDatesOnDate,
+  resolveDayAgenda,
 } from "../../core/schedule";
 
 const timeLabel = (value: string) => value.replace(/^0/, "");
@@ -71,7 +72,8 @@ export function Today({
   const events = data.events.filter(
     (event) => event.termId === term && !event.deletedAt,
   );
-  const blocks = occurrencesOnDate(data, term, todayIso, { courses, events });
+  const blocks = resolveDayAgenda(data, term, todayIso, { courses, events });
+  const importantDates = importantDatesOnDate(data, todayIso);
   const minutes = jstMinutes(now);
   const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
   const activeIndex = blocks.findIndex(
@@ -159,7 +161,7 @@ export function Today({
     for (let offset = 1; offset <= 7; offset++) {
       const date = addDays(todayIso, offset);
       const day = civilWeekday(date);
-      const first = occurrencesOnDate(data, term, date, { courses, events })[0];
+      const first = resolveDayAgenda(data, term, date, { courses, events })[0];
       if (first)
         return {
           ...first,
@@ -212,9 +214,21 @@ export function Today({
       </header>
 
       <div className="todayFlow">
+        {importantDates.length > 0 && (
+          <aside className="importantDates" aria-label="Important dates">
+            {importantDates.map((item) => (
+              <span key={item.id}>
+                <b>{pickLocalized(item.label, data.settings.locale, "Important date")}</b>
+                {item.startDate !== item.endDate && (
+                  <small>{item.startDate}–{item.endDate}</small>
+                )}
+              </span>
+            ))}
+          </aside>
+        )}
         <section className="todaySection" data-today-section="classes">
           <header>
-            <h2>Classes</h2>
+            <h2>Schedule</h2>
             <UiButton className="textButton" onClick={openSchedule}>
               Week
             </UiButton>
@@ -232,7 +246,7 @@ export function Today({
                         : "Later";
                 return (
                   <UiButton
-                    className={`dayAgendaRow${index === focusIndex ? " focus" : ""}${selection?.courseId === block.id && !selection.assignmentId ? " selected" : ""}`}
+                    className={`dayAgendaRow ${block.kind}${index === focusIndex ? " focus" : ""}${selection?.courseId === block.id && !selection.assignmentId ? " selected" : ""}${block.conflict ? " conflict" : ""}`}
                     aria-current={
                       selection?.courseId === block.id &&
                       !selection.assignmentId
@@ -241,7 +255,7 @@ export function Today({
                     }
                     style={{ "--course": block.color } as React.CSSProperties}
                     onClick={() => {
-                      if (block.kind === "course")
+                      if (block.kind === "course" || block.kind === "exam")
                         open(block.id, undefined, {
                           date: todayIso,
                           startTime: block.startTime,
@@ -262,11 +276,18 @@ export function Today({
                     key={block.key}
                   >
                     <span className="agendaState">{state}</span>
-                    <time>{timeLabel(block.startTime)}</time>
+                    <time>
+                      {timeLabel(block.startTime)}
+                      {block.kind === "exam" && <small>EXAM · {block.timeLabel}</small>}
+                    </time>
                     <span className="agendaLine" aria-hidden="true" />
                     <span className="agendaCourse">
                       <b>{block.title}</b>
-                      <small>{block.room || block.subtitle || "—"}</small>
+                      <small>
+                        {[block.room || block.subtitle, block.conflictWith?.length ? `Overlaps ${block.conflictWith.join(", ")}` : ""]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </small>
                     </span>
                   </UiButton>
                 );
@@ -280,7 +301,7 @@ export function Today({
               )}
             {!blocks.length && (
               <>
-                <p className="quietEmpty compact">No classes today</p>
+                <p className="quietEmpty compact">Nothing scheduled today</p>
                 {nextClass && (
                   <UiButton
                     className={`dayAgendaRow focus nextClass${selection?.courseId === nextClass.id && !selection.assignmentId ? " selected" : ""}`}

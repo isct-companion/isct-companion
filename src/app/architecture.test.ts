@@ -24,7 +24,7 @@ describe("refactored application architecture", () => {
   });
 
   it("keeps user CSS and JavaScript customization in Settings", () => {
-    const advanced = read("src/pages/settings/AdvancedSettings.tsx");
+    const advanced = read("src/pages/settings/ExtensionsSettings.tsx");
     expect(advanced).not.toContain("appCss");
     expect(advanced).toContain("custom.sites[site].css");
     expect(advanced).toContain("custom.sites[site].js");

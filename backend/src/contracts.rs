@@ -240,16 +240,60 @@ contract!(RecommendedCourse {
     #[serde(default)] #[ts(optional)] pub last_seen_at: Option<String>,
     #[serde(default)] #[ts(optional)] pub missing_since: Option<String>,
 });
+contract!(ImportantDate {
+    #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
+    pub academic_year: i32, pub start_date: String, pub end_date: String,
+    pub label: Localized, pub category: String, pub source_ids: Vec<String>,
+    #[serde(default)] #[ts(optional)] pub label_english_source: Option<String>,
+    #[serde(default)] #[ts(optional)] pub source_key: Option<String>,
+    #[serde(default)] #[ts(optional)] pub last_seen_at: Option<String>,
+    #[serde(default)] #[ts(optional)] pub missing_since: Option<String>,
+});
+contract!(Exam {
+    #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
+    pub academic_year: i32,
+    #[ts(type = "\"undergraduate\" | \"graduate\"")] pub level: String,
+    pub quarter: Quarter, pub course_code: String, pub date: String, pub label: Localized,
+    #[serde(default)] #[ts(optional)] pub class_label: Option<Localized>,
+    #[serde(default)] #[ts(optional)] pub syllabus_course_id: Option<String>,
+    #[serde(default)] #[ts(optional)] pub periods: Option<(u8, u8)>,
+    #[serde(default)] #[ts(optional)] pub start_time: Option<String>,
+    #[serde(default)] #[ts(optional)] pub end_time: Option<String>,
+    pub room: Option<Localized>, pub rooms: Vec<Localized>,
+    #[ts(type = "\"scheduled\" | \"cancelled\"")] pub status: String,
+    #[serde(default)] #[ts(optional)] pub notes: Option<Localized>,
+    pub source_ids: Vec<String>, pub source_pages: Vec<u32>,
+    #[serde(default)] #[ts(optional)] pub source_key: Option<String>,
+    #[serde(default)] #[ts(optional)] pub last_seen_at: Option<String>,
+    #[serde(default)] #[ts(optional)] pub missing_since: Option<String>,
+});
+contract!(ScheduleOverride {
+    #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
+    pub target_key: String,
+    #[serde(default)] #[ts(optional, type = "\"course\" | \"exam\"")] pub target_kind: Option<String>,
+    #[serde(default)] #[ts(optional)] pub course_id: Option<String>,
+    #[serde(default)] #[ts(optional)] pub date: Option<String>,
+    #[serde(default)] #[ts(optional)] pub periods: Option<(u8, u8)>,
+    #[serde(default)] #[ts(optional)] pub start_time: Option<String>,
+    #[serde(default)] #[ts(optional)] pub end_time: Option<String>,
+    #[serde(default)] #[ts(optional)] pub room: Option<String>,
+    #[serde(default)] #[ts(optional)] pub title: Option<String>,
+    pub hidden: bool,
+});
 contract!(Subscription {
     #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
     #[serde(default)] #[ts(optional)] pub data_url: Option<String>, pub url: String,
-    #[ts(type = "\"calendar\" | \"departments\"")] pub kind: String, pub enabled: bool,
+    #[ts(type = "\"calendar\" | \"departments\" | \"important-dates\" | \"exams\"")] pub kind: String, pub enabled: bool,
+    #[serde(default)] #[ts(optional)] pub hash_source: Option<String>,
+    #[serde(default)] #[ts(optional)] pub index_hash: Option<String>,
+    #[serde(default)] #[ts(optional)] pub remote_hash: Option<String>,
+    #[serde(default)] #[ts(optional)] pub source_ts: Option<String>,
     #[serde(default)] #[ts(optional)] pub fetched_at: Option<String>,
     #[serde(default)] #[ts(optional)] pub last_error: Option<String>,
 });
 contract!(ScheduledTask {
     #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
-    pub name: String, #[ts(type = "\"school-refresh\" | \"export\" | \"hook\"")] pub action: String,
+    pub name: String, #[ts(type = "\"school-refresh\" | \"reference-refresh\" | \"export\" | \"hook\"")] pub action: String,
     #[serde(default)] #[ts(optional)] pub hook_id: Option<String>, pub schedule: String, pub enabled: bool,
     #[serde(default)] #[ts(optional)] pub last_occurrence_at: Option<String>,
     #[serde(default)] #[ts(optional)] pub last_run_at: Option<String>,
@@ -282,6 +326,11 @@ contract!(CloudSettings {
     #[ts(type = "\"manual\" | \"launch\" | \"hourly\" | \"daily\"")] pub frequency: String,
     #[ts(type = "\"keep-current\" | \"use-latest\" | \"resolve-manually\"")] pub conflict: String,
 });
+contract!(SubscriptionRefreshSettings {
+    #[ts(type = "\"daily\"")] pub frequency: String,
+    pub allow_cellular: bool,
+    #[serde(default)] #[ts(optional)] pub last_checked_at: Option<String>,
+});
 contract!(SiteCustomization { pub css: String, pub js: String, pub enabled: bool, });
 contract!(SiteCustomizations { pub portal: SiteCustomization, pub lms: SiteCustomization, pub syllabus: SiteCustomization, });
 contract!(CustomizationHook { pub id: String, pub name: String, pub action: String, pub schedule: String, pub script: String, pub enabled: bool, });
@@ -306,6 +355,7 @@ contract!(Settings {
     #[serde(default)] #[ts(optional)] pub site_consents: Option<SiteConsents>,
     #[ts(type = "\"en\" | \"ja\" | \"zh\"")] pub locale: String,
     pub notifications: Notifications, pub cloud: CloudSettings,
+    pub subscription_refresh: SubscriptionRefreshSettings,
     #[serde(default)] #[ts(optional)] pub customization: Option<Customization>,
 });
 contract!(GradePathEntry { pub grade: String, pub academic_year: i32, });
@@ -343,6 +393,8 @@ contract!(Workspace {
     pub intensive_schedules: Vec<IntensiveSchedule>, pub plans: Vec<Plan>,
     pub academic_calendar: Vec<AcademicCalendarDay>, pub gpa_summary: Vec<GpaSummary>,
     pub departments: Vec<Department>, pub recommended_courses: Vec<RecommendedCourse>,
+    pub important_dates: Vec<ImportantDate>, pub exams: Vec<Exam>,
+    pub schedule_overrides: Vec<ScheduleOverride>,
     pub subscriptions: Vec<Subscription>, pub scheduled_tasks: Vec<ScheduledTask>,
     pub settings: Settings, pub academic_profile: AcademicProfile,
     #[serde(default)] #[ts(optional)] pub logs: Option<Vec<WorkspaceLog>>,
@@ -409,9 +461,11 @@ pub fn declarations() -> Vec<String> {
         CalendarException::decl(), ScheduleEntry::decl(), ClassFormat::decl(), Offering::decl(),
         IntensiveDay::decl(), IntensiveSchedule::decl(), Plan::decl(), DateRange::decl(),
         AcademicCalendarDay::decl(), GpaSummary::decl(), Department::decl(),
-        RecommendedCourse::decl(), Subscription::decl(), ScheduledTask::decl(),
+        RecommendedCourse::decl(), ImportantDate::decl(), Exam::decl(), ScheduleOverride::decl(),
+        Subscription::decl(), ScheduledTask::decl(),
         AssignmentMark::decl(), CourseOverride::decl(), AgentWrite::decl(), AgentAccess::decl(),
-        Notifications::decl(), CloudSettings::decl(), SiteCustomization::decl(), SiteCustomizations::decl(),
+        Notifications::decl(), CloudSettings::decl(), SubscriptionRefreshSettings::decl(),
+        SiteCustomization::decl(), SiteCustomizations::decl(),
         CustomizationHook::decl(), Customization::decl(), SiteConsents::decl(), Settings::decl(),
         GradePathEntry::decl(), QuarterStarts::decl(), AcademicYearConfig::decl(), AcademicProfile::decl(),
         ImportStatus::decl(), SyncStatus::decl(), WorkspaceLog::decl(), Workspace::decl(),

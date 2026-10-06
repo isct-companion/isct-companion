@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { clockForPeriods } from "../core/user-schedule";
-import { seedWorkspace, type Workspace } from "../core/model";
+import {
+  REFERENCE_REFRESH_TASK_ID,
+  referenceRefreshTask,
+  seedWorkspace,
+  type Workspace,
+} from "../core/model";
 
 const KEY = "stws-workspace-v3";
 
@@ -44,6 +49,15 @@ function normalize(data: Workspace): Workspace {
   data.terms ??= [];
   data.planItems ??= [];
   data.scheduledTasks ??= [];
+  if (!data.scheduledTasks.some((task) => task.id === REFERENCE_REFRESH_TASK_ID))
+    data.scheduledTasks.push(referenceRefreshTask(data.deviceId));
+  data.importantDates ??= [];
+  data.exams ??= [];
+  data.scheduleOverrides ??= [];
+  data.settings.subscriptionRefresh ??= {
+    frequency: "daily",
+    allowCellular: false,
+  };
   data.academicProfile ??= seedWorkspace().academicProfile;
   if (
     !["keep-current", "use-latest", "resolve-manually"].includes(
@@ -83,6 +97,7 @@ function localExport(workspace: Workspace): ExportDocument {
       calendar_exceptions: workspace.exceptions,
       intensive_schedules: workspace.intensiveSchedules,
       plans: workspace.plans,
+      schedule_overrides: workspace.scheduleOverrides,
       subscriptions: workspace.subscriptions,
       course_overrides: workspace.courses
         .filter((course) => course.overrides)
@@ -130,6 +145,7 @@ const ARRAY_TABLES = [
   "assignment_marks",
   "intensive_schedules",
   "plans",
+  "schedule_overrides",
   "subscriptions",
   "settings",
 ] as const;
@@ -195,6 +211,9 @@ function workspaceFromLocalExport(document: ExportDocument): Workspace {
     gpaSummary: [],
     departments: [],
     recommendedCourses: [],
+    importantDates: [],
+    exams: [],
+    scheduleOverrides: document.tables.schedule_overrides ?? [],
     subscriptions: document.tables.subscriptions ?? [],
     scheduledTasks: [],
     settings: { ...seed.settings, ...preferences, notifications: {
@@ -277,6 +296,7 @@ export class SqliteRepository implements WorkspaceRepository {
       ["exceptions", "calendar_exceptions"],
       ["intensiveSchedules", "intensive_schedules"],
       ["plans", "plans"],
+      ["scheduleOverrides", "schedule_overrides"],
       ["subscriptions", "subscriptions"],
       ["scheduledTasks", "scheduled_tasks"],
     ] as const;
@@ -365,6 +385,7 @@ export class SqliteRepository implements WorkspaceRepository {
       showGrades: data.settings.showGrades,
       siteConsents: data.settings.siteConsents,
       locale: data.settings.locale,
+      subscriptionRefresh: data.settings.subscriptionRefresh,
       notifications: {
         localPermission: data.settings.notifications.localPermission,
       },
@@ -384,6 +405,7 @@ export class SqliteRepository implements WorkspaceRepository {
       showGrades: previous.settings.showGrades,
       siteConsents: previous.settings.siteConsents,
       locale: previous.settings.locale,
+      subscriptionRefresh: previous.settings.subscriptionRefresh,
       notifications: {
         localPermission: previous.settings.notifications.localPermission,
       },

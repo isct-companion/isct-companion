@@ -25,6 +25,9 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("gpaSummary", "gpa_summary"),
     ("departments", "departments"),
     ("recommendedCourses", "recommended_courses"),
+    ("importantDates", "important_dates"),
+    ("exams", "exams"),
+    ("scheduleOverrides", "schedule_overrides"),
     ("subscriptions", "subscriptions"),
     ("scheduledTasks", "scheduled_tasks"),
 ];
@@ -45,6 +48,8 @@ const SCHOOL_CACHE_TABLES: &[&str] = &[
     "academic_calendar",
     "departments",
     "recommended_courses",
+    "important_dates",
+    "exams",
 ];
 
 /// Local backup payload. School/reference caches are intentionally absent:
@@ -59,6 +64,7 @@ const USER_BACKUP_TABLES: &[&str] = &[
     "assignment_marks",
     "intensive_schedules",
     "plans",
+    "schedule_overrides",
     "subscriptions",
 ];
 
@@ -122,6 +128,7 @@ fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "showGrades": settings.get("showGrades"),
         "siteConsents": settings.get("siteConsents"),
         "locale": settings.get("locale"),
+        "subscriptionRefresh": settings.get("subscriptionRefresh"),
         "notifications": {"localPermission": settings.pointer("/notifications/localPermission")}
     });
     let cloud = settings.get("cloud").cloned().unwrap_or_else(|| json!({}));
@@ -173,6 +180,9 @@ fn empty_workspace() -> Value {
         "gpaSummary": [],
         "departments": [],
         "recommendedCourses": [],
+        "importantDates": [],
+        "exams": [],
+        "scheduleOverrides": [],
         "subscriptions": [],
         "scheduledTasks": [],
         "settings": {
@@ -215,9 +225,23 @@ fn empty_workspace() -> Value {
         "schoolServiceWidth": 168,
         "schoolWebZoom": 1,
         "showGrades": false,
-        "siteConsents": {"portal": false, "lms": false, "syllabus": false}
+        "siteConsents": {"portal": false, "lms": false, "syllabus": false},
+        "subscriptionRefresh": {"frequency": "daily", "allowCellular": false}
     }));
     workspace
+}
+
+fn reference_refresh_task(device_id: &str) -> Value {
+    json!({
+        "id": "builtin:reference-subscriptions",
+        "rev": 1,
+        "updatedAt": now(),
+        "updatedBy": device_id,
+        "name": "Reference subscriptions",
+        "action": "reference-refresh",
+        "schedule": "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0",
+        "enabled": true
+    })
 }
 
 fn content_value(value: &Value) -> Value {
@@ -256,6 +280,7 @@ fn validate_user_record(table: &str, value: &Value) -> Result<(), String> {
         "course_overrides" => validate_contract::<CourseOverride>(table, value),
         "intensive_schedules" => validate_contract::<IntensiveSchedule>(table, value),
         "plans" => validate_contract::<Plan>(table, value),
+        "schedule_overrides" => validate_contract::<ScheduleOverride>(table, value),
         "subscriptions" => validate_contract::<Subscription>(table, value),
         "scheduled_tasks" => validate_contract::<ScheduledTask>(table, value),
         _ => Err("table has no user-data contract".into()),
@@ -554,21 +579,30 @@ impl DataStore {
 
     fn ensure_defaults(&self) -> Result<(), String> {
         let mut connection = self.open()?;
-        if read_setting(&connection, "deviceId")?.is_some() {
-            return Ok(());
-        }
+        let existing_device_id = read_setting(&connection, "deviceId")?;
         let workspace = empty_workspace();
-        let device_id = string_field(&workspace, "deviceId")?;
+        let device_id = existing_device_id
+            .as_ref()
+            .and_then(Value::as_str)
+            .unwrap_or(string_field(&workspace, "deviceId")?);
         let transaction = connection.transaction().map_err(|error| error.to_string())?;
-        for key in ["deviceId", "selectedTerm", "terms", "academicProfile", "importStatus", "syncStatus", "logs"] {
-            if let Some(value) = workspace.get(key) {
-                save_setting(&transaction, key, value, device_id)?;
+        if existing_device_id.is_none() {
+            for key in ["deviceId", "selectedTerm", "terms", "academicProfile", "importStatus", "syncStatus", "logs"] {
+                if let Some(value) = workspace.get(key) {
+                    save_setting(&transaction, key, value, device_id)?;
+                }
             }
+            let (user, device, cloud) = settings_parts(&workspace["settings"]);
+            save_setting(&transaction, "userPreferences", &user, device_id)?;
+            save_setting(&transaction, "devicePreferences", &device, device_id)?;
+            save_setting(&transaction, "cloud", &cloud, device_id)?;
         }
-        let (user, device, cloud) = settings_parts(&workspace["settings"]);
-        save_setting(&transaction, "userPreferences", &user, device_id)?;
-        save_setting(&transaction, "devicePreferences", &device, device_id)?;
-        save_setting(&transaction, "cloud", &cloud, device_id)?;
+        upsert_row(
+            &transaction,
+            "scheduled_tasks",
+            &reference_refresh_task(device_id),
+            false,
+        )?;
         transaction.commit().map_err(|error| error.to_string())
     }
 
@@ -584,6 +618,7 @@ impl DataStore {
                 | "course_overrides"
                 | "intensive_schedules"
                 | "plans"
+                | "schedule_overrides"
                 | "subscriptions"
                 | "scheduled_tasks"
         )
@@ -613,11 +648,20 @@ impl DataStore {
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|error| error.to_string())?;
         let source_key = object.get("sourceKey").and_then(Value::as_str).map(str::to_string);
+        let target_key = object.get("targetKey").and_then(Value::as_str).map(str::to_string);
         let overlay_id = if matches!(table, "assignment_marks" | "course_overrides") {
             source_key.as_deref().map(|source_key| {
                 transaction.query_row(
                     &format!("SELECT id FROM {table} WHERE source_key=?1"),
                     [source_key],
+                    |row| row.get::<_, String>(0),
+                ).optional().map_err(|error| error.to_string())
+            }).transpose()?.flatten()
+        } else if table == "schedule_overrides" {
+            target_key.as_deref().map(|target_key| {
+                transaction.query_row(
+                    "SELECT id FROM schedule_overrides WHERE target_key=?1",
+                    [target_key],
                     |row| row.get::<_, String>(0),
                 ).optional().map_err(|error| error.to_string())
             }).transpose()?.flatten()
@@ -672,6 +716,12 @@ impl DataStore {
                         value.get("instructor").and_then(Value::as_str),
                         value.get("color").and_then(Value::as_str),
                     ],
+                ).map_err(|error| error.to_string())?;
+            }
+            "schedule_overrides" => {
+                transaction.execute(
+                    "UPDATE schedule_overrides SET target_key=?2 WHERE id=?1",
+                    params![id, value.get("targetKey").and_then(Value::as_str)],
                 ).map_err(|error| error.to_string())?;
             }
             _ => {}
@@ -1288,6 +1338,31 @@ mod tests {
     fn store(name: &str) -> DataStore {
         let path = std::env::temp_dir().join(format!("campus-life-{name}-{}.db", Uuid::new_v4()));
         DataStore::initialize(path).unwrap().0
+    }
+
+    #[test]
+    fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
+        let store = store("reference-refresh-task");
+        let workspace = store.load_workspace().unwrap();
+        let tasks = workspace["scheduledTasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["id"], "builtin:reference-subscriptions");
+        assert_eq!(tasks[0]["action"], "reference-refresh");
+        assert_eq!(tasks[0]["enabled"], true);
+
+        store
+            .delete_user_record(
+                "scheduled_tasks",
+                "builtin:reference-subscriptions",
+                "test",
+            )
+            .unwrap();
+        store.ensure_defaults().unwrap();
+        let workspace = store.load_workspace().unwrap();
+        let tasks = workspace["scheduledTasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert!(tasks[0]["deletedAt"].is_string());
+        let _ = fs::remove_file(store.path());
     }
 
     #[test]

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { pickLocalized, seedWorkspace } from "./model";
+import {
+  REFERENCE_REFRESH_TASK_ID,
+  pickLocalized,
+  seedWorkspace,
+} from "./model";
 
 describe("v3 model helpers", () => {
   it("starts real workspaces empty", () => {
@@ -8,6 +12,13 @@ describe("v3 model helpers", () => {
     expect(workspace.courses).toEqual([]);
     expect(workspace.assignments).toEqual([]);
     expect(workspace.planItems).toEqual([]);
+    expect(workspace.scheduledTasks).toEqual([
+      expect.objectContaining({
+        id: REFERENCE_REFRESH_TASK_ID,
+        action: "reference-refresh",
+        enabled: true,
+      }),
+    ]);
   });
 
   it("picks the locale, falls back, and treats zh as English-first", () => {

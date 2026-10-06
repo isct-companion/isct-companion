@@ -1,16 +1,19 @@
 use crate::data::versioned::content_hash;
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{Datelike, NaiveDate, NaiveTime, Utc};
 use reqwest::{Client, Url};
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 
 pub const ACADEMIC_CALENDAR_SCHEMA: &str =
     include_str!("../subscriptions/schema/academic-calendar.schema.json");
 pub const DEPARTMENTS_SCHEMA: &str =
     include_str!("../subscriptions/schema/departments.schema.json");
+pub const EXAMS_SCHEMA: &str = include_str!("../subscriptions/schema/exams.schema.json");
 pub const BUNDLED_INDEX: &str = include_str!("../subscriptions/index.json");
+pub const BUNDLED_INDEX_HASH: &str = include_str!("../subscriptions/index.sha256");
 pub const BUNDLED_ACADEMIC_CALENDAR_2026: &str =
     include_str!("../subscriptions/data/2026/academic-calendar.json");
 pub const BUNDLED_DEPARTMENTS_2025: &str =
@@ -20,6 +23,7 @@ pub const BUNDLED_DEPARTMENTS_2026: &str =
 
 const MAX_INDEX_BYTES: usize = 128 * 1024;
 const MAX_DATA_BYTES: usize = 4 * 1024 * 1024;
+const MAX_HASH_BYTES: usize = 256;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -136,20 +140,115 @@ pub struct Departments {
     pub departments: Vec<Department>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FeedSource {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub landing_page_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieved_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportantDateEntry {
+    pub id: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub label: Localized,
+    pub category: String,
+    pub source_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_english_source: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportantDates {
+    pub schema_version: u32,
+    pub academic_year: i32,
+    pub timezone: String,
+    pub source: Vec<FeedSource>,
+    pub entries: Vec<ImportantDateEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExamEntry {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub quarter: String,
+    pub course_code: String,
+    pub date: String,
+    pub label: Localized,
+    pub source_ids: Vec<String>,
+    pub room: Option<Localized>,
+    #[serde(default)]
+    pub periods: Option<Vec<u8>>,
+    #[serde(default)]
+    pub start_time: Option<String>,
+    #[serde(default)]
+    pub end_time: Option<String>,
+    #[serde(default)]
+    pub syllabus_course_id: Option<String>,
+    #[serde(default)]
+    pub class_label: Option<Localized>,
+    #[serde(default)]
+    pub notes: Option<Localized>,
+    #[serde(default)]
+    pub source_pages: Vec<u32>,
+    #[serde(default)]
+    pub rooms: Vec<Localized>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExamFeed {
+    pub schema_version: u32,
+    pub academic_year: i32,
+    pub timezone: String,
+    pub source: Vec<FeedSource>,
+    pub entries: Vec<ExamEntry>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PublishedExamFeed {
+    pub level: String,
+    pub quarter: String,
+    pub url: String,
+    pub feed: ExamFeed,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AcademicYearEntry {
-    academic_calendar: String,
+    academic_calendar: IndexedSource,
     #[serde(default)]
-    exams: Vec<String>,
+    exams: Vec<IndexedSource>,
     #[serde(default)]
-    important_dates: Option<String>,
+    important_dates: Option<IndexedSource>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AdmissionYearEntry {
-    departments: String,
+    departments: IndexedSource,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IndexedSource {
+    source: String,
+    hash: String,
+    ts: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -159,6 +258,51 @@ struct SubscriptionIndex {
     academic_years: BTreeMap<String, AcademicYearEntry>,
     #[serde(default)]
     admission_years: BTreeMap<String, AdmissionYearEntry>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReferenceFetch<T> {
+    pub value: Option<T>,
+    pub data_url: String,
+    pub remote_hash: String,
+    pub source_ts: String,
+}
+
+fn validate_indexed_source(source: &IndexedSource) -> Result<(), String> {
+    if source.hash.len() != 64 || !source.hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("subscription index hash must be a SHA-256 hex digest".into());
+    }
+    chrono::DateTime::parse_from_rfc3339(&source.ts)
+        .map_err(|_| "subscription index ts must be RFC 3339".to_string())?;
+    Ok(())
+}
+
+fn source_url(base: &Url, source: &IndexedSource) -> Result<Url, String> {
+    validate_indexed_source(source)?;
+    https_url(
+        base.join(&source.source)
+            .map_err(|_| "invalid subscription source path")?
+            .as_str(),
+    )
+}
+
+fn exam_manifest_hash(sources: &[IndexedSource]) -> Result<String, String> {
+    content_hash(&Value::Array(
+        sources
+            .iter()
+            .map(|source| json!({ "source": source.source, "hash": source.hash }))
+            .collect(),
+    ))
+}
+
+fn verify_source_hash(raw: &str, expected: &str) -> Result<(), String> {
+    let value: Value = serde_json::from_str(raw)
+        .map_err(|error| format!("invalid subscription JSON: {error}"))?;
+    let actual = content_hash(&value)?;
+    if actual != expected.to_ascii_lowercase() {
+        return Err("subscription data does not match the hash declared by index.json".into());
+    }
+    Ok(())
 }
 
 fn https_url(raw: &str) -> Result<Url, String> {
@@ -371,6 +515,137 @@ pub fn validate_departments(raw: &str) -> Result<Departments, String> {
     Ok(value)
 }
 
+fn validate_feed_sources(sources: &[FeedSource]) -> Result<HashSet<&str>, String> {
+    if sources.is_empty() {
+        return Err("source must contain at least one citation".into());
+    }
+    let mut ids = HashSet::new();
+    for source in sources {
+        if source.id.trim().is_empty()
+            || source.title.trim().is_empty()
+            || !ids.insert(source.id.as_str())
+        {
+            return Err("feed source identity is empty or duplicated".into());
+        }
+        https_url(&source.url)?;
+        if let Some(url) = &source.landing_page_url {
+            https_url(url)?;
+        }
+        if source.sha256.as_ref().is_some_and(|hash| {
+            hash.len() != 64
+                || !hash
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        }) {
+            return Err("feed source sha256 is invalid".into());
+        }
+    }
+    Ok(ids)
+}
+
+fn date_in_academic_year(value: NaiveDate, year: i32) -> bool {
+    value >= NaiveDate::from_ymd_opt(year, 4, 1).unwrap()
+        && value <= NaiveDate::from_ymd_opt(year + 1, 3, 31).unwrap()
+}
+
+pub fn validate_important_dates(raw: &str, year: i32) -> Result<ImportantDates, String> {
+    if raw.len() > MAX_DATA_BYTES {
+        return Err("important dates exceed the size limit".into());
+    }
+    let value: ImportantDates =
+        serde_json::from_str(raw).map_err(|e| format!("invalid important dates: {e}"))?;
+    if value.schema_version != 1 || value.academic_year != year || value.timezone != "Asia/Tokyo" {
+        return Err("important dates metadata does not match the selection".into());
+    }
+    let sources = validate_feed_sources(&value.source)?;
+    let mut ids = HashSet::new();
+    for entry in &value.entries {
+        let start = date(&entry.start_date)?;
+        let end = date(&entry.end_date)?;
+        if !ids.insert(entry.id.as_str())
+            || entry.id.trim().is_empty()
+            || start > end
+            || !date_in_academic_year(start, year)
+            || !date_in_academic_year(end, year)
+            || entry.label.ja.trim().is_empty()
+            || !matches!(
+                entry.category.as_str(),
+                "campus-festival" | "ceremony" | "academic" | "other"
+            )
+            || entry.source_ids.is_empty()
+            || entry
+                .source_ids
+                .iter()
+                .any(|id| !sources.contains(id.as_str()))
+            || entry
+                .label_english_source
+                .as_deref()
+                .is_some_and(|v| !matches!(v, "official" | "translation"))
+        {
+            return Err(format!("important date {} is invalid", entry.id));
+        }
+    }
+    Ok(value)
+}
+
+pub fn validate_exam_feed(raw: &str, year: i32, quarter: &str) -> Result<ExamFeed, String> {
+    if raw.len() > MAX_DATA_BYTES {
+        return Err("exam data exceeds the size limit".into());
+    }
+    let value: ExamFeed = serde_json::from_str(raw).map_err(|e| format!("invalid exams: {e}"))?;
+    if value.schema_version != 1 || value.academic_year != year || value.timezone != "Asia/Tokyo" {
+        return Err("exam metadata does not match the selection".into());
+    }
+    let sources = validate_feed_sources(&value.source)?;
+    let mut ids = HashSet::new();
+    for entry in &value.entries {
+        let exam_date = date(&entry.date)?;
+        let exact = match (&entry.start_time, &entry.end_time) {
+            (Some(start), Some(end)) => NaiveTime::parse_from_str(start, "%H:%M")
+                .ok()
+                .zip(NaiveTime::parse_from_str(end, "%H:%M").ok())
+                .is_some_and(|(a, b)| a < b),
+            (None, None) => false,
+            _ => return Err(format!("exam {} has an incomplete exact time", entry.id)),
+        };
+        let periods = entry.periods.as_ref().is_some_and(|p| {
+            p.len() == 2 && (1..=10).contains(&p[0]) && p[0] <= p[1] && p[1] <= 10
+        });
+        if !ids.insert(entry.id.as_str())
+            || entry.id.trim().is_empty()
+            || entry.kind != "exam"
+            || entry.quarter.to_ascii_lowercase() != quarter
+            || entry.course_code.trim().is_empty()
+            || entry.label.ja.trim().is_empty()
+            || !date_in_academic_year(exam_date, year)
+            || !matches!(entry.status.as_str(), "scheduled" | "cancelled")
+            || (!periods && !exact)
+            || entry.source_ids.is_empty()
+            || entry
+                .source_ids
+                .iter()
+                .any(|id| !sources.contains(id.as_str()))
+            || entry.source_pages.contains(&0)
+        {
+            return Err(format!("exam {} is invalid", entry.id));
+        }
+    }
+    Ok(value)
+}
+
+fn exam_scope(path: &str, year: i32) -> Option<(String, String)> {
+    let parts: Vec<_> = path.split('/').collect();
+    if parts.len() != 3 || parts[0] != "exam" || !matches!(parts[1], "undergraduate" | "graduate") {
+        return None;
+    }
+    let stem = parts[2].strip_suffix(".json")?;
+    let (raw_year, quarter) = stem.split_once('-')?;
+    if raw_year.parse::<i32>().ok()? != year || !matches!(quarter, "1q" | "2q" | "3q" | "4q") {
+        return None;
+    }
+    Some((parts[1].to_string(), quarter.to_string()))
+}
+
 pub struct SubscriptionClient {
     client: Client,
 }
@@ -383,6 +658,16 @@ impl SubscriptionClient {
             .build()
             .map_err(|e| e.to_string())?;
         Ok(Self { client })
+    }
+    /// Downloads only the tiny plain-text hash source, never index.json or a
+    /// dataset. The publisher may include one trailing newline.
+    pub async fn probe_hash_source(&self, hash_url: &str) -> Result<String, String> {
+        let hash = self.get(https_url(hash_url)?, MAX_HASH_BYTES).await?;
+        let hash = hash.trim();
+        if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("subscription hash source must contain one SHA-256 digest".into());
+        }
+        Ok(hash.to_ascii_lowercase())
     }
     async fn get(&self, url: Url, limit: usize) -> Result<String, String> {
         let mut response = self
@@ -412,45 +697,41 @@ impl SubscriptionClient {
         }
         String::from_utf8(bytes).map_err(|_| "subscription response is not UTF-8".into())
     }
+
+    async fn fetch_index(
+        &self,
+        index_url: &str,
+        expected_hash: Option<&str>,
+    ) -> Result<(Url, SubscriptionIndex), String> {
+        let base = https_url(index_url)?;
+        let raw = self.get(base.clone(), MAX_INDEX_BYTES).await?;
+        if let Some(expected) = expected_hash {
+            let actual = format!("{:x}", Sha256::digest(raw.as_bytes()));
+            if actual != expected.to_ascii_lowercase() {
+                return Err("index.json does not match its plain hash source".into());
+            }
+        }
+        let index = serde_json::from_str(&raw)
+            .map_err(|error| format!("invalid subscription index: {error}"))?;
+        Ok((base, index))
+    }
+
     pub async fn fetch_selection(
         &self,
         index_url: &str,
         academic_year: i32,
         admission_year: i32,
     ) -> Result<(AcademicCalendar, Departments), String> {
-        let base = https_url(index_url)?;
-        let raw = self.get(base.clone(), MAX_INDEX_BYTES).await?;
-        let index: SubscriptionIndex =
-            serde_json::from_str(&raw).map_err(|e| format!("invalid subscription index: {e}"))?;
-        let calendar_entry = index
-            .academic_years
-            .get(&academic_year.to_string())
-            .ok_or_else(|| {
-                format!("subscription has no calendar for academic year {academic_year}")
-            })?;
-        let guide_entry = index
-            .admission_years
-            .get(&admission_year.to_string())
-            .ok_or_else(|| {
-                format!("subscription has no guide for admission year {admission_year}")
-            })?;
-        let calendar_url = https_url(
-            base.join(&calendar_entry.academic_calendar)
-                .map_err(|_| "invalid academic calendar path")?
-                .as_str(),
-        )?;
-        let departments_url = https_url(
-            base.join(&guide_entry.departments)
-                .map_err(|_| "invalid departments path")?
-                .as_str(),
-        )?;
-        let calendar_raw = self.get(calendar_url, MAX_DATA_BYTES).await?;
-        let departments_raw = self.get(departments_url, MAX_DATA_BYTES).await?;
-        let calendar = validate_academic_calendar(&calendar_raw)?;
-        let departments = validate_departments(&departments_raw)?;
-        if calendar.academic_year != academic_year || departments.admission_year != admission_year {
-            return Err("subscription file selection does not match index".into());
-        }
+        let calendar = self
+            .fetch_calendar(index_url, academic_year, None, None)
+            .await?
+            .value
+            .ok_or("calendar unexpectedly not modified")?;
+        let departments = self
+            .fetch_departments(index_url, admission_year, None, None)
+            .await?
+            .value
+            .ok_or("departments unexpectedly not modified")?;
         Ok((calendar, departments))
     }
 
@@ -458,49 +739,112 @@ impl SubscriptionClient {
         &self,
         index_url: &str,
         year: i32,
-    ) -> Result<(AcademicCalendar, String), String> {
-        let base = https_url(index_url)?;
-        let index: SubscriptionIndex =
-            serde_json::from_str(&self.get(base.clone(), MAX_INDEX_BYTES).await?)
-                .map_err(|e| e.to_string())?;
-        let entry = index
+        expected_index_hash: Option<&str>,
+        known_hash: Option<&str>,
+    ) -> Result<ReferenceFetch<AcademicCalendar>, String> {
+        let (base, index) = self.fetch_index(index_url, expected_index_hash).await?;
+        let source = &index
             .academic_years
             .get(&year.to_string())
-            .ok_or("calendar year is not published in this index")?;
-        let url = https_url(
-            base.join(&entry.academic_calendar)
-                .map_err(|e| e.to_string())?
-                .as_str(),
-        )?;
-        let calendar = validate_academic_calendar(&self.get(url.clone(), MAX_DATA_BYTES).await?)?;
+            .ok_or("calendar year is not published in this index")?
+            .academic_calendar;
+        let url = source_url(&base, source)?;
+        if known_hash == Some(source.hash.as_str()) {
+            return Ok(ReferenceFetch { value: None, data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() });
+        }
+        let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
+        verify_source_hash(&raw, &source.hash)?;
+        let calendar = validate_academic_calendar(&raw)?;
         if calendar.academic_year != year {
             return Err("calendar year does not match the selection".into());
         }
-        Ok((calendar, url.to_string()))
+        Ok(ReferenceFetch { value: Some(calendar), data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() })
     }
     pub async fn fetch_departments(
         &self,
         index_url: &str,
         year: i32,
-    ) -> Result<(Departments, String), String> {
-        let base = https_url(index_url)?;
-        let index: SubscriptionIndex =
-            serde_json::from_str(&self.get(base.clone(), MAX_INDEX_BYTES).await?)
-                .map_err(|e| e.to_string())?;
-        let entry = index
+        expected_index_hash: Option<&str>,
+        known_hash: Option<&str>,
+    ) -> Result<ReferenceFetch<Departments>, String> {
+        let (base, index) = self.fetch_index(index_url, expected_index_hash).await?;
+        let source = &index
             .admission_years
             .get(&year.to_string())
-            .ok_or("admission year is not published in this index")?;
-        let url = https_url(
-            base.join(&entry.departments)
-                .map_err(|e| e.to_string())?
-                .as_str(),
-        )?;
-        let departments = validate_departments(&self.get(url.clone(), MAX_DATA_BYTES).await?)?;
+            .ok_or("admission year is not published in this index")?
+            .departments;
+        let url = source_url(&base, source)?;
+        if known_hash == Some(source.hash.as_str()) {
+            return Ok(ReferenceFetch { value: None, data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() });
+        }
+        let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
+        verify_source_hash(&raw, &source.hash)?;
+        let departments = validate_departments(&raw)?;
         if departments.admission_year != year {
             return Err("guide year does not match the selection".into());
         }
-        Ok((departments, url.to_string()))
+        Ok(ReferenceFetch { value: Some(departments), data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() })
+    }
+    pub async fn fetch_important_dates(
+        &self,
+        index_url: &str,
+        year: i32,
+        expected_index_hash: Option<&str>,
+        known_hash: Option<&str>,
+    ) -> Result<ReferenceFetch<ImportantDates>, String> {
+        let (base, index) = self.fetch_index(index_url, expected_index_hash).await?;
+        let source = index
+            .academic_years
+            .get(&year.to_string())
+            .and_then(|entry| entry.important_dates.as_ref())
+            .ok_or("important dates are not published for this year")?;
+        let url = source_url(&base, source)?;
+        if known_hash == Some(source.hash.as_str()) {
+            return Ok(ReferenceFetch { value: None, data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() });
+        }
+        let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
+        verify_source_hash(&raw, &source.hash)?;
+        let value = validate_important_dates(&raw, year)?;
+        Ok(ReferenceFetch { value: Some(value), data_url: url.to_string(), remote_hash: source.hash.clone(), source_ts: source.ts.clone() })
+    }
+
+    pub async fn fetch_exams(
+        &self,
+        index_url: &str,
+        year: i32,
+        expected_index_hash: Option<&str>,
+        known_hash: Option<&str>,
+    ) -> Result<ReferenceFetch<Vec<PublishedExamFeed>>, String> {
+        let (base, index) = self.fetch_index(index_url, expected_index_hash).await?;
+        let sources = &index
+            .academic_years
+            .get(&year.to_string())
+            .ok_or("academic year is not published in this index")?
+            .exams;
+        for source in sources {
+            validate_indexed_source(source)?;
+        }
+        let remote_hash = exam_manifest_hash(sources)?;
+        let source_ts = sources.iter().map(|source| source.ts.as_str()).max().unwrap_or_default().to_string();
+        if known_hash == Some(remote_hash.as_str()) {
+            return Ok(ReferenceFetch { value: None, data_url: index_url.to_string(), remote_hash, source_ts });
+        }
+        let mut feeds = Vec::new();
+        for source in sources {
+            let (level, quarter) = exam_scope(&source.source, year)
+                .ok_or_else(|| format!("invalid exam path in subscription index: {}", source.source))?;
+            let url = source_url(&base, source)?;
+            let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
+            verify_source_hash(&raw, &source.hash)?;
+            let feed = validate_exam_feed(&raw, year, &quarter)?;
+            feeds.push(PublishedExamFeed {
+                level,
+                quarter,
+                url: url.to_string(),
+                feed,
+            });
+        }
+        Ok(ReferenceFetch { value: Some(feeds), data_url: index_url.to_string(), remote_hash, source_ts })
     }
     /// Convenience for installations where the current academic year and the
     /// student's admission cohort happen to be the same. Callers with a saved
@@ -533,7 +877,9 @@ fn apply_row(
         .map_err(|e| e.to_string())?;
     let timestamp = Utc::now().to_rfc3339();
     if old.as_ref().is_some_and(|(h, _, _)| h == &hash) {
-        let changed = old.as_ref().is_some_and(|(_, _, missing)| missing.is_some());
+        let changed = old
+            .as_ref()
+            .is_some_and(|(_, _, missing)| missing.is_some());
         tx.execute(&format!("UPDATE {table} SET last_seen_at=?2,missing_since=NULL,deleted_at=NULL,
             value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"), rusqlite::params![id,timestamp])
             .map_err(|e|e.to_string())?;
@@ -562,7 +908,9 @@ fn apply_row(
             "source".into(),
             json!({"provider":"subscription","hash":source_hash}),
         );
-        object.insert("sourceKey".into(), format!("reference:{table}:{source_hash}:{id}").into());
+        object
+            .entry("sourceKey")
+            .or_insert_with(|| format!("reference:{table}:{id}").into());
         object.insert("lastSeenAt".into(), timestamp.clone().into());
         object.remove("missingSince");
         object.remove("deletedAt");
@@ -823,6 +1171,137 @@ pub fn apply_reference(
     Ok(changed)
 }
 
+fn mark_missing(
+    tx: &Transaction<'_>,
+    table: &str,
+    prefix: &str,
+    live: &HashSet<String>,
+) -> Result<usize, String> {
+    let mut statement = tx
+        .prepare(&format!(
+            "SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"
+        ))
+        .map_err(|e| e.to_string())?;
+    let old = statement
+        .query_map([prefix], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    drop(statement);
+    let mut changed = 0;
+    for id in old.into_iter().filter(|id| !live.contains(id)) {
+        let timestamp = Utc::now().to_rfc3339();
+        changed += tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"), rusqlite::params![id,timestamp]).map_err(|e|e.to_string())?;
+    }
+    Ok(changed)
+}
+
+pub fn apply_important_dates(
+    connection: &mut Connection,
+    feed: &ImportantDates,
+) -> Result<usize, String> {
+    let feed_value = serde_json::to_value(feed).map_err(|e| e.to_string())?;
+    let source_hash = content_hash(&feed_value)?;
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let mut changed = 0;
+    let mut live = HashSet::new();
+    for entry in &feed.entries {
+        let id = format!("important-date:{}:{}", feed.academic_year, entry.id);
+        live.insert(id.clone());
+        let mut value = serde_json::to_value(entry).map_err(|e| e.to_string())?;
+        let object = value.as_object_mut().expect("important date object");
+        object.insert("id".into(), id.clone().into());
+        object.insert("academicYear".into(), feed.academic_year.into());
+        object.insert(
+            "sourceKey".into(),
+            format!(
+                "reference:important-dates:{}:{}",
+                feed.academic_year, entry.id
+            )
+            .into(),
+        );
+        object.insert("provenance".into(), json!({"source":feed.source}));
+        changed += usize::from(apply_row(
+            &tx,
+            "important_dates",
+            &id,
+            &value,
+            &source_hash,
+            &[
+                ("academic_year", feed.academic_year.into()),
+                ("start_date", entry.start_date.clone().into()),
+                ("end_date", entry.end_date.clone().into()),
+                ("category", entry.category.clone().into()),
+            ],
+        )?);
+    }
+    changed += mark_missing(
+        &tx,
+        "important_dates",
+        &format!("important-date:{}:%", feed.academic_year),
+        &live,
+    )?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(changed)
+}
+
+pub fn apply_exam_feed(
+    connection: &mut Connection,
+    published: &PublishedExamFeed,
+) -> Result<usize, String> {
+    let feed_value = serde_json::to_value(&published.feed).map_err(|e| e.to_string())?;
+    let source_hash = content_hash(&feed_value)?;
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let mut changed = 0;
+    let mut live = HashSet::new();
+    for entry in &published.feed.entries {
+        let id = format!(
+            "exam:{}:{}:{}:{}",
+            published.feed.academic_year, published.level, published.quarter, entry.id
+        );
+        live.insert(id.clone());
+        let mut value = serde_json::to_value(entry).map_err(|e| e.to_string())?;
+        let object = value.as_object_mut().expect("exam object");
+        object.insert("id".into(), id.clone().into());
+        object.insert("academicYear".into(), published.feed.academic_year.into());
+        object.insert("level".into(), published.level.clone().into());
+        object.insert(
+            "sourceKey".into(),
+            format!(
+                "reference:exams:{}:{}:{}:{}",
+                published.feed.academic_year, published.level, published.quarter, entry.id
+            )
+            .into(),
+        );
+        object.insert(
+            "provenance".into(),
+            json!({"source":published.feed.source,"dataUrl":published.url}),
+        );
+        changed += usize::from(apply_row(
+            &tx,
+            "exams",
+            &id,
+            &value,
+            &source_hash,
+            &[
+                ("academic_year", published.feed.academic_year.into()),
+                ("level", published.level.clone().into()),
+                ("quarter", published.quarter.to_ascii_uppercase().into()),
+                ("course_code", entry.course_code.clone().into()),
+                ("exam_date", entry.date.clone().into()),
+                ("status", entry.status.clone().into()),
+            ],
+        )?);
+    }
+    let prefix = format!(
+        "exam:{}:{}:{}:%",
+        published.feed.academic_year, published.level, published.quarter
+    );
+    changed += mark_missing(&tx, "exams", &prefix, &live)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(changed)
+}
+
 pub fn bundled_2026() -> Result<(AcademicCalendar, Departments), String> {
     Ok((
         validate_academic_calendar(BUNDLED_ACADEMIC_CALENDAR_2026)?,
@@ -850,4 +1329,105 @@ pub fn bundled_selection(
         }
     };
     Ok((calendar, departments))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::migrations;
+
+    fn source() -> Value {
+        json!([{
+            "id": "official",
+            "title": "Official notice",
+            "url": "https://example.com/exam.pdf"
+        }])
+    }
+
+    #[test]
+    fn bundled_manifest_hashes_match_every_bundled_source() {
+        assert_eq!(
+            format!("{:x}", Sha256::digest(BUNDLED_INDEX.as_bytes())),
+            BUNDLED_INDEX_HASH.trim()
+        );
+        let index: SubscriptionIndex = serde_json::from_str(BUNDLED_INDEX).unwrap();
+        let year = index.academic_years.get("2026").unwrap();
+        let cohort_2025 = index.admission_years.get("2025").unwrap();
+        let cohort_2026 = index.admission_years.get("2026").unwrap();
+        let actual = [
+            content_hash(&serde_json::from_str(BUNDLED_ACADEMIC_CALENDAR_2026).unwrap()).unwrap(),
+            content_hash(&serde_json::from_str(BUNDLED_DEPARTMENTS_2025).unwrap()).unwrap(),
+            content_hash(&serde_json::from_str(BUNDLED_DEPARTMENTS_2026).unwrap()).unwrap(),
+        ];
+        let expected = [
+            year.academic_calendar.hash.as_str(),
+            cohort_2025.departments.hash.as_str(),
+            cohort_2026.departments.hash.as_str(),
+        ];
+        assert_eq!(actual.iter().map(String::as_str).collect::<Vec<_>>(), expected);
+    }
+
+    #[test]
+    fn validates_and_versions_an_exam_scope() {
+        let raw = json!({
+            "schemaVersion": 1,
+            "academicYear": 2026,
+            "timezone": "Asia/Tokyo",
+            "source": source(),
+            "entries": [{
+                "id": "exam-one",
+                "kind": "exam",
+                "status": "scheduled",
+                "quarter": "2Q",
+                "courseCode": "CSC.T241",
+                "date": "2026-07-29",
+                "periods": [3, 4],
+                "room": {"ja": "W9-101"},
+                "label": {"ja": "試験"},
+                "sourceIds": ["official"],
+                "sourcePages": [1]
+            }]
+        })
+        .to_string();
+        let feed = validate_exam_feed(&raw, 2026, "2q").unwrap();
+        let published = PublishedExamFeed {
+            level: "undergraduate".into(),
+            quarter: "2q".into(),
+            url: "https://example.com/exams.json".into(),
+            feed,
+        };
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrations::migrate(&mut connection).unwrap();
+        assert_eq!(apply_exam_feed(&mut connection, &published).unwrap(), 1);
+        let value: String = connection
+            .query_row("SELECT value FROM exams", [], |row| row.get(0))
+            .unwrap();
+        let value: Value = serde_json::from_str(&value).unwrap();
+        assert_eq!(value["quarter"], "2Q");
+        assert_eq!(
+            value["sourceKey"],
+            "reference:exams:2026:undergraduate:2q:exam-one"
+        );
+    }
+
+    #[test]
+    fn validates_important_date_ranges_and_sources() {
+        let raw = json!({
+            "schemaVersion": 1,
+            "academicYear": 2026,
+            "timezone": "Asia/Tokyo",
+            "source": source(),
+            "entries": [{
+                "id": "festival",
+                "startDate": "2026-11-01",
+                "endDate": "2026-11-02",
+                "label": {"ja": "工大祭"},
+                "category": "campus-festival",
+                "sourceIds": ["official"]
+            }]
+        })
+        .to_string();
+        let value = validate_important_dates(&raw, 2026).unwrap();
+        assert_eq!(value.entries.len(), 1);
+    }
 }

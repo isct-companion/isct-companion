@@ -17,6 +17,9 @@ What to build: [docs/product-definition.md](../product-definition.md). Data cont
 | 9 | [Plans (one-off and repeating)](09-plans.md) | 1 | UI |
 | 10 | [Settings](10-settings.md) | 1, 5, 6 | UI |
 | 11 | [Agent access (MCP server)](11-mcp-server.md) | 1–5, 9 | Integration |
+| 12 | [Reminders and auto refresh](12-reminders.md) | 1, 4, 6, 10 | Feature |
+| 13 | [Web toolbar: forward, CSS/JS extensions](13-web-extensions.md) | 10 | Feature |
+| 14 | [Subscriptions: important dates, exams](14-important-dates-exams.md) | 5 | Data |
 
 Task 1 first. Then 2–5 in parallel. Then 6–10 (7 and 9 share ICS export: do 9 before finishing 7's export). 11 last.
 

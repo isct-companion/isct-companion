@@ -57,6 +57,14 @@ import {
   type SchedulerRuntimeState,
 } from "../platform/scheduler";
 import { createScheduledTaskRuntime } from "../platform/scheduled-tasks";
+import {
+  pollReferenceSubscriptions,
+  recordSubscriptionPoll,
+  subscriptionNetwork,
+  subscriptionPollDue,
+  type ReferenceProbeResult,
+  type ReferenceRefreshResult,
+} from "../platform/subscription-polling";
 
 import { CourseFinder } from "../pages/courses/CourseFinder";
 import { LmsMergeDialog } from "../pages/courses/LmsMergeDialog";
@@ -123,7 +131,66 @@ function pullProblem(outcomes: { state: string; message: string }[]) {
     : failed.message;
 }
 
-async function executeScheduledTask(task: ScheduledTask): Promise<string> {
+let referenceRefreshInFlight: Promise<string> | undefined;
+
+async function refreshReferenceSubscriptions(force = false): Promise<string> {
+  if (referenceRefreshInFlight) return referenceRefreshInFlight;
+  referenceRefreshInFlight = (async () => {
+    if (!desktopBridge) return "Paused: desktop app required";
+    const current = workspaceStore.getState().workspace;
+    if (!current) throw new Error("Workspace is not ready.");
+    if (!force && !subscriptionPollDue(current))
+      return "Up to date · daily check not due";
+    const network = subscriptionNetwork(detectPlatform());
+    if (network === "offline") return "Paused: offline";
+    if (
+      network === "cellular" &&
+      !current.settings.subscriptionRefresh.allowCellular
+    )
+      return "Paused: waiting for Wi-Fi";
+
+    const checkedAt = new Date().toISOString();
+    const results = await pollReferenceSubscriptions(
+      current,
+      (hashSource) =>
+        invoke<ReferenceProbeResult>("probe_reference_source", { hashSource }),
+      (kind, indexUrl, year, expectedIndexHash, knownHash) =>
+        invoke<ReferenceRefreshResult>("refresh_reference_source", {
+          kind,
+          indexUrl,
+          year,
+          expectedIndexHash,
+          knownHash,
+        }),
+    );
+    if (results.some((item) => (item.result?.changed ?? 0) > 0))
+      await workspaceStore.reload();
+    workspaceActions.editCalendar((draft) =>
+      recordSubscriptionPoll(draft, results, checkedAt),
+    );
+    await workspaceStore.flush();
+    const failed = results.filter((item) => item.error);
+    if (failed.length)
+      throw new Error(
+        `${failed.length} reference source${failed.length === 1 ? "" : "s"} failed`,
+      );
+    const changed = results.reduce(
+      (total, item) => total + (item.result?.changed ?? 0),
+      0,
+    );
+    return changed
+      ? `Updated ${changed} reference dataset${changed === 1 ? "" : "s"}`
+      : "Reference data is up to date";
+  })().finally(() => {
+    referenceRefreshInFlight = undefined;
+  });
+  return referenceRefreshInFlight;
+}
+
+async function executeScheduledTask(
+  task: ScheduledTask,
+  force = false,
+): Promise<string> {
   const exportWorkspace = async () => {
     await workspaceStore.flush();
     if (desktopBridge) await desktopBridge.writeScheduledExport();
@@ -145,6 +212,8 @@ async function executeScheduledTask(task: ScheduledTask): Promise<string> {
 
   if (task.action === "export") return exportWorkspace();
   if (task.action === "school-refresh") return refreshSchool();
+  if (task.action === "reference-refresh")
+    return refreshReferenceSubscriptions(force);
   const workspace = workspaceStore.getState().workspace;
   const hook = workspace?.settings.customization?.hooks.find(
     (candidate) => candidate.id === task.hookId && candidate.enabled,
@@ -1562,7 +1631,7 @@ function WorkspaceApp() {
             section={section}
             setSection={setSection}
             notify={setToast}
-            runScheduledTask={executeScheduledTask}
+            runScheduledTask={(task) => executeScheduledTask(task, true)}
             matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
             showLoginPage={(profile) => {
               sessionStorage.setItem(

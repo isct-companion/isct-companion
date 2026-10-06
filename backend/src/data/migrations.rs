@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 const CREATE_SCHEMA: &str = r#"
 CREATE TABLE timetable_courses (
@@ -162,6 +162,27 @@ CREATE TABLE recommended_courses (
   updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
   last_seen_at TEXT, missing_since TEXT
 );
+CREATE TABLE important_dates (
+  id TEXT PRIMARY KEY, academic_year INTEGER NOT NULL, start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL, category TEXT NOT NULL, value TEXT NOT NULL, hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
+);
+CREATE INDEX important_dates_range ON important_dates(academic_year,start_date,end_date);
+CREATE TABLE exams (
+  id TEXT PRIMARY KEY, academic_year INTEGER NOT NULL, level TEXT NOT NULL,
+  quarter TEXT NOT NULL, course_code TEXT NOT NULL, exam_date TEXT NOT NULL,
+  status TEXT NOT NULL, value TEXT NOT NULL, hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
+);
+CREATE INDEX exams_by_course ON exams(academic_year,course_code);
+CREATE INDEX exams_by_date ON exams(academic_year,exam_date);
+CREATE TABLE schedule_overrides (
+  id TEXT PRIMARY KEY, target_key TEXT UNIQUE, value TEXT NOT NULL, hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
+  source TEXT, deleted_at TEXT
+);
 CREATE TABLE scheduled_tasks (
   id TEXT PRIMARY KEY, name TEXT, action TEXT, hook_id TEXT, schedule TEXT,
   enabled INTEGER, last_run_at TEXT, last_result TEXT,
@@ -211,12 +232,8 @@ pub fn migrate(connection: &mut Connection) -> Result<bool, String> {
     if version == SCHEMA_VERSION {
         return Ok(false);
     }
-    if version == 3 {
-        return Err(
-            "database schema 3 must be backed up and migrated with scripts/migrate-v3-to-v4.sh"
-                .into(),
-        );
-    }
+    // Pre-release builds deliberately rebuild mismatched schemas. There is no
+    // production user data to migrate yet.
     let transaction = connection
         .transaction()
         .map_err(|error| error.to_string())?;
@@ -236,13 +253,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creates_schema_four() {
+    fn creates_schema_five() {
         let mut connection = Connection::open_in_memory().unwrap();
         assert!(migrate(&mut connection).unwrap());
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
         let count: i64 = connection
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE name = 'timetable_courses'",
