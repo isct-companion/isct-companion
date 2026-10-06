@@ -175,6 +175,13 @@ fn provider_account(provider: CloudProvider) -> &'static str {
     }
 }
 
+fn other_provider(provider: CloudProvider) -> CloudProvider {
+    match provider {
+        CloudProvider::GoogleDrive => CloudProvider::Onedrive,
+        CloudProvider::Onedrive => CloudProvider::GoogleDrive,
+    }
+}
+
 fn oauth_endpoints(provider: CloudProvider) -> (&'static str, &'static str, &'static str) {
     match provider {
         CloudProvider::GoogleDrive => (
@@ -273,6 +280,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
             .append_pair("state", &state);
+        if provider == CloudProvider::GoogleDrive {
+            authorize
+                .query_pairs_mut()
+                .append_pair("access_type", "offline")
+                .append_pair("prompt", "consent");
+        }
         let listener = TcpListener::bind(("127.0.0.1", redirect.port().unwrap()))
             .map_err(|_| "OAuth loopback port is unavailable.".to_string())?;
         listener
@@ -352,7 +365,34 @@ impl<V: SecretVault> DesktopCloudService<V> {
             provider_account(provider),
             &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
         )?;
+        if let Err(error) = self
+            .vault
+            .delete(provider_account(other_provider(provider)))
+        {
+            let _ = self.vault.delete(provider_account(provider));
+            return Err(error);
+        }
         Ok(true)
+    }
+
+    pub fn authorized_providers(&self) -> Result<Vec<CloudProvider>, String> {
+        let mut providers = Vec::new();
+        for provider in [CloudProvider::GoogleDrive, CloudProvider::Onedrive] {
+            let Some(raw) = self.vault.load(provider_account(provider))? else {
+                continue;
+            };
+            let Ok(token) = serde_json::from_str::<StoredToken>(&raw) else {
+                continue;
+            };
+            if !token.access_token.is_empty() && valid_client_id(&token.client_id) {
+                providers.push(provider);
+            }
+        }
+        Ok(providers)
+    }
+
+    pub fn disconnect(&self, provider: CloudProvider) -> Result<(), String> {
+        self.vault.delete(provider_account(provider))
     }
 
     async fn access_token(&self, provider: CloudProvider) -> Result<String, String> {
@@ -469,6 +509,38 @@ impl<V: SecretVault> DesktopCloudService<V> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct MemoryVault(Mutex<HashMap<String, String>>);
+
+    impl SecretVault for MemoryVault {
+        fn store(&self, account: &str, secret: &str) -> Result<(), String> {
+            self.0
+                .lock()
+                .map_err(|_| "lock failed".to_string())?
+                .insert(account.to_string(), secret.to_string());
+            Ok(())
+        }
+
+        fn load(&self, account: &str) -> Result<Option<String>, String> {
+            Ok(self
+                .0
+                .lock()
+                .map_err(|_| "lock failed".to_string())?
+                .get(account)
+                .cloned())
+        }
+
+        fn delete(&self, account: &str) -> Result<(), String> {
+            self.0
+                .lock()
+                .map_err(|_| "lock failed".to_string())?
+                .remove(account);
+            Ok(())
+        }
+    }
 
     fn request() -> CloudRequestInput {
         CloudRequestInput {
@@ -517,9 +589,34 @@ mod tests {
         .is_ok());
         assert!(validate_cloud_request(
             CloudProvider::Onedrive,
-            "https://graph.microsoft.com/v1.0/me/drive/special/approot:/backup.bin:/content",
+            "https://graph.microsoft.com/v1.0/me/drive/special/approot:/IsctCompanion.json:/content",
             &request()
         )
         .is_ok());
+    }
+
+    #[test]
+    fn reports_and_disconnects_saved_authorization() {
+        let vault = MemoryVault::default();
+        vault
+            .store(
+                "google-drive",
+                &serde_json::to_string(&StoredToken {
+                    access_token: "access".into(),
+                    refresh_token: Some("refresh".into()),
+                    expires_at: 1,
+                    client_id: "client.apps.googleusercontent.com".into(),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        let service = DesktopCloudService::new(vault).unwrap();
+
+        assert_eq!(
+            service.authorized_providers().unwrap(),
+            vec![CloudProvider::GoogleDrive]
+        );
+        service.disconnect(CloudProvider::GoogleDrive).unwrap();
+        assert!(service.authorized_providers().unwrap().is_empty());
     }
 }

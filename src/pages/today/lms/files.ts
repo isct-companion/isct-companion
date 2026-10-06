@@ -13,7 +13,7 @@ export type LocalFile = {
   text?: string | null;
 };
 export type StorageInfo = { root: string; custom: boolean; canChoose: boolean };
-const prefix = "stws-lms-note:";
+const prefix = "isct-companion-lms-note:";
 const queues = new Map<string, Promise<unknown>>();
 const key = (context: CourseFolder, id: string) =>
   `${prefix}${context.term}/${context.course}/${context.section}/${id}`;

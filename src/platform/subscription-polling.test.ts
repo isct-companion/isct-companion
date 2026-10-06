@@ -100,7 +100,6 @@ describe("reference subscription polling", () => {
       [{
         kind: "calendar",
         url: "https://example.com/index.json",
-        hashSource: "https://example.com/index.sha256",
         indexHash: "commit123",
         result: {
           changed: 0,
@@ -141,7 +140,6 @@ describe("reference subscription polling", () => {
       [{
         kind: "calendar",
         url: "https://example.com/index.json",
-        hashSource: "https://example.com/index.sha256",
         indexHash: "new-commit",
         error: "download failed",
       }],

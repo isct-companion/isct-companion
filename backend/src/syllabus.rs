@@ -138,7 +138,7 @@ mod tests {
             }
             result.push(course);
         }
-        if let Ok(path) = std::env::var("STWS_PARSED_EXAMPLES_OUTPUT") {
+        if let Ok(path) = std::env::var("ISCT_COMPANION_PARSED_EXAMPLES_OUTPUT") {
             std::fs::write(path, serde_json::to_string_pretty(&result).unwrap()).unwrap();
         }
     }
@@ -205,7 +205,7 @@ mod tests {
             assert_eq!(result.credits, Some(2.0));
             assert!(result.updated.is_some());
             if language == "en" {
-                if let Ok(path) = std::env::var("STWS_PARSED_SYLLABUS_OUTPUT") {
+                if let Ok(path) = std::env::var("ISCT_COMPANION_PARSED_SYLLABUS_OUTPUT") {
                     std::fs::write(path, serde_json::to_string_pretty(&result).unwrap()).unwrap();
                 }
             }
@@ -283,7 +283,7 @@ mod tests {
     }
     #[test]
     fn parses_optional_live_capture() {
-        let Ok(path) = std::env::var("STWS_LIVE_SYLLABUS_HTML") else {
+        let Ok(path) = std::env::var("ISCT_COMPANION_LIVE_SYLLABUS_HTML") else {
             return;
         };
         let html = std::fs::read_to_string(path).unwrap();

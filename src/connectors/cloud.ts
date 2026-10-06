@@ -1,4 +1,7 @@
-import type { ExportDocument } from "../storage/repository";
+import {
+  validateExportDocument,
+  type ExportDocument,
+} from "../storage/repository";
 import {
   AuthenticationError,
   AuthorizationRedirectError,
@@ -13,10 +16,7 @@ import {
 } from "./providers/oauth";
 import { GoogleDriveBackupTransport } from "./providers/googleDrive";
 import { OneDriveBackupTransport } from "./providers/oneDrive";
-import type {
-  BackupManifest,
-  CloudBackupTransport,
-} from "./providers/transport";
+import type { CloudBackupTransport } from "./providers/transport";
 
 export {
   AuthenticationError,
@@ -26,12 +26,20 @@ export {
   ConfigurationError,
 };
 export type CloudProvider = "google-drive" | "onedrive";
-export type ConflictChoice = "keep-current" | "use-latest" | "resolve-manually";
-export interface PayloadCipher {
-  readonly keyId: string;
-  encrypt(cleartext: Uint8Array): Promise<Uint8Array>;
-  decrypt(ciphertext: Uint8Array): Promise<Uint8Array>;
+export const GOOGLE_DRIVE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID?.trim() ?? "";
+
+export function resolveCloudClientId(
+  provider: CloudProvider,
+  override: string,
+) {
+  return (
+    override.trim() ||
+    (provider === "google-drive" ? GOOGLE_DRIVE_CLIENT_ID : "")
+  );
 }
+
+export type ConflictChoice = "keep-current" | "use-latest" | "resolve-manually";
 export interface CloudAdapter {
   provider: CloudProvider;
   connect(): Promise<void>;
@@ -40,8 +48,8 @@ export interface CloudAdapter {
 }
 export interface CloudAdapterOptions {
   redirectUri?: string;
-  cipher?: PayloadCipher;
   oauth?: OAuthSession;
+  transport?: CloudBackupTransport;
   storage?: OAuthStorage;
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
@@ -52,42 +60,59 @@ export interface CloudAdapterOptions {
 const encode = new TextEncoder(),
   decode = new TextDecoder();
 
-async function sha256(bytes: Uint8Array) {
-  const hash = await crypto.subtle.digest(
-    "SHA-256",
-    new Uint8Array(bytes).buffer,
-  );
-  return [...new Uint8Array(hash)]
-    .map((x) => x.toString(16).padStart(2, "0"))
-    .join("");
-}
-function parseExport(bytes: Uint8Array): string {
-  let value: unknown;
-  let document: string;
+type CloudFile = {
+  format: "IsctCompanion";
+  formatVersion: 1;
+  revision: number;
+  updatedAt: string;
+  updatedBy: string;
+  document: ExportDocument;
+};
+
+function validExport(value: unknown): value is ExportDocument {
   try {
-    document = decode.decode(bytes);
-    value = JSON.parse(document);
+    validateExportDocument(value);
+    return true;
   } catch {
-    throw new CloudTransportError("Cloud backup is not valid JSON.");
+    return false;
   }
+}
+
+function parseCloudFile(bytes: Uint8Array): CloudFile {
+  let value: unknown;
+  try {
+    value = JSON.parse(decode.decode(bytes));
+  } catch {
+    throw new CloudTransportError("Cloud workspace is not valid JSON.");
+  }
+  const file = value as Partial<CloudFile>;
   if (
     !value ||
     typeof value !== "object" ||
-    (value as ExportDocument).schemaVersion !== 3 ||
-    typeof (value as ExportDocument).deviceId !== "string" ||
-    !(value as ExportDocument).tables
+    file.format !== "IsctCompanion" ||
+    file.formatVersion !== 1 ||
+    !Number.isSafeInteger(file.revision) ||
+    (file.revision ?? 0) < 1 ||
+    typeof file.updatedAt !== "string" ||
+    Number.isNaN(Date.parse(file.updatedAt)) ||
+    typeof file.updatedBy !== "string" ||
+    !file.updatedBy ||
+    !validExport(file.document)
   )
-    throw new CloudTransportError("Cloud backup schema is unsupported.");
-  return document;
+    throw new CloudTransportError(
+      "Cloud workspace format is invalid or unsupported. Keeping local data.",
+      409,
+      false,
+    );
+  return file as CloudFile;
 }
 
-class VersionedBackupAdapter implements CloudAdapter {
-  private observedVersion: number | null = null;
+class PlaintextCloudAdapter implements CloudAdapter {
+  private observedRevision: number | null = null;
   constructor(
     readonly provider: CloudProvider,
     private oauth: OAuthSession,
     private transport: CloudBackupTransport,
-    private cipher: PayloadCipher,
     private options: CloudAdapterOptions,
   ) {}
   async connect() {
@@ -95,53 +120,16 @@ class VersionedBackupAdapter implements CloudAdapter {
   }
   async pull() {
     await this.oauth.requireAccessToken();
-    const manifest = await this.transport.readManifest();
-    if (!manifest)
-      throw new CloudTransportError("No cloud backup exists yet.", 404, false);
-    if (
-      manifest.format !== "isct-backup-meta" ||
-      manifest.schemaVersion !== 1 ||
-      !Number.isSafeInteger(manifest.version) ||
-      manifest.version < 1 ||
-      !/^[a-f0-9]{64}$/.test(manifest.sha256) ||
-      !Number.isSafeInteger(manifest.size) ||
-      manifest.size < 1 ||
-      !manifest.createdBy ||
-      Number.isNaN(Date.parse(manifest.createdAt))
-    )
+    const bytes = await this.transport.read();
+    if (!bytes)
       throw new CloudTransportError(
-        "Cloud backup metadata is invalid or unsupported. Keeping cached data.",
-        409,
+        "No cloud workspace exists yet.",
+        404,
         false,
       );
-    if (manifest.keyId !== this.cipher.keyId)
-      throw new CloudTransportError(
-        "Cloud backup uses a different recovery key. Keeping cached data.",
-        409,
-        false,
-      );
-    const encrypted = await this.transport.readBackup();
-    if (!encrypted)
-      throw new CloudTransportError(
-        "Cloud backup is temporarily incomplete. Keeping cached data; retry sync.",
-        409,
-        true,
-      );
-    if (encrypted.byteLength !== manifest.size)
-      throw new CloudTransportError(
-        "Cloud backup size does not match its metadata. Keeping cached data; retry sync.",
-        409,
-        true,
-      );
-    if ((await sha256(encrypted)) !== manifest.sha256)
-      throw new CloudTransportError(
-        "Cloud backup and metadata do not match. Keeping cached data; retry sync.",
-        409,
-        true,
-      );
-    const document = parseExport(await this.cipher.decrypt(encrypted));
-    this.observedVersion = manifest.version;
-    return document;
+    const file = parseCloudFile(bytes);
+    this.observedRevision = file.revision;
+    return JSON.stringify(file.document);
   }
   async push(document: string) {
     if (this.options.readOnly)
@@ -149,16 +137,25 @@ class VersionedBackupAdapter implements CloudAdapter {
         "This browser preview is read-only. Create backups from the desktop app.",
       );
     await this.oauth.requireAccessToken();
-    const remote = await this.transport.readManifest();
-    if (remote && this.observedVersion === null)
+    const remoteBytes = await this.transport.read();
+    const remote = remoteBytes ? parseCloudFile(remoteBytes) : null;
+    if (remote && this.observedRevision === null)
       throw new CloudConflictError(
-        remote,
-        "Cloud already contains a backup. Pull it before choosing Keep current, Use latest, or Resolve manually.",
+        {
+          version: remote.revision,
+          createdAt: remote.updatedAt,
+          createdBy: remote.updatedBy,
+        },
+        "Cloud already contains a workspace. Pull it before choosing Keep current, Use latest, or Resolve manually.",
       );
-    if (remote && remote.version !== this.observedVersion)
+    if (remote && remote.revision !== this.observedRevision)
       throw new CloudConflictError(
-        remote,
-        "Cloud backup changed since it was read. Choose Keep current, Use latest, or Resolve manually.",
+        {
+          version: remote.revision,
+          createdAt: remote.updatedAt,
+          createdBy: remote.updatedBy,
+        },
+        "Cloud workspace changed since it was read. Choose Keep current, Use latest, or Resolve manually.",
       );
     let data: ExportDocument;
     try {
@@ -166,22 +163,18 @@ class VersionedBackupAdapter implements CloudAdapter {
     } catch {
       throw new CloudTransportError("Export is not valid JSON.");
     }
-    if (data.schemaVersion !== 3 || !data.deviceId || !data.tables)
+    if (!validExport(data))
       throw new CloudTransportError("Export schema is unsupported.");
-    const encrypted = await this.cipher.encrypt(encode.encode(document));
-    const manifest: BackupManifest = {
-      format: "isct-backup-meta",
-      schemaVersion: 1,
-      version: (remote?.version ?? 0) + 1,
-      sha256: await sha256(encrypted),
-      size: encrypted.byteLength,
-      createdAt: (this.options.now ?? (() => new Date()))().toISOString(),
-      createdBy: this.options.deviceId ?? data.deviceId,
-      keyId: this.cipher.keyId,
+    const file: CloudFile = {
+      format: "IsctCompanion",
+      formatVersion: 1,
+      revision: (remote?.revision ?? 0) + 1,
+      updatedAt: (this.options.now ?? (() => new Date()))().toISOString(),
+      updatedBy: this.options.deviceId ?? data.deviceId,
+      document: data,
     };
-    await this.transport.writeBackup(encrypted);
-    await this.transport.writeManifest(manifest);
-    this.observedVersion = manifest.version;
+    await this.transport.write(encode.encode(JSON.stringify(file, null, 2)));
+    this.observedRevision = file.revision;
   }
 }
 
@@ -190,7 +183,8 @@ export function createCloudAdapter(
   clientId: string,
   options: CloudAdapterOptions = {},
 ): CloudAdapter {
-  if (!clientId.trim())
+  const resolvedClientId = resolveCloudClientId(provider, clientId);
+  if (!resolvedClientId)
     throw new ConfigurationError(
       `${provider === "google-drive" ? "Google" : "Microsoft"} OAuth client ID is required.`,
     );
@@ -204,13 +198,9 @@ export function createCloudAdapter(
     return fail(
       "OAuth redirect URI must be configured for this installation before cloud data can be accessed.",
     );
-  if (!options.cipher)
-    return fail(
-      "Encrypted cloud sync requires a configured device-key cipher.",
-    );
   const oauth =
     options.oauth ??
-    new BrowserOAuthSession(provider, clientId, options.redirectUri!, {
+    new BrowserOAuthSession(provider, resolvedClientId, options.redirectUri!, {
       storage: options.storage,
       navigate: options.navigate,
       fetch: options.fetch,
@@ -239,20 +229,10 @@ export function createCloudAdapter(
     return response;
   };
   const transport =
-    provider === "google-drive"
+    options.transport ??
+    (provider === "google-drive"
       ? new GoogleDriveBackupTransport(request)
-      : new OneDriveBackupTransport(request);
-  return new VersionedBackupAdapter(
-    provider,
-    oauth,
-    transport,
-    options.cipher,
-    options,
-  );
+      : new OneDriveBackupTransport(request));
+  return new PlaintextCloudAdapter(provider, oauth, transport, options);
 }
-export type {
-  OAuthSession,
-  OAuthStorage,
-  BackupManifest,
-  CloudBackupTransport,
-};
+export type { OAuthSession, OAuthStorage, CloudBackupTransport };

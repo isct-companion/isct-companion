@@ -33,17 +33,17 @@ import {
   type ExportDocument,
 } from "./repository";
 
-const STORAGE_KEY = "stws-workspace-v3";
+const STORAGE_KEY = "isct-companion-workspace-v3";
 
 beforeEach(() => {
   localStorage.clear();
   native.calls.length = 0;
   native.workspace = seedWorkspace();
   native.exported = JSON.stringify({
-    schemaVersion: 4,
+    schemaVersion: 6,
     exportedAt: "2026-09-29T00:00:00.000Z",
     deviceId: "local-backup",
-    kind: "campus-life-local-backup",
+    kind: "IsctCompanion.local-backup",
     localNotes: [],
     tables: {},
   });
@@ -70,7 +70,7 @@ describe("LocalRepository browser preview", () => {
     const exported = JSON.parse(
       await repository.export(),
     ) as ExportDocument;
-    expect(exported.schemaVersion).toBe(4);
+    expect(exported.schemaVersion).toBe(6);
     expect(exported.deviceId).toBe("local-backup");
     expect(exported.tables.settings).toEqual(
       expect.arrayContaining([

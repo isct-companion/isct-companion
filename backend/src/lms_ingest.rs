@@ -33,10 +33,10 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     'core_course_get_recent_courses'
   ]);
   const sourceUrl = location.href;
-  const explicitCourseId = Number(globalThis.__STWS_LMS_COURSE_ID__) || 0;
-  const fullScan = globalThis.__STWS_LMS_FULL__ === true;
+  const explicitCourseId = Number(globalThis.__ISCT_COMPANION_LMS_COURSE_ID__) || 0;
+  const fullScan = globalThis.__ISCT_COMPANION_LMS_FULL__ === true;
   const reportProgress = value => {
-    try { globalThis.__STWS_LMS_PROGRESS__?.(value); } catch {}
+    try { globalThis.__ISCT_COMPANION_LMS_PROGRESS__?.(value); } catch {}
   };
   const login = /\/(login|auth)(\/|$)/i.test(location.pathname)
     || Boolean(document.querySelector('input[type=password], form[action*="login" i]'));
@@ -644,14 +644,16 @@ pub fn parse_lms_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), St
     let mut course_ids = HashSet::new();
     let mut courses = Vec::new();
     for value in raw.courses {
-        let course = serde_json::from_value::<LmsCourse>(value).ok().filter(|course| {
-            course.id != 0
-                && !course_ids.contains(&course.id)
-                && !course.fullname.trim().is_empty()
-                && course.fullname.len() <= 1_000
-                && course.shortname.len() <= 255
-                && lms_url(&course.viewurl)
-        });
+        let course = serde_json::from_value::<LmsCourse>(value)
+            .ok()
+            .filter(|course| {
+                course.id != 0
+                    && !course_ids.contains(&course.id)
+                    && !course.fullname.trim().is_empty()
+                    && course.fullname.len() <= 1_000
+                    && course.shortname.len() <= 255
+                    && lms_url(&course.viewurl)
+            });
         match course {
             Some(mut course) => {
                 course.fullname = decode_entities(&course.fullname);
@@ -1027,28 +1029,50 @@ pub fn apply_lms_payload(
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
         if let Some(grid) = &payload.timetable {
-            let shown = grid.meetings.get(&course.id).cloned().or_else(|| {
-                grid.unscheduled.contains(&course.id).then(Vec::new)
-            });
+            let shown = grid
+                .meetings
+                .get(&course.id)
+                .cloned()
+                .or_else(|| grid.unscheduled.contains(&course.id).then(Vec::new));
             if let (Some(meetings), Some(map)) = (shown, timetables.as_object_mut()) {
                 map.insert(grid.term.clone(), Value::Array(meetings));
             }
         }
-        let prior_sections: Option<Value> = tx.query_row(
-            "SELECT value FROM lms_courses WHERE id=?1", [&lms_course_id], |row| row.get::<_, String>(0)
-        ).optional().map_err(|e| e.to_string())?
-          .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-          .and_then(|stored| stored.get("sections").cloned());
-        let mut sections = payload.structures.iter().find(|s| s.course_id == course.id && s.complete)
-            .and_then(|s| s.state.as_ref()).and_then(|s| s.get("section")).cloned()
-            .or_else(|| prior_sections.clone()).unwrap_or_else(|| json!([]));
+        let prior_sections: Option<Value> = tx
+            .query_row(
+                "SELECT value FROM lms_courses WHERE id=?1",
+                [&lms_course_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|stored| stored.get("sections").cloned());
+        let mut sections = payload
+            .structures
+            .iter()
+            .find(|s| s.course_id == course.id && s.complete)
+            .and_then(|s| s.state.as_ref())
+            .and_then(|s| s.get("section"))
+            .cloned()
+            .or_else(|| prior_sections.clone())
+            .unwrap_or_else(|| json!([]));
         if let Some(current) = sections.as_array_mut() {
             for section in current {
                 if section.get("bodyHtml").is_none() {
-                    if let Some(body) = prior_sections.as_ref().and_then(Value::as_array)
-                        .and_then(|old| old.iter().find(|s| id_of(s.get("id")) == id_of(section.get("id"))))
-                        .and_then(|s| s.get("bodyHtml")) {
-                        section.as_object_mut().unwrap().insert("bodyHtml".into(), body.clone());
+                    if let Some(body) = prior_sections
+                        .as_ref()
+                        .and_then(Value::as_array)
+                        .and_then(|old| {
+                            old.iter()
+                                .find(|s| id_of(s.get("id")) == id_of(section.get("id")))
+                        })
+                        .and_then(|s| s.get("bodyHtml"))
+                    {
+                        section
+                            .as_object_mut()
+                            .unwrap()
+                            .insert("bodyHtml".into(), body.clone());
                     }
                 }
             }
@@ -1274,8 +1298,11 @@ mod tests {
 
     #[test]
     fn extractor_routes_work_by_loaded_page_and_explicit_scope() {
-        assert!(LMS_EXTRACT_SCRIPT.contains("const fullScan = globalThis.__STWS_LMS_FULL__ === true"));
-        assert!(LMS_EXTRACT_SCRIPT.contains("const requestedCourseId = explicitCourseId || (!fullScan ? pageCourseId : 0)"));
+        assert!(LMS_EXTRACT_SCRIPT
+            .contains("const fullScan = globalThis.__ISCT_COMPANION_LMS_FULL__ === true"));
+        assert!(LMS_EXTRACT_SCRIPT.contains(
+            "const requestedCourseId = explicitCourseId || (!fullScan ? pageCourseId : 0)"
+        ));
         assert!(LMS_EXTRACT_SCRIPT.contains("'core_calendar_get_action_events_by_course'"));
         assert!(LMS_EXTRACT_SCRIPT.contains("fullScan && ((year === academicYear"));
     }

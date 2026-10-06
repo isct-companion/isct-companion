@@ -199,7 +199,6 @@ fn empty_workspace() -> Value {
                 "provider": "none",
                 "clientId": "",
                 "redirectUri": "http://127.0.0.1:42813/oauth/callback",
-                "frequency": "launch",
                 "conflict": "resolve-manually"
             },
             "customization": {
@@ -217,17 +216,20 @@ fn empty_workspace() -> Value {
         "importStatus": {"school": "not-configured"},
         "syncStatus": {
             "state": "needs-configuration",
-            "message": "Choose a provider and add its OAuth client ID."
+            "message": "Cloud sync is off."
         }
     });
-    merge_object(&mut workspace["settings"], json!({
-        "restoreSchoolPage": false,
-        "schoolServiceWidth": 168,
-        "schoolWebZoom": 1,
-        "showGrades": false,
-        "siteConsents": {"portal": false, "lms": false, "syllabus": false},
-        "subscriptionRefresh": {"frequency": "daily", "allowCellular": false}
-    }));
+    merge_object(
+        &mut workspace["settings"],
+        json!({
+            "restoreSchoolPage": false,
+            "schoolServiceWidth": 168,
+            "schoolWebZoom": 1,
+            "showGrades": false,
+            "siteConsents": {"portal": false, "lms": false, "syllabus": false},
+            "subscriptionRefresh": {"frequency": "daily", "allowCellular": false}
+        }),
+    );
     workspace
 }
 
@@ -752,18 +754,32 @@ impl DataStore {
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|error| error.to_string())?;
         if table == "manual_courses" {
-            let offering = object.get("offeringId").and_then(Value::as_str).map(str::to_string);
-            let year = object.get("termId").and_then(Value::as_str)
-                .and_then(|term| term.get(..4)).and_then(|year| year.parse::<i32>().ok());
+            let offering = object
+                .get("offeringId")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let year = object
+                .get("termId")
+                .and_then(Value::as_str)
+                .and_then(|term| term.get(..4))
+                .and_then(|year| year.parse::<i32>().ok());
             if let (Some(offering), Some(year)) = (offering, year) {
-                let source_provider = object.get("source").and_then(|source| source.get("provider")).and_then(Value::as_str);
+                let source_provider = object
+                    .get("source")
+                    .and_then(|source| source.get("provider"))
+                    .and_then(Value::as_str);
                 let provider = match source_provider {
                     Some(provider @ ("lms" | "syllabus" | "kyomu")) => provider,
                     _ => "manual",
                 };
-                let external = object.get("source").and_then(|source| source.get("externalId"))
-                    .and_then(Value::as_str).unwrap_or(&offering).to_string();
-                let course_id = resolve_course_id(&transaction, provider, &external, year, Some(&offering))?;
+                let external = object
+                    .get("source")
+                    .and_then(|source| source.get("externalId"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(&offering)
+                    .to_string();
+                let course_id =
+                    resolve_course_id(&transaction, provider, &external, year, Some(&offering))?;
                 object.insert("id".into(), Value::String(course_id));
             }
         }
@@ -772,26 +788,50 @@ impl DataStore {
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
             .map(str::to_string);
-        let source_key = object.get("sourceKey").and_then(Value::as_str).map(str::to_string);
-        let target_key = object.get("targetKey").and_then(Value::as_str).map(str::to_string);
+        let source_key = object
+            .get("sourceKey")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let target_key = object
+            .get("targetKey")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let overlay_id = if matches!(table, "assignment_marks" | "course_overrides") {
-            source_key.as_deref().map(|source_key| {
-                transaction.query_row(
-                    &format!("SELECT id FROM {table} WHERE source_key=?1"),
-                    [source_key],
-                    |row| row.get::<_, String>(0),
-                ).optional().map_err(|error| error.to_string())
-            }).transpose()?.flatten()
+            source_key
+                .as_deref()
+                .map(|source_key| {
+                    transaction
+                        .query_row(
+                            &format!("SELECT id FROM {table} WHERE source_key=?1"),
+                            [source_key],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()
+                        .map_err(|error| error.to_string())
+                })
+                .transpose()?
+                .flatten()
         } else if table == "schedule_overrides" {
-            target_key.as_deref().map(|target_key| {
-                transaction.query_row(
-                    "SELECT id FROM schedule_overrides WHERE target_key=?1",
-                    [target_key],
-                    |row| row.get::<_, String>(0),
-                ).optional().map_err(|error| error.to_string())
-            }).transpose()?.flatten()
-        } else { None };
-        let id = requested_id.or(overlay_id).unwrap_or_else(|| Uuid::now_v7().to_string());
+            target_key
+                .as_deref()
+                .map(|target_key| {
+                    transaction
+                        .query_row(
+                            "SELECT id FROM schedule_overrides WHERE target_key=?1",
+                            [target_key],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()
+                        .map_err(|error| error.to_string())
+                })
+                .transpose()?
+                .flatten()
+        } else {
+            None
+        };
+        let id = requested_id
+            .or(overlay_id)
+            .unwrap_or_else(|| Uuid::now_v7().to_string());
         let previous: Option<(String, i64)> = transaction
             .query_row(
                 &format!("SELECT value, rev FROM {table} WHERE id=?1"),
@@ -844,10 +884,12 @@ impl DataStore {
                 ).map_err(|error| error.to_string())?;
             }
             "schedule_overrides" => {
-                transaction.execute(
-                    "UPDATE schedule_overrides SET target_key=?2 WHERE id=?1",
-                    params![id, value.get("targetKey").and_then(Value::as_str)],
-                ).map_err(|error| error.to_string())?;
+                transaction
+                    .execute(
+                        "UPDATE schedule_overrides SET target_key=?2 WHERE id=?1",
+                        params![id, value.get("targetKey").and_then(Value::as_str)],
+                    )
+                    .map_err(|error| error.to_string())?;
             }
             _ => {}
         }
@@ -1016,19 +1058,27 @@ impl DataStore {
         let overrides = read_rows(&connection, "course_overrides")?;
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
             for course in courses {
-                let Some(id) = course.get("id").and_then(Value::as_str) else { continue };
-                let source_key = course.get("sourceKey").and_then(Value::as_str).unwrap_or(id);
+                let Some(id) = course.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let source_key = course
+                    .get("sourceKey")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id);
                 if let Some(overlay) = overrides.iter().find(|row| {
                     row.get("deletedAt").is_none()
                         && (row.get("sourceKey").and_then(Value::as_str) == Some(source_key)
                             || row.get("courseId").and_then(Value::as_str) == Some(id))
                 }) {
                     if let Some(object) = course.as_object_mut() {
-                        object.insert("overrides".into(), json!({
-                            "title": overlay.get("title"),
-                            "instructor": overlay.get("instructor"),
-                            "color": overlay.get("color")
-                        }));
+                        object.insert(
+                            "overrides".into(),
+                            json!({
+                                "title": overlay.get("title"),
+                                "instructor": overlay.get("instructor"),
+                                "color": overlay.get("color")
+                            }),
+                        );
                     }
                 }
             }
@@ -1115,9 +1165,9 @@ impl DataStore {
         tables.insert("settings".into(), Value::Array(settings));
 
         serde_json::to_string_pretty(&json!({
-            "schemaVersion": 4,
+            "schemaVersion": 6,
             "exportedAt": now(),
-            "kind": "campus-life-local-backup",
+            "kind": "IsctCompanion.local-backup",
             "deviceId": "local-backup",
             "tables": tables,
             "localNotes": notes
@@ -1128,10 +1178,10 @@ impl DataStore {
     pub fn import_data(&self, document: &str) -> Result<Value, String> {
         let parsed: Value =
             serde_json::from_str(document).map_err(|_| "import is not valid JSON".to_string())?;
-        if parsed.get("schemaVersion").and_then(Value::as_u64) != Some(4)
-            || parsed.get("kind").and_then(Value::as_str) != Some("campus-life-local-backup")
+        if parsed.get("schemaVersion").and_then(Value::as_u64) != Some(6)
+            || parsed.get("kind").and_then(Value::as_str) != Some("IsctCompanion.local-backup")
         {
-            return Err("import must be a version 4 local backup".into());
+            return Err("import must be a version 6 local backup".into());
         }
         let exported_at = string_field(&parsed, "exportedAt")?;
         DateTime::parse_from_rfc3339(exported_at)
@@ -1229,8 +1279,8 @@ impl DataStore {
                 )
                 .optional()
                 .map_err(|error| error.to_string())?;
-            if let Some(search_item) = search_item
-                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            if let Some(search_item) =
+                search_item.and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             {
                 for field in ["title", "instructors", "academicUnit"] {
                     if let (Some(current), Some(fallback)) =
@@ -1321,23 +1371,50 @@ impl DataStore {
     /// A partial result can therefore never masquerade as a persisted entity.
     pub fn catalog_upsert_search_items(&self, items: &[Value]) -> Result<(), String> {
         let mut connection = self.open()?;
-        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
         for item in items {
             validate_contract::<crate::contracts::CatalogSearchItem>("catalog_search_items", item)?;
             let id = string_field(item, "id")?;
             let code = item.get("code").and_then(Value::as_str).unwrap_or_default();
-            let title_ja = item.pointer("/title/ja").and_then(Value::as_str).unwrap_or_default();
-            let title_en = item.pointer("/title/en").and_then(Value::as_str).unwrap_or_default();
-            let instructors_ja = item.get("instructors").and_then(Value::as_array).into_iter().flatten()
-                .filter_map(|name| name.get("ja").and_then(Value::as_str)).collect::<Vec<_>>().join(" ");
-            let instructors_en = item.get("instructors").and_then(Value::as_array).into_iter().flatten()
-                .filter_map(|name| name.get("en").and_then(Value::as_str)).collect::<Vec<_>>().join(" ");
-            transaction.execute(
-                "INSERT INTO catalog_search_items(id,value,updated_at) VALUES(?1,?2,?3)
+            let title_ja = item
+                .pointer("/title/ja")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let title_en = item
+                .pointer("/title/en")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let instructors_ja = item
+                .get("instructors")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|name| name.get("ja").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let instructors_en = item
+                .get("instructors")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|name| name.get("en").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(" ");
+            transaction
+                .execute(
+                    "INSERT INTO catalog_search_items(id,value,updated_at) VALUES(?1,?2,?3)
                  ON CONFLICT(id) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
-                params![id, serde_json::to_string(item).map_err(|error| error.to_string())?, now()],
-            ).map_err(|error| error.to_string())?;
-            transaction.execute("DELETE FROM offerings_fts WHERE offering_id=?1", [id])
+                    params![
+                        id,
+                        serde_json::to_string(item).map_err(|error| error.to_string())?,
+                        now()
+                    ],
+                )
+                .map_err(|error| error.to_string())?;
+            transaction
+                .execute("DELETE FROM offerings_fts WHERE offering_id=?1", [id])
                 .map_err(|error| error.to_string())?;
             transaction.execute(
                 "INSERT INTO offerings_fts(offering_id,code,title_ja,title_en,instructors_ja,instructors_en)
@@ -1528,7 +1605,8 @@ mod tests {
     use std::fs;
 
     fn store(name: &str) -> DataStore {
-        let path = std::env::temp_dir().join(format!("campus-life-{name}-{}.db", Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("isct-companion-{name}-{}.db", Uuid::new_v4()));
         DataStore::initialize(path).unwrap().0
     }
 
@@ -1610,12 +1688,18 @@ mod tests {
     fn insert_school_assignment(store: &DataStore) {
         let mut connection = store.open().unwrap();
         let transaction = connection.transaction().unwrap();
-        upsert_row(&transaction, "assignments", &json!({
-            "id":"assignment-1", "kind":"assignment", "courseId":"course-1",
-            "title":"Work", "details":"", "dueAt":null,
-            "sourceKey":"lms:default:assignment:42", "source":{"provider":"lms"},
-            "rev":1, "updatedAt":"2026-10-06T00:00:00Z", "updatedBy":"lms"
-        }), true).unwrap();
+        upsert_row(
+            &transaction,
+            "assignments",
+            &json!({
+                "id":"assignment-1", "kind":"assignment", "courseId":"course-1",
+                "title":"Work", "details":"", "dueAt":null,
+                "sourceKey":"lms:default:assignment:42", "source":{"provider":"lms"},
+                "rev":1, "updatedAt":"2026-10-06T00:00:00Z", "updatedBy":"lms"
+            }),
+            true,
+        )
+        .unwrap();
         transaction.commit().unwrap();
     }
 
@@ -1625,16 +1709,29 @@ mod tests {
         let mut connection = store.open().unwrap();
         let transaction = connection.transaction().unwrap();
         let lms = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
-        let syllabus = resolve_course_id(&transaction, "syllabus", "202602440", 2026, Some("202602440")).unwrap();
-        let kyomu = resolve_course_id(&transaction, "kyomu", "202602440", 2026, Some("202602440")).unwrap();
+        let syllabus = resolve_course_id(
+            &transaction,
+            "syllabus",
+            "202602440",
+            2026,
+            Some("202602440"),
+        )
+        .unwrap();
+        let kyomu =
+            resolve_course_id(&transaction, "kyomu", "202602440", 2026, Some("202602440")).unwrap();
         transaction.commit().unwrap();
         assert_eq!(lms, "2026-202602440");
         assert_eq!(syllabus, lms);
         assert_eq!(kyomu, lms);
-        let rows: i64 = store.open().unwrap().query_row(
-            "SELECT count(*) FROM course_identity_map WHERE course_id='2026-202602440'",
-            [], |row| row.get(0)
-        ).unwrap();
+        let rows: i64 = store
+            .open()
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM course_identity_map WHERE course_id='2026-202602440'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(rows, 3);
         let _ = fs::remove_file(store.path());
     }
@@ -1658,24 +1755,42 @@ mod tests {
     fn overlay_survives_school_disappearance_and_reappearance() {
         let store = store("overlay-lifetime");
         insert_school_assignment(&store);
-        store.put_user_record("assignment_marks", json!({
-            "sourceKey":"lms:default:assignment:42", "hidden":true
-        }), "test").unwrap();
-        assert_eq!(store.load_workspace().unwrap()["assignments"][0]["hidden"], true);
+        store
+            .put_user_record(
+                "assignment_marks",
+                json!({
+                    "sourceKey":"lms:default:assignment:42", "hidden":true
+                }),
+                "test",
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"][0]["hidden"],
+            true
+        );
 
         let connection = store.open().unwrap();
         connection.execute(
             "UPDATE assignments SET missing_since='2026-10-07T00:00:00Z',value=json_set(value,'$.missingSince','2026-10-07T00:00:00Z') WHERE id='assignment-1'",
             [],
         ).unwrap();
-        assert_eq!(store.load_workspace().unwrap()["assignments"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
         assert_eq!(store.user_rows("assignment_marks").unwrap().len(), 1);
 
         connection.execute(
             "UPDATE assignments SET missing_since=NULL,value=json_remove(value,'$.missingSince') WHERE id='assignment-1'",
             [],
         ).unwrap();
-        assert_eq!(store.load_workspace().unwrap()["assignments"][0]["hidden"], true);
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"][0]["hidden"],
+            true
+        );
         let _ = fs::remove_file(store.path());
     }
 
@@ -1686,19 +1801,36 @@ mod tests {
         store.put_user_record("plans", json!({
             "title":"Study", "start":"2026-10-06T10:00:00+09:00", "duration":60, "exdates":[]
         }), "test").unwrap();
-        store.put_user_record("assignment_marks", json!({
-            "sourceKey":"lms:default:assignment:42", "hidden":true
-        }), "test").unwrap();
-        let document: Value = serde_json::from_str(&store.export_data(json!([{
-            "id":"018f0000-0000-7000-8000-000000000001", "term":"2026-3Q",
-            "course":"TEST", "section":"section-1", "text":"# local", "deleted":false
-        }])).unwrap()).unwrap();
-        assert_eq!(document["schemaVersion"], 4);
+        store
+            .put_user_record(
+                "assignment_marks",
+                json!({
+                    "sourceKey":"lms:default:assignment:42", "hidden":true
+                }),
+                "test",
+            )
+            .unwrap();
+        let document: Value = serde_json::from_str(
+            &store
+                .export_data(json!([{
+                    "id":"018f0000-0000-7000-8000-000000000001", "term":"2026-3Q",
+                    "course":"TEST", "section":"section-1", "text":"# local", "deleted":false
+                }]))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(document["schemaVersion"], 6);
         assert_eq!(document["localNotes"][0]["text"], "# local");
         assert!(document.pointer("/tables/assignments").is_none());
         assert!(document.pointer("/tables/lms_items").is_none());
         assert_eq!(document["tables"]["plans"].as_array().unwrap().len(), 1);
-        assert_eq!(document["tables"]["assignment_marks"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            document["tables"]["assignment_marks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         let _ = fs::remove_file(store.path());
     }
 }

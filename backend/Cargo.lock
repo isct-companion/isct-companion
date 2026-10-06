@@ -2024,6 +2024,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "isct-companion"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "image",
+ "keyring",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
+ "ort",
+ "percent-encoding",
+ "rand 0.9.5",
+ "regex",
+ "reqwest 0.12.28",
+ "ring",
+ "rrule",
+ "rusqlite",
+ "scraper",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-secure-storage",
+ "tokio",
+ "ts-rs",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3708,43 +3745,6 @@ dependencies = [
  "quote",
  "serde_derive_internals",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "science-tokyo-workstation"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "image",
- "keyring",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "objc2-web-kit",
- "ort",
- "percent-encoding",
- "rand 0.9.5",
- "regex",
- "reqwest 0.12.28",
- "ring",
- "rrule",
- "rusqlite",
- "scraper",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-secure-storage",
- "tokio",
- "ts-rs",
- "url",
- "uuid",
 ]
 
 [[package]]

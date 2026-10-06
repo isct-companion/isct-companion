@@ -120,7 +120,7 @@ export function Courses({
   const conflictList = editing ? detectConflicts(scheduled, events) : [];
   const conflicts = new Set(conflictList.flatMap((c) => [c.leftId, c.rightId]));
   const [weekLength, setWeekLength] = useLocalStorage<"5" | "7">({
-    key: "stws-courses-week-length",
+    key: "isct-companion-courses-week-length",
     defaultValue: "5",
   });
   const allColumns = editing

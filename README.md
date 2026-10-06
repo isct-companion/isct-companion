@@ -1,4 +1,4 @@
-# Science Tokyo Student Workstation
+# IsctCompanion
 
 A local-first academic workspace with a responsive frontend shared by a Tauri native app and an installable read-only phone PWA. The included sample workspace is visibly separate from school-imported records and is useful before accounts are configured.
 
@@ -33,7 +33,7 @@ Every page fits the window without scrolling: a slim left rail (Today / Courses 
 The browser preview is read-only by policy (it is the phone PWA build). To exercise editing in the browser during development run this once in the devtools console, then reload:
 
 ```js
-localStorage.setItem("stws-dev-platform", "native-desktop")
+localStorage.setItem("isct-companion-dev-platform", "native-desktop")
 ```
 
 ## Working behavior
@@ -44,14 +44,14 @@ localStorage.setItem("stws-dev-platform", "native-desktop")
 - Tauri commands with trusted-window checks, allowlisted external navigation, local notifications, and a persistent official-site session.
 - Per-site desktop CSS and opt-in JavaScript run only in an isolated, domain-allowlisted school window. Built-in school refresh and recoverable export schedules run while the native app is open.
 - Cache-first T2SCHOLA course/detail crawl with tolerant extraction, login-page expiry detection, staged validation, and atomic cache publication.
-- Google Drive `appDataFolder` and OneDrive app-root transports using one encrypted `backup.bin` plus `_meta.json`. Mismatched or partial reads are rejected while local cached data remains intact.
-- Public-client OAuth/PKCE components, explicit cloud conflicts, and AES-256-GCM recovery-phrase encryption primitives.
+- Google Drive `appDataFolder` and OneDrive app-root transports using one readable `IsctCompanion.json` file with optimistic revision checks. Invalid reads are rejected while local data remains intact.
+- Public-client OAuth/PKCE components, explicit cloud conflicts, and a single plaintext JSON workspace stored in the provider's private app folder.
 
 ## Configuration and current limits
 
 No credentials, OAuth client IDs, signing identities, or provider grants are included. School sign-in happens only in the official site window; this app does not collect passwords, OTP seeds, or cookies. Real school selectors still need verification against an authorized account and sanitized fixtures. A failed, empty, or changed school page cannot replace the last valid cache.
 
-Cloud use requires a provider public client, an approved redirect URI, consent, and device-key recovery setup. Google and Microsoft OAuth details differ, so the UI does not claim a connection until a complete provider setup and transfer has succeeded. Remote push is unavailable in this no-backend build. PWA refresh is launch/resume/manual and may be suspended by the phone OS.
+Cloud use requires a provider public client, the configured loopback redirect URI, and user consent; see [cloud provider registration](docs/cloud-provider-setup.md). Google and Microsoft OAuth details differ, so the UI does not claim a connection until a complete provider setup and transfer has succeeded. The cloud workspace is plaintext JSON and relies on the provider account for access security. Remote push is unavailable in this no-backend build. PWA refresh is launch/resume/manual and may be suspended by the phone OS.
 
 Android and iOS packaging are parked. Their central action policy remains in shared code so the PWA stays read-only and future native mobile builds cannot inherit desktop-only advanced controls.
 

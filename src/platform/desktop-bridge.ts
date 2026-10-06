@@ -284,6 +284,8 @@ export interface DesktopBridge {
     clientId: string,
     redirectUri: string,
   ): Promise<boolean>;
+  cloudAuthorizationStatus(): Promise<Array<"google-drive" | "onedrive">>;
+  disconnectCloud(provider: "google-drive" | "onedrive"): Promise<boolean>;
   cloudRequest(
     provider: "google-drive" | "onedrive",
     url: string,
@@ -438,7 +440,8 @@ export const catalogCourse = (
 export function createTauriDesktopBridge(
   invoke: InvokeNative,
   listen: ListenNative,
-  target: NativeTarget = window.__STWS_NATIVE_TARGET__ ?? "native-desktop",
+  target: NativeTarget = window.__ISCT_COMPANION_NATIVE_TARGET__ ??
+    "native-desktop",
 ): DesktopBridge {
   const result = async <T>(
     command: string,
@@ -728,6 +731,10 @@ export function createTauriDesktopBridge(
     },
     connectCloud: (provider, clientId, redirectUri) =>
       booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
+    cloudAuthorizationStatus: () =>
+      result<Array<"google-drive" | "onedrive">>("cloud_authorization_status"),
+    disconnectCloud: (provider) =>
+      booleanCommand("disconnect_cloud", { provider }),
     cloudRequest: (provider, url, init) =>
       result("cloud_request", { provider, url, init }),
     searchSyllabus: async (query, year, limit = 100, filters, language) => {
@@ -854,7 +861,7 @@ export function createTauriDesktopBridge(
 declare global {
   interface Window {
     /** Set by the trusted native bootstrap from its compile/runtime target. */
-    __STWS_NATIVE_TARGET__?: NativeTarget;
+    __ISCT_COMPANION_NATIVE_TARGET__?: NativeTarget;
   }
 }
 

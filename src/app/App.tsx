@@ -182,8 +182,8 @@ async function refreshReferenceSubscriptions(force = false): Promise<string> {
     const checkedAt = new Date().toISOString();
     const results = await pollReferenceSubscriptions(
       current,
-      (hashSource) =>
-        invoke<ReferenceProbeResult>("probe_reference_source", { hashSource }),
+      (indexUrl) =>
+        invoke<ReferenceProbeResult>("probe_reference_source", { indexUrl }),
       (kind, indexUrl, year, expectedIndexHash, knownHash) =>
         invoke<ReferenceRefreshResult>("refresh_reference_source", {
           kind,
@@ -611,10 +611,10 @@ function WorkspaceApp() {
     )
       return;
     const school =
-      (localStorage.getItem("stws-hook-school") as "launch" | "hourly") ||
+      (localStorage.getItem("isct-companion-hook-school") as "launch" | "hourly") ||
       "off";
     const backup =
-      (localStorage.getItem("stws-hook-export") as "launch" | "hourly") ||
+      (localStorage.getItem("isct-companion-hook-export") as "launch" | "hourly") ||
       "off";
     Promise.all([
       desktopBridge.configureSchoolSchedule(school),
@@ -630,8 +630,8 @@ function WorkspaceApp() {
       setSchedulerState(
         (event as CustomEvent<"active" | "off" | "failed">).detail,
       );
-    addEventListener("stws-scheduler-state", changed);
-    return () => removeEventListener("stws-scheduler-state", changed);
+    addEventListener("isct-companion-scheduler-state", changed);
+    return () => removeEventListener("isct-companion-scheduler-state", changed);
   }, [nativeCapabilities]);
   useEffect(() => {
     if (
@@ -1740,7 +1740,7 @@ function WorkspaceApp() {
                 );
                 const link = document.createElement("a");
                 link.href = url;
-                link.download = `campus-life-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`;
+                link.download = `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`;
                 link.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
               } catch (error) {
@@ -1791,7 +1791,7 @@ function WorkspaceApp() {
             matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
             showLoginPage={(profile) => {
               sessionStorage.setItem(
-                "stws-active-school-site",
+                "isct-companion-active-school-site",
                 profile === "science" ? "science-portal" : "tokyo-portal",
               );
               void navigateTo("web");

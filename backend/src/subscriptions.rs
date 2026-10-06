@@ -23,7 +23,6 @@ pub const BUNDLED_DEPARTMENTS_2026: &str =
 
 const MAX_INDEX_BYTES: usize = 128 * 1024;
 const MAX_DATA_BYTES: usize = 4 * 1024 * 1024;
-const MAX_HASH_BYTES: usize = 256;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -659,15 +658,11 @@ impl SubscriptionClient {
             .map_err(|e| e.to_string())?;
         Ok(Self { client })
     }
-    /// Downloads only the tiny plain-text hash source, never index.json or a
-    /// dataset. The publisher may include one trailing newline.
-    pub async fn probe_hash_source(&self, hash_url: &str) -> Result<String, String> {
-        let hash = self.get(https_url(hash_url)?, MAX_HASH_BYTES).await?;
-        let hash = hash.trim();
-        if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err("subscription hash source must contain one SHA-256 digest".into());
-        }
-        Ok(hash.to_ascii_lowercase())
+    /// Reads and validates the single repository entry point. Its raw hash is
+    /// used to skip dataset requests when no metadata changed.
+    pub async fn probe_index_source(&self, index_url: &str) -> Result<String, String> {
+        let (_, _, hash) = self.fetch_index(index_url, None).await?;
+        Ok(hash)
     }
     async fn get(&self, url: Url, limit: usize) -> Result<String, String> {
         let mut response = self
@@ -702,18 +697,18 @@ impl SubscriptionClient {
         &self,
         index_url: &str,
         expected_hash: Option<&str>,
-    ) -> Result<(Url, SubscriptionIndex), String> {
+    ) -> Result<(Url, SubscriptionIndex, String), String> {
         let base = https_url(index_url)?;
         let raw = self.get(base.clone(), MAX_INDEX_BYTES).await?;
+        let actual = format!("{:x}", Sha256::digest(raw.as_bytes()));
         if let Some(expected) = expected_hash {
-            let actual = format!("{:x}", Sha256::digest(raw.as_bytes()));
             if actual != expected.to_ascii_lowercase() {
-                return Err("index.json does not match its plain hash source".into());
+                return Err("index.json changed while the refresh was running".into());
             }
         }
         let index = serde_json::from_str(&raw)
             .map_err(|error| format!("invalid subscription index: {error}"))?;
-        Ok((base, index))
+        Ok((base, index, actual))
     }
 
     pub async fn fetch_selection(
@@ -742,7 +737,7 @@ impl SubscriptionClient {
         expected_index_hash: Option<&str>,
         known_hash: Option<&str>,
     ) -> Result<ReferenceFetch<AcademicCalendar>, String> {
-        let (base, index) = self.fetch_index(index_url, expected_index_hash).await?;
+        let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
         let source = &index
             .academic_years
             .get(&year.to_string())
@@ -777,7 +772,7 @@ impl SubscriptionClient {
         expected_index_hash: Option<&str>,
         known_hash: Option<&str>,
     ) -> Result<ReferenceFetch<Departments>, String> {
-        let (base, index) = self.fetch_index(index_url, expected_index_hash).await?;
+        let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
         let source = &index
             .admission_years
             .get(&year.to_string())
@@ -812,7 +807,7 @@ impl SubscriptionClient {
         expected_index_hash: Option<&str>,
         known_hash: Option<&str>,
     ) -> Result<ReferenceFetch<ImportantDates>, String> {
-        let (base, index) = self.fetch_index(index_url, expected_index_hash).await?;
+        let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
         let source = index
             .academic_years
             .get(&year.to_string())
@@ -845,7 +840,7 @@ impl SubscriptionClient {
         expected_index_hash: Option<&str>,
         known_hash: Option<&str>,
     ) -> Result<ReferenceFetch<Vec<PublishedExamFeed>>, String> {
-        let (base, index) = self.fetch_index(index_url, expected_index_hash).await?;
+        let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
         let sources = &index
             .academic_years
             .get(&year.to_string())

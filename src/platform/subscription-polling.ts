@@ -2,8 +2,6 @@ import type { Subscription, Workspace } from "../core/model";
 
 export const PUBLIC_DATA_INDEX =
   "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
-export const PUBLIC_DATA_HASH =
-  "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.sha256";
 export const SUBSCRIPTION_POLL_MS = 24 * 60 * 60 * 1000;
 export const REFERENCE_KINDS = [
   "calendar",
@@ -11,15 +9,6 @@ export const REFERENCE_KINDS = [
   "important-dates",
   "exams",
 ] as const satisfies readonly Subscription["kind"][];
-
-export function defaultSubscriptionHashSource(indexUrl: string) {
-  if (indexUrl === PUBLIC_DATA_INDEX) return PUBLIC_DATA_HASH;
-  try {
-    return new URL("index.sha256", indexUrl).toString();
-  } catch {
-    return PUBLIC_DATA_HASH;
-  }
-}
 
 type NetworkInformation = {
   type?: string;
@@ -77,7 +66,6 @@ export type ReferenceProbeResult = {
 export type PollResult = {
   kind: Subscription["kind"];
   url: string;
-  hashSource: string;
   indexHash?: string;
   skipped?: boolean;
   result?: ReferenceRefreshResult;
@@ -86,7 +74,7 @@ export type PollResult = {
 
 export async function pollReferenceSubscriptions(
   data: Workspace,
-  probe: (hashSource: string) => Promise<ReferenceProbeResult>,
+  probe: (indexUrl: string) => Promise<ReferenceProbeResult>,
   refresh: (
     kind: Subscription["kind"],
     indexUrl: string,
@@ -105,24 +93,20 @@ export async function pollReferenceSubscriptions(
     const year = subscriptionYear(data, kind);
     if (!year) continue;
     const url = row?.url.startsWith("https://") ? row.url : PUBLIC_DATA_INDEX;
-    const hashSource = row?.hashSource?.startsWith("https://")
-      ? row.hashSource
-      : defaultSubscriptionHashSource(url);
     try {
-      let pendingProbe = probes.get(hashSource);
+      let pendingProbe = probes.get(url);
       if (!pendingProbe) {
-        pendingProbe = probe(hashSource);
-        probes.set(hashSource, pendingProbe);
+        pendingProbe = probe(url);
+        probes.set(url, pendingProbe);
       }
       const { indexHash } = await pendingProbe;
       if (row?.indexHash === indexHash) {
-        results.push({ kind, url, hashSource, indexHash, skipped: true });
+        results.push({ kind, url, indexHash, skipped: true });
         continue;
       }
       results.push({
         kind,
         url,
-        hashSource,
         indexHash,
         result: await refresh(kind, url, year, indexHash, row?.remoteHash),
       });
@@ -130,7 +114,6 @@ export async function pollReferenceSubscriptions(
       results.push({
         kind,
         url,
-        hashSource,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -154,7 +137,6 @@ export function recordSubscriptionPoll(
         id: `subscription:public:${item.kind}`,
         kind: item.kind,
         url: item.url,
-        hashSource: item.hashSource,
         enabled: true,
         rev: 0,
         updatedAt: checkedAt,
@@ -163,7 +145,6 @@ export function recordSubscriptionPoll(
       draft.subscriptions.push(row);
     }
     row.url = item.url;
-    row.hashSource = item.hashSource;
     row.lastError = item.error;
     if (item.result) {
       row.indexHash = item.indexHash;

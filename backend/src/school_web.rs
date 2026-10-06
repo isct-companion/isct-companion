@@ -720,7 +720,7 @@ fn login_script(
     .ok()?
     .replace('<', "\\u003c")
     .replace('>', "\\u003e");
-    Some(SCHOOL_LOGIN_SCRIPT.replace("__STWS_LOGIN_CONFIG__", &config))
+    Some(SCHOOL_LOGIN_SCRIPT.replace("__ISCT_COMPANION_LOGIN_CONFIG__", &config))
 }
 
 /// Pages that ask for something. SAML hand-offs on the same origin
@@ -809,11 +809,7 @@ fn handle_login_relay(state: &Arc<Mutex<ControllerState>>, app: &AppHandle, enco
     }
 }
 
-fn handle_pull_progress(
-    state: &Arc<Mutex<ControllerState>>,
-    app: &AppHandle,
-    encoded: &str,
-) {
+fn handle_pull_progress(state: &Arc<Mutex<ControllerState>>, app: &AppHandle, encoded: &str) {
     if encoded.len() > 4 * 1024 {
         return;
     }
@@ -824,8 +820,10 @@ fn handle_pull_progress(
     else {
         return;
     };
-    if !matches!(progress.phase.as_str(), "catalog" | "course" | "material" | "assignment")
-        || progress.total > 10_000
+    if !matches!(
+        progress.phase.as_str(),
+        "catalog" | "course" | "material" | "assignment"
+    ) || progress.total > 10_000
         || progress.completed > progress.total
         || progress.course_title.len() > 512
         || progress.item_title.len() > 512
@@ -1345,7 +1343,7 @@ mod tests {
         assert!(login_script(
             "https://isct.ex-tic.com/auth/session",
             &science,
-            "stws-auth://test/",
+            "isct-companion-auth://test/",
             None,
         )
         .is_some());
@@ -1354,7 +1352,7 @@ mod tests {
             "http://isct.ex-tic.com/auth/session",
             "https://lms.s.isct.ac.jp/2025/",
         ] {
-            assert!(login_script(url, &science, "stws-auth://test/", None).is_none());
+            assert!(login_script(url, &science, "isct-companion-auth://test/", None).is_none());
         }
     }
 
@@ -1372,11 +1370,11 @@ mod tests {
         let script = login_script(
             "https://portal.nap.gsic.titech.ac.jp/portal.pl",
             &tokyo,
-            "stws-auth://test/",
+            "isct-companion-auth://test/",
             None,
         )
         .unwrap();
-        assert!(!script.contains("__STWS_LOGIN_CONFIG__"));
+        assert!(!script.contains("__ISCT_COMPANION_LOGIN_CONFIG__"));
         assert!(!script.contains("</script>"));
         assert!(script.contains("\"run\":\"run\""));
     }
@@ -1579,7 +1577,8 @@ mod tests {
 
     #[test]
     fn viewer_saves_never_overwrite_existing_files() {
-        let directory = std::env::temp_dir().join(format!("stws-download-test-{}", new_run_id()));
+        let directory =
+            std::env::temp_dir().join(format!("isct-companion-download-test-{}", new_run_id()));
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("a.pdf"), b"old").unwrap();
         let first = write_unique(&directory, "a.pdf", b"new").unwrap();
@@ -1693,12 +1692,7 @@ impl SchoolWebController {
         }
     }
 
-    fn complete_pull_job(
-        &self,
-        app: &AppHandle,
-        site: SchoolSite,
-        lms_course_id: Option<u64>,
-    ) {
+    fn complete_pull_job(&self, app: &AppHandle, site: SchoolSite, lms_course_id: Option<u64>) {
         let completed = self.state.lock().ok().is_some_and(|mut state| {
             if state.active_job
                 == Some(ActiveSchoolJob::Pull {
@@ -1732,9 +1726,10 @@ impl SchoolWebController {
                 state.active_job,
                 Some(ActiveSchoolJob::Session(active) | ActiveSchoolJob::Login(active))
                     if active == profile
-            ) || state.jobs.iter().any(
-                |job| matches!(job, SchoolJob::Session(queued) if *queued == profile),
-            );
+            ) || state
+                .jobs
+                .iter()
+                .any(|job| matches!(job, SchoolJob::Session(queued) if *queued == profile));
             if duplicate {
                 eprintln!("[school-queue] duplicate {profile:?} session discarded");
                 false
@@ -2211,9 +2206,12 @@ impl SchoolWebController {
         lms_course_id: Option<u64>,
     ) -> Result<Vec<IngestOutcome>, String> {
         let wait = |receiver: mpsc::Receiver<IngestOutcome>, seconds: u64| {
-            receiver.recv_timeout(Duration::from_secs(seconds)).map_err(|_| {
-                "The school page did not answer in time. Check the account in Settings.".to_string()
-            })
+            receiver
+                .recv_timeout(Duration::from_secs(seconds))
+                .map_err(|_| {
+                    "The school page did not answer in time. Check the account in Settings."
+                        .to_string()
+                })
         };
         {
             let mut state = self
@@ -2221,7 +2219,9 @@ impl SchoolWebController {
                 .lock()
                 .map_err(|_| "School web state is unavailable.".to_string())?;
             if state.login.is_some() {
-                return Err("Wait for the current school sign-in to finish, then pull again.".into());
+                return Err(
+                    "Wait for the current school sign-in to finish, then pull again.".into(),
+                );
             }
             if state.pulling.is_some() {
                 return Err("Another school pull is already running.".into());
@@ -2385,7 +2385,7 @@ impl SchoolWebController {
                         if let Ok(mut state) = self.state.lock() {
                             state.pending_ingestion.remove(&site);
                         }
-                        let extraction = format!("delete globalThis.__STWS_LMS_COURSE_ID__;globalThis.__STWS_LMS_FULL__=false;Promise.resolve({script}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))");
+                        let extraction = format!("delete globalThis.__ISCT_COMPANION_LMS_COURSE_ID__;globalThis.__ISCT_COMPANION_LMS_FULL__=false;Promise.resolve({script}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))");
                         let _ = webview.eval(&extraction);
                     }
                 }
@@ -2424,16 +2424,16 @@ impl SchoolWebController {
             rand::rng().fill_bytes(&mut bytes);
             URL_SAFE_NO_PAD.encode(bytes)
         };
-        let relay_prefix = format!("stws-extract://{nonce}/");
+        let relay_prefix = format!("isct-companion-extract://{nonce}/");
         if let Ok(mut state) = self.state.lock() {
             state.ingestion_relays.insert(site, relay_prefix.clone());
         }
         // Login reports arrive through the page title: unlike a relay
         // navigation, a title change can never cancel the page's own form
         // POST or redirect.
-        let auth_relay_prefix = format!("stws-auth:{nonce}:");
-        let progress_relay_prefix = format!("stws-progress:{nonce}:");
-        let debug_relay_prefix = format!("stws-login-debug://{nonce}/");
+        let auth_relay_prefix = format!("isct-companion-auth:{nonce}:");
+        let progress_relay_prefix = format!("isct-companion-progress:{nonce}:");
+        let debug_relay_prefix = format!("isct-companion-login-debug://{nonce}/");
         let relay_for_navigation = relay_prefix.clone();
         let relay_for_load = relay_prefix;
         let auth_relay_for_title = auth_relay_prefix.clone();
@@ -2592,9 +2592,9 @@ impl SchoolWebController {
                     .complete_session_job(&app_for_load, profile);
                 }
                 if let Some(active) = login {
-                    // Page capture is opt-in: STWS_LOGIN_DEBUG=1 yarn desktop:dev
+                    // Page capture is opt-in: ISCT_COMPANION_LOGIN_DEBUG=1 yarn desktop:dev
                     let debug_relay = (cfg!(debug_assertions)
-                        && std::env::var_os("STWS_LOGIN_DEBUG").is_some())
+                        && std::env::var_os("ISCT_COMPANION_LOGIN_DEBUG").is_some())
                     .then_some(debug_relay_for_load.as_str());
                     if let Some(script) =
                         login_script(raw_url, &active, &auth_relay_for_load, debug_relay)
@@ -2651,9 +2651,9 @@ impl SchoolWebController {
                     .unwrap_or((false, None, false));
                 if let Some(script) = should_ingest.then(|| ingestion_script(raw_url)).flatten() {
                     let course_config = lms_course_id
-                        .map(|id| format!("globalThis.__STWS_LMS_COURSE_ID__={id};"))
-                        .unwrap_or_else(|| "delete globalThis.__STWS_LMS_COURSE_ID__;".into());
-                    let extraction = format!("{course_config}globalThis.__STWS_LMS_FULL__={lms_full};globalThis.__STWS_LMS_PROGRESS__=v=>document.title='{progress_relay_for_load}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');Promise.resolve({script}).then(v=>location.href='{}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))", relay_for_load);
+                        .map(|id| format!("globalThis.__ISCT_COMPANION_LMS_COURSE_ID__={id};"))
+                        .unwrap_or_else(|| "delete globalThis.__ISCT_COMPANION_LMS_COURSE_ID__;".into());
+                    let extraction = format!("{course_config}globalThis.__ISCT_COMPANION_LMS_FULL__={lms_full};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>document.title='{progress_relay_for_load}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');Promise.resolve({script}).then(v=>location.href='{}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))", relay_for_load);
                     let _ = webview.eval(&extraction);
                 }
             })
@@ -2672,7 +2672,7 @@ impl SchoolWebController {
                                 if sanitize_school_url(&capture.url).is_some()
                                     && capture.html.len() <= 2 * 1024 * 1024
                                 {
-                                    let directory = std::env::temp_dir().join("campus-life-login-debug");
+                                    let directory = std::env::temp_dir().join("isct-companion-login-debug");
                                     if fs::create_dir_all(&directory).is_ok() {
                                         let timestamp = SystemTime::now()
                                             .duration_since(UNIX_EPOCH)

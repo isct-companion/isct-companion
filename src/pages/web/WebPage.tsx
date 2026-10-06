@@ -84,7 +84,7 @@ export function Web({
 }) {
   const [site, setSite] = useState<SchoolSite>(() => {
     if (requestedUrl) return siteForAddress(requestedUrl) ?? "science-lms";
-    const active = sessionStorage.getItem("stws-active-school-site");
+    const active = sessionStorage.getItem("isct-companion-active-school-site");
     if (active && active in official) return active as SchoolSite;
     if (!data.settings.restoreSchoolPage)
       return "science-portal";
@@ -193,7 +193,7 @@ export function Web({
   useEffect(() => {
     if (!embedded || !desktopBridge || !active) return;
     // Settings → "Show page" asks for a site while this page is kept alive.
-    const requested = sessionStorage.getItem("stws-active-school-site");
+    const requested = sessionStorage.getItem("isct-companion-active-school-site");
     if (
       !requestedUrl &&
       requested &&
@@ -263,7 +263,7 @@ export function Web({
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
-    sessionStorage.setItem("stws-active-school-site", next);
+    sessionStorage.setItem("isct-companion-active-school-site", next);
     if (data.settings.restoreSchoolPage) update((draft) => {
       draft.settings.activeSchoolSite = next; return draft;
     });
@@ -311,7 +311,7 @@ export function Web({
       }
     }
     if (destination !== site) {
-      sessionStorage.setItem("stws-active-school-site", destination);
+      sessionStorage.setItem("isct-companion-active-school-site", destination);
       if (data.settings.restoreSchoolPage) update((draft) => {
         draft.settings.activeSchoolSite = destination; return draft;
       });

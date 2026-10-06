@@ -14,7 +14,7 @@ import {
   type ExportDocument,
 } from "../storage/repository";
 
-const STORAGE_KEY = "stws-workspace-v3";
+const STORAGE_KEY = "isct-companion-workspace-v3";
 
 function validDocument(): ExportDocument {
   const workspace = seedWorkspace();

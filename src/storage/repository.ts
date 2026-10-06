@@ -9,12 +9,12 @@ import {
   type Workspace,
 } from "../core/model";
 
-const KEY = "stws-workspace-v3";
+const KEY = "isct-companion-workspace-v3";
 
 export type ExportDocument = {
-  schemaVersion: 3 | 4;
+  schemaVersion: 6;
   exportedAt: string;
-  kind: "campus-life-local-backup";
+  kind: "IsctCompanion.local-backup";
   /** Format metadata only; never the device preference stored in SQLite. */
   deviceId: string;
   tables: Record<string, unknown>;
@@ -92,9 +92,9 @@ function localExport(workspace: Workspace): ExportDocument {
     key, value, rev: 1, updatedAt: exportedAt, updatedBy: workspace.deviceId,
   });
   return {
-    schemaVersion: 4,
+    schemaVersion: 6,
     exportedAt,
-    kind: "campus-life-local-backup",
+    kind: "IsctCompanion.local-backup",
     deviceId: "local-backup",
     localNotes: [],
     tables: {
@@ -158,13 +158,13 @@ const ARRAY_TABLES = [
   "settings",
 ] as const;
 
-function validateExportDocument(value: unknown): ExportDocument {
+export function validateExportDocument(value: unknown): ExportDocument {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new UnsupportedWorkspaceSchemaError("Export must be an object.");
   const document = value as Partial<ExportDocument>;
   if (
-    document.schemaVersion !== 4 ||
-    document.kind !== "campus-life-local-backup" ||
+    document.schemaVersion !== 6 ||
+    document.kind !== "IsctCompanion.local-backup" ||
     typeof document.exportedAt !== "string" ||
     Number.isNaN(Date.parse(document.exportedAt)) ||
     !document.tables ||

@@ -15,7 +15,7 @@ const LABEL: &str = "lms-files";
 /// This static page loads in ~50 ms; the dashboard takes ~9 s before scripts.
 const HOME: &str = "https://lms.s.isct.ac.jp/2025/robots.txt";
 /// The page reports a probe result by navigating here; the navigation is cancelled.
-const RELAY: &str = "https://campus-life.invalid/file";
+const RELAY: &str = "https://isctcompanion.invalid/file";
 
 pub enum Fetched {
     Saved,
@@ -48,7 +48,13 @@ impl Downloader {
     /// Download `url` to `target`, or report its size when it exceeds `limit`.
     /// WebKit writes `<target>.part`, renamed once complete, so a half-written
     /// file is never previewed.
-    pub async fn fetch(&self, app: &AppHandle, url: &Url, target: PathBuf, limit: Option<u64>) -> Result<Fetched, String> {
+    pub async fn fetch(
+        &self,
+        app: &AppHandle,
+        url: &Url,
+        target: PathBuf,
+        limit: Option<u64>,
+    ) -> Result<Fetched, String> {
         let _turn = self.turn.lock().await;
         // Another request may have fetched the same file while this one waited.
         if target.is_file() {
@@ -59,8 +65,13 @@ impl Downloader {
         part.push(".part");
         let part = PathBuf::from(part);
         let (done, result) = oneshot::channel();
-        *self.job.lock().map_err(|_| "Downloader is unavailable")? = Some(Job { url: url.to_string(), target: part.clone(), done });
-        view.eval(&probe_script(url, limit)).map_err(|e| e.to_string())?;
+        *self.job.lock().map_err(|_| "Downloader is unavailable")? = Some(Job {
+            url: url.to_string(),
+            target: part.clone(),
+            done,
+        });
+        view.eval(&probe_script(url, limit))
+            .map_err(|e| e.to_string())?;
         let outcome = match tokio::time::timeout(Duration::from_secs(180), result).await {
             Ok(Ok(outcome)) => outcome,
             _ => {
@@ -69,7 +80,9 @@ impl Downloader {
             }
         };
         match outcome {
-            Ok(Fetched::Saved) => std::fs::rename(&part, &target).map(|_| Fetched::Saved).map_err(|e| e.to_string()),
+            Ok(Fetched::Saved) => std::fs::rename(&part, &target)
+                .map(|_| Fetched::Saved)
+                .map_err(|e| e.to_string()),
             other => {
                 let _ = std::fs::remove_file(&part);
                 other
@@ -93,12 +106,10 @@ impl Downloader {
             }
             if attempt == 0 {
                 let school = app.state::<crate::school_web::SchoolWebController>();
-                let _ = school.request_session(
-                    app,
-                    crate::school_auth::SchoolAuthProfile::Science,
-                );
+                let _ = school.request_session(app, crate::school_auth::SchoolAuthProfile::Science);
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                view.navigate(Url::parse(HOME).expect("valid LMS URL")).map_err(|e| e.to_string())?;
+                view.navigate(Url::parse(HOME).expect("valid LMS URL"))
+                    .map_err(|e| e.to_string())?;
             }
         }
         Err("LMS sign-in required".into())
@@ -113,12 +124,18 @@ impl Downloader {
 
 fn create(app: &AppHandle) -> Result<Webview, String> {
     let main = app.get_window("main").ok_or("Main window is unavailable")?;
-    let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(Url::parse(HOME).expect("valid LMS URL")));
+    let builder = WebviewBuilder::new(
+        LABEL,
+        WebviewUrl::External(Url::parse(HOME).expect("valid LMS URL")),
+    );
     #[cfg(target_os = "macos")]
     let builder = builder.data_store_identifier(crate::school_web::SCHOOL_DATA_STORE);
     #[cfg(target_os = "windows")]
     let builder = builder.data_directory(
-        app.path().app_data_dir().map_err(|e| e.to_string())?.join("shared-webview-data"),
+        app.path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("shared-webview-data"),
     );
     let handle = app.clone();
     let for_navigation = app.clone();
@@ -135,14 +152,20 @@ fn create(app: &AppHandle) -> Result<Webview, String> {
             if !url.as_str().starts_with(RELAY) {
                 return url.scheme() == "https";
             }
-            let query = |key: &str| url.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.into_owned());
+            let query = |key: &str| {
+                url.query_pairs()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, v)| v.into_owned())
+            };
             let downloader = for_navigation.state::<Downloader>();
             match query("state").as_deref() {
                 Some("large") => downloader.finish(Ok(Fetched::TooLarge(
                     query("value").and_then(|v| v.parse().ok()).unwrap_or(0),
                 ))),
                 Some("signin") => {
-                    if let Ok(mut page) = downloader.page.lock() { *page = None; }
+                    if let Ok(mut page) = downloader.page.lock() {
+                        *page = None;
+                    }
                     downloader.finish(Err("LMS sign-in required".into()));
                 }
                 _ => downloader.finish(Err(format!(
@@ -157,7 +180,9 @@ fn create(app: &AppHandle) -> Result<Webview, String> {
             match event {
                 DownloadEvent::Requested { url, destination } => {
                     let target = downloader.job.lock().ok().and_then(|job| {
-                        job.as_ref().filter(|job| job.url == url.as_str()).map(|job| job.target.clone())
+                        job.as_ref()
+                            .filter(|job| job.url == url.as_str())
+                            .map(|job| job.target.clone())
                     });
                     match target {
                         Some(target) => {
@@ -170,10 +195,16 @@ fn create(app: &AppHandle) -> Result<Webview, String> {
                     }
                 }
                 DownloadEvent::Finished { url, success, .. } => {
-                    let ours = downloader.job.lock().ok()
-                        .is_some_and(|job| job.as_ref().is_some_and(|job| job.url == url.as_str()));
+                    let ours =
+                        downloader.job.lock().ok().is_some_and(|job| {
+                            job.as_ref().is_some_and(|job| job.url == url.as_str())
+                        });
                     if ours {
-                        downloader.finish(if success { Ok(Fetched::Saved) } else { Err("File download failed".into()) });
+                        downloader.finish(if success {
+                            Ok(Fetched::Saved)
+                        } else {
+                            Err("File download failed".into())
+                        });
                     }
                     true
                 }
@@ -181,7 +212,11 @@ fn create(app: &AppHandle) -> Result<Webview, String> {
             }
         });
     let view = main
-        .add_child(builder, LogicalPosition::new(0.0, 0.0), LogicalSize::new(1.0, 1.0))
+        .add_child(
+            builder,
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(1.0, 1.0),
+        )
         .map_err(|e| format!("Downloader could not be created: {e}"))?;
     view.hide().map_err(|e| e.to_string())?;
     Ok(view)

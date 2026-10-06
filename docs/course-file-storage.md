@@ -65,9 +65,9 @@ inspected or removed is kept.
 
 The default root is:
 
-- desktop: OS Documents directory / `Campus Life`;
-- desktop fallback: app data directory / `Campus Life`;
-- mobile: app data directory / `Campus Life`.
+- desktop: OS Documents directory / `IsctCompanion`;
+- desktop fallback: app data directory / `IsctCompanion`;
+- mobile: app data directory / `IsctCompanion`.
 
 A custom desktop root is stored separately as
 `<app-data>/course-files-root.json`; changing it does not move or delete the old

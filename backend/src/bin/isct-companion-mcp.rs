@@ -1,4 +1,4 @@
-use science_tokyo_workstation_lib::data::DataStore;
+use isct_companion_lib::data::DataStore;
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -199,7 +199,7 @@ fn duration(args: &Value, required: bool) -> Result<Option<u64>, String> {
 
 fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
     if !store.agent_access_enabled()? {
-        return Err("Campus Life agent access is disabled in Settings.".into());
+        return Err("IsctCompanion agent access is disabled in Settings.".into());
     }
     let workspace = store.load_workspace()?;
     match name {
@@ -277,15 +277,19 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
             if !store.user_rows("plan_items")?.iter().any(|row| {
-                    row.get("offeringId").and_then(Value::as_str) == Some(offering_id)
-                        && row.get("termId").and_then(Value::as_str) == Some(term)
-                        && row.get("deletedAt").is_none()
-                }) {
-                store.put_user_record("plan_items", json!({
-                    "kind": "plan-item",
-                    "termId": term, "offeringId": offering_id, "state": "planned",
-                    "source": {"provider":"mcp"}
-                }), "mcp")?;
+                row.get("offeringId").and_then(Value::as_str) == Some(offering_id)
+                    && row.get("termId").and_then(Value::as_str) == Some(term)
+                    && row.get("deletedAt").is_none()
+            }) {
+                store.put_user_record(
+                    "plan_items",
+                    json!({
+                        "kind": "plan-item",
+                        "termId": term, "offeringId": offering_id, "state": "planned",
+                        "source": {"provider":"mcp"}
+                    }),
+                    "mcp",
+                )?;
             }
             write_result(store, name)
         }
@@ -310,19 +314,24 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let duration = duration(args, true)?.unwrap();
             let rule = args.get("rrule").and_then(Value::as_str);
             if let Some(rule) = rule {
-                science_tokyo_workstation_lib::plans::validate_rrule(rule)?;
+                isct_companion_lib::plans::validate_rrule(rule)?;
             }
-            store.put_user_record("plans", json!({
-                "title": required(args, "title")?,
-                "start": start, "duration": duration,
-                "rrule": rule, "room": args.get("room").cloned().unwrap_or(Value::Null),
-                "exdates": [], "source": {"provider":"mcp"}
-            }), "mcp")?;
+            store.put_user_record(
+                "plans",
+                json!({
+                    "title": required(args, "title")?,
+                    "start": start, "duration": duration,
+                    "rrule": rule, "room": args.get("room").cloned().unwrap_or(Value::Null),
+                    "exdates": [], "source": {"provider":"mcp"}
+                }),
+                "mcp",
+            )?;
             write_result(store, name)
         }
         "plan_event_update" => {
             let id = required(args, "id")?;
-            let mut row = store.user_rows("plans")?
+            let mut row = store
+                .user_rows("plans")?
                 .into_iter()
                 .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
                 .ok_or_else(|| "plan was not found".to_string())?;
@@ -331,7 +340,7 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             }
             duration(args, false)?;
             if let Some(rule) = args.get("rrule").and_then(Value::as_str) {
-                science_tokyo_workstation_lib::plans::validate_rrule(rule)?;
+                isct_companion_lib::plans::validate_rrule(rule)?;
             }
             for key in ["title", "start", "duration", "rrule", "room"] {
                 if let Some(value) = args.get(key) {
@@ -352,10 +361,17 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let id = required(args, "id")?;
             let assignment = workspace["assignments"]
                 .as_array()
-                .and_then(|rows| rows.iter().find(|row| row.get("id").and_then(Value::as_str) == Some(id)))
+                .and_then(|rows| {
+                    rows.iter()
+                        .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
+                })
                 .ok_or_else(|| "assignment was not found".to_string())?;
-            let source_key = assignment.get("sourceKey").and_then(Value::as_str).unwrap_or(id);
-            let mut mark = store.user_rows("assignment_marks")?
+            let source_key = assignment
+                .get("sourceKey")
+                .and_then(Value::as_str)
+                .unwrap_or(id);
+            let mut mark = store
+                .user_rows("assignment_marks")?
                 .into_iter()
                 .find(|row| row.get("sourceKey").and_then(Value::as_str) == Some(source_key))
                 .unwrap_or_else(|| json!({"sourceKey":source_key,"assignmentId":id}));
@@ -376,19 +392,19 @@ fn main() {
         }
     }
     let Some(database) = database else {
-        eprintln!("campus-mcp requires --db /path/to/school.db");
+        eprintln!("isct-companion-mcp requires --db /path/to/school.db");
         std::process::exit(2);
     };
     let store = match DataStore::initialize(database) {
         Ok((store, _)) => store,
         Err(error) => {
-            eprintln!("campus-mcp could not open the database: {error}");
+            eprintln!("isct-companion-mcp could not open the database: {error}");
             std::process::exit(2);
         }
     };
     let enabled = store.agent_access_enabled().unwrap_or(false);
     if !enabled {
-        eprintln!("Campus Life agent access is disabled in Settings.");
+        eprintln!("IsctCompanion agent access is disabled in Settings.");
         std::process::exit(3);
     }
 
@@ -411,7 +427,7 @@ fn main() {
                 json!({
                     "protocolVersion": "2025-06-18",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "campus-life", "version": env!("CARGO_PKG_VERSION")}
+                    "serverInfo": {"name": "IsctCompanion", "version": env!("CARGO_PKG_VERSION")}
                 }),
             ),
             "ping" => response(id, json!({})),

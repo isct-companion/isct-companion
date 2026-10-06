@@ -823,9 +823,14 @@ mod offering_locator_tests {
     #[test]
     fn a_bare_offering_id_uses_the_canonical_detail_path() {
         let url = super::offering_url("202608712").unwrap();
-        assert_eq!(url.as_str(), "https://syllabus.s.isct.ac.jp/courses/-/-/-/202608712");
+        assert_eq!(
+            url.as_str(),
+            "https://syllabus.s.isct.ac.jp/courses/-/-/-/202608712"
+        );
         // Setting the language must keep the id.
-        assert!(super::localized_detail_url(&url, "en").as_str().ends_with("/202608712?hl=en"));
+        assert!(super::localized_detail_url(&url, "en")
+            .as_str()
+            .ends_with("/202608712?hl=en"));
     }
 
     #[test]

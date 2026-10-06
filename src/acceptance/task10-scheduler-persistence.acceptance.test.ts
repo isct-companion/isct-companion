@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { ScheduledTask } from "../core/model";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 
-const STORAGE_KEY = "stws-workspace-v3";
+const STORAGE_KEY = "isct-companion-workspace-v3";
 
 function scheduledExport(): ScheduledTask {
   return {

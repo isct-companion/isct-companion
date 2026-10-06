@@ -7,7 +7,6 @@ import { Row, Toggle } from "../../components/forms";
 import { workspaceStore } from "../../store/workspace";
 import {
   PUBLIC_DATA_INDEX,
-  defaultSubscriptionHashSource,
   subscriptionYear,
   type ReferenceProbeResult,
   type ReferenceRefreshResult,
@@ -113,16 +112,13 @@ export function ReferenceSubscriptions({
                 onClick={async () => {
                   setBusy(definition.kind);
                   try {
-                    const hashSource =
-                      row?.hashSource ?? defaultSubscriptionHashSource(url);
                     const probe = await invoke<ReferenceProbeResult>(
                       "probe_reference_source",
-                      { hashSource },
+                      { indexUrl: url },
                     );
                     if (row?.indexHash === probe.indexHash) {
                       saveSubscription(update, definition.kind, {
                         url,
-                        hashSource,
                         lastError: undefined,
                       });
                       notify(`${t(definition.title)}: 0 ${t("changes")}`);
@@ -138,7 +134,6 @@ export function ReferenceSubscriptions({
                     await workspaceStore.reload();
                     saveSubscription(update, definition.kind, {
                       url,
-                      hashSource,
                       indexHash: probe.indexHash,
                       dataUrl: result.dataUrl,
                       remoteHash: result.remoteHash,
@@ -184,16 +179,11 @@ export function SubscriptionSources({
   update: Update;
 }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
-  const [hashUrls, setHashUrls] = useState<Record<string, string>>({});
   return (
     <>
       {definitions.map((definition) => {
         const row = activeRow(data, definition.kind);
         const url = urls[definition.kind] ?? indexUrl(row);
-        const hashSource =
-          hashUrls[definition.kind] ??
-          row?.hashSource ??
-          defaultSubscriptionHashSource(url);
         return (
           <Fragment key={definition.kind}>
             <label className="configField">
@@ -211,7 +201,6 @@ export function SubscriptionSources({
                   if (urls[definition.kind] !== undefined && url !== row?.url)
                     saveSubscription(update, definition.kind, {
                       url,
-                      hashSource: defaultSubscriptionHashSource(url),
                       indexHash: undefined,
                       dataUrl: undefined,
                       remoteHash: undefined,
@@ -224,30 +213,6 @@ export function SubscriptionSources({
                   {row.dataUrl}
                 </a>
               )}
-            </label>
-            <label className="configField">
-              <span>{t(definition.title)} · {t("Hash source")}</span>
-              <UiInput
-                value={hashSource}
-                type="url"
-                onChange={(event) =>
-                  setHashUrls((prior) => ({
-                    ...prior,
-                    [definition.kind]: event.target.value,
-                  }))
-                }
-                onBlur={() => {
-                  if (
-                    hashUrls[definition.kind] !== undefined &&
-                    hashSource !== row?.hashSource
-                  )
-                    saveSubscription(update, definition.kind, {
-                      hashSource,
-                      indexHash: undefined,
-                      lastError: undefined,
-                    });
-                }}
-              />
             </label>
           </Fragment>
         );

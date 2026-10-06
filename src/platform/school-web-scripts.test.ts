@@ -96,7 +96,7 @@ describe("教務Web popup overlay", () => {
   });
 
   const overlays = () => [
-    ...document.querySelectorAll<HTMLIFrameElement>("iframe[data-stws-popup]"),
+    ...document.querySelectorAll<HTMLIFrameElement>("iframe[data-isct-companion-popup]"),
   ];
 
   it("shows same-origin popups in a named frame that knows its opener", async () => {
@@ -111,7 +111,7 @@ describe("教務Web popup overlay", () => {
       new URL("/Titech/PID1_3_1.aspx?cps=1", location.href).href,
     );
     expect(
-      (frame as HTMLIFrameElement & { stwsOpener?: Window }).stwsOpener,
+      (frame as HTMLIFrameElement & { isctCompanionOpener?: Window }).isctCompanionOpener,
     ).toBe(window);
     expect(popup).toBe(frame.contentWindow);
     // The same window name reuses the overlay, like a named popup window.
@@ -120,8 +120,8 @@ describe("教務Web popup overlay", () => {
     expect(nativeOpen).not.toHaveBeenCalled();
 
     (
-      window as Window & { __stwsPopups: { close(frame: Element): void } }
-    ).__stwsPopups.close(frame);
+      window as Window & { __isctCompanionPopups: { close(frame: Element): void } }
+    ).__isctCompanionPopups.close(frame);
     await new Promise((resolve) => setTimeout(resolve));
     expect(overlays()).toHaveLength(0);
   });

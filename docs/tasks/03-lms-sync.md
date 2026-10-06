@@ -8,7 +8,7 @@ Course identity is provider-independent. `course_identity_map` records `(provide
 
 ## Today
 
-`backend/src/school_extract.rs` holds `T2SCHOLA_EXTRACT_SCRIPT`, evaluated by `backend/src/school_web.rs` on every LMS page load; it scrapes the DOM and relays JSON to Rust through a `stws-extract://{nonce}/…` navigation, which `stage_school_payload` / `publish_school_cache` validate into `school-cache.json`. Keep the relay and staging idea; replace the scraping and the JSON file.
+`backend/src/school_extract.rs` holds `T2SCHOLA_EXTRACT_SCRIPT`, evaluated by `backend/src/school_web.rs` on every LMS page load; it scrapes the DOM and relays JSON to Rust through a `isct-companion-extract://{nonce}/…` navigation, which `stage_school_payload` / `publish_school_cache` validate into `school-cache.json`. Keep the relay and staging idea; replace the scraping and the JSON file.
 
 ## Transport (verified 2026-09-28)
 

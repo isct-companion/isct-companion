@@ -381,7 +381,8 @@ mod tests {
     #[test]
     fn syllabus_course_links_keep_their_offering_id() {
         assert_eq!(
-            sanitize_school_url("https://syllabus.s.isct.ac.jp/courses?jwc=202602431&x=1").as_deref(),
+            sanitize_school_url("https://syllabus.s.isct.ac.jp/courses?jwc=202602431&x=1")
+                .as_deref(),
             Some("https://syllabus.s.isct.ac.jp/courses?jwc=202602431")
         );
         assert_eq!(

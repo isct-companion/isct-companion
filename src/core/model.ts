@@ -138,7 +138,6 @@ export function seedWorkspace(): Workspace {
         provider: "none",
         clientId: "",
         redirectUri: "http://127.0.0.1:42813/oauth/callback",
-        frequency: "launch",
         conflict: "resolve-manually",
       },
       subscriptionRefresh: {
@@ -163,7 +162,7 @@ export function seedWorkspace(): Workspace {
     importStatus: { school: "not-configured" },
     syncStatus: {
       state: "needs-configuration",
-      message: "Choose a provider and add its OAuth client ID.",
+      message: "Cloud sync is off.",
     },
   };
 }

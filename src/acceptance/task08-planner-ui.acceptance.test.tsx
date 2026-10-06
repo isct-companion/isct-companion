@@ -86,7 +86,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.useRealTimers();
-  localStorage.removeItem("stws-show-grades");
+  localStorage.removeItem("isct-companion-show-grades");
   vi.restoreAllMocks();
 });
 
@@ -386,7 +386,7 @@ describe("Unified schedule view and editing", () => {
   });
 
   it("renders grades only after Details is clicked, ignoring the old visibility preference", async () => {
-    localStorage.setItem("stws-show-grades", "true");
+    localStorage.setItem("isct-companion-show-grades", "true");
     const renderSummary = async () =>
       await act(async () =>
         root.render(

@@ -14,7 +14,6 @@ schema/departments.schema.json
 data/2026/academic-calendar.json
 data/2026/departments.json
 index.json          # separate academicYears and admissionYears maps
-index.sha256        # plain SHA-256 of the raw index.json bytes
 ```
 
 `academic-calendar.json`:
@@ -64,7 +63,7 @@ index.sha256        # plain SHA-256 of the raw index.json bytes
 ## App side
 
 - Settings → Subscriptions: the public repository default index URL (bundled files remain a legacy/offline reference), custom URL, enable/disable, last update, errors.
-- Fetch the tiny plain `index.sha256` first. Only when it changes, fetch and verify `index.json`, select the calendar from `academicYears[academicYear]`, and independently select the guide from `admissionYears[academicProfile.admissionYear]`; each selected entry declares `source`, canonical JSON `hash`, and RFC 3339 `ts`. `GET` over HTTPS only, size-bounded, no cookies. Validate against the schemas (embed them); reject the whole selected file on any error and keep its current data.
+- Fetch only `index.json`, hash its raw bytes locally, select the calendar from `academicYears[academicYear]`, and independently select the guide from `admissionYears[academicProfile.admissionYear]`; each selected entry declares `source`, canonical JSON `hash`, and RFC 3339 `ts`. If the local index hash is unchanged, skip dataset requests. `GET` over HTTPS only, size-bounded, no cookies. Validate against the schemas (embed them); reject the whole selected file on any error and keep its current data.
 - Apply through `update()` from task 1; same hash → no change. Write `academic_calendar`, `departments`, `recommended_courses`.
 - Department and recommendation row ids include the admission cohort (`cohort:{admissionYear}:…`) so applying one cohort never overwrites or tombstones another cohort.
 - Check on launch at most once a day.

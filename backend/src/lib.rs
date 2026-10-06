@@ -295,8 +295,8 @@ async fn pull_school(
     tauri::async_runtime::spawn_blocking(move || {
         controller.request_pull(&handle, site, lms_course_id)
     })
-        .await
-        .map_err(|_| "The school pull stopped unexpectedly.".to_string())?
+    .await
+    .map_err(|_| "The school pull stopped unexpectedly.".to_string())?
 }
 
 /// School-owned records the workspace does not carry (LMS courses,
@@ -497,6 +497,26 @@ async fn connect_cloud(
 }
 
 #[tauri::command]
+fn cloud_authorization_status(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+) -> Result<Vec<CloudProvider>, String> {
+    require_local_main(&webview)?;
+    service.authorized_providers()
+}
+
+#[tauri::command]
+fn disconnect_cloud(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    provider: CloudProvider,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    service.disconnect(provider)?;
+    Ok(true)
+}
+
+#[tauri::command]
 async fn cloud_request(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
@@ -599,7 +619,7 @@ fn write_scheduled_export(
     if parsed
         .get("schemaVersion")
         .and_then(serde_json::Value::as_u64)
-        != Some(4)
+        != Some(6)
     {
         return Err("scheduled export schema is unsupported".into());
     }
@@ -1008,7 +1028,10 @@ fn agent_command(
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    Ok(format!("campus-mcp --db {}", store.path().display()))
+    Ok(format!(
+        "isct-companion-mcp --db {}",
+        store.path().display()
+    ))
 }
 
 #[tauri::command]
@@ -1028,11 +1051,11 @@ fn apply_bundled_subscriptions(
 #[tauri::command]
 async fn probe_reference_source(
     webview: tauri::Webview,
-    hash_source: String,
+    index_url: String,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
     let hash = subscriptions::SubscriptionClient::new()?
-        .probe_hash_source(&hash_source)
+        .probe_index_source(&index_url)
         .await?;
     Ok(serde_json::json!({"indexHash":hash}))
 }
@@ -1195,6 +1218,8 @@ pub fn run() {
             request_notification_permission,
             notify,
             connect_cloud,
+            cloud_authorization_status,
+            disconnect_cloud,
             cloud_request,
             load_workspace,
             new_user_record_id,
@@ -1242,23 +1267,23 @@ pub fn run() {
 
             #[cfg(desktop)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Science Tokyo Workstation")
+                .title("IsctCompanion")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(860.0, 620.0)
                 .initialization_script(
-                    "Object.defineProperty(window,'__STWS_NATIVE_TARGET__',{value:'native-desktop',writable:false,configurable:false});",
+                    "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{value:'native-desktop',writable:false,configurable:false});",
                 )
                 .build()?;
 
             #[cfg(mobile)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .initialization_script(
-                    "Object.defineProperty(window,'__STWS_NATIVE_TARGET__',{value:'native-mobile',writable:false,configurable:false});",
+                    "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{value:'native-mobile',writable:false,configurable:false});",
                 )
                 .build()?;
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Science Tokyo Workstation")
+        .expect("failed to build IsctCompanion")
         .run(|_, _| {});
 }

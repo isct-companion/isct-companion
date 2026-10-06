@@ -331,7 +331,6 @@ contract!(Subscription {
     #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
     #[serde(default)] #[ts(optional)] pub data_url: Option<String>, pub url: String,
     #[ts(type = "\"calendar\" | \"departments\" | \"important-dates\" | \"exams\"")] pub kind: String, pub enabled: bool,
-    #[serde(default)] #[ts(optional)] pub hash_source: Option<String>,
     #[serde(default)] #[ts(optional)] pub index_hash: Option<String>,
     #[serde(default)] #[ts(optional)] pub remote_hash: Option<String>,
     #[serde(default)] #[ts(optional)] pub source_ts: Option<String>,
@@ -370,7 +369,6 @@ contract!(CloudSettings {
     #[ts(type = "\"none\" | \"google-drive\" | \"onedrive\"")] pub provider: String,
     pub client_id: String,
     #[serde(default)] #[ts(optional)] pub redirect_uri: Option<String>,
-    #[ts(type = "\"manual\" | \"launch\" | \"hourly\" | \"daily\"")] pub frequency: String,
     #[ts(type = "\"keep-current\" | \"use-latest\" | \"resolve-manually\"")] pub conflict: String,
 });
 contract!(SubscriptionRefreshSettings {
