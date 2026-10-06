@@ -1,3 +1,5 @@
+#[path = "../src/contracts.rs"]
+mod contracts;
 #[path = "../src/data/mod.rs"]
 mod data;
 #[path = "../src/subscriptions.rs"]
@@ -77,12 +79,12 @@ fn department_guide_must_match_its_declared_admission_cohort() {
 fn admission_year_2025_selects_only_the_real_guide_2025_dataset() {
     let index: Value = serde_json::from_str(BUNDLED_INDEX).unwrap();
     assert_eq!(
-        index["admissionYears"]["2025"]["departments"],
+        index["admissionYears"]["2025"]["departments"]["source"],
         "data/2025/departments.json"
     );
     assert_ne!(
-        index["admissionYears"]["2025"]["departments"],
-        index["admissionYears"]["2026"]["departments"]
+        index["admissionYears"]["2025"]["departments"]["source"],
+        index["admissionYears"]["2026"]["departments"]["source"]
     );
 
     let (calendar, departments) = bundled_selection(2026, 2025).unwrap();

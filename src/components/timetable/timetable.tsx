@@ -1,6 +1,5 @@
 import { t } from "../../i18n";
 import { useState } from "react";
-import { blockLanes } from "./lanes";
 import {
   teachingPeriods,
   timetableOffset,
@@ -24,7 +23,8 @@ const SLOT_DAYS = 6;
 export type Block = {
   key: string;
   id: string;
-  kind: "course" | "event" | "plan";
+  kind: "course" | "event" | "plan" | "exam";
+  date?: string;
   title: string;
   subtitle?: string;
   room: string;
@@ -34,6 +34,9 @@ export type Block = {
   conflict?: boolean;
   dim?: boolean;
   cancelled?: boolean;
+  timeLabel?: string;
+  conflictWith?: string[];
+  overridden?: boolean;
 };
 
 export type DayColumn = {
@@ -160,16 +163,13 @@ export function WeekTimetable({
                 />
               );
             })}
-            {(() => {
-              const lanes = blockLanes(column.blocks.filter((block) => CLOCK.test(block.startTime) && CLOCK.test(block.endTime)));
-              return column.blocks.map((block) => {
+            {column.blocks.map((block) => {
               // A block without readable times is left out rather than breaking the page.
               if (!CLOCK.test(block.startTime) || !CLOCK.test(block.endTime)) return null;
               const position = timetablePosition(
                 block.startTime,
                 block.endTime,
               );
-              const lane = lanes.get(block.key) ?? { lane: 0, lanes: 1 };
               return (
                 <UiButton
                   type="button"
@@ -188,22 +188,24 @@ export function WeekTimetable({
                       "--course": block.color,
                       top: `${position.topPercent}%`,
                       height: `${position.heightPercent}%`,
-                      // Overlapping blocks share the column side by side.
-                      "--lane": lane.lane,
-                      "--lanes": lane.lanes,
                     } as React.CSSProperties
                   }
-                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.startTime}–${block.endTime}${block.room ? ` · ${block.room}` : ""}`}
+                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}${block.conflictWith?.length ? ` · Overlaps ${block.conflictWith.join(", ")}` : ""}`}
                   key={block.key}
                   onClick={() => onSelect?.(block)}
                 >
+                  {block.kind === "exam" && (
+                    <span className="ttExamBand">EXAM · {block.timeLabel}</span>
+                  )}
                   <b>{block.title}</b>
                   {block.room && <small className="ttRoom">{block.room}</small>}
                   {block.subtitle && <span className="ttCode">{block.subtitle}</span>}
+                  {block.conflictWith?.length ? (
+                    <small className="ttConflict">Overlaps {block.conflictWith.join(", ")}</small>
+                  ) : null}
                 </UiButton>
               );
-              });
-            })()}
+            })}
             {column.isToday && nowOffset !== undefined && (
               <i className="ttNow" style={{ top: `${nowOffset}%` }} />
             )}
@@ -230,7 +232,7 @@ export function WeekTimetable({
             agenda.map((block) => (
               <UiButton
                 type="button"
-                className={`ttAgendaRow${block.cancelled ? " cancelled" : ""}`}
+                className={`ttAgendaRow ${block.kind}${block.cancelled ? " cancelled" : ""}${block.conflict ? " conflict" : ""}`}
                 style={{ "--course": block.color } as React.CSSProperties}
                 key={block.key}
                 onClick={() => onSelect?.(block)}
@@ -242,8 +244,13 @@ export function WeekTimetable({
                 <span>
                   <b>{block.title}</b>
                   <small>
-                    {[block.subtitle, block.room].filter(Boolean).join(" · ")}
+                    {[block.kind === "exam" ? `EXAM · ${block.timeLabel}` : block.subtitle, block.room]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </small>
+                  {block.conflictWith?.length ? (
+                    <small className="ttConflict">Overlaps {block.conflictWith.join(", ")}</small>
+                  ) : null}
                 </span>
               </UiButton>
             ))

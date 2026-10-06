@@ -1,3 +1,4 @@
+import "./lms.css";
 import {
   useEffect,
   useLayoutEffect,
@@ -27,7 +28,7 @@ export function TodayWorkbench({
     if (entry) { lastEntry.current = entry; setClosing(null); return; }
     if (!lastEntry.current) return;
     setClosing(lastEntry.current);
-    const delay = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 240;
+    const delay = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 300; // matches --lms-slow
     const timer = setTimeout(() => { setClosing(null); lastEntry.current = null; }, delay);
     return () => clearTimeout(timer);
   }, [entry]);

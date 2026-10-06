@@ -8,7 +8,7 @@ Let AI agents on the same machine use the person's app data through the Model Co
 
 ## Build
 
-- A separate binary in the Rust workspace (`backend/src/bin/campus-mcp.rs`), stdio transport, sharing the data module from task 1. It opens `school.db` directly (WAL allows the app to keep running).
+- A separate binary in the Rust workspace (`backend/src/bin/isct-companion-mcp.rs`), stdio transport, sharing the data module from task 1. It opens `school.db` directly (WAL allows the app to keep running).
 - Off by default; enabled in Settings → Agent access (task 10), which shows the command to register it with an agent. When disabled, the binary refuses to start.
 - **Read tools** (return JSON with both languages where stored):
   - `today()` — teaching state, classes, assignments (hidden excluded), academic summary

@@ -12,7 +12,7 @@
   // timers to seconds or more. Each step acts at most once per page, and a
   // per-run budget in sessionStorage stops retry loops across reloads (a wrong
   // password must never be resubmitted until the account locks).
-  const STORE_KEY = `stws-login:${config.run}`;
+  const STORE_KEY = `isct-companion-login:${config.run}`;
   const LIMITS = {
     agree: 2,
     identifier: 3,
@@ -401,4 +401,4 @@
   if (document.readyState === "loading")
     addEventListener("DOMContentLoaded", start, { once: true });
   else start();
-})(__STWS_LOGIN_CONFIG__);
+})(__ISCT_COMPANION_LOGIN_CONFIG__);

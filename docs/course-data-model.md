@@ -1,6 +1,8 @@
 # Course data model (course selection)
 
-Status: agreed direction, 2026-09-28 (all data in SQLite; cloud via export/import; grades and registration included in backups; schema rebuilt, no migration). Based on the live syllabus, LMS and 教務Web pages (read-only observation) and the current `src/core/model.ts`.
+Status: data-layer contract, 2026-10-06. Cloud sync is intentionally out of
+scope; this document distinguishes rebuildable school data from local user
+data and overlays.
 
 ## What each source gives
 
@@ -35,22 +37,28 @@ Join keys, in order of reliability: `syllabusId` (LMS `idnumber` = syllabus `ext
 
 ## Where data lives
 
-**One SQLite database for everything** (`school.db` in the app data dir, owned by the Rust backend). It replaces `workspace.json`, the localStorage caches and `school-cache.json`. The UI reads and writes only through narrow Tauri commands; it never parses HTML and never opens the database itself.
+**One SQLite database for structured application data** (`school.db` in the app data dir, owned by the Rust backend). It replaces `workspace.json`, the localStorage caches and `school-cache.json`. The UI reads and writes only through narrow Tauri commands; it never parses HTML and never opens the database itself. Downloaded material bytes and user-authored note files are the explicit filesystem exception; their types, TTL and paths are defined in [course-file-storage.md](course-file-storage.md).
 
 Table groups:
 
-| Group | Tables | In cloud export |
+| Group | Tables | Ownership and storage |
 |---|---|---|
-| Person's own data | `timetable_courses`, `plan_items`, `memberships`, `personal_events`, `calendar_exceptions`, `course_overrides`, `assignment_marks` (hidden/completed), `settings` | Yes |
-| Personal school records | `registrations`, `registration_states`, `grades`, `requirement_progress`, `lms_courses`, `lms_items`, `assignments` | Yes |
-| Catalog | `offerings`, `offering_texts` (per language) | Only offerings referenced by the rows above |
-| Rebuildable caches | `offering_content` (full syllabus text per language), `offerings_fts` (FTS5 over both languages), `import_runs` | No |
+| User records | `manual_courses`, `manual_memberships`, `plan_items`, `personal_events`, `calendar_exceptions`, `intensive_schedules`, `plans`, `subscriptions` | SQLite; stable UUIDv7, `updatedAt`, soft deletion; included in local backup |
+| User overlays | `course_overrides`, `assignment_marks` | SQLite; reference a school `sourceKey`; independent revision and lifetime; included in local backup |
+| Local notes | Markdown under the course `notes` / `deleted-notes` directories | Local user data; included in local backup, excluded from future cloud sync and cache cleanup |
+| School records and catalog | `timetable_courses`, `memberships`, `registrations`, `grades`, `lms_courses`, `lms_items`, `assignments`, `offerings`, reference tables | Rebuildable SQLite cache; `lastSeenAt` / `missingSince`; never exported |
+| Derived caches | `offering_content`, `catalog_search_items`, `offerings_fts`, `import_runs`, downloaded attachments | Rebuildable; never exported |
 
-Every row in the first two groups carries `id`, `rev`, `updated_at`, `updated_by`, `deleted_at`, so an import merges row by row with the existing conflict rules instead of replacing the database.
+Only user records and overlays use tombstones. School rows use `missingSince`
+and automatically become visible again if the source returns them.
 
-**Cloud = export/import.** Export writes one JSON document (`schemaVersion`, `exportedAt`, device, and the exported tables), which the existing transport encrypts as `backup.bin` (AES-256-GCM, recovery phrase) for Google Drive / OneDrive. Import validates the whole document, then merges it in a single transaction. The PWA reads the same export, read-only. Grades and registration are included because the backup is end-to-end encrypted.
+Manual local export writes a version 4 user-data backup containing user tables,
+overlays, user preferences/profile and Markdown notes. Restore is an explicit
+replacement, not a sync merge. No cloud protocol or conflict logic is defined
+in this session.
 
-**Schema** is created from scratch at version 3. Existing `workspace.json` and caches are discarded on first launch, per the development reset policy; no migration code.
+**Schema** is version 4. Version 3 is migrated once with
+`scripts/migrate-v3-to-v4.sh`, which creates a SQLite backup first.
 
 ## Departments (系)
 
@@ -164,9 +172,9 @@ type LmsCourse = {
 };
 ```
 
-Assignments keep their current workspace shape, with `dueAt` taken from the event's `timesort` (Unix) and a stable `source.externalId` = module id (`mod/assign/view.php?id=…`). Materials keep the module id; files are not downloaded.
+Assignments keep their current workspace shape, with `dueAt` taken from the event's `timesort` (Unix) and a stable `source.externalId` = module id (`mod/assign/view.php?id=…`). Material metadata keeps the module id in `school.db`; attachment bytes are downloaded on demand under the separate [course-file storage contract](course-file-storage.md).
 
-### Registration, grades, requirements (`school.db`, included in backups)
+### Registration, grades, requirements (`school.db`, rebuildable school cache)
 
 ```ts
 type RequirementMark = "required" /* ◎ */ | "recommended" /* ○ */ | "elective" /* 選択 */ | "other";

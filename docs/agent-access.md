@@ -1,11 +1,11 @@
 # Agent access
 
-Campus Life exposes an opt-in local MCP server over stdio. Enable it in
+IsctCompanion exposes an opt-in local MCP server over stdio. Enable it in
 Settings → Agent access, then register the binary with the database path shown
 by the installed application:
 
 ```sh
-campus-mcp --db /absolute/path/to/school.db
+isct-companion-mcp --db /absolute/path/to/school.db
 ```
 
 The server refuses to start while Agent access is disabled.

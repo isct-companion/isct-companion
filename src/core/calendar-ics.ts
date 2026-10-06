@@ -41,7 +41,7 @@ export function exportQuarterIcs(
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Campus Life//Science Tokyo//EN",
+    "PRODID:-//IsctCompanion//EN",
     "CALSCALE:GREGORIAN",
     "BEGIN:VTIMEZONE",
     "TZID:Asia/Tokyo",
@@ -64,7 +64,7 @@ export function exportQuarterIcs(
         continue;
       lines.push(
         "BEGIN:VEVENT",
-        `UID:${encodeURIComponent(block.key)}@campus-life.local`,
+        `UID:${encodeURIComponent(block.key)}@isctcompanion.local`,
         `DTSTAMP:${now
           .toISOString()
           .replace(/[-:]/g, "")

@@ -64,10 +64,10 @@
       return;
     }
     const popups =
-      frame && frame.hasAttribute("data-stws-popup") && top.__stwsPopups;
+      frame && frame.hasAttribute("data-isct-companion-popup") && top.__isctCompanionPopups;
     if (!popups) return;
     try {
-      window.opener = openerFor(frame.stwsOpener || parent);
+      window.opener = openerFor(frame.isctCompanionOpener || parent);
     } catch {}
     window.close = () => popups.close(frame);
     // A picker opening another picker: its opener is this frame.
@@ -86,7 +86,7 @@
   };
   const create = (name, features) => {
     const host = document.createElement("div");
-    host.setAttribute("data-stws-popup-host", "");
+    host.setAttribute("data-isct-companion-popup-host", "");
     host.style.cssText =
       "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.45)";
     const panel = document.createElement("div");
@@ -107,7 +107,7 @@
     const frame = document.createElement("iframe");
     // Named like the window, so a form posting to that name lands here.
     frame.name = name;
-    frame.setAttribute("data-stws-popup", "");
+    frame.setAttribute("data-isct-companion-popup", "");
     frame.style.cssText = "flex:1;width:100%;border:0;background:#fff";
     frame.addEventListener("load", () => {
       try {
@@ -145,10 +145,10 @@
       const key =
         target && target.toLowerCase() !== "_blank"
           ? target
-          : `stws-popup-${++unnamed}`;
+          : `isct-companion-popup-${++unnamed}`;
       const entry = overlays.get(key) || create(key, features);
       // Read by the frame's own copy of this script at document start.
-      entry.frame.stwsOpener = opener;
+      entry.frame.isctCompanionOpener = opener;
       if (href) entry.frame.src = href;
       return entry.frame.contentWindow;
     },
@@ -161,7 +161,7 @@
       }
     },
   };
-  Object.defineProperty(window, "__stwsPopups", { value: popups });
+  Object.defineProperty(window, "__isctCompanionPopups", { value: popups });
   window.open = function open(url, name, features) {
     return popups.open(url, name, features, window);
   };

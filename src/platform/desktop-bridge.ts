@@ -79,6 +79,20 @@ export type SchoolIngestOutcome = {
   changed: number;
   message: string;
 };
+export type SchoolPullProgress = {
+  site: "science-lms" | "kyomu";
+  phase: "catalog" | "course" | "material" | "assignment";
+  completed: number;
+  total: number;
+  courseId: number;
+  courseTitle: string;
+  term: string;
+  itemTitle: string;
+};
+export type SchoolPullOptions = {
+  /** Limit the expensive LMS content pass to one Moodle course. */
+  lmsCourseId?: number;
+};
 export type LmsSection = {
   id: number;
   number: number;
@@ -192,8 +206,6 @@ export interface DesktopBridge {
     url: string;
     phase: string;
   }>;
-  importSchool(): Promise<SchoolImportResult>;
-  cachedSchool(): Promise<SchoolImportResult>;
   openSchoolSite(
     site: SchoolSite,
     css: string,
@@ -246,12 +258,19 @@ export interface DesktopBridge {
    * the result (one outcome per 教務Web page). Expired sessions are renewed
    * with the saved credentials on the way.
    */
-  pullSchool?(site: "science-lms" | "kyomu"): Promise<SchoolIngestOutcome[]>;
+  pullSchool?(
+    site: "science-lms" | "kyomu",
+    options?: SchoolPullOptions,
+  ): Promise<SchoolIngestOutcome[]>;
   schoolRecords?(): Promise<SchoolRecords>;
   /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
   setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
   /** An extractor finished while the person browsed LMS / 教務Web. */
   onSchoolIngest?(callback: (outcome: SchoolIngestOutcome) => void): () => void;
+  /** Fine-grained progress from a running hidden LMS extraction. */
+  onSchoolPullProgress?(
+    callback: (progress: SchoolPullProgress) => void,
+  ): () => void;
   configureSchoolSchedule(schedule: Schedule): Promise<boolean>;
   onScheduledSchoolResult(
     callback: (result: SchoolImportResult) => void,
@@ -265,6 +284,8 @@ export interface DesktopBridge {
     clientId: string,
     redirectUri: string,
   ): Promise<boolean>;
+  cloudAuthorizationStatus(): Promise<Array<"google-drive" | "onedrive">>;
+  disconnectCloud(provider: "google-drive" | "onedrive"): Promise<boolean>;
   cloudRequest(
     provider: "google-drive" | "onedrive",
     url: string,
@@ -419,7 +440,8 @@ export const catalogCourse = (
 export function createTauriDesktopBridge(
   invoke: InvokeNative,
   listen: ListenNative,
-  target: NativeTarget = window.__STWS_NATIVE_TARGET__ ?? "native-desktop",
+  target: NativeTarget = window.__ISCT_COMPANION_NATIVE_TARGET__ ??
+    "native-desktop",
 ): DesktopBridge {
   const result = async <T>(
     command: string,
@@ -477,8 +499,6 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
-    importSchool: () => result("import_school"),
-    cachedSchool: () => result("cached_school"),
     openSchoolSite: (site, css, js, bounds, targetUrl) =>
       result("open_school_site", {
         site,
@@ -586,8 +606,11 @@ export function createTauriDesktopBridge(
     },
     revealSchoolDownload: (path) =>
       booleanCommand("reveal_school_download", { path }),
-    pullSchool: async (site) => {
-      const value = await invoke("pull_school", { site });
+    pullSchool: async (site, options) => {
+      const value = await invoke("pull_school", {
+        site,
+        lmsCourseId: options?.lmsCourseId,
+      });
       if (!Array.isArray(value))
         throw new Error("pull_school returned an invalid result.");
       return value as SchoolIngestOutcome[];
@@ -649,6 +672,35 @@ export function createTauriDesktopBridge(
         }
       };
     },
+    onSchoolPullProgress: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<SchoolPullProgress>("school-pull-progress", (payload) => {
+        if (
+          !disposed &&
+          payload?.site === "science-lms" &&
+          typeof payload.completed === "number" &&
+          typeof payload.total === "number"
+        )
+          callback(payload);
+      }).then((fn) => {
+        if (disposed) {
+          try {
+            void Promise.resolve(fn() as unknown).catch(() => undefined);
+          } catch {
+            // The runtime is already gone (window closing, tests).
+          }
+        } else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        try {
+          void Promise.resolve(unlisten?.() as unknown).catch(() => undefined);
+        } catch {
+          // The runtime is already gone (window closing, tests).
+        }
+      };
+    },
     configureSchoolWebPolicy: (policy) =>
       booleanCommand("configure_school_web_policy", { policy }),
     configureSchoolSchedule: (schedule) =>
@@ -679,6 +731,10 @@ export function createTauriDesktopBridge(
     },
     connectCloud: (provider, clientId, redirectUri) =>
       booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
+    cloudAuthorizationStatus: () =>
+      result<Array<"google-drive" | "onedrive">>("cloud_authorization_status"),
+    disconnectCloud: (provider) =>
+      booleanCommand("disconnect_cloud", { provider }),
     cloudRequest: (provider, url, init) =>
       result("cloud_request", { provider, url, init }),
     searchSyllabus: async (query, year, limit = 100, filters, language) => {
@@ -805,7 +861,7 @@ export function createTauriDesktopBridge(
 declare global {
   interface Window {
     /** Set by the trusted native bootstrap from its compile/runtime target. */
-    __STWS_NATIVE_TARGET__?: NativeTarget;
+    __ISCT_COMPANION_NATIVE_TARGET__?: NativeTarget;
   }
 }
 

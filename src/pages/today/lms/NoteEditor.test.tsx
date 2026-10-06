@@ -74,7 +74,7 @@ it("preserves a failed save and clears recovery after a successful retry", async
       .find((button) => button.textContent === "Save")!
       .click(),
   );
-  expect(localStorage.getItem("lms-note-recovery:n1")).toBe("keep me");
+  expect(JSON.parse(localStorage.getItem("lms-note-recovery:n1") ?? "null").text).toBe("keep me");
   expect(host.textContent).toContain("Disk unavailable");
   await act(async () =>
     [...host.querySelectorAll("button")]

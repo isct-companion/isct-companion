@@ -1,3 +1,4 @@
+import { extension, fileFamily, previewKind } from "./file-types";
 /** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
 export function safeContent(html: string, language?: "ja" | "en"): string {
   const source = new DOMParser().parseFromString(
@@ -71,8 +72,8 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
         const placeholder = document.createElement("span");
         placeholder.dataset.imageSrc = url;
         placeholder.dataset.imageAlt = link.textContent;
-        if (parent.tagName === "A") { parent.classList.add("lmsImageCard"); parent.append(placeholder, document.createTextNode(link.textContent)); }
-        else { link.classList.add("lmsImageCard"); link.prepend(placeholder); parent.append(link); }
+        if (parent.tagName === "A") { parent.classList.add("lmsImageCard"); parent.append(placeholder, caption(link.textContent)); }
+        else { link.classList.add("lmsImageCard"); link.replaceChildren(placeholder, caption(link.textContent)); parent.append(link); }
       }
       return;
     }
@@ -95,8 +96,21 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
       parent.append(el);
     }
     node.childNodes.forEach((child) => copy(child, el));
+    if (node.tagName === "A" && el !== parent) {
+      const url = el.getAttribute("href");
+      if (url && previewKind(url) === "image" && !el.querySelector("[data-image-src]")) {
+        const placeholder = document.createElement("span");
+        placeholder.dataset.imageSrc = url;
+        placeholder.dataset.imageAlt = el.textContent || "Image";
+        el.classList.add("lmsImageCard", "lmsAttachmentCard");
+        el.replaceChildren(placeholder, caption(placeholder.dataset.imageAlt));
+      } else if (url && el.classList.contains("lmsAttachmentCard") && !el.classList.contains("lmsImageCard")) {
+        fileCard(el, url);
+      }
+    }
   };
   source.body.childNodes.forEach((node) => copy(node, out));
+  fileLists(out);
   if (language) {
     // Narrow fallback: complete paired, labelled lines only. Keep mixed or
     // unlabelled content unchanged, including tables, code and continuation.
@@ -129,6 +143,64 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
     });
   }
   return out.innerHTML;
+}
+
+function caption(text: string) {
+  const span = document.createElement("span");
+  span.className = "lmsImageCaption";
+  span.textContent = text;
+  return span;
+}
+
+/** Attachment link → card: type tile, name, and a meta line (type · date). */
+function fileCard(link: HTMLElement, url: string) {
+  const name = document.createElement("span");
+  name.className = "lmsAttachmentName";
+  name.textContent = link.textContent?.trim() || url.split("/").pop() || "File";
+  const meta = document.createElement("small");
+  meta.textContent = extension(url).toUpperCase() || "FILE";
+  link.dataset.family = fileFamily(url);
+  link.replaceChildren(name, meta);
+}
+
+/**
+ * Moodle lists attachments as `ul > li > (icon + link, upload time)`. A list
+ * holding only attachment cards becomes a card grid; each item's leftover
+ * text (the upload time) joins its card's meta line.
+ */
+function fileLists(root: HTMLElement) {
+  for (const list of [...root.querySelectorAll("ul, ol")].reverse()) {
+    const items = [...list.children];
+    const cards = items.map((item) => {
+      const links = item.querySelectorAll("a");
+      const card = links.length === 1 && links[0].classList.contains("lmsAttachmentCard") && !links[0].classList.contains("lmsImageCard") ? links[0] : undefined;
+      const rest = card ? (item.textContent ?? "").replace(card.textContent ?? "", "").trim() : "";
+      return item.tagName === "LI" && card && rest.length <= 40 ? { card, rest } : undefined;
+    });
+    if (!items.length || cards.some((card) => !card)) continue;
+    const grid = document.createElement("div");
+    grid.className = "lmsFileList";
+    for (const { card, rest } of cards as { card: HTMLAnchorElement; rest: string }[]) {
+      if (rest) card.querySelector("small")!.textContent += ` · ${rest}`;
+      grid.append(card);
+    }
+    list.replaceWith(grid);
+  }
+}
+
+/** A label holding only LMS images (no text): shown as a tile in an image grid. */
+const imageOnlyCache = new Map<string, boolean>();
+export function imageOnly(html?: string): boolean {
+  if (!html) return false;
+  let result = imageOnlyCache.get(html);
+  if (result === undefined) {
+    const body = new DOMParser().parseFromString(html.slice(0, 100000), "text/html").body;
+    const images = [...body.getElementsByTagName("img")].filter((img) => img.getAttribute("src")?.includes("/pluginfile.php/"));
+    result = images.length > 0 && !(body.textContent ?? "").trim();
+    if (imageOnlyCache.size > 500) imageOnlyCache.clear();
+    imageOnlyCache.set(html, result);
+  }
+  return result;
 }
 
 export function safeUrl(raw?: string | null): string | undefined {

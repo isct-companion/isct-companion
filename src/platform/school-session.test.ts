@@ -42,14 +42,27 @@ function bridge(saved = { science: true, tokyoTech: true }) {
 beforeEach(() => schoolSessions.reset());
 
 describe("launch sign-in", () => {
-  it("signs accounts in one at a time, waiting for each result", async () => {
+  it("coalesces duplicate launch effects into one session sequence", async () => {
     const native = bridge();
-    const done = signInAtLaunch(native, 1_000);
-    await vi.waitFor(() => expect(native.calls).toEqual(["science"]));
-    native.emit({ profile: "science", state: "active" });
+    const first = signInAtLaunch(native, 1_000);
+    const duplicate = signInAtLaunch(native, 1_000);
+    expect(duplicate).toBe(first);
     await vi.waitFor(() =>
       expect(native.calls).toEqual(["science", "tokyo-tech"]),
     );
+    native.emit({ profile: "science", state: "active" });
+    native.emit({ profile: "tokyo-tech", state: "active" });
+    await Promise.all([first, duplicate]);
+    expect(native.ensureSchoolSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("submits both accounts to the native queue and waits for both results", async () => {
+    const native = bridge();
+    const done = signInAtLaunch(native, 1_000);
+    await vi.waitFor(() =>
+      expect(native.calls).toEqual(["science", "tokyo-tech"]),
+    );
+    native.emit({ profile: "science", state: "active" });
     native.emit({ profile: "tokyo-tech", state: "failed" });
     await done;
     expect(schoolSessions.get("science")).toBe("active");
@@ -71,36 +84,11 @@ describe("launch sign-in", () => {
     expect(schoolSessions.get("science")).toBeUndefined();
   });
 
-  it("retries while the school view is busy, then moves on without waiting", async () => {
-    vi.useFakeTimers();
-    try {
-      const native = bridge();
-      native.ensureSchoolSession.mockResolvedValue(false);
-      const done = signInAtLaunch(native, 60_000);
-      await vi.runAllTimersAsync();
-      await done;
-      expect(native.ensureSchoolSession).toHaveBeenCalledTimes(20);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("starts a check once the busy view frees up", async () => {
-    vi.useFakeTimers();
-    try {
-      const native = bridge({ science: false, tokyoTech: true });
-      native.ensureSchoolSession
-        .mockResolvedValueOnce(false)
-        .mockResolvedValueOnce(true);
-      const done = signInAtLaunch(native, 60_000);
-      await vi.advanceTimersByTimeAsync(2_000);
-      expect(native.ensureSchoolSession).toHaveBeenCalledTimes(2);
-      native.emit({ profile: "tokyo-tech", state: "active" });
-      await done;
-      expect(schoolSessions.get("tokyo-tech")).toBe("active");
-    } finally {
-      vi.useRealTimers();
-    }
+  it("does not retry a request the native queue discarded", async () => {
+    const native = bridge();
+    native.ensureSchoolSession.mockResolvedValue(false);
+    await signInAtLaunch(native, 60_000);
+    expect(native.ensureSchoolSession).toHaveBeenCalledTimes(2);
   });
 
   it("keeps later renewals flowing into the store", async () => {
@@ -117,10 +105,11 @@ describe("focus re-check", () => {
     schoolSessions.attach(native);
     native.emit({ profile: "science", state: "active" });
     const done = signInAtLaunch(native, 60_000, true);
-    await vi.waitFor(() => expect(native.calls).toEqual(["science"]));
+    await vi.waitFor(() =>
+      expect(native.calls).toEqual(["science", "tokyo-tech"]),
+    );
     expect(schoolSessions.get("science")).toBe("active"); // quiet: badge kept
     native.emit({ profile: "science", state: "active" });
-    await vi.waitFor(() => expect(native.calls).toEqual(["science", "tokyo-tech"]));
     native.emit({ profile: "tokyo-tech", state: "active" });
     await done;
   });

@@ -5,7 +5,7 @@ import {
   type Plan,
   type AcademicCalendarDay,
 } from "./model";
-import { occurrencesOnDate, quarterRange, tokyoDate } from "./schedule";
+import { occurrencesOnDate, quarterRange, resolveDayAgenda, tokyoDate } from "./schedule";
 import { exportQuarterIcs } from "./calendar-ics";
 import {
   nextPlanOccurrences,
@@ -200,6 +200,96 @@ describe("shared actual-date scheduling", () => {
     expect(
       occurrencesOnDate(data, data.selectedTerm, "2026-04-20")[0].title,
     ).toBe("My title");
+  });
+});
+describe("exam-aware scheduling", () => {
+  it("replaces the matching registered course occurrence", () => {
+    const data = fixture();
+    data.memberships[0].evidence = { provider: "school" };
+    data.exams = [
+      {
+        ...meta,
+        id: "exam",
+        sourceKey: "exam:2026:undergraduate:1Q:one",
+        academicYear: 2026,
+        level: "undergraduate",
+        quarter: "1Q",
+        courseCode: "CSC.T241",
+        date: "2026-04-13",
+        label: { ja: "授業 A 試験" },
+        periods: [3, 4],
+        room: { ja: "W9-101" },
+        rooms: [],
+        status: "scheduled",
+        sourceIds: ["notice"],
+        sourcePages: [1],
+      },
+    ];
+    const rows = resolveDayAgenda(data, data.selectedTerm, "2026-04-13");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "exam",
+      courseId: "course",
+      startTime: "10:45",
+      room: "W9-101",
+    });
+  });
+
+  it("keeps a different overlap and reports it on the exam", () => {
+    const data = fixture();
+    data.memberships[0].evidence = { provider: "school" };
+    data.events.push({
+      ...meta,
+      id: "event",
+      kind: "event",
+      termId: data.selectedTerm,
+      title: "Interview",
+      date: "2026-04-13",
+      room: "Online",
+      startTime: "08:50",
+      endTime: "10:30",
+      blocking: true,
+    });
+    data.exams = [{
+      ...meta,
+      id: "exam",
+      academicYear: 2026,
+      level: "undergraduate",
+      quarter: "1Q",
+      courseCode: "CSC.T241",
+      date: "2026-04-13",
+      label: { ja: "試験" },
+      periods: [1, 2],
+      room: null,
+      rooms: [],
+      status: "scheduled",
+      sourceIds: ["notice"],
+      sourcePages: [],
+    }];
+    const rows = resolveDayAgenda(data, data.selectedTerm, "2026-04-13");
+    expect(rows.map((row) => row.kind).sort()).toEqual(["event", "exam"]);
+    expect(rows.find((row) => row.kind === "exam")?.conflictWith).toEqual(["Interview"]);
+  });
+
+  it("uses the same override model for a single course occurrence", () => {
+    const data = fixture();
+    data.scheduleOverrides = [{
+      ...meta,
+      id: "override",
+      targetKey: "course-weekly-0-2026-04-13",
+      targetKind: "course",
+      date: "2026-04-14",
+      periods: [5, 6],
+      room: "Moved",
+      hidden: false,
+    }];
+    expect(resolveDayAgenda(data, data.selectedTerm, "2026-04-13")).toEqual([]);
+    expect(resolveDayAgenda(data, data.selectedTerm, "2026-04-14")[0]).toMatchObject({
+      kind: "course",
+      room: "Moved",
+      startTime: "13:30",
+      overridden: true,
+    });
   });
 });
 describe("personal recurrence", () => {

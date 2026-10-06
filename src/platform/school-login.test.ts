@@ -90,7 +90,7 @@ function load(
   };
   const start = () =>
     window.eval(
-      source.replace("__STWS_LOGIN_CONFIG__", JSON.stringify(config)),
+      source.replace("__ISCT_COMPANION_LOGIN_CONFIG__", JSON.stringify(config)),
     );
   const $ = (selector: string) =>
     document.querySelector(selector) as HTMLElement;
@@ -189,7 +189,7 @@ describe("Science Tokyo sign-in", () => {
 
   it("never resubmits a rejected password", async () => {
     const page = load(identifierPage.replace('class=" move-off-screen" ', ""), {
-      storage: { "stws-login:run-1": JSON.stringify({ password: 1 }) },
+      storage: { "isct-companion-login:run-1": JSON.stringify({ password: 1 }) },
     });
     page.start();
     await settle();
@@ -203,7 +203,7 @@ describe("Science Tokyo sign-in", () => {
         '<div class="message warning" style="display: none">',
         '<div class="message warning">',
       ),
-      { storage: { "stws-login:run-1": JSON.stringify({ password: 1 }) } },
+      { storage: { "isct-companion-login:run-1": JSON.stringify({ password: 1 }) } },
     );
     page.start();
     await settle();
@@ -338,7 +338,7 @@ describe("Tokyo Tech sign-in", () => {
   const afterPassword = {
     url: GETACCESS,
     ...tokyo,
-    storage: { "stws-login:run-1": JSON.stringify({ password: 1 }) },
+    storage: { "isct-companion-login:run-1": JSON.stringify({ password: 1 }) },
   };
 
   it("takes the password agreement button and ignores the site search box", async () => {
@@ -417,7 +417,7 @@ describe("Tokyo Tech sign-in", () => {
     const page = load(matrixPage, {
       ...afterPassword,
       storage: {
-        "stws-login:run-1": JSON.stringify({ password: 1, matrix: 1 }),
+        "isct-companion-login:run-1": JSON.stringify({ password: 1, matrix: 1 }),
       },
     });
     page.start();
@@ -430,7 +430,7 @@ describe("Tokyo Tech sign-in", () => {
     const page = load(`<p>portal</p>`, {
       url: "https://portal.nap.gsic.titech.ac.jp/?Message=fail&GAURI=x",
       ...tokyo,
-      storage: { "stws-login:run-1": JSON.stringify({ password: 1 }) },
+      storage: { "isct-companion-login:run-1": JSON.stringify({ password: 1 }) },
     });
     page.start();
     await settle();

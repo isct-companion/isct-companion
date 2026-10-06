@@ -4,9 +4,12 @@ import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
 import { t } from "../../../i18n";
 GlobalWorkerOptions.workerSrc = workerUrl;
+// Canvas budget per page: sharp on Retina without unbounded memory.
+const MAX_DPR = 2;
+const MAX_PIXELS = 4_000_000;
 function PdfPage({ pdf, number, width, ratio }: { pdf: PDFDocumentProxy; number: number; width: number; ratio: number }) {
   const host = useRef<HTMLDivElement>(null);
-  const canvas = useRef<HTMLCanvasElement>(null);
+  const paper = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(number === 1);
   const [error, setError] = useState("");
@@ -16,32 +19,50 @@ function PdfPage({ pdf, number, width, ratio }: { pdf: PDFDocumentProxy; number:
     if (host.current) observer.observe(host.current);
     return () => observer.disconnect();
   }, []);
+  // Leaving the viewport releases the decoded bitmap.
   useEffect(() => {
-    if (!visible || !canvas.current) return;
+    if (visible) return;
+    paper.current?.querySelectorAll("canvas").forEach(canvas => { canvas.width = 0; canvas.height = 0; });
+    paper.current?.replaceChildren();
+    text.current?.replaceChildren();
+  }, [visible]);
+  useEffect(() => {
+    if (!visible) return;
     let disposed = false;
     let render: ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["render"]> | undefined;
-    const target = canvas.current;
     let layer: TextLayer | undefined;
+    // Draw off-screen and swap in when done, so resizing never flashes blank.
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", `Page ${number}`);
     void pdf.getPage(number).then(async sheet => {
       if (disposed) return;
       const initial = sheet.getViewport({ scale: 1 });
-      const scale = Math.min(width * Math.min(window.devicePixelRatio || 1, 1.5) / initial.width, Math.sqrt(2_000_000 / (initial.width * initial.height)));
-      target.width = Math.floor(initial.width * scale); target.height = Math.floor(initial.height * scale);
-      render = sheet.render({ canvas: target, viewport: sheet.getViewport({ scale }) });
+      const scale = Math.min(width * Math.min(window.devicePixelRatio || 1, MAX_DPR) / initial.width, Math.sqrt(MAX_PIXELS / (initial.width * initial.height)));
+      canvas.width = Math.floor(initial.width * scale); canvas.height = Math.floor(initial.height * scale);
+      render = sheet.render({ canvas, viewport: sheet.getViewport({ scale }) });
       try {
         await render.promise;
-        if (!disposed && text.current) {
-          const viewport = sheet.getViewport({ scale: width / initial.width });
-          text.current.style.setProperty("--total-scale-factor", String(width / initial.width));
-          layer = new TextLayer({ textContentSource: sheet.streamTextContent(), container: text.current, viewport });
+        if (disposed || !paper.current) return;
+        paper.current.querySelectorAll("canvas").forEach(old => { old.width = 0; old.height = 0; });
+        paper.current.replaceChildren(canvas);
+        if (text.current) {
+          const textScale = width / initial.width;
+          const next = document.createElement("div");
+          text.current.style.setProperty("--total-scale-factor", String(textScale));
+          layer = new TextLayer({ textContentSource: sheet.streamTextContent(), container: next, viewport: sheet.getViewport({ scale: textScale }) });
           await layer.render();
+          if (!disposed) text.current.replaceChildren(...next.childNodes);
         }
       } finally { sheet.cleanup(); }
-    }).catch(e => { if (!disposed) setError(String(e)); });
-    return () => { disposed = true; render?.cancel(); layer?.cancel(); text.current?.replaceChildren(); target.width = 0; target.height = 0; };
+    }).catch(e => { if (!disposed && e?.name !== "RenderingCancelledException") setError(String(e)); });
+    return () => {
+      disposed = true; render?.cancel(); layer?.cancel();
+      if (!canvas.isConnected) { canvas.width = 0; canvas.height = 0; }
+    };
   }, [pdf, number, width, visible]);
   return <div className="lmsPdfPage" ref={host} style={{ aspectRatio: `${1 / ratio}` }} data-pdf-page={number}>
-    {visible && (error ? <p role="alert">{error}</p> : <><canvas ref={canvas} aria-label={`Page ${number}`} role="img" /><div ref={text} className="textLayer" /></>)}
+    {error ? <p role="alert">{error}</p> : <><div ref={paper} className="lmsPdfPaper" /><div ref={text} className="textLayer" /></>}
   </div>;
 }
 /** Continuous reading; only pages near the viewport own decoded canvases. */
@@ -49,7 +70,8 @@ export function PdfDocument({ src, title, fileToolbar }: { src: string; title: s
   const host = useRef<HTMLDivElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy>();
   const [width, setWidth] = useState(600);
-  const [ratio, setRatio] = useState(1.414);
+  // Height/width of each page; mixed portrait/landscape decks are common.
+  const [ratios, setRatios] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [page, setPage] = useState(1);
@@ -66,15 +88,30 @@ export function PdfDocument({ src, title, fileToolbar }: { src: string; title: s
     let disposed = false;
     const task = getDocument({ url: src, disableAutoFetch: true });
     void task.promise.then(async doc => {
-      const first = await doc.getPage(1); const size = first.getViewport({scale:1});
-      if (!disposed) { setRatio(size.height / size.width); setPdf(doc); }
+      const ratioOf = async (number: number) => { const size = (await doc.getPage(number)).getViewport({ scale: 1 }); return size.height / size.width; };
+      const first = await ratioOf(1);
+      if (disposed) return;
+      const known = Array<number>(doc.numPages).fill(first);
+      setRatios(known); setPdf(doc);
+      // Page sizes only need each page's dictionary, not its content.
+      for (let number = 2; number <= doc.numPages && !disposed; number++) {
+        known[number - 1] = await ratioOf(number);
+        if (number % 20 === 0 || number === doc.numPages) if (!disposed) setRatios([...known]);
+      }
     }).catch(e => { if (!disposed) setError(String(e)); });
     return () => { disposed = true; void task.destroy(); };
   }, [src]);
   useEffect(() => {
-    const observer = new ResizeObserver(entries => setWidth(Math.max(200, entries[0].contentRect.width)));
+    // First size applies at once; later ones settle before pages re-render.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let measured = false;
+    const observer = new ResizeObserver(entries => {
+      const next = Math.max(200, Math.round(entries[0].contentRect.width));
+      clearTimeout(timer);
+      if (!measured) { measured = true; setWidth(next); } else timer = setTimeout(() => setWidth(next), 150);
+    });
     if (host.current) observer.observe(host.current);
-    return () => observer.disconnect();
+    return () => { clearTimeout(timer); observer.disconnect(); };
   }, []);
   useEffect(() => {
     if (!pdf || !host.current || typeof IntersectionObserver === "undefined") return;
@@ -202,7 +239,7 @@ export function PdfDocument({ src, title, fileToolbar }: { src: string; title: s
     {searchOpen && <form className="lmsPdfSearch" role="search" onSubmit={event => { event.preventDefault(); void findNext(); }}><input aria-label={t("Find in document")} placeholder={t("Find in document")} value={search} onChange={e => { searchTask.current++; setFinding(false); setSearch(e.target.value); setSearchStatus(""); }} /><span role="status">{searchStatus}</span><button disabled={finding || !pdf || !search.trim()}>{t(finding ? "Searching…" : "Find next")}</button><button type="button" aria-label={t("Close search")} onClick={() => setSearchOpen(false)}>×</button></form>}
     <div className="lmsPdfDocument" ref={host} aria-label={title}>
       <div className="lmsPdfPages" style={{ width: `${zoom * 100}%` }}>
-        {error ? <p role="alert">{error}</p> : pdf ? Array.from({length: pdf.numPages}, (_, i) => <PdfPage key={i} pdf={pdf} number={i + 1} width={width * zoom} ratio={ratio} />) : <p role="status">{t("Loading PDF…")}</p>}
+        {error ? <p role="alert">{error}</p> : pdf ? Array.from({length: pdf.numPages}, (_, i) => <PdfPage key={i} pdf={pdf} number={i + 1} width={width * zoom} ratio={ratios[i] ?? ratios[0]} />) : <p role="status">{t("Loading PDF…")}</p>}
       </div>
     </div>
   </div>;

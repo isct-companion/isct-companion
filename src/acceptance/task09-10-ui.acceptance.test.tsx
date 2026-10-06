@@ -104,7 +104,7 @@ describe("Task 9 plan editor", () => {
 });
 
 describe("Task 10 Settings", () => {
-  it("restores one hidden local item and clear-all restores the rest with revisions", () => {
+  it("restores one hidden local item and restore-all restores the rest with revisions", () => {
     const data = seedWorkspace();
     data.assignments = ["first", "second"].map((id, index) => ({
       id: `local-${id}`,
@@ -126,7 +126,7 @@ describe("Task 10 Settings", () => {
     expect(data.assignments[0].updatedAt).not.toBe("2026-09-29T00:00:00Z");
     expect(data.assignments[1]).toMatchObject({ hidden: true, rev: 1 });
 
-    clickButton(host, "Clear all");
+    clickButton(host, "Restore all");
     expect(data.assignments.map(({ hidden, rev }) => ({ hidden, rev }))).toEqual([
       { hidden: false, rev: 2 },
       { hidden: false, rev: 2 },

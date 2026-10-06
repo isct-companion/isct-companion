@@ -1,8 +1,8 @@
 use tauri::AppHandle;
 use tauri_plugin_secure_storage::{OptionsRequest, SecureStorageExt};
 
-const LEGACY_SERVICE: &str = "jp.ac.isct.workstation.cloud";
-const APP_ID: &str = "app.campuslife.sciencetokyo";
+const LEGACY_SERVICE: &str = "app.isctcompanion.legacy";
+const APP_ID: &str = "app.isctcompanion";
 
 pub trait SecretVault: Send + Sync {
     fn store(&self, account: &str, secret: &str) -> Result<(), String>;
@@ -65,7 +65,9 @@ impl SecretVault for OsSecretVault {
         if stored.is_some() {
             return Ok(stored);
         }
-        if account == "school-accounts" { return Ok(None); }
+        if account == "school-accounts" {
+            return Ok(None);
+        }
         self.load_legacy(account)
     }
 
@@ -131,14 +133,17 @@ mod tests {
 
     #[test]
     fn school_accounts_use_stable_portal_keychain_ids() {
-        assert_eq!(secure_key("school-accounts").unwrap(), "app.campuslife.sciencetokyo.passwords.school-accounts");
+        assert_eq!(
+            secure_key("school-accounts").unwrap(),
+            "app.isctcompanion.passwords.school-accounts"
+        );
         assert_eq!(
             secure_key("school-science").unwrap(),
-            "app.campuslife.sciencetokyo.passwords.isct-portal"
+            "app.isctcompanion.passwords.isct-portal"
         );
         assert_eq!(
             secure_key("school-tokyo-tech").unwrap(),
-            "app.campuslife.sciencetokyo.passwords.titech-portal"
+            "app.isctcompanion.passwords.titech-portal"
         );
     }
 

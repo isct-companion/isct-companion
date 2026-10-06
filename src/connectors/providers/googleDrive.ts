@@ -1,8 +1,6 @@
 import {
-  BACKUP_NAME,
-  META_NAME,
+  CLOUD_FILE_NAME,
   type AuthorizedRequest,
-  type BackupManifest,
   type CloudBackupTransport,
 } from "./transport";
 type DriveFile = { id: string; name: string };
@@ -16,7 +14,7 @@ export class GoogleDriveBackupTransport implements CloudBackupTransport {
     const data = (await response.json()) as { files?: DriveFile[] };
     return data.files?.[0] ?? null;
   }
-  private async read(name: string) {
+  private async readFile(name: string) {
     const file = await this.find(name);
     if (!file) return null;
     return new Uint8Array(
@@ -27,7 +25,11 @@ export class GoogleDriveBackupTransport implements CloudBackupTransport {
       ).arrayBuffer(),
     );
   }
-  private async write(name: string, bytes: Uint8Array, contentType: string) {
+  private async writeFile(
+    name: string,
+    bytes: Uint8Array,
+    contentType: string,
+  ) {
     const file = await this.find(name);
     if (file) {
       await this.request(
@@ -59,22 +61,10 @@ export class GoogleDriveBackupTransport implements CloudBackupTransport {
       },
     );
   }
-  async readManifest() {
-    const bytes = await this.read(META_NAME);
-    if (!bytes) return null;
-    return JSON.parse(new TextDecoder().decode(bytes)) as BackupManifest;
+  read() {
+    return this.readFile(CLOUD_FILE_NAME);
   }
-  readBackup() {
-    return this.read(BACKUP_NAME);
-  }
-  writeBackup(bytes: Uint8Array) {
-    return this.write(BACKUP_NAME, bytes, "application/octet-stream");
-  }
-  writeManifest(manifest: BackupManifest) {
-    return this.write(
-      META_NAME,
-      new TextEncoder().encode(JSON.stringify(manifest)),
-      "application/json",
-    );
+  write(bytes: Uint8Array) {
+    return this.writeFile(CLOUD_FILE_NAME, bytes, "application/json");
   }
 }

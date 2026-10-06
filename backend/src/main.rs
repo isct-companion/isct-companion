@@ -1,3 +1,3 @@
 fn main() {
-    science_tokyo_workstation_lib::run();
+    isct_companion_lib::run();
 }

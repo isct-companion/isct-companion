@@ -203,7 +203,7 @@ p {
 }
 .workspaceMain {
   min-width: 0;
-  padding: 20px;
+  padding: 20px 20px 72px;
   padding-inline-start: calc(var(--app-shell-navbar-offset, 0rem) + 20px);
   display: flex;
   transition: margin-right 0.18s ease;
@@ -218,7 +218,7 @@ p {
   overflow: hidden;
 }
 .workspaceMain.webMain {
-  padding: 0;
+  padding: 0 0 52px;
   padding-inline-start: var(--app-shell-navbar-offset, 0rem);
 }
 .mobileRail {
@@ -309,7 +309,7 @@ p {
 }
 .toast {
   position: fixed;
-  bottom: 22px;
+  bottom: 66px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--ink);
@@ -320,6 +320,123 @@ p {
   z-index: 60;
   max-width: 80vw;
   box-shadow: var(--shadow);
+}
+
+/* ---------- school status ---------- */
+.schoolStatusBar {
+  position: fixed;
+  z-index: 50;
+  left: var(--app-shell-navbar-offset, 0rem);
+  right: 0;
+  bottom: 0;
+  min-height: 52px;
+  padding: 7px 16px;
+  display: grid;
+  grid-template-columns: max-content minmax(260px, 1fr);
+  align-items: center;
+  gap: 18px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px color-mix(in srgb, var(--ink) 5%, transparent);
+  backdrop-filter: blur(16px);
+}
+.schoolStatusAccounts {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.schoolStatusAccount {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+}
+.schoolStatusAccount > i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 12%, transparent);
+}
+.schoolStatusAccount[data-state="active"] > i {
+  background: #2f9e62;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #2f9e62 14%, transparent);
+}
+.schoolStatusAccount[data-state="failed"] > i {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.schoolStatusAccount[data-state="checking"] > i {
+  background: var(--accent);
+  animation: schoolStatusPulse 1.5s ease-in-out infinite;
+}
+.schoolStatusAccount > span {
+  display: grid;
+  line-height: 1.15;
+}
+.schoolStatusAccount b,
+.lmsStatus b {
+  color: var(--ink);
+  font-size: calc(11.5px * var(--text));
+  font-weight: 700;
+}
+.schoolStatusAccount small {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(10px * var(--text));
+}
+.lmsStatus {
+  min-width: 0;
+}
+.lmsStatusLine {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 9px;
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+}
+.lmsStatusLine span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lmsStatusLine output {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.lmsStatus progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-top: 5px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  appearance: none;
+  background: var(--surface-3);
+}
+.lmsStatus progress::-webkit-progress-bar {
+  background: var(--surface-3);
+}
+.lmsStatus progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.lmsStatus progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--accent);
+}
+@keyframes schoolStatusPulse {
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* ---------- timetable ---------- */
@@ -476,13 +593,26 @@ p {
   text-overflow: ellipsis;
 }
 .ttBlock.event {
-  background: repeating-linear-gradient(
-    -45deg,
-    color-mix(in srgb, var(--course) 12%, var(--surface)),
-    color-mix(in srgb, var(--course) 12%, var(--surface)) 6px,
-    color-mix(in srgb, var(--course) 20%, var(--surface)) 6px,
-    color-mix(in srgb, var(--course) 20%, var(--surface)) 7px
-  );
+  background: color-mix(in srgb, var(--surface-2) 82%, var(--surface));
+  border-left-color: var(--muted);
+}
+.ttBlock.exam {
+  z-index: 4;
+  background: color-mix(in srgb, var(--course) 17%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--course) 42%, var(--line));
+}
+.ttBlock .ttExamBand {
+  width: fit-content;
+  max-width: 100%;
+  color: var(--course);
+  font-size: calc(9px * var(--text));
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.ttBlock .ttConflict,
+.ttAgendaRow .ttConflict {
+  color: var(--danger);
+  font-weight: 700;
 }
 .ttBlock.conflict {
   box-shadow: inset 0 0 0 1.5px var(--danger);
@@ -1285,6 +1415,17 @@ p {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.settingsNavGroup {
+  margin: 14px 11px 4px;
+  color: var(--muted);
+  font-size: calc(10.5px * var(--text));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.settingsNav button.nested {
+  padding-left: 19px;
+}
 .settingsPane {
   flex: 1;
   min-width: 0;
@@ -1301,6 +1442,46 @@ p {
   margin: -4px 0 14px;
   color: var(--muted);
   font-size: calc(12px * var(--text));
+}
+.cloudNotice {
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  color: var(--muted);
+  font-size: calc(10.5px * var(--text));
+  line-height: 1.4;
+}
+.cloudNotice b {
+  color: var(--text);
+  margin-right: 6px;
+}
+.cloudStatus {
+  margin: 4px 0 8px;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 16px;
+  align-items: center;
+}
+.cloudStatus > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cloudStatus > span:nth-child(2) {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+}
+.cloudStatus small,
+.cloudStatus p {
+  color: var(--muted);
+  font-size: calc(10.5px * var(--text));
+}
+.cloudStatus p {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 .settingsPane h3 {
   font-size: calc(11px * var(--text));
@@ -1502,19 +1683,45 @@ p {
     monospace;
 }
 .matrixGrid input[data-confidence="high"] {
-  border-color: #2f9e44; background: light-dark(#ebfbee, #183b27); color: light-dark(#215c30, #b2f2bb);
+  border-color: #2f9e44;
+  background: light-dark(#ebfbee, #183b27);
+  color: light-dark(#215c30, #b2f2bb);
 }
 .matrixGrid input[data-confidence="medium"] {
-  border-color: #e0a800; background: light-dark(#fff9db, #443819); color: light-dark(#715500, #ffec99);
+  border-color: #e0a800;
+  background: light-dark(#fff9db, #443819);
+  color: light-dark(#715500, #ffec99);
 }
 .matrixGrid input[data-confidence="low"] {
-  border-color: #e03131; background: light-dark(#fff0f0, #482324); color: light-dark(#a32323, #ffc9c9);
+  border-color: #e03131;
+  background: light-dark(#fff0f0, #482324);
+  color: light-dark(#a32323, #ffc9c9);
 }
-.matrixConfidenceLegend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0; font-size: 11px; color: var(--muted); }
-.matrixConfidenceLegend [data-confidence]::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
-.matrixConfidenceLegend [data-confidence="high"]::before { background: #2f9e44; }
-.matrixConfidenceLegend [data-confidence="medium"]::before { background: #e0a800; }
-.matrixConfidenceLegend [data-confidence="low"]::before { background: #e03131; }
+.matrixConfidenceLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 8px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.matrixConfidenceLegend [data-confidence]::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+.matrixConfidenceLegend [data-confidence="high"]::before {
+  background: #2f9e44;
+}
+.matrixConfidenceLegend [data-confidence="medium"]::before {
+  background: #e0a800;
+}
+.matrixConfidenceLegend [data-confidence="low"]::before {
+  background: #e03131;
+}
 .actions {
   display: flex;
   gap: 8px;
@@ -1605,7 +1812,18 @@ p {
   display: none;
 }
 .siteEditor summary b {
+  flex: 1;
   font-size: calc(13px * var(--text));
+}
+.siteEditor summary {
+  gap: 10px;
+}
+.siteEditor label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+  font-weight: 600;
 }
 
 /* ---------- density ---------- */
@@ -1639,8 +1857,33 @@ p {
 }
 @media (max-width: 760px) {
   .workspaceMain {
-    padding: 12px 12px 74px;
+    padding: 12px 12px 154px;
     padding-inline-start: calc(var(--app-shell-navbar-offset, 0rem) + 12px);
+  }
+  .workspaceMain.webMain {
+    padding: 0 0 134px;
+    padding-inline-start: var(--app-shell-navbar-offset, 0rem);
+  }
+  .schoolStatusBar {
+    left: 0;
+    bottom: 62px;
+    min-height: 78px;
+    padding: 7px 12px;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .schoolStatusAccounts {
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .schoolStatusAccount {
+    flex: 1 1 0;
+  }
+  .schoolStatusAccount small {
+    max-width: min(34vw, 150px);
+  }
+  .toast {
+    bottom: 150px;
   }
   .coursesBody {
     grid-template-columns: 1fr;
@@ -1856,6 +2099,30 @@ p {
   overflow: auto;
   padding: 8px 4px 36px;
 }
+.importantDates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+.importantDates > span {
+  display: grid;
+  gap: 2px;
+}
+.importantDates > span + span {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.importantDates b {
+  font-size: calc(12px * var(--text));
+}
+.importantDates small {
+  color: var(--muted);
+  font-size: calc(10px * var(--text));
+}
 .todaySection {
   padding: 24px 0 8px;
 }
@@ -1919,6 +2186,19 @@ p {
 .dayAgendaRow time {
   font-size: calc(13px * var(--text));
   font-variant-numeric: tabular-nums;
+}
+.dayAgendaRow time small {
+  display: block;
+  color: var(--course);
+  font-size: calc(9px * var(--text));
+  font-weight: 800;
+  white-space: nowrap;
+}
+.dayAgendaRow.exam {
+  background: color-mix(in srgb, var(--course) 5%, transparent);
+}
+.dayAgendaRow.conflict .agendaCourse small {
+  color: var(--danger);
 }
 .agendaLine {
   width: 2px;
@@ -2651,252 +2931,720 @@ p {
 }
 
 /* ---------- Course finder (address-bar style search) ---------- */
-.courseFinder { display: flex; flex-direction: column; min-height: 0; }
-.courseFinder > header { padding-block: 8px; }
-.finderTitle { display: grid; gap: 2px; flex: 1; min-width: 0; }
-.finderTitle span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.courseFinder .courseListTools { flex: none; }
-.courseFinder .courseListTools button { white-space: nowrap; }
-.finderEmpty { display: grid; justify-items: center; gap: 10px; }
-.finderStatus .textButton, .finderFoot .textButton { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
-.finderStatus .textButton { margin-left: auto; }
-.finderWarn { color: var(--warn); flex-basis: 100%; }
-.finderPager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 6px; border-top: 1px solid var(--line); font-size: calc(12px * var(--text)); color: var(--muted); }
-.finderPager .textButton { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
-.finderPager .textButton:disabled { color: var(--muted); opacity: 0.5; cursor: default; }
-.courseFinder .finderResults { flex: 1; min-height: 0; overflow-y: auto; }
-.intensiveLane { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; min-height: 36px; }
-.intensiveLane > b, .intensiveToggle { font: inherit; font-size: calc(12px * var(--text)); font-weight: 600; color: var(--muted); white-space: nowrap; }
-.intensiveToggle { border: 1px dashed var(--line-strong); border-radius: 6px; background: transparent; padding: 4px 8px; cursor: pointer; }
-.intensiveToggle:hover { background: var(--accent-soft); color: var(--accent); }
-.intensiveToggle.active { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-.intensiveLane > div { display: flex; gap: 6px; overflow-x: auto; min-width: 0; }
-.intensiveLane > div button { font: inherit; font-size: calc(12px * var(--text)); white-space: nowrap; padding: 3px 8px; border: 0; border-left: 3px solid var(--course, var(--accent)); border-radius: 4px; background: var(--surface-2); color: var(--ink); cursor: pointer; }
-.intensiveLane > div small { color: var(--muted); font-size: calc(11.5px * var(--text)); }
-.finderOmni { position: relative; padding: 8px 12px 4px; }
+.courseFinder {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.courseFinder > header {
+  padding-block: 8px;
+}
+.finderTitle {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.finderTitle span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.courseFinder .courseListTools {
+  flex: none;
+}
+.courseFinder .courseListTools button {
+  white-space: nowrap;
+}
+.finderEmpty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+.finderStatus .textButton,
+.finderFoot .textButton {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.finderStatus .textButton {
+  margin-left: auto;
+}
+.finderWarn {
+  color: var(--warn);
+  flex-basis: 100%;
+}
+.finderPager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px;
+  border-top: 1px solid var(--line);
+  font-size: calc(12px * var(--text));
+  color: var(--muted);
+}
+.finderPager .textButton {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.finderPager .textButton:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: default;
+}
+.courseFinder .finderResults {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.intensiveLane {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  min-height: 36px;
+}
+.intensiveLane > b,
+.intensiveToggle {
+  font: inherit;
+  font-size: calc(12px * var(--text));
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.intensiveToggle {
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.intensiveToggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.intensiveToggle.active {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.intensiveLane > div {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  min-width: 0;
+}
+.intensiveLane > div button {
+  font: inherit;
+  font-size: calc(12px * var(--text));
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 0;
+  border-left: 3px solid var(--course, var(--accent));
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+.intensiveLane > div small {
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+}
+.finderOmni {
+  position: relative;
+  padding: 8px 12px 4px;
+}
 .finderBar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
-  border: 1px solid var(--line-strong); border-radius: 10px; padding: 4px 6px; background: var(--surface); cursor: text;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 4px 6px;
+  background: var(--surface);
+  cursor: text;
 }
-.finderBar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.finderBar input { flex: 1 1 140px; min-width: 120px; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: calc(14px * var(--text)); padding: 4px 2px; }
-.finderPillGroup { display: inline-flex; align-items: center; gap: 2px; }
-.finderOr { color: var(--muted); font-size: 11px; }
+.finderBar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.finderBar input {
+  flex: 1 1 140px;
+  min-width: 120px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(14px * var(--text));
+  padding: 4px 2px;
+}
+.finderPillGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.finderOr {
+  color: var(--muted);
+  font-size: 11px;
+}
 .finderPill {
-  display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 999px; padding: 2px 8px; cursor: pointer;
-  font: inherit; font-size: calc(12px * var(--text)); background: var(--accent-soft); color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: calc(12px * var(--text));
+  background: var(--accent-soft);
+  color: var(--accent);
 }
-.finderPill b { font-weight: 500; font-size: calc(10.5px * var(--text)); opacity: 0.75; }
-.finderPill span { opacity: 0.6; }
-.finderPill:hover span { opacity: 1; }
-.finderPill.mark, .finderPill.group { background: var(--warn-soft); color: var(--warn); }
-.finderPill.code { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-.finderPill.quarter, .finderPill.text { background: var(--surface-3); color: var(--ink); }
-.finderPill.exclude { background: var(--danger-soft); color: var(--danger); }
-.finderPill.free, .finderPill.format, .finderPill.lang, .finderPill.kind, .finderPill.dept, .finderPill.level, .finderPill.credits { background: var(--ok-soft); color: var(--ok); }
-.finderLocal { font-style: normal; font-size: calc(9.5px * var(--text)); border-radius: 3px; padding: 0 3px; background: var(--surface); opacity: 0.8; }
+.finderPill b {
+  font-weight: 500;
+  font-size: calc(10.5px * var(--text));
+  opacity: 0.75;
+}
+.finderPill span {
+  opacity: 0.6;
+}
+.finderPill:hover span {
+  opacity: 1;
+}
+.finderPill.mark,
+.finderPill.group {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.finderPill.code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.finderPill.quarter,
+.finderPill.text {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.finderPill.exclude {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.finderPill.free,
+.finderPill.format,
+.finderPill.lang,
+.finderPill.kind,
+.finderPill.dept,
+.finderPill.level,
+.finderPill.credits {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.finderLocal {
+  font-style: normal;
+  font-size: calc(9.5px * var(--text));
+  border-radius: 3px;
+  padding: 0 3px;
+  background: var(--surface);
+  opacity: 0.8;
+}
 .finderSuggestions {
-  position: absolute; left: 12px; right: 12px; top: calc(100% - 2px); z-index: 20; background: var(--surface);
-  border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); max-height: 340px; overflow-y: auto; padding-block: 4px;
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: calc(100% - 2px);
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-height: 340px;
+  overflow-y: auto;
+  padding-block: 4px;
 }
-.finderHead { font-size: calc(10.5px * var(--text)); font-weight: 600; letter-spacing: 0.04em; color: var(--muted); padding: 6px 12px 2px; }
-.finderSuggestion { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 12px; cursor: pointer; font-size: calc(13px * var(--text)); }
-.finderSuggestion[aria-selected="true"] { background: var(--accent-soft); }
-.finderSuggestion b { font-weight: 500; font-size: calc(10.5px * var(--text)); color: var(--muted); margin-right: 6px; }
-.finderSuggestion em { font-style: normal; color: var(--muted); font-size: calc(11.5px * var(--text)); margin-left: 6px; }
-.finderSuggestion small { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.finderSuggestion small.zero { color: var(--danger); }
-.finderSuggestion mark, .finderRow mark { background: var(--warn-soft); color: inherit; border-radius: 2px; }
-.finderCheck { font-style: normal; color: var(--ok); margin-right: 5px; }
-.finderKeys { display: flex; flex-wrap: wrap; gap: 12px; padding: 6px 12px 2px; margin-top: 4px; border-top: 1px solid var(--line); font-size: calc(10.5px * var(--text)); color: var(--muted); }
-.finderKeys kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
-.finderStatus { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; padding: 2px 14px 6px; font-size: calc(11.5px * var(--text)); color: var(--muted); }
-.finderError { color: var(--danger); }
-.finderResults { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); }
-.finderRow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--line); }
-.finderRow:hover, .finderRow.active { background: var(--surface-2); }
-.finderRow.active { box-shadow: inset 3px 0 0 var(--accent); }
-.finderRow.placed .finderMain { opacity: 0.6; }
-.finderRow input { accent-color: var(--accent); }
-.finderMain { display: grid; gap: 1px; min-width: 0; border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
-.finderMain .finderBadges { display: flex; gap: 4px; justify-items: start; }
-.finderMain .finderBadges:empty { display: none; }
-.finderAdd { font: inherit; font-size: calc(12px * var(--text)); padding: 3px 10px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; white-space: nowrap; }
-.finderAdd:hover { background: var(--accent); color: var(--surface); }
-.finderPlaced { font-style: normal; font-size: calc(11px * var(--text)); color: var(--ok); white-space: nowrap; padding-inline: 4px; }
-.finderMain b { font-weight: 500; font-size: calc(13px * var(--text)); }
-.finderMain small { color: var(--muted); font-size: calc(11.5px * var(--text)); }
-.finderMain code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); }
-.finderMain em { font-style: normal; color: var(--accent); }
-.finderBadges { display: grid; gap: 3px; justify-items: end; }
-.finderBadges i { font-style: normal; font-size: calc(10.5px * var(--text)); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
-.finderBadges .rec { background: var(--warn-soft); color: var(--warn); }
-.finderBadges .placed { background: var(--ok-soft); color: var(--ok); }
-.finderBadges .clash { background: var(--danger-soft); color: var(--danger); }
-.finderFoot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: calc(12.5px * var(--text)); font-variant-numeric: tabular-nums; }
-.finderFoot > span { flex: 1; color: var(--muted); }
+.finderHead {
+  font-size: calc(10.5px * var(--text));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 6px 12px 2px;
+}
+.finderSuggestion {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: calc(13px * var(--text));
+}
+.finderSuggestion[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+.finderSuggestion b {
+  font-weight: 500;
+  font-size: calc(10.5px * var(--text));
+  color: var(--muted);
+  margin-right: 6px;
+}
+.finderSuggestion em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+  margin-left: 6px;
+}
+.finderSuggestion small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.finderSuggestion small.zero {
+  color: var(--danger);
+}
+.finderSuggestion mark,
+.finderRow mark {
+  background: var(--warn-soft);
+  color: inherit;
+  border-radius: 2px;
+}
+.finderCheck {
+  font-style: normal;
+  color: var(--ok);
+  margin-right: 5px;
+}
+.finderKeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px 12px 2px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  font-size: calc(10.5px * var(--text));
+  color: var(--muted);
+}
+.finderKeys kbd {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.finderStatus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 2px 14px 6px;
+  font-size: calc(11.5px * var(--text));
+  color: var(--muted);
+}
+.finderError {
+  color: var(--danger);
+}
+.finderResults {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+.finderRow {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px 6px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.finderRow:hover,
+.finderRow.active {
+  background: var(--surface-2);
+}
+.finderRow.active {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.finderRow.placed .finderMain {
+  opacity: 0.6;
+}
+.finderRow input {
+  accent-color: var(--accent);
+}
+.finderMain {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.finderMain .finderBadges {
+  display: flex;
+  gap: 4px;
+  justify-items: start;
+}
+.finderMain .finderBadges:empty {
+  display: none;
+}
+.finderAdd {
+  font: inherit;
+  font-size: calc(12px * var(--text));
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.finderAdd:hover {
+  background: var(--accent);
+  color: var(--surface);
+}
+.finderPlaced {
+  font-style: normal;
+  font-size: calc(11px * var(--text));
+  color: var(--ok);
+  white-space: nowrap;
+  padding-inline: 4px;
+}
+.finderMain b {
+  font-weight: 500;
+  font-size: calc(13px * var(--text));
+}
+.finderMain small {
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+}
+.finderMain code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--ink);
+}
+.finderMain em {
+  font-style: normal;
+  color: var(--accent);
+}
+.finderBadges {
+  display: grid;
+  gap: 3px;
+  justify-items: end;
+}
+.finderBadges i {
+  font-style: normal;
+  font-size: calc(10.5px * var(--text));
+  border-radius: 4px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.finderBadges .rec {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.finderBadges .placed {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.finderBadges .clash {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.finderFoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  font-size: calc(12.5px * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.finderFoot > span {
+  flex: 1;
+  color: var(--muted);
+}
 
 /* Keep-alive page slots: inactive pages stay mounted but are not shown. */
-.pageSlot { display: contents; }
-.pageSlot.inactive { display: none; }
-
-/* Today: same-layer course workspace, with one outline and one reading area. */
-.lmsPreviewShell { height: 100dvh; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); }
-.lmsPreviewNotice { display: flex; justify-content: space-between; padding: 9px 24px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); }
-.lmsPreviewNotice label { display: flex; gap: 6px; align-items: center; }
-.lmsPreviewMain { padding: 20px 24px; flex: 1; min-height: 0; display: flex; }
-.workspaceMain.todayWorkspaceMain { height: 100dvh; overflow: hidden; }
-.todayWorkbench { display: flex; width: 100%; height: 100%; min-height: 0; gap: 20px; }
-.todayRetained { flex: 1; min-width: 0; height: 100%; overflow: auto; overflow-anchor: none; }
-.todayRetained.compact { flex: 0 0 180px; border-right: 1px solid var(--line); padding-right: 16px; }
-.todayWorkbenchContent { flex: 1; min-width: 0; min-height: 0; }
-.todayWorkbenchContent[hidden], .todayCourseSlot[hidden] { display: none; }
-.todayCourseSlot { height: 100%; }
-.todayNavigation { width: 100%; padding: 0 !important; }
-.todayNavigation .todayHeader { padding: 12px 0 16px; }
-.todayNavigation .todayHeader h1 { font-size: 15px; line-height: 1.3; font-weight: 550; }
-.todayNavigation .todayEyebrow { display: none; }
-.todayNavigation .teachingState { display: none; }
-.todayNavigation .todayFlow { display: block; }
-.todayNavigation .todaySection { padding: 18px 0; }
-.todayNavigation .todaySection > header { margin-bottom: 10px; }
-.todayNavigation .todaySection h2 { font-size: 11px; color: var(--muted); letter-spacing: .04em; }
-.todayNavigation .todaySection > header > button, .todayNavigation .todaySection > header > span { display: none; }
-.todayNavigation .dayAgendaRow { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px 8px; min-height: 0; border-radius: 5px; }
-.todayNavigation .dayAgendaRow.focus { background: none; }
-.todayNavigation .dayAgendaRow.selected, .todayNavigation .dueAssignment.selected { background: var(--accent-soft); color: var(--accent); }
-.todayNavigation .dayAgendaRow time { font-size: 10px; color: var(--muted); width: auto; }
-.todayNavigation .agendaState, .todayNavigation .agendaLine, .todayNavigation .agendaCourse small { display: none; }
-.todayNavigation .agendaCourse b { font-size: 12px; line-height: 1.5; font-weight: 550; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.todayNavigation .dueRow { display: block; padding: 0; }
-.todayNavigation .dueRow > i, .todayNavigation .dueRow > .textButton { display: none; }
-.todayNavigation .dueAssignment { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; padding: 10px 8px; border-radius: 5px; width: 100%; }
-.todayNavigation .dueAssignment b { font-size: 12px; line-height: 1.5; font-weight: 550; }
-.todayNavigation .dueAssignment small { display: none; }
-.todayNavigation .dueAssignment time { font-size: 10px; }
-.todayNavigation .quietEmpty, .todayNavigation .moreToggle { font-size: 11px; }
-.lmsWorkspace { width: 100%; min-width: 0; display: flex; flex-direction: column; height: 100%; }
-.lmsWorkspaceHeader { display: flex; align-items: center; gap: 20px; padding: 8px 4px 20px; border-bottom: 1px solid var(--line); }
-.lmsWorkspace button { cursor: pointer; color: inherit; font: inherit; }
-.lmsBack, .lmsRefresh, .lmsOutlineTools button, .lmsOriginal, .lmsMobileBack { border: 0; background: none; color: var(--accent) !important; white-space: nowrap; }
-.lmsBack { padding: 8px 0; }
-.lmsCourseIdentity { flex: 1; min-width: 0; }
-.lmsCourseIdentity small, .lmsDocumentHeading small { color: var(--muted); font-size: 12px; }
-.lmsCourseIdentity h1 { font-size: 20px; line-height: 1.35; margin: 2px 0 0; }
-.lmsEntryTime { font-size: 12px; color: var(--muted); }
-.lmsWorkspaceBody { display: grid; grid-template-columns: minmax(280px, 36%) minmax(0, 1fr); flex: 1; min-height: 0; }
-.lmsOutline { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
-.lmsOutlineTools { padding: 18px 18px 12px 0; display: flex; gap: 10px; align-items: center; }
-.lmsOutlineTools input { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 7px; padding: 8px 10px; font: inherit; font-size: 13px; }
-.lmsOutlineTools button { font-size: 11px; padding: 6px 0; }
-.lmsOutlineScroll { overflow: auto; min-height: 0; flex: 1; padding: 0 18px 28px 0; scroll-padding: 12px; overflow-anchor: none; }
-.lmsOutlineScroll h2 { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; margin: 24px 0 10px; display: flex; gap: 8px; }
-.lmsOutlineScroll h2:first-child { margin-top: 8px; }
-.lmsOutlineScroll h2 small { opacity: .65; }
-.lmsSection { border-bottom: 1px solid var(--line); border-left: 2px solid transparent; transition: border-color .12s; }
-.lmsSection.reading { border-left-color: var(--accent); }
-.lmsActivityGroup { border-left: 2px solid transparent; }
-.lmsActivityGroup.reading { border-left-color: var(--accent); }
-.lmsSection h3 { margin: 0; font-size: 14px; }
-.lmsSection h3 button { width: 100%; padding: 12px 8px; display: flex; gap: 10px; text-align: left; border: 0; background: none; }
-.lmsSection h3 button:hover, .lmsItemRow:hover { background: var(--surface-2); }
-.lmsSection h3 button span:nth-child(2) { flex: 1; }
-.lmsSection h3 small { color: var(--muted); font-size: 11px; }
-.lmsSectionPreview { color: var(--muted); margin: -3px 16px 12px 28px; font-size: 12px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.lmsSectionBody { padding: 2px 0 12px 20px; }
-.lmsRichContent { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.lmsRichContent p, .lmsRichContent div { margin-bottom: 10px; }
-.lmsRichContent table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; margin: 12px 0; }
-.lmsRichContent th, .lmsRichContent td { padding: 7px; border: 1px solid var(--line); min-width: 75px; }
-.lmsRichContent pre { overflow: auto; }
-.lmsRichContent a { color: var(--accent); text-decoration: underline; }
-.lmsItemRow { display: flex; width: 100%; align-items: center; gap: 10px; border: 0; background: none; text-align: left; padding: 10px 8px; border-radius: 5px; }
-.lmsItemRow.selected { background: var(--accent-soft); color: var(--accent); }
-.lmsItemRow > span:nth-child(2) { flex: 1; min-width: 0; }
-.lmsItemRow b { display: block; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
-.lmsItemRow small { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
-.lmsItemGlyph { color: var(--muted); width: 16px; }
-.lmsQuiet { font-size: 12px; color: var(--muted); padding: 8px; line-height: 1.7; }
-.lmsOriginal { font-size: 12px !important; padding: 12px; border-top: 1px solid var(--line); }
-.lmsViewer { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
-.lmsTabBar { display: flex; min-height: 48px; border-bottom: 1px solid var(--line); }
-.lmsTabBar > div { display: flex; overflow-x: auto; width: 100%; }
-.lmsTab { display: flex; border-right: 1px solid var(--line); border-bottom: 2px solid transparent; align-items: center; flex-shrink: 0; max-width: 240px; }
-.lmsTab.active { border-bottom-color: var(--accent); background: var(--accent-soft); }
-.lmsTab button { border: 0; background: none; padding: 13px 12px; font-size: 12px; min-width: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-.lmsTab button + button { padding: 10px 9px; color: var(--muted); }
-.lmsViewerBody { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-.lmsViewerEmpty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 40px; gap: 12px; }
-.lmsViewerEmpty > span { font-size: 40px; opacity: .35; }
-.lmsViewerEmpty h2 { font-size: 18px; color: var(--ink); font-weight: 550; }
-.lmsViewerEmpty p { max-width: 300px; font-size: 13px; line-height: 1.7; }
-.lmsDocument { padding: 28px; min-height: 100%; }
-.lmsDocumentHeading { padding-bottom: 20px; }
-.lmsDocumentHeading h2 { font-size: 23px; font-weight: 600; line-height: 1.4; margin-top: 5px; }
-.lmsAssignmentFacts { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; font-size: 13px; margin-bottom: 28px; }
-.lmsAssignmentFacts dt { color: var(--muted); }
-.lmsSubmit { border: 0; background: var(--accent); color: white !important; padding: 10px 16px; border-radius: 6px; margin-top: 24px; }
-.lmsSourceBar { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); }
-.lmsSourceBar a { color: var(--accent); }
-.lmsFilePreview { width: 100%; height: 65dvh; border: 0; margin-top: 16px; }
-.lmsOfficialHost { flex: 1; min-height: 300px; position: relative; }
-.lmsMobileBack { display: none; }
-.lmsWorkspace button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-@media (max-width: 850px) {
-  .todayWorkbench { gap: 10px; }
-  .todayRetained.compact { flex-basis: 135px; padding-right: 10px; }
-  .lmsWorkspaceHeader { gap: 12px; flex-wrap: wrap; }
-  .lmsEntryTime { display: none; }
-  .lmsWorkspaceBody { display: block; min-height: 0; }
-  .lmsOutline, .lmsViewer { height: 100%; }
-  .lmsViewer { display: none; }
-  .lmsWorkspace.viewing .lmsOutline { display: none; }
-  .lmsWorkspace.viewing .lmsViewer { display: flex; }
-  .lmsMobileBack { display: block; padding: 10px; }
-  .lmsOutline { border: 0; }
-  .lmsDocument { padding: 20px; }
+.pageSlot {
+  display: contents;
 }
-@media (prefers-reduced-motion: reduce) { .lmsSection { transition: none; } }
+.pageSlot.inactive {
+  display: none;
+}
+
+.workspaceMain.todayWorkspaceMain {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.todayNavigation {
+  width: 100%;
+  padding: 0 !important;
+}
+.todayNavigation .todayHeader {
+  padding: 12px 0 16px;
+}
+.todayNavigation .todayHeader h1 {
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 550;
+}
+.todayNavigation .todayEyebrow {
+  display: none;
+}
+.todayNavigation .teachingState {
+  display: none;
+}
+.todayNavigation .todayFlow {
+  display: block;
+}
+.todayNavigation .todaySection {
+  padding: 18px 0;
+}
+.todayNavigation .todaySection > header {
+  margin-bottom: 10px;
+}
+.todayNavigation .todaySection h2 {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.todayNavigation .todaySection > header > button,
+.todayNavigation .todaySection > header > span {
+  display: none;
+}
+.todayNavigation .dayAgendaRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 8px;
+  min-height: 0;
+  border-radius: 5px;
+}
+.todayNavigation .dayAgendaRow.focus {
+  background: none;
+}
+.todayNavigation .dayAgendaRow.selected,
+.todayNavigation .dueAssignment.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.todayNavigation .dayAgendaRow time {
+  font-size: 10px;
+  color: var(--muted);
+  width: auto;
+}
+.todayNavigation .agendaState,
+.todayNavigation .agendaLine,
+.todayNavigation .agendaCourse small {
+  display: none;
+}
+.todayNavigation .agendaCourse b {
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 550;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.todayNavigation .dueRow {
+  display: block;
+  padding: 0;
+}
+.todayNavigation .dueRow > i,
+.todayNavigation .dueRow > .textButton {
+  display: none;
+}
+.todayNavigation .dueAssignment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 10px 8px;
+  border-radius: 5px;
+  width: 100%;
+}
+.todayNavigation .dueAssignment b {
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 550;
+}
+.todayNavigation .dueAssignment small {
+  display: none;
+}
+.todayNavigation .dueAssignment time {
+  font-size: 10px;
+}
+.todayNavigation .quietEmpty,
+.todayNavigation .moreToggle {
+  font-size: 11px;
+}
 
 /* ---------- Courses: syllabus side panel and course details over it ---------- */
-.coursesLeft { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.coursesLeft > .ttCard { flex: 1; }
-.coursesSide { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.coursesSide > .courseFinder { flex: 1; }
-.coursesSidePanel { position: absolute; inset: 0; z-index: 5; display: flex; animation: enter 0.14s ease; }
-.coursesSidePanel > .coursePanel { flex: 1; }
-.coursePanel > header { border-top: 3px solid var(--course, var(--accent)); padding-block: 8px; }
-.coursePanel .courseListTools a { color: var(--muted); font-size: calc(11px * var(--text)); padding: 5px 7px; text-decoration: none; white-space: nowrap; }
-.coursePanel .courseListTools a:hover { color: var(--ink); }
-.coursePanel .courseListTools button { white-space: nowrap; }
-.coursePanelBody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px; display: grid; align-content: start; gap: 12px; }
-.coursePanelBody > * { min-width: 0; }
-.coursePanelBody > dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: calc(12.5px * var(--text)); }
-.coursePanelBody > dl > dt { color: var(--muted); }
-.coursePanelBody > dl > dd { margin: 0; }
+.coursesLeft {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.coursesLeft > .ttCard {
+  flex: 1;
+}
+.coursesSide {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.coursesSide > .courseFinder {
+  flex: 1;
+}
+.coursesSidePanel {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  animation: enter 0.14s ease;
+}
+.coursesSidePanel > .coursePanel {
+  flex: 1;
+}
+.coursePanel > header {
+  border-top: 3px solid var(--course, var(--accent));
+  padding-block: 8px;
+}
+.coursePanel .courseListTools a {
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+  padding: 5px 7px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.coursePanel .courseListTools a:hover {
+  color: var(--ink);
+}
+.coursePanel .courseListTools button {
+  white-space: nowrap;
+}
+.coursePanelBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.coursePanelBody > * {
+  min-width: 0;
+}
+.coursePanelBody > dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: calc(12.5px * var(--text));
+}
+.coursePanelBody > dl > dt {
+  color: var(--muted);
+}
+.coursePanelBody > dl > dd {
+  margin: 0;
+}
 /* The side panel is narrow: syllabus labels sit above their values. */
-.coursePanelBody .syllabusMetadata > div { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 6px 0; font-size: calc(12.5px * var(--text)); }
-.coursePanelBody .syllabusMetadata dt { font-size: calc(11.5px * var(--text)); }
-.coursePanelBody .syllabusLessonPlan > div { grid-template-columns: 56px minmax(0, 1fr); gap: 8px; font-size: calc(12.5px * var(--text)); }
-.coursePanelBody .syllabusProse { font-size: calc(12.5px * var(--text)); overflow-wrap: anywhere; }
-.coursePanelFoot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
-.finderTitle b small { font-weight: 400; color: var(--muted); font-size: calc(11.5px * var(--text)); }
+.coursePanelBody .syllabusMetadata > div {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 6px 0;
+  font-size: calc(12.5px * var(--text));
+}
+.coursePanelBody .syllabusMetadata dt {
+  font-size: calc(11.5px * var(--text));
+}
+.coursePanelBody .syllabusLessonPlan > div {
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+  font-size: calc(12.5px * var(--text));
+}
+.coursePanelBody .syllabusProse {
+  font-size: calc(12.5px * var(--text));
+  overflow-wrap: anywhere;
+}
+.coursePanelFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+}
+.finderTitle b small {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+}
 
-.pageError { flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; color: var(--ink); background: var(--bg, transparent); }
-.pageError code { max-width: 60ch; white-space: pre-wrap; color: var(--danger); font-size: calc(12px * var(--text)); }
-.finderAdd.replace { border-color: var(--warn); color: var(--warn); }
-.finderAdd.replace:hover { background: var(--warn); color: var(--surface); }
-.coursePanelNote { margin-right: auto; align-self: center; color: var(--warn); font-size: calc(12px * var(--text)); }
+.pageError {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--ink);
+  background: var(--bg, transparent);
+}
+.pageError code {
+  max-width: 60ch;
+  white-space: pre-wrap;
+  color: var(--danger);
+  font-size: calc(12px * var(--text));
+}
+.finderAdd.replace {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.finderAdd.replace:hover {
+  background: var(--warn);
+  color: var(--surface);
+}
+.coursePanelNote {
+  margin-right: auto;
+  align-self: center;
+  color: var(--warn);
+  font-size: calc(12px * var(--text));
+}
 
 /* LMS pull review */
-.mergeBody { display: flex; flex-direction: column; gap: 12px; }
+.mergeBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .mergeGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   gap: 12px;
   height: min(60vh, 560px);
 }
-.mergeSides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+.mergeSides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  min-height: 0;
+}
 .mergeColumn {
   display: flex;
   flex-direction: column;
@@ -2912,9 +3660,22 @@ p {
   border-bottom: 1px solid var(--line);
   font-size: 12px;
 }
-.mergeColumn > header span { color: var(--muted); font-variant-numeric: tabular-nums; }
-.mergeList { flex: 1; overflow: auto; padding: 6px; display: grid; align-content: start; gap: 4px; }
-.mergeEmpty { padding: 10px; color: var(--muted); }
+.mergeColumn > header span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.mergeList {
+  flex: 1;
+  overflow: auto;
+  padding: 6px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+.mergeEmpty {
+  padding: 10px;
+  color: var(--muted);
+}
 .mergeItem {
   display: flex;
   align-items: center;
@@ -2925,23 +3686,71 @@ p {
   background: var(--surface);
   cursor: pointer;
 }
-.mergeItem.common { cursor: default; flex-direction: column; align-items: flex-start; gap: 0; }
-.mergeItem > span { display: grid; flex: 1; min-width: 0; }
-.mergeItem b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mergeItem small { color: var(--muted); font-size: 11px; }
+.mergeItem.common {
+  cursor: default;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.mergeItem > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.mergeItem b {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mergeItem small {
+  color: var(--muted);
+  font-size: 11px;
+}
 .mergeItem.conflict {
   border-color: var(--conflict);
   box-shadow: inset 4px 0 0 var(--conflict);
   background: color-mix(in srgb, var(--conflict) 9%, var(--surface));
 }
-.mergeConflictBadge { background: var(--conflict); flex: none; }
-.mergeFoot { display: flex; align-items: center; gap: 8px; }
-.mergeFoot small { flex: 1; color: var(--muted); }
-.mergeItem.retime { border-color: var(--warn); background: var(--warn-soft); }
-.dueEarlier { margin-top: 6px; }
-.dueEarlier > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 0; list-style-position: inside; }
-.dueLater { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-.dueLater > small { display: block; color: var(--muted); font-size: 12px; padding-bottom: 4px; }
+.mergeConflictBadge {
+  background: var(--conflict);
+  flex: none;
+}
+.mergeFoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mergeFoot small {
+  flex: 1;
+  color: var(--muted);
+}
+.mergeItem.retime {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+.dueEarlier {
+  margin-top: 6px;
+}
+.dueEarlier > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 0;
+  list-style-position: inside;
+}
+.dueLater {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.dueLater > small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  padding-bottom: 4px;
+}
 
 /* Today: assignment rows (title + course stacked, deadline aligned right) */
 .dueRow {
@@ -2965,10 +3774,18 @@ p {
   display: grid;
   gap: 3px;
 }
-.dueRow .textButton { opacity: 0; transition: opacity 120ms; }
+.dueRow .textButton {
+  opacity: 0;
+  transition: opacity 120ms;
+}
 .dueRow:hover .textButton,
-.dueRow .textButton:focus-visible { opacity: 1; }
-.moreToggle { justify-self: start; margin-top: 4px; }
+.dueRow .textButton:focus-visible {
+  opacity: 1;
+}
+.moreToggle {
+  justify-self: start;
+  margin-top: 4px;
+}
 .quietEmpty.compact {
   display: flex;
   flex-wrap: wrap;
@@ -2985,9 +3802,15 @@ p {
   font-size: calc(10px * var(--text));
 }
 /* Smaller date header so classes and deadlines start higher. */
-.todayHeader { padding: 12px 4px 14px; }
-.todayHeader h1 { font-size: clamp(28px, 3vw, 40px); }
-.todaySection { padding-top: 16px; }
+.todayHeader {
+  padding: 12px 4px 14px;
+}
+.todayHeader h1 {
+  font-size: clamp(28px, 3vw, 40px);
+}
+.todaySection {
+  padding-top: 16px;
+}
 
 /* Shared course details (Courses panel and Today/Schedule drawer) */
 .courseDetails {
@@ -2996,7 +3819,10 @@ p {
   display: flex;
   flex-direction: column;
 }
-.courseDetailsBody { flex: 1; min-height: 0; }
+.courseDetailsBody {
+  flex: 1;
+  min-height: 0;
+}
 .courseDetailsBody dl {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
@@ -3004,14 +3830,26 @@ p {
   padding: 14px 16px 6px;
   font-size: 13px;
 }
-.courseDetailsBody dt { color: var(--muted); }
-.courseDetailsLinks { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 16px 14px; }
+.courseDetailsBody dt {
+  color: var(--muted);
+}
+.courseDetailsLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 16px 14px;
+}
 .courseDetailsLinks .officialLink {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 3px 4px 3px 10px;
 }
-.officialLink { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.officialLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
 .officialLink button {
   border: 0;
   background: transparent;
@@ -3025,7 +3863,9 @@ p {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.officialLink button:hover { text-decoration: underline; }
+.officialLink button:hover {
+  text-decoration: underline;
+}
 .officialLink .officialOutside {
   flex: none;
   width: 24px;
@@ -3034,9 +3874,20 @@ p {
   color: var(--muted);
   text-align: center;
 }
-.officialLink .officialOutside:hover { background: var(--surface-2); text-decoration: none; }
-.detailsList { padding: 6px 16px 16px; display: grid; gap: 2px; }
-.detailsList > header { display: flex; justify-content: space-between; min-height: 26px; }
+.officialLink .officialOutside:hover {
+  background: var(--surface-2);
+  text-decoration: none;
+}
+.detailsList {
+  padding: 6px 16px 16px;
+  display: grid;
+  gap: 2px;
+}
+.detailsList > header {
+  display: flex;
+  justify-content: space-between;
+  min-height: 26px;
+}
 .detailsList h4 {
   margin: 10px 0 4px;
   color: var(--muted);
@@ -3052,19 +3903,38 @@ p {
   border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
   font-size: 13px;
 }
-.detailsRow > b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.detailsRow small { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
-.detailsRow small.overdue { color: var(--danger); }
-.detailsRow small.warning { color: var(--warn); }
-.coursePanel { display: flex; flex-direction: column; min-height: 0; }
+.detailsRow > b {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detailsRow small {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.detailsRow small.overdue {
+  color: var(--danger);
+}
+.detailsRow small.warning {
+  color: var(--warn);
+}
+.coursePanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 
-/* Timetable blocks: room always visible, code only when the column is wide,
-   title at most two lines; overlapping blocks get side-by-side lanes. */
-.ttCol { container-type: inline-size; }
+/* Timetable blocks fill their schedule cell. Conflicts stay legible as an
+   explicit warning instead of shrinking every card into narrow lanes. */
+.ttCol {
+  container-type: inline-size;
+}
 .tt .ttBlock {
-  left: calc(3px + (100% - 6px) * var(--lane, 0) / var(--lanes, 1));
-  right: auto;
-  width: calc((100% - 6px) / var(--lanes, 1) - 2px);
+  left: 3px;
+  right: 3px;
+  width: auto;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -3086,7 +3956,9 @@ p {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tt .ttBlock .ttCode { display: none; }
+.tt .ttBlock .ttCode {
+  display: none;
+}
 @container (min-width: 150px) {
   .tt .ttBlock .ttCode {
     display: block;
@@ -3095,7 +3967,18 @@ p {
     text-overflow: ellipsis;
   }
 }
-.tt .ttBlock.conflict { z-index: 3; }
+.tt .ttBlock.conflict {
+  z-index: 3;
+}
+.tt .ttBlock.exam {
+  z-index: 4;
+}
+.ttAgendaRow.exam {
+  box-shadow: inset 3px 0 0 var(--course);
+}
+.ttAgendaRow.conflict {
+  outline: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
+}
 .weekLength {
   margin-left: auto;
   flex: none;
@@ -3106,296 +3989,896 @@ p {
   color: var(--muted);
   background: transparent;
 }
-.weekLength:hover { color: var(--ink); border-color: var(--line-strong); }
+.weekLength:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
 
-.calendarExportActions { display: inline-flex; align-items: center; gap: 0; }
+.calendarExportActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+.scheduleOverrideForm {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.scheduleConflict {
+  color: var(--danger);
+  font-weight: 650;
+}
+.courseExamList {
+  display: grid;
+  gap: 5px;
+}
+.courseExamList small {
+  color: var(--accent);
+}
 
-.referenceSource { padding: 16px 0; border-bottom: 1px solid var(--line); }
-.referenceSource label { display: grid; gap: 6px; }
-.referenceSource .actions { justify-content: space-between; align-items: center; margin-top: 12px; }
-.referenceLocation { overflow-wrap: anywhere; font-size: 13px; }
+.referenceSource {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.referenceSource label {
+  display: grid;
+  gap: 6px;
+}
+.referenceSource .actions {
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+}
+.referenceLocation {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
 /* One schedule workspace: dated week for viewing, quarter pattern for editing. */
-.scheduleTitleRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.scheduleTitleRow h1 { font-size: calc(20px * var(--text)); margin: 0; }
-.scheduleTitleRow span { display: block; margin-top: 3px; color: var(--muted); font-size: calc(12px * var(--text)); }
-.unifiedSchedule .pageBar { flex-wrap: wrap; }
-.unifiedSchedule .pageBarRight { flex-wrap: wrap; }
-.timetableViewBar { min-height: 45px; padding: 6px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); }
-.timetableViewBar > b { font-size: calc(12px * var(--text)); }
-.coursesBody.viewing { grid-template-columns: minmax(0, 1fr); }
-.coursesSide { gap: 12px; }
-.coursesInspector { flex: 1; display: flex; flex-direction: column; position: relative; min-height: 0; }
-.coursesInspector > .courseFinder { flex: 1; }
-.viewing .coursesInspector { display: none; }
-.academicPanel { flex-shrink: 0; padding: 14px; }
-.academicPanel header h2 { margin: 0; font-size: calc(13px * var(--text)); font-weight: 700; }
-.academicTermCredits { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 14px 0; color: var(--muted); font-size: calc(12px * var(--text)); }
-.academicTermCredits b { color: var(--ink); font-size: calc(20px * var(--text)); font-variant-numeric: tabular-nums; }
-.academicTermCredits small { color: var(--muted); font-size: calc(11px * var(--text)); font-weight: 400; }
-.academicGradeDetails { margin-top: 14px; animation: enter .14s ease; }
-.academicGradeDetails table { width: 100%; border-collapse: collapse; font-size: calc(11.5px * var(--text)); }
-.academicGradeDetails th, .academicGradeDetails td { padding: 6px 3px; text-align: right; font-variant-numeric: tabular-nums; }
-.academicGradeDetails th:first-child { text-align: left; }
-.academicGradeDetails th { color: var(--muted); font-weight: 500; }
-.academicGradeDetails tbody tr { border-top: 1px solid var(--line); }
-.academicGradeDetails > small { display: block; margin-top: 10px; color: var(--muted); font-size: calc(10.5px * var(--text)); }
-.academicPanel footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
-.scheduleItemPreview { display: grid; gap: 12px; }
-.srOnly { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+.scheduleTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.scheduleTitleRow h1 {
+  font-size: calc(20px * var(--text));
+  margin: 0;
+}
+.scheduleTitleRow span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+}
+.unifiedSchedule .pageBar {
+  flex-wrap: wrap;
+}
+.unifiedSchedule .pageBarRight {
+  flex-wrap: wrap;
+}
+.timetableViewBar {
+  min-height: 45px;
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.timetableViewBar > b {
+  font-size: calc(12px * var(--text));
+}
+.coursesBody.viewing {
+  grid-template-columns: minmax(0, 1fr);
+}
+.coursesSide {
+  gap: 12px;
+}
+.coursesInspector {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 0;
+}
+.coursesInspector > .courseFinder {
+  flex: 1;
+}
+.viewing .coursesInspector {
+  display: none;
+}
+.academicPanel {
+  flex-shrink: 0;
+  padding: 14px;
+}
+.academicPanel header h2 {
+  margin: 0;
+  font-size: calc(13px * var(--text));
+  font-weight: 700;
+}
+.academicTermCredits {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+}
+.academicTermCredits b {
+  color: var(--ink);
+  font-size: calc(20px * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.academicTermCredits small {
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+  font-weight: 400;
+}
+.academicGradeDetails {
+  margin-top: 14px;
+  animation: enter 0.14s ease;
+}
+.academicGradeDetails table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(11.5px * var(--text));
+}
+.academicGradeDetails th,
+.academicGradeDetails td {
+  padding: 6px 3px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.academicGradeDetails th:first-child {
+  text-align: left;
+}
+.academicGradeDetails th {
+  color: var(--muted);
+  font-weight: 500;
+}
+.academicGradeDetails tbody tr {
+  border-top: 1px solid var(--line);
+}
+.academicGradeDetails > small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: calc(10.5px * var(--text));
+}
+.academicPanel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+.scheduleItemPreview {
+  display: grid;
+  gap: 12px;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
 @media (max-width: 760px) {
-  .workspaceMain.coursesMain { height: auto; min-height: 100dvh; overflow: visible; }
-  .unifiedSchedule .coursesBody, .unifiedSchedule .coursesBody.viewing { display: flex; flex-direction: column; }
-  .unifiedSchedule .coursesLeft { min-height: 400px; }
-  .unifiedSchedule.editing .coursesInspector { min-height: 380px; }
-  .scheduleTitleRow { align-items: flex-start; }
+  .workspaceMain.coursesMain {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .unifiedSchedule .coursesBody,
+  .unifiedSchedule .coursesBody.viewing {
+    display: flex;
+    flex-direction: column;
+  }
+  .unifiedSchedule .coursesLeft {
+    min-height: 400px;
+  }
+  .unifiedSchedule.editing .coursesInspector {
+    min-height: 380px;
+  }
+  .scheduleTitleRow {
+    align-items: flex-start;
+  }
 }
 
+.academicSummaryTrigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: calc(12px * var(--text));
+  white-space: nowrap;
+  overflow: hidden;
+}
+.academicQuarterLabel {
+  padding: 0 10px;
+  font-variant-numeric: tabular-nums;
+}
+.academicQuarterLabel b {
+  font-weight: 700;
+}
+.academicDetailsTrigger {
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+}
 
-.academicSummaryTrigger { display: inline-flex; align-items: center; min-height: 26px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: calc(12px * var(--text)); white-space: nowrap; overflow: hidden; }
-.academicQuarterLabel { padding: 0 10px; font-variant-numeric: tabular-nums; }
-.academicQuarterLabel b { font-weight: 700; }
-.academicDetailsTrigger { border-left: 1px solid var(--line); border-radius: 0; }
-
-/* Course reader: a second surface exists only while a document is open. */
-.lmsWorkspaceBody { grid-template-columns: minmax(0, 1fr); }
-.lmsWorkspace.hasViewer .lmsWorkspaceBody { grid-template-columns: minmax(300px, 44%) minmax(0, 1fr); }
-.lmsOutline { border-right: 0; }
-.lmsWorkspace.hasViewer .lmsOutline { border-right: 1px solid var(--line); }
-.lmsOutlineTools { max-width: 900px; width: 100%; padding: 16px 24px; align-self: center; }
-.lmsOutlineScroll { padding: 0 24px 60px; }
-.lmsOutlineScroll > * { max-width: 850px; margin-left: auto; margin-right: auto; }
-.lmsSection { padding: 12px 4px 20px; }
-.lmsSectionHeading { display: flex; align-items: center; gap: 8px; }
-.lmsSectionHeading h3 { flex: 1; min-width: 0; font-size: 16px; }
-.lmsSectionHeading h3 button { padding: 12px 8px; }
-.lmsAddNote { background: none; border: 1px solid var(--line); border-radius: 6px; width: 28px; height: 28px; font-size: 20px !important; color: var(--muted) !important; }
-.lmsAddNote:hover { color: var(--accent) !important; background: var(--accent-soft); }
-.lmsSectionBody { padding: 4px 10px 8px 26px; }
-.lmsSectionBody .lmsRichContent { font-size: 14px; line-height: 1.85; margin-bottom: 16px; }
-.lmsInlineActivity { border-top: 1px solid var(--line); padding: 18px 8px; font-size: 14px; line-height: 1.8; scroll-margin: 30px; }
-.lmsInlineActivity h4 { font-size: 15px; margin: 0; }
-.lmsInlineActivity .lmsQuiet { padding: 0; }
-.lmsInlineActivity .lmsSubmit { margin-top: 12px; font-size: 12px; padding: 7px 12px; }
-.lmsAttachmentPreview { display: flex; flex-direction: column; min-height: 0; }
-.lmsFilePreview { flex: 1; width: 100%; height: 65dvh; margin-top: 0; }
-.lmsImagePreview { max-width: 100%; object-fit: contain; }
-.lmsCodePreview { white-space: pre; overflow: auto; tab-size: 4; font-size: 12px; line-height: 1.7; padding: 20px; }
-.lmsNoteEditor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.lmsNoteEditor > div:not(.lmsSourceBar) { flex: 1; min-height: 0; }
 /* Native proximity snapping attracts nearby section starts, without locking long sections. */
-.lmsOutlineScroll { scroll-snap-type: y proximity; scroll-padding-block: 22% 0; }
-.lmsOutlineScroll .lmsSection { scroll-snap-align: start; scroll-snap-stop: normal; }
-.lmsOutlineScroll.searching { scroll-snap-type: none; }
-.lmsMarkdownDocument { min-height: 0; overflow: auto; flex: 1; }
-.lmsMarkdownDocument .milkdown {
-  --crepe-color-background: var(--surface);
-  --crepe-color-on-background: var(--ink);
-  --crepe-color-surface: var(--surface);
-  --crepe-color-on-surface: var(--ink);
-  --crepe-color-on-surface-variant: var(--muted);
-  --crepe-color-outline: var(--line);
-  --crepe-color-primary: var(--ink);
-  --crepe-color-surface-low: var(--surface-2);
-  --crepe-color-hover: var(--surface-2);
-  --crepe-color-selected: var(--surface-2);
-  --crepe-font-title: inherit;
-  --crepe-font-default: inherit;
-  --crepe-base-font-size: 15px;
-  min-height: 100%;
-}
-.lmsMarkdownDocument .milkdown > .ProseMirror { padding: 28px 40px 120px; min-height: 380px; line-height: 1.8; }
-.lmsMarkdownDocument .milkdown > .ProseMirror h1 { font-size: 25px; }
-.lmsMarkdownDocument .milkdown > .ProseMirror h2 { font-size: 21px; }
-.lmsMarkdownDocument .milkdown button:focus-visible { outline: 2px solid var(--accent); }
-@media (prefers-reduced-motion: reduce) { .lmsOutlineScroll { scroll-snap-type: none; } }
 
-.lmsSourceBar button { border: 0; background: none; color: var(--accent) !important; font-size: 11px; padding: 0; }
-.courseStorageSettings { padding: 12px 0 20px; border-bottom: 1px solid var(--line); }
-.courseStorageSettings p { overflow-wrap: anywhere; font-size: 13px; margin: 8px 0; }
-.courseStorageSettings small { color: var(--muted); font-size: 12px; }
-@media (max-width: 850px) {
-  .lmsWorkspace.hasViewer .lmsWorkspaceBody { display: block; }
-  .lmsOutlineTools, .lmsOutlineScroll { padding-left: 12px; padding-right: 12px; }
-  .lmsWorkspace.hasViewer .lmsOutline { border-right: 0; }
+.courseStorageSettings {
+  padding: 12px 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.courseStorageSettings p {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  margin: 8px 0;
+}
+.courseStorageSettings small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.numberSetting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.numberSetting input {
+  width: 72px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Workstation feedback stays local and brief; no continuously running animation. */
-@keyframes lmsWorkspaceEnter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
-@keyframes lmsPaneEnter { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
-.lmsWorkspace { animation: lmsWorkspaceEnter 180ms ease-out; }
-.lmsViewer { animation: lmsPaneEnter 220ms cubic-bezier(.2,.75,.25,1); }
-.lmsSectionBody { animation: lmsWorkspaceEnter 150ms ease-out; }
-.lmsItemRow { transition: background-color 140ms ease, transform 140ms ease; }
-.lmsItemRow:hover { transform: translateX(2px); }
-.lmsTabs button { transition: color 140ms ease, background-color 140ms ease; }
-@media (prefers-reduced-motion: reduce) {
-  .lmsWorkspace, .lmsViewer, .lmsSectionBody { animation: none; }
-  .lmsItemRow, .lmsTabs button { transition: none; }
-  .lmsItemRow:hover { transform: none; }
-}
-.lmsPdfDocument { width: 100%; padding-top: 12px; }
-.lmsPdfDocument canvas { display: block; width: 100%; height: auto; background: white; }
-.lmsPdfControls { display: flex; justify-content: center; align-items: center; gap: 16px; margin-bottom: 12px; position: sticky; top: 0; background: var(--surface, white); padding: 6px; z-index: 1; }
-.lmsAnnouncement { padding: 16px 0; border-bottom: 1px solid var(--border, #ddd); }
-.lmsAnnouncement h5 { font-size: 1em; margin: 0 0 8px; }
-.lmsPdfPage { width: 100%; margin: 0 0 20px; background: white; contain: layout paint; }
-.lmsPdfPage canvas { width: 100%; height: 100%; object-fit: contain; }
-.lmsAnnouncementCard { position: relative; display: grid; gap: 9px; width: 100%; text-align: left; padding: 20px 42px 20px 20px; margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); transition: background 140ms, border-color 140ms, transform 140ms; }
-.lmsAnnouncementCard:hover, .lmsAnnouncementCard.selected { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
-.lmsCardType { font-size: .78rem; color: var(--muted); }
-.lmsCardExcerpt { color: var(--muted); font-size: .9rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.lmsCardArrow { position: absolute; right: 18px; top: 22px; color: var(--accent); }
-.lmsItemRow { border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin: 10px 0; background: var(--surface); }
-.lmsItemGlyph { display: grid; place-items: center; width: 36px; height: 40px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); flex: 0 0 36px; }
-.lmsRichContent a.lmsAttachmentCard { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; margin: 6px 6px 6px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); text-decoration: none; overflow-wrap: anywhere; }
-.lmsAttachmentCard::before { content: '↧'; color: var(--accent); }
-.lmsAttachmentCard:hover { border-color: var(--accent); background: var(--accent-soft); }
-@media (prefers-reduced-motion: reduce) { .lmsAnnouncementCard { transition: none; } .lmsAnnouncementCard:hover { transform: none; } }
+
 /* Reading surface: quiet document chrome, comfortable measures, bounded previews. */
-.lmsViewer { background: var(--surface-2); }
-.lmsTabBar { background: var(--surface); }
-.lmsDocument { padding: 28px clamp(20px, 4vw, 48px); }
-.lmsDocumentHeading { padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
-.lmsDocumentHeading small { display: block; font-size: 11px; letter-spacing: .02em; color: var(--muted); }
-.lmsDocumentHeading h2 { font-size: clamp(19px, 2vw, 25px); letter-spacing: -.025em; margin: 7px 0 0; }
-.lmsDocument > .lmsRichContent { background: var(--surface); padding: 28px; border: 1px solid var(--line); border-radius: 12px; font-size: 14px; line-height: 1.85; max-width: 78ch; }
-.lmsSourceBar { align-items: center; flex-wrap: wrap; justify-content: flex-end; background: var(--surface); border: 1px solid var(--line); padding: 10px 12px; border-radius: 9px; gap: 8px; font-size: 11px; }
-.lmsSourceBar > [role=status] { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
-.lmsSourceBar button, .lmsSourceBar a { border-radius: 5px; padding: 6px 9px; white-space: nowrap; font-weight: 550; text-decoration: none; }
-.lmsSourceBar button:hover, .lmsSourceBar a:hover { background: var(--accent-soft); }
-.lmsAttachmentPreview { gap: 16px; }
-.lmsPdfReader { border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
-.lmsPdfControls { justify-content: space-between; margin: 0; border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; top: 0; z-index: 3; padding: 9px 12px; font-size: 12px; gap: 8px; }
-.lmsPdfPagination, .lmsPdfZoom { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-.lmsPdfControls input, .lmsPdfControls select { color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; font: inherit; padding: 5px 7px; }
-.lmsPdfControls input { width: 48px; text-align: center; appearance: textfield; }
-.lmsPdfControls button { width: 27px; height: 27px; padding: 0; border-radius: 5px; font-size: 18px; }
-.lmsPdfControls button:hover { background: var(--accent-soft); }
-.lmsPdfControls button:disabled { opacity: .3; }
-.lmsPdfDocument { padding: 20px; overflow-x: auto; }
-.lmsPdfPages { margin: 0 auto; min-width: 200px; }
-.lmsPdfPage { position: relative; box-shadow: 0 2px 8px #00000012; scroll-margin-top: 65px; }
-.lmsPdfPage .textLayer { inset: 0; }
-.lmsTextDocument { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.lmsTextMeta { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--muted); }
-.lmsTextMeta > span:first-child { color: var(--ink); font-weight: 600; }
-.lmsTextDocument .cm-editor { outline: none; }
-.lmsTextDocument .cm-scroller { max-height: 75dvh; }
-.lmsAttachmentPreview > .lmsMarkdownDocument { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-@media (max-width: 850px) { .lmsDocument { padding: 20px 16px; } .lmsPdfControls { flex-wrap: wrap; } }
-.lmsPdfSearch { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 11px; }
-.lmsPdfSearch input { flex: 1; min-width: 90px; border: 0; background: transparent; color: var(--ink); font: inherit; padding: 4px; }
-.lmsPdfSearch button { font-size: 11px; white-space: nowrap; border-radius: 5px; padding: 5px 8px; background: var(--surface-2); }
-.lmsPdfSearch span { color: var(--muted); white-space: nowrap; }
-.lmsPdfPage .textLayer { --scale-round-x: 1px; --scale-round-y: 1px; }
-.lmsPdfControls button, .lmsPdfSearch button { appearance: none; border: 0; box-shadow: none; background: transparent; color: var(--accent); cursor: pointer; }
-.lmsPdfSearch button:hover { background: var(--accent-soft); }
-.lmsPdfSearch button:disabled { color: var(--muted); opacity: .6; cursor: default; }
-.lmsPdfControls input::-webkit-inner-spin-button { appearance: none; }
-.lmsFileDocument { padding: 20px 24px; }
-.lmsFileDocument .lmsDocumentHeading { padding-bottom: 14px; margin-bottom: 14px; }
-.lmsFileDocument .lmsDocumentHeading h2 { font-size: 19px; }
+
 /* Workspace chrome follows a browser: rounded tabs, one toolbar, full reading canvas. */
-.lmsViewer { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-.lmsTabBar { background: var(--surface-2); border-bottom: 1px solid var(--line); padding: 6px 8px; align-items: center; gap: 6px; min-height: 49px; }
-.lmsTabBar > div { gap: 4px; }
-.lmsTab { border: 1px solid transparent; border-radius: 9px; max-width: 260px; color: var(--muted); }
-.lmsTab.active { border-color: var(--line); background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px #00000005; }
-.lmsTab button[role=tab] { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; }
-.lmsTab button + button { padding: 6px 8px; border-radius: 5px; font-size: 16px; }
-.lmsTab button + button:hover { background: var(--surface-2); }
-.lmsTabIcon { width: 16px; height: 16px; flex: 0 0 16px; }
-.lmsNewTab { border: 0; background: transparent; color: var(--muted); font-size: 22px; width: 30px; height: 30px; flex-shrink: 0; border-radius: 7px; }
-.lmsNewTab:hover { background: var(--surface); color: var(--ink); }
-.lmsFileDocument { padding: 0; }
-.lmsFileDocument > .lmsDocumentHeading { display: none; }
-.lmsFileDocument > .lmsRichContent { margin: 20px; }
-.lmsFileDocument .lmsAttachmentPreview { gap: 0; }
-.lmsFileToolbar { position: sticky; top: 0; z-index: 4; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 9px 12px; gap: 8px; }
-.lmsFileAddress { flex: 1; min-width: 100px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface-2); display: flex; align-items: center; gap: 10px; }
-.lmsFileAddress > span { flex: 1; color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lmsFileAddress small { max-width: 40%; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lmsFileDocument .lmsPdfReader { border: 0; border-radius: 0; }
-.lmsFileDocument .lmsPdfControls { border-radius: 0; top: 53px; }
-.lmsFileDocument .lmsTextDocument, .lmsFileDocument .lmsMarkdownDocument { border: 0; border-radius: 0; }
-.lmsFileDocument .lmsTextMeta { padding: 10px 18px; }
-.todayRetained { flex: 0 0 100%; transition: flex-basis 240ms cubic-bezier(.2,.75,.25,1), padding 240ms; }
-.todayRetained.compact { flex: 0 0 180px; }
-.todayWorkbenchContent { opacity: 1; transform: translateX(0); transition: opacity 180ms, transform 240ms cubic-bezier(.2,.75,.25,1); overflow: hidden; }
-.todayWorkbench.leaving .todayWorkbenchContent { opacity: 0; transform: translateX(16px); pointer-events: none; }
-.todayWorkbench.working .todayWorkbenchContent { animation: lmsPaneEnter 240ms cubic-bezier(.2,.75,.25,1); }
-@media (max-width: 850px) { .todayRetained.compact { flex-basis: 135px; } .lmsFileAddress small { display: none; } }
-@media (prefers-reduced-motion: reduce) { .todayRetained, .todayWorkbenchContent { transition: none; } .todayWorkbench.working .todayWorkbenchContent { animation: none; } }
-.lmsPreviousNotes { margin: 8px 0 12px; font-size: 12px; color: var(--muted); }
-.lmsPreviousNotes summary { cursor: pointer; padding: 6px 4px; }
-.lmsNoteUndo { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
-.lmsNoteUndo button { background: var(--accent-soft); border: 0; border-radius: 5px; padding: 5px 9px; color: var(--accent); }
-.lmsNoteEditor .lmsSourceBar { border-radius: 0; border: 0; border-bottom: 1px solid var(--line); }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror { max-width: 760px; margin: 0 auto; padding: 36px clamp(24px, 4vw, 54px) 120px; line-height: 1.85; }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h1 { font-size: 28px; letter-spacing: -.03em; margin-bottom: 24px; }
-.lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h2 { padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-top: 32px; }
-.lmsFileError { margin: 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; background: var(--surface); }
-
-/* One document surface: no parallel tab navigation or permanently stacked search. */
-.lmsViewer { position: relative; }
-.lmsViewerClose { position: absolute; right: 8px; top: 8px; z-index: 8; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 20px; cursor: pointer; }
-.lmsViewerClose:hover { background: var(--accent-soft); color: var(--ink); }
-.lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; flex-wrap: wrap; padding: 7px 44px 7px 12px; gap: 4px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.lmsPdfHeader > .lmsFileToolbar { flex: 1 1 240px; position: static; min-width: 0; padding: 0; border: 0; flex-wrap: nowrap; gap: 5px; }
-.lmsPdfHeader .lmsFileAddress { min-width: 60px; border: 0; border-radius: 0; background: none; padding: 4px 0; }
-.lmsPdfHeader .lmsFileAddress small { display: none; }
-.lmsFileToolbar:not(.lmsPdfHeader > *) { padding-right: 44px; }
-.lmsFileAddress { border: 0; border-radius: 0; background: transparent; padding-left: 0; }
-.lmsFileAddress small { display: none; }
-.lmsPdfHeader > .lmsPdfControls { position: static; flex: 0 0 auto; border: 0; padding: 0; gap: 6px; background: none; }
-.lmsPdfHeader .lmsPdfControls input { width: 36px; padding: 4px; }
-.lmsPdfHeader .lmsPdfControls select { max-width: 98px; }
-.lmsPdfHeader .lmsPdfPagination, .lmsPdfHeader .lmsPdfZoom { gap: 4px; }
-.lmsPdfHeader + .lmsPdfSearch { position: sticky; top: 48px; z-index: 3; }
-.lmsPdfDocument { touch-action: pan-x pan-y; }
-.lmsPdfPages { will-change: auto; }
-.lmsViewerBody > .lmsDocument { padding-top: 20px; }
-
-.lmsRichContent a.lmsImageCard { display: inline-flex; flex-direction: column; align-items: flex-start; max-width: min(100%, 280px); padding: 8px; gap: 7px; font-size: 11px; }
-.lmsRichContent a.lmsImageCard::before { content: none; }
-.lmsInlineThumbnail { display: block; max-width: 100%; width: auto; max-height: 160px; object-fit: contain; border-radius: 4px; }
-.lmsImageCard [data-image-src] { display: block; max-width: 100%; }
 
 /* Academic years reveal one inline quarter drawer, keeping the schedule toolbar quiet. */
-.yearQuarterPicker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
-.yearQuarterGroup { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); overflow: hidden; transition: background-color 160ms, border-color 160ms; }
-.yearQuarterGroup.expanded { background: var(--surface); }
-.yearQuarterGroup.selectedYear { border-color: color-mix(in srgb, var(--accent) 25%, var(--line)); }
-.yearQuarterGroup button { appearance: none; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: calc(12.5px * var(--text)); font-weight: 550; cursor: pointer; white-space: nowrap; }
-.yearQuarterYear { display: flex; align-items: center; gap: 7px; padding: 8px 13px; }
-.selectedYear .yearQuarterYear { color: var(--ink); }
-.yearQuarterYear small { font-size: 10px; color: var(--accent); }
-.yearQuarterDrawer { display: grid; grid-template-columns: 0fr; opacity: 0; transition: grid-template-columns 200ms cubic-bezier(.2,.75,.25,1), opacity 140ms; }
-.expanded .yearQuarterDrawer { grid-template-columns: 1fr; opacity: 1; }
-.yearQuarterDrawerInner { min-width: 0; overflow: hidden; display: flex; align-items: center; }
-.yearQuarterDivider { flex: 0 0 1px; height: 19px; background: var(--line); }
-.yearQuarterQuarters { display: flex; align-items: center; padding: 4px 6px; }
-.yearQuarterStep { display: flex; align-items: center; }
-.yearQuarterStep button { display: flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 6px; }
-.yearQuarterStep button:hover, .yearQuarterYear:hover { color: var(--ink); background: var(--accent-soft); }
-.yearQuarterStep button.active { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
-.yearQuarterStep button i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
-.yearQuarterChevron { color: var(--muted); opacity: .45; padding: 0 2px; font-family: ui-monospace, monospace; font-size: 17px; font-weight: 400; }
-.yearQuarterAdd { border: 1px dashed var(--line); border-radius: 9px; background: transparent; color: var(--muted); width: 30px; height: 30px; cursor: pointer; }
-.yearQuarterPicker button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-@media (prefers-reduced-motion: reduce) { .yearQuarterDrawer, .yearQuarterGroup { transition: none; } }
+.yearQuarterPicker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.yearQuarterGroup {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+  overflow: hidden;
+  transition:
+    background-color 160ms,
+    border-color 160ms;
+}
+.yearQuarterGroup.expanded {
+  background: var(--surface);
+}
+.yearQuarterGroup.selectedYear {
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
+}
+.yearQuarterGroup button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: calc(12.5px * var(--text));
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.yearQuarterYear {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+}
+.selectedYear .yearQuarterYear {
+  color: var(--ink);
+}
+.yearQuarterYear small {
+  font-size: 10px;
+  color: var(--accent);
+}
+.yearQuarterDrawer {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-columns 200ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    opacity 140ms;
+}
+.expanded .yearQuarterDrawer {
+  grid-template-columns: 1fr;
+  opacity: 1;
+}
+.yearQuarterDrawerInner {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+.yearQuarterDivider {
+  flex: 0 0 1px;
+  height: 19px;
+  background: var(--line);
+}
+.yearQuarterQuarters {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+}
+.yearQuarterStep {
+  display: flex;
+  align-items: center;
+}
+.yearQuarterStep button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+.yearQuarterStep button:hover,
+.yearQuarterYear:hover {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+.yearQuarterStep button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 650;
+}
+.yearQuarterStep button i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.yearQuarterChevron {
+  color: var(--muted);
+  opacity: 0.45;
+  padding: 0 2px;
+  font-family: ui-monospace, monospace;
+  font-size: 17px;
+  font-weight: 400;
+}
+.yearQuarterAdd {
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+}
+.yearQuarterPicker button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .yearQuarterDrawer,
+  .yearQuarterGroup {
+    transition: none;
+  }
+}
 
-.tt.hasCalendarNotice .ttGrid { grid-template-rows: minmax(50px, auto) minmax(0, 1fr); }
-.tt.hasCalendarNotice .ttHead { flex-wrap: wrap; align-content: center; gap: 1px 6px; padding: 5px; }
-.ttCalendarNotice { display: block; flex-basis: 100%; min-width: 0; color: var(--muted); font-size: 10px; line-height: 1.4; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt.hasCalendarNotice .ttGrid {
+  grid-template-rows: minmax(50px, auto) minmax(0, 1fr);
+}
+.tt.hasCalendarNotice .ttHead {
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 1px 6px;
+  padding: 5px;
+}
+.ttCalendarNotice {
+  display: block;
+  flex-basis: 100%;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Preserve timetable context on holidays without implying a class takes place. */
-.ttHead.noClasses, .ttCol.noClasses, .ttAgendaList.noClasses { background: color-mix(in srgb, var(--muted) 8%, var(--surface)); }
-.ttHead.noClasses { color: var(--muted); }
-.ttBlock.course.cancelled, .ttAgendaRow.cancelled {
+.ttHead.noClasses,
+.ttCol.noClasses,
+.ttAgendaList.noClasses {
+  background: color-mix(in srgb, var(--muted) 8%, var(--surface));
+}
+.ttHead.noClasses {
+  color: var(--muted);
+}
+.ttBlock.course.cancelled,
+.ttAgendaRow.cancelled {
   --course: var(--muted) !important;
   background: color-mix(in srgb, var(--muted) 14%, var(--surface));
   color: var(--muted);
   border-left-color: color-mix(in srgb, var(--muted) 55%, var(--surface));
   box-shadow: none;
+}
+
+/* ---------- settings: lists, configs ---------- */
+.paneHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.paneHead h2 {
+  margin-bottom: 0;
+}
+.paneEmpty {
+  padding: 28px 0;
+  color: var(--muted);
+  text-align: center;
+  font-size: calc(12.5px * var(--text));
+}
+.itemList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.itemList li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.itemList li:last-child {
+  border-bottom: 0;
+}
+.itemList li:hover {
+  background: var(--surface-2);
+}
+.itemMain {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.itemMain b {
+  font-size: calc(13px * var(--text));
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.itemMain small {
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowValue {
+  justify-self: end;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text));
+}
+.row > .actions.reverse,
+.actions.reverse {
+  flex-direction: row-reverse;
+  justify-self: end;
+}
+.commandLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.commandLine code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: calc(12px * var(--text));
+}
+.profileForm {
+  display: grid;
+  gap: 14px;
+}
+.profileForm section {
+  display: grid;
+  gap: 6px;
+}
+.profileForm header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.profileForm header b {
+  font-size: calc(12.5px * var(--text));
+}
+.profileLine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 28px;
+  gap: 6px;
+  align-items: center;
+}
+.profileLine.quarters {
+  grid-template-columns: 90px repeat(4, minmax(0, 1fr)) 28px;
+}
+.profileLine .iconButton {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+}
+.profileLine .iconButton:hover {
+  color: var(--danger);
+}
+.profileForm .textButton,
+.actions .textButton {
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  color: var(--accent);
+  font: inherit;
+  font-size: calc(12.5px * var(--text));
+  cursor: pointer;
+}
+.codeArea textarea,
+textarea.codeArea {
+  min-height: 220px;
+  font:
+    calc(12px * var(--text))/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+.configField {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+}
+.configField > span {
+  font-size: calc(12.5px * var(--text));
+  font-weight: 600;
+}
+.configField a {
+  overflow-wrap: anywhere;
+  font-size: calc(11.5px * var(--text));
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .settingsNavGroup {
+    display: none;
+  }
+  .settingsNav button.nested {
+    padding-left: 11px;
+  }
+  .profileLine.quarters {
+    grid-template-columns: 1fr 1fr 28px;
+  }
+}
+.row > button {
+  justify-self: end;
+  width: auto;
+}
+.actions > label.button {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: calc(12px * var(--text));
+  font-weight: 600;
+  cursor: pointer;
+}
+.actions > label.button:hover {
+  background: var(--surface-2);
+}
+.profileLine.columnHeads span {
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+  font-weight: 600;
+  padding-left: 2px;
+}
+
+/* ---------- today: week strip ---------- */
+.todayWeek {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+.todayWeek .teachingState {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 0;
+}
+.todayWeek .teachingState .textButton {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.weekStrip {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.weekStrip button {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 8px;
+}
+.weekShift {
+  width: 22px;
+  font-size: 16px;
+  line-height: 1;
+}
+.weekShift:hover {
+  color: var(--ink);
+}
+.weekDay {
+  position: relative;
+  width: 34px;
+  padding: 5px 0 9px;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+}
+.weekDay small {
+  font-size: calc(10px * var(--text));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.weekDay b {
+  font-size: calc(13.5px * var(--text));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.weekDay:hover {
+  background: var(--surface-3);
+}
+.weekDay.today b {
+  color: var(--accent);
+}
+.weekDay.active {
+  background: var(--accent);
+}
+.weekDay.active small,
+.weekDay.active b {
+  color: #fff;
+}
+.weekDay.busy::after {
+  content: "";
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+.weekDay.active.busy::after {
+  background: #fff;
+  opacity: 0.85;
+}
+@media (max-width: 640px) {
+  .todayHeader {
+    flex-wrap: wrap;
+  }
+  .todayWeek {
+    justify-items: stretch;
+    width: 100%;
+  }
+  .weekStrip {
+    justify-content: space-between;
+  }
+  .weekDay {
+    flex: 1;
+    width: auto;
+  }
+}
+
+/* ---------- workstation: course finder ---------- */
+.courseFinder {
+  position: relative;
+  padding-top: 12px;
+}
+.courseFinder input {
+  width: 100%;
+  height: 30px;
+  font-size: 12px;
+}
+.courseFinderList {
+  position: fixed;
+  z-index: 1000;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+.courseFinderList section + section {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.courseFinderList small {
+  display: block;
+  padding: 6px 8px 4px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.courseFinderList button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.courseFinderList button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.courseFinderList button i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.courseFinderList button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.courseFinderList code {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.courseFinderList p {
+  padding: 10px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- today: motion ----------
+   Opacity/transform only. Full Today rises in, the workstation rail slides in
+   from the left, and a picked day slides from the side it came from. */
+@keyframes todayRise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+}
+@keyframes todayRailIn {
+  from {
+    opacity: 0;
+    transform: translate3d(-12px, 0, 0);
+  }
+}
+@keyframes daySwap {
+  from {
+    opacity: 0;
+    transform: translate3d(calc(var(--swap, 0) * 14px), 0, 0);
+  }
+}
+.todayPage:not(.todayNavigation) > .todayHeader,
+.todayPage:not(.todayNavigation) > .todayFlow > * {
+  animation: todayRise 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(1) {
+  animation-delay: 50ms;
+}
+.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(2) {
+  animation-delay: 100ms;
+}
+.todayPage:not(.todayNavigation) > .todayFlow > :nth-child(3) {
+  animation-delay: 150ms;
+}
+.todayNavigation > *,
+.todayNavigation > .todayFlow > * {
+  animation: todayRailIn 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.todayNavigation > .todayFlow {
+  animation: none;
+}
+.todayNavigation > .todayHeader {
+  animation-delay: 30ms;
+}
+.todayNavigation > .todayFlow > :nth-child(1) {
+  animation-delay: 60ms;
+}
+.todayNavigation > .todayFlow > :nth-child(2) {
+  animation-delay: 90ms;
+}
+.todayNavigation > .todayFlow > :nth-child(3) {
+  animation-delay: 120ms;
+}
+.daySwap,
+.weekDay b {
+  animation: daySwap 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Sliding highlight behind the picked day (fixed-width cells only). */
+@media (min-width: 641px) {
+  .weekStrip {
+    position: relative;
+  }
+  .weekStrip::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(24px + var(--day, 0) * 36px);
+    width: 34px;
+    border-radius: 8px;
+    background: var(--accent);
+    transition: left 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .weekDay.active {
+    background: none;
+  }
+  .weekDay {
+    z-index: 1;
+  }
+  .weekDay.active:hover {
+    background: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .todayPage > *,
+  .todayFlow > *,
+  .daySwap,
+  .weekDay b {
+    animation: none !important;
+  }
+  .weekStrip::before {
+    transition: none;
+  }
 }

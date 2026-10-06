@@ -104,7 +104,7 @@ impl SchoolWebController {
         Err(UNSUPPORTED.into())
     }
 
-    pub fn ensure_session(
+    pub fn request_session(
         &self,
         _app: &AppHandle,
         _profile: SchoolAuthProfile,
@@ -112,15 +112,7 @@ impl SchoolWebController {
         Ok(false)
     }
 
-    pub fn attachment_view_ready(&self) -> bool {
-        false
-    }
-
-    pub fn prepare_attachment_view(&self, _app: &AppHandle) -> Result<bool, String> {
-        Ok(false)
-    }
-
-    pub fn login_in_background(
+    pub fn request_login(
         &self,
         _app: &AppHandle,
         _profile: SchoolAuthProfile,
@@ -134,7 +126,12 @@ impl SchoolWebController {
         Ok(false)
     }
 
-    pub fn pull(&self, _app: &AppHandle, _site: SchoolSite) -> Result<Vec<IngestOutcome>, String> {
+    pub fn request_pull(
+        &self,
+        _app: &AppHandle,
+        _site: SchoolSite,
+        _lms_course_id: Option<u64>,
+    ) -> Result<Vec<IngestOutcome>, String> {
         Err(UNSUPPORTED.into())
     }
 }

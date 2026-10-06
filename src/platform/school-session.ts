@@ -25,16 +25,12 @@ export const LAUNCH_SIGN_IN_TIMEOUT_MS = 90_000;
 // Returning to the window re-checks at most this often.
 export const FOCUS_CHECK_INTERVAL_MS = 2 * 60_000;
 
-// A busy school view (another sign-in, or the person browsing) is retried this often.
-const BUSY_RETRIES = 10;
-const BUSY_RETRY_MS = 1_500;
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const states = new Map<SchoolAuthProfile, SchoolSessionState>();
 const listeners = new Set<() => void>();
 // Every native report, even one that repeats the current state.
 const reports = new Set<(profile: SchoolAuthProfile) => void>();
 let attached: SessionBridge | undefined;
+let launchSignIn: Promise<void> | undefined;
 
 export const schoolSessions = {
   get: (profile: SchoolAuthProfile) => states.get(profile),
@@ -61,6 +57,7 @@ export const schoolSessions = {
   reset() {
     states.clear();
     attached = undefined;
+    launchSignIn = undefined;
     listeners.forEach((listener) => listener());
   },
 };
@@ -81,40 +78,51 @@ const settled = (profile: SchoolAuthProfile, timeoutMs: number) =>
   });
 
 /**
- * Signs every saved account in once, one at a time: they share one school
- * view, so the next account starts only after the previous one settles.
+ * Submits every saved account once. Rust serializes the shared school views,
+ * while this layer only reflects the resulting session events.
  */
-export async function signInAtLaunch(
+export function signInAtLaunch(
   bridge: SessionBridge | undefined,
   timeoutMs = LAUNCH_SIGN_IN_TIMEOUT_MS,
   quiet = false,
 ) {
-  if (!bridge?.ensureSchoolSession) return;
-  schoolSessions.attach(bridge);
-  const status = await bridge.schoolCredentialStatus().catch(() => undefined);
-  if (!status) return;
-  const saved: [SchoolAuthProfile, boolean][] = [
-    ["science", status.science.saved],
-    ["tokyo-tech", status.tokyoTech.saved],
-  ];
-  for (const [profile, isSaved] of saved) {
-    if (!isSaved) {
-      schoolSessions.set(profile, "not-configured");
-      continue;
-    }
-    const previous = schoolSessions.get(profile);
-    // A focus re-check keeps the current badge until the result arrives.
-    if (!quiet) schoolSessions.set(profile, undefined);
-    const result = settled(profile, timeoutMs);
-    // The shared school view may still be busy with the previous account.
-    let started = false;
-    for (let attempt = 0; attempt < BUSY_RETRIES && !started; attempt++) {
-      if (attempt) await wait(BUSY_RETRY_MS);
-      started = await bridge.ensureSchoolSession(profile).catch(() => false);
-    }
-    if (started) await result;
-    else if (!quiet) schoolSessions.set(profile, previous);
-  }
+  if (!bridge?.ensureSchoolSession) return Promise.resolve();
+  if (launchSignIn) return launchSignIn;
+  const sessionBridge = bridge;
+  const run = async () => {
+    schoolSessions.attach(sessionBridge);
+    const status = await sessionBridge
+      .schoolCredentialStatus()
+      .catch(() => undefined);
+    if (!status) return;
+    const saved: [SchoolAuthProfile, boolean][] = [
+      ["science", status.science.saved],
+      ["tokyo-tech", status.tokyoTech.saved],
+    ];
+    await Promise.all(
+      saved.map(async ([profile, isSaved]) => {
+        if (!isSaved) {
+          schoolSessions.set(profile, "not-configured");
+          return;
+        }
+        const previous = schoolSessions.get(profile);
+        // Rust owns ordering. Submit both checks immediately so later data
+        // pulls cannot slip between the two launch sign-ins.
+        if (!quiet) schoolSessions.set(profile, undefined);
+        const result = settled(profile, timeoutMs);
+        const accepted = await sessionBridge
+          .ensureSchoolSession!(profile)
+          .catch(() => false);
+        if (accepted) await result;
+        else if (!quiet) schoolSessions.set(profile, previous);
+      }),
+    );
+  };
+  const current = run().finally(() => {
+    if (launchSignIn === current) launchSignIn = undefined;
+  });
+  launchSignIn = current;
+  return current;
 }
 
 /**

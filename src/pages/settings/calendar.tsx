@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { validateAcademicProfile } from "../../core/academic-calendar";
 import type { CalendarException, Workspace } from "../../core/model";
+import { newUserRecordId } from "../../storage/ids";
 import "./events.css";
 
 type Props = {
@@ -155,15 +156,11 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
     }).format(new Date(`${date}T12:00:00+09:00`));
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(blank);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [profileJson, setProfileJson] = useState(() =>
-    JSON.stringify(data.academicProfile, null, 2),
-  );
   const file = useRef<HTMLInputElement>(null);
   const exceptions = data.exceptions
     .filter((item) => !item.deletedAt)
     .sort((a, b) => a.date.localeCompare(b.date));
-  const save = (event: FormEvent) => {
+  const save = async (event: FormEvent) => {
     event.preventDefault();
     if (readOnly) return;
     if (
@@ -196,6 +193,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
       return;
     }
     const now = new Date().toISOString();
+    const exceptionId = editing === "new" ? await newUserRecordId() : "";
     update((workspace) => ({
       ...workspace,
       exceptions:
@@ -208,7 +206,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
                   draft.type === "replacement"
                     ? draft.replacementDay
                     : undefined,
-                id: crypto.randomUUID(),
+                id: exceptionId,
                 kind: "exception",
                 rev: 1,
                 updatedAt: now,
@@ -304,6 +302,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
         }
       }
       const now = new Date().toISOString();
+      const incomingIds = await Promise.all(incoming.map(() => newUserRecordId()));
       update((workspace) => {
         const retained = workspace.exceptions.filter(
           (item) =>
@@ -314,9 +313,9 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
           academicProfile: incomingProfile,
           exceptions: [
             ...retained,
-            ...incoming.map((item) => ({
+            ...incoming.map((item, index) => ({
               ...item,
-              id: crypto.randomUUID(),
+              id: incomingIds[index],
               kind: "exception" as const,
               rev: 1,
               updatedAt: now,
@@ -382,32 +381,6 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
       ),
     );
   };
-  const saveProfile = () => {
-    if (readOnly) return;
-    try {
-      const profile = validateAcademicProfile(JSON.parse(profileJson));
-      update((workspace) => ({ ...workspace, academicProfile: profile }));
-      setProfileJson(JSON.stringify(profile, null, 2));
-      setProfileOpen(false);
-      notify(
-        tr(
-          locale,
-          "Academic profile saved",
-          "履修プロファイルを保存しました",
-          "学业配置已保存",
-        ),
-      );
-    } catch {
-      notify(
-        tr(
-          locale,
-          "Check the profile JSON, grade path, years, and quarter start dates",
-          "プロファイルJSON、学年経路、年度、クォーター開始日を確認してください",
-          "请检查配置 JSON、年级路径、学年和季度开始日期",
-        ),
-      );
-    }
-  };
   return (
     <section
       className="surface featureManager"
@@ -437,7 +410,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
                   setEditing("new");
                 }}
               >
-                ＋ {tr(locale, "Add override", "例外を追加", "添加例外")}
+                ＋ {tr(locale, "Add", "追加", "添加")}
               </UiButton>
             </>
           )}
@@ -449,28 +422,12 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
             </summary>
             <div>
               <UiButton type="button" onClick={exportJson}>
-                {tr(locale, "Export data", "データを書き出す", "导出数据")}
+                {tr(locale, "Export", "書き出し", "导出")}
               </UiButton>
               {!readOnly && (
                 <>
                   <UiButton type="button" onClick={() => file.current?.click()}>
-                    {tr(locale, "Import data", "データを読み込む", "导入数据")}
-                  </UiButton>
-                  <UiButton
-                    type="button"
-                    onClick={() => {
-                      setProfileJson(
-                        JSON.stringify(data.academicProfile, null, 2),
-                      );
-                      setProfileOpen((open) => !open);
-                    }}
-                  >
-                    {tr(
-                      locale,
-                      "Academic profile",
-                      "履修プロファイル",
-                      "学业配置",
-                    )}
+                    {tr(locale, "Import", "読み込み", "导入")}
                   </UiButton>
                 </>
               )}
@@ -478,40 +435,6 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
           </details>
         </div>
       </div>
-      {profileOpen && !readOnly && (
-        <div className="profileEditor">
-          <label htmlFor="academic-profile-json">
-            {tr(
-              locale,
-              "Grade path and quarter starts",
-              "学年経路とクォーター開始日",
-              "年级路径和季度开始日期",
-            )}
-          </label>
-          <UiTextarea
-            id="academic-profile-json"
-            value={profileJson}
-            onChange={(event) => setProfileJson(event.target.value)}
-            spellCheck={false}
-          />
-          <div className="formActions">
-            <UiButton
-              className="button"
-              type="button"
-              onClick={() => setProfileOpen(false)}
-            >
-              {tr(locale, "Cancel", "キャンセル", "取消")}
-            </UiButton>
-            <UiButton
-              className="button primary"
-              type="button"
-              onClick={saveProfile}
-            >
-              {tr(locale, "Validate and save", "検証して保存", "验证并保存")}
-            </UiButton>
-          </div>
-        </div>
-      )}
       {exceptions.length ? (
         <div className="eventList">
           {exceptions.map((item) => (
@@ -553,9 +476,9 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
         <p className="emptyState">
           {tr(
             locale,
-            "No calendar exceptions saved.",
-            "カレンダー例外はありません。",
-            "暂无校历例外。",
+            "No exceptions",
+            "例外はありません",
+            "暂无例外",
           )}
         </p>
       )}
@@ -566,15 +489,15 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
               {editing === "new"
                 ? tr(
                     locale,
-                    "New calendar override",
-                    "新しいカレンダー例外",
-                    "新建校历例外",
+                    "New exception",
+                    "新しい例外",
+                    "新建例外",
                   )
                 : tr(
                     locale,
-                    "Edit calendar override",
-                    "カレンダー例外を編集",
-                    "编辑校历例外",
+                    "Edit exception",
+                    "例外を編集",
+                    "编辑例外",
                   )}
             </strong>
             <UiButton
@@ -670,7 +593,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
               {tr(locale, "Cancel", "キャンセル", "取消")}
             </UiButton>
             <UiButton className="button primary" type="submit">
-              {tr(locale, "Save override", "例外を保存", "保存例外")}
+              {tr(locale, "Save", "保存", "保存")}
             </UiButton>
           </div>
         </form>

@@ -1,6 +1,6 @@
 # Official public data agent: extraction and review contract
 
-This is prompt material for a future GitHub agentic workflow. No workflow is enabled by this document. Use `Gliese129/Isct-Data` as the published dataset; the app defaults to its raw `index.json`.
+This is prompt material for a future GitHub agentic workflow. No workflow is enabled by this document. Use `isct-companion/Isct-Data` as the published dataset; the app defaults to its raw `index.json`.
 
 ## Scope and layout
 

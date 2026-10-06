@@ -20,7 +20,7 @@ export function createCache<T>(options: {
   storage?: CacheStorage;
   now?: () => number;
 }) {
-  const storageKey = `stws:cache:${options.namespace}`;
+  const storageKey = `isct-companion:cache:${options.namespace}`;
   const now = options.now ?? Date.now;
   let memory: Entry<T>[] = [];
   let storageDirty = false;

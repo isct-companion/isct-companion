@@ -29,7 +29,8 @@ pub fn validate(items: Vec<GuideItem>) -> Result<Vec<GuideItem>, String> {
     }
     for item in &items {
         let id_ok = item.offering_id.is_empty()
-            || (item.offering_id.len() == 9 && item.offering_id.bytes().all(|b| b.is_ascii_digit()));
+            || (item.offering_id.len() == 9
+                && item.offering_id.bytes().all(|b| b.is_ascii_digit()));
         if !id_ok
             || !bounded(&item.code, 32)
             || !bounded(&item.title, 200)
@@ -54,7 +55,7 @@ pub fn script(items: &[GuideItem]) -> Option<String> {
 const GUIDE_SCRIPT: &str = r#"(() => {
   if (location.hostname !== 'kyomu0.gakumu.titech.ac.jp') return;
   const queue = __QUEUE__;
-  const ID = 'stws-guide';
+  const ID = 'isct-companion-guide';
   document.getElementById(ID)?.remove();
   document.getElementById(ID + '-style')?.remove();
   const style = document.createElement('style');
@@ -81,13 +82,13 @@ const GUIDE_SCRIPT: &str = r#"(() => {
     #${ID} li.done{color:#2e7d4f}
     #${ID} li i{font-style:normal;width:14px}
     #${ID}.min ol,#${ID}.min .now{display:none}
-    .stws-guide-target{outline:3px solid #2f7de1 !important;outline-offset:2px;border-radius:4px;animation:stws-pulse 1.4s ease-in-out infinite}
-    .stws-guide-danger{outline:3px dashed #e07b00 !important;outline-offset:2px}
-    .stws-guide-match{background:#e7f6ec !important;outline:2px solid #2e9d5b !important}
-    @keyframes stws-pulse{50%{outline-color:rgba(47,125,225,.25)}}`;
+    .isct-companion-guide-target{outline:3px solid #2f7de1 !important;outline-offset:2px;border-radius:4px;animation:isct-companion-pulse 1.4s ease-in-out infinite}
+    .isct-companion-guide-danger{outline:3px dashed #e07b00 !important;outline-offset:2px}
+    .isct-companion-guide-match{background:#e7f6ec !important;outline:2px solid #2e9d5b !important}
+    @keyframes isct-companion-pulse{50%{outline-color:rgba(47,125,225,.25)}}`;
   document.documentElement.appendChild(style);
 
-  const key = 'stws-guide-index';
+  const key = 'isct-companion-guide-index';
   const read = () => { try { return Number(sessionStorage.getItem(key)) || 0; } catch { return 0; } };
   const write = (value) => { try { sessionStorage.setItem(key, String(value)); } catch {} };
   const days = ['', '月', '火', '水', '木', '金', '土', '日'];
@@ -113,7 +114,7 @@ const GUIDE_SCRIPT: &str = r#"(() => {
     return node;
   };
   const clearMarks = () => {
-    for (const cls of ['stws-guide-target', 'stws-guide-danger', 'stws-guide-match'])
+    for (const cls of ['isct-companion-guide-target', 'isct-companion-guide-danger', 'isct-companion-guide-match'])
       for (const node of document.querySelectorAll('.' + cls)) node.classList.remove(cls);
   };
   const statusText = (document.querySelector('#ctl00_ContentPlaceHolder1_ctl00_lblStatus2')?.textContent || '').trim();
@@ -133,16 +134,16 @@ const GUIDE_SCRIPT: &str = r#"(() => {
       if (locked) {
         hints.push(['warn', 'Registration is final (本登録済). Adding needs 本登録解除 first, then 本登録 again before the deadline.']);
         const release = [...document.querySelectorAll('input[type=submit], button')].find((node) => /本登録解除/.test(node.value || node.textContent || ''));
-        release?.classList.add('stws-guide-danger');
+        release?.classList.add('isct-companion-guide-danger');
       }
       const add = item.day ? document.querySelector(`a[href*="btnAdd__${item.day}'"]`) : null;
       if (add) {
-        add.classList.add('stws-guide-target');
+        add.classList.add('isct-companion-guide-target');
         add.scrollIntoView({ block: 'center', behavior: 'smooth' });
         hints.push(['', `Click ${days[item.day]} in the header, then search ${item.code}.`]);
       } else {
         const byCourse = document.querySelector('a[href$="PID1_1.aspx"]');
-        byCourse?.classList.add('stws-guide-target');
+        byCourse?.classList.add('isct-companion-guide-target');
         hints.push(['', `Open 科目から and search ${item.code}.`]);
       }
     } else {
@@ -150,14 +151,14 @@ const GUIDE_SCRIPT: &str = r#"(() => {
       const cells = [...document.querySelectorAll('td, span, a')].filter(
         (node) => node.children.length === 0 && (node.textContent || '').includes(item.code));
       const rows = new Set(cells.map((node) => node.closest('tr') || node));
-      for (const row of rows) row.classList.add('stws-guide-match');
+      for (const row of rows) row.classList.add('isct-companion-guide-match');
       const first = [...rows][0];
       if (first) {
         first.scrollIntoView({ block: 'center', behavior: 'smooth' });
         hints.push(['', `Found ${item.code}. Add it with the row's own button.`]);
       } else {
         const field = [...document.querySelectorAll('input[type=text], input:not([type])')].find((node) => node.offsetParent);
-        field?.classList.add('stws-guide-target');
+        field?.classList.add('isct-companion-guide-target');
         hints.push(['', `Search for ${item.code}${field ? ' in the highlighted field' : ''}.`]);
       }
     }
@@ -204,7 +205,14 @@ mod tests {
     #[test]
     fn guide_never_submits_or_posts_back() {
         let script = script(&[item("CSC.T273")]).unwrap();
-        for forbidden in ["__doPostBack", "submit(", ".click(", "$.ajax", "fetch(", ".value ="] {
+        for forbidden in [
+            "__doPostBack",
+            "submit(",
+            ".click(",
+            "$.ajax",
+            "fetch(",
+            ".value =",
+        ] {
             assert!(!script.contains(forbidden), "{forbidden}");
         }
     }
