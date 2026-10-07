@@ -66,6 +66,7 @@ export type ReferenceProbeResult = {
 export type PollResult = {
   kind: Subscription["kind"];
   url: string;
+  year: number;
   indexHash?: string;
   skipped?: boolean;
   result?: ReferenceRefreshResult;
@@ -100,20 +101,31 @@ export async function pollReferenceSubscriptions(
         probes.set(url, pendingProbe);
       }
       const { indexHash } = await pendingProbe;
-      if (row?.indexHash === indexHash) {
-        results.push({ kind, url, indexHash, skipped: true });
+      // A new admission or academic year selects another dataset from the
+      // same index, so the index hash alone cannot prove it is current.
+      const sameYear = row?.year === year;
+      if (sameYear && row?.indexHash === indexHash) {
+        results.push({ kind, url, year, indexHash, skipped: true });
         continue;
       }
       results.push({
         kind,
         url,
+        year,
         indexHash,
-        result: await refresh(kind, url, year, indexHash, row?.remoteHash),
+        result: await refresh(
+          kind,
+          url,
+          year,
+          indexHash,
+          sameYear ? row?.remoteHash : undefined,
+        ),
       });
     } catch (error) {
       results.push({
         kind,
         url,
+        year,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -147,6 +159,7 @@ export function recordSubscriptionPoll(
     row.url = item.url;
     row.lastError = item.error;
     if (item.result) {
+      row.year = item.year;
       row.indexHash = item.indexHash;
       row.dataUrl = item.result.dataUrl;
       row.remoteHash = item.result.remoteHash;

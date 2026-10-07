@@ -1,7 +1,7 @@
 # Agent access
 
 IsctCompanion exposes an opt-in local MCP server over stdio. Enable it in
-Settings → Agent access, then register the binary with the database path shown
+Settings → Developer options (switch on), then Settings → AI agent access, and register the binary with the database path shown
 by the installed application:
 
 ```sh

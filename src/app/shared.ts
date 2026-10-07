@@ -1,18 +1,19 @@
 export type Page = "today" | "schedule" | "web" | "settings";
 export type Section =
-  | "general"
   | "accounts"
-  | "sync"
+  | "study"
   | "notifications"
   | "calendar"
-  | "subscriptions"
-  | "hidden"
-  | "scheduled"
-  | "agent"
-  | "data"
+  | "appearance"
   | "files"
+  | "backup"
+  | "hidden"
+  | "sources"
+  | "automation"
+  | "developer"
+  | "agent"
   | "extensions"
-  | "configs";
+  | "diagnostics";
 export type Platform = "native-desktop" | "native-mobile" | "browser-preview";
 
 export { tokyoDate as jstDate } from "../core/schedule";

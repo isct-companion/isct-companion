@@ -98,7 +98,7 @@ type Localized = Partial<Record<Lang, string>>;
 ```
 
 - Both languages are fetched for everything that is stored (syllabus list and detail with `hl=ja` and `hl=en`; LMS `fullname` split at ` / `; kyomu text is `ja`, and its `en` comes from the syllabus join).
-- Display picks the app locale, falls back to the other language (`zh` reads `en` first, as today), never machine-translates.
+- Display picks the school content language (`contentLanguage`, or the app locale when it is `auto`), falls back to the other language (`zh` reads `en` first, as today), never machine-translates.
 - Language-neutral facts are stored once, never per language: codes, ids, credits, meeting days/periods, quarters, dates, categories, flags. Room names are `Localized`.
 - Enumerations are stored as codes, and the app owns the labels: instruction language `ja | en | ja-en | other`, class format, requirement mark.
 - Text the person typed (overrides, notes, personal events) is a plain string and applies to every locale.

@@ -2,7 +2,8 @@
 
 The repository does not contain shared OAuth credentials. A project owner must
 register the public desktop clients and paste their client IDs into **Settings →
-Sync**. Do not create or embed a client secret.
+Developer options → Cloud sign-in** (turn on Developer options first). Do not
+create or embed a client secret.
 
 The native app uses this exact loopback redirect:
 

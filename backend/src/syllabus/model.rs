@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub type Lang = &'static str;
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Localized {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -38,12 +36,6 @@ pub struct Credits {
     pub lecture: f32,
     pub exercise: f32,
     pub lab: f32,
-}
-
-impl Credits {
-    pub fn total(&self) -> f32 {
-        self.lecture + self.exercise + self.lab
-    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

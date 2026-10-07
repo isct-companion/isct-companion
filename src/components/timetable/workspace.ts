@@ -4,7 +4,7 @@ import type {
   TermId,
   Workspace,
 } from "../../core/model";
-import { pickLocalized } from "../../core/model";
+import { contentLanguage, pickLocalized } from "../../core/model";
 import { calendarState, importantDatesOnDate, quarterRange, resolveDayAgenda, scheduledCourses } from "../../core/schedule";
 import { dayNames, type Block, type DayColumn } from "./timetable";
 import { stamp, jstDate } from "../../app/shared";
@@ -130,9 +130,9 @@ export function weekColumnsAt(
     const range = quarterRange(data, term);
     const outsideTeaching = iso >= range.from && iso <= range.to && Boolean(range.teachingRanges && calendar?.type !== "replacement" && !range.teachingRanges.some(r => iso >= r.start && iso <= r.end));
     const noClasses = outsideTeaching || ["holiday", "no-class", "break"].includes(calendar?.type ?? "");
-    const fullNotice = typeof rawLabel === "string" ? rawLabel : rawLabel ? rawLabel[data.settings.locale === "ja" ? "ja" : "en"] || rawLabel.en || rawLabel.ja : noClasses ? (data.settings.locale === "ja" ? "授業休み" : "No classes") : undefined;
+    const fullNotice = typeof rawLabel === "string" ? rawLabel : rawLabel ? rawLabel[contentLanguage(data.settings)] || rawLabel.en || rawLabel.ja : noClasses ? (data.settings.locale === "ja" ? "授業休み" : "No classes") : undefined;
     const important = importantDatesOnDate(data, iso)
-      .map((item) => pickLocalized(item.label, data.settings.locale))
+      .map((item) => pickLocalized(item.label, contentLanguage(data.settings)))
       .filter(Boolean);
     const blocks = resolveDayAgenda(data, term, iso, {
       courses,

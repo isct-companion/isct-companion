@@ -33,6 +33,7 @@ describe("reference subscription polling", () => {
       enabled: true,
       indexHash: "old-custom-commit",
       remoteHash: "known-exam-hash",
+      year: 2026,
       rev: 1,
       updatedAt: "2026-10-01T00:00:00Z",
       updatedBy: data.deviceId,
@@ -71,6 +72,7 @@ describe("reference subscription polling", () => {
 
   it("does not download the index or datasets when the repository hash is unchanged", async () => {
     const data = seedWorkspace();
+    data.selectedTerm = "2026-3Q";
     data.academicProfile.admissionYear = 2025;
     for (const kind of ["calendar", "departments", "important-dates", "exams"] as const) {
       data.subscriptions.push({
@@ -79,6 +81,7 @@ describe("reference subscription polling", () => {
         url: "https://example.com/index.json",
         enabled: true,
         indexHash: "same-commit",
+        year: kind === "departments" ? 2025 : 2026,
         rev: 1,
         updatedAt: "2026-10-01T00:00:00Z",
         updatedBy: data.deviceId,
@@ -93,6 +96,55 @@ describe("reference subscription polling", () => {
     expect(results.every((item) => item.skipped)).toBe(true);
   });
 
+  it("fetches the newly selected year even when the repository hash is unchanged", async () => {
+    const data = seedWorkspace();
+    data.selectedTerm = "2026-3Q";
+    data.academicProfile.admissionYear = 2024;
+    data.subscriptions.push({
+      id: "subscription:departments",
+      kind: "departments",
+      url: "https://example.com/index.json",
+      enabled: true,
+      indexHash: "same-commit",
+      remoteHash: "guide-2025-hash",
+      year: 2025,
+      rev: 1,
+      updatedAt: "2026-10-01T00:00:00Z",
+      updatedBy: data.deviceId,
+    });
+    for (const kind of ["calendar", "important-dates", "exams"] as const)
+      data.subscriptions.push({
+        id: `subscription:${kind}`,
+        kind,
+        url: "https://example.com/index.json",
+        enabled: false,
+        rev: 1,
+        updatedAt: "2026-10-01T00:00:00Z",
+        updatedBy: data.deviceId,
+      });
+    const probe = vi.fn(async () => ({ indexHash: "same-commit" }));
+    const refresh = vi.fn(async () => ({
+      changed: 3,
+      dataUrl: "https://example.com/departments/2024.json",
+      remoteHash: "guide-2024-hash",
+      sourceTs: "2026-10-06T00:00:00Z",
+      notModified: false,
+    }));
+    const results = await pollReferenceSubscriptions(data, probe, refresh);
+    expect(refresh).toHaveBeenCalledWith(
+      "departments",
+      "https://example.com/index.json",
+      2024,
+      "same-commit",
+      undefined,
+    );
+    recordSubscriptionPoll(data, results, "2026-10-06T12:00:00Z");
+    expect(data.subscriptions[0]).toMatchObject({
+      year: 2024,
+      remoteHash: "guide-2024-hash",
+    });
+  });
+
   it("records hashes and the daily check as device state", () => {
     const data = seedWorkspace();
     recordSubscriptionPoll(
@@ -100,6 +152,7 @@ describe("reference subscription polling", () => {
       [{
         kind: "calendar",
         url: "https://example.com/index.json",
+        year: 2026,
         indexHash: "commit123",
         result: {
           changed: 0,
@@ -116,6 +169,7 @@ describe("reference subscription polling", () => {
     );
     expect(data.subscriptions[0]).toMatchObject({
       kind: "calendar",
+      year: 2026,
       indexHash: "commit123",
       remoteHash: "abc123",
       sourceTs: "2026-10-06T00:00:00Z",
@@ -140,6 +194,7 @@ describe("reference subscription polling", () => {
       [{
         kind: "calendar",
         url: "https://example.com/index.json",
+        year: 2026,
         indexHash: "new-commit",
         error: "download failed",
       }],

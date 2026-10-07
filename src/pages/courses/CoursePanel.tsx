@@ -1,7 +1,7 @@
 import { ExternalLink } from "../../components/ExternalLink";
 import { Button, Paper } from "@mantine/core";
 import { t } from "../../i18n";
-import type { Course, Workspace } from "../../core/model";
+import { pickLocalized, type Course, type Lang, type Workspace } from "../../core/model";
 import type { FinderCourse } from "../../core/course-query";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
 import { SyllabusDetails } from "./syllabus-details";
@@ -92,8 +92,6 @@ export function CoursePanel({
 }
 
 const FINDER_DAYS = ["月", "火", "水", "木", "金", "土", "日"];
-const pickText = (value: { ja?: string; en?: string } | undefined, locale: string) =>
-  (locale === "ja" ? value?.ja ?? value?.en : value?.en ?? value?.ja) ?? "";
 
 /**
  * A syllabus search result, shown over the timetable: what the syllabus says
@@ -101,7 +99,7 @@ const pickText = (value: { ja?: string; en?: string } | undefined, locale: strin
  */
 export function OfferingPanel({
   course,
-  locale,
+  language,
   placed,
   replaces = [],
   readOnly,
@@ -109,7 +107,7 @@ export function OfferingPanel({
   add,
 }: {
   course: FinderCourse;
-  locale: string;
+  language: Lang;
   placed: boolean;
   /** Timetable courses that Add would replace (same periods). */
   replaces?: string[];
@@ -121,7 +119,7 @@ export function OfferingPanel({
   const times = course.schedule
     .map((entry) =>
       entry.kind === "weekly" && entry.day && entry.periods
-        ? `${FINDER_DAYS[entry.day - 1]}${entry.periods[0]}-${entry.periods[1]}${entry.room ? ` · ${pickText(entry.room, locale)}` : ""}`
+        ? `${FINDER_DAYS[entry.day - 1]}${entry.periods[0]}-${entry.periods[1]}${entry.room ? ` · ${pickLocalized(entry.room, language)}` : ""}`
         : t("集中・時間未定"),
     )
     .join(" / ");
@@ -129,7 +127,7 @@ export function OfferingPanel({
     <Paper component="aside" className="listCard coursePanel" withBorder shadow="xs" radius="md">
       <header>
         <div className="finderTitle">
-          <b>{pickText(course.title, locale)}</b>
+          <b>{pickLocalized(course.title, language)}</b>
           <span>
             {course.code} · {course.quarters.join(" ")}
           </span>
@@ -148,7 +146,7 @@ export function OfferingPanel({
           <dt>{t("Schedule")}</dt>
           <dd>{course.detailed === false ? "…" : times || "—"}</dd>
           <dt>{t("Instructor")}</dt>
-          <dd>{course.instructors.map((name) => pickText(name, locale)).join(" / ") || "—"}</dd>
+          <dd>{course.instructors.map((name) => pickLocalized(name, language)).join(" / ") || "—"}</dd>
           <dt>{t("Credits")}</dt>
           <dd>
             {course.detailed === false
@@ -160,7 +158,7 @@ export function OfferingPanel({
           url={course.syllabusUrl}
           fetchCourse={
             bridge
-              ? (url) => bridge.syllabusCourse(url, locale === "ja" ? "ja" : "en")
+              ? (url) => bridge.syllabusCourse(url, language)
               : undefined
           }
         />

@@ -14,7 +14,7 @@ merge behavior are deliberately out of scope.
 | Markdown course notes | Local user | Course notes directory and local export | Never removed by cache cleanup; not cloud-sync data |
 | Downloaded school attachments and thumbnails | Cache | Course materials directory / memory | May be evicted by cache policy |
 | Search indexes and parsed projections | Derived cache | SQLite FTS / memory | May be rebuilt |
-| Appearance, locale, active view, download path and refresh preferences | Device | Device settings | Local to one device |
+| Appearance, locale, school content language, active view, download path and refresh preferences | Device | Device settings | Local to one device |
 | Import runs, refresh timestamps, logs and connection state | Runtime | SQLite runtime tables | Local diagnostic/refresh state |
 | School credentials, OTP material and OAuth tokens | Secret | OS credential vault | Never exported |
 | School WebView cookies and restore location | Session/device | WebView store / app data | Session or explicit restore preference |

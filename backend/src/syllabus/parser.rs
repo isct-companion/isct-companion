@@ -23,7 +23,6 @@ pub(crate) struct SearchRow {
 #[derive(Clone, Debug)]
 pub(crate) struct SearchPage {
     pub rows: Vec<SearchRow>,
-    pub returned: usize,
     pub total: usize,
     pub truncated: bool,
 }
@@ -40,7 +39,6 @@ pub(crate) struct ParsedScheduleEntry {
 pub(crate) struct DetailPage {
     pub id: String,
     pub year: u16,
-    pub language: String,
     pub title: String,
     pub instructors: Vec<String>,
     pub academic_unit: String,
@@ -239,32 +237,11 @@ pub(crate) fn parse_search(
     requested_year: u16,
     limit: usize,
 ) -> Result<SearchPage, String> {
-    parse_search_with_table(html, requested_year, limit, true)
-}
-
-pub(crate) fn parse_search_legacy(
-    html: &str,
-    requested_year: u16,
-    limit: usize,
-) -> Result<SearchPage, String> {
-    parse_search_with_table(html, requested_year, limit, false)
-}
-
-fn parse_search_with_table(
-    html: &str,
-    requested_year: u16,
-    limit: usize,
-    strict: bool,
-) -> Result<SearchPage, String> {
     if html.len() > MAX_BODY {
         return Err("Syllabus response is too large.".into());
     }
     let document = Html::parse_document(html);
-    let table_selector = selector(if strict {
-        "table.c-table.is-table-style1"
-    } else {
-        "table"
-    });
+    let table_selector = selector("table.c-table.is-table-style1");
     let row_selector = selector("tbody tr");
     let cell_selector = selector("td");
     let link_selector = selector("td:nth-child(2) a[href*='/courses/']");
@@ -344,7 +321,6 @@ fn parse_search_with_table(
     Ok(SearchPage {
         truncated: returned < total || rows.len() < total,
         rows,
-        returned,
         total,
     })
 }
@@ -532,9 +508,8 @@ pub(crate) fn parse_content(
     metadata: &[(String, String)],
     updated: Option<String>,
     language: &str,
-    strict_selector: bool,
 ) -> Result<SyllabusContent, String> {
-    let heading_selector = selector(if strict_selector { "h3.c-h3" } else { "h3" });
+    let heading_selector = selector("h3.c-h3");
     let headings = document.select(&heading_selector).collect::<Vec<_>>();
     if headings.len() > 64 {
         return Err("Syllabus content sections exceed supported limits.".into());
@@ -558,7 +533,7 @@ pub(crate) fn parse_content(
                             || class(ancestor, "c-summary-group")
                             || class(ancestor, "c-check-list")
                     });
-            let kind = if name == "p" && (class(element, "c-p") || !strict_selector) {
+            let kind = if name == "p" && class(element, "c-p") {
                 Some("paragraph")
             } else if is_list_item {
                 Some("listItem")
@@ -755,18 +730,10 @@ pub(crate) fn parse_detail(url: &Url, html: &str, language: &str) -> Result<Deta
         .find(|part| part.len() == 6 && part.chars().all(|value| value.is_ascii_digit()))
         .map(str::to_string);
     let fetched_at = super::utc_now();
-    let content = parse_content(
-        url,
-        &document,
-        &metadata,
-        source_updated.clone(),
-        language,
-        true,
-    )?;
+    let content = parse_content(url, &document, &metadata, source_updated.clone(), language)?;
     Ok(DetailPage {
         id,
         year,
-        language: language.into(),
         title,
         instructors: fields["instructors"]
             .split(" / ")

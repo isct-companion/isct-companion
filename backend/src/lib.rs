@@ -51,7 +51,6 @@ struct RuntimeCapabilities {
     background_schedule: bool,
     cloud_sync: bool,
     syllabus_search: bool,
-    syllabus_filters: bool,
     matrix_ocr: bool,
 }
 
@@ -135,7 +134,6 @@ fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCapabilities, 
         background_schedule: false,
         cloud_sync: true,
         syllabus_search: true,
-        syllabus_filters: true,
         matrix_ocr: cfg!(matrix_ocr),
     })
 }
@@ -701,55 +699,6 @@ fn catalog_upsert_offerings(
     store.catalog_upsert_offerings(&offerings)
 }
 
-fn stored_catalog_search(
-    store: &data::DataStore,
-    query: &str,
-    year: u16,
-    limit: usize,
-) -> Result<syllabus::CatalogSearchResult, String> {
-    let mut items = store
-        .catalog_search(query)?
-        .into_iter()
-        .filter_map(|value| serde_json::from_value::<syllabus::CatalogSearchItem>(value).ok())
-        .filter(|item| item.year == year)
-        .take(limit.clamp(1, 100))
-        .collect::<Vec<_>>();
-    items.sort_by(|left, right| left.code.cmp(&right.code).then(left.id.cmp(&right.id)));
-    Ok(syllabus::CatalogSearchResult {
-        returned: items.len(),
-        total: items.len(),
-        items,
-        truncated: false,
-    })
-}
-
-#[tauri::command]
-async fn catalog_search(
-    webview: tauri::Webview,
-    store: tauri::State<'_, data::DataStore>,
-    query: String,
-    year: u16,
-    limit: Option<usize>,
-    filters: Option<syllabus::SyllabusFilters>,
-    refresh: Option<bool>,
-) -> Result<syllabus::CatalogSearchResult, String> {
-    require_local_main(&webview)?;
-    let limit = limit.unwrap_or(100).clamp(1, 100);
-    let store = store.inner().clone();
-    let local = stored_catalog_search(&store, &query, year, limit)?;
-    if refresh != Some(true) {
-        return Ok(local);
-    }
-    match syllabus::search_bilingual(&query, year, limit, filters).await {
-        Ok(remote) => {
-            store_search_items(&store, &remote.items)?;
-            Ok(remote)
-        }
-        Err(_) if !local.items.is_empty() => Ok(local),
-        Err(error) => Err(error),
-    }
-}
-
 /// Every stored offering of one academic year, with schedule, credits, language and
 /// format, so the course finder can filter and suggest locally without a round trip.
 #[tauri::command]
@@ -1231,7 +1180,6 @@ pub fn run() {
             write_scheduled_export,
             import_data,
             catalog_upsert_offerings,
-            catalog_search,
             catalog_offering,
             catalog_offerings,
             catalog_sync_offering,

@@ -1,5 +1,5 @@
 import { exportQuarterIcs } from "../core/calendar-ics";
-import { pickLocalized } from "../core/model";
+import { contentLanguage, pickLocalized } from "../core/model";
 import { displayColor } from "../core/course-colors";
 import { decodeEntities } from "../core/text";
 import { AppShell, MantineProvider } from "@mantine/core";
@@ -35,6 +35,7 @@ const LmsWorkspace = lazy(() =>
   })),
 );
 import { termForDate } from "../core/academic";
+import { startReminderRuntime } from "../platform/reminders";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
 import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
@@ -62,7 +63,6 @@ import {
 import { createScheduledTaskRuntime } from "../platform/scheduled-tasks";
 import {
   pollReferenceSubscriptions,
-  recordSubscriptionPoll,
   subscriptionNetwork,
   subscriptionPollDue,
   type ReferenceProbeResult,
@@ -130,7 +130,7 @@ function pullProblem(outcomes: { state: string; message: string }[]) {
   const failed = outcomes.find((item) => item.state !== "ok");
   if (!failed) return undefined;
   return failed.state === "reconnect-required"
-    ? "Sign-in required. Check the account in Settings → Accounts."
+    ? "Sign-in required. Check the account in Settings → School accounts."
     : failed.message;
 }
 
@@ -195,9 +195,7 @@ async function refreshReferenceSubscriptions(force = false): Promise<string> {
     );
     if (results.some((item) => (item.result?.changed ?? 0) > 0))
       await workspaceStore.reload();
-    workspaceActions.editCalendar((draft) =>
-      recordSubscriptionPoll(draft, results, checkedAt),
-    );
+    workspaceActions.recordReferencePoll(results, checkedAt);
     await workspaceStore.flush();
     const failed = results.filter((item) => item.error);
     if (failed.length)
@@ -343,7 +341,7 @@ function WorkspaceApp() {
             decodeEntities(
               pickLocalized(
                 course.names?.title,
-                sourceData.settings.locale,
+                contentLanguage(sourceData.settings),
                 course.title,
               ),
             ),
@@ -351,7 +349,7 @@ function WorkspaceApp() {
             course.overrides?.instructor ??
             pickLocalized(
               course.names?.instructor,
-              sourceData.settings.locale,
+              contentLanguage(sourceData.settings),
               course.instructor,
             ),
         })),
@@ -544,12 +542,13 @@ function WorkspaceApp() {
       void desktopBridge
         .syllabusCourse(
           course.url!,
-          sourceData.settings.locale === "ja" ? "ja" : "en",
+          contentLanguage(sourceData.settings),
         )
         .catch(() => undefined);
   }, [
     sourceData?.selectedTerm,
     sourceData?.settings.locale,
+    sourceData?.settings.contentLanguage,
     sourceData?.courses,
     nativeCapabilities?.syllabusSearch,
   ]);
@@ -588,6 +587,19 @@ function WorkspaceApp() {
       runtime.stop();
       unsubscribe();
     };
+  }, [sourceData?.deviceId]);
+
+  // Class and assignment reminders, delivered while the app is open.
+  useEffect(() => {
+    if (!sourceData) return;
+    return startReminderRuntime({
+      getWorkspace: () => workspaceStore.getState().workspace,
+      deliver: ({ title, body }) => {
+        if (desktopBridge) return desktopBridge.notify(title, body);
+        if ("Notification" in window && Notification.permission === "granted")
+          new Notification(title, { body });
+      },
+    });
   }, [sourceData?.deviceId]);
 
   // Sign saved school accounts in once at launch. After that, a school page
@@ -651,6 +663,19 @@ function WorkspaceApp() {
     cleaned.current = true;
     void cleanMaterials(retentionDays(data.settings)).catch(() => undefined);
   }, [Boolean(data)]);
+  // "Automatic" follows the system while the app is open, not only at launch.
+  useEffect(() => {
+    if (data?.settings.appearance !== "system" || typeof matchMedia !== "function")
+      return;
+    const query = matchMedia("(prefers-color-scheme: dark)");
+    const follow = () => {
+      document.documentElement.dataset.mantineColorScheme = query.matches
+        ? "dark"
+        : "light";
+    };
+    query.addEventListener("change", follow);
+    return () => query.removeEventListener("change", follow);
+  }, [data?.settings.appearance]);
   useEffect(() => {
     if (!data) return;
     document.documentElement.dataset.appearance = data.settings.appearance;
@@ -877,7 +902,7 @@ function WorkspaceApp() {
             replaced.push(victim.id);
         const course = catalogCourse(
           row,
-          data.settings.locale === "ja" ? "ja" : "en",
+          contentLanguage(data.settings),
         );
         // Always into the quarter on screen, so it shows up on this timetable.
         addSyllabusDraft(draft, {
@@ -1158,7 +1183,9 @@ function WorkspaceApp() {
             missing
               .slice(index, index + 4)
               .map((id) =>
-                desktopBridge?.syllabusCourse(id).catch(() => undefined),
+                desktopBridge
+                  ?.syllabusCourse(id, contentLanguage(data.settings))
+                  .catch(() => undefined),
               ),
           );
           setLmsProgress(
@@ -1584,7 +1611,7 @@ function WorkspaceApp() {
                 year={Number(courseTerm.slice(0, 4))}
                 term={courseTerm}
                 summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
-                locale={data.settings.locale}
+                language={contentLanguage(data.settings)}
                 load={(year) =>
                   desktopBridge?.catalogOfferings
                     ? desktopBridge.catalogOfferings(year)
@@ -1655,7 +1682,7 @@ function WorkspaceApp() {
                 <OfferingPanel
                   key={offeringPanel.id}
                   course={offeringPanel}
-                  locale={data.settings.locale}
+                  language={contentLanguage(data.settings)}
                   placed={finderPlaced.has(offeringPanel.code)}
                   replaces={clashingCourses(offeringPanel, replaceable).map(
                     (c) => c.title,
@@ -1782,12 +1809,24 @@ function WorkspaceApp() {
             platform={platform}
             data={data}
             update={update}
+            academicUpdate={academicUpdate}
             advancedCalendarUpdate={advancedCalendarUpdate}
             caps={caps}
             section={section}
             setSection={setSection}
             notify={setToast}
             runScheduledTask={(task) => executeScheduledTask(task, true)}
+            refreshReferences={
+              desktopBridge ? () => refreshReferenceSubscriptions(true) : undefined
+            }
+            refreshSchool={
+              desktopBridge?.pullSchool
+                ? async () => {
+                    await pullLms("term", false, currentTerm);
+                    await refreshKyomu();
+                  }
+                : undefined
+            }
             matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
             showLoginPage={(profile) => {
               sessionStorage.setItem(
@@ -1921,7 +1960,7 @@ function WorkspaceApp() {
               ? (url) =>
                   desktopBridge!.syllabusCourse(
                     url,
-                    data.settings.locale === "ja" ? "ja" : "en",
+                    contentLanguage(data.settings),
                   )
               : undefined
           }

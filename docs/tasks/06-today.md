@@ -17,6 +17,6 @@ Product spec: `docs/product-definition.md` → Navigation, Today. Depends on tas
 
 - Replacement day shows the replaced weekday's classes; holiday shows none.
 - An intensive course appears only on its set dates.
-- Hide removes the assignment from Today and it appears in Settings → Hidden items (task 10).
+- Hide removes the assignment from Today and it appears in Settings → Hidden assignments (task 10).
 - No `Mark complete` anywhere.
 - Page fits the window without scrolling at 1280×820 with 6 classes and 8 assignments (lists truncate with "+N more").

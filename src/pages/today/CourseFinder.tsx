@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { UiInput } from "../../components/mantine";
-import { pickLocalized, type TermId, type Workspace } from "../../core/model";
+import { contentLanguage, pickLocalized, type TermId, type Workspace } from "../../core/model";
 
 const termLabel = (term: string) => term.replace("-", " · ");
 
@@ -52,7 +52,7 @@ export function CourseFinder({
       if (course.deletedAt) continue;
       const title = pickLocalized(
         course.names?.title,
-        data.settings.locale,
+        contentLanguage(data.settings),
         course.title,
       );
       const haystack =
@@ -76,7 +76,7 @@ export function CourseFinder({
         label: id === term ? `This term · ${termLabel(id)}` : termLabel(id),
         courses: courses.sort((a, b) => a.title.localeCompare(b.title)),
       }));
-  }, [data.courses, data.settings.locale, query, term]);
+  }, [data.courses, data.settings.locale, data.settings.contentLanguage, query, term]);
   const flat = groups.flatMap((group) => group.courses);
   const choose = (id: string) => {
     open(id);

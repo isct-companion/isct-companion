@@ -154,7 +154,7 @@ export function resolveCapabilities(
                 ? "A desktop schedule is active while the app is open."
                 : scheduler === "failed"
                   ? "The configured desktop schedule is temporarily unavailable."
-                  : "Choose a launch or hourly desktop schedule in Advanced.",
+                  : "Turn on a task in Settings → Automation.",
           }
         : {
             support: platform === "native-desktop" ? "unknown" : "unsupported",

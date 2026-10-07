@@ -19,13 +19,10 @@ import {
   type FinderCourse,
   type Suggestion,
 } from "../../core/course-query";
-import type { Localized, TermId } from "../../core/model";
+import { pickLocalized, type Lang, type TermId } from "../../core/model";
 import { SYLLABUS_DEPARTMENTS } from "../../core/departments";
 import type { DesktopBridge } from "../../platform/desktop-bridge";
 import { t } from "../../i18n";
-
-const pick = (value: Localized | undefined, locale: string) =>
-  (locale === "ja" ? value?.ja ?? value?.en : value?.en ?? value?.ja) ?? "";
 
 const TAG: Partial<Record<Condition["type"], string>> = {
   quarter: "Quarter",
@@ -83,7 +80,7 @@ type Remote =
 export function CourseFinder({
   year,
   term,
-  locale,
+  language,
   load,
   context,
   onTimetable,
@@ -102,7 +99,7 @@ export function CourseFinder({
 }: {
   year: number;
   term: TermId;
-  locale: string;
+  language: Lang;
   load: (year: number) => Promise<FinderCourse[]>;
   context: FinderContext;
   /** Course codes already on the timetable for this quarter. */
@@ -428,7 +425,7 @@ export function CourseFinder({
                       <>
                         <span>
                           {selected.has(s.course.id) && <i className="finderCheck">✓</i>}
-                          <Highlight text={pick(s.course.title, locale)} query={query} />
+                          <Highlight text={pickLocalized(s.course.title, language)} query={query} />
                           <em>
                             <Highlight text={s.course.code} query={query} /> · {schedule(s.course)} · {s.course.quarters.join(" ")}
                           </em>
@@ -511,7 +508,7 @@ export function CourseFinder({
                 onChange={() => toggle(course)}
               />
               <button type="button" className="finderMain" onClick={() => openCourse?.(course)}>
-                <b><Highlight text={pick(course.title, locale)} query={live} /></b>
+                <b><Highlight text={pickLocalized(course.title, language)} query={live} /></b>
                 <small>
                   <code>{course.code}</code> · {schedule(course)} · {course.quarters.join(" ")}
                   {course.detailed !== false && ` · ${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}

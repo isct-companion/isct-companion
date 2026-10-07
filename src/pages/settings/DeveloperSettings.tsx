@@ -3,8 +3,13 @@ import { t } from "../../i18n";
 import { UiButton, UiInput, UiTextarea } from "../../components/mantine";
 import { validateAcademicProfile } from "../../core/academic-calendar";
 import type { AcademicProfile, Workspace } from "../../core/model";
-import { Row, Toggle } from "../../components/forms";
-import { SubscriptionSources } from "./ReferenceSubscriptions";
+import {
+  Row,
+  SettingsGroup,
+  SettingsHeader,
+  Toggle,
+} from "../../components/forms";
+import { DataSourceUrls } from "./DataUpdatesSettings";
 
 const DEVELOPER_KEY = "isct-developer-mode";
 const quarters = ["1Q", "2Q", "3Q", "4Q"] as const;
@@ -30,13 +35,14 @@ export function useDeveloperMode() {
   return [on, set] as const;
 }
 
-export function ConfigsSettings({
+export function DeveloperSettings({
   data,
   update,
   calendarUpdate,
   developer,
   setDeveloper,
   notify,
+  desktop,
 }: {
   data: Workspace;
   update: (f: (d: Workspace) => Workspace) => void;
@@ -44,25 +50,76 @@ export function ConfigsSettings({
   developer: boolean;
   setDeveloper: (value: boolean) => void;
   notify: (message: string) => void;
+  desktop: boolean;
 }) {
   return (
     <>
-      <h2>{t("Configs")}</h2>
-      <Row title={t("Developer mode")}>
-        <Toggle checked={developer} onChange={setDeveloper} />
-      </Row>
-      {developer && (
+      <SettingsHeader
+        title="Developer options"
+        description="Tools for people who write code or debug the app. Everyday use never needs them."
+      />
+      <SettingsGroup
+        footer={
+          developer
+            ? t("New pages are listed under Developer in the sidebar.")
+            : t(
+                "Adds AI agent access, site styles and scripts, and diagnostics.",
+              )
+        }
+      >
+        <Row id="developer-mode" title="Developer options">
+          <Toggle checked={developer} onChange={setDeveloper} />
+        </Row>
+      </SettingsGroup>
+      {developer && desktop && (
         <>
-          <h3>{t("Academic profile")}</h3>
-          <ProfileEditor
-            profile={data.academicProfile}
-            save={(profile) => {
-              calendarUpdate((draft) => ({ ...draft, academicProfile: profile }));
-              notify(t("Academic profile saved"));
-            }}
-          />
-          <h3>{t("Subscription sources")}</h3>
-          <SubscriptionSources data={data} update={update} />
+          <SettingsGroup
+            title="Academic profile"
+            footer={t("Quarter starts here override the official calendar.")}
+          >
+            <div data-setting="profile">
+              <ProfileEditor
+                profile={data.academicProfile}
+                save={(profile) => {
+                  calendarUpdate((draft) => ({
+                    ...draft,
+                    academicProfile: profile,
+                  }));
+                  notify(t("Academic profile saved"));
+                }}
+              />
+            </div>
+          </SettingsGroup>
+          <SettingsGroup
+            title="Data source URLs"
+            footer={t(
+              "Each URL points to an index.json in the Isct-Data format.",
+            )}
+          >
+            <div data-setting="sources">
+              <DataSourceUrls data={data} update={calendarUpdate} />
+            </div>
+          </SettingsGroup>
+          <SettingsGroup
+            title="Cloud sign-in"
+            footer={t(
+              "Overrides the OAuth client ID built into the app. See docs/cloud-provider-setup.md.",
+            )}
+          >
+            <Row id="client-id" title="OAuth client ID">
+              <UiInput
+                value={data.settings.cloud.clientId}
+                spellCheck={false}
+                placeholder={t("Built-in")}
+                onChange={(event) =>
+                  update((draft) => {
+                    draft.settings.cloud.clientId = event.target.value.trim();
+                    return draft;
+                  })
+                }
+              />
+            </Row>
+          </SettingsGroup>
         </>
       )}
     </>
@@ -89,7 +146,9 @@ function ProfileEditor({
     });
   const commit = () => {
     try {
-      const value = validateAcademicProfile(raw === null ? draft : JSON.parse(raw));
+      const value = validateAcademicProfile(
+        raw === null ? draft : JSON.parse(raw),
+      );
       setDraft(value);
       setRaw(null);
       setError("");
@@ -121,7 +180,9 @@ function ProfileEditor({
                   edit((p) =>
                     p.gradePath.push({
                       grade: "",
-                      academicYear: nextYear(p.gradePath.map((g) => g.academicYear)),
+                      academicYear: nextYear(
+                        p.gradePath.map((g) => g.academicYear),
+                      ),
                     }),
                   )
                 }
@@ -146,7 +207,9 @@ function ProfileEditor({
                   onChange={(event) =>
                     edit(
                       (p) =>
-                        (p.gradePath[index].academicYear = Number(event.target.value)),
+                        (p.gradePath[index].academicYear = Number(
+                          event.target.value,
+                        )),
                     )
                   }
                 />
@@ -195,7 +258,10 @@ function ProfileEditor({
                   value={year.academicYear}
                   onChange={(event) =>
                     edit(
-                      (p) => (p.years[index].academicYear = Number(event.target.value)),
+                      (p) =>
+                        (p.years[index].academicYear = Number(
+                          event.target.value,
+                        )),
                     )
                   }
                 />
@@ -208,7 +274,8 @@ function ProfileEditor({
                     onChange={(event) =>
                       edit(
                         (p) =>
-                          (p.years[index].quarterStarts[quarter] = event.target.value),
+                          (p.years[index].quarterStarts[quarter] =
+                            event.target.value),
                       )
                     }
                   />

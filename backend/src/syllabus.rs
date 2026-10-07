@@ -4,25 +4,15 @@ mod parser;
 mod transport;
 
 pub use api::{
-    department_catalog, detail, search, search_bilingual, sync_department, sync_offering,
-    sync_offering_summary, SyllabusCourse, SyllabusFilters, SyllabusMeeting, SyllabusSearch,
+    department_catalog, search_bilingual, sync_offering, sync_offering_summary, SyllabusFilters,
 };
-pub use model::{
-    CatalogSearchItem, CatalogSearchResult, ClassFormat, Credits, DeliveryKind,
-    DepartmentSyncResult, FormatKind, Localized, Offering, OfferingContent, ScheduleEntry,
-    ScheduleKind, SyllabusBlock, SyllabusCompetency, SyllabusContent, SyllabusLecture,
-    SyllabusLink, SyllabusMetadata, SyllabusSection, SyncOfferingResult,
-};
+pub use model::{CatalogSearchItem, CatalogSearchResult, DepartmentSyncResult, SyncOfferingResult};
 
-use api::{
-    localized_search_url, parse_content, parse_detail_html, parse_search_html, quarters,
-    search_url, utc_now,
-};
-use transport::{MAX_BODY, ORIGIN};
-use url::Url;
+use api::utc_now;
 
 #[cfg(test)]
 mod language_tests {
+    use super::api::localized_search_url;
     use super::*;
     #[test]
     fn language_url_preserves_filters_and_validates_locale() {
@@ -46,7 +36,13 @@ mod language_tests {
 
 #[cfg(test)]
 mod tests {
+    use super::api::{merge_detail, search_url, single_detail};
+    use super::model::Credits;
+    use super::parser::{self, parse_detail, parse_search};
+    use super::transport::ORIGIN;
     use super::*;
+    use url::Url;
+
     #[test]
     fn verified_structured_search_transport() {
         let filters = SyllabusFilters {
@@ -68,14 +64,14 @@ mod tests {
         assert!(url
             .query_pairs()
             .any(|(k, v)| k == "teacher" && v == "Kobayashi"));
-        let captured = parse_search_html(
+        let captured = parse_search(
             include_str!("../../artifacts/syllabus-research/combined-search.html"),
             2026,
             100,
         )
         .unwrap();
         assert_eq!(captured.total, 1);
-        assert_eq!(captured.items[0].code, "CSC.T273");
+        assert_eq!(captured.rows[0].code, "CSC.T273");
         assert!(!captured.truncated);
         let invalid = SyllabusFilters {
             department: Some("../search?x=1".into()),
@@ -128,15 +124,12 @@ mod tests {
         let mut result = Vec::new();
         for (name, path, html) in fixtures {
             let url = Url::parse(&format!("{ORIGIN}/courses/2026/{path}?hl=en")).unwrap();
-            let course = parse_detail_html(&url, html).unwrap();
-            assert!(course
-                .content
-                .as_ref()
-                .is_some_and(|c| !c.sections.is_empty()));
+            let page = parse_detail(&url, html, "en").unwrap();
+            assert!(!page.content.sections.is_empty());
             if ["logic", "assembly", "programming-one"].contains(&name) {
-                assert_eq!(course.quarter, "3Q");
+                assert_eq!(page.quarters.first().map(String::as_str), Some("3Q"));
             }
-            result.push(course);
+            result.push(single_detail(page).unwrap());
         }
         if let Ok(path) = std::env::var("ISCT_COMPANION_PARSED_EXAMPLES_OUTPUT") {
             std::fs::write(path, serde_json::to_string_pretty(&result).unwrap()).unwrap();
@@ -144,7 +137,7 @@ mod tests {
     }
     #[test]
     fn parses_verified_search_fixture() {
-        let result = parse_search_html(
+        let result = parse_search(
             include_str!("../../artifacts/syllabus-research/search-excerpt.html"),
             2026,
             12,
@@ -153,14 +146,14 @@ mod tests {
         assert_eq!(result.total, 113);
         assert!(result.truncated);
         let course = result
-            .items
+            .rows
             .iter()
-            .find(|item| item.code == "CSC.T354")
+            .find(|row| row.code == "CSC.T354")
             .unwrap();
-        assert_eq!(course.external_id, "202602440");
-        assert_eq!(course.quarter, "2Q");
+        assert_eq!(course.id, "202602440");
+        assert_eq!(course.quarters.first().map(String::as_str), Some("2Q"));
         assert!(course
-            .url
+            .syllabus_url
             .starts_with("https://syllabus.s.isct.ac.jp/courses/2026/"));
     }
     #[test]
@@ -169,24 +162,37 @@ mod tests {
             "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602440?hl=en",
         )
         .unwrap();
-        let course = parse_detail_html(
+        let page = parse_detail(
             &url,
             include_str!("../../artifacts/syllabus-research/parallel-en-content.html"),
+            "en",
         )
         .unwrap();
-        assert_eq!(course.credits, Some(2.0));
-        assert_eq!(course.meetings.len(), 2);
-        assert_eq!(course.meetings[0].days, vec![2]);
-        assert_eq!(course.meetings[1].days, vec![5]);
-        assert_eq!(course.meetings[0].periods, vec![3, 4]);
-        assert_eq!(course.meetings[0].room, "W9-323");
+        assert_eq!(
+            page.credits,
+            Credits {
+                lecture: 1.0,
+                exercise: 1.0,
+                lab: 0.0
+            }
+        );
+        let schedule = page.schedule.as_deref().unwrap();
+        assert_eq!(schedule.len(), 2);
+        assert_eq!(schedule[0].day, Some(2));
+        assert_eq!(schedule[1].day, Some(5));
+        assert_eq!(schedule[0].periods, Some([3, 4]));
+        assert_eq!(schedule[0].room.as_deref(), Some("W9-323"));
     }
     #[test]
     fn preserves_multi_quarter_offerings() {
-        assert_eq!(quarters("2026 1-2Q / 3-4Q"), vec!["1Q", "2Q", "3Q", "4Q"]);
+        assert_eq!(
+            parser::quarters("2026 1-2Q / 3-4Q"),
+            vec!["1Q", "2Q", "3Q", "4Q"]
+        );
     }
     #[test]
     fn parses_complete_bilingual_content_without_fabricating_resources() {
+        let mut pages = Vec::new();
         for (language, html) in [
             (
                 "en",
@@ -201,15 +207,17 @@ mod tests {
                 "{ORIGIN}/courses/2026/7/0-907-0-110100-0/202600907?hl={language}"
             ))
             .unwrap();
-            let result = parse_detail_html(&url, html).unwrap();
-            assert_eq!(result.credits, Some(2.0));
-            assert!(result.updated.is_some());
-            if language == "en" {
-                if let Ok(path) = std::env::var("ISCT_COMPANION_PARSED_SYLLABUS_OUTPUT") {
-                    std::fs::write(path, serde_json::to_string_pretty(&result).unwrap()).unwrap();
+            let page = parse_detail(&url, html, language).unwrap();
+            assert_eq!(
+                page.credits,
+                Credits {
+                    lecture: 2.0,
+                    exercise: 0.0,
+                    lab: 0.0
                 }
-            }
-            let content = result.content.unwrap();
+            );
+            assert!(page.source_updated.is_some());
+            let content = &page.content;
             assert_eq!(content.source_language, language);
             assert_eq!(content.lecture_plan.len(), 14);
             assert!(content.sections.iter().any(|s| s.key == "contact"));
@@ -229,7 +237,28 @@ mod tests {
                 .contains("ISBN"));
             assert_eq!(content.fetched_at.len(), 20);
             assert!(content.fetched_at.ends_with('Z'));
+            pages.push(page);
         }
+        let ja = pages.pop().unwrap();
+        let en = pages.pop().unwrap();
+        let merged = merge_detail(ja, en).unwrap();
+        if let Ok(path) = std::env::var("ISCT_COMPANION_PARSED_SYLLABUS_OUTPUT") {
+            std::fs::write(path, serde_json::to_string_pretty(&merged).unwrap()).unwrap();
+        }
+        assert!(merged.warnings.is_empty(), "{:?}", merged.warnings);
+        assert!(merged.offering.title.ja.is_some() && merged.offering.title.en.is_some());
+        assert_eq!(
+            merged
+                .content
+                .iter()
+                .map(|content| content.lang.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ja", "en"]
+        );
+        assert!(merged
+            .content
+            .iter()
+            .all(|content| content.content.source_language == content.lang));
     }
     #[test]
     fn preserves_checked_competencies_and_absent_optional_sections() {
@@ -237,12 +266,13 @@ mod tests {
             "{ORIGIN}/courses/2026/4/0-904-342300-0-0/202602440?hl=en"
         ))
         .unwrap();
-        let result = parse_detail_html(
+        let page = parse_detail(
             &url,
             include_str!("../../artifacts/syllabus-research/parallel-en-content.html"),
+            "en",
         )
         .unwrap();
-        let content = result.content.unwrap();
+        let content = page.content;
         assert_eq!(content.lecture_plan.len(), 14);
         assert_eq!(content.competencies.len(), 5);
         assert_eq!(
@@ -261,22 +291,31 @@ mod tests {
             .contains("\n"));
     }
     #[test]
-    fn rejects_incomplete_content_instead_of_replacing_good_cache() {
+    fn metadata_only_detail_keeps_metadata_with_empty_content() {
+        // The excerpt carries every metadata field but no syllabus body, like a
+        // course whose syllabus has not been written yet.
         let url = Url::parse(&format!(
             "{ORIGIN}/courses/2026/4/0-904-342300-0-0/202602440?hl=en"
         ))
         .unwrap();
-        assert!(parse_detail_html(
+        let page = parse_detail(
             &url,
-            include_str!("../../artifacts/syllabus-research/detail-en-excerpt.html")
+            include_str!("../../artifacts/syllabus-research/detail-en-excerpt.html"),
+            "en",
         )
-        .is_err());
+        .unwrap();
+        assert_eq!(page.code, "CSC.T354");
+        assert_eq!(page.schedule.as_deref().map(<[_]>::len), Some(2));
+        assert!(page.content.sections.is_empty());
+        assert!(page.content.lecture_plan.is_empty());
     }
     #[test]
     fn emits_plain_text_and_only_actual_safe_links() {
         let url = Url::parse(&format!("{ORIGIN}/courses/2026/4/a/1?hl=en")).unwrap();
-        let html = r#"<h1>Example</h1><h3>Course overview and goals</h3><p>A &#x26; B<br>next<script>evil()</script></p><h3>Course description and aims</h3><p><a href="javascript:evil()">bad</a><a href="https://example.org/book">Book</a></p>"#;
-        let content = parse_content(&url, html, &[], None).unwrap();
+        let html = r#"<h1 class="c-h1">Example</h1><h3 class="c-h3">Course overview and goals</h3><p class="c-p">A &#x26; B<br>next<script>evil()</script></p><h3 class="c-h3">Course description and aims</h3><p class="c-p"><a href="javascript:evil()">bad</a><a href="https://example.org/book">Book</a></p>"#;
+        let document = scraper::Html::parse_document(html);
+        let content = parser::parse_content(&url, &document, &[], None, "en").unwrap();
+        assert_eq!(content.sections[0].key, "overview");
         assert_eq!(content.sections[0].blocks[0].text, "A & B\nnext");
         assert_eq!(content.sections[1].links.len(), 1);
         assert_eq!(content.sections[1].links[0].url, "https://example.org/book");
@@ -287,8 +326,8 @@ mod tests {
             return;
         };
         let html = std::fs::read_to_string(path).unwrap();
-        let result = parse_search_html(&html, 2026, 12).unwrap();
-        assert!(!result.items.is_empty());
-        assert!(result.total >= result.items.len());
+        let result = parse_search(&html, 2026, 12).unwrap();
+        assert!(!result.rows.is_empty());
+        assert!(result.total >= result.rows.len());
     }
 }

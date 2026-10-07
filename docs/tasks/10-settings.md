@@ -21,3 +21,19 @@ Product spec: `docs/product-definition.md` → Settings, Advanced. Depends on ta
 - Choosing a department changes the planner's filter immediately.
 - Restoring a hidden assignment shows it again on Today.
 - A daily scheduled export runs at the set time while the app is open and records its result.
+
+## Layout and copy rules (2026-10-07)
+
+Settings were regrouped into three layers; `src/pages/settings/registry.ts` is the single list of pages and searchable rows.
+
+| Layer | Pages | Rule for new settings |
+|---|---|---|
+| Everyday | School accounts, Study profile, Notifications, Academic calendar, Appearance & language, Course files, Backup & sync, Hidden assignments | Something most students change at least once. Rarely changed options of the same topic go under `More options` on that page. |
+| Advanced | Data updates, Automation, Developer options | Background behaviour that works without attention. |
+| Developer (after the Developer options switch) | AI agent access, Site styles & scripts, Diagnostics | Needs code, URLs, JSON or protocol knowledge. |
+
+- Every page starts with `SettingsHeader` (title + one plain sentence). Every row has a short hint; no jargon (`hash`, `subscription`, `JSON`) on everyday pages.
+- Pages that show reference data also show where it comes from and how fresh it is (`Status`), with `Check now` where the platform can refresh.
+- Each searchable row has a `Row id` that matches an entry in `SETTING_ENTRIES`; search lands on the row, unfolds `More options` and highlights it.
+- Edits use the narrowest store action: preferences → `updateSettings`; hidden assignments → the academic edit; calendar overrides, academic profile and subscription rows → the desktop calendar editor; the admission year and official-data check results have dedicated actions that work on every platform.
+- Scope: desktop and iPad-size windows. The settings pane is a CSS container, so rows and the calendar adapt to the pane width (iPad portrait ≈ 450 px pane). Phone layouts and the phone feature set are designed separately; until then the `native-mobile` target keeps its earlier pages (no Academic calendar or Developer pages). iPhone and iPad currently share that target, so an iPad-specific feature set needs a platform distinction first.

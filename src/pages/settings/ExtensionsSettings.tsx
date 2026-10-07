@@ -7,6 +7,7 @@ import {
   type CustomizationSite,
 } from "../../app/native";
 import type { Workspace } from "../../core/model";
+import { SettingsHeader } from "../../components/forms";
 
 /** Per-site CSS/JS injected into the school web view (styling only). */
 export function ExtensionsSettings({
@@ -19,8 +20,11 @@ export function ExtensionsSettings({
   const custom = data.settings.customization!;
   return (
     <>
-      <h2>{t("Extensions")}</h2>
-      <div className="extensionList">
+      <SettingsHeader
+        title="Site styles & scripts"
+        description="Your own CSS and JavaScript for school sites. They apply the next time a site opens."
+      />
+      <div className="extensionList" data-setting="sites">
         {(Object.keys(custom.sites) as CustomizationSite[]).map((site) => {
           const enabled = data.settings.siteConsents?.[site] ?? false;
           return (

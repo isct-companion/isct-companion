@@ -1,6 +1,5 @@
 import { clockForPeriods } from "../core/user-schedule";
 import type { FinderCourse } from "../core/course-query";
-import type { SyllabusFilters } from "../core/syllabus-filters";
 import { validSyllabusContent } from "../core/syllabus-content";
 import { pickLocalized, type Localized } from "../core/model";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
@@ -169,7 +168,6 @@ export type NativeCapabilitySnapshot = {
   backgroundSchedule: boolean;
   cloudSync: boolean;
   syllabusSearch: boolean;
-  syllabusFilters?: boolean;
   matrixOcr: boolean;
 };
 export type InvokeNative = (
@@ -301,14 +299,7 @@ export interface DesktopBridge {
     headers: Record<string, string>;
     body: string;
   }>;
-  searchSyllabus(
-    query: string,
-    year: number,
-    limit?: number,
-    filters?: SyllabusFilters,
-    language?: "en" | "ja",
-  ): Promise<{ items: SyllabusCourse[]; total: number; truncated: boolean }>;
-  syllabusCourse(url: string, language?: "en" | "ja"): Promise<SyllabusCourse>;
+  syllabusCourse(url: string, language: "en" | "ja"): Promise<SyllabusCourse>;
   catalogSyncDepartment(
     year: number,
     scopePath: string,
@@ -737,52 +728,7 @@ export function createTauriDesktopBridge(
       booleanCommand("disconnect_cloud", { provider }),
     cloudRequest: (provider, url, init) =>
       result("cloud_request", { provider, url, init }),
-    searchSyllabus: async (query, year, limit = 100, filters, language) => {
-      if (language !== undefined && language !== "en" && language !== "ja")
-        throw new Error("Unsupported syllabus language.");
-      if (
-        filters &&
-        Object.values(filters).some(
-          (value) => value !== undefined && value !== "",
-        )
-      ) {
-        const caps = await result<NativeCapabilitySnapshot>(
-          "runtime_capabilities",
-        );
-        if (caps.syllabusFilters !== true)
-          throw new Error(
-            "Restart the updated macOS app to use syllabus filters.",
-          );
-      }
-      const locale = language ?? "en";
-      const refresh = Boolean(
-        query.trim() ||
-        (filters &&
-          Object.values(filters).some(
-            (value) => value !== undefined && value !== "",
-          )),
-      );
-      const response = requireObject<{
-        items: unknown[];
-        total: number;
-        truncated: boolean;
-      }>(
-        "catalog_search",
-        await invoke("catalog_search", {
-          query,
-          year,
-          limit,
-          filters,
-          refresh,
-        }),
-      );
-      return {
-        items: response.items.map((item) => catalogCourse(item, locale)),
-        total: response.total,
-        truncated: response.truncated,
-      };
-    },
-    syllabusCourse: async (url, language = "en") => {
+    syllabusCourse: async (url, language) => {
       const synced = requireObject<{
         offering: unknown;
         content: { lang: string; content: unknown }[];
