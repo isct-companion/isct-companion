@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import type { Workspace } from "../../core/model";
 import type { Platform } from "../../app/shared";
-import { desktopBridge } from "../../app/native";
+import { desktopBridge, saveExportFile } from "../../app/native";
 import { workspaceActions } from "../../store/workspace";
 import { performAction } from "../../platform/actions";
 import {
@@ -33,17 +33,6 @@ function bytesToBase64(bytes: Uint8Array) {
   for (let offset = 0; offset < bytes.length; offset += 0x8000)
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
   return btoa(binary);
-}
-
-async function exportWorkspaceFile() {
-  const blob = new Blob([await workspaceActions.exportData()], {
-    type: "application/json",
-  });
-  const anchor = document.createElement("a");
-  anchor.href = URL.createObjectURL(blob);
-  anchor.download = "IsctCompanion.json";
-  anchor.click();
-  URL.revokeObjectURL(anchor.href);
 }
 
 export function BackupSettings({
@@ -77,6 +66,9 @@ export function BackupSettings({
       disposed = true;
     };
   }, []);
+
+  const exportWorkspace = () =>
+    saveExportFile("IsctCompanion.json", workspaceActions.exportData, notify);
 
   const cloud = data.settings.cloud;
   const cloudAvailable =
@@ -413,10 +405,7 @@ export function BackupSettings({
               </UiButton>
               <UiButton
                 className="button"
-                onClick={() => {
-                  void exportWorkspaceFile();
-                  notify(t("Saved a copy of this device first."));
-                }}
+                onClick={() => void exportWorkspace()}
               >
                 {t("Save a copy first")}
               </UiButton>
@@ -434,7 +423,7 @@ export function BackupSettings({
           <div className="actions">
             <UiButton
               className="button small"
-              onClick={() => void exportWorkspaceFile()}
+              onClick={() => void exportWorkspace()}
             >
               {t("Export…")}
             </UiButton>

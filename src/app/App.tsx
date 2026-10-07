@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { UiButton } from "../components/mantine";
 import i18n, { t } from "../i18n";
 import { useTranslation } from "react-i18next";
-import { desktopBridge, hideNativeSchoolWeb } from "./native";
+import { desktopBridge, hideNativeSchoolWeb, saveExportFile } from "./native";
 import { cleanMaterials, retentionDays } from "../pages/today/lms/files";
 import { jstDate, stamp, type Page, type Section } from "./shared";
 import {
@@ -1804,25 +1804,13 @@ function WorkspaceApp() {
                   openOfficial={() => openWeb(KYOMU_GPA)}
                 />
               }
-              exportIcs={(term, scope = "courses") => {
-                try {
-                  const calendar = exportQuarterIcs(data, term, scope);
-                  const url = URL.createObjectURL(
-                    new Blob([calendar], { type: "text/calendar" }),
-                  );
-                  const link = document.createElement("a");
-                  link.href = url;
-                  link.download = `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`;
-                  link.click();
-                  setTimeout(() => URL.revokeObjectURL(url), 1000);
-                } catch (error) {
-                  setToast(
-                    error instanceof Error
-                      ? error.message
-                      : "Calendar export failed.",
-                  );
-                }
-              }}
+              exportIcs={(term, scope = "courses") =>
+                saveExportFile(
+                  `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
+                  () => exportQuarterIcs(data, term, scope),
+                  setToast,
+                )
+              }
             />
             </div>
           </div>,

@@ -669,6 +669,48 @@ async fn export_data(
     .await
 }
 
+/// Saves a file the person exported (calendar, backup) where they choose.
+/// The main webview has no `on_download` handler, so WebKit cancels
+/// `<a download>` clicks there. Resolves false when the dialog is cancelled.
+#[tauri::command]
+async fn save_file(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    name: String,
+    contents: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    if name.trim().is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
+        return Err("invalid file name".into());
+    }
+    if contents.len() > 64 * 1024 * 1024 {
+        return Err("file exceeds the 64 MiB limit".into());
+    }
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_dialog::DialogExt;
+        tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+            let mut dialog = app.dialog().file().set_file_name(&name);
+            if let Some((_, extension)) = name.rsplit_once('.') {
+                dialog = dialog.add_filter(extension.to_uppercase(), &[extension]);
+            }
+            let Some(chosen) = dialog.blocking_save_file() else {
+                return Ok(false);
+            };
+            let path = chosen.into_path().map_err(|e| e.to_string())?;
+            std::fs::write(path, contents).map_err(|e| e.to_string())?;
+            Ok(true)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, contents);
+        Err("Saving files is available on desktop.".into())
+    }
+}
+
 /// Writes the shared export document into app-owned storage. Scheduled tasks
 /// must not trigger browser downloads or reuse an interactive cloud token.
 #[tauri::command]
@@ -1329,6 +1371,7 @@ pub fn run() {
             put_workspace_setting,
             reset_workspace,
             export_data,
+            save_file,
             write_scheduled_export,
             import_data,
             catalog_upsert_offerings,

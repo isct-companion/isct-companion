@@ -15,6 +15,7 @@ import {
   type CalendarOrigin,
 } from "../../core/calendar-view";
 import { subscriptionYear } from "../../platform/subscription-polling";
+import { saveExportFile } from "../../app/native";
 import { newUserRecordId } from "../../storage/ids";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import {
@@ -371,16 +372,11 @@ export function AcademicCalendarSettings({
           label,
         })),
     };
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(payload, null, 2)], {
-        type: "application/json",
-      }),
+    void saveExportFile(
+      "academic-calendar-changes.json",
+      () => JSON.stringify(payload, null, 2),
+      notify,
     );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "academic-calendar-changes.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
   };
 
   const editor = editing && !readOnly && (

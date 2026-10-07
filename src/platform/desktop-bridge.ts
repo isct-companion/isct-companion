@@ -282,6 +282,8 @@ export interface DesktopBridge {
   ): () => void;
   /** Saves a validated workspace export under app-owned local storage. */
   writeScheduledExport(): Promise<string>;
+  /** Asks where to save an exported file; false when the person cancels. */
+  saveFile(name: string, contents: string): Promise<boolean>;
   connectCloud(
     provider: "google-drive" | "onedrive",
     clientId: string,
@@ -742,6 +744,8 @@ export function createTauriDesktopBridge(
         throw new Error("write_scheduled_export returned an invalid result.");
       return value;
     },
+    saveFile: (name, contents) =>
+      booleanCommand("save_file", { name, contents }),
     connectCloud: (provider, clientId, redirectUri) =>
       booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
     cloudAuthorizationStatus: () =>

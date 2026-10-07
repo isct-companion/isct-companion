@@ -223,6 +223,15 @@ describe("Tauri bridge contract", () => {
     expect(unlisten).toHaveBeenCalledOnce();
   });
 
+  it("saves exports through the native dialog, not a webview download", async () => {
+    const invoke = vi.fn(async () => false);
+    const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
+    const name = "campus-life-2026-2Q.ics";
+    const contents = "BEGIN:VCALENDAR\r\nEND:VCALENDAR";
+    await expect(bridge.saveFile(name, contents)).resolves.toBe(false);
+    expect(invoke).toHaveBeenCalledWith("save_file", { name, contents });
+  });
+
   it("rejects malformed native return values", async () => {
     const bridge = createTauriDesktopBridge(
       vi.fn(async () => "yes"),
