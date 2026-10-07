@@ -7,7 +7,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { UiButton } from "../components/mantine";
 import i18n, { t } from "../i18n";
 import { useTranslation } from "react-i18next";
-import { desktopBridge, hideNativeSchoolWeb } from "./native";
+import {
+  desktopBridge,
+  hideNativeSchoolWeb,
+  saveExportFile,
+} from "./native";
 import { stamp, type Page, type Section } from "./shared";
 import {
   onTimetable,
@@ -1484,17 +1488,13 @@ function WorkspaceApp() {
                 openOfficial={() => openWeb(KYOMU_GPA)}
               />
             }
-            exportIcs={(term, scope = "courses") => {
+            exportIcs={async (term, scope = "courses") => {
               try {
-                const calendar = exportQuarterIcs(data, term, scope);
-                const url = URL.createObjectURL(
-                  new Blob([calendar], { type: "text/calendar" }),
+                await saveExportFile(
+                  `campus-life-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
+                  exportQuarterIcs(data, term, scope),
+                  "text/calendar",
                 );
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = `campus-life-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`;
-                link.click();
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
               } catch (error) {
                 setToast(
                   error instanceof Error

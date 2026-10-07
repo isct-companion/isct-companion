@@ -34,7 +34,7 @@ import type {
   Workspace,
 } from "../../core/model";
 
-import { desktopBridge } from "../../app/native";
+import { desktopBridge, saveExportFile } from "../../app/native";
 import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
 import { type Section, type Platform } from "../../app/shared";
 
@@ -271,14 +271,11 @@ export function Settings({
     window.setTimeout(() => void workspaceStore.reload(), 2_000);
   };
   const exportData = async () => {
-    const blob = new Blob([await workspaceActions.exportData()], {
-      type: "application/json",
-    });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "science-tokyo-workspace.json";
-    a.click();
-    URL.revokeObjectURL(a.href);
+    await saveExportFile(
+      "science-tokyo-workspace.json",
+      await workspaceActions.exportData(),
+      "application/json",
+    );
   };
   const resetData = async () => {
     if (
