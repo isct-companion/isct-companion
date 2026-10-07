@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { t } from "../../i18n";
-import { pickLocalized, type Workspace } from "../../core/model";
+import { contentLanguage, pickLocalized, type Workspace } from "../../core/model";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "../../core/departments";
 import { academicYearOf } from "../../core/calendar-view";
 import { tokyoDate } from "../../core/schedule";
@@ -139,7 +139,7 @@ export function StudyProfileSettings({
             <option value="">{t("Not selected")}</option>
             {SYLLABUS_DEPARTMENTS.map((item) => (
               <option key={item.id} value={item.id}>
-                {pickLocalized(item.name, locale, item.id)}
+                {pickLocalized(item.name, contentLanguage(data.settings), item.id)}
               </option>
             ))}
           </UiSelect>

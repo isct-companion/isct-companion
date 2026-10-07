@@ -34,7 +34,7 @@ export function AppearanceSettings({
           id="language"
           group
           title="Language"
-          hint="Menus and course names from the syllabus"
+          hint="Menus and buttons"
         >
           <Choice
             value={data.settings.locale === "ja" ? "ja" : "en"}
@@ -43,6 +43,22 @@ export function AppearanceSettings({
               { value: "ja", label: "日本語" },
             ]}
             onChange={(locale) => set("locale", locale)}
+          />
+        </Row>
+        <Row
+          id="content-language"
+          group
+          title="School content language"
+          hint="Course names, rooms and syllabus text. Automatic uses the menu language."
+        >
+          <Choice
+            value={data.settings.contentLanguage ?? "auto"}
+            options={[
+              { value: "auto", label: t("Automatic") },
+              { value: "en", label: "English" },
+              { value: "ja", label: "日本語" },
+            ]}
+            onChange={(language) => set("contentLanguage", language)}
           />
         </Row>
         <Row id="theme" group title="Theme">

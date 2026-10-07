@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { UiButton } from "../../components/mantine";
 import { deadlineState } from "../../core/academic";
-import { pickLocalized, type PersonalEvent, type Plan, type TermId, type Workspace } from "../../core/model";
+import { contentLanguage, pickLocalized, type PersonalEvent, type Plan, type TermId, type Workspace } from "../../core/model";
 import { timetableCourses } from "../../components/timetable/workspace";
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
@@ -212,7 +212,7 @@ export function Today({
     typeof rawStateLabel === "string"
       ? rawStateLabel
       : rawStateLabel
-        ? (rawStateLabel[data.settings.locale === "ja" ? "ja" : "en"] ??
+        ? (rawStateLabel[contentLanguage(data.settings)] ??
           rawStateLabel.ja ??
           rawStateLabel.en)
         : effectiveDay > 5
@@ -303,7 +303,7 @@ export function Today({
           <aside className="importantDates" aria-label="Important dates">
             {importantDates.map((item) => (
               <span key={item.id}>
-                <b>{pickLocalized(item.label, data.settings.locale, "Important date")}</b>
+                <b>{pickLocalized(item.label, contentLanguage(data.settings), "Important date")}</b>
                 {item.startDate !== item.endDate && (
                   <small>{item.startDate}–{item.endDate}</small>
                 )}

@@ -1,4 +1,5 @@
 import {
+  contentLanguage,
   pickLocalized,
   type CalendarException,
   type ImportantDate,
@@ -59,7 +60,7 @@ export function academicYearCalendar(
   data: Workspace,
   year: number,
 ): AcademicYearCalendar {
-  const locale = data.settings.locale;
+  const locale = contentLanguage(data.settings);
   const officialRows = data.academicCalendar.filter(
     (row) =>
       !row.deletedAt &&

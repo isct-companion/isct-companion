@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Badge } from "@mantine/core";
 import { t } from "../../i18n";
 import {
+  contentLanguage,
   pickLocalized,
   type CalendarException,
   type Workspace,
@@ -605,7 +606,7 @@ export function AcademicCalendarSettings({
                     ` – ${formatDay(row.endDate, locale)}`}
                 </time>
                 <span>
-                  <b>{pickLocalized(row.label, locale, row.category)}</b>
+                  <b>{pickLocalized(row.label, contentLanguage(data.settings), row.category)}</b>
                 </span>
                 <OriginBadge origin="official" />
               </div>

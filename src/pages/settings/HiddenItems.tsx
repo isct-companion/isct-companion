@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Checkbox } from "@mantine/core";
 import { t } from "../../i18n";
 import { UiButton } from "../../components/mantine";
-import { pickLocalized, type Workspace } from "../../core/model";
+import { contentLanguage, pickLocalized, type Workspace } from "../../core/model";
 import { SettingsHeader } from "../../components/forms";
 
 export function HiddenItems({
@@ -19,7 +19,7 @@ export function HiddenItems({
   const courseTitle = (id: string) => {
     const course = data.courses.find((item) => item.id === id);
     return course
-      ? pickLocalized(course.names?.title, data.settings.locale, course.title)
+      ? pickLocalized(course.names?.title, contentLanguage(data.settings), course.title)
       : "";
   };
   const restore = (ids: Set<string> | null) => {

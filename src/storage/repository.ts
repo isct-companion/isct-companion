@@ -396,6 +396,7 @@ export class SqliteRepository implements WorkspaceRepository {
       showGrades: data.settings.showGrades,
       siteConsents: data.settings.siteConsents,
       locale: data.settings.locale,
+      contentLanguage: data.settings.contentLanguage,
       subscriptionRefresh: data.settings.subscriptionRefresh,
       notifications: {
         localPermission: data.settings.notifications.localPermission,
@@ -416,6 +417,7 @@ export class SqliteRepository implements WorkspaceRepository {
       showGrades: previous.settings.showGrades,
       siteConsents: previous.settings.siteConsents,
       locale: previous.settings.locale,
+      contentLanguage: previous.settings.contentLanguage,
       subscriptionRefresh: previous.settings.subscriptionRefresh,
       notifications: {
         localPermission: previous.settings.notifications.localPermission,

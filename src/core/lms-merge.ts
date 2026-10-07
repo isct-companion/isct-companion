@@ -1,6 +1,7 @@
 import { timetableCourses } from "../components/timetable/workspace";
 import type { FinderCourse } from "./course-query";
 import {
+  contentLanguage,
   pickLocalized,
   type Course,
   type Quarter,
@@ -125,7 +126,7 @@ export function diffLms(
   terms: TermId[],
   offerings: Map<string, FinderCourse>,
 ): MergeDiff {
-  const locale = data.settings.locale;
+  const locale = contentLanguage(data.settings);
   const scope = new Set(terms);
   const lmsEntries: LmsEntry[] = [];
   for (const row of lmsCourses) {
@@ -216,7 +217,7 @@ export function applyLmsMerge(
   retime: Set<string> = new Set(),
 ): Workspace {
   const now = stamp();
-  const locale = draft.settings.locale === "ja" ? "ja" : "en";
+  const locale = contentLanguage(draft.settings);
   const linked = new Map<number, string>();
   for (const pair of diff.common) linked.set(pair.lms.lms.lmsId, pair.local.id);
 

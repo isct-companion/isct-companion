@@ -1,4 +1,4 @@
-import { pickLocalized, type Course, type PersonalEvent, type TermId, type Workspace } from "./model";
+import { contentLanguage, pickLocalized, type Course, type PersonalEvent, type TermId, type Workspace } from "./model";
 import { clockForPeriods, planOccursOn, planCivilStart } from "./user-schedule";
 
 export type Occurrence = {
@@ -351,7 +351,7 @@ export function resolveDayAgenda(
     if (!startTime || !endTime || effectiveDate !== date) continue;
     const room =
       override?.room ??
-      pickLocalized(exam.room ?? undefined, data.settings.locale, "");
+      pickLocalized(exam.room ?? undefined, contentLanguage(data.settings), "");
     exams.push({
       key: targetKey,
       id: course.id,
@@ -360,7 +360,7 @@ export function resolveDayAgenda(
       date,
       title:
         override?.title ??
-        pickLocalized(exam.label, data.settings.locale, course.overrides?.title || course.title),
+        pickLocalized(exam.label, contentLanguage(data.settings), course.overrides?.title || course.title),
       subtitle: course.code,
       room,
       startTime,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   LMS_BACKGROUND_REFRESH_TASK_ID,
   REFERENCE_REFRESH_TASK_ID,
+  contentLanguage,
   pickLocalized,
   seedWorkspace,
 } from "./model";
@@ -36,5 +37,12 @@ describe("v3 model helpers", () => {
     expect(pickLocalized(both, "zh")).toBe("English");
     expect(pickLocalized({ ja: "日本語" }, "en")).toBe("日本語");
     expect(pickLocalized({}, "en", "Fallback")).toBe("Fallback");
+  });
+
+  it("keeps school content language independent of the UI language", () => {
+    expect(contentLanguage({ locale: "ja" })).toBe("ja");
+    expect(contentLanguage({ locale: "zh", contentLanguage: "auto" })).toBe("en");
+    expect(contentLanguage({ locale: "en", contentLanguage: "ja" })).toBe("ja");
+    expect(contentLanguage({ locale: "ja", contentLanguage: "en" })).toBe("en");
   });
 });

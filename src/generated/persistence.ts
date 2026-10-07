@@ -90,7 +90,7 @@ export type Customization = { background: string, sites: SiteCustomizations, hoo
 
 export type SiteConsents = { portal: boolean, lms: boolean, syllabus: boolean, };
 
-export type Settings = { departmentId?: string, lmsBilingualFilter?: boolean, autoDownloadLimitMb?: number, autoCleanDays?: number, agentAccess?: AgentAccess, appearance: "system" | "light" | "dark", density: "comfortable" | "compact", textSize?: "small" | "medium" | "large", restoreSchoolPage?: boolean, activeSchoolSite?: string, schoolServiceWidth?: number, schoolWebZoom?: number, showGrades?: boolean, siteConsents?: SiteConsents, locale: "en" | "ja" | "zh", notifications: Notifications, cloud: CloudSettings, subscriptionRefresh: SubscriptionRefreshSettings, customization?: Customization, };
+export type Settings = { departmentId?: string, lmsBilingualFilter?: boolean, autoDownloadLimitMb?: number, autoCleanDays?: number, agentAccess?: AgentAccess, appearance: "system" | "light" | "dark", density: "comfortable" | "compact", textSize?: "small" | "medium" | "large", restoreSchoolPage?: boolean, activeSchoolSite?: string, schoolServiceWidth?: number, schoolWebZoom?: number, showGrades?: boolean, siteConsents?: SiteConsents, locale: "en" | "ja" | "zh", contentLanguage?: "auto" | "ja" | "en", notifications: Notifications, cloud: CloudSettings, subscriptionRefresh: SubscriptionRefreshSettings, customization?: Customization, };
 
 export type GradePathEntry = { grade: string, academicYear: number, };
 

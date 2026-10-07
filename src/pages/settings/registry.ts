@@ -171,6 +171,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   },
   {
     section: "appearance",
+    id: "content-language",
+    title: "School content language",
+    terms: "course name syllabus lms 授業名 シラバス 言語",
+  },
+  {
+    section: "appearance",
     id: "theme",
     title: "Theme",
     terms: "dark light mode ダーク ライト",

@@ -129,6 +129,7 @@ fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "showGrades": settings.get("showGrades"),
         "siteConsents": settings.get("siteConsents"),
         "locale": settings.get("locale"),
+        "contentLanguage": settings.get("contentLanguage"),
         "subscriptionRefresh": settings.get("subscriptionRefresh"),
         "notifications": {"localPermission": settings.pointer("/notifications/localPermission")}
     });

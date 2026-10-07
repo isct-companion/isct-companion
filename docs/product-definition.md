@@ -103,7 +103,7 @@ Everyday:
 - Study profile (department, year you started; shows the study-guide status)
 - Notifications (permission, class reminders with lead time, assignment reminders)
 - Academic calendar (official calendar merged with your own changes, quarter dates, important dates)
-- Appearance & language (language, theme, text size; density and background under More options)
+- Appearance & language (language, school content language, theme, text size; density and background under More options)
 - Course files (desktop: folder, automatic download size, cleanup, bilingual LMS)
 - Backup & sync (cloud backup, backup file, erase this device)
 - Hidden assignments
@@ -190,6 +190,7 @@ Other AI agents can use the app's data through a local MCP server:
 - UI locales are English (`en`) and Japanese (`ja`). Japanese system locale defaults to Japanese; other locales default to English.
 - Fetch both language variants when an official source supports them and retain them side by side with provenance.
 - Switching app language changes cached content immediately without changing the WebView site's own language.
+- School content language (`auto | ja | en`, device setting) picks the language of school text — course names, instructors, rooms, calendar labels, syllabus body and the LMS bilingual filter — independently of the UI language. `auto` follows the UI language (`zh` reads `en`). The app never changes the LMS's own language; Moodle's interface language stays whatever the person set on the LMS.
 - When only one source language exists, show the original. Do not synthesize an authoritative translation.
 
 ## Advanced

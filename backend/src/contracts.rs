@@ -402,6 +402,7 @@ contract!(Settings {
     #[serde(default)] #[ts(optional)] pub show_grades: Option<bool>,
     #[serde(default)] #[ts(optional)] pub site_consents: Option<SiteConsents>,
     #[ts(type = "\"en\" | \"ja\" | \"zh\"")] pub locale: String,
+    #[serde(default)] #[ts(optional, type = "\"auto\" | \"ja\" | \"en\"")] pub content_language: Option<String>,
     pub notifications: Notifications, pub cloud: CloudSettings,
     pub subscription_refresh: SubscriptionRefreshSettings,
     #[serde(default)] #[ts(optional)] pub customization: Option<Customization>,

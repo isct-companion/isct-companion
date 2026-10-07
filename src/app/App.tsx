@@ -1,5 +1,5 @@
 import { exportQuarterIcs } from "../core/calendar-ics";
-import { pickLocalized } from "../core/model";
+import { contentLanguage, pickLocalized } from "../core/model";
 import { displayColor } from "../core/course-colors";
 import { decodeEntities } from "../core/text";
 import { AppShell, MantineProvider } from "@mantine/core";
@@ -341,7 +341,7 @@ function WorkspaceApp() {
             decodeEntities(
               pickLocalized(
                 course.names?.title,
-                sourceData.settings.locale,
+                contentLanguage(sourceData.settings),
                 course.title,
               ),
             ),
@@ -349,7 +349,7 @@ function WorkspaceApp() {
             course.overrides?.instructor ??
             pickLocalized(
               course.names?.instructor,
-              sourceData.settings.locale,
+              contentLanguage(sourceData.settings),
               course.instructor,
             ),
         })),
@@ -542,12 +542,13 @@ function WorkspaceApp() {
       void desktopBridge
         .syllabusCourse(
           course.url!,
-          sourceData.settings.locale === "ja" ? "ja" : "en",
+          contentLanguage(sourceData.settings),
         )
         .catch(() => undefined);
   }, [
     sourceData?.selectedTerm,
     sourceData?.settings.locale,
+    sourceData?.settings.contentLanguage,
     sourceData?.courses,
     nativeCapabilities?.syllabusSearch,
   ]);
@@ -901,7 +902,7 @@ function WorkspaceApp() {
             replaced.push(victim.id);
         const course = catalogCourse(
           row,
-          data.settings.locale === "ja" ? "ja" : "en",
+          contentLanguage(data.settings),
         );
         // Always into the quarter on screen, so it shows up on this timetable.
         addSyllabusDraft(draft, {
@@ -1182,7 +1183,9 @@ function WorkspaceApp() {
             missing
               .slice(index, index + 4)
               .map((id) =>
-                desktopBridge?.syllabusCourse(id).catch(() => undefined),
+                desktopBridge
+                  ?.syllabusCourse(id, contentLanguage(data.settings))
+                  .catch(() => undefined),
               ),
           );
           setLmsProgress(
@@ -1608,7 +1611,7 @@ function WorkspaceApp() {
                 year={Number(courseTerm.slice(0, 4))}
                 term={courseTerm}
                 summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
-                locale={data.settings.locale}
+                language={contentLanguage(data.settings)}
                 load={(year) =>
                   desktopBridge?.catalogOfferings
                     ? desktopBridge.catalogOfferings(year)
@@ -1679,7 +1682,7 @@ function WorkspaceApp() {
                 <OfferingPanel
                   key={offeringPanel.id}
                   course={offeringPanel}
-                  locale={data.settings.locale}
+                  language={contentLanguage(data.settings)}
                   placed={finderPlaced.has(offeringPanel.code)}
                   replaces={clashingCourses(offeringPanel, replaceable).map(
                     (c) => c.title,
@@ -1957,7 +1960,7 @@ function WorkspaceApp() {
               ? (url) =>
                   desktopBridge!.syllabusCourse(
                     url,
-                    data.settings.locale === "ja" ? "ja" : "en",
+                    contentLanguage(data.settings),
                   )
               : undefined
           }

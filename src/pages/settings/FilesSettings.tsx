@@ -73,7 +73,7 @@ export function FilesSettings({
         <Row
           id="bilingual"
           title="Show one language in bilingual LMS"
-          hint="When a page has both Japanese and English, show only the app language"
+          hint="When a page has both Japanese and English, show only the school content language"
         >
           <Toggle
             checked={data.settings.lmsBilingualFilter ?? false}

@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { pickLocalized, type TermId, type Workspace } from "../core/model";
+import { contentLanguage, pickLocalized, type TermId, type Workspace } from "../core/model";
 import { academicTermForDate } from "../core/academic-calendar";
 import { termForDate } from "../core/academic";
 import {
@@ -39,7 +39,7 @@ export function dueReminders(data: Workspace, now: Date): Reminder[] {
   const due = (at: number) => at <= nowMs && at > nowMs - REMINDER_GRACE_MS;
   const reminders: Reminder[] = [];
   const settings = data.settings.notifications;
-  const locale = data.settings.locale;
+  const locale = contentLanguage(data.settings);
 
   if (settings.classes) {
     const lead = (settings.classLeadMinutes ?? DEFAULT_CLASS_LEAD) * 60_000;
