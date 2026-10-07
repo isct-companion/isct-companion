@@ -27,12 +27,10 @@ export function CourseStorage() {
     }
   };
   return (
-    <div className="courseStorageSettings">
+    <div className="courseStorageSettings" data-setting="folder">
       <b>{t("Course folder")}</b>
       <p>{info?.root}</p>
-      <small>
-        {t("Existing files stay where they are.")}
-      </small>
+      <small>{t("Changing it only affects new downloads.")}</small>
       <div className="actions">
         {info?.canChoose && (
           <button

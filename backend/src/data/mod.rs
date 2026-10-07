@@ -109,7 +109,8 @@ fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "departmentId": settings.get("departmentId"),
         "notifications": {
             "classes": settings.pointer("/notifications/classes"),
-            "assignments": settings.pointer("/notifications/assignments")
+            "assignments": settings.pointer("/notifications/assignments"),
+            "classLeadMinutes": settings.pointer("/notifications/classLeadMinutes")
         },
         "customization": settings.get("customization")
     });

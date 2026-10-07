@@ -3,7 +3,12 @@ import { t } from "../../i18n";
 import { UiInput } from "../../components/mantine";
 import { COURSE_FILE_POLICY } from "../../core/course-file-policy";
 import type { Workspace } from "../../core/model";
-import { Row, Toggle } from "../../components/forms";
+import {
+  Row,
+  SettingsGroup,
+  SettingsHeader,
+  Toggle,
+} from "../../components/forms";
 import { CourseStorage } from "./CourseStorage";
 
 export function FilesSettings({
@@ -15,56 +20,72 @@ export function FilesSettings({
 }) {
   return (
     <>
-      <h2>{t("Files")}</h2>
-      <CourseStorage />
-      <Row title={t("Auto-download files up to")}>
-        <NumberSetting
-          value={
-            data.settings.autoDownloadLimitMb ??
-            COURSE_FILE_POLICY.autoDownloadLimitMb.default
-          }
-          min={COURSE_FILE_POLICY.autoDownloadLimitMb.min}
-          max={COURSE_FILE_POLICY.autoDownloadLimitMb.max}
-          unit="MB"
-          onChange={(value) =>
-            update((d) => {
-              d.settings.autoDownloadLimitMb = value;
-              return d;
-            })
-          }
-        />
-      </Row>
-      <Row
-        title={t("Remove unused downloads after")}
-        hint={t("Notes are kept.")}
-      >
-        <NumberSetting
-          value={
-            data.settings.autoCleanDays ??
-            COURSE_FILE_POLICY.retentionDays.default
-          }
-          min={COURSE_FILE_POLICY.retentionDays.min}
-          max={COURSE_FILE_POLICY.retentionDays.max}
-          unit={t("days")}
-          onChange={(value) =>
-            update((d) => {
-              d.settings.autoCleanDays = value;
-              return d;
-            })
-          }
-        />
-      </Row>
-      <Row title={t("Show one language in bilingual LMS")}>
-        <Toggle
-          checked={data.settings.lmsBilingualFilter ?? false}
-          onChange={(checked) =>
-            update((d) => {
-              d.settings.lmsBilingualFilter = checked;
-              return d;
-            })
-          }
-        />
-      </Row>
+      <SettingsHeader
+        title="Course files"
+        description="Where course materials are saved, and how much downloads by itself."
+      />
+      <SettingsGroup>
+        <CourseStorage />
+        <Row
+          id="auto-download"
+          title="Download new files automatically"
+          hint="Files up to this size. Larger ones download when you open them."
+        >
+          <NumberSetting
+            value={
+              data.settings.autoDownloadLimitMb ??
+              COURSE_FILE_POLICY.autoDownloadLimitMb.default
+            }
+            min={COURSE_FILE_POLICY.autoDownloadLimitMb.min}
+            max={COURSE_FILE_POLICY.autoDownloadLimitMb.max}
+            unit="MB"
+            onChange={(value) =>
+              update((d) => {
+                d.settings.autoDownloadLimitMb = value;
+                return d;
+              })
+            }
+          />
+        </Row>
+        <Row
+          id="cleanup"
+          title="Remove unused downloads"
+          hint="After this many days without opening them. Your notes are kept."
+        >
+          <NumberSetting
+            value={
+              data.settings.autoCleanDays ??
+              COURSE_FILE_POLICY.retentionDays.default
+            }
+            min={COURSE_FILE_POLICY.retentionDays.min}
+            max={COURSE_FILE_POLICY.retentionDays.max}
+            unit={t("days")}
+            onChange={(value) =>
+              update((d) => {
+                d.settings.autoCleanDays = value;
+                return d;
+              })
+            }
+          />
+        </Row>
+      </SettingsGroup>
+      <SettingsGroup title="Reading">
+        <Row
+          id="bilingual"
+          title="Show one language in bilingual LMS"
+          hint="When a page has both Japanese and English, show only the app language"
+        >
+          <Toggle
+            checked={data.settings.lmsBilingualFilter ?? false}
+            onChange={(checked) =>
+              update((d) => {
+                d.settings.lmsBilingualFilter = checked;
+                return d;
+              })
+            }
+          />
+        </Row>
+      </SettingsGroup>
     </>
   );
 }

@@ -35,6 +35,7 @@ const LmsWorkspace = lazy(() =>
   })),
 );
 import { termForDate } from "../core/academic";
+import { startReminderRuntime } from "../platform/reminders";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
 import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
@@ -62,7 +63,6 @@ import {
 import { createScheduledTaskRuntime } from "../platform/scheduled-tasks";
 import {
   pollReferenceSubscriptions,
-  recordSubscriptionPoll,
   subscriptionNetwork,
   subscriptionPollDue,
   type ReferenceProbeResult,
@@ -130,7 +130,7 @@ function pullProblem(outcomes: { state: string; message: string }[]) {
   const failed = outcomes.find((item) => item.state !== "ok");
   if (!failed) return undefined;
   return failed.state === "reconnect-required"
-    ? "Sign-in required. Check the account in Settings → Accounts."
+    ? "Sign-in required. Check the account in Settings → School accounts."
     : failed.message;
 }
 
@@ -195,9 +195,7 @@ async function refreshReferenceSubscriptions(force = false): Promise<string> {
     );
     if (results.some((item) => (item.result?.changed ?? 0) > 0))
       await workspaceStore.reload();
-    workspaceActions.editCalendar((draft) =>
-      recordSubscriptionPoll(draft, results, checkedAt),
-    );
+    workspaceActions.recordReferencePoll(results, checkedAt);
     await workspaceStore.flush();
     const failed = results.filter((item) => item.error);
     if (failed.length)
@@ -590,6 +588,19 @@ function WorkspaceApp() {
     };
   }, [sourceData?.deviceId]);
 
+  // Class and assignment reminders, delivered while the app is open.
+  useEffect(() => {
+    if (!sourceData) return;
+    return startReminderRuntime({
+      getWorkspace: () => workspaceStore.getState().workspace,
+      deliver: ({ title, body }) => {
+        if (desktopBridge) return desktopBridge.notify(title, body);
+        if ("Notification" in window && Notification.permission === "granted")
+          new Notification(title, { body });
+      },
+    });
+  }, [sourceData?.deviceId]);
+
   // Sign saved school accounts in once at launch. After that, a school page
   // redirected to sign-in is renewed natively, so there is no polling.
   useEffect(() => {
@@ -651,6 +662,19 @@ function WorkspaceApp() {
     cleaned.current = true;
     void cleanMaterials(retentionDays(data.settings)).catch(() => undefined);
   }, [Boolean(data)]);
+  // "Automatic" follows the system while the app is open, not only at launch.
+  useEffect(() => {
+    if (data?.settings.appearance !== "system" || typeof matchMedia !== "function")
+      return;
+    const query = matchMedia("(prefers-color-scheme: dark)");
+    const follow = () => {
+      document.documentElement.dataset.mantineColorScheme = query.matches
+        ? "dark"
+        : "light";
+    };
+    query.addEventListener("change", follow);
+    return () => query.removeEventListener("change", follow);
+  }, [data?.settings.appearance]);
   useEffect(() => {
     if (!data) return;
     document.documentElement.dataset.appearance = data.settings.appearance;
@@ -1782,12 +1806,24 @@ function WorkspaceApp() {
             platform={platform}
             data={data}
             update={update}
+            academicUpdate={academicUpdate}
             advancedCalendarUpdate={advancedCalendarUpdate}
             caps={caps}
             section={section}
             setSection={setSection}
             notify={setToast}
             runScheduledTask={(task) => executeScheduledTask(task, true)}
+            refreshReferences={
+              desktopBridge ? () => refreshReferenceSubscriptions(true) : undefined
+            }
+            refreshSchool={
+              desktopBridge?.pullSchool
+                ? async () => {
+                    await pullLms("term", false, currentTerm);
+                    await refreshKyomu();
+                  }
+                : undefined
+            }
             matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
             showLoginPage={(profile) => {
               sessionStorage.setItem(

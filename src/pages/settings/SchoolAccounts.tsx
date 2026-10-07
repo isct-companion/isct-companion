@@ -524,6 +524,7 @@ function Account({
     <Paper
       component="section"
       className="schoolAccount"
+      data-setting={profile === "science" ? "science" : "tokyo-tech"}
       p="md"
       radius="md"
       withBorder
@@ -669,7 +670,12 @@ export function SchoolAccounts({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!desktopBridge)
-    return <small>Native encrypted storage is unavailable.</small>;
+    return (
+      <p className="settingsNote">
+        School sign-in needs the installed app, which keeps passwords in the
+        system keychain.
+      </p>
+    );
   return (
     <div className="schoolAccounts">
       {import.meta.env.DEV && (

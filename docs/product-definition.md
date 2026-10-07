@@ -48,7 +48,7 @@ Order:
 Assignments:
 
 - Official LMS state only: open, submitted, graded, late, or unknown. No local `Mark complete` that can contradict LMS.
-- `Hide` removes an assignment from Today on this device and its backups only; it never changes school state. Hidden items are listed in Settings → Hidden items, where they can be restored or cleared.
+- `Hide` removes an assignment from Today on this device and its backups only; it never changes school state. Hidden items are listed in Settings → Hidden assignments, where they can be restored.
 - Open the parent course or the exact official assignment page. Returning triggers a bounded refresh that shows `Checking…`, then the LMS state and `Last checked`. A failed refresh keeps the last state with its timestamp.
 
 Do not place a full weekly timetable or dashboard-card mosaic on Today.
@@ -95,18 +95,22 @@ The main course-editing surface, designed to minimise steps. One page:
 
 ### Settings
 
-Primary sections:
+Settings are layered like mature system settings: everyday pages first, rarely changed pages under **Advanced**, and tools for people who write code behind one **Developer options** switch. A search field at the top of the sidebar reaches every row in every layer (English and Japanese terms) and jumps to it, unfolding `More options` when needed. Each page opens with one plain sentence about what it is for; every control has a short hint; destructive actions sit in a separate Reset group.
 
-- General (language, department, admission year)
-- Accounts
-- Notifications
-- Storage & sync (export / import, cloud)
-- Subscriptions (academic calendar, recommended courses)
-- Hidden items
-- Scheduled tasks
-- Downloads
-- Data
-- Advanced (per-site CSS/JS, hooks)
+Everyday:
+
+- School accounts (sign-in, refresh school records, reopen the last school page)
+- Study profile (department, year you started; shows the study-guide status)
+- Notifications (permission, class reminders with lead time, assignment reminders)
+- Academic calendar (official calendar merged with your own changes, quarter dates, important dates)
+- Appearance & language (language, theme, text size; density and background under More options)
+- Course files (desktop: folder, automatic download size, cleanup, bilingual LMS)
+- Backup & sync (cloud backup, backup file, erase this device)
+- Hidden assignments
+
+Advanced: Data updates (official data sets, mobile-data switch), Automation (scheduled tasks), Developer options.
+
+Developer (after the switch): AI agent access, Site styles & scripts (desktop), Diagnostics. Developer options itself also holds the academic profile editor, data source URLs and the cloud OAuth client ID override.
 
 Diagnostics and raw provider details stay out of ordinary settings.
 

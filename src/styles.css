@@ -1423,9 +1423,6 @@ p {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.settingsNav button.nested {
-  padding-left: 19px;
-}
 .settingsPane {
   flex: 1;
   min-width: 0;
@@ -1437,51 +1434,6 @@ p {
 .settingsPane h2 {
   font-size: calc(17px * var(--text));
   margin-bottom: 10px;
-}
-.settingsIntro {
-  margin: -4px 0 14px;
-  color: var(--muted);
-  font-size: calc(12px * var(--text));
-}
-.cloudNotice {
-  margin: 0 0 8px;
-  padding: 7px 9px;
-  border-left: 2px solid color-mix(in srgb, var(--warn) 55%, var(--line));
-  color: var(--muted);
-  font-size: calc(10.5px * var(--text));
-  line-height: 1.4;
-}
-.cloudNotice b {
-  color: var(--text);
-  margin-right: 6px;
-}
-.cloudStatus {
-  margin: 4px 0 8px;
-  padding: 10px 0 12px;
-  border-bottom: 1px solid var(--line);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 16px;
-  align-items: center;
-}
-.cloudStatus > span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.cloudStatus > span:nth-child(2) {
-  display: grid;
-  justify-items: end;
-  gap: 1px;
-}
-.cloudStatus small,
-.cloudStatus p {
-  color: var(--muted);
-  font-size: calc(10.5px * var(--text));
-}
-.cloudStatus p {
-  grid-column: 1 / -1;
-  margin: 0;
 }
 .settingsPane h3 {
   font-size: calc(11px * var(--text));
@@ -1758,16 +1710,6 @@ p {
   color: var(--muted);
   font-size: calc(11px * var(--text));
   margin-top: 2px;
-}
-.diagnostics {
-  margin-top: 18px;
-  border-top: 1px solid var(--line);
-}
-.diagnostics > summary {
-  cursor: pointer;
-  padding: 13px 0;
-  color: var(--muted);
-  font-weight: 650;
 }
 .editor {
   display: grid;
@@ -4420,16 +4362,6 @@ p {
 }
 
 /* ---------- settings: lists, configs ---------- */
-.paneHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.paneHead h2 {
-  margin-bottom: 0;
-}
 .paneEmpty {
   padding: 28px 0;
   color: var(--muted);
@@ -4476,11 +4408,6 @@ p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.rowValue {
-  justify-self: end;
-  color: var(--muted);
-  font-size: calc(12.5px * var(--text));
 }
 .row > .actions.reverse,
 .actions.reverse {
@@ -4575,9 +4502,6 @@ textarea.codeArea {
 @media (max-width: 760px) {
   .settingsNavGroup {
     display: none;
-  }
-  .settingsNav button.nested {
-    padding-left: 11px;
   }
   .profileLine.quarters {
     grid-template-columns: 1fr 1fr 28px;

@@ -2,7 +2,9 @@
 
 Depends on tasks 1, 4, 6, 10. Follow the rules in [README](README.md).
 
-Today the Notifications toggles (`settings.notifications.classes`, `.assignments`) are saved but nothing reads them; the only call to the native `notify` command is the test message after granting permission. The `background-sync` capability is hard-coded off (`background_schedule: false` in `backend/src/lib.rs`) and its hint points to an Advanced control that does not exist.
+Status (2026-10-07): class and assignment reminders are delivered while the app is open (`src/platform/reminders.ts`, started from `App.tsx`), with the class lead-time select (`settings.notifications.classLeadMinutes`), fixed 24 h / 1 h assignment reminders, a five-minute grace window and a device-local fired-key log. Still open below: tray/background delivery, mobile notification plugin, the Auto refresh setting and the capability changes.
+
+Before that, the Notifications toggles (`settings.notifications.classes`, `.assignments`) were saved but nothing read them; the only call to the native `notify` command was the test message after granting permission. The `background-sync` capability is hard-coded off (`background_schedule: false` in `backend/src/lib.rs`) and its hint points to an Advanced control that does not exist.
 
 ## Build
 

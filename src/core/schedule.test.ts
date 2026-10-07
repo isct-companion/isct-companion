@@ -162,6 +162,18 @@ describe("shared actual-date scheduling", () => {
       [],
     );
   });
+  it("ignores a published day that the feed no longer lists", () => {
+    const data = fixture();
+    data.academicCalendar.push({
+      ...day("2026-04-13", "holiday"),
+      missingSince: "2026-04-01T00:00:00Z",
+    });
+    expect(
+      occurrencesOnDate(data, data.selectedTerm, "2026-04-13").map(
+        (r) => r.kind,
+      ),
+    ).toEqual(["course"]);
+  });
   it("never restores deleted intensive dates or infers unselected days", () => {
     const data = fixture();
     data.courses[0].meetings = [];

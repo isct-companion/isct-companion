@@ -336,6 +336,8 @@ contract!(Subscription {
     #[serde(default)] #[ts(optional)] pub source_ts: Option<String>,
     #[serde(default)] #[ts(optional)] pub fetched_at: Option<String>,
     #[serde(default)] #[ts(optional)] pub last_error: Option<String>,
+    // Academic or admission year the stored hashes were checked for.
+    #[serde(default)] #[ts(optional)] pub year: Option<i32>,
 });
 contract!(ScheduledTask {
     #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
@@ -363,6 +365,7 @@ contract!(AgentWrite { pub at: String, pub tool: String, });
 contract!(AgentAccess { pub enabled: bool, #[serde(default)] pub last_writes: Vec<AgentWrite>, });
 contract!(Notifications {
     pub classes: bool, pub assignments: bool,
+    #[serde(default)] #[ts(optional)] pub class_lead_minutes: Option<u32>,
     #[ts(type = "NotificationPermission")] pub local_permission: String,
 });
 contract!(CloudSettings {

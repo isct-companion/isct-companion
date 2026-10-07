@@ -38,6 +38,7 @@ export function calendarState(data: Workspace, date: string) {
     data.academicCalendar.find(
       (row) =>
         !row.deletedAt &&
+        !row.missingSince &&
         row.date === date &&
         ["holiday", "no-class", "break", "replacement"].includes(row.type),
     )
@@ -61,6 +62,7 @@ export function quarterRange(data: Workspace, term: TermId) {
     data.academicCalendar.find(
       (row) =>
         !row.deletedAt &&
+        !row.missingSince &&
         row.type === type &&
         (row.academicYear === year || row.id.startsWith(`calendar:${year}:`)) &&
         (row.quarter === quarter ||
@@ -70,7 +72,9 @@ export function quarterRange(data: Workspace, term: TermId) {
     "2Q" | "3Q" | "4Q" | undefined;
   const teachingRanges = data.academicCalendar.find(
     (row) =>
-      !row.deletedAt && row.id === `calendar:${year}:quarter-start:${quarter}`,
+      !row.deletedAt &&
+      !row.missingSince &&
+      row.id === `calendar:${year}:quarter-start:${quarter}`,
   )?.teachingRanges;
   return {
     teachingRanges,

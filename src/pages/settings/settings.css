@@ -1,0 +1,281 @@
+/* ---------- settings: navigation and search ---------- */
+.settingsNav {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+}
+.settingsNavList,
+.settingsResults {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 0;
+  overflow: auto;
+}
+.settingsNav button .navCount {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: calc(10.5px * var(--text));
+  font-weight: 700;
+}
+.settingsResults button {
+  display: grid;
+  gap: 1px;
+}
+.settingsResults button b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.settingsResults button small {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: calc(11px * var(--text));
+}
+.settingsNoResults {
+  padding: 8px 11px;
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+}
+
+/* ---------- settings: page structure ---------- */
+.settingsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.settingsHeader h2 {
+  margin: 0 0 4px;
+}
+.settingsHeader p {
+  margin: 0;
+  max-width: 560px;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text));
+  line-height: 1.5;
+}
+.settingsHeader > .actions {
+  flex: 0 0 auto;
+}
+.settingsGroup {
+  margin-bottom: 18px;
+}
+.settingsGroup > h3 {
+  margin: 0 0 2px;
+}
+.settingsGroup > .actions {
+  padding-top: 10px;
+}
+.groupFooter,
+.settingsNote {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+  line-height: 1.5;
+}
+.groupFooter a {
+  color: inherit;
+}
+.settingsGroup.danger > h3 {
+  color: var(--danger);
+}
+.settingChoice {
+  justify-self: end;
+}
+.row > .settingChoice {
+  max-width: 100%;
+}
+.moreOptions {
+  margin: 4px 0 18px;
+}
+.moreOptions > summary {
+  cursor: pointer;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+  font-weight: 650;
+  list-style: none;
+}
+.moreOptions > summary::-webkit-details-marker {
+  display: none;
+}
+.moreOptions > summary::before {
+  content: "›";
+  display: inline-block;
+  width: 14px;
+  transition: transform 120ms ease;
+}
+.moreOptions[open] > summary::before {
+  transform: rotate(90deg);
+}
+.settingFlash {
+  animation: settingFlash 1.6s ease-out;
+  border-radius: 8px;
+}
+@keyframes settingFlash {
+  0%,
+  35% {
+    background: var(--accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Controls take only the room they need; text fields and selects scale
+   with the pane so labels keep their width on iPad. */
+.settingsPane .row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.settingsPane .row > .mantine-Input-wrapper {
+  width: clamp(180px, 40cqi, 280px);
+}
+
+/* ---------- settings: status line ---------- */
+.settingsStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: calc(12.5px * var(--text));
+}
+.settingsStatus > i {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.settingsStatus.ok > i {
+  background: var(--ok);
+}
+.settingsStatus.warn {
+  background: var(--warn-soft);
+}
+.settingsStatus.warn > i {
+  background: var(--warn);
+}
+.settingsStatus.error {
+  background: var(--danger-soft);
+}
+.settingsStatus.error > i {
+  background: var(--danger);
+}
+.settingsStatus > span {
+  flex: 1;
+  min-width: 0;
+}
+.settingsStatus small {
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+  overflow-wrap: anywhere;
+}
+.settingsGroup > .settingsStatus {
+  margin: 8px 0 4px;
+}
+
+/* ---------- settings: academic calendar ---------- */
+.quarterGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 6px;
+}
+.quarterGrid > div {
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.quarterGrid b {
+  font-size: calc(12.5px * var(--text));
+}
+.quarterGrid span {
+  font-size: calc(12px * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.calendarDays {
+  display: grid;
+}
+.calendarDay {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.calendarDay time {
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+.calendarDay > span:not(.actions) {
+  display: grid;
+  min-width: 0;
+}
+.calendarDay b {
+  font-size: calc(13px * var(--text));
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendarDay small {
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+}
+.calendarDay > .actions {
+  gap: 2px;
+}
+.calendarEditor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.calendarEditor label {
+  display: grid;
+  gap: 4px;
+  font-size: calc(12px * var(--text));
+  font-weight: 600;
+}
+.calendarEditor .wide {
+  grid-column: 1 / -1;
+}
+
+/* iPad portrait and narrow desktop windows: adapt to the pane, not the screen. */
+.settingsPane {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
+  .quarterGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .calendarDay {
+    grid-template-columns: 76px minmax(0, 1fr) auto;
+  }
+  .calendarDay > .actions {
+    grid-column: 2 / -1;
+    margin-top: -4px;
+  }
+  .settingsHeader {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
