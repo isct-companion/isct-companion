@@ -52,6 +52,24 @@ export const customizationNames: Record<CustomizationSite, string> = {
   syllabus: "Syllabus",
 };
 export const desktopBridge = getDesktopBridge();
+/**
+ * Saves an exported file: a Save dialog in the app (its webview cancels
+ * `<a download>`), a download in a browser. False when the person cancels.
+ */
+export async function saveExportFile(
+  name: string,
+  contents: string,
+  type: string,
+) {
+  if (desktopBridge) return desktopBridge.saveFile(name, contents);
+  const url = URL.createObjectURL(new Blob([contents], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+}
 export const schoolWebExit = createSchoolWebExit(desktopBridge);
 export const hideNativeSchoolWeb = () => schoolWebExit.close();
 let schoolViewOwner: symbol | undefined;

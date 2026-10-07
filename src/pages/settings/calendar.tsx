@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { validateAcademicProfile } from "../../core/academic-calendar";
 import type { CalendarException, Workspace } from "../../core/model";
+import { saveExportFile } from "../../app/native";
 import "./events.css";
 
 type Props = {
@@ -346,7 +347,7 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
       );
     }
   };
-  const exportJson = () => {
+  const exportJson = async () => {
     const years = [
       ...new Set(exceptions.map((item) => Number(item.date.slice(0, 4)))),
     ].sort();
@@ -363,16 +364,19 @@ export function CalendarManager({ data, update, notify, readOnly }: Props) {
         label,
       })),
     };
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(payload, null, 2)], {
-        type: "application/json",
-      }),
-    );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `academic-calendar-${years.join("-") || "empty"}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      if (
+        !(await saveExportFile(
+          `academic-calendar-${years.join("-") || "empty"}.json`,
+          JSON.stringify(payload, null, 2),
+          "application/json",
+        ))
+      )
+        return;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error));
+      return;
+    }
     notify(
       tr(
         locale,
