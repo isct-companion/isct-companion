@@ -3342,16 +3342,6 @@ p {
   border-color: var(--warn);
   background: var(--warn-soft);
 }
-.dueEarlier {
-  margin-top: 6px;
-}
-.dueEarlier > summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 12px;
-  padding: 4px 0;
-  list-style-position: inside;
-}
 .dueLater {
   margin-top: 10px;
   padding-top: 8px;
@@ -3362,6 +3352,46 @@ p {
   color: var(--muted);
   font-size: 12px;
   padding-bottom: 4px;
+}
+
+/* Today: "Today" / "Earlier" switch beside the assignments heading */
+.dueSection > header {
+  gap: 10px;
+}
+.dueScope {
+  display: inline-flex;
+  margin-left: auto;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 7px;
+  background: var(--surface-3);
+}
+.dueScope > button {
+  padding: 2px 9px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+  line-height: 1.5;
+}
+.dueScope > button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px #0000001a;
+}
+/* Submitted ahead of the deadline: green; past and never submitted: red;
+   past and submitted: gray. */
+.dueRow.done {
+  background: color-mix(in srgb, var(--ok-soft) 70%, transparent);
+}
+.dueRow.missed {
+  background: color-mix(in srgb, var(--danger-soft) 70%, transparent);
+}
+.dueRow.closed b,
+.dueRow.closed time {
+  color: var(--muted);
+}
+.dueRow.closed > i {
+  opacity: 0.4;
 }
 
 /* Today: assignment rows (title + course stacked, deadline aligned right) */
