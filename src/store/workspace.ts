@@ -8,6 +8,10 @@ import type { Workspace } from "../core/model";
 import { seedWorkspace } from "../core/model";
 import { repository, type WorkspaceRepository } from "../storage/repository";
 import { requireAction } from "../platform/actions";
+import {
+  recordSubscriptionPoll,
+  type PollResult,
+} from "../platform/subscription-polling";
 import { detectPlatform } from "../platform/capabilities";
 import { createStore } from "zustand/vanilla";
 import { publishSchoolImport } from "../connectors/school";
@@ -318,13 +322,17 @@ export function createWorkspaceHooks(
       },
       updatePreferences(
         preferences: Partial<
-          Pick<Workspace["settings"], "appearance" | "locale" | "textSize">
+          Pick<
+            Workspace["settings"],
+            "appearance" | "locale" | "contentLanguage" | "textSize"
+          >
         >,
       ) {
         requireAction("change-local-preference", platform());
         const choices = {
           appearance: ["system", "light", "dark"],
           locale: ["en", "ja", "zh"],
+          contentLanguage: ["auto", "ja", "en"],
           textSize: ["small", "medium", "large"],
         };
         if (
@@ -342,7 +350,12 @@ export function createWorkspaceHooks(
             throw new Error("Invalid preference value.");
         }
         store.update((draft) => {
-          for (const key of ["appearance", "locale", "textSize"] as const) {
+          for (const key of [
+            "appearance",
+            "locale",
+            "contentLanguage",
+            "textSize",
+          ] as const) {
             if (preferences[key] !== undefined)
               Object.assign(draft.settings, { [key]: preferences[key] });
           }
@@ -376,6 +389,24 @@ export const workspaceActions = {
   editCalendar(edit: WorkspaceEdit) {
     requireAction("edit-calendar-advanced", detectPlatform());
     internalWorkspaceStore.update(edit);
+  },
+  /** Records an official-data check; device state, allowed on every platform. */
+  recordReferencePoll(results: PollResult[], checkedAt: string) {
+    requireAction("change-local-preference", detectPlatform());
+    internalWorkspaceStore.update((draft) =>
+      recordSubscriptionPoll(draft, results, checkedAt),
+    );
+  },
+  /** The study-guide cohort is a basic choice on every platform; the rest of
+   * the academic profile stays behind the advanced calendar editor. */
+  setAdmissionYear(year: number | undefined) {
+    requireAction("change-local-preference", detectPlatform());
+    if (year !== undefined && (!Number.isInteger(year) || year < 2000))
+      throw new Error("Invalid admission year.");
+    internalWorkspaceStore.update((draft) => {
+      draft.academicProfile = { ...draft.academicProfile, admissionYear: year };
+      return draft;
+    });
   },
   updateSettings(edit: WorkspaceEdit) {
     requireAction("change-local-preference", detectPlatform());

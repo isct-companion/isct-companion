@@ -109,7 +109,8 @@ fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "departmentId": settings.get("departmentId"),
         "notifications": {
             "classes": settings.pointer("/notifications/classes"),
-            "assignments": settings.pointer("/notifications/assignments")
+            "assignments": settings.pointer("/notifications/assignments"),
+            "classLeadMinutes": settings.pointer("/notifications/classLeadMinutes")
         },
         "customization": settings.get("customization")
     });
@@ -128,6 +129,7 @@ fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "showGrades": settings.get("showGrades"),
         "siteConsents": settings.get("siteConsents"),
         "locale": settings.get("locale"),
+        "contentLanguage": settings.get("contentLanguage"),
         "subscriptionRefresh": settings.get("subscriptionRefresh"),
         "notifications": {"localPermission": settings.pointer("/notifications/localPermission")}
     });

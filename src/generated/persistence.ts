@@ -62,7 +62,7 @@ export type Exam = { academicYear: number, level: "undergraduate" | "graduate", 
 
 export type ScheduleOverride = { targetKey: string, targetKind?: "course" | "exam", courseId?: string, date?: string, periods?: [number, number], startTime?: string, endTime?: string, room?: string, title?: string, hidden: boolean, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
-export type Subscription = { dataUrl?: string, url: string, kind: "calendar" | "departments" | "important-dates" | "exams", enabled: boolean, indexHash?: string, remoteHash?: string, sourceTs?: string, fetchedAt?: string, lastError?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Subscription = { dataUrl?: string, url: string, kind: "calendar" | "departments" | "important-dates" | "exams", enabled: boolean, indexHash?: string, remoteHash?: string, sourceTs?: string, fetchedAt?: string, lastError?: string, year?: number, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
 export type ScheduledTask = { name: string, action: "school-refresh" | "lms-refresh" | "reference-refresh" | "export" | "hook", hookId?: string, schedule: string, enabled: boolean, lastOccurrenceAt?: string, lastRunAt?: string, lastResult?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
 
@@ -74,7 +74,7 @@ export type AgentWrite = { at: string, tool: string, };
 
 export type AgentAccess = { enabled: boolean, lastWrites: Array<AgentWrite>, };
 
-export type Notifications = { classes: boolean, assignments: boolean, localPermission: NotificationPermission, };
+export type Notifications = { classes: boolean, assignments: boolean, classLeadMinutes?: number, localPermission: NotificationPermission, };
 
 export type CloudSettings = { provider: "none" | "google-drive" | "onedrive", clientId: string, redirectUri?: string, conflict: "keep-current" | "use-latest" | "resolve-manually", };
 
@@ -90,7 +90,7 @@ export type Customization = { background: string, sites: SiteCustomizations, hoo
 
 export type SiteConsents = { portal: boolean, lms: boolean, syllabus: boolean, };
 
-export type Settings = { departmentId?: string, lmsBilingualFilter?: boolean, autoDownloadLimitMb?: number, autoCleanDays?: number, agentAccess?: AgentAccess, appearance: "system" | "light" | "dark", density: "comfortable" | "compact", textSize?: "small" | "medium" | "large", restoreSchoolPage?: boolean, activeSchoolSite?: string, schoolServiceWidth?: number, schoolWebZoom?: number, showGrades?: boolean, siteConsents?: SiteConsents, locale: "en" | "ja" | "zh", notifications: Notifications, cloud: CloudSettings, subscriptionRefresh: SubscriptionRefreshSettings, customization?: Customization, };
+export type Settings = { departmentId?: string, lmsBilingualFilter?: boolean, autoDownloadLimitMb?: number, autoCleanDays?: number, agentAccess?: AgentAccess, appearance: "system" | "light" | "dark", density: "comfortable" | "compact", textSize?: "small" | "medium" | "large", restoreSchoolPage?: boolean, activeSchoolSite?: string, schoolServiceWidth?: number, schoolWebZoom?: number, showGrades?: boolean, siteConsents?: SiteConsents, locale: "en" | "ja" | "zh", contentLanguage?: "auto" | "ja" | "en", notifications: Notifications, cloud: CloudSettings, subscriptionRefresh: SubscriptionRefreshSettings, customization?: Customization, };
 
 export type GradePathEntry = { grade: string, academicYear: number, };
 

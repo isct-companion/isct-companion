@@ -134,6 +134,7 @@ function localExport(workspace: Workspace): ExportDocument {
           notifications: {
             classes: workspace.settings.notifications.classes,
             assignments: workspace.settings.notifications.assignments,
+            classLeadMinutes: workspace.settings.notifications.classLeadMinutes,
           },
           customization: workspace.settings.customization,
         }),
@@ -367,6 +368,7 @@ export class SqliteRepository implements WorkspaceRepository {
       notifications: {
         classes: data.settings.notifications.classes,
         assignments: data.settings.notifications.assignments,
+        classLeadMinutes: data.settings.notifications.classLeadMinutes,
       },
       customization: data.settings.customization,
     };
@@ -375,6 +377,7 @@ export class SqliteRepository implements WorkspaceRepository {
       notifications: {
         classes: previous.settings.notifications.classes,
         assignments: previous.settings.notifications.assignments,
+        classLeadMinutes: previous.settings.notifications.classLeadMinutes,
       },
       customization: previous.settings.customization,
     };
@@ -393,6 +396,7 @@ export class SqliteRepository implements WorkspaceRepository {
       showGrades: data.settings.showGrades,
       siteConsents: data.settings.siteConsents,
       locale: data.settings.locale,
+      contentLanguage: data.settings.contentLanguage,
       subscriptionRefresh: data.settings.subscriptionRefresh,
       notifications: {
         localPermission: data.settings.notifications.localPermission,
@@ -413,6 +417,7 @@ export class SqliteRepository implements WorkspaceRepository {
       showGrades: previous.settings.showGrades,
       siteConsents: previous.settings.siteConsents,
       locale: previous.settings.locale,
+      contentLanguage: previous.settings.contentLanguage,
       subscriptionRefresh: previous.settings.subscriptionRefresh,
       notifications: {
         localPermission: previous.settings.notifications.localPermission,

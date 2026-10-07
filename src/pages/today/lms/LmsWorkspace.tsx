@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { contentLanguage } from "../../../core/model";
 import type {
   Assignment,
   Course,
@@ -263,10 +264,8 @@ export function LmsWorkspace({
   });
   current.current = { ...current.current, expanded, tabs, selected };
   const language =
-    data.settings.lmsBilingualFilter &&
-    !original &&
-    (data.settings.locale === "ja" || data.settings.locale === "en")
-      ? data.settings.locale
+    data.settings.lmsBilingualFilter && !original
+      ? contentLanguage(data.settings)
       : undefined;
   const materials = useMemo(
     () =>
@@ -884,7 +883,7 @@ export function LmsWorkspace({
                 </div>
               ) : activeTab.kind === "syllabus" ? (
                 <div className="lmsDocument"><Suspense fallback={<p>{t("Loading…")}</p>}>
-                  <SyllabusDetails url={activeTab.url!} fetchCourse={desktopBridge ? url => desktopBridge!.syllabusCourse(url, data.settings.locale === "ja" ? "ja" : "en") : undefined} />
+                  <SyllabusDetails url={activeTab.url!} fetchCourse={desktopBridge ? url => desktopBridge!.syllabusCourse(url, contentLanguage(data.settings)) : undefined} />
                 </Suspense></div>
               ) : activeTab.kind === "note" ? (
                 <Suspense fallback={<p>{t("Loading editor…")}</p>}>

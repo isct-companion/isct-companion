@@ -1,4 +1,4 @@
-import { pickLocalized, type Course, type PersonalEvent, type TermId, type Workspace } from "./model";
+import { contentLanguage, pickLocalized, type Course, type PersonalEvent, type TermId, type Workspace } from "./model";
 import { clockForPeriods, planOccursOn, planCivilStart } from "./user-schedule";
 
 export type Occurrence = {
@@ -38,6 +38,7 @@ export function calendarState(data: Workspace, date: string) {
     data.academicCalendar.find(
       (row) =>
         !row.deletedAt &&
+        !row.missingSince &&
         row.date === date &&
         ["holiday", "no-class", "break", "replacement"].includes(row.type),
     )
@@ -61,6 +62,7 @@ export function quarterRange(data: Workspace, term: TermId) {
     data.academicCalendar.find(
       (row) =>
         !row.deletedAt &&
+        !row.missingSince &&
         row.type === type &&
         (row.academicYear === year || row.id.startsWith(`calendar:${year}:`)) &&
         (row.quarter === quarter ||
@@ -70,7 +72,9 @@ export function quarterRange(data: Workspace, term: TermId) {
     "2Q" | "3Q" | "4Q" | undefined;
   const teachingRanges = data.academicCalendar.find(
     (row) =>
-      !row.deletedAt && row.id === `calendar:${year}:quarter-start:${quarter}`,
+      !row.deletedAt &&
+      !row.missingSince &&
+      row.id === `calendar:${year}:quarter-start:${quarter}`,
   )?.teachingRanges;
   return {
     teachingRanges,
@@ -347,7 +351,7 @@ export function resolveDayAgenda(
     if (!startTime || !endTime || effectiveDate !== date) continue;
     const room =
       override?.room ??
-      pickLocalized(exam.room ?? undefined, data.settings.locale, "");
+      pickLocalized(exam.room ?? undefined, contentLanguage(data.settings), "");
     exams.push({
       key: targetKey,
       id: course.id,
@@ -356,7 +360,7 @@ export function resolveDayAgenda(
       date,
       title:
         override?.title ??
-        pickLocalized(exam.label, data.settings.locale, course.overrides?.title || course.title),
+        pickLocalized(exam.label, contentLanguage(data.settings), course.overrides?.title || course.title),
       subtitle: course.code,
       room,
       startTime,

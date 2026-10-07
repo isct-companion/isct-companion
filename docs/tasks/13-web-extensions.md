@@ -2,7 +2,7 @@
 
 Depends on task 10. Follow the rules in [README](README.md); the login-automation restriction applies in full.
 
-The school web view (`src/pages/web/WebPage.tsx`, `backend/src/school_web.rs`) already has back (postback-safe `PageHistory`), reload, zoom and an address bar. Customization today is one CSS + one JS string per site (`customization.sites[site]`) gated by `settings.siteConsents[site]`, edited in Settings → Advanced.
+The school web view (`src/pages/web/WebPage.tsx`, `backend/src/school_web.rs`) already has back (postback-safe `PageHistory`), reload, zoom and an address bar. Customization today is one CSS + one JS string per site (`customization.sites[site]`) gated by `settings.siteConsents[site]`, edited in Settings → Site styles & scripts (a Developer options page).
 
 Extensions are **for styling and small page tweaks only**. They do not get any API to app data; no hook bridge is exposed to page scripts.
 
@@ -22,11 +22,11 @@ Extensions are **for styling and small page tweaks only**. They do not get any A
 
 ### Toolbar menu
 
-- Add an extensions button to the web toolbar: a popover listing the extensions that match the current URL, each with an on/off switch, plus `Manage…` which opens Settings → Advanced → Extensions.
+- Add an extensions button to the web toolbar: a popover listing the extensions that match the current URL, each with an on/off switch, plus `Manage…` which opens Settings → Site styles & scripts.
 
 ### Editor (functional; styling is done separately)
 
-- Settings → Advanced → Extensions: list with add / duplicate / delete / reorder / enable, and an editor for name, matches, run-at, CSS and JS.
+- Settings → Site styles & scripts: list with add / duplicate / delete / reorder / enable, and an editor for name, matches, run-at, CSS and JS.
 - Use the existing CodeMirror 6 setup; add `@codemirror/lang-css` and `@codemirror/lang-javascript` for highlighting and basic autocomplete. No TypeScript type checking.
 - Import / export a single extension as JSON.
 

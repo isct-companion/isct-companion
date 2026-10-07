@@ -4,7 +4,7 @@ import { openExternalUrl } from "../../components/ExternalLink";
 import { PullRing } from "../../components/PullRing";
 import { dayNames } from "../../components/timetable/timetable";
 import { deadlineState } from "../../core/academic";
-import { pickLocalized, type Course, type Workspace } from "../../core/model";
+import { contentLanguage, pickLocalized, type Course, type Workspace } from "../../core/model";
 import { t } from "../../i18n";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
 import { SyllabusDetails } from "./syllabus-details";
@@ -90,7 +90,7 @@ export function CourseDetails({
 }) {
   const [tab, setTab] = useState<CourseTab>(initialTab);
   const bridge = getDesktopBridge();
-  const locale = data.settings.locale;
+  const language = contentLanguage(data.settings);
   const materials = (data.materials as LmsItem[])
     .filter(
       (item) =>
@@ -177,7 +177,7 @@ export function CourseDetails({
                     {offering.format.delivery ? ` · ${offering.format.delivery}` : ""}
                   </dd>
                   <dt>{t("Academic unit")}</dt>
-                  <dd>{pickLocalized(offering.academicUnit, locale, "—")}</dd>
+                  <dd>{pickLocalized(offering.academicUnit, language, "—")}</dd>
                 </>
               )}
               {exams.length > 0 && (
@@ -193,8 +193,8 @@ export function CourseDetails({
                         <div key={exam.id}>
                           <b>{override?.date ?? exam.date}</b>
                           {periods ? ` · ${periods[0]}–${periods[1]}限` : ""}
-                          {(override?.room ?? pickLocalized(exam.room ?? undefined, locale))
-                            ? ` · ${override?.room ?? pickLocalized(exam.room ?? undefined, locale)}`
+                          {(override?.room ?? pickLocalized(exam.room ?? undefined, language))
+                            ? ` · ${override?.room ?? pickLocalized(exam.room ?? undefined, language)}`
                             : ""}
                           {override && <small> · {t("Edited")}</small>}
                         </div>
@@ -266,7 +266,7 @@ export function CourseDetails({
               url={syllabusUrl(course)!}
               fetchCourse={
                 bridge
-                  ? (url) => bridge.syllabusCourse(url, locale === "ja" ? "ja" : "en")
+                  ? (url) => bridge.syllabusCourse(url, language)
                   : undefined
               }
             />

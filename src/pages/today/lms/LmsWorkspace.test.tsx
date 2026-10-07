@@ -134,6 +134,18 @@ describe("LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
   });
 
+  it("filters bilingual LMS text by the school content language, not the UI language", () => {
+    const f = fixture();
+    f.data.settings.locale = "en";
+    f.data.settings.contentLanguage = "ja";
+    f.data.settings.lmsBilingualFilter = true;
+    f.record.sections![0].bodyHtml = '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
+    act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:700}} active schoolWebAvailable={false} close={()=>{}} />));
+    const body = host.querySelector(".lmsSectionBody")?.textContent ?? "";
+    expect(body).toContain("日本語の概要");
+    expect(body).not.toContain("English summary");
+  });
+
   it("opens an English announcement card in the right reader without expanding its full body on the left", () => {
     const f = fixture();
     f.data.settings.locale = "en";

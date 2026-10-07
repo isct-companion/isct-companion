@@ -39,7 +39,11 @@ function clickButton(scope: ParentNode, label: string) {
   act(() => (button as HTMLButtonElement).click());
 }
 
-function renderSettings(data: Workspace, section: "hidden" | "scheduled") {
+function renderSettings(
+  data: Workspace,
+  section: "hidden" | "automation",
+  routes: { academicUpdate?: (f: (w: Workspace) => Workspace) => void } = {},
+) {
   const update = vi.fn((operation: (workspace: Workspace) => Workspace) => {
     operation(data);
   });
@@ -50,6 +54,7 @@ function renderSettings(data: Workspace, section: "hidden" | "scheduled") {
           platform="browser-preview"
           data={data}
           update={update}
+          academicUpdate={routes.academicUpdate ?? update}
           advancedCalendarUpdate={update}
           caps={resolveCapabilities("browser-preview")}
           section={section}
@@ -134,6 +139,34 @@ describe("Task 10 Settings", () => {
     expect(update).toHaveBeenCalledTimes(2);
   });
 
+  it("restores hidden items through the academic edit route, not preferences", () => {
+    const data = seedWorkspace();
+    data.assignments = [
+      {
+        id: "local-hidden",
+        rev: 1,
+        updatedAt: "2026-09-29T00:00:00Z",
+        updatedBy: data.deviceId,
+        kind: "assignment" as const,
+        courseId: "local-course",
+        title: "Local hidden item",
+        details: "",
+        dueAt: "2026-10-10T09:00:00+09:00",
+        hidden: true,
+        source: { provider: "manual" as const },
+      },
+    ];
+    const academicUpdate = vi.fn(
+      (operation: (workspace: Workspace) => Workspace) => void operation(data),
+    );
+    const preferences = renderSettings(data, "hidden", { academicUpdate });
+
+    clickButton(host, "Restore");
+    expect(academicUpdate).toHaveBeenCalledTimes(1);
+    expect(preferences).not.toHaveBeenCalled();
+    expect(data.assignments[0].hidden).toBe(false);
+  });
+
   it("toggles a scheduled task and preserves its schedule", () => {
     const data = seedWorkspace();
     data.scheduledTasks = [
@@ -148,7 +181,7 @@ describe("Task 10 Settings", () => {
         enabled: false,
       },
     ];
-    renderSettings(data, "scheduled");
+    renderSettings(data, "automation");
     const toggle = host.querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(toggle).not.toBeNull();
     act(() => toggle!.click());
@@ -177,10 +210,9 @@ describe("Task 10 Settings", () => {
         lastResult: "Export completed",
       },
     ];
-    renderSettings(data, "scheduled");
+    renderSettings(data, "automation");
 
-    expect(host.textContent).toContain("Last run");
-    expect(host.textContent).toContain("2026-09-28");
+    expect(host.textContent).toMatch(/Last run 28 Sept?, 21:00/);
     expect(host.textContent).toContain("Export completed");
     expect(
       [...host.querySelectorAll("button")].some(

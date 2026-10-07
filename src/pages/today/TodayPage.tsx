@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { UiButton } from "../../components/mantine";
 import { deadlineState } from "../../core/academic";
-import { pickLocalized, type PersonalEvent, type Plan, type TermId, type Workspace } from "../../core/model";
+import {
+  contentLanguage,
+  pickLocalized,
+  type Assignment,
+  type PersonalEvent,
+  type Plan,
+  type TermId,
+  type Workspace,
+} from "../../core/model";
 import { timetableCourses } from "../../components/timetable/workspace";
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
@@ -19,6 +27,10 @@ const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** Rows shown before a list folds behind "+N more". */
 const CLASS_ROWS = 6;
 const DUE_ROWS = 8;
+const isSubmitted = (assignment: Assignment) =>
+  assignment.submission === "submitted" ||
+  assignment.submission === "graded" ||
+  assignment.submissionStatus === "submitted";
 export function Today({
   data,
   term,
@@ -59,6 +71,7 @@ export function Today({
   }, [focusSection]);
   const [allClasses, setAllClasses] = useState(false);
   const [allDue, setAllDue] = useState(false);
+  const [dueScope, setDueScope] = useState<"today" | "earlier">("today");
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     if (!active) return;
@@ -112,27 +125,10 @@ export function Today({
     : -1;
   const focusIndex = activeIndex >= 0 ? activeIndex : nextIndex;
 
-  const assignments = data.assignments
-    .filter((assignment) => {
-      if (
-        assignment.deletedAt ||
-        assignment.hidden ||
-        assignment.submission === "submitted" ||
-        assignment.submission === "graded"
-      )
-        return false;
-      return (
-        assignment.dueAt !== null &&
-        Number.isFinite(new Date(assignment.dueAt).getTime())
-      );
-    })
-    .sort((left, right) =>
-      (left.dueAt ?? "").localeCompare(right.dueAt ?? ""),
-    );
-  // Every open assignment of this quarter, however far its deadline; work
-  // from earlier quarters (never-submitted reports of finished courses)
-  // stays folded.
-  const inThisQuarter = (assignment: (typeof assignments)[number]) => {
+  // Every assignment of this quarter, however far its deadline; work from
+  // earlier quarters (never-submitted reports of finished courses) is not
+  // shown.
+  const inThisQuarter = (assignment: Assignment) => {
     const course = data.courses.find(
       (item) => item.id === assignment.courseId && !item.deletedAt,
     );
@@ -141,25 +137,55 @@ export function Today({
       : assignment.dueAt !== null &&
         new Date(assignment.dueAt).getTime() >= now.getTime();
   };
-  const current = assignments.filter(inThisQuarter);
-  // This week (overdue included) first; later deadlines in their own group.
+  const assignments = data.assignments
+    .filter(
+      (assignment) =>
+        !assignment.deletedAt &&
+        !assignment.hidden &&
+        assignment.dueAt !== null &&
+        Number.isFinite(new Date(assignment.dueAt).getTime()) &&
+        inThisQuarter(assignment),
+    )
+    .sort((left, right) => (left.dueAt ?? "").localeCompare(right.dueAt ?? ""));
+  const isPast = (item: Assignment) =>
+    new Date(item.dueAt!).getTime() < now.getTime();
+  // "Today": open work from now on. "Earlier" adds what is already submitted
+  // and everything whose deadline has passed.
+  const pending = assignments.filter(
+    (item) => !isSubmitted(item) && !isPast(item),
+  );
+  const upcoming =
+    dueScope === "earlier"
+      ? assignments.filter((item) => !isPast(item))
+      : pending;
+  const past =
+    dueScope === "earlier" ? assignments.filter(isPast).reverse() : [];
+  // This week first; later deadlines in their own group.
   const weekEnd = now.getTime() + 7 * 86_400_000;
-  const soon = current.filter(
+  const soon = upcoming.filter(
     (item) => new Date(item.dueAt!).getTime() <= weekEnd,
   );
-  const later = current.filter(
+  const later = upcoming.filter(
     (item) => new Date(item.dueAt!).getTime() > weekEnd,
   );
-  const earlier = assignments.filter(
-    (assignment) => !inThisQuarter(assignment),
-  );
-  const row = (assignment: (typeof assignments)[number]) => {
+  const row = (assignment: Assignment) => {
     const course = data.courses.find(
       (item) => item.id === assignment.courseId && !item.deletedAt,
     );
     const due = deadlineState(assignment, now);
+    const submitted = isSubmitted(assignment);
+    // Past and submitted: gray; past and never submitted: red; submitted
+    // ahead of the deadline: green.
+    const state =
+      due.ms < 0
+        ? submitted
+          ? " closed"
+          : " missed"
+        : submitted
+          ? " done"
+          : "";
     return (
-      <div className="dueRow" key={assignment.id}>
+      <div className={`dueRow${state}`} key={assignment.id}>
         <i style={{ background: course?.color ?? "#888" }} />
         <UiButton
           className={`dueAssignment${selection?.assignmentId === assignment.id ? " selected" : ""}`}
@@ -171,7 +197,8 @@ export function Today({
           <span>
             <b>{assignment.title}</b>
             <small>
-              {course?.title ?? "LMS"} · {assignment.submission ?? "unknown"}
+              {course?.title ?? "LMS"} ·{" "}
+              {submitted ? "submitted" : (assignment.submission ?? "unknown")}
             </small>
           </span>
           <time className={due.ms < 0 ? "overdue" : due.tone}>{due.label}</time>
@@ -212,7 +239,7 @@ export function Today({
     typeof rawStateLabel === "string"
       ? rawStateLabel
       : rawStateLabel
-        ? (rawStateLabel[data.settings.locale === "ja" ? "ja" : "en"] ??
+        ? (rawStateLabel[contentLanguage(data.settings)] ??
           rawStateLabel.ja ??
           rawStateLabel.en)
         : effectiveDay > 5
@@ -303,7 +330,7 @@ export function Today({
           <aside className="importantDates" aria-label="Important dates">
             {importantDates.map((item) => (
               <span key={item.id}>
-                <b>{pickLocalized(item.label, data.settings.locale, "Important date")}</b>
+                <b>{pickLocalized(item.label, contentLanguage(data.settings), "Important date")}</b>
                 {item.startDate !== item.endDate && (
                   <small>{item.startDate}–{item.endDate}</small>
                 )}
@@ -440,7 +467,22 @@ export function Today({
         >
           <header>
             <h2>Assignments</h2>
-            <span>{current.length ? `${current.length} active` : "Clear"}</span>
+            <div
+              className="dueScope"
+              role="group"
+              aria-label="Assignments shown"
+            >
+              {(["today", "earlier"] as const).map((scope) => (
+                <UiButton
+                  key={scope}
+                  aria-pressed={dueScope === scope}
+                  onClick={() => setDueScope(scope)}
+                >
+                  {scope === "today" ? "Today" : "Earlier"}
+                </UiButton>
+              ))}
+            </div>
+            <span>{pending.length ? `${pending.length} active` : "Clear"}</span>
           </header>
           <div className="dueList">
             {(allDue ? soon : soon.slice(0, DUE_ROWS)).map(row)}
@@ -457,11 +499,11 @@ export function Today({
                 {later.map(row)}
               </div>
             )}
-            {earlier.length > 0 && (
-              <details className="dueEarlier">
-                <summary>Earlier quarters · {earlier.length}</summary>
-                {earlier.map(row)}
-              </details>
+            {past.length > 0 && (
+              <div className="dueLater duePast">
+                <small>Past deadline · {past.length}</small>
+                {past.map(row)}
+              </div>
             )}
           </div>
         </section>

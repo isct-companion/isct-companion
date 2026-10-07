@@ -62,7 +62,7 @@ index.json          # separate academicYears and admissionYears maps
 
 ## App side
 
-- Settings → Subscriptions: the public repository default index URL (bundled files remain a legacy/offline reference), custom URL, enable/disable, last update, errors.
+- Settings → Data updates (formerly Subscriptions): the public repository default index URL (bundled files remain a legacy/offline reference), custom URL, enable/disable, last update, errors.
 - Fetch only `index.json`, hash its raw bytes locally, select the calendar from `academicYears[academicYear]`, and independently select the guide from `admissionYears[academicProfile.admissionYear]`; each selected entry declares `source`, canonical JSON `hash`, and RFC 3339 `ts`. If the local index hash is unchanged, skip dataset requests. `GET` over HTTPS only, size-bounded, no cookies. Validate against the schemas (embed them); reject the whole selected file on any error and keep its current data.
 - Apply through `update()` from task 1; same hash → no change. Write `academic_calendar`, `departments`, `recommended_courses`.
 - Department and recommendation row ids include the admission cohort (`cohort:{admissionYear}:…`) so applying one cohort never overwrites or tombstones another cohort.
@@ -313,7 +313,7 @@ Example of the checked normal record (clock times intentionally unknown):
 
 ### Implemented public source integration (2026-10-03)
 
-The default index is https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json. Settings → Subscriptions independently configures and refreshes the calendar by academic year and recommendations by admission year. The index URL, category/year repository path, resolved data URL, enabled refresh state, fetched time and errors are visible. A failed category fetch does not alter other categories. v1 bundled calendars remain compatible; v2 requires four quarter teaching-range arrays and may carry examRanges. Important dates live independently in `important-dates/{year}.json`; a campus event does not by itself suppress teaching. Exams use `exam/{level}/{year}-{quarter-lowercase}.json`. Important-date and exam dataset imports remain pending in the app. GitHub agent automation is deferred.
+The default index is https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json. Settings → Data updates independently configures and refreshes the calendar by academic year and recommendations by admission year. The index URL, category/year repository path, resolved data URL, enabled refresh state, fetched time and errors are visible. A failed category fetch does not alter other categories. v1 bundled calendars remain compatible; v2 requires four quarter teaching-range arrays and may carry examRanges. Important dates live independently in `important-dates/{year}.json`; a campus event does not by itself suppress teaching. Exams use `exam/{level}/{year}-{quarter-lowercase}.json`. Important-date and exam dataset imports remain pending in the app. GitHub agent automation is deferred.
 
 ### Study-guide extraction scope
 

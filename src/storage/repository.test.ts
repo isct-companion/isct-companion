@@ -123,12 +123,14 @@ describe("SqliteRepository desktop bridge", () => {
     const repository = new SqliteRepository();
     const value = await repository.load();
     value.settings.locale = "ja";
+    value.settings.contentLanguage = "en";
     await repository.save(value);
     expect(native.calls.map((call) => call.command)).toEqual([
       "load_workspace",
       "put_workspace_setting",
     ]);
     expect(native.workspace?.settings.locale).toBe("ja");
+    expect(native.workspace?.settings.contentLanguage).toBe("en");
   });
 
   it("delegates export, import and reset to Rust", async () => {

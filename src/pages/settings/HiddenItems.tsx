@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Checkbox } from "@mantine/core";
 import { t } from "../../i18n";
 import { UiButton } from "../../components/mantine";
-import { pickLocalized, type Workspace } from "../../core/model";
+import { contentLanguage, pickLocalized, type Workspace } from "../../core/model";
+import { SettingsHeader } from "../../components/forms";
 
 export function HiddenItems({
   data,
@@ -18,7 +19,7 @@ export function HiddenItems({
   const courseTitle = (id: string) => {
     const course = data.courses.find((item) => item.id === id);
     return course
-      ? pickLocalized(course.names?.title, data.settings.locale, course.title)
+      ? pickLocalized(course.names?.title, contentLanguage(data.settings), course.title)
       : "";
   };
   const restore = (ids: Set<string> | null) => {
@@ -43,23 +44,26 @@ export function HiddenItems({
     });
   return (
     <>
-      <div className="paneHead">
-        <h2>{t("Hidden items")}</h2>
-        {items.length > 0 && (
-          <div className="actions">
-            {selected.size > 0 && (
-              <UiButton className="button" onClick={() => restore(selected)}>
-                {t("Restore selected")} ({selected.size})
+      <SettingsHeader
+        title="Hidden assignments"
+        description="Assignments you hid from Today. Hiding never changes anything on the LMS."
+        actions={
+          items.length > 0 && (
+            <>
+              {selected.size > 0 && (
+                <UiButton className="button" onClick={() => restore(selected)}>
+                  {t("Restore selected")} ({selected.size})
+                </UiButton>
+              )}
+              <UiButton className="button" onClick={() => restore(null)}>
+                {t("Restore all")}
               </UiButton>
-            )}
-            <UiButton className="button" onClick={() => restore(null)}>
-              {t("Restore all")}
-            </UiButton>
-          </div>
-        )}
-      </div>
+            </>
+          )
+        }
+      />
       {items.length ? (
-        <ul className="itemList">
+        <ul className="itemList" data-setting="list">
           {items.map((assignment) => (
             <li key={assignment.id}>
               <Checkbox
@@ -97,7 +101,9 @@ export function HiddenItems({
           ))}
         </ul>
       ) : (
-        <p className="paneEmpty">{t("No hidden items")}</p>
+        <p className="paneEmpty" data-setting="list">
+          {t("Nothing is hidden.")}
+        </p>
       )}
     </>
   );
