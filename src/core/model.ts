@@ -38,14 +38,14 @@ export function pickLocalized(
 function defaultTerm(now = new Date()): TermId {
   const month = now.getMonth() + 1;
   const quarter: Quarter =
-    month >= 12 || month <= 1
+    month >= 12 || month <= 3
       ? "4Q"
       : month >= 10
         ? "3Q"
         : month >= 6
           ? "2Q"
           : "1Q";
-  const academicYear = month <= 1 ? now.getFullYear() - 1 : now.getFullYear();
+  const academicYear = month <= 3 ? now.getFullYear() - 1 : now.getFullYear();
   return `${academicYear}-${quarter}`;
 }
 
@@ -103,6 +103,7 @@ export function seedWorkspace(): Workspace {
     schemaVersion: 3,
     deviceId,
     selectedTerm,
+    currentTerm: selectedTerm,
     terms: [selectedTerm],
     courses: [],
     memberships: [],

@@ -34,7 +34,6 @@ const LmsWorkspace = lazy(() =>
     default: module.LmsWorkspace,
   })),
 );
-import { termForDate } from "../core/academic";
 import { startReminderRuntime } from "../platform/reminders";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
@@ -47,8 +46,6 @@ import {
 } from "../platform/school-session";
 import { appTheme, cssVariablesResolver } from "./theme";
 
-import { academicTermForDate } from "../core/academic-calendar";
-
 import { performAction } from "../platform/actions";
 import {
   catalogCourse,
@@ -56,10 +53,7 @@ import {
   type SchoolPullOptions,
 } from "../platform/desktop-bridge";
 
-import {
-  schedulerStateFromAcknowledgements,
-  type SchedulerRuntimeState,
-} from "../platform/scheduler";
+import type { SchedulerRuntimeState } from "../platform/scheduler";
 import { createScheduledTaskRuntime } from "../platform/scheduled-tasks";
 import {
   pollReferenceSubscriptions,
@@ -509,11 +503,7 @@ function WorkspaceApp() {
   useEffect(
     () =>
       desktopBridge?.onSchoolIngest?.((outcome) => {
-        if (
-          outcome.state === "ok" &&
-          !pullBusy.current &&
-          !kyomuBusy.current
-        )
+        if (outcome.state === "ok" && !pullBusy.current && !kyomuBusy.current)
           void workspaceActions.refreshSchool().catch(() => undefined);
       }),
     [],
@@ -540,10 +530,7 @@ function WorkspaceApp() {
         course.url,
     ))
       void desktopBridge
-        .syllabusCourse(
-          course.url!,
-          contentLanguage(sourceData.settings),
-        )
+        .syllabusCourse(course.url!, contentLanguage(sourceData.settings))
         .catch(() => undefined);
   }, [
     sourceData?.selectedTerm,
@@ -564,6 +551,17 @@ function WorkspaceApp() {
     };
     updateState();
     const unsubscribe = workspaceStore.subscribe(updateState);
+    if (desktopBridge?.runScheduledTask) {
+      const dispose = desktopBridge.onWorkspaceChanged(() => {
+        void workspaceStore.reload().catch(() => undefined);
+      });
+      return () => {
+        dispose();
+        unsubscribe();
+      };
+    }
+    // Browser preview has no Rust process; keep the lightweight simulator so
+    // the settings UI remains testable without becoming production authority.
     const runtime = createScheduledTaskRuntime({
       getTasks: () => workspaceStore.getState().workspace?.scheduledTasks ?? [],
       markStarted: (taskId, occurrenceAt, runAt) =>
@@ -610,52 +608,6 @@ function WorkspaceApp() {
   // Coming back to the window re-checks the school sessions (at most every 2 min).
   useEffect(() => checkSessionsOnFocus(desktopBridge), []);
 
-  useEffect(() => {
-    if (!data || !desktopBridge || !nativeCapabilities?.backgroundSchedule)
-      return;
-    void desktopBridge.updateExportWorkspace(data).catch(() => undefined);
-  }, [data, nativeCapabilities]);
-  useEffect(() => {
-    if (
-      !desktopBridge ||
-      !nativeCapabilities?.backgroundSchedule ||
-      detectPlatform() !== "native-desktop"
-    )
-      return;
-    const school =
-      (localStorage.getItem("isct-companion-hook-school") as "launch" | "hourly") ||
-      "off";
-    const backup =
-      (localStorage.getItem("isct-companion-hook-export") as "launch" | "hourly") ||
-      "off";
-    Promise.all([
-      desktopBridge.configureSchoolSchedule(school),
-      desktopBridge.configureExportSchedule(backup),
-    ])
-      .then((results) =>
-        setSchedulerState(
-          schedulerStateFromAcknowledgements([school, backup], results),
-        ),
-      )
-      .catch(() => setSchedulerState("failed"));
-    const changed = (event: Event) =>
-      setSchedulerState(
-        (event as CustomEvent<"active" | "off" | "failed">).detail,
-      );
-    addEventListener("isct-companion-scheduler-state", changed);
-    return () => removeEventListener("isct-companion-scheduler-state", changed);
-  }, [nativeCapabilities]);
-  useEffect(() => {
-    if (
-      !desktopBridge ||
-      !nativeCapabilities?.backgroundSchedule ||
-      detectPlatform() !== "native-desktop"
-    )
-      return;
-    return desktopBridge.onScheduledSchoolResult((result) =>
-      workspaceActions.applySchoolImport(result),
-    );
-  }, [nativeCapabilities]);
   // Once per launch, after settings load: drop downloaded course files left unused.
   const cleaned = useRef(false);
   useEffect(() => {
@@ -665,7 +617,10 @@ function WorkspaceApp() {
   }, [Boolean(data)]);
   // "Automatic" follows the system while the app is open, not only at launch.
   useEffect(() => {
-    if (data?.settings.appearance !== "system" || typeof matchMedia !== "function")
+    if (
+      data?.settings.appearance !== "system" ||
+      typeof matchMedia !== "function"
+    )
       return;
     const query = matchMedia("(prefers-color-scheme: dark)");
     const follow = () => {
@@ -772,9 +727,7 @@ function WorkspaceApp() {
     },
   );
   const navigation = navLabels[data.settings.locale];
-  const currentTerm =
-    academicTermForDate(new Date(), data.academicProfile) ??
-    termForDate(new Date());
+  const currentTerm = data.currentTerm;
   const drawerCourse = drawerId
     ? data.courses.find((c) => c.id === drawerId && !c.deletedAt)
     : undefined;
@@ -884,10 +837,12 @@ function WorkspaceApp() {
     declaredTermCredits(schoolRecords?.registrations ?? [], courseTerm) ??
     finderTermCourses.reduce((sum, course) => sum + course.credits, 0);
   const addFinderCourses = async (rows: FinderCourse[]) => {
-    const ids = await Promise.all(rows.map(async () => ({
-      course: await newUserRecordId(),
-      planItem: await newUserRecordId(),
-    })));
+    const ids = await Promise.all(
+      rows.map(async () => ({
+        course: await newUserRecordId(),
+        planItem: await newUserRecordId(),
+      })),
+    );
     academicUpdate((draft) => {
       const quarter = courseTerm.slice(5) as Quarter;
       const replaced: string[] = [];
@@ -900,16 +855,17 @@ function WorkspaceApp() {
         ))
           if (removeSyllabusDraft(draft, victim.id, courseTerm))
             replaced.push(victim.id);
-        const course = catalogCourse(
-          row,
-          contentLanguage(data.settings),
-        );
+        const course = catalogCourse(row, contentLanguage(data.settings));
         // Always into the quarter on screen, so it shows up on this timetable.
-        addSyllabusDraft(draft, {
-          ...course,
-          year: Number(courseTerm.slice(0, 4)),
-          quarter,
-        }, ids[index]);
+        addSyllabusDraft(
+          draft,
+          {
+            ...course,
+            year: Number(courseTerm.slice(0, 4)),
+            quarter,
+          },
+          ids[index],
+        );
       }
       replacedByAdd.current = replaced;
       return draft;
@@ -940,8 +896,15 @@ function WorkspaceApp() {
     setPanelCourseId(null);
   };
 
-  const saveCourse = async (draft: CourseDraft, term: TermId, existing?: Course) => {
-    const [courseId, membershipId] = await Promise.all([newUserRecordId(), newUserRecordId()]);
+  const saveCourse = async (
+    draft: CourseDraft,
+    term: TermId,
+    existing?: Course,
+  ) => {
+    const [courseId, membershipId] = await Promise.all([
+      newUserRecordId(),
+      newUserRecordId(),
+    ]);
     academicUpdate((d) => {
       const now = stamp();
       let course = existing
@@ -1024,7 +987,8 @@ function WorkspaceApp() {
     const membershipId = await newUserRecordId();
     academicUpdate((d) => {
       const target = d.courses.find((c) => c.id === course.id);
-      if (target) setTimetable(d, target, !onTimetable(d, target), membershipId);
+      if (target)
+        setTimetable(d, target, !onTimetable(d, target), membershipId);
       return d;
     });
   };
@@ -1032,30 +996,32 @@ function WorkspaceApp() {
     draft: EventDraft,
     term: TermId,
     existing?: PersonalEvent,
-  ) => newUserRecordId().then((eventId) =>
-    academicUpdate((d) => {
-      const now = stamp();
-      const target = existing
-        ? d.events.find((e) => e.id === existing.id)
-        : undefined;
-      if (target)
-        Object.assign(target, draft, {
-          rev: target.rev + 1,
-          updatedAt: now,
-          updatedBy: d.deviceId,
-        });
-      else
-        d.events.push({
-          ...draft,
-          id: eventId,
-          kind: "event",
-          rev: 1,
-          updatedAt: now,
-          updatedBy: d.deviceId,
-          termId: term,
-        });
-      return d;
-    }));
+  ) =>
+    newUserRecordId().then((eventId) =>
+      academicUpdate((d) => {
+        const now = stamp();
+        const target = existing
+          ? d.events.find((e) => e.id === existing.id)
+          : undefined;
+        if (target)
+          Object.assign(target, draft, {
+            rev: target.rev + 1,
+            updatedAt: now,
+            updatedBy: d.deviceId,
+          });
+        else
+          d.events.push({
+            ...draft,
+            id: eventId,
+            kind: "event",
+            rev: 1,
+            updatedAt: now,
+            updatedBy: d.deviceId,
+            termId: term,
+          });
+        return d;
+      }),
+    );
   const deleteEvent = (event: PersonalEvent) =>
     academicUpdate((d) => {
       const target = d.events.find((e) => e.id === event.id);
@@ -1065,28 +1031,30 @@ function WorkspaceApp() {
       }
       return d;
     });
-  const savePlan = (draft: PlanDraft, existing?: Plan) => newUserRecordId().then((planId) =>
-    academicUpdate((workspace) => {
-      const now = stamp();
-      const target = existing
-        ? workspace.plans.find((item) => item.id === existing.id)
-        : undefined;
-      if (target)
-        Object.assign(target, draft, {
-          rev: target.rev + 1,
-          updatedAt: now,
-          updatedBy: workspace.deviceId,
-        });
-      else
-        workspace.plans.push({
-          ...draft,
-          id: planId,
-          rev: 1,
-          updatedAt: now,
-          updatedBy: workspace.deviceId,
-        });
-      return workspace;
-    }));
+  const savePlan = (draft: PlanDraft, existing?: Plan) =>
+    newUserRecordId().then((planId) =>
+      academicUpdate((workspace) => {
+        const now = stamp();
+        const target = existing
+          ? workspace.plans.find((item) => item.id === existing.id)
+          : undefined;
+        if (target)
+          Object.assign(target, draft, {
+            rev: target.rev + 1,
+            updatedAt: now,
+            updatedBy: workspace.deviceId,
+          });
+        else
+          workspace.plans.push({
+            ...draft,
+            id: planId,
+            rev: 1,
+            updatedAt: now,
+            updatedBy: workspace.deviceId,
+          });
+        return workspace;
+      }),
+    );
   const deletePlan = (plan: Plan) =>
     academicUpdate((workspace) => {
       const target = workspace.plans.find((item) => item.id === plan.id);
@@ -1119,9 +1087,7 @@ function WorkspaceApp() {
     fullLmsPull.current = true;
     pullBusy.current = true;
     setLmsPhase(
-      scope === "all"
-        ? "Scanning all LMS quarters"
-        : `Scanning LMS · ${term}`,
+      scope === "all" ? "Scanning all LMS quarters" : `Scanning LMS · ${term}`,
     );
     setLmsProgress(5);
     try {
@@ -1219,8 +1185,7 @@ function WorkspaceApp() {
       if (hasDifferences(diff)) {
         setMergeDiff(diff);
         setLmsPhase("Review ready · timetable changes found");
-      }
-      else {
+      } else {
         // Still link LMS assignments and materials to the matching courses.
         academicUpdate((draft) =>
           applyLmsMerge(draft, diff, new Set(), new Set()),
@@ -1815,9 +1780,17 @@ function WorkspaceApp() {
             section={section}
             setSection={setSection}
             notify={setToast}
-            runScheduledTask={(task) => executeScheduledTask(task, true)}
+            runScheduledTask={async (task) => {
+              if (!desktopBridge?.runScheduledTask)
+                return executeScheduledTask(task, true);
+              const result = await desktopBridge.runScheduledTask(task.id);
+              await workspaceStore.reload();
+              return result;
+            }}
             refreshReferences={
-              desktopBridge ? () => refreshReferenceSubscriptions(true) : undefined
+              desktopBridge
+                ? () => refreshReferenceSubscriptions(true)
+                : undefined
             }
             refreshSchool={
               desktopBridge?.pullSchool
@@ -2056,11 +2029,7 @@ function WorkspaceApp() {
             {pulling && <output>{Math.round(lmsProgress)}%</output>}
           </div>
           {pulling && (
-            <progress
-              aria-label={lmsPhase}
-              max={100}
-              value={lmsProgress}
-            />
+            <progress aria-label={lmsPhase} max={100} value={lmsProgress} />
           )}
         </div>
       </aside>

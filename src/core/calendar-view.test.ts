@@ -99,13 +99,13 @@ describe("academic year calendar view", () => {
   it("labels quarters by where their dates came from", () => {
     const data = workspace();
     const view = academicYearCalendar(data, 2026);
-    expect(view.quarters[2]).toEqual({
+    expect(view.quarters[0]).toEqual({
       quarter: "3Q",
       from: "2026-09-28",
       to: "2026-12-02",
       origin: "official",
     });
-    expect(view.quarters[0].origin).toBe("estimated");
+    expect(view.quarters).toHaveLength(1);
     data.academicProfile.years = [
       {
         academicYear: 2026,
@@ -113,12 +113,13 @@ describe("academic year calendar view", () => {
           "1Q": "2026-04-07",
           "2Q": "2026-06-10",
           "3Q": "2026-10-01",
-          "4Q": "2026-12-03",
+          "4Q": "2026-12-10",
         },
       },
     ];
     expect(academicYearCalendar(data, 2026).quarters[2]).toMatchObject({
       from: "2026-10-01",
+      to: "2026-12-09",
       origin: "own",
     });
   });

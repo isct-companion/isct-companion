@@ -435,6 +435,10 @@ contract!(WorkspaceLog { pub at: String, pub source: String, pub phase: String, 
 contract!(Workspace {
     #[ts(type = "3")] pub schema_version: u8, pub device_id: String,
     #[ts(type = "`${number}-${Quarter}`")] pub selected_term: String,
+    /// Derived by Rust from profile overrides, then the subscribed academic
+    /// calendar. If neither has a usable boundary, the selected term is kept;
+    /// no month-based academic-calendar assumptions are made here.
+    #[ts(type = "`${number}-${Quarter}`")] pub current_term: String,
     #[serde(default)] #[ts(optional, type = "Array<`${number}-${Quarter}`>")] pub terms: Option<Vec<String>>,
     pub courses: Vec<Course>, pub memberships: Vec<Membership>, pub assignments: Vec<Assignment>,
     pub materials: Vec<Material>, pub events: Vec<PersonalEvent>, pub plan_items: Vec<PlanItem>,

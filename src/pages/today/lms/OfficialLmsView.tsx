@@ -53,10 +53,7 @@ export function OfficialLmsView({
           await desktopBridge?.navigateSchoolWeb?.("science-lms", url);
       }
       opened.current = true;
-      if (!disposed)
-        setStatus(
-          state.phase === "reconnectRequired" ? "Sign-in required" : "",
-        );
+      if (!disposed) setStatus("");
       else await releaseSchoolView(owner.current);
     })().catch((error) => {
       if (!disposed) setStatus(String(error));

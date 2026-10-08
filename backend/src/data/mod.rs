@@ -148,16 +148,78 @@ fn now() -> String {
 
 fn quarter_for_month(month: u32) -> &'static str {
     match month {
-        12 | 1 => "4Q",
+        12 | 1..=3 => "4Q",
         10 | 11 => "3Q",
         6..=9 => "2Q",
         _ => "1Q",
     }
 }
 
+/// One authoritative resolver for every native consumer. User-configured
+/// starts intentionally override subscribed calendar boundaries. When no
+/// usable boundary exists, keep the user's selected term instead of guessing
+/// from hard-coded month ranges.
+fn current_term_for(workspace: &Value, date: chrono::NaiveDate) -> Option<String> {
+    let mut starts: Vec<(chrono::NaiveDate, String, u8)> = Vec::new();
+    let mut configured = HashSet::new();
+    if let Some(years) = workspace
+        .pointer("/academicProfile/years")
+        .and_then(Value::as_array)
+    {
+        for year in years {
+            let Some(academic_year) = year.get("academicYear").and_then(Value::as_i64) else {
+                continue;
+            };
+            for quarter in ["1Q", "2Q", "3Q", "4Q"] {
+                if let Some(start) = year
+                    .pointer(&format!("/quarterStarts/{quarter}"))
+                    .and_then(Value::as_str)
+                    .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+                {
+                    configured.insert((academic_year, quarter));
+                    starts.push((start, format!("{academic_year}-{quarter}"), 2));
+                }
+            }
+        }
+    }
+    if let Some(days) = workspace.get("academicCalendar").and_then(Value::as_array) {
+        for day in days {
+            if day.get("deletedAt").is_some() || day.get("missingSince").is_some() {
+                continue;
+            }
+            if day.get("type").and_then(Value::as_str) != Some("quarter-start") {
+                continue;
+            }
+            if let (Some(start), Some(year), Some(quarter)) = (
+                day.get("date")
+                    .and_then(Value::as_str)
+                    .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()),
+                day.get("academicYear").and_then(Value::as_i64),
+                day.get("quarter").and_then(Value::as_str),
+            ) {
+                if configured.contains(&(year, quarter)) {
+                    continue;
+                }
+                starts.push((start, format!("{year}-{quarter}"), 1));
+            }
+        }
+    }
+    starts
+        .into_iter()
+        .filter(|(start, _, _)| start <= &date)
+        .max_by_key(|(start, _, priority)| (*start, *priority))
+        .map(|(_, term, _)| term)
+        .or_else(|| {
+            workspace
+                .get("selectedTerm")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+}
+
 fn empty_workspace() -> Value {
     let date = Utc::now().date_naive();
-    let year = if date.month() == 1 {
+    let year = if date.month() < 4 {
         date.year() - 1
     } else {
         date.year()
@@ -221,6 +283,7 @@ fn empty_workspace() -> Value {
             "message": "Cloud sync is off."
         }
     });
+    workspace["currentTerm"] = Value::String(term);
     merge_object(
         &mut workspace["settings"],
         json!({
@@ -739,11 +802,16 @@ impl DataStore {
 
     /// User-owned records are changed one row at a time. The database owns
     /// IDs and revisions; callers cannot accidentally roll them backwards.
-    pub fn put_user_record(
+    pub fn put_user_record(&self, table: &str, value: Value, actor: &str) -> Result<Value, String> {
+        self.put_user_record_checked(table, value, actor, None)
+    }
+
+    pub fn put_user_record_checked(
         &self,
         table: &str,
         mut value: Value,
         actor: &str,
+        expected_rev: Option<u64>,
     ) -> Result<Value, String> {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
@@ -842,6 +910,14 @@ impl DataStore {
             )
             .optional()
             .map_err(|error| error.to_string())?;
+        if let Some(expected) = expected_rev {
+            let actual = previous.as_ref().map(|(_, rev)| *rev as u64).unwrap_or(0);
+            if expected != actual {
+                return Err(format!(
+                    "revision conflict: {table}/{id} expected {expected}, actual {actual}"
+                ));
+            }
+        }
         let revision = previous.as_ref().map_or(1, |(_, rev)| rev + 1);
         object.insert("id".into(), Value::String(id.clone()));
         object.insert("rev".into(), Value::from(revision));
@@ -900,6 +976,16 @@ impl DataStore {
     }
 
     pub fn delete_user_record(&self, table: &str, id: &str, actor: &str) -> Result<bool, String> {
+        self.delete_user_record_checked(table, id, actor, None)
+    }
+
+    pub fn delete_user_record_checked(
+        &self,
+        table: &str,
+        id: &str,
+        actor: &str,
+        expected_rev: Option<u64>,
+    ) -> Result<bool, String> {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
         }
@@ -916,8 +1002,20 @@ impl DataStore {
             .optional()
             .map_err(|error| error.to_string())?;
         let Some((raw, revision)) = raw else {
+            if expected_rev.is_some_and(|expected| expected != 0) {
+                return Err(format!(
+                    "revision conflict: {table}/{id} expected {}, actual 0",
+                    expected_rev.unwrap()
+                ));
+            }
             return Ok(false);
         };
+        if expected_rev.is_some_and(|expected| expected != revision as u64) {
+            return Err(format!(
+                "revision conflict: {table}/{id} expected {}, actual {revision}",
+                expected_rev.unwrap()
+            ));
+        }
         let mut value: Value =
             serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))?;
         let timestamp = now();
@@ -1107,6 +1205,11 @@ impl DataStore {
         if let Some(value) = read_setting(&connection, "cloud")? {
             workspace["settings"]["cloud"] = value;
         }
+        let today_jst = (Utc::now() + chrono::Duration::hours(9)).date_naive();
+        workspace["currentTerm"] = Value::String(
+            current_term_for(&workspace, today_jst)
+                .ok_or_else(|| "current academic term is not configured".to_string())?,
+        );
         normalize_optional_nulls(&mut workspace);
         let _: crate::contracts::Workspace = serde_json::from_value(workspace.clone())
             .map_err(|error| format!("workspace validation failed: {error}"))?;
@@ -1629,6 +1732,39 @@ mod tests {
     }
 
     #[test]
+    fn current_term_uses_profile_then_calendar_then_selected_term() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 6, 4).unwrap();
+        let profile = json!({
+            "academicProfile": {"years":[{"academicYear":2026,"quarterStarts":{
+                "1Q":"2026-04-01","2Q":"2026-06-05","3Q":"2026-10-01","4Q":"2026-12-01"
+            }}]},
+            "academicCalendar":[{"date":"2026-06-01","type":"quarter-start","academicYear":2026,"quarter":"2Q"}]
+        });
+        assert_eq!(current_term_for(&profile, date).as_deref(), Some("2026-1Q"));
+        let calendar = json!({
+            "academicProfile":{"years":[]},
+            "academicCalendar":[{"date":"2026-06-01","type":"quarter-start","academicYear":2026,"quarter":"2Q"}]
+        });
+        assert_eq!(
+            current_term_for(&calendar, date).as_deref(),
+            Some("2026-2Q")
+        );
+        assert_eq!(
+            current_term_for(
+                &json!({
+                    "selectedTerm":"2027-3Q",
+                    "academicProfile":{"years":[{"academicYear":2027,"quarterStarts":{
+                        "1Q":"","2Q":"","3Q":"","4Q":""
+                    }}]},
+                    "academicCalendar":[]
+                }),
+                chrono::NaiveDate::from_ymd_opt(2027, 2, 1).unwrap()
+            ),
+            Some("2027-3Q".to_string())
+        );
+    }
+
+    #[test]
     fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
         let store = store("reference-refresh-task");
         let workspace = store.load_workspace().unwrap();
@@ -1673,6 +1809,34 @@ mod tests {
         let rows = store.user_rows("plans").unwrap();
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().any(|row| row["id"] == second["id"]));
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn checked_record_mutations_reject_stale_writers() {
+        let store = store("record-conflict");
+        let row = store
+            .put_user_record(
+                "plans",
+                json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+                "test",
+            )
+            .unwrap();
+        let mut first = row.clone();
+        first["title"] = json!("First writer");
+        store
+            .put_user_record_checked("plans", first, "first", Some(1))
+            .unwrap();
+        let mut stale = row;
+        stale["title"] = json!("Stale writer");
+        let error = store
+            .put_user_record_checked("plans", stale, "stale", Some(1))
+            .unwrap_err();
+        assert!(error.contains("revision conflict"));
+        assert_eq!(
+            store.user_rows("plans").unwrap()[0]["title"],
+            "First writer"
+        );
         let _ = fs::remove_file(store.path());
     }
 

@@ -35,8 +35,20 @@ import {
 } from "../../platform/school-session";
 
 const emptyStatus: SchoolCredentialStatus = {
-  science: { saved: false, username: "", hasOtp: false, hasMatrix: false },
-  tokyoTech: { saved: false, username: "", hasOtp: false, hasMatrix: false },
+  science: {
+    availability: "not-configured",
+    saved: false,
+    username: "",
+    hasOtp: false,
+    hasMatrix: false,
+  },
+  tokyoTech: {
+    availability: "not-configured",
+    saved: false,
+    username: "",
+    hasOtp: false,
+    hasMatrix: false,
+  },
 };
 
 type Draft = {
@@ -435,7 +447,11 @@ function Account({
   }, [profile]);
   const stored = useSchoolSession(desktopBridge, profile);
   // Signed in, failed, or not set up; nothing while the first result is out.
-  const session = !summary.saved
+  const unavailable = summary.availability
+    ? summary.availability === "not-configured" ||
+      summary.availability === "missing"
+    : !summary.saved;
+  const session = unavailable
     ? "not-configured"
     : stored === "not-configured"
       ? undefined
@@ -483,6 +499,7 @@ function Account({
           error instanceof Error ? error.message : "Sign-in could not start.",
       });
       setBusy(false);
+      await refresh().catch(() => undefined);
     }
   };
   const copyMatrix = async () => {
@@ -565,6 +582,18 @@ function Account({
           )}
         </div>
       )}
+      {summary.availability === "missing" && (
+        <Text c="red" size="sm">
+          Saved credentials are missing from the system credential vault. Enter
+          them again.
+        </Text>
+      )}
+      {summary.availability === "access-denied" && (
+        <Text c="orange" size="sm">
+          The system credential vault is unavailable. Existing credentials were
+          not changed.
+        </Text>
+      )}
       <div className="credentialFields">
         <TextInput
           label="ID"
@@ -578,7 +607,13 @@ function Account({
         <PasswordInput
           label="Password"
           value={draft.password}
-          placeholder={summary.saved ? "••••••••" : ""}
+          description={
+            summary.saved ? "Saved — leave blank to keep" : undefined
+          }
+          placeholder={
+            summary.saved ? "Leave blank to keep saved password" : ""
+          }
+          visibilityToggleButtonProps={{ hidden: !draft.password }}
           autoComplete="current-password"
           onChange={(event) =>
             setDraft({ ...draft, password: event.target.value })
@@ -591,7 +626,15 @@ function Account({
             value={draft.otpSecret}
             autoCapitalize="none"
             autoComplete="off"
-            placeholder={summary.hasOtp ? "••••••••" : "otpauth://… or Base32"}
+            description={
+              summary.hasOtp ? "Saved — leave blank to keep" : undefined
+            }
+            placeholder={
+              summary.hasOtp
+                ? "Leave blank to keep saved OTP setup"
+                : "otpauth://… or Base32"
+            }
+            visibilityToggleButtonProps={{ hidden: !draft.otpSecret }}
             onChange={(event) =>
               setDraft({ ...draft, otpSecret: event.target.value })
             }

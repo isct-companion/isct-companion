@@ -31,6 +31,7 @@ mod matrix_ocr;
 mod matrix_red_crops;
 pub mod plans;
 mod policy;
+mod scheduler;
 mod school_auth;
 mod school_extract;
 #[cfg(not(mobile))]
@@ -128,10 +129,10 @@ mod external_url_tests {
 fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCapabilities, String> {
     require_local_main(&webview)?;
     Ok(RuntimeCapabilities {
-        school_import: false,
+        school_import: cfg!(not(mobile)),
         school_web: cfg!(not(mobile)),
         notifications: true,
-        background_schedule: false,
+        background_schedule: cfg!(not(mobile)),
         cloud_sync: true,
         syllabus_search: true,
         matrix_ocr: cfg!(matrix_ocr),
@@ -150,6 +151,16 @@ fn external_url(raw: &str) -> Option<String> {
         && url.username().is_empty()
         && url.password().is_none();
     plain.then(|| url.to_string())
+}
+
+#[tauri::command]
+fn resolve_school_url(webview: tauri::Webview, url: String) -> Result<serde_json::Value, String> {
+    require_local_main(&webview)?;
+    let safe = sanitize_school_url(&url)
+        .ok_or_else(|| "Use an official Science Tokyo school URL.".to_string())?;
+    let site = SchoolSite::for_url(&safe)
+        .ok_or_else(|| "Use an official Science Tokyo school URL.".to_string())?;
+    Ok(serde_json::json!({"site": site, "url": safe}))
 }
 
 #[tauri::command]
@@ -547,9 +558,10 @@ fn put_user_record(
     store: tauri::State<'_, data::DataStore>,
     table: String,
     record: serde_json::Value,
+    expected_rev: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    store.put_user_record(&table, record, "desktop")
+    store.put_user_record_checked(&table, record, "desktop", expected_rev)
 }
 
 #[tauri::command]
@@ -558,9 +570,21 @@ fn delete_user_record(
     store: tauri::State<'_, data::DataStore>,
     table: String,
     id: String,
+    expected_rev: Option<u64>,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    store.delete_user_record(&table, &id, "desktop")
+    store.delete_user_record_checked(&table, &id, "desktop", expected_rev)
+}
+
+#[tauri::command]
+async fn run_scheduled_task(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    scheduler: tauri::State<'_, scheduler::Scheduler>,
+    id: String,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    scheduler.run_now(&app, &id).await
 }
 
 #[tauri::command]
@@ -569,9 +593,15 @@ fn put_workspace_setting(
     store: tauri::State<'_, data::DataStore>,
     key: String,
     value: serde_json::Value,
-) -> Result<(), String> {
+) -> Result<String, String> {
     require_local_main(&webview)?;
-    store.put_workspace_setting(&key, value, "desktop")
+    store.put_workspace_setting(&key, value, "desktop")?;
+    store
+        .load_workspace()?
+        .get("currentTerm")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "current academic term is unavailable".to_string())
 }
 
 #[tauri::command]
@@ -604,10 +634,17 @@ fn write_scheduled_export(
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
+    write_scheduled_export_inner(&app, store.inner())
+}
+
+fn write_scheduled_export_inner(
+    app: &tauri::AppHandle,
+    store: &data::DataStore,
+) -> Result<String, String> {
     use std::io::Write;
 
     let notes =
-        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
+        serde_json::to_value(lms_files::export_notes(app)?).map_err(|error| error.to_string())?;
     let document = store.export_data(notes)?;
     if document.len() > 32 * 1024 * 1024 {
         return Err("scheduled export exceeds the 32 MiB safety limit".into());
@@ -1003,10 +1040,14 @@ async fn probe_reference_source(
     index_url: String,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    let hash = subscriptions::SubscriptionClient::new()?
-        .probe_index_source(&index_url)
-        .await?;
+    let hash = probe_reference_source_inner(&index_url).await?;
     Ok(serde_json::json!({"indexHash":hash}))
+}
+
+async fn probe_reference_source_inner(index_url: &str) -> Result<String, String> {
+    subscriptions::SubscriptionClient::new()?
+        .probe_index_source(index_url)
+        .await
 }
 
 #[tauri::command]
@@ -1020,9 +1061,28 @@ async fn refresh_reference_source(
     known_hash: Option<String>,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
+    refresh_reference_source_inner(
+        store.inner(),
+        &kind,
+        &index_url,
+        year,
+        expected_index_hash,
+        known_hash,
+    )
+    .await
+}
+
+async fn refresh_reference_source_inner(
+    store: &data::DataStore,
+    kind: &str,
+    index_url: &str,
+    year: i32,
+    expected_index_hash: Option<String>,
+    known_hash: Option<String>,
+) -> Result<serde_json::Value, String> {
     let client = subscriptions::SubscriptionClient::new()?;
     let mut connection = rusqlite::Connection::open(store.path()).map_err(|e| e.to_string())?;
-    match kind.as_str() {
+    match kind {
         "calendar" => {
             let fetched = client
                 .fetch_calendar(
@@ -1126,7 +1186,8 @@ pub fn run() {
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(lms_files::FileStore(std::sync::Mutex::new(())))
-        .manage(SchoolWebController::new());
+        .manage(SchoolWebController::new())
+        .manage(scheduler::Scheduler::default());
     #[cfg(desktop)]
     let builder = builder.manage(lms_downloader::Downloader::default());
     #[cfg(matrix_ocr)]
@@ -1145,6 +1206,7 @@ pub fn run() {
             lms_files::clean_course_materials,
             recognize_matrix_image,
             open_external,
+            resolve_school_url,
             configure_school_web_policy,
             open_school_site,
             set_school_web_bounds,
@@ -1174,6 +1236,7 @@ pub fn run() {
             new_user_record_id,
             put_user_record,
             delete_user_record,
+            run_scheduled_task,
             put_workspace_setting,
             reset_workspace,
             export_data,
@@ -1212,6 +1275,7 @@ pub fn run() {
                     .expect("failed to initialize the cloud transport"),
             );
             app.manage(SchoolAuthService::with_status_cache(vault, app.path().app_data_dir()?.join("school-credential-status.json")));
+            scheduler::Scheduler::start(app.handle().clone());
 
             #[cfg(desktop)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))

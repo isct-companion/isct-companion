@@ -928,13 +928,21 @@ fn write_assignment(
         )
         .optional()
         .map_err(|e| e.to_string())?;
+    let effective_due = due.or_else(|| {
+        prior
+            .as_ref()
+            .and_then(|value| value.1.as_deref())
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.timestamp())
+    });
     // The assignment page is authoritative; the event list is only a hint.
+    // Keep the last known due date when Moodle temporarily omits its event.
     let submission = if let Some(state) = page_state {
         state
     } else if listed_open {
         "open"
     } else if prior.as_ref().map(|value| value.0.as_str()) == Some("open")
-        && due.is_some_and(|d| d > Utc::now().timestamp())
+        && effective_due.is_some_and(|d| d > Utc::now().timestamp())
     {
         "submitted"
     } else {

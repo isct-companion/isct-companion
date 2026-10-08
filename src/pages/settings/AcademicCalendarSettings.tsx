@@ -576,7 +576,7 @@ export function AcademicCalendarSettings({
                   id: "new",
                   draft: {
                     ...blank,
-                    date: year === followedYear ? "" : `${year}-04-01`,
+                    date: "",
                   },
                 })
               }

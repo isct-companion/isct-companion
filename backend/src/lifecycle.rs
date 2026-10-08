@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum SchoolSite {
@@ -21,6 +22,22 @@ pub enum SchoolSite {
 }
 
 impl SchoolSite {
+    pub fn for_url(raw: &str) -> Option<Self> {
+        match Url::parse(raw).ok()?.host_str()? {
+            "lms.s.isct.ac.jp" | "t2schola.titech.ac.jp" => Some(Self::ScienceLms),
+            "syllabus.s.isct.ac.jp" => Some(Self::Syllabus),
+            "isct.ex-tic.com" | "portal.isct.ac.jp" => Some(Self::SciencePortal),
+            "portal.titech.ac.jp" | "portal.nap.gsic.titech.ac.jp" | "rp.nap.gsic.titech.ac.jp" => {
+                Some(Self::TokyoPortal)
+            }
+            "mailv4.m.titech.ac.jp" => Some(Self::TokyoMail),
+            "kyomu0.gakumu.titech.ac.jp" => Some(Self::Kyomu),
+            "request.libra.titech.ac.jp" => Some(Self::Library),
+            "portal.t4.gsic.titech.ac.jp" => Some(Self::Tsubame),
+            _ => None,
+        }
+    }
+
     pub const fn webview_label(self) -> &'static str {
         match self {
             Self::SciencePortal => "school-web-science-portal",

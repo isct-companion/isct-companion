@@ -1,4 +1,11 @@
-import { contentLanguage, pickLocalized, type Course, type PersonalEvent, type TermId, type Workspace } from "./model";
+import {
+  contentLanguage,
+  pickLocalized,
+  type Course,
+  type PersonalEvent,
+  type TermId,
+  type Workspace,
+} from "./model";
 import { clockForPeriods, planOccursOn, planCivilStart } from "./user-schedule";
 
 export type Occurrence = {
@@ -29,6 +36,14 @@ export function addDays(date: string, days: number) {
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
+function validCivilDate(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = dateAtNoon(value);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
 export function civilWeekday(date: string) {
   return dateAtNoon(date).getUTCDay() || 7;
 }
@@ -47,13 +62,11 @@ export function calendarState(data: Workspace, date: string) {
 export function quarterRange(data: Workspace, term: TermId) {
   const [rawYear, quarter] = term.split("-");
   const year = Number(rawYear);
-  const defaults: Record<string, [string, string]> = {
-    "1Q": [`${year}-04-01`, `${year}-05-31`],
-    "2Q": [`${year}-06-01`, `${year}-09-30`],
-    "3Q": [`${year}-10-01`, `${year}-11-30`],
-    "4Q": [`${year}-12-01`, `${year + 1}-03-31`],
-  };
-  if (!Number.isInteger(year) || !defaults[quarter])
+  const quarters = ["1Q", "2Q", "3Q", "4Q"] as const;
+  if (
+    !Number.isInteger(year) ||
+    !quarters.includes(quarter as (typeof quarters)[number])
+  )
     throw new Error("Invalid quarter.");
   const profile = data.academicProfile.years.find(
     (row) => row.academicYear === year,
@@ -68,25 +81,43 @@ export function quarterRange(data: Workspace, term: TermId) {
         (row.quarter === quarter ||
           row.id === `calendar:${year}:${type}:${quarter}`),
     )?.date;
-  const next = { "1Q": "2Q", "2Q": "3Q", "3Q": "4Q" }[quarter] as
-    "2Q" | "3Q" | "4Q" | undefined;
+  const position = quarters.indexOf(quarter as (typeof quarters)[number]);
+  const nextQuarter = quarters[(position + 1) % quarters.length];
+  const nextYear = position === quarters.length - 1 ? year + 1 : year;
+  const nextProfile = data.academicProfile.years.find(
+    (row) => row.academicYear === nextYear,
+  );
+  const nextBoundary = data.academicCalendar.find(
+    (row) =>
+      !row.deletedAt &&
+      !row.missingSince &&
+      row.type === "quarter-start" &&
+      (row.academicYear === nextYear ||
+        row.id.startsWith(`calendar:${nextYear}:`)) &&
+      (row.quarter === nextQuarter ||
+        row.id === `calendar:${nextYear}:quarter-start:${nextQuarter}`),
+  )?.date;
   const teachingRanges = data.academicCalendar.find(
     (row) =>
       !row.deletedAt &&
       !row.missingSince &&
       row.id === `calendar:${year}:quarter-start:${quarter}`,
   )?.teachingRanges;
+  const configuredStart =
+    profile?.quarterStarts[quarter as "1Q" | "2Q" | "3Q" | "4Q"];
+  const configuredNextStart = nextProfile?.quarterStarts[nextQuarter];
+  const from = validCivilDate(configuredStart)
+    ? configuredStart
+    : boundary("quarter-start");
+  const to = validCivilDate(configuredNextStart)
+    ? addDays(configuredNextStart, -1)
+    : boundary("quarter-end") ||
+      (validCivilDate(nextBoundary) ? addDays(nextBoundary, -1) : undefined);
+  if (!from || !to) return undefined;
   return {
     teachingRanges,
-    from:
-      profile?.quarterStarts[quarter as "1Q" | "2Q" | "3Q" | "4Q"] ??
-      boundary("quarter-start") ??
-      defaults[quarter][0],
-    to:
-      boundary("quarter-end") ??
-      (next && profile
-        ? addDays(profile.quarterStarts[next], -1)
-        : defaults[quarter][1]),
+    from,
+    to,
   };
 }
 export function scheduledCourses(data: Workspace, term: TermId) {
@@ -129,8 +160,12 @@ export function occurrencesOnDate(
         ? 0
         : day;
   const range = quarterRange(data, term);
-  const inQuarter = date >= range.from && date <= range.to;
-  const outsideTeaching = Boolean(range.teachingRanges && state?.type !== "replacement" && !range.teachingRanges.some(r => date >= r.start && date <= r.end));
+  const inQuarter = Boolean(range && date >= range.from && date <= range.to);
+  const outsideTeaching = Boolean(
+    range?.teachingRanges &&
+    state?.type !== "replacement" &&
+    !range.teachingRanges.some((r) => date >= r.start && date <= r.end),
+  );
   const blocks: Occurrence[] = [];
   if (inQuarter)
     for (const course of courses.filter((row) => !row.deletedAt)) {
@@ -247,11 +282,19 @@ const DATE_AT_END = /\d{4}-\d{2}-\d{2}$/;
 function overlap(left: Occurrence, right: Occurrence) {
   const leftEnd = `${left.endDate ?? (left.endTime <= left.startTime ? addDays(left.date, 1) : left.date)}T${left.endTime}`;
   const rightEnd = `${right.endDate ?? (right.endTime <= right.startTime ? addDays(right.date, 1) : right.date)}T${right.endTime}`;
-  return `${left.date}T${left.startTime}` < rightEnd && `${right.date}T${right.startTime}` < leftEnd;
+  return (
+    `${left.date}T${left.startTime}` < rightEnd &&
+    `${right.date}T${right.startTime}` < leftEnd
+  );
 }
 
-function applyOverride(block: Occurrence, override: Workspace["scheduleOverrides"][number]) {
-  const clock = override.periods ? clockForPeriods(override.periods) : undefined;
+function applyOverride(
+  block: Occurrence,
+  override: Workspace["scheduleOverrides"][number],
+) {
+  const clock = override.periods
+    ? clockForPeriods(override.periods)
+    : undefined;
   return {
     ...block,
     date: override.date ?? block.date,
@@ -267,7 +310,11 @@ function applyOverride(block: Occurrence, override: Workspace["scheduleOverrides
 /** Important all-day dates active on one civil date. */
 export function importantDatesOnDate(data: Workspace, date: string) {
   return data.importantDates.filter(
-    (row) => !row.deletedAt && !row.missingSince && row.startDate <= date && row.endDate >= date,
+    (row) =>
+      !row.deletedAt &&
+      !row.missingSince &&
+      row.startDate <= date &&
+      row.endDate >= date,
   );
 }
 
@@ -326,7 +373,9 @@ export function resolveDayAgenda(
   const exams: Occurrence[] = [];
   for (const exam of data.exams.filter((row) => {
     const key = row.sourceKey ?? row.id;
-    const movedDate = overrides.find((override) => override.targetKey === key)?.date;
+    const movedDate = overrides.find(
+      (override) => override.targetKey === key,
+    )?.date;
     return (
       !row.deletedAt &&
       !row.missingSince &&
@@ -360,13 +409,19 @@ export function resolveDayAgenda(
       date,
       title:
         override?.title ??
-        pickLocalized(exam.label, contentLanguage(data.settings), course.overrides?.title || course.title),
+        pickLocalized(
+          exam.label,
+          contentLanguage(data.settings),
+          course.overrides?.title || course.title,
+        ),
       subtitle: course.code,
       room,
       startTime,
       endTime,
       color: course.overrides?.color || course.color,
-      timeLabel: periods ? `${periods[0]}–${periods[1]}限` : `${startTime}–${endTime}`,
+      timeLabel: periods
+        ? `${periods[0]}–${periods[1]}限`
+        : `${startTime}–${endTime}`,
       overridden: Boolean(override),
     });
   }
@@ -390,12 +445,10 @@ export function resolveDayAgenda(
     exam.conflictWith = collisions.map((row) => row.title);
     for (const collision of collisions) collision.conflict = true;
   }
-  return blocks.sort(
-    (left, right) => {
-      const time = left.startTime.localeCompare(right.startTime);
-      if (time) return time;
-      const layer = Number(left.kind === "exam") - Number(right.kind === "exam");
-      return layer || left.key.localeCompare(right.key);
-    },
-  );
+  return blocks.sort((left, right) => {
+    const time = left.startTime.localeCompare(right.startTime);
+    if (time) return time;
+    const layer = Number(left.kind === "exam") - Number(right.kind === "exam");
+    return layer || left.key.localeCompare(right.key);
+  });
 }

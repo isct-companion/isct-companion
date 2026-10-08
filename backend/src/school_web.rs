@@ -435,19 +435,7 @@ fn apply_bounds(webview: &Webview, bounds: WebBounds) -> Result<(), String> {
 }
 
 fn site_for_url(raw: &str) -> Option<SchoolSite> {
-    match Url::parse(raw).ok()?.host_str()? {
-        "lms.s.isct.ac.jp" | "t2schola.titech.ac.jp" => Some(SchoolSite::ScienceLms),
-        "syllabus.s.isct.ac.jp" => Some(SchoolSite::Syllabus),
-        "isct.ex-tic.com" | "portal.isct.ac.jp" => Some(SchoolSite::SciencePortal),
-        "portal.titech.ac.jp" | "portal.nap.gsic.titech.ac.jp" | "rp.nap.gsic.titech.ac.jp" => {
-            Some(SchoolSite::TokyoPortal)
-        }
-        "mailv4.m.titech.ac.jp" => Some(SchoolSite::TokyoMail),
-        "kyomu0.gakumu.titech.ac.jp" => Some(SchoolSite::Kyomu),
-        "request.libra.titech.ac.jp" => Some(SchoolSite::Library),
-        "portal.t4.gsic.titech.ac.jp" => Some(SchoolSite::Tsubame),
-        _ => None,
-    }
+    SchoolSite::for_url(raw)
 }
 
 /// Where a link that asks for a new window (`target="_blank"`, `window.open`)
@@ -2569,7 +2557,11 @@ impl SchoolWebController {
                     let _ = Self::write_restore(&app_for_load, site, raw_url);
                 }
                 if let Some(safe_url) = sanitize_school_url(raw_url) {
-                    let _ = app_for_load.emit_to(MAIN_WINDOW, "school-web-url", safe_url);
+                    let _ = app_for_load.emit_to(
+                        MAIN_WINDOW,
+                        "school-web-url",
+                        serde_json::json!({ "site": site, "url": safe_url }),
+                    );
                 }
                 if let Some(profile) = completed {
                     emit_login_status(&app_for_load, profile, "connected", "Connected");

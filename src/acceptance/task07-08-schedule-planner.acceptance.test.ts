@@ -67,6 +67,15 @@ function asCourse(source: PublicCourse): Course {
 describe("Task 7 intensive dates", () => {
   it("quick-sets the inclusive range and removal keeps that day out of Schedule", () => {
     const workspace = seedWorkspace();
+    workspace.academicProfile.years = [{
+      academicYear: 2026,
+      quarterStarts: {
+        "1Q": "2026-04-01",
+        "2Q": "2026-06-01",
+        "3Q": "2026-10-01",
+        "4Q": "2026-12-01",
+      },
+    }];
     const course: Course = {
       id: "local-intensive-course",
       rev: 1,
