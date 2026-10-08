@@ -21,6 +21,7 @@ What to build: [docs/product-definition.md](../product-definition.md). Data cont
 | 13 | [Web toolbar: forward, CSS/JS extensions](13-web-extensions.md) | 10 | Feature |
 | 14 | [Subscriptions: important dates, exams](14-important-dates-exams.md) | 5 | Data |
 | 15 | [Plaintext cloud workspace sync](15-cloud-sync.md) | 1, 10 | Integration |
+| 16 | [LMS files through an app URI scheme](16-lms-file-scheme.md) | 3 | Data |
 
 Task 1 first. Then 2–5 in parallel. Then 6–10 (7 and 9 share ICS export: do 9 before finishing 7's export). 11 and 15 build on those foundations.
 

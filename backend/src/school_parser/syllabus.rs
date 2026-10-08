@@ -1,5 +1,5 @@
-use super::model::*;
-use super::transport::{MAX_BODY, ORIGIN};
+use crate::syllabus::model::*;
+use crate::syllabus::transport::{MAX_BODY, ORIGIN};
 use chrono::NaiveDate;
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
@@ -617,7 +617,7 @@ pub(crate) fn parse_content(
             canonical_url(url)
         },
         source_language: language.into(),
-        fetched_at: super::utc_now(),
+        fetched_at: crate::syllabus::utc_now(),
         source_updated: updated,
         metadata: metadata
             .iter()
@@ -729,7 +729,7 @@ pub(crate) fn parse_detail(url: &Url, html: &str, language: &str) -> Result<Deta
         .flat_map(|segment| segment.split('-'))
         .find(|part| part.len() == 6 && part.chars().all(|value| value.is_ascii_digit()))
         .map(str::to_string);
-    let fetched_at = super::utc_now();
+    let fetched_at = crate::syllabus::utc_now();
     let content = parse_content(url, &document, &metadata, source_updated.clone(), language)?;
     Ok(DetailPage {
         id,

@@ -185,10 +185,7 @@ export function Settings({
   const page =
     current === "accounts" ? (
       <>
-        <SettingsHeader
-          title="School accounts"
-          description="Sign in once. Today, Courses and Web all reuse the same session."
-        />
+        <SettingsHeader title="School accounts" />
         <SchoolAccounts
           notify={notify}
           showLoginPage={showLoginPage}

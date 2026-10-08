@@ -148,16 +148,78 @@ fn now() -> String {
 
 fn quarter_for_month(month: u32) -> &'static str {
     match month {
-        12 | 1 => "4Q",
+        12 | 1..=3 => "4Q",
         10 | 11 => "3Q",
         6..=9 => "2Q",
         _ => "1Q",
     }
 }
 
+/// One authoritative resolver for every native consumer. User-configured
+/// starts intentionally override subscribed calendar boundaries. When no
+/// usable boundary exists, keep the user's selected term instead of guessing
+/// from hard-coded month ranges.
+fn current_term_for(workspace: &Value, date: chrono::NaiveDate) -> Option<String> {
+    let mut starts: Vec<(chrono::NaiveDate, String, u8)> = Vec::new();
+    let mut configured = HashSet::new();
+    if let Some(years) = workspace
+        .pointer("/academicProfile/years")
+        .and_then(Value::as_array)
+    {
+        for year in years {
+            let Some(academic_year) = year.get("academicYear").and_then(Value::as_i64) else {
+                continue;
+            };
+            for quarter in ["1Q", "2Q", "3Q", "4Q"] {
+                if let Some(start) = year
+                    .pointer(&format!("/quarterStarts/{quarter}"))
+                    .and_then(Value::as_str)
+                    .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+                {
+                    configured.insert((academic_year, quarter));
+                    starts.push((start, format!("{academic_year}-{quarter}"), 2));
+                }
+            }
+        }
+    }
+    if let Some(days) = workspace.get("academicCalendar").and_then(Value::as_array) {
+        for day in days {
+            if day.get("deletedAt").is_some() || day.get("missingSince").is_some() {
+                continue;
+            }
+            if day.get("type").and_then(Value::as_str) != Some("quarter-start") {
+                continue;
+            }
+            if let (Some(start), Some(year), Some(quarter)) = (
+                day.get("date")
+                    .and_then(Value::as_str)
+                    .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()),
+                day.get("academicYear").and_then(Value::as_i64),
+                day.get("quarter").and_then(Value::as_str),
+            ) {
+                if configured.contains(&(year, quarter)) {
+                    continue;
+                }
+                starts.push((start, format!("{year}-{quarter}"), 1));
+            }
+        }
+    }
+    starts
+        .into_iter()
+        .filter(|(start, _, _)| start <= &date)
+        .max_by_key(|(start, _, priority)| (*start, *priority))
+        .map(|(_, term, _)| term)
+        .or_else(|| {
+            workspace
+                .get("selectedTerm")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+}
+
 fn empty_workspace() -> Value {
     let date = Utc::now().date_naive();
-    let year = if date.month() == 1 {
+    let year = if date.month() < 4 {
         date.year() - 1
     } else {
         date.year()
@@ -221,6 +283,7 @@ fn empty_workspace() -> Value {
             "message": "Cloud sync is off."
         }
     });
+    workspace["currentTerm"] = Value::String(term);
     merge_object(
         &mut workspace["settings"],
         json!({
@@ -739,11 +802,16 @@ impl DataStore {
 
     /// User-owned records are changed one row at a time. The database owns
     /// IDs and revisions; callers cannot accidentally roll them backwards.
-    pub fn put_user_record(
+    pub fn put_user_record(&self, table: &str, value: Value, actor: &str) -> Result<Value, String> {
+        self.put_user_record_checked(table, value, actor, None)
+    }
+
+    pub fn put_user_record_checked(
         &self,
         table: &str,
         mut value: Value,
         actor: &str,
+        expected_rev: Option<u64>,
     ) -> Result<Value, String> {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
@@ -842,6 +910,14 @@ impl DataStore {
             )
             .optional()
             .map_err(|error| error.to_string())?;
+        if let Some(expected) = expected_rev {
+            let actual = previous.as_ref().map(|(_, rev)| *rev as u64).unwrap_or(0);
+            if expected != actual {
+                return Err(format!(
+                    "revision conflict: {table}/{id} expected {expected}, actual {actual}"
+                ));
+            }
+        }
         let revision = previous.as_ref().map_or(1, |(_, rev)| rev + 1);
         object.insert("id".into(), Value::String(id.clone()));
         object.insert("rev".into(), Value::from(revision));
@@ -900,6 +976,16 @@ impl DataStore {
     }
 
     pub fn delete_user_record(&self, table: &str, id: &str, actor: &str) -> Result<bool, String> {
+        self.delete_user_record_checked(table, id, actor, None)
+    }
+
+    pub fn delete_user_record_checked(
+        &self,
+        table: &str,
+        id: &str,
+        actor: &str,
+        expected_rev: Option<u64>,
+    ) -> Result<bool, String> {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
         }
@@ -916,8 +1002,20 @@ impl DataStore {
             .optional()
             .map_err(|error| error.to_string())?;
         let Some((raw, revision)) = raw else {
+            if expected_rev.is_some_and(|expected| expected != 0) {
+                return Err(format!(
+                    "revision conflict: {table}/{id} expected {}, actual 0",
+                    expected_rev.unwrap()
+                ));
+            }
             return Ok(false);
         };
+        if expected_rev.is_some_and(|expected| expected != revision as u64) {
+            return Err(format!(
+                "revision conflict: {table}/{id} expected {}, actual {revision}",
+                expected_rev.unwrap()
+            ));
+        }
         let mut value: Value =
             serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))?;
         let timestamp = now();
@@ -1078,7 +1176,8 @@ impl DataStore {
                             json!({
                                 "title": overlay.get("title"),
                                 "instructor": overlay.get("instructor"),
-                                "color": overlay.get("color")
+                                "color": overlay.get("color"),
+                                "lessonLog": overlay.get("lessonLog")
                             }),
                         );
                     }
@@ -1107,6 +1206,11 @@ impl DataStore {
         if let Some(value) = read_setting(&connection, "cloud")? {
             workspace["settings"]["cloud"] = value;
         }
+        let today_jst = (Utc::now() + chrono::Duration::hours(9)).date_naive();
+        workspace["currentTerm"] = Value::String(
+            current_term_for(&workspace, today_jst)
+                .ok_or_else(|| "current academic term is not configured".to_string())?,
+        );
         normalize_optional_nulls(&mut workspace);
         let _: crate::contracts::Workspace = serde_json::from_value(workspace.clone())
             .map_err(|error| format!("workspace validation failed: {error}"))?;
@@ -1530,6 +1634,143 @@ impl DataStore {
         .transpose()
     }
 
+    /// A syllabus search row stored before its offering's details are read.
+    pub fn catalog_search_item(&self, id: &str) -> Result<Option<Value>, String> {
+        let connection = self.open()?;
+        let raw: Option<String> = connection
+            .query_row(
+                "SELECT value FROM catalog_search_items WHERE id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        raw.map(|raw| {
+            serde_json::from_str(&raw).map_err(|_| "search row contains invalid JSON".to_string())
+        })
+        .transpose()
+    }
+
+    pub fn lms_material_for_url(&self, url: &str) -> Result<Option<Value>, String> {
+        let connection = self.open()?;
+        let raw: Option<String> = connection
+            .query_row(
+                "SELECT value FROM lms_items
+                 WHERE missing_since IS NULL AND deleted_at IS NULL
+                   AND (json_extract(value,'$.url')=?1 OR json_extract(value,'$.resourceUrl')=?1)
+                 LIMIT 1",
+                [url],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        raw.map(|raw| {
+            serde_json::from_str(&raw).map_err(|_| "LMS material contains invalid JSON".to_string())
+        })
+        .transpose()
+    }
+
+    /// Store a lazy `view.php` resolution exactly like an LMS ingest update:
+    /// unchanged content keeps its revision, while a changed remote URL gets
+    /// one new version. Local cache paths never enter the database.
+    pub fn update_lms_resource_url(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        resource_url: &str,
+    ) -> Result<bool, String> {
+        self.update_lms_item_detail(
+            cmid,
+            source_url,
+            "resourceUrl",
+            Value::String(resource_url.into()),
+        )
+    }
+
+    /// Keeps a folder's resolved file list on its material, so reopening it
+    /// needs no LMS request. A later crawl keeps it until a new read replaces it.
+    pub(crate) fn update_lms_folder_files(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        files: &[crate::contracts::FolderFile],
+    ) -> Result<bool, String> {
+        let files = serde_json::to_value(files).map_err(|error| error.to_string())?;
+        self.update_lms_item_detail(cmid, source_url, "folderFiles", files)
+    }
+
+    /// Writes one resolved detail onto a live LMS material, as a versioned
+    /// change; an unchanged value is not rewritten.
+    fn update_lms_item_detail(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        key: &str,
+        detail: Value,
+    ) -> Result<bool, String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        let stored: Option<(String, String, u64)> = transaction
+            .query_row(
+                "SELECT id,value,rev FROM lms_items WHERE cmid=?1 AND missing_since IS NULL LIMIT 1",
+                [cmid as i64],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as u64)),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let Some((id, raw, revision)) = stored else {
+            return Ok(false);
+        };
+        let mut value: Value = serde_json::from_str(&raw)
+            .map_err(|_| "LMS material contains invalid JSON".to_string())?;
+        if value.get("url").and_then(Value::as_str) != Some(source_url) {
+            return Ok(false);
+        }
+        if value.get(key) == Some(&detail) {
+            return Ok(false);
+        }
+        value[key] = detail;
+        let timestamp = now();
+        let next_revision = revision + 1;
+        value["rev"] = next_revision.into();
+        value["updatedAt"] = timestamp.clone().into();
+        value["updatedBy"] = "lms".into();
+        value["source"] = json!({"provider":"lms"});
+        value["lastSeenAt"] = timestamp.clone().into();
+        let mut content = value.clone();
+        if let Some(object) = content.as_object_mut() {
+            for key in [
+                "rev",
+                "updatedAt",
+                "updatedBy",
+                "source",
+                "lastSeenAt",
+                "missingSince",
+                "deletedAt",
+            ] {
+                object.remove(key);
+            }
+        }
+        let hash = content_hash(&content)?;
+        transaction
+            .execute(
+                "UPDATE lms_items SET value=?2,hash=?3,updated_at=?4,updated_by='lms',
+                 rev=?5,source='lms',last_seen_at=?4,missing_since=NULL,deleted_at=NULL WHERE id=?1",
+                params![
+                    id,
+                    serde_json::to_string(&value).map_err(|error| error.to_string())?,
+                    hash,
+                    timestamp,
+                    next_revision as i64
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
     pub fn table_rows(&self, table: &str) -> Result<Vec<Value>, String> {
         const READABLE: &[&str] = &[
             "registrations",
@@ -1613,6 +1854,70 @@ mod tests {
     }
 
     #[test]
+    fn a_course_override_keeps_the_lessons_marked_for_its_classes() {
+        let store = store("lesson-log");
+        let course = json!({"id":"c1","rev":1,"updatedAt":"2026-10-01T00:00:00Z","updatedBy":"test",
+            "kind":"course","termId":"2026-3Q","code":"CSC.T273","title":"OOP","instructor":"","credits":2,
+            "creditSplit":{"lecture":2,"exercise":0,"lab":0},"instructionLanguage":"ja","color":"blue",
+            "meetings":[],"source":{"provider":"manual"}});
+        store
+            .open()
+            .unwrap()
+            .execute(
+                "INSERT INTO manual_courses (id,value,hash,updated_at,updated_by,rev,source)
+             VALUES ('c1',?1,'h','2026-10-01T00:00:00Z','test',1,'manual')",
+                [course.to_string()],
+            )
+            .unwrap();
+        store
+            .put_user_record(
+                "course_overrides",
+                json!({"sourceKey":"c1","courseId":"c1","source":{"provider":"manual"},
+                    "lessonLog":[{"occurrence":"2026-10-08T10:45:00+09:00","sectionId":12}]}),
+                "test",
+            )
+            .unwrap();
+        let workspace = store.load_workspace().unwrap();
+        let course = &workspace["courses"].as_array().unwrap()[0];
+        assert_eq!(course["overrides"]["lessonLog"][0]["sectionId"], 12);
+    }
+
+    #[test]
+    fn keeps_a_resolved_folder_listing_once_and_reads_it_back() {
+        let store = store("folder-files");
+        let url = "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9";
+        {
+            let connection = store.open().unwrap();
+            connection
+                .execute(
+                    "INSERT INTO lms_items (id,cmid,value,hash,updated_at,updated_by,rev,source)
+                     VALUES ('m9',9,?1,'h','2026-10-01T00:00:00Z','lms',1,'lms')",
+                    [json!({"id":"m9","cmid":9,"module":"folder","url":url}).to_string()],
+                )
+                .unwrap();
+        }
+        let files = vec![crate::contracts::FolderFile {
+            name: "20260928.zip".into(),
+            url: "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_folder/content/0/20260928.zip"
+                .into(),
+        }];
+        assert!(store.update_lms_folder_files(9, url, &files).unwrap());
+        // The same listing again is not a change.
+        assert!(!store.update_lms_folder_files(9, url, &files).unwrap());
+        let row = store.lms_material_for_url(url).unwrap().unwrap();
+        assert_eq!(row["rev"], 2);
+        assert_eq!(row["folderFiles"][0]["name"], "20260928.zip");
+        // A different source URL never takes another material's listing.
+        assert!(!store
+            .update_lms_folder_files(
+                9,
+                "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=10",
+                &files
+            )
+            .unwrap());
+    }
+
+    #[test]
     fn summary_metadata_keeps_other_search_languages() {
         let mut summary = json!({
             "title": {"en": "Assembly Language"},
@@ -1626,6 +1931,39 @@ mod tests {
         assert_eq!(summary["title"]["en"], "Assembly Language");
         assert_eq!(summary["title"]["ja"], "アセンブリ言語");
         assert_eq!(summary["instructors"][0]["ja"], "教員");
+    }
+
+    #[test]
+    fn current_term_uses_profile_then_calendar_then_selected_term() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 6, 4).unwrap();
+        let profile = json!({
+            "academicProfile": {"years":[{"academicYear":2026,"quarterStarts":{
+                "1Q":"2026-04-01","2Q":"2026-06-05","3Q":"2026-10-01","4Q":"2026-12-01"
+            }}]},
+            "academicCalendar":[{"date":"2026-06-01","type":"quarter-start","academicYear":2026,"quarter":"2Q"}]
+        });
+        assert_eq!(current_term_for(&profile, date).as_deref(), Some("2026-1Q"));
+        let calendar = json!({
+            "academicProfile":{"years":[]},
+            "academicCalendar":[{"date":"2026-06-01","type":"quarter-start","academicYear":2026,"quarter":"2Q"}]
+        });
+        assert_eq!(
+            current_term_for(&calendar, date).as_deref(),
+            Some("2026-2Q")
+        );
+        assert_eq!(
+            current_term_for(
+                &json!({
+                    "selectedTerm":"2027-3Q",
+                    "academicProfile":{"years":[{"academicYear":2027,"quarterStarts":{
+                        "1Q":"","2Q":"","3Q":"","4Q":""
+                    }}]},
+                    "academicCalendar":[]
+                }),
+                chrono::NaiveDate::from_ymd_opt(2027, 2, 1).unwrap()
+            ),
+            Some("2027-3Q".to_string())
+        );
     }
 
     #[test]
@@ -1673,6 +2011,34 @@ mod tests {
         let rows = store.user_rows("plans").unwrap();
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().any(|row| row["id"] == second["id"]));
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn checked_record_mutations_reject_stale_writers() {
+        let store = store("record-conflict");
+        let row = store
+            .put_user_record(
+                "plans",
+                json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+                "test",
+            )
+            .unwrap();
+        let mut first = row.clone();
+        first["title"] = json!("First writer");
+        store
+            .put_user_record_checked("plans", first, "first", Some(1))
+            .unwrap();
+        let mut stale = row;
+        stale["title"] = json!("Stale writer");
+        let error = store
+            .put_user_record_checked("plans", stale, "stale", Some(1))
+            .unwrap_err();
+        assert!(error.contains("revision conflict"));
+        assert_eq!(
+            store.user_rows("plans").unwrap()[0]["title"],
+            "First writer"
+        );
         let _ = fs::remove_file(store.path());
     }
 

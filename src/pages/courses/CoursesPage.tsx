@@ -1,7 +1,16 @@
 import { t } from "../../i18n";
 import { useState, type ReactNode } from "react";
 import { detectConflicts } from "../../core/academic";
-import { Badge, Button, Group, Menu, Paper, Switch, Modal, TextInput } from "@mantine/core";
+import {
+  Badge,
+  Button,
+  Group,
+  Menu,
+  Paper,
+  Switch,
+  Modal,
+  TextInput,
+} from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
 
 import {
@@ -107,9 +116,9 @@ export function Courses({
   const anchorDate =
     weekAnchor?.term === term
       ? weekAnchor.date
-      : today >= range.from && today <= range.to
+      : range && today >= range.from && today <= range.to
         ? today
-        : range.from;
+        : (range?.from ?? today);
   const moveWeek = (days: number) =>
     setWeekAnchor({ term, date: addDays(anchorDate, days) });
   const courses = data.courses.filter((c) => c.termId === term && !c.deletedAt);
@@ -195,9 +204,13 @@ export function Courses({
         />
       </div>
       <header className="pageBar">
-        <YearQuarterPicker terms={terms} selected={term} current={currentTerm}
-          onSelect={selectedTerm => update(d => ({...d, selectedTerm}))}
-          onAdd={canEdit ? addTerm : undefined} />
+        <YearQuarterPicker
+          terms={terms}
+          selected={term}
+          current={currentTerm}
+          onSelect={(selectedTerm) => update((d) => ({ ...d, selectedTerm }))}
+          onAdd={canEdit ? addTerm : undefined}
+        />
         <div className="pageBarRight">
           {academic}
           {canEdit && pullLms && (
@@ -434,90 +447,136 @@ export function Courses({
       >
         {preview && (
           <div className="scheduleItemPreview">
-            {preview.kind === "exam" && <Badge color="red" variant="light">EXAM · {preview.timeLabel}</Badge>}
+            {preview.kind === "exam" && (
+              <Badge color="red" variant="light">
+                EXAM · {preview.timeLabel}
+              </Badge>
+            )}
             <p>
               {preview.startTime}–{preview.endTime}
             </p>
             {preview.room && <p>{preview.room}</p>}
             {preview.conflictWith?.length ? (
-              <p className="scheduleConflict">Overlaps {preview.conflictWith.join(", ")}</p>
+              <p className="scheduleConflict">
+                Overlaps {preview.conflictWith.join(", ")}
+              </p>
             ) : null}
-            {!readOnly && preview.kind === "exam" && (() => {
-              const existing = data.scheduleOverrides.find(
-                (row) => !row.deletedAt && row.targetKey === preview.key,
-              );
-              return (
-                <form
-                  key={`${preview.key}:${existing?.rev ?? 0}`}
-                  className="scheduleOverrideForm"
-                  onSubmit={async (event) => {
-                    event.preventDefault();
-                    const values = new FormData(event.currentTarget);
-                    const id = existing?.id ?? (await newUserRecordId());
-                    const now = new Date().toISOString();
-                    update((draft) => {
-                      let row = draft.scheduleOverrides.find((item) => item.id === id);
-                      if (!row) {
-                        row = {
-                          id,
-                          targetKey: preview.key,
-                          targetKind: "exam",
-                          courseId: preview.id,
-                          hidden: false,
-                          rev: 0,
-                          updatedAt: now,
-                          updatedBy: draft.deviceId,
-                        };
-                        draft.scheduleOverrides.push(row);
-                      }
-                      row.date = String(values.get("date") || preview.date || "");
-                      row.startTime = String(values.get("startTime") || preview.startTime);
-                      row.endTime = String(values.get("endTime") || preview.endTime);
-                      row.room = String(values.get("room") ?? preview.room);
-                      row.hidden = false;
-                      row.rev += 1;
-                      row.updatedAt = now;
-                      row.updatedBy = draft.deviceId;
-                      return draft;
-                    });
-                    setPreview(null);
-                  }}
-                >
-                  <TextInput label={t("Date")} name="date" type="date" defaultValue={existing?.date ?? preview.date} />
-                  <Group grow>
-                    <TextInput label={t("Start")} name="startTime" type="time" defaultValue={existing?.startTime ?? preview.startTime} />
-                    <TextInput label={t("End")} name="endTime" type="time" defaultValue={existing?.endTime ?? preview.endTime} />
-                  </Group>
-                  <TextInput label={t("Room")} name="room" defaultValue={existing?.room ?? preview.room} />
-                  <Group justify="space-between">
-                    <Button
-                      color="red"
-                      variant="subtle"
-                      type="button"
-                      onClick={async () => {
-                        const id = existing?.id ?? (await newUserRecordId());
-                        const now = new Date().toISOString();
-                        update((draft) => {
-                          let row = draft.scheduleOverrides.find((item) => item.id === id);
-                          if (!row) {
-                            row = { id, targetKey: preview.key, targetKind: "exam", courseId: preview.id, hidden: true, rev: 0, updatedAt: now, updatedBy: draft.deviceId };
-                            draft.scheduleOverrides.push(row);
-                          }
-                          row.hidden = true;
-                          row.rev += 1;
-                          row.updatedAt = now;
-                          return draft;
-                        });
-                        setPreview(null);
-                      }}
-                    >
-                      {t("Hide exam")}
-                    </Button>
-                    <Button type="submit">{t("Save override")}</Button>
-                  </Group>
-                </form>
-              );
-            })()}
+            {!readOnly &&
+              preview.kind === "exam" &&
+              (() => {
+                const existing = data.scheduleOverrides.find(
+                  (row) => !row.deletedAt && row.targetKey === preview.key,
+                );
+                return (
+                  <form
+                    key={`${preview.key}:${existing?.rev ?? 0}`}
+                    className="scheduleOverrideForm"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      const values = new FormData(event.currentTarget);
+                      const id = existing?.id ?? (await newUserRecordId());
+                      const now = new Date().toISOString();
+                      update((draft) => {
+                        let row = draft.scheduleOverrides.find(
+                          (item) => item.id === id,
+                        );
+                        if (!row) {
+                          row = {
+                            id,
+                            targetKey: preview.key,
+                            targetKind: "exam",
+                            courseId: preview.id,
+                            hidden: false,
+                            rev: 0,
+                            updatedAt: now,
+                            updatedBy: draft.deviceId,
+                          };
+                          draft.scheduleOverrides.push(row);
+                        }
+                        row.date = String(
+                          values.get("date") || preview.date || "",
+                        );
+                        row.startTime = String(
+                          values.get("startTime") || preview.startTime,
+                        );
+                        row.endTime = String(
+                          values.get("endTime") || preview.endTime,
+                        );
+                        row.room = String(values.get("room") ?? preview.room);
+                        row.hidden = false;
+                        row.rev += 1;
+                        row.updatedAt = now;
+                        row.updatedBy = draft.deviceId;
+                        return draft;
+                      });
+                      setPreview(null);
+                    }}
+                  >
+                    <TextInput
+                      label={t("Date")}
+                      name="date"
+                      type="date"
+                      defaultValue={existing?.date ?? preview.date}
+                    />
+                    <Group grow>
+                      <TextInput
+                        label={t("Start")}
+                        name="startTime"
+                        type="time"
+                        defaultValue={existing?.startTime ?? preview.startTime}
+                      />
+                      <TextInput
+                        label={t("End")}
+                        name="endTime"
+                        type="time"
+                        defaultValue={existing?.endTime ?? preview.endTime}
+                      />
+                    </Group>
+                    <TextInput
+                      label={t("Room")}
+                      name="room"
+                      defaultValue={existing?.room ?? preview.room}
+                    />
+                    <Group justify="space-between">
+                      <Button
+                        color="red"
+                        variant="subtle"
+                        type="button"
+                        onClick={async () => {
+                          const id = existing?.id ?? (await newUserRecordId());
+                          const now = new Date().toISOString();
+                          update((draft) => {
+                            let row = draft.scheduleOverrides.find(
+                              (item) => item.id === id,
+                            );
+                            if (!row) {
+                              row = {
+                                id,
+                                targetKey: preview.key,
+                                targetKind: "exam",
+                                courseId: preview.id,
+                                hidden: true,
+                                rev: 0,
+                                updatedAt: now,
+                                updatedBy: draft.deviceId,
+                              };
+                              draft.scheduleOverrides.push(row);
+                            }
+                            row.hidden = true;
+                            row.rev += 1;
+                            row.updatedAt = now;
+                            return draft;
+                          });
+                          setPreview(null);
+                        }}
+                      >
+                        {t("Hide exam")}
+                      </Button>
+                      <Button type="submit">{t("Save override")}</Button>
+                    </Group>
+                  </form>
+                );
+              })()}
             {!readOnly && (
               <Button
                 variant="default"

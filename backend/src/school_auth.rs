@@ -104,10 +104,30 @@ pub struct SchoolCredentialStatus {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialSummary {
+    /// Authoritative vault state. `saved` is retained for older clients, but
+    /// new callers must render this state instead of inferring availability.
+    #[serde(default)]
+    pub availability: CredentialAvailability,
     pub saved: bool,
     pub username: String,
     pub has_otp: bool,
     pub has_matrix: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CredentialAvailability {
+    #[default]
+    NotConfigured,
+    /// The metadata cache says a secret exists; the vault has not been opened
+    /// in this process yet.
+    SavedLocked,
+    Available,
+    /// Metadata referred to a secret which no longer exists in the vault.
+    Missing,
+    /// The OS denied or failed vault access. This is deliberately distinct
+    /// from a missing secret so the UI never asks the user to overwrite it.
+    AccessDenied,
 }
 
 const SCHOOL_CREDENTIAL_ACCOUNT: &str = "school-accounts";
@@ -149,21 +169,43 @@ impl<V: SecretVault> SchoolAuthService<V> {
         }
         serde_json::from_str(&text).ok()
     }
-    fn record_summary(&self, profile: SchoolAuthProfile, credentials: Option<&SchoolCredentials>) {
+    fn record_summary(
+        &self,
+        profile: SchoolAuthProfile,
+        credentials: Option<&SchoolCredentials>,
+        availability: CredentialAvailability,
+    ) {
         if self.status_path.is_none() {
             return;
         }
         let Some(mut status) = self.cached_status() else {
             return;
         };
+        let previous = match profile {
+            SchoolAuthProfile::Science => status.science.clone(),
+            SchoolAuthProfile::TokyoTech => status.tokyo_tech.clone(),
+        };
         let summary = credentials
             .map(|c| CredentialSummary {
+                availability,
                 saved: true,
                 username: c.username.clone(),
                 has_otp: !c.otp_secret.is_empty(),
                 has_matrix: !c.matrix.is_empty(),
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                if availability == CredentialAvailability::AccessDenied {
+                    CredentialSummary {
+                        availability,
+                        ..previous
+                    }
+                } else {
+                    CredentialSummary {
+                        availability,
+                        ..CredentialSummary::default()
+                    }
+                }
+            });
         match profile {
             SchoolAuthProfile::Science => status.science = summary,
             SchoolAuthProfile::TokyoTech => status.tokyo_tech = summary,
@@ -286,7 +328,11 @@ impl<V: SecretVault> SchoolAuthService<V> {
         accounts.insert(profile, credentials.clone());
         self.write_accounts(&accounts)?;
         unlocked.insert(profile, Some(credentials.clone()));
-        self.record_summary(profile, Some(credentials));
+        self.record_summary(
+            profile,
+            Some(credentials),
+            CredentialAvailability::Available,
+        );
         Ok(())
     }
 
@@ -295,6 +341,13 @@ impl<V: SecretVault> SchoolAuthService<V> {
         profile: SchoolAuthProfile,
         mut credentials: SchoolCredentials,
     ) -> Result<SchoolCredentials, String> {
+        let status_expected_saved = self
+            .cached_status()
+            .map(|status| match profile {
+                SchoolAuthProfile::Science => status.science.saved,
+                SchoolAuthProfile::TokyoTech => status.tokyo_tech.saved,
+            })
+            .unwrap_or(false);
         if let Some(saved) = self.load(profile)? {
             if credentials.username.trim().is_empty() {
                 credentials.username = saved.username;
@@ -308,19 +361,50 @@ impl<V: SecretVault> SchoolAuthService<V> {
             if credentials.matrix.trim().is_empty() {
                 credentials.matrix = saved.matrix;
             }
+        } else if status_expected_saved
+            && (credentials.password.is_empty()
+                || match profile {
+                    SchoolAuthProfile::Science => credentials.otp_secret.trim().is_empty(),
+                    SchoolAuthProfile::TokyoTech => credentials.matrix.trim().is_empty(),
+                })
+        {
+            return Err(
+                "Saved credentials were not found in the system credential vault. Enter them again."
+                    .into(),
+            );
         }
         credentials.validate(profile)?;
         Ok(credentials)
     }
 
     pub fn load(&self, profile: SchoolAuthProfile) -> Result<Option<SchoolCredentials>, String> {
+        let expected_saved = self
+            .cached_status()
+            .map(|status| match profile {
+                SchoolAuthProfile::Science => status.science.saved,
+                SchoolAuthProfile::TokyoTech => status.tokyo_tech.saved,
+            })
+            .unwrap_or(false);
         let mut unlocked = self
             .unlocked
             .lock()
             .map_err(|_| "Credential cache unavailable")?;
-        self.unlock_accounts(&mut unlocked)?;
+        if let Err(error) = self.unlock_accounts(&mut unlocked) {
+            self.record_summary(profile, None, CredentialAvailability::AccessDenied);
+            return Err(error);
+        }
         let credentials = unlocked.get(&profile).cloned().flatten();
-        self.record_summary(profile, credentials.as_ref());
+        self.record_summary(
+            profile,
+            credentials.as_ref(),
+            if credentials.is_some() {
+                CredentialAvailability::Available
+            } else if expected_saved {
+                CredentialAvailability::Missing
+            } else {
+                CredentialAvailability::NotConfigured
+            },
+        );
         Ok(credentials)
     }
 
@@ -340,17 +424,27 @@ impl<V: SecretVault> SchoolAuthService<V> {
         self.write_accounts(&accounts)?;
         let _ = self.vault.delete(profile.account());
         unlocked.insert(profile, None);
-        self.record_summary(profile, None);
+        self.record_summary(profile, None, CredentialAvailability::NotConfigured);
         Ok(true)
     }
 
     pub fn status(&self) -> Result<SchoolCredentialStatus, String> {
         // Metadata only: launch/session checks must not unlock Keychain merely to draw a badge.
-        if let Some(status) = self.cached_status() {
+        if let Some(mut status) = self.cached_status() {
+            for summary in [&mut status.science, &mut status.tokyo_tech] {
+                if summary.saved && summary.availability != CredentialAvailability::AccessDenied {
+                    summary.availability = CredentialAvailability::SavedLocked;
+                } else if summary.availability != CredentialAvailability::Missing
+                    && summary.availability != CredentialAvailability::AccessDenied
+                {
+                    summary.availability = CredentialAvailability::NotConfigured;
+                }
+            }
             return Ok(status);
         }
         let summary = |credentials: Option<SchoolCredentials>| match credentials {
             Some(credentials) => CredentialSummary {
+                availability: CredentialAvailability::Available,
                 saved: true,
                 username: credentials.username,
                 has_otp: !credentials.otp_secret.is_empty(),
@@ -723,12 +817,48 @@ mod tests {
         let locked = CountingVault::default();
         locked.fail_read.store(true, SeqCst);
         let restarted = SchoolAuthService::with_status_cache(locked, path.clone());
-        assert!(restarted.status().unwrap().science.saved);
+        let status = restarted.status().unwrap();
+        assert!(status.science.saved);
+        assert_eq!(
+            status.science.availability,
+            CredentialAvailability::SavedLocked
+        );
         assert_eq!(restarted.vault.reads.load(SeqCst), 0);
         // Display metadata cannot authorize an actual login or bypass the vault.
         assert!(restarted.load(SchoolAuthProfile::Science).is_err());
         assert!(restarted.delete(SchoolAuthProfile::Science).is_err());
-        assert!(restarted.status().unwrap().science.saved);
+        let status = restarted.status().unwrap();
+        assert!(status.science.saved);
+        assert_eq!(
+            status.science.availability,
+            CredentialAvailability::AccessDenied
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn missing_vault_entry_replaces_stale_saved_metadata() {
+        let dir =
+            std::env::temp_dir().join(format!("school-missing-test-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("status.json");
+        let vault = MemoryVault::default();
+        vault
+            .store(
+                SchoolAuthProfile::Science.account(),
+                &serde_json::to_string(&test_credentials()).unwrap(),
+            )
+            .unwrap();
+        let original = SchoolAuthService::with_status_cache(vault, path.clone());
+        assert!(original.status().unwrap().science.saved);
+
+        let restarted = SchoolAuthService::with_status_cache(MemoryVault::default(), path.clone());
+        assert!(restarted
+            .load(SchoolAuthProfile::Science)
+            .unwrap()
+            .is_none());
+        let status = restarted.status().unwrap();
+        assert!(!status.science.saved);
+        assert_eq!(status.science.availability, CredentialAvailability::Missing);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

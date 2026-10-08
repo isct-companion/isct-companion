@@ -5,7 +5,6 @@ import {
   FileButton,
   Group,
   Paper,
-  PasswordInput,
   Progress,
   Stack,
   Text,
@@ -35,8 +34,20 @@ import {
 } from "../../platform/school-session";
 
 const emptyStatus: SchoolCredentialStatus = {
-  science: { saved: false, username: "", hasOtp: false, hasMatrix: false },
-  tokyoTech: { saved: false, username: "", hasOtp: false, hasMatrix: false },
+  science: {
+    availability: "not-configured",
+    saved: false,
+    username: "",
+    hasOtp: false,
+    hasMatrix: false,
+  },
+  tokyoTech: {
+    availability: "not-configured",
+    saved: false,
+    username: "",
+    hasOtp: false,
+    hasMatrix: false,
+  },
 };
 
 type Draft = {
@@ -435,7 +446,11 @@ function Account({
   }, [profile]);
   const stored = useSchoolSession(desktopBridge, profile);
   // Signed in, failed, or not set up; nothing while the first result is out.
-  const session = !summary.saved
+  const unavailable = summary.availability
+    ? summary.availability === "not-configured" ||
+      summary.availability === "missing"
+    : !summary.saved;
+  const session = unavailable
     ? "not-configured"
     : stored === "not-configured"
       ? undefined
@@ -483,6 +498,7 @@ function Account({
           error instanceof Error ? error.message : "Sign-in could not start.",
       });
       setBusy(false);
+      await refresh().catch(() => undefined);
     }
   };
   const copyMatrix = async () => {
@@ -565,6 +581,18 @@ function Account({
           )}
         </div>
       )}
+      {summary.availability === "missing" && (
+        <Text c="red" size="sm">
+          Saved credentials are missing from the system credential vault. Enter
+          them again.
+        </Text>
+      )}
+      {summary.availability === "access-denied" && (
+        <Text c="orange" size="sm">
+          The system credential vault is unavailable. Existing credentials were
+          not changed.
+        </Text>
+      )}
       <div className="credentialFields">
         <TextInput
           label="ID"
@@ -575,23 +603,26 @@ function Account({
             setDraft({ ...draft, username: event.target.value })
           }
         />
-        <PasswordInput
+        {/* A saved secret shows as fixed dots; typing replaces it, blank keeps it. */}
+        <TextInput
+          type="password"
           label="Password"
           value={draft.password}
-          placeholder={summary.saved ? "••••••••" : ""}
+          placeholder={summary.saved ? SAVED_SECRET : ""}
           autoComplete="current-password"
           onChange={(event) =>
             setDraft({ ...draft, password: event.target.value })
           }
         />
         {profile === "science" && (
-          <PasswordInput
+          <TextInput
+            type="password"
             className="wide"
             label="OTP setup link or secret"
             value={draft.otpSecret}
             autoCapitalize="none"
             autoComplete="off"
-            placeholder={summary.hasOtp ? "••••••••" : "otpauth://… or Base32"}
+            placeholder={summary.hasOtp ? SAVED_SECRET : "otpauth://… or Base32"}
             onChange={(event) =>
               setDraft({ ...draft, otpSecret: event.target.value })
             }
@@ -633,6 +664,9 @@ function Account({
     </Paper>
   );
 }
+
+/** What a saved password or OTP setup shows in its empty field. */
+const SAVED_SECRET = "••••••••";
 
 export function SchoolAccounts({
   notify,
@@ -678,9 +712,6 @@ export function SchoolAccounts({
     );
   return (
     <div className="schoolAccounts">
-      {import.meta.env.DEV && (
-        <div className="loginCaptureBadge">Capture active · Science Portal</div>
-      )}
       <Account
         profile="science"
         title="Science Tokyo Portal"

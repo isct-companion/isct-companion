@@ -36,13 +36,17 @@ export class UnsupportedWorkspaceSchemaError extends Error {
 const CLOCK = /^\d{1,2}:\d{2}$/;
 
 function normalize(data: Workspace): Workspace {
+  data.currentTerm ??= data.selectedTerm;
   // Meetings saved without clock times (e.g. a 5-8 period block) get them from their periods.
   for (const course of data.courses ?? [])
     for (const meeting of course.meetings ?? []) {
       if (!CLOCK.test(meeting.startTime) || !CLOCK.test(meeting.endTime)) {
         const periods = meeting.periods?.filter(Number.isFinite) ?? [];
         if (periods.length) {
-          const clock = clockForPeriods([Math.min(...periods), Math.max(...periods)]);
+          const clock = clockForPeriods([
+            Math.min(...periods),
+            Math.max(...periods),
+          ]);
           meeting.startTime = clock.start;
           meeting.endTime = clock.end;
         }
@@ -51,7 +55,9 @@ function normalize(data: Workspace): Workspace {
   data.terms ??= [];
   data.planItems ??= [];
   data.scheduledTasks ??= [];
-  if (!data.scheduledTasks.some((task) => task.id === REFERENCE_REFRESH_TASK_ID))
+  if (
+    !data.scheduledTasks.some((task) => task.id === REFERENCE_REFRESH_TASK_ID)
+  )
     data.scheduledTasks.push(referenceRefreshTask(data.deviceId));
   if (
     !data.scheduledTasks.some(
@@ -89,7 +95,11 @@ function normalize(data: Workspace): Workspace {
 function localExport(workspace: Workspace): ExportDocument {
   const exportedAt = new Date().toISOString();
   const versionedSetting = (key: string, value: unknown) => ({
-    key, value, rev: 1, updatedAt: exportedAt, updatedBy: workspace.deviceId,
+    key,
+    value,
+    rev: 1,
+    updatedAt: exportedAt,
+    updatedBy: workspace.deviceId,
   });
   return {
     schemaVersion: 6,
@@ -99,7 +109,9 @@ function localExport(workspace: Workspace): ExportDocument {
     localNotes: [],
     tables: {
       manual_courses: workspace.courses.filter((course) => !course.lastSeenAt),
-      manual_memberships: workspace.memberships.filter((membership) => !membership.lastSeenAt),
+      manual_memberships: workspace.memberships.filter(
+        (membership) => !membership.lastSeenAt,
+      ),
       personal_events: workspace.events,
       plan_items: workspace.planItems,
       calendar_exceptions: workspace.exceptions,
@@ -182,7 +194,9 @@ export function validateExportDocument(value: unknown): ExportDocument {
       );
   }
   if (!Array.isArray(document.localNotes))
-    throw new UnsupportedWorkspaceSchemaError("Export localNotes must be an array.");
+    throw new UnsupportedWorkspaceSchemaError(
+      "Export localNotes must be an array.",
+    );
   for (const row of document.tables.settings as unknown[]) {
     if (
       !row ||
@@ -203,7 +217,9 @@ function workspaceFromLocalExport(document: ExportDocument): Workspace {
     ),
   );
   const seed = seedWorkspace();
-  const preferences = (value.userPreferences ?? {}) as Partial<Workspace["settings"]>;
+  const preferences = (value.userPreferences ?? {}) as Partial<
+    Workspace["settings"]
+  >;
   const workspace = {
     ...seed,
     courses: document.tables.manual_courses,
@@ -225,10 +241,14 @@ function workspaceFromLocalExport(document: ExportDocument): Workspace {
     scheduleOverrides: document.tables.schedule_overrides ?? [],
     subscriptions: document.tables.subscriptions ?? [],
     scheduledTasks: [],
-    settings: { ...seed.settings, ...preferences, notifications: {
-      ...seed.settings.notifications,
-      ...(preferences.notifications ?? {}),
-    } },
+    settings: {
+      ...seed.settings,
+      ...preferences,
+      notifications: {
+        ...seed.settings.notifications,
+        ...(preferences.notifications ?? {}),
+      },
+    },
     academicProfile: value.academicProfile ?? seed.academicProfile,
   } as unknown as Workspace;
   return normalize(workspace);
@@ -310,7 +330,9 @@ export class SqliteRepository implements WorkspaceRepository {
       ["scheduledTasks", "scheduled_tasks"],
     ] as const;
     for (const [field, table] of collections) {
-      const before = new Map(previous[field].map((record) => [record.id, record]));
+      const before = new Map(
+        previous[field].map((record) => [record.id, record]),
+      );
       for (const record of data[field]) {
         if (
           (field === "courses" || field === "memberships") &&
@@ -322,14 +344,25 @@ export class SqliteRepository implements WorkspaceRepository {
         if (same(old, record)) continue;
         if (record.deletedAt) {
           if (!old?.deletedAt)
-            await invoke("delete_user_record", { table, id: record.id });
+            await invoke("delete_user_record", {
+              table,
+              id: record.id,
+              expectedRev: old?.rev ?? 0,
+            });
         } else {
-          await invoke("put_user_record", { table, record });
+          const saved = await invoke<typeof record>("put_user_record", {
+            table,
+            record,
+            expectedRev: old?.rev ?? 0,
+          });
+          Object.assign(record, saved);
         }
       }
     }
 
-    const oldAssignments = new Map(previous.assignments.map((item) => [item.id, item]));
+    const oldAssignments = new Map(
+      previous.assignments.map((item) => [item.id, item]),
+    );
     for (const assignment of data.assignments) {
       const old = oldAssignments.get(assignment.id);
       if (
@@ -351,7 +384,8 @@ export class SqliteRepository implements WorkspaceRepository {
 
     const oldCourses = new Map(previous.courses.map((item) => [item.id, item]));
     for (const course of data.courses) {
-      if (same(oldCourses.get(course.id)?.overrides, course.overrides)) continue;
+      if (same(oldCourses.get(course.id)?.overrides, course.overrides))
+        continue;
       await invoke("put_user_record", {
         table: "course_overrides",
         record: {
@@ -435,8 +469,14 @@ export class SqliteRepository implements WorkspaceRepository {
       ["logs", previous.logs, data.logs],
     ] as const;
     for (const [key, oldValue, value] of settings) {
-      if (!same(oldValue, value))
-        await invoke("put_workspace_setting", { key, value: value ?? null });
+      if (!same(oldValue, value)) {
+        const currentTerm = await invoke<unknown>("put_workspace_setting", {
+          key,
+          value: value ?? null,
+        });
+        if (typeof currentTerm === "string")
+          data.currentTerm = currentTerm as Workspace["currentTerm"];
+      }
     }
     this.baseline = structuredClone(data);
   }

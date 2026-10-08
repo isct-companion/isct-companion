@@ -1,12 +1,14 @@
-use crate::kyomu_ingest::{
-    apply_kyomu_payload, parse_kyomu_payload, KyomuStage, KYOMU_EXTRACT_SCRIPT,
-};
+use crate::kyomu_ingest::{apply_kyomu_payload, KYOMU_EXTRACT_SCRIPT};
 use crate::lifecycle::SchoolSite;
-use crate::lms_ingest::{apply_lms_payload, parse_lms_payload, LmsStage};
+use crate::lms_ingest::apply_lms_payload;
 use crate::school_auth::{
     upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
 };
 use crate::school_extract::{sanitize_school_url, T2SCHOLA_EXTRACT_SCRIPT};
+use crate::school_parser::{
+    kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
+    lms::{parse_payload as parse_lms_payload, LmsStage},
+};
 use crate::secrets::OsSecretVault;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::RngCore;
@@ -22,6 +24,7 @@ use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl};
 use tauri_plugin_opener::OpenerExt;
+use tokio::sync::Notify;
 use url::Url;
 
 #[cfg(target_os = "macos")]
@@ -301,7 +304,19 @@ pub struct SchoolSessionEvent {
     pub state: &'static str,
 }
 
-fn emit_session(app: &AppHandle, profile: SchoolAuthProfile, state: &'static str) {
+fn emit_session(
+    controller: &Arc<Mutex<ControllerState>>,
+    app: &AppHandle,
+    profile: SchoolAuthProfile,
+    state: &'static str,
+) {
+    let changed = controller.lock().ok().map(|mut controller| {
+        controller.sessions.insert(profile, state);
+        controller.session_changed.clone()
+    });
+    if let Some(changed) = changed {
+        changed.notify_waiters();
+    }
     eprintln!("[school-session] {profile:?} {state}");
     let _ = app.emit_to(
         MAIN_WINDOW,
@@ -348,6 +363,9 @@ struct ControllerState {
     auto_blocked: HashSet<SchoolAuthProfile>,
     /// A launch-time session check waiting for its portal page to load.
     heartbeat: Option<SchoolAuthProfile>,
+    /// Authoritative result of the latest completed session check/login.
+    sessions: HashMap<SchoolAuthProfile, &'static str>,
+    session_changed: Arc<Notify>,
     creating: HashSet<SchoolSite>,
     ingestion_relays: HashMap<SchoolSite, String>,
     pending_ingestion: HashSet<SchoolSite>,
@@ -399,6 +417,8 @@ impl Default for ControllerState {
             login: None,
             auto_blocked: HashSet::new(),
             heartbeat: None,
+            sessions: HashMap::new(),
+            session_changed: Arc::new(Notify::new()),
             creating: HashSet::new(),
             ingestion_relays: HashMap::new(),
             pending_ingestion: HashSet::new(),
@@ -435,19 +455,7 @@ fn apply_bounds(webview: &Webview, bounds: WebBounds) -> Result<(), String> {
 }
 
 fn site_for_url(raw: &str) -> Option<SchoolSite> {
-    match Url::parse(raw).ok()?.host_str()? {
-        "lms.s.isct.ac.jp" | "t2schola.titech.ac.jp" => Some(SchoolSite::ScienceLms),
-        "syllabus.s.isct.ac.jp" => Some(SchoolSite::Syllabus),
-        "isct.ex-tic.com" | "portal.isct.ac.jp" => Some(SchoolSite::SciencePortal),
-        "portal.titech.ac.jp" | "portal.nap.gsic.titech.ac.jp" | "rp.nap.gsic.titech.ac.jp" => {
-            Some(SchoolSite::TokyoPortal)
-        }
-        "mailv4.m.titech.ac.jp" => Some(SchoolSite::TokyoMail),
-        "kyomu0.gakumu.titech.ac.jp" => Some(SchoolSite::Kyomu),
-        "request.libra.titech.ac.jp" => Some(SchoolSite::Library),
-        "portal.t4.gsic.titech.ac.jp" => Some(SchoolSite::Tsubame),
-        _ => None,
-    }
+    SchoolSite::for_url(raw)
 }
 
 /// Where a link that asks for a new window (`target="_blank"`, `window.open`)
@@ -780,7 +788,7 @@ fn handle_login_relay(state: &Arc<Mutex<ControllerState>>, app: &AppHandle, enco
         emit_login_status(app, relay.profile, &relay.state, &relay.message);
     }
     if failed {
-        emit_session(app, relay.profile, "failed");
+        emit_session(state, app, relay.profile, "failed");
         let interrupted = state.lock().ok().and_then(|mut state| {
             let site = state.pulling?;
             let waiters = state.ingest_waiters.remove(&site).unwrap_or_default();
@@ -1640,7 +1648,7 @@ impl SchoolWebController {
         match job {
             SchoolJob::Session(profile) => {
                 if let Err(error) = self.ensure_session_now(app, profile) {
-                    emit_session(app, profile, "failed");
+                    emit_session(&self.state, app, profile, "failed");
                     eprintln!("[school-queue] session failed to start: {error}");
                     self.complete_session_job(app, profile);
                 }
@@ -1734,6 +1742,7 @@ impl SchoolWebController {
                 eprintln!("[school-queue] duplicate {profile:?} session discarded");
                 false
             } else {
+                state.sessions.remove(&profile);
                 state.jobs.push_back(SchoolJob::Session(profile));
                 eprintln!("[school-queue] queued {profile:?} session");
                 true
@@ -1743,6 +1752,48 @@ impl SchoolWebController {
             self.advance_jobs(app);
         }
         Ok(accepted)
+    }
+
+    /// Waits for the Rust-owned school queue to prove that a profile is
+    /// signed in. Downloaders call this instead of inferring authentication
+    /// from a public LMS URL such as robots.txt.
+    pub async fn wait_for_session(
+        &self,
+        app: &AppHandle,
+        profile: SchoolAuthProfile,
+    ) -> Result<(), String> {
+        if self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.sessions.get(&profile).copied())
+            == Some("active")
+        {
+            return Ok(());
+        }
+        self.request_session(app, profile)?;
+        let wait = async {
+            loop {
+                let (status, changed) = {
+                    let state = self
+                        .state
+                        .lock()
+                        .map_err(|_| "School web state is unavailable.".to_string())?;
+                    (
+                        state.sessions.get(&profile).copied(),
+                        state.session_changed.clone(),
+                    )
+                };
+                match status {
+                    Some("active") => return Ok(()),
+                    Some("failed") => return Err("School sign-in failed.".to_string()),
+                    _ => changed.notified().await,
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(180), wait)
+            .await
+            .map_err(|_| "School sign-in did not finish in time.".to_string())?
     }
 
     pub fn request_login(
@@ -1757,6 +1808,7 @@ impl SchoolWebController {
                 .state
                 .lock()
                 .map_err(|_| "School web state is unavailable.".to_string())?;
+            state.sessions.remove(&profile);
             state.jobs.push_back(SchoolJob::Login {
                 profile,
                 credentials,
@@ -2471,6 +2523,9 @@ impl SchoolWebController {
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         let builder = builder;
         let builder = builder
+            // Tauri's handler claims OS file drops, so the page never sees
+            // them; school pages need the drop for assignment uploads.
+            .disable_drag_drop_handler()
             .initialization_script_for_all_frames(KYOMU_POPUP_SCRIPT)
             .initialization_script_for_all_frames(SCHOOL_LINKS_SCRIPT)
             .on_page_load(move |webview, payload| {
@@ -2569,18 +2624,22 @@ impl SchoolWebController {
                     let _ = Self::write_restore(&app_for_load, site, raw_url);
                 }
                 if let Some(safe_url) = sanitize_school_url(raw_url) {
-                    let _ = app_for_load.emit_to(MAIN_WINDOW, "school-web-url", safe_url);
+                    let _ = app_for_load.emit_to(
+                        MAIN_WINDOW,
+                        "school-web-url",
+                        serde_json::json!({ "site": site, "url": safe_url }),
+                    );
                 }
                 if let Some(profile) = completed {
                     emit_login_status(&app_for_load, profile, "connected", "Connected");
                 }
                 let settled_profile = match (heartbeat, completed) {
                     (Some((profile, outcome)), _) => {
-                        emit_session(&app_for_load, profile, outcome);
+                        emit_session(&state_for_load, &app_for_load, profile, outcome);
                         Some(profile)
                     }
                     (None, Some(profile)) => {
-                        emit_session(&app_for_load, profile, "active");
+                        emit_session(&state_for_load, &app_for_load, profile, "active");
                         Some(profile)
                     }
                     _ => None,

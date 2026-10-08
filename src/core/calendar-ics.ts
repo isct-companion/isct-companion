@@ -35,7 +35,10 @@ export function exportQuarterIcs(
   scope: CalendarExportScope = "courses",
   now = new Date(),
 ) {
-  const { from, to } = quarterRange(data, term);
+  const range = quarterRange(data, term);
+  if (!range)
+    throw new Error("Configure this quarter's dates before exporting it.");
+  const { from, to } = range;
   if (to < from || Date.parse(to) - Date.parse(from) > 366 * 86400000)
     throw new Error("Invalid quarter date range.");
   const lines = [

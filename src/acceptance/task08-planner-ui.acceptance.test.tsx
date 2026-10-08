@@ -105,6 +105,15 @@ function realPlannerWorkspace(): Workspace {
   workspace.selectedTerm = "2026-2Q";
   workspace.terms = ["2026-2Q"];
   workspace.academicProfile.admissionYear = 2026;
+  workspace.academicProfile.years = [{
+    academicYear: 2026,
+    quarterStarts: {
+      "1Q": "2026-04-01",
+      "2Q": "2026-06-01",
+      "3Q": "2026-10-01",
+      "4Q": "2026-12-01",
+    },
+  }];
   workspace.settings.departmentId = "cs";
   workspace.courses = [
     {

@@ -32,6 +32,50 @@ type MaterialResult =
   | { state: "tooLarge"; bytes: number };
 ```
 
+## LMS file transport
+
+All native LMS transfers are owned by Rust. The reader calls
+`open_course_material`; Rust resolves and downloads the file, then the frontend
+uses a scoped local asset URL. The `lmsfile` protocol remains available for
+inline/range-based consumers and is built only through `lmsFileUrl`:
+
+```text
+macOS / iOS / Linux: lmsfile://localhost/get?u=…&term=…&course=…
+Windows / Android:   http://lmsfile.localhost/get?u=…&term=…&course=…
+```
+
+The network boundary is the exact HTTPS origin `https://lms.s.isct.ac.jp`
+(no credentials or custom port), independent of Moodle's academic-year path.
+Business inputs must still be a `pluginfile.php` URL or a numeric
+`mod/{resource,url,folder}/view.php?id=…` address. Redirects are checked against
+the origin again. Folder components use the same validation as notes.
+`download=1` denotes an explicit user download and bypasses the automatic size
+limit.
+
+Resolution is cache-first. A stored `resourceUrl`, or an already resolved
+`pluginfile.php` URL, maps deterministically to the course materials path. A
+missing file is downloaded again by Rust's HTTP client using cookies copied
+from the signed-in LMS WebView. The WebView owns login only; it does not perform
+file transfers. An unresolved `view.php` is fetched with a read-only GET and
+parsed in Rust; successful file resolutions are written back to the versioned
+LMS item. Only remote URLs are stored in SQLite.
+Folder activities return a JSON list of already wrapped `lmsfile` URLs, while
+external `mod/url` activities return a typed external-link JSON response.
+
+File responses provide `Content-Type`, `Content-Length`, `Accept-Ranges`, an
+ETag based on the URL digest/size/modification time, and private revalidation.
+A single byte range receives `206` and `Content-Range`. Typed JSON failures are
+also exposed as `X-Isct-Reason`:
+
+| Status | Reason | Meaning |
+| ---: | --- | --- |
+| 401 | `login` | LMS session is missing or expired |
+| 404 | `unresolved` | The activity did not resolve to a file |
+| 413 | `tooLarge` | Automatic download limit exceeded |
+| 502 | `network` | LMS request failed |
+| 504 | `timeout` | Resolution or download timed out |
+| 400 | `invalid` | URL or course folder left the allowlist |
+
 The persisted settings are JSON integers:
 
 | Setting                        | Type and range        | Default | Meaning                                                                                             |

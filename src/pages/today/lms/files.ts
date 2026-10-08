@@ -21,7 +21,71 @@ export const folderComponent = (value: string) => {
   const name = value.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 120);
   return !name || name === "." || name === ".." ? "course" : name;
 };
-export const fileSrc = (file: LocalFile) => convertFileSrc(file.path);
+export type LmsFileReason =
+  | "login"
+  | "unresolved"
+  | "tooLarge"
+  | "network"
+  | "invalid"
+  | "timeout";
+
+export class LmsFileError extends Error {
+  constructor(
+    public reason: LmsFileReason,
+    public bytes?: number,
+  ) {
+    super(reason);
+  }
+}
+
+export function lmsFileUrl(
+  source: string,
+  context: Pick<CourseFolder, "term" | "course">,
+  options: {
+    download?: boolean;
+    foreground?: boolean;
+    native?: boolean;
+    platform?: string;
+  } = {},
+) {
+  const native = options.native ?? Boolean(desktopBridge);
+  if (!native) return source;
+  const platform = options.platform ?? `${navigator.platform} ${navigator.userAgent}`;
+  const origin = /Windows|Android/i.test(platform)
+    ? "http://lmsfile.localhost"
+    : "lmsfile://localhost";
+  const query = new URLSearchParams({
+    u: source,
+    term: context.term,
+    course: context.course,
+  });
+  if (options.download) query.set("download", "1");
+  if (options.foreground) query.set("foreground", "1");
+  return `${origin}/get?${query}`;
+}
+
+export async function lmsFileResponse(
+  source: string,
+  context: Pick<CourseFolder, "term" | "course">,
+  options: { download?: boolean; foreground?: boolean; range?: boolean } = {},
+) {
+  const response = await fetch(lmsFileUrl(source, context, options), {
+    headers: options.range ? { Range: "bytes=0-0" } : undefined,
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      reason?: LmsFileReason;
+      bytes?: number;
+    };
+    throw new LmsFileError(
+      body.reason ??
+        ((response.headers.get("X-Isct-Reason") as LmsFileReason | null) ||
+          "network"),
+      body.bytes,
+    );
+  }
+  return response;
+}
 const boundedInteger = (
   value: number | undefined,
   policy: { default: number; min: number; max: number },
@@ -138,7 +202,12 @@ export function saveNote(
 export type Material =
   | { state: "ready"; file: LocalFile }
   | { state: "missing" }
-  | { state: "tooLarge"; bytes: number };
+  | { state: "tooLarge"; bytes: number }
+  | { state: "folder"; files: { name: string; url: string }[] }
+  | { state: "external"; url: string }
+  | { state: "failed"; reason: LmsFileReason };
+
+export const localFileUrl = (path: string) => convertFileSrc(path);
 /**
  * Read a course file from the course folder; with `download`, fetch it first
  * through the signed-in LMS view. Files over `limit` bytes report their size.

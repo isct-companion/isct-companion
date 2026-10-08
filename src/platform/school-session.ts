@@ -95,9 +95,13 @@ export function signInAtLaunch(
       .schoolCredentialStatus()
       .catch(() => undefined);
     if (!status) return;
+    const configured = (summary: typeof status.science) =>
+      summary.availability
+        ? ["saved-locked", "available"].includes(summary.availability)
+        : summary.saved; // compatibility with status files/tests from before the typed state
     const saved: [SchoolAuthProfile, boolean][] = [
-      ["science", status.science.saved],
-      ["tokyo-tech", status.tokyoTech.saved],
+      ["science", configured(status.science)],
+      ["tokyo-tech", configured(status.tokyoTech)],
     ];
     await Promise.all(
       saved.map(async ([profile, isSaved]) => {
@@ -110,9 +114,9 @@ export function signInAtLaunch(
         // pulls cannot slip between the two launch sign-ins.
         if (!quiet) schoolSessions.set(profile, undefined);
         const result = settled(profile, timeoutMs);
-        const accepted = await sessionBridge
-          .ensureSchoolSession!(profile)
-          .catch(() => false);
+        const accepted = await sessionBridge.ensureSchoolSession!(
+          profile,
+        ).catch(() => false);
         if (accepted) await result;
         else if (!quiet) schoolSessions.set(profile, previous);
       }),

@@ -97,26 +97,23 @@ export function academicYearCalendar(
       days.push({ date, ...row, origin: "official" });
   days.sort((a, b) => a.date.localeCompare(b.date));
 
-  const profileYear = data.academicProfile.years.some(
+  const profileYear = data.academicProfile.years.find(
     (row) => row.academicYear === year,
   );
-  const publishedQuarters = new Set(
-    officialRows
-      .filter((row) => row.type === "quarter-start")
-      .map((row) => row.quarter ?? row.id.split(":").pop()),
-  );
-  const quarters = QUARTERS.map((quarter) => {
+  const quarters = QUARTERS.flatMap((quarter) => {
     const range = quarterRange(data, `${year}-${quarter}`);
-    return {
-      quarter,
-      from: range.from,
-      to: range.to,
-      origin: profileYear
-        ? ("own" as const)
-        : publishedQuarters.has(quarter)
-          ? ("official" as const)
-          : ("estimated" as const),
-    };
+    if (!range) return [];
+    return [
+      {
+        quarter,
+        from: range.from,
+        to: range.to,
+        origin:
+          profileYear?.quarterStarts[quarter] === range.from
+            ? ("own" as const)
+            : ("official" as const),
+      },
+    ];
   });
 
   const importantDates = data.importantDates

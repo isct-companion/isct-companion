@@ -38,6 +38,24 @@ Each source owns an independent adapter:
 
 Selectors are local to that source's parser. A site change can therefore fail one source without invalidating the rest of the workspace.
 
+### Rust module boundary
+
+`backend/src/school_parser/` is the single parsing boundary. Its provider
+modules accept bounded HTML or extractor JSON and return typed, validated
+values. They do not open network connections, access Tauri, write files, or
+write SQLite.
+
+- `school_parser::syllabus` owns public syllabus HTML selectors.
+- `school_parser::lms` owns LMS payload validation and module-page HTML selectors.
+- `school_parser::kyomu` owns the trust boundary for captured 教務 page data.
+
+The WebView scripts are acquisition adapters for pages that require a live
+browser DOM or Moodle session values; their bounded output is not trusted
+until the Rust parser accepts it. `lms_downloader` remains a separate service:
+it owns cookies, HTTP, concurrency, temporary files and cache writes, then
+passes response HTML to `school_parser::lms`. Ingest modules own only
+reconciliation and persistence.
+
 ## Import envelope
 
 Every parser returns the same outer contract:

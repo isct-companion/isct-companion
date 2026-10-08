@@ -4,7 +4,6 @@ import { validSyllabusContent } from "../core/syllabus-content";
 import { pickLocalized, type Localized } from "../core/model";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
-import type { SchoolImportResult } from "./capabilities";
 import type { SyllabusCourse } from "../core/syllabus";
 
 export type DesktopRuntime = "tauri";
@@ -18,7 +17,6 @@ export type SchoolSite =
   | "library"
   | "tsubame"
   | "syllabus";
-export type Schedule = "off" | "launch" | "hourly";
 /** A file a school page saved to Downloads (download or PDF viewer ↓). */
 export type SchoolDownloadEvent = {
   site: SchoolSite;
@@ -36,12 +34,24 @@ export type SchoolCredentials = {
 };
 export type SchoolCredentialStatus = {
   science: {
+    availability:
+      | "not-configured"
+      | "saved-locked"
+      | "available"
+      | "missing"
+      | "access-denied";
     saved: boolean;
     username: string;
     hasOtp: boolean;
     hasMatrix: boolean;
   };
   tokyoTech: {
+    availability:
+      | "not-configured"
+      | "saved-locked"
+      | "available"
+      | "missing"
+      | "access-denied";
     saved: boolean;
     username: string;
     hasOtp: boolean;
@@ -184,9 +194,12 @@ export interface DesktopBridge {
   target: NativeTarget;
   platform: string;
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
+  resolveSchoolUrl(url: string): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
+  runScheduledTask(id: string): Promise<string>;
+  onWorkspaceChanged(callback: () => void): () => void;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
   saveSchoolCredentials(
     profile: SchoolAuthProfile,
@@ -213,11 +226,7 @@ export interface DesktopBridge {
   ): Promise<{
     site: SchoolSite;
     url: string;
-    phase:
-      | "sessionRestored"
-      | "pageLoaded"
-      | "interactiveLoginCompleted"
-      | "reconnectRequired";
+    phase: "sessionRestored" | "pageLoaded";
   }>;
   configureSchoolWebPolicy(policy: {
     restoreAcrossRestarts: boolean;
@@ -232,7 +241,9 @@ export interface DesktopBridge {
   /** Load the view's previous page as a fresh GET; false when there is none. */
   schoolWebBack?(site: SchoolSite): Promise<boolean>;
   setSchoolWebZoom?(site: SchoolSite, scale: number): Promise<boolean>;
-  onSchoolWebUrl?(callback: (url: string) => void): () => void;
+  onSchoolWebUrl?(
+    callback: (request: { site: SchoolSite; url: string }) => void,
+  ): () => void;
   /** A school page asked for a new window showing another service's page. */
   onSchoolWebOpen?(
     callback: (request: { site: SchoolSite; url: string }) => void,
@@ -269,12 +280,6 @@ export interface DesktopBridge {
   onSchoolPullProgress?(
     callback: (progress: SchoolPullProgress) => void,
   ): () => void;
-  configureSchoolSchedule(schedule: Schedule): Promise<boolean>;
-  onScheduledSchoolResult(
-    callback: (result: SchoolImportResult) => void,
-  ): () => void;
-  updateExportWorkspace(workspace: unknown): Promise<boolean>;
-  configureExportSchedule(schedule: Schedule): Promise<boolean>;
   /** Saves a validated workspace export under app-owned local storage. */
   writeScheduledExport(): Promise<string>;
   connectCloud(
@@ -434,30 +439,58 @@ export function createTauriDesktopBridge(
   target: NativeTarget = window.__ISCT_COMPANION_NATIVE_TARGET__ ??
     "native-desktop",
 ): DesktopBridge {
+  const invokeCommand = async <T>(
+    command: string,
+    payload?: Record<string, unknown>,
+  ): Promise<T> => {
+    try {
+      return (await invoke(command, payload)) as T;
+    } catch (error) {
+      throw error instanceof Error
+        ? error
+        : new Error(typeof error === "string" ? error : `${command} failed`);
+    }
+  };
   const result = async <T>(
     command: string,
     payload?: Record<string, unknown>,
-  ) => requireObject<T>(command, await invoke(command, payload));
+  ) => requireObject<T>(command, await invokeCommand(command, payload));
   const booleanCommand = async (
     command: string,
     payload?: Record<string, unknown>,
-  ) => requireBoolean(command, await invoke(command, payload));
+  ) => requireBoolean(command, await invokeCommand(command, payload));
   return {
     runtime: "tauri",
     target,
     platform: navigator.platform,
     getRuntimeCapabilities: () => result("runtime_capabilities"),
+    resolveSchoolUrl: (url) => result("resolve_school_url", { url }),
     openExternal: async (url) => {
-      await invoke("open_external", { url });
+      await invokeCommand("open_external", { url });
     },
     notify: (title, body) => booleanCommand("notify", { title, body }),
     requestNotificationPermission: async () => {
-      const value = await invoke("request_notification_permission");
+      const value = await invokeCommand("request_notification_permission");
       if (!matchesNotificationPermission(value))
         throw new Error(
           "request_notification_permission returned an invalid result.",
         );
       return value;
+    },
+    runScheduledTask: (id) => invokeCommand("run_scheduled_task", { id }),
+    onWorkspaceChanged: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen("workspace-changed", () => {
+        if (!disposed) callback();
+      }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
     },
     schoolCredentialStatus: () => result("school_credential_status"),
     saveSchoolCredentials: (profile, credentials) =>
@@ -510,9 +543,18 @@ export function createTauriDesktopBridge(
     onSchoolWebUrl: (callback) => {
       let disposed = false;
       let unlisten: (() => void) | undefined;
-      void listen<string>("school-web-url", (payload) => {
-        if (!disposed && typeof payload === "string") callback(payload);
-      }).then((fn) => {
+      void listen<{ site: SchoolSite; url: string }>(
+        "school-web-url",
+        (payload) => {
+          if (
+            !disposed &&
+            payload &&
+            typeof payload.site === "string" &&
+            typeof payload.url === "string"
+          )
+            callback(payload);
+        },
+      ).then((fn) => {
         if (disposed) quietly(fn);
         else unlisten = fn;
       });
@@ -598,7 +640,7 @@ export function createTauriDesktopBridge(
     revealSchoolDownload: (path) =>
       booleanCommand("reveal_school_download", { path }),
     pullSchool: async (site, options) => {
-      const value = await invoke("pull_school", {
+      const value = await invokeCommand("pull_school", {
         site,
         lmsCourseId: options?.lmsCourseId,
       });
@@ -609,7 +651,7 @@ export function createTauriDesktopBridge(
     schoolRecords: async () => {
       const value = requireObject<Partial<SchoolRecords>>(
         "school_records",
-        await invoke("school_records"),
+        await invokeCommand("school_records"),
       );
       const rows = <T>(list: unknown): T[] =>
         Array.isArray(list)
@@ -694,28 +736,8 @@ export function createTauriDesktopBridge(
     },
     configureSchoolWebPolicy: (policy) =>
       booleanCommand("configure_school_web_policy", { policy }),
-    configureSchoolSchedule: (schedule) =>
-      booleanCommand("configure_school_schedule", { schedule }),
-    onScheduledSchoolResult: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<SchoolImportResult>("scheduled-school-result", (payload) => {
-        if (!disposed) callback(payload);
-      }).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
-    updateExportWorkspace: (workspace) =>
-      booleanCommand("update_export_workspace", { workspace }),
-    configureExportSchedule: (schedule) =>
-      booleanCommand("configure_export_schedule", { schedule }),
     writeScheduledExport: async () => {
-      const value = await invoke("write_scheduled_export");
+      const value = await invokeCommand("write_scheduled_export");
       if (typeof value !== "string" || !value)
         throw new Error("write_scheduled_export returned an invalid result.");
       return value;
@@ -734,7 +756,7 @@ export function createTauriDesktopBridge(
         content: { lang: string; content: unknown }[];
       }>(
         "catalog_sync_offering",
-        await invoke("catalog_sync_offering", { id: url }),
+        await invokeCommand("catalog_sync_offering", { id: url }),
       );
       const preferred =
         synced.content.find((row) => row.lang === language) ??
@@ -750,7 +772,7 @@ export function createTauriDesktopBridge(
         truncated: boolean;
       }>(
         "catalog_query",
-        await invoke("catalog_query", {
+        await invokeCommand("catalog_query", {
           query: q,
           year,
           filters: { department: scope, code, groups },
@@ -763,11 +785,11 @@ export function createTauriDesktopBridge(
       };
     },
     catalogSyncOfferings: async (ids) => {
-      const warnings = await invoke("catalog_sync_offerings", { ids });
+      const warnings = await invokeCommand("catalog_sync_offerings", { ids });
       return Array.isArray(warnings) ? warnings.map(String) : [];
     },
     catalogOfferings: async (year) => {
-      const rows = await invoke("catalog_offerings", { year });
+      const rows = await invokeCommand("catalog_offerings", { year });
       if (!Array.isArray(rows))
         throw new Error("catalog_offerings returned an invalid result.");
       // Rows that do not have the finder's shape are skipped, not fatal. A row

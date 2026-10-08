@@ -1,14 +1,15 @@
 mod api;
-mod model;
-mod parser;
-mod transport;
+pub(crate) mod model;
+pub(crate) mod transport;
+
+pub(crate) use crate::school_parser::syllabus as parser;
 
 pub use api::{
     department_catalog, search_bilingual, sync_offering, sync_offering_summary, SyllabusFilters,
 };
 pub use model::{CatalogSearchItem, CatalogSearchResult, DepartmentSyncResult, SyncOfferingResult};
 
-use api::utc_now;
+pub(crate) use api::utc_now;
 
 #[cfg(test)]
 mod language_tests {

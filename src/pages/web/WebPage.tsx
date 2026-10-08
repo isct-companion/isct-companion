@@ -44,22 +44,6 @@ const normalizeAddress = (raw: string) => {
   return url.toString();
 };
 
-const siteForAddress = (raw: string): SchoolSite | undefined => {
-  const host = new URL(raw).hostname;
-  if (host === "lms.s.isct.ac.jp" || host === "t2schola.titech.ac.jp")
-    return "science-lms";
-  if (host === "isct.ex-tic.com" || host === "portal.isct.ac.jp")
-    return "science-portal";
-  if (host === "portal.titech.ac.jp" || host === "portal.nap.gsic.titech.ac.jp")
-    return "tokyo-portal";
-  if (host === "mailv4.m.titech.ac.jp") return "tokyo-mail";
-  if (host === "kyomu0.gakumu.titech.ac.jp") return "kyomu";
-  if (host === "request.libra.titech.ac.jp") return "library";
-  if (host === "portal.t4.gsic.titech.ac.jp") return "tsubame";
-  if (host === "syllabus.s.isct.ac.jp") return "syllabus";
-  return undefined;
-};
-
 export function Web({
   platform,
   data,
@@ -83,11 +67,10 @@ export function Web({
   onReturn?: () => void;
 }) {
   const [site, setSite] = useState<SchoolSite>(() => {
-    if (requestedUrl) return siteForAddress(requestedUrl) ?? "science-lms";
+    if (requestedUrl) return "science-lms";
     const active = sessionStorage.getItem("isct-companion-active-school-site");
     if (active && active in official) return active as SchoolSite;
-    if (!data.settings.restoreSchoolPage)
-      return "science-portal";
+    if (!data.settings.restoreSchoolPage) return "science-portal";
     const saved = data.settings.activeSchoolSite;
     return saved && saved in official
       ? (saved as SchoolSite)
@@ -103,12 +86,16 @@ export function Web({
   const [address, setAddress] = useState(initialUrl);
   const serviceWidth = data.settings.schoolServiceWidth ?? 168;
   const zoom = data.settings.schoolWebZoom ?? 1;
-  const setServiceWidth = (value: number) => update((draft) => {
-    draft.settings.schoolServiceWidth = value; return draft;
-  });
-  const setZoom = (value: number) => update((draft) => {
-    draft.settings.schoolWebZoom = value; return draft;
-  });
+  const setServiceWidth = (value: number) =>
+    update((draft) => {
+      draft.settings.schoolServiceWidth = value;
+      return draft;
+    });
+  const setZoom = (value: number) =>
+    update((draft) => {
+      draft.settings.schoolWebZoom = value;
+      return draft;
+    });
   const resolvedServiceWidth = clamp(serviceWidth, 132, 360);
   const resolvedZoom = clamp(zoom, 0.5, 2);
   const host = useRef<HTMLDivElement>(null);
@@ -132,11 +119,13 @@ export function Web({
 
   useEffect(
     () =>
-      desktopBridge?.onSchoolWebUrl?.((url) => {
+      desktopBridge?.onSchoolWebUrl?.((request) => {
+        if (request.site !== site) return;
+        const { url } = request;
         setCurrentUrl(url);
         if (!editingAddress.current) setAddress(url);
       }),
-    [],
+    [site],
   );
 
   useEffect(() => {
@@ -193,7 +182,9 @@ export function Web({
   useEffect(() => {
     if (!embedded || !desktopBridge || !active) return;
     // Settings → "Show page" asks for a site while this page is kept alive.
-    const requested = sessionStorage.getItem("isct-companion-active-school-site");
+    const requested = sessionStorage.getItem(
+      "isct-companion-active-school-site",
+    );
     if (
       !requestedUrl &&
       requested &&
@@ -215,23 +206,29 @@ export function Web({
       .then(() => {
         if (cancelled) return undefined;
         claimSchoolView(owner.current);
-        return desktopBridge!.openSchoolSite(
-          site,
-          permitted ? (custom?.css ?? "") : "",
-          permitted ? (custom?.js ?? "") : "",
-          bounds(),
-          requestedUrl && siteForAddress(requestedUrl) === site
-            ? requestedUrl
-            : undefined,
-        );
+        return (
+          requestedUrl
+            ? desktopBridge!.resolveSchoolUrl(requestedUrl)
+            : Promise.resolve({ site, url: undefined })
+        ).then((resolved) => {
+          if (resolved.site !== site) {
+            setSite(resolved.site);
+            return undefined;
+          }
+          return desktopBridge!.openSchoolSite(
+            resolved.site,
+            permitted ? (custom?.css ?? "") : "",
+            permitted ? (custom?.js ?? "") : "",
+            bounds(),
+            resolved.url,
+          );
+        });
       })
       .then(async (state) => {
         if (cancelled || !state) return;
         setCurrentUrl(state.url);
         if (!editingAddress.current) setAddress(state.url);
-        setStatus(
-          state.phase === "reconnectRequired" ? "Sign-in required" : "",
-        );
+        setStatus("");
         await desktopBridge?.setSchoolWebZoom?.(site, resolvedZoom);
       })
       .catch((error) => {
@@ -264,9 +261,11 @@ export function Web({
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
     sessionStorage.setItem("isct-companion-active-school-site", next);
-    if (data.settings.restoreSchoolPage) update((draft) => {
-      draft.settings.activeSchoolSite = next; return draft;
-    });
+    if (data.settings.restoreSchoolPage)
+      update((draft) => {
+        draft.settings.activeSchoolSite = next;
+        return draft;
+      });
     const nextUrl = official[next].url;
     setCurrentUrl(nextUrl);
     setAddress(nextUrl);
@@ -277,10 +276,10 @@ export function Web({
     event.preventDefault();
     try {
       const target = normalizeAddress(address);
-      const destination = siteForAddress(target);
-      if (!destination)
-        throw new Error("Use an official Science Tokyo school URL.");
-      await openTarget(target, destination);
+      if (!desktopBridge)
+        throw new Error("School navigation needs the installed app.");
+      const resolved = await desktopBridge.resolveSchoolUrl(target);
+      await openTarget(resolved.url, resolved.site);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Invalid address");
     }
@@ -312,9 +311,11 @@ export function Web({
     }
     if (destination !== site) {
       sessionStorage.setItem("isct-companion-active-school-site", destination);
-      if (data.settings.restoreSchoolPage) update((draft) => {
-        draft.settings.activeSchoolSite = destination; return draft;
-      });
+      if (data.settings.restoreSchoolPage)
+        update((draft) => {
+          draft.settings.activeSchoolSite = destination;
+          return draft;
+        });
       setSite(destination);
     }
     setCurrentUrl(target);
@@ -376,7 +377,7 @@ export function Web({
       const customizationSite = official[site].customization;
       const custom = data.settings.customization?.sites[customizationSite];
       const permitted =
-        (data.settings.siteConsents?.[customizationSite] ?? false);
+        data.settings.siteConsents?.[customizationSite] ?? false;
       void desktopBridge
         .openSchoolSite(
           site,

@@ -115,7 +115,7 @@ it("adds a clashing course as a replacement, and Undo brings the old one back", 
   await act(async () => root.render(<App />));
   const nav = await vi.waitFor(() => {
     const button = [...host.querySelectorAll("button")].find((b) =>
-      /^Schedule/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""),
+      /^Home/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""),
     );
     if (!button) throw new Error("app not ready");
     return button;
