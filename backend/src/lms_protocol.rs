@@ -288,6 +288,23 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
         .and_then(|row| row.get("resourceUrl"))
         .and_then(serde_json::Value::as_str);
     let mut resolved = known.map(str::to_string);
+    let folder_listing = |files: Vec<crate::lms_downloader::ResolvedFile>| {
+        files
+            .into_iter()
+            .filter_map(|file| {
+                lms_files::lms_resource_url(&file.url).ok().map(|_| {
+                    json!({"name":file.name,"url":app_url(&request,&file.url,&course,explicit,true)})
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    if let LmsResourceKind::View { module, .. } = &kind {
+        if module == "folder" {
+            if let Some(files) = lms_files::stored_folder_files(stored.as_ref()) {
+                return json_response(json!({"kind":"folder","files":folder_listing(files)}));
+            }
+        }
+    }
 
     #[cfg(desktop)]
     if resolved.is_none() {
@@ -310,15 +327,12 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
                     };
                 }
                 Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
-                    let files = files
-                        .into_iter()
-                        .filter_map(|file| {
-                            lms_files::lms_resource_url(&file.url).ok().map(|_| {
-                                json!({
-                        "name":file.name,"url":app_url(&request,&file.url,&course,explicit,true)})
-                            })
-                        })
-                        .collect::<Vec<_>>();
+                    let _ = store.update_lms_folder_files(
+                        *cmid,
+                        &source,
+                        &lms_files::folder_contract(&files),
+                    );
+                    let files = folder_listing(files);
                     return if files.is_empty() {
                         error(Reason::Unresolved, None)
                     } else {

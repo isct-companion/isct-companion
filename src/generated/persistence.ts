@@ -48,10 +48,13 @@ export type Meeting = {
 
 export type CourseNames = { title: Localized; instructor: Localized };
 
+export type LessonMark = { occurrence: string; sectionId: number };
+
 export type CourseOverrides = {
   title?: string;
   instructor?: string;
   color?: string;
+  lessonLog?: Array<LessonMark>;
 };
 
 export type Course = {
@@ -121,6 +124,8 @@ export type Assignment = {
   deletedAt?: string;
 };
 
+export type FolderFile = { name: string; url: string };
+
 export type Material = {
   kind: "material";
   courseId: string;
@@ -137,6 +142,10 @@ export type Material = {
   visible?: boolean;
   bodyHtml?: string;
   resourceUrl?: string;
+  /**
+   * A folder's files, kept from its last successful read.
+   */
+  folderFiles?: Array<FolderFile>;
   url?: string;
   source: SourceRef;
   lastSeenAt?: string;
@@ -459,6 +468,7 @@ export type CourseOverride = {
   title?: string;
   instructor?: string;
   color?: string;
+  lessonLog?: Array<LessonMark>;
   id: string;
   rev: number;
   updatedAt: string;
@@ -587,8 +597,9 @@ export type Workspace = {
   deviceId: string;
   selectedTerm: `${number}-${Quarter}`;
   /**
-   * Derived by Rust from profile overrides, the academic calendar, then
-   * the Tokyo academic-year fallback. It is never persisted as user data.
+   * Derived by Rust from profile overrides, then the subscribed academic
+   * calendar. If neither has a usable boundary, the selected term is kept;
+   * no month-based academic-calendar assumptions are made here.
    */
   currentTerm: `${number}-${Quarter}`;
   terms?: Array<`${number}-${Quarter}`>;

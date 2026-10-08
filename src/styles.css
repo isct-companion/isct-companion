@@ -1345,15 +1345,6 @@ p {
   display: grid;
   gap: 18px;
 }
-.loginCaptureBadge {
-  width: max-content;
-  padding: 3px 8px;
-  border-radius: 99px;
-  background: var(--warn-soft);
-  color: var(--warn);
-  font-size: calc(11px * var(--text));
-  font-weight: 650;
-}
 .schoolAccount {
   padding: 12px 0 16px;
   border-bottom: 1px solid var(--line);

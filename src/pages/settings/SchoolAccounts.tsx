@@ -5,7 +5,6 @@ import {
   FileButton,
   Group,
   Paper,
-  PasswordInput,
   Progress,
   Stack,
   Text,
@@ -604,37 +603,26 @@ function Account({
             setDraft({ ...draft, username: event.target.value })
           }
         />
-        <PasswordInput
+        {/* A saved secret shows as fixed dots; typing replaces it, blank keeps it. */}
+        <TextInput
+          type="password"
           label="Password"
           value={draft.password}
-          description={
-            summary.saved ? "Saved — leave blank to keep" : undefined
-          }
-          placeholder={
-            summary.saved ? "Leave blank to keep saved password" : ""
-          }
-          visibilityToggleButtonProps={{ hidden: !draft.password }}
+          placeholder={summary.saved ? SAVED_SECRET : ""}
           autoComplete="current-password"
           onChange={(event) =>
             setDraft({ ...draft, password: event.target.value })
           }
         />
         {profile === "science" && (
-          <PasswordInput
+          <TextInput
+            type="password"
             className="wide"
             label="OTP setup link or secret"
             value={draft.otpSecret}
             autoCapitalize="none"
             autoComplete="off"
-            description={
-              summary.hasOtp ? "Saved — leave blank to keep" : undefined
-            }
-            placeholder={
-              summary.hasOtp
-                ? "Leave blank to keep saved OTP setup"
-                : "otpauth://… or Base32"
-            }
-            visibilityToggleButtonProps={{ hidden: !draft.otpSecret }}
+            placeholder={summary.hasOtp ? SAVED_SECRET : "otpauth://… or Base32"}
             onChange={(event) =>
               setDraft({ ...draft, otpSecret: event.target.value })
             }
@@ -676,6 +664,9 @@ function Account({
     </Paper>
   );
 }
+
+/** What a saved password or OTP setup shows in its empty field. */
+const SAVED_SECRET = "••••••••";
 
 export function SchoolAccounts({
   notify,
@@ -721,9 +712,6 @@ export function SchoolAccounts({
     );
   return (
     <div className="schoolAccounts">
-      {import.meta.env.DEV && (
-        <div className="loginCaptureBadge">Capture active · Science Portal</div>
-      )}
       <Account
         profile="science"
         title="Science Tokyo Portal"

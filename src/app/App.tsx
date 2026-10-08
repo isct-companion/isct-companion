@@ -9,7 +9,7 @@ import i18n, { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import { desktopBridge, hideNativeSchoolWeb } from "./native";
 import { cleanMaterials, retentionDays } from "../pages/today/lms/files";
-import { stamp, type Page, type Section } from "./shared";
+import { jstDate, stamp, type Page, type Section } from "./shared";
 import {
   onTimetable,
   setTimetable,
@@ -1478,9 +1478,12 @@ function WorkspaceApp() {
                 : null
             }
             active={page === "lectures"}
-            select={(courseId) =>
-              lectureEntry?.courseId !== courseId &&
-              setLectureEntry({ courseId, request: Date.now() })
+            select={(courseId, assignmentId) =>
+              (assignmentId
+                ? lectureEntry?.assignmentId !== assignmentId
+                : lectureEntry?.courseId !== courseId ||
+                  Boolean(lectureEntry.assignmentId)) &&
+              setLectureEntry({ courseId, assignmentId, request: Date.now() })
             }
             clear={() =>
               void hideNativeSchoolWeb()
@@ -1515,6 +1518,37 @@ function WorkspaceApp() {
                         : undefined
                     }
                     progress={lmsProgress}
+                    markLesson={
+                      readOnly
+                        ? undefined
+                        : (sectionId, occurrence, label) => {
+                            academicUpdate((draft) => {
+                              const target = draft.courses.find((c) => c.id === course.id);
+                              if (!target) return draft;
+                              // One mark per class meeting; the latest marks are enough.
+                              const log = (target.overrides?.lessonLog ?? []).filter(
+                                (mark) => mark.occurrence !== occurrence,
+                              );
+                              target.overrides = {
+                                ...target.overrides,
+                                lessonLog: [...log, { occurrence, sectionId }].slice(-60),
+                              };
+                              target.rev += 1;
+                              target.updatedAt = stamp();
+                              target.updatedBy = draft.deviceId;
+                              return draft;
+                            });
+                            // Say which class the mark is for: today's, or a later one.
+                            const when = new Date(occurrence);
+                            const format = (options: Intl.DateTimeFormatOptions) =>
+                              new Intl.DateTimeFormat(data.settings.locale, { ...options, hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Asia/Tokyo" }).format(when);
+                            setToast(
+                              occurrence.startsWith(jstDate(new Date()))
+                                ? t("Today's {{time}} class is recorded as {{lesson}}.", { time: format({}), lesson: label })
+                                : t("Your next class, {{date}}, is set to {{lesson}}.", { date: format({ month: "numeric", day: "numeric", weekday: "short" }), lesson: label }),
+                            );
+                          }
+                    }
                   />
                 </Suspense>
               );

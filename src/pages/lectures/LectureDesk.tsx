@@ -46,7 +46,7 @@ export function LectureDesk({
   data: Workspace;
   term: TermId;
   entry: CourseEntry | null;
-  select: (courseId: string) => void;
+  select: (courseId: string, assignmentId?: string) => void;
   clear: () => void;
   active: boolean;
   renderWorkspace: (entry: CourseEntry, active: boolean) => ReactNode;
@@ -55,6 +55,8 @@ export function LectureDesk({
   const [shownTerm, setShownTerm] = useState(term);
   useEffect(() => setShownTerm(term), [term]);
   const [query, setQuery] = useState("");
+  // The list shows the quarter's lectures, or its open assignments.
+  const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
   const terms = allTerms(data, term);
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -129,7 +131,36 @@ export function LectureDesk({
           left.rank - right.rank || left.title.localeCompare(right.title),
       );
   }, [data, shownTerm, now]);
+  const work = useMemo(() => {
+    const courses = new Map(
+      timetableCourses(data, shownTerm).map((course) => [course.id, course]),
+    );
+    return data.assignments
+      .filter(
+        (a) =>
+          !a.deletedAt &&
+          !a.hidden &&
+          courses.has(a.courseId) &&
+          !submitted(a) &&
+          (!a.dueAt || new Date(a.dueAt).getTime() >= now.getTime()),
+      )
+      .sort((left, right) =>
+        (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999"),
+      )
+      .map((a) => ({
+        assignment: a,
+        course: courses.get(a.courseId)!,
+        due: a.dueAt ? dueCountdown(a.dueAt, now) : undefined,
+      }));
+  }, [data, shownTerm, now]);
   const needle = query.trim().toLowerCase();
+  const shownWork = needle
+    ? work.filter(({ assignment, course }) =>
+        `${assignment.title} ${course.title} ${course.code}`
+          .toLowerCase()
+          .includes(needle),
+      )
+    : work;
   const shown = needle
     ? lectures.filter((lecture) =>
         `${lecture.title} ${lecture.code}`.toLowerCase().includes(needle),
@@ -185,16 +216,46 @@ export function LectureDesk({
             ))}
           </UiSelect>
         </header>
+        <div className="dueScope lectureMode" role="group" aria-label={t("Show")}>
+          {(["lectures", "assignments"] as const).map((item) => (
+            <button
+              type="button"
+              key={item}
+              aria-pressed={mode === item}
+              onClick={() => setMode(item)}
+            >
+              {t(item === "lectures" ? "Lectures" : "Assignments")}
+            </button>
+          ))}
+        </div>
         <UiInput
           className="lectureFilter"
           type="search"
-          aria-label={t("Filter lectures")}
-          placeholder={t("Filter lectures…")}
+          aria-label={t("Filter")}
+          placeholder={t("Filter…")}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => event.key === "Escape" && setQuery("")}
         />
-        {shown.map((lecture) => (
+        {mode === "assignments" &&
+          shownWork.map(({ assignment, course, due }) => (
+            <button
+              type="button"
+              key={assignment.id}
+              className={`lectureRow${entry?.assignmentId === assignment.id ? " selected" : ""}`}
+              aria-current={entry?.assignmentId === assignment.id ? "true" : undefined}
+              style={{ "--course": course.color } as React.CSSProperties}
+              onClick={() => select(course.id, assignment.id)}
+            >
+              <b>{assignment.title}</b>
+              <small>{course.title}</small>
+              {due && <span className={`dueChip ${due.tone}`}>{due.label}</span>}
+            </button>
+          ))}
+        {mode === "assignments" && !shownWork.length && (
+          <p className="quietEmpty compact">{t(work.length ? "No matching assignments." : "No open assignments.")}</p>
+        )}
+        {mode === "lectures" && shown.map((lecture) => (
           <button
             type="button"
             key={lecture.id}
@@ -215,7 +276,7 @@ export function LectureDesk({
             )}
           </button>
         ))}
-        {!shown.length && (
+        {mode === "lectures" && !shown.length && (
           <p className="quietEmpty compact">
             {t(
               lectures.length

@@ -425,6 +425,32 @@ pub(crate) fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), Stri
     Ok((url, LmsResourceKind::View { module, cmid }))
 }
 
+/// The contract form of a resolved folder's files, as stored on its material.
+pub(crate) fn folder_contract(
+    files: &[crate::lms_downloader::ResolvedFile],
+) -> Vec<crate::contracts::FolderFile> {
+    files
+        .iter()
+        .map(|file| crate::contracts::FolderFile {
+            name: file.name.clone(),
+            url: file.url.clone(),
+        })
+        .collect()
+}
+
+/// A folder's files kept from its last read, when every entry is still an LMS file.
+pub(crate) fn stored_folder_files(
+    row: Option<&serde_json::Value>,
+) -> Option<Vec<crate::lms_downloader::ResolvedFile>> {
+    let files: Vec<crate::lms_downloader::ResolvedFile> =
+        serde_json::from_value(row?.get("folderFiles")?.clone()).ok()?;
+    (!files.is_empty()
+        && files
+            .iter()
+            .all(|file| matches!(lms_resource_url(&file.url), Ok((_, LmsResourceKind::File)))))
+    .then_some(files)
+}
+
 #[tauri::command]
 pub async fn course_storage_info(
     webview: tauri::Webview,
@@ -656,15 +682,17 @@ pub async fn open_course_material(
         LmsResourceKind::File => source_url,
         LmsResourceKind::View { module, cmid } => {
             let store = app.state::<DataStore>();
-            let known = store
-                .lms_material_for_url(&source)
-                .ok()
-                .flatten()
-                .and_then(|row| {
-                    row.get("resourceUrl")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_string)
-                });
+            let stored = store.lms_material_for_url(&source).ok().flatten();
+            if module == "folder" {
+                if let Some(files) = stored_folder_files(stored.as_ref()) {
+                    return Ok(Material::Folder { files });
+                }
+            }
+            let known = stored.as_ref().and_then(|row| {
+                row.get("resourceUrl")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
             if let Some(known) = known {
                 eprintln!("[lms-file] using stored resolution");
                 if let Ok((url, LmsResourceKind::File)) = lms_resource_url(&known) {
@@ -692,6 +720,8 @@ pub async fn open_course_material(
                         return Ok(Material::External { url });
                     }
                     Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
+                        let _ =
+                            store.update_lms_folder_files(cmid, &source, &folder_contract(&files));
                         return Ok(Material::Folder { files });
                     }
                     Ok(crate::lms_downloader::ResolvedResource::Login)

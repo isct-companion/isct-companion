@@ -109,12 +109,15 @@ export function FilePreview({
   context,
   limit,
   openInApp,
+  openFile,
 }: {
   url: string;
   title: string;
   context: CourseFolder;
   limit: number;
   openInApp?: () => void;
+  /** Opens one file of a folder in the reader. */
+  openFile?: (url: string, name: string) => void;
 }) {
   const expected = previewKind(url);
   const lazyResource = /\/mod\/(resource|url|folder)\/view\.php/.test(url);
@@ -129,7 +132,21 @@ export function FilePreview({
     return <div className="lmsAttachmentPreview"><Toolbar title={title} url={url}>{actions}</Toolbar><p className="lmsQuiet lmsLoading">{t("Loading preview…")}</p></div>;
   }
   if (view.state === "folder") {
-    return <div className="lmsFileCardStage"><div className="lmsFileCard"><FileTile family="folder" /><div className="lmsFileCardText"><h3>{title}</h3></div><div className="lmsFileCardActions">{view.files.map(file => <a key={file.url} href={file.url} download>{file.name}</a>)}</div></div></div>;
+    // Names carry the extension; folder URLs may not.
+    const byName = (name: string) => `https://file.invalid/${encodeURIComponent(name)}`;
+    return <div className="lmsFolderView">
+      <header className="lmsFolderHeader"><FileTile family="folder" /><div><h3>{title}</h3><small>{t("{{count}} files", { count: view.files.length })}</small></div></header>
+      <div className="lmsFolderList">
+        {view.files.map(file => {
+          const ext = extension(byName(file.name));
+          const body = <><FileTile family={fileFamily(byName(file.name))} /><span><b>{file.name}</b>{ext && <small>{ext.toUpperCase()}</small>}</span><LmsIcon name="chevron" className="lmsRowAction" /></>;
+          return openFile
+            ? <button type="button" className="lmsItemRow" key={file.url} onClick={() => openFile(file.url, file.name)}>{body}</button>
+            : <a className="lmsItemRow" key={file.url} href={file.url} download>{body}</a>;
+        })}
+        {!view.files.length && <p className="lmsQuiet">{t("This folder is empty.")}</p>}
+      </div>
+    </div>;
   }
   if (view.state === "external") {
     return <div className="lmsFileCardStage"><div className="lmsFileCard"><FileTile family="link" /><div className="lmsFileCardText"><h3>{title}</h3></div><ExternalLink href={view.url}>{t("Open in browser")}</ExternalLink></div></div>;
@@ -281,4 +298,53 @@ function ImageView({ src, title, onBroken }: { src: string; title: string; onBro
         onClick={() => setActual(value => !value)} onError={onBroken} />
     </div>
   );
+}
+
+/**
+ * A folder's files listed in the outline, under the folder's own row. Each
+ * file opens the way an outline item does: previews in the reader, anything
+ * else as the popover card at the clicked file.
+ */
+type FolderFile = { name: string; url: string };
+/** Folder listings resolved in this session, so reopening a folder is instant. */
+const folderListings = new Map<string, FolderFile[]>();
+
+export function InlineFolder({
+  url,
+  context,
+  limit,
+  known,
+  openFile,
+  openInApp,
+}: {
+  url: string;
+  context: CourseFolder;
+  limit: number;
+  /** Files already stored with the folder; resolution runs only without them. */
+  known?: FolderFile[];
+  openFile: (url: string, name: string, anchor: Element) => void;
+  openInApp?: () => void;
+}) {
+  const listed = folderListings.get(url) ?? known;
+  const { view: resolved } = useCourseFile(url, context, limit, !listed);
+  useEffect(() => {
+    if (resolved.state === "folder") folderListings.set(url, resolved.files);
+  }, [resolved, url]);
+  const view: View = listed ? { state: "folder", files: listed } : resolved;
+  // Names carry the extension; folder URLs may not.
+  const byName = (name: string) => `https://file.invalid/${encodeURIComponent(name)}`;
+  if (view.state === "loading") return <p className="lmsQuiet lmsFolderNote">{t("Loading…")}</p>;
+  if (view.state !== "folder")
+    return <p className="lmsQuiet lmsFolderNote">{t("This folder could not be read.")}{" "}
+      {openInApp && <button type="button" className="lmsTextLink" onClick={openInApp}>{t("Open in LMS")}</button>}</p>;
+  if (!view.files.length) return <p className="lmsQuiet lmsFolderNote">{t("This folder is empty.")}</p>;
+  return <div className="lmsFolderFiles">
+    {view.files.map(file => {
+      const ext = extension(byName(file.name));
+      return <button type="button" className="lmsFolderFile" key={file.url} onClick={event => openFile(file.url, file.name, event.currentTarget)}>
+        <FileTile family={fileFamily(byName(file.name))} />
+        <span><b>{file.name}</b>{ext && <small>{ext.toUpperCase()}</small>}</span>
+      </button>;
+    })}
+  </div>;
 }

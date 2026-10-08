@@ -127,3 +127,7 @@ This is small, but it must land with the backend so the old path is removed rath
 - Rust unit tests: the allowlist (including the redirect hops), the `Range` parser, the resolution selectors against synthetic `view.php` fixtures (redirect, embedded image, embedded object, `resourceworkaround`, folder tree, `mod/url`, `cmid` mismatch, login page), single-flight, and pool routing by size.
 - Frontend tests: the `lmsFileUrl` platform forms, and each viewer fallback by `reason`.
 - Fixtures are synthetic HTML; no real course pages, names or files.
+
+## Follow-up (2026-10-08): persist folder listings — done
+
+A resolved folder is stored on its material as `folderFiles` (`FolderFile[]` in the `Material` contract) through `update_lms_folder_files`, the same versioned write `update_lms_resource_url` now shares. `open_course_material` and the `lmsfile` protocol answer from a stored listing without resolving, and the crawl keeps `folderFiles` when it rewrites the row. The frontend reads `folderFiles` first, then folder links in the crawled body, and resolves only when neither exists.

@@ -882,46 +882,38 @@ async fn sync_stale_details(
         .collect::<Vec<_>>();
     let mut offerings = Vec::with_capacity(stale.len());
     let mut warnings = Vec::new();
-    let chunk_size = if summary_only { 4 } else { 2 };
-    for (index, pair) in stale.chunks(chunk_size).enumerate() {
-        if index > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(if summary_only {
-                150
-            } else {
-                400
-            }));
-        }
-        let handles = pair
-            .iter()
-            .map(|(_, url)| {
-                let url = url.clone();
-                tauri::async_runtime::spawn(async move {
-                    if summary_only {
-                        syllabus::sync_offering_summary(&url).await
-                    } else {
-                        syllabus::sync_offering(&url).await
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-        for ((id, _), handle) in pair.iter().zip(handles) {
-            match handle.await {
-                Ok(Ok(synced)) => {
-                    let offering = serde_json::to_value(&synced.offering)
-                        .map_err(|error| error.to_string())?;
-                    let content = synced
-                        .content
-                        .iter()
-                        .map(serde_json::to_value)
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|error| error.to_string())?;
-                    store.catalog_upsert_offerings(&[offering])?;
-                    store.upsert_offering_content(&content)?;
-                    offerings.push(synced);
+    // All at once: the syllabus transport's limiter paces the requests.
+    let handles = stale
+        .iter()
+        .map(|(_, url)| {
+            let url = url.clone();
+            tauri::async_runtime::spawn(async move {
+                if summary_only {
+                    syllabus::sync_offering_summary(&url).await
+                } else {
+                    syllabus::sync_offering(&url).await
                 }
-                Ok(Err(error)) => warnings.push(format!("{id}: {error}")),
-                Err(_) => warnings.push(format!("{id}: syllabus worker stopped unexpectedly")),
+            })
+        })
+        .collect::<Vec<_>>();
+    // Each result is stored as soon as it (and those before it) arrive.
+    for ((id, _), handle) in stale.iter().zip(handles) {
+        match handle.await {
+            Ok(Ok(synced)) => {
+                let offering =
+                    serde_json::to_value(&synced.offering).map_err(|error| error.to_string())?;
+                let content = synced
+                    .content
+                    .iter()
+                    .map(serde_json::to_value)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?;
+                store.catalog_upsert_offerings(&[offering])?;
+                store.upsert_offering_content(&content)?;
+                offerings.push(synced);
             }
+            Ok(Err(error)) => warnings.push(format!("{id}: {error}")),
+            Err(_) => warnings.push(format!("{id}: syllabus worker stopped unexpectedly")),
         }
     }
     Ok((offerings, warnings))
@@ -983,18 +975,28 @@ async fn catalog_sync_offerings(
     }
     let store = store.inner().clone();
     let mut targets = Vec::new();
+    let mut missing = Vec::new();
     for id in ids {
-        let url = store
-            .catalog_offering(&id)?
-            .and_then(|row| {
-                row.get("syllabusUrl")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-            })
-            .ok_or_else(|| format!("{id}: not in the catalog"))?;
-        targets.push((id, url));
+        // A course found by a search is stored as a search row until its
+        // details have been read once.
+        let url = [
+            store.catalog_offering(&id)?,
+            store.catalog_search_item(&id)?,
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|row| {
+            row.get("syllabusUrl")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        });
+        match url {
+            Some(url) => targets.push((id, url)),
+            None => missing.push(format!("{id}: not in the catalog")),
+        }
     }
-    let (_, warnings) = sync_stale_details(&store, targets, true).await?;
+    let (_, mut warnings) = sync_stale_details(&store, targets, true).await?;
+    warnings.extend(missing);
     Ok(warnings)
 }
 

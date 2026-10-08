@@ -138,7 +138,8 @@ export function LmsPreview() {
     ];
     return workspace;
   });
-  const [entry, setEntry] = useState<CourseEntry | null>(null);
+  // Opens on the sample course, the surface this preview exists for.
+  const [entry, setEntry] = useState<CourseEntry | null>({ courseId: "preview-automata", request: 1 });
   const [filtered, setFiltered] = useState(false);
   const course = data.courses[0];
   const summaries = [

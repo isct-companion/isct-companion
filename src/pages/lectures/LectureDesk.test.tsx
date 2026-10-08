@@ -113,6 +113,19 @@ it("lists lectures in class order and opens the one in class", async () => {
     filter.dispatchEvent(new Event("input", { bubbles: true }));
   });
   expect([...host.querySelectorAll(".lectureRow b")].map((b) => b.textContent)).toEqual(["Course friday"]);
+
+  // The same list switches to the quarter's open assignments.
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(filter, "");
+    filter.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const assignments = [...host.querySelectorAll<HTMLButtonElement>(".lectureMode button")][1];
+  await act(async () => assignments.click());
+  const work = [...host.querySelectorAll<HTMLButtonElement>(".lectureRow")];
+  expect(work.map((row) => row.querySelector("b")?.textContent)).toEqual(["Report"]);
+  expect(work[0].querySelector("small")?.textContent).toBe("Course later");
+  await act(async () => work[0].click());
+  expect(select).toHaveBeenLastCalledWith("later", "a1");
 });
 
 it("counts down to the hour inside three days and in days beyond", () => {

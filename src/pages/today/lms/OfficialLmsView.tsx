@@ -25,6 +25,10 @@ export function OfficialLmsView({
   useEffect(() => {
     if (!active || !available || !desktopBridge) return;
     let disposed = false;
+    // Set once the native view is open; bounds follow it from then on.
+    let ready = false;
+    let sent = "";
+    let frame = 0;
     const bounds = () =>
       host.current
         ? schoolWebBounds(host.current.getBoundingClientRect(), window)
@@ -53,23 +57,29 @@ export function OfficialLmsView({
           await desktopBridge?.navigateSchoolWeb?.("science-lms", url);
       }
       opened.current = true;
+      ready = true;
       if (!disposed) setStatus("");
       else await releaseSchoolView(owner.current);
     })().catch((error) => {
       if (!disposed) setStatus(String(error));
     });
-    const resize = () => {
+    // The native view sits over this element wherever it actually is. A
+    // resize is not the only way it moves: the reader slides in, the outline
+    // reflows, the rail collapses. So its rectangle is read every frame and
+    // sent only when it changed.
+    const follow = () => {
       const next = bounds();
-      if (!disposed && next && !schoolWebExit.pending)
-        void desktopBridge?.setSchoolWebBounds?.(next).catch(() => undefined);
+      const key = next ? JSON.stringify(next) : "";
+      if (ready && next && key !== sent && !schoolWebExit.pending) {
+        sent = key;
+        void desktopBridge?.setSchoolWebBounds?.(next).catch(() => (sent = ""));
+      }
+      frame = requestAnimationFrame(follow);
     };
-    const observer = new ResizeObserver(resize);
-    if (host.current) observer.observe(host.current);
-    window.addEventListener("resize", resize);
+    frame = requestAnimationFrame(follow);
     return () => {
       disposed = true;
-      observer.disconnect();
-      window.removeEventListener("resize", resize);
+      cancelAnimationFrame(frame);
       void releaseSchoolView(owner.current).catch(() => undefined);
     };
   }, [url, active, available]);

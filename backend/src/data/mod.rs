@@ -1176,7 +1176,8 @@ impl DataStore {
                             json!({
                                 "title": overlay.get("title"),
                                 "instructor": overlay.get("instructor"),
-                                "color": overlay.get("color")
+                                "color": overlay.get("color"),
+                                "lessonLog": overlay.get("lessonLog")
                             }),
                         );
                     }
@@ -1633,6 +1634,23 @@ impl DataStore {
         .transpose()
     }
 
+    /// A syllabus search row stored before its offering's details are read.
+    pub fn catalog_search_item(&self, id: &str) -> Result<Option<Value>, String> {
+        let connection = self.open()?;
+        let raw: Option<String> = connection
+            .query_row(
+                "SELECT value FROM catalog_search_items WHERE id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        raw.map(|raw| {
+            serde_json::from_str(&raw).map_err(|_| "search row contains invalid JSON".to_string())
+        })
+        .transpose()
+    }
+
     pub fn lms_material_for_url(&self, url: &str) -> Result<Option<Value>, String> {
         let connection = self.open()?;
         let raw: Option<String> = connection
@@ -1661,6 +1679,35 @@ impl DataStore {
         source_url: &str,
         resource_url: &str,
     ) -> Result<bool, String> {
+        self.update_lms_item_detail(
+            cmid,
+            source_url,
+            "resourceUrl",
+            Value::String(resource_url.into()),
+        )
+    }
+
+    /// Keeps a folder's resolved file list on its material, so reopening it
+    /// needs no LMS request. A later crawl keeps it until a new read replaces it.
+    pub(crate) fn update_lms_folder_files(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        files: &[crate::contracts::FolderFile],
+    ) -> Result<bool, String> {
+        let files = serde_json::to_value(files).map_err(|error| error.to_string())?;
+        self.update_lms_item_detail(cmid, source_url, "folderFiles", files)
+    }
+
+    /// Writes one resolved detail onto a live LMS material, as a versioned
+    /// change; an unchanged value is not rewritten.
+    fn update_lms_item_detail(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        key: &str,
+        detail: Value,
+    ) -> Result<bool, String> {
         let mut connection = self.open()?;
         let transaction = connection
             .transaction()
@@ -1681,10 +1728,10 @@ impl DataStore {
         if value.get("url").and_then(Value::as_str) != Some(source_url) {
             return Ok(false);
         }
-        if value.get("resourceUrl").and_then(Value::as_str) == Some(resource_url) {
+        if value.get(key) == Some(&detail) {
             return Ok(false);
         }
-        value["resourceUrl"] = Value::String(resource_url.to_string());
+        value[key] = detail;
         let timestamp = now();
         let next_revision = revision + 1;
         value["rev"] = next_revision.into();
@@ -1804,6 +1851,70 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("isct-companion-{name}-{}.db", Uuid::new_v4()));
         DataStore::initialize(path).unwrap().0
+    }
+
+    #[test]
+    fn a_course_override_keeps_the_lessons_marked_for_its_classes() {
+        let store = store("lesson-log");
+        let course = json!({"id":"c1","rev":1,"updatedAt":"2026-10-01T00:00:00Z","updatedBy":"test",
+            "kind":"course","termId":"2026-3Q","code":"CSC.T273","title":"OOP","instructor":"","credits":2,
+            "creditSplit":{"lecture":2,"exercise":0,"lab":0},"instructionLanguage":"ja","color":"blue",
+            "meetings":[],"source":{"provider":"manual"}});
+        store
+            .open()
+            .unwrap()
+            .execute(
+                "INSERT INTO manual_courses (id,value,hash,updated_at,updated_by,rev,source)
+             VALUES ('c1',?1,'h','2026-10-01T00:00:00Z','test',1,'manual')",
+                [course.to_string()],
+            )
+            .unwrap();
+        store
+            .put_user_record(
+                "course_overrides",
+                json!({"sourceKey":"c1","courseId":"c1","source":{"provider":"manual"},
+                    "lessonLog":[{"occurrence":"2026-10-08T10:45:00+09:00","sectionId":12}]}),
+                "test",
+            )
+            .unwrap();
+        let workspace = store.load_workspace().unwrap();
+        let course = &workspace["courses"].as_array().unwrap()[0];
+        assert_eq!(course["overrides"]["lessonLog"][0]["sectionId"], 12);
+    }
+
+    #[test]
+    fn keeps_a_resolved_folder_listing_once_and_reads_it_back() {
+        let store = store("folder-files");
+        let url = "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9";
+        {
+            let connection = store.open().unwrap();
+            connection
+                .execute(
+                    "INSERT INTO lms_items (id,cmid,value,hash,updated_at,updated_by,rev,source)
+                     VALUES ('m9',9,?1,'h','2026-10-01T00:00:00Z','lms',1,'lms')",
+                    [json!({"id":"m9","cmid":9,"module":"folder","url":url}).to_string()],
+                )
+                .unwrap();
+        }
+        let files = vec![crate::contracts::FolderFile {
+            name: "20260928.zip".into(),
+            url: "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_folder/content/0/20260928.zip"
+                .into(),
+        }];
+        assert!(store.update_lms_folder_files(9, url, &files).unwrap());
+        // The same listing again is not a change.
+        assert!(!store.update_lms_folder_files(9, url, &files).unwrap());
+        let row = store.lms_material_for_url(url).unwrap().unwrap();
+        assert_eq!(row["rev"], 2);
+        assert_eq!(row["folderFiles"][0]["name"], "20260928.zip");
+        // A different source URL never takes another material's listing.
+        assert!(!store
+            .update_lms_folder_files(
+                9,
+                "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=10",
+                &files
+            )
+            .unwrap());
     }
 
     #[test]

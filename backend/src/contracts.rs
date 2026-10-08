@@ -78,10 +78,13 @@ contract!(Meeting {
     #[serde(default)] #[ts(optional)] pub valid_to: Option<String>,
 });
 contract!(CourseNames { pub title: Localized, pub instructor: Localized, });
+// Which LMS section (lesson) one class meeting covered, as the person marked it.
+contract!(LessonMark { pub occurrence: String, #[ts(type = "number")] pub section_id: u64 });
 contract!(CourseOverrides {
     #[serde(default)] #[ts(optional)] pub title: Option<String>,
     #[serde(default)] #[ts(optional)] pub instructor: Option<String>,
     #[serde(default)] #[ts(optional)] pub color: Option<String>,
+    #[serde(default)] #[ts(optional)] pub lesson_log: Option<Vec<LessonMark>>,
 });
 
 contract!(Course {
@@ -129,6 +132,9 @@ contract!(Assignment {
     #[serde(default)] #[ts(optional)] pub missing_since: Option<String>,
 });
 
+// One file of an LMS folder, as its folder page lists it.
+contract!(FolderFile { pub name: String, pub url: String });
+
 contract!(Material {
     #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
     #[ts(type = "\"material\"")] pub kind: String, pub course_id: String, pub session: i32, pub title: String,
@@ -143,6 +149,8 @@ contract!(Material {
     #[serde(default)] #[ts(optional)] pub visible: Option<bool>,
     #[serde(default)] #[ts(optional)] pub body_html: Option<String>,
     #[serde(default)] #[ts(optional)] pub resource_url: Option<String>,
+    /// A folder's files, kept from its last successful read.
+    #[serde(default)] #[ts(optional)] pub folder_files: Option<Vec<FolderFile>>,
     #[serde(default)] #[ts(optional)] pub url: Option<String>,
     pub source: SourceRef,
     #[serde(default)] #[ts(optional)] pub last_seen_at: Option<String>,
@@ -359,6 +367,7 @@ contract!(CourseOverride {
     #[serde(default)] #[ts(optional)] pub title: Option<String>,
     #[serde(default)] #[ts(optional)] pub instructor: Option<String>,
     #[serde(default)] #[ts(optional)] pub color: Option<String>,
+    #[serde(default)] #[ts(optional)] pub lesson_log: Option<Vec<LessonMark>>,
 });
 
 contract!(AgentWrite { pub at: String, pub tool: String, });
@@ -539,10 +548,12 @@ pub fn declarations() -> Vec<String> {
         CreditSplit::decl(),
         Meeting::decl(),
         CourseNames::decl(),
+        LessonMark::decl(),
         CourseOverrides::decl(),
         Course::decl(),
         Membership::decl(),
         Assignment::decl(),
+        FolderFile::decl(),
         Material::decl(),
         PersonalEvent::decl(),
         PlanItem::decl(),
