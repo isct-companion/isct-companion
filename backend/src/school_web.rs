@@ -2523,6 +2523,9 @@ impl SchoolWebController {
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         let builder = builder;
         let builder = builder
+            // Tauri's handler claims OS file drops, so the page never sees
+            // them; school pages need the drop for assignment uploads.
+            .disable_drag_drop_handler()
             .initialization_script_for_all_frames(KYOMU_POPUP_SCRIPT)
             .initialization_script_for_all_frames(SCHOOL_LINKS_SCRIPT)
             .on_page_load(move |webview, payload| {
