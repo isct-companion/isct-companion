@@ -28,12 +28,11 @@ IsctCompanion combines MyStudyLife's academic-day priority with TitechApp's scho
 
 Desktop primary rail:
 
-1. Today
-2. Schedule
-3. Courses
-4. Web
+1. Home (ホーム / 首页): orient. Today's day and assignments beside the week timetable; quarter planning is the week's Edit mode.
+2. Lectures (講義 / 讲义), titled Lecture Desk: study. This quarter's lectures in class order beside the open lecture's workspace.
+3. Web
 
-Settings is a utility action at the bottom. Tasks is part of Today, not a separate destination. Mobile uses the same destinations in compact bottom navigation; Web is full-screen.
+Settings is a utility action at the bottom. Tasks is part of Home, not a separate destination. Opening a class or assignment anywhere opens it on Lecture Desk, which keeps the lecture open while other pages are used. Narrow windows show Home's day and week one at a time. Mobile uses the same destinations in compact bottom navigation; Web is full-screen.
 
 ### Today
 

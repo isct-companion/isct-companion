@@ -1633,6 +1633,97 @@ impl DataStore {
         .transpose()
     }
 
+    pub fn lms_material_for_url(&self, url: &str) -> Result<Option<Value>, String> {
+        let connection = self.open()?;
+        let raw: Option<String> = connection
+            .query_row(
+                "SELECT value FROM lms_items
+                 WHERE missing_since IS NULL AND deleted_at IS NULL
+                   AND (json_extract(value,'$.url')=?1 OR json_extract(value,'$.resourceUrl')=?1)
+                 LIMIT 1",
+                [url],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        raw.map(|raw| {
+            serde_json::from_str(&raw).map_err(|_| "LMS material contains invalid JSON".to_string())
+        })
+        .transpose()
+    }
+
+    /// Store a lazy `view.php` resolution exactly like an LMS ingest update:
+    /// unchanged content keeps its revision, while a changed remote URL gets
+    /// one new version. Local cache paths never enter the database.
+    pub fn update_lms_resource_url(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        resource_url: &str,
+    ) -> Result<bool, String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        let stored: Option<(String, String, u64)> = transaction
+            .query_row(
+                "SELECT id,value,rev FROM lms_items WHERE cmid=?1 AND missing_since IS NULL LIMIT 1",
+                [cmid as i64],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as u64)),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let Some((id, raw, revision)) = stored else {
+            return Ok(false);
+        };
+        let mut value: Value = serde_json::from_str(&raw)
+            .map_err(|_| "LMS material contains invalid JSON".to_string())?;
+        if value.get("url").and_then(Value::as_str) != Some(source_url) {
+            return Ok(false);
+        }
+        if value.get("resourceUrl").and_then(Value::as_str) == Some(resource_url) {
+            return Ok(false);
+        }
+        value["resourceUrl"] = Value::String(resource_url.to_string());
+        let timestamp = now();
+        let next_revision = revision + 1;
+        value["rev"] = next_revision.into();
+        value["updatedAt"] = timestamp.clone().into();
+        value["updatedBy"] = "lms".into();
+        value["source"] = json!({"provider":"lms"});
+        value["lastSeenAt"] = timestamp.clone().into();
+        let mut content = value.clone();
+        if let Some(object) = content.as_object_mut() {
+            for key in [
+                "rev",
+                "updatedAt",
+                "updatedBy",
+                "source",
+                "lastSeenAt",
+                "missingSince",
+                "deletedAt",
+            ] {
+                object.remove(key);
+            }
+        }
+        let hash = content_hash(&content)?;
+        transaction
+            .execute(
+                "UPDATE lms_items SET value=?2,hash=?3,updated_at=?4,updated_by='lms',
+                 rev=?5,source='lms',last_seen_at=?4,missing_since=NULL,deleted_at=NULL WHERE id=?1",
+                params![
+                    id,
+                    serde_json::to_string(&value).map_err(|error| error.to_string())?,
+                    hash,
+                    timestamp,
+                    next_revision as i64
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
     pub fn table_rows(&self, table: &str) -> Result<Vec<Value>, String> {
         const READABLE: &[&str] = &[
             "registrations",

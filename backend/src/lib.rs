@@ -25,6 +25,7 @@ mod lifecycle;
 mod lms_downloader;
 mod lms_files;
 mod lms_ingest;
+mod lms_protocol;
 #[cfg(matrix_ocr)]
 mod matrix_ocr;
 #[cfg(matrix_ocr)]
@@ -34,6 +35,7 @@ mod policy;
 mod scheduler;
 mod school_auth;
 mod school_extract;
+mod school_parser;
 #[cfg(not(mobile))]
 mod school_web;
 #[cfg(mobile)]
@@ -1171,6 +1173,28 @@ async fn refresh_reference_source_inner(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
+            eprintln!(
+                "[lms-file] protocol {} from {}",
+                request.method(),
+                context.webview_label()
+            );
+            if context.webview_label() != "main" {
+                responder.respond(
+                    tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::BAD_REQUEST)
+                        .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                        .header("X-Isct-Reason", "invalid")
+                        .body(br#"{"reason":"invalid"}"#.to_vec())
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                );
+                return;
+            }
+            let app = context.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                responder.respond(lms_protocol::handle(app, request).await);
+            });
+        })
         .plugin(tauri_plugin_notification::init())
         // The plugin's default link script runs in every webview and turns a
         // `target="_blank"` click into an `open_url` IPC call, which no
@@ -1278,7 +1302,15 @@ pub fn run() {
             scheduler::Scheduler::start(app.handle().clone());
 
             #[cfg(desktop)]
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            {
+                #[cfg(dev)]
+                let main_url = WebviewUrl::External(
+                    tauri::Url::parse("http://localhost:4173")
+                        .expect("the local Vite URL is valid"),
+                );
+                #[cfg(not(dev))]
+                let main_url = WebviewUrl::App("index.html".into());
+                WebviewWindowBuilder::new(app, "main", main_url)
                 .title("IsctCompanion")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(860.0, 620.0)
@@ -1286,6 +1318,7 @@ pub fn run() {
                     "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{value:'native-desktop',writable:false,configurable:false});",
                 )
                 .build()?;
+            }
 
             #[cfg(mobile)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))

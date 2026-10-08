@@ -46,11 +46,25 @@ The workspace keeps up to two recent course DOMs for quick return. After 45 seco
 
 Production output for the implemented reader is approximately 841 kB main JS, 19 kB deferred workspace, 2 kB each for note/file UI, 1,358 kB deferred WYSIWYG Markdown editor/renderer (426 kB gzip, including KaTeX). The inline-editor update replaces ByteMD with modular Milkdown Crepe; no language packs, image uploader, AI integration or fixed top toolbar are enabled. This is larger than the former 610 kB editor plus 259 kB math chunk, and is loaded only when opening a Markdown note/attachment. Editor CSS and fonts are also separate from initial application CSS. These are build/transfer sizes, not heap measurements; JavaScript modules remain cached after loading even though editor and viewer instances are destroyed.
 
-Native downloads are serialized with an async lock before allocating a blocking worker. File bytes stream to a temporary file, with a 128 MB bound, and are renamed only on complete success. Cookies remain in Rust and are used only for an HTTPS request to the LMS attachment host; redirects are rejected. The native asset protocol serves cached files directly, avoiding a base64 copy in JS. Only active UTF-8 text previews and notes cross IPC, bounded to 1 MB. Note writes use a separate lock so downloads do not block autosave. Listing notes returns metadata only, bounded to 1,000 notes per course.
+Before Task 16, native downloads were serialized behind one job slot and the
+frontend received native asset URLs. That historical path streamed to a
+temporary file and renamed only on complete success. Notes still use a
+separate write lock, so material downloads do not block autosave; note lists
+remain metadata-only and bounded to 1,000 entries per course.
+
+Task 16 replaces the serial attachment lane and asset URL handoff. Requests
+for the same target are single-flight. Files with a known size up to 2 MB use
+four parallel Rust HTTP download permits; large or unknown files use a separate
+one-at-a-time lane, so an opened PDF is not queued behind inline images.
+Downloads still write a sibling `.part` and rename only after success, retain
+the 180-second timeout, and remain GET-only. Rust imports the signed-in WebView
+cookies; the WebView is no longer in the file-transfer path.
+The `lmsfile` responder serves cached ranges directly; frontend thumbnail
+queues and `convertFileSrc` are no longer part of the LMS file path.
 
 Browser preview notes persist in browser storage under a separate preview course namespace. Desktop storage defaults to the OS Documents directory / IsctCompanion, with application storage fallback when Documents is unavailable. Mobile uses app storage and does not offer an unsupported folder picker. Desktop Settings / Advanced allows selecting a root. Materials and notes occupy separate child folders; changing the root does not move or delete previous files.
 
-Browser QA verified source/editor split, formula rendering, autosave status, and reading continuity. Unit checks cover ordered note writes, reopening after pending save, save-failure recovery, idle DOM eviction, bounded document previews, and folder/URL validation. Authenticated native attachment downloads, native PDF rendering and OS folder selection still need runtime acceptance in the installed desktop app. Native RSS/CPU comparison with LMS remains unmeasured.
+Browser QA verified source/editor split, formula rendering, autosave status, and reading continuity. Unit checks cover ordered note writes, reopening after pending save, save-failure recovery, idle DOM eviction, bounded document previews, and folder/URL validation. Authenticated native acceptance on macOS covers a Java source file, a 24-page PDF, a PNG image, and an Assembly Language folder activity. Native RSS/CPU comparison with LMS remains unmeasured.
 
 
 ## Inline editing and proximity scrolling (2026-10-05)
@@ -64,7 +78,7 @@ Browser QA verified source/editor split, formula rendering, autosave status, and
 
 The native App verified attachment download and disk caching; the old embedded PDF iframe was blank and therefore replaced. PDF.js loads only when opening a PDF (deferred display module about 489 kB / 149 kB gzip, worker about 1.32 MB uncompressed). Only one page canvas is mounted, bounded to two million pixels, roughly 8 MB of raw RGBA pixels; this is a canvas bound, not total viewer RSS. Tab switch/unmount cancels rendering and destroys its worker and document buffers. No all-page rasterization or inactive PDF retention. Native RSS/CPU comparison against official LMS remains unmeasured and must not be represented as meeting a lower-memory target.
 
-Announcement reads are capped at eight discussions per forum and sixteen per import, within the existing bounded HTML content budget. Short workstation entry/viewer/section and hover transitions have no background animation loop and respect reduced motion.
+Module detail reads are capped per course (the newest forty modules of each course, at most 320 per import), so a large or fast-loading course cannot starve the others; details not read in one pull keep their cached values. Announcement reads are capped at eight discussions per forum and sixteen per course, within the existing bounded HTML content budget. Short workstation entry/viewer/section and hover transitions have no background animation loop and respect reduced motion.
 
 ## Continuous PDF and opt-in storage follow-up
 

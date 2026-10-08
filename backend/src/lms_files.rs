@@ -1,5 +1,6 @@
 //! Local course materials and notes. No file bytes or session cookies reach JS;
 //! materials are downloaded by `lms_downloader` straight into the course folder.
+use crate::data::DataStore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -32,12 +33,31 @@ pub struct CourseKey {
     pub term: String,
     pub course: String,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LmsResourceKind {
+    File,
+    View { module: String, cmid: u64 },
+}
 #[derive(Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Material {
-    Ready { file: LocalFile },
+    Ready {
+        file: LocalFile,
+    },
     Missing,
-    TooLarge { bytes: u64 },
+    TooLarge {
+        bytes: u64,
+    },
+    Folder {
+        files: Vec<crate::lms_downloader::ResolvedFile>,
+    },
+    External {
+        url: String,
+    },
+    Failed {
+        reason: &'static str,
+    },
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,7 +88,7 @@ pub struct LocalNoteBackup {
     #[serde(default)]
     pub deleted: bool,
 }
-fn component(value: &str) -> Result<&str, String> {
+pub(crate) fn component(value: &str) -> Result<&str, String> {
     if value.is_empty()
         || value.len() > 120
         || value == "."
@@ -141,7 +161,10 @@ fn describe(
 ) -> Result<LocalFile, String> {
     let bytes = path.metadata().map_err(|e| e.to_string())?.len();
     let text = if read_text && bytes <= 1_000_000 {
-        Some(fs::read_to_string(&path).map_err(|_| "File is not UTF-8 text")?)
+        // The caller may not know the final type until a Moodle resource page
+        // has resolved. Binary data is still a valid course file; it simply
+        // has no inline text representation.
+        fs::read_to_string(&path).ok()
     } else {
         None
     };
@@ -320,7 +343,11 @@ pub fn restore_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), S
     }
     Ok(())
 }
-fn material_path(app: &AppHandle, course: &CourseKey, url: &Url) -> Result<PathBuf, String> {
+pub(crate) fn material_path(
+    app: &AppHandle,
+    course: &CourseKey,
+    url: &Url,
+) -> Result<PathBuf, String> {
     let path = materials_dir(app, course)?.join(material_name(url));
     if path.is_symlink() {
         return Err("Cannot read symbolic link".into());
@@ -329,7 +356,7 @@ fn material_path(app: &AppHandle, course: &CourseKey, url: &Url) -> Result<PathB
 }
 /// `<file name>-<digest>.<ext>`: readable in Finder, unique per URL, and the
 /// extension lets the asset responder send the right media type.
-fn material_name(url: &Url) -> String {
+pub(crate) fn material_name(url: &Url) -> String {
     let segment = url
         .path_segments()
         .and_then(|mut s| s.next_back())
@@ -367,19 +394,37 @@ fn material_name(url: &Url) -> String {
         None => format!("{}-{}", stem.trim(), &digest[..8]),
     }
 }
-fn material_url(raw: &str) -> Result<Url, String> {
+pub(crate) fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), String> {
     let url = Url::parse(raw).map_err(|_| "Invalid material URL")?;
     if url.scheme() != "https"
         || url.host_str() != Some("lms.s.isct.ac.jp")
         || url.port().is_some()
         || !url.username().is_empty()
         || url.password().is_some()
-        || !url.path().contains("/pluginfile.php/")
     {
-        return Err("Only LMS attachment URLs can be cached".into());
+        return Err("Only allowlisted LMS resource URLs are accepted".into());
     }
-    Ok(url)
+    let segments = url
+        .path_segments()
+        .map(Iterator::collect::<Vec<_>>)
+        .unwrap_or_default();
+    if segments.iter().any(|segment| *segment == "pluginfile.php") {
+        return Ok((url, LmsResourceKind::File));
+    }
+    let [.., "mod", module @ ("resource" | "url" | "folder"), "view.php"] = segments.as_slice()
+    else {
+        return Err("Only allowlisted LMS resource URLs are accepted".into());
+    };
+    let cmid = url
+        .query_pairs()
+        .find(|(key, _)| key == "id")
+        .and_then(|(_, value)| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "LMS resource URL needs a numeric id".to_string())?;
+    let module = (*module).to_string();
+    Ok((url, LmsResourceKind::View { module, cmid }))
 }
+
 #[tauri::command]
 pub async fn course_storage_info(
     webview: tauri::Webview,
@@ -604,7 +649,73 @@ pub async fn open_course_material(
     limit: Option<u64>,
 ) -> Result<Material, String> {
     crate::require_local_main(&webview)?;
-    let url = material_url(&url)?;
+    let source = url;
+    let (source_url, kind) = lms_resource_url(&source)?;
+    eprintln!("[lms-file] prepare requested: {kind:?}");
+    let url = match kind {
+        LmsResourceKind::File => source_url,
+        LmsResourceKind::View { module, cmid } => {
+            let store = app.state::<DataStore>();
+            let known = store
+                .lms_material_for_url(&source)
+                .ok()
+                .flatten()
+                .and_then(|row| {
+                    row.get("resourceUrl")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string)
+                });
+            if let Some(known) = known {
+                eprintln!("[lms-file] using stored resolution");
+                if let Ok((url, LmsResourceKind::File)) = lms_resource_url(&known) {
+                    url
+                } else if safe_external_url(&known) {
+                    return Ok(Material::External { url: known });
+                } else {
+                    return Ok(Material::Failed { reason: "invalid" });
+                }
+            } else {
+                let downloader = app.state::<crate::lms_downloader::Downloader>();
+                match downloader.resolve(&app, &source_url, cmid, &module).await {
+                    Ok(crate::lms_downloader::ResolvedResource::File { url }) => {
+                        let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url) else {
+                            return Ok(Material::Failed { reason: "invalid" });
+                        };
+                        let _ = store.update_lms_resource_url(cmid, &source, &url);
+                        url_value
+                    }
+                    Ok(crate::lms_downloader::ResolvedResource::External { url }) => {
+                        if !safe_external_url(&url) {
+                            return Ok(Material::Failed { reason: "invalid" });
+                        }
+                        let _ = store.update_lms_resource_url(cmid, &source, &url);
+                        return Ok(Material::External { url });
+                    }
+                    Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
+                        return Ok(Material::Folder { files });
+                    }
+                    Ok(crate::lms_downloader::ResolvedResource::Login)
+                    | Err(crate::lms_downloader::FetchError::Login) => {
+                        return Ok(Material::Failed { reason: "login" });
+                    }
+                    Ok(crate::lms_downloader::ResolvedResource::Unresolved) => {
+                        return Ok(Material::Failed {
+                            reason: "unresolved",
+                        });
+                    }
+                    Err(crate::lms_downloader::FetchError::Invalid) => {
+                        return Ok(Material::Failed { reason: "invalid" });
+                    }
+                    Err(crate::lms_downloader::FetchError::Timeout) => {
+                        return Ok(Material::Failed { reason: "timeout" });
+                    }
+                    Err(crate::lms_downloader::FetchError::Network) => {
+                        return Ok(Material::Failed { reason: "network" });
+                    }
+                }
+            }
+        }
+    };
     let path = material_path(&app, &context, &url)?;
     if !path.is_file() {
         if !download {
@@ -614,12 +725,27 @@ pub async fn open_course_material(
         {
             let downloader = app.state::<crate::lms_downloader::Downloader>();
             let limit = limit.map(|bytes| bytes.clamp(1, MAX_AUTO_DOWNLOAD_BYTES));
-            if let crate::lms_downloader::Fetched::TooLarge(bytes) = downloader
-                .fetch(&app, &url, path.clone(), limit)
+            match downloader
+                .fetch(&app, &url, path.clone(), limit, true)
                 .await
-                .inspect_err(|error| eprintln!("[lms-file] {url}: {error}"))?
             {
-                return Ok(Material::TooLarge { bytes });
+                Ok(crate::lms_downloader::Fetched::Saved) => {}
+                Ok(crate::lms_downloader::Fetched::TooLarge(bytes)) => {
+                    return Ok(Material::TooLarge { bytes });
+                }
+                Err(crate::lms_downloader::FetchError::Login) => {
+                    return Ok(Material::Failed { reason: "login" });
+                }
+                Err(crate::lms_downloader::FetchError::Invalid) => {
+                    return Ok(Material::Failed { reason: "invalid" });
+                }
+                Err(crate::lms_downloader::FetchError::Timeout) => {
+                    return Ok(Material::Failed { reason: "timeout" });
+                }
+                Err(error) => {
+                    eprintln!("[lms-file] prepare download failed: {error}");
+                    return Ok(Material::Failed { reason: "network" });
+                }
             }
         }
         #[cfg(mobile)]
@@ -641,7 +767,18 @@ pub async fn open_course_material(
     app.asset_protocol_scope()
         .allow_file(&file.path)
         .map_err(|e| e.to_string())?;
+    eprintln!("[lms-file] prepare ready");
     Ok(Material::Ready { file })
+}
+
+fn safe_external_url(raw: &str) -> bool {
+    Url::parse(raw).ok().is_some_and(|url| {
+        url.scheme() == "https"
+            && url.host_str().is_some()
+            && url.port().is_none()
+            && url.username().is_empty()
+            && url.password().is_none()
+    })
 }
 /// A path the app saved under the storage root; anything else is refused.
 fn stored_file(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
@@ -741,6 +878,24 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
+    fn binary_materials_do_not_fail_optional_text_preview() {
+        let dir = std::env::temp_dir().join(format!("course-file-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("image.png");
+        fs::write(&path, [0x89, b'P', b'N', b'G', 0xff]).unwrap();
+        let file = describe(
+            path,
+            "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/image.png".into(),
+            String::new(),
+            true,
+            true,
+        )
+        .unwrap();
+        assert_eq!(file.name, "image.png");
+        assert_eq!(file.text, None);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn rejects_traversal_and_external_downloads() {
         for value in ["..", ".", "x/y", "x\\y", "", "../../notes"] {
             assert!(component(value).is_err());
@@ -751,11 +906,23 @@ mod tests {
             "https://evil.test/pluginfile.php/1/a.pdf",
             "https://lms.s.isct.ac.jp/login/index.php",
             "https://user:pass@lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf",
+            "https://lms.s.isct.ac.jp:8443/2025/pluginfile.php/1/a.pdf",
             "http://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf",
         ] {
-            assert!(material_url(url).is_err());
+            assert!(lms_resource_url(url).is_err());
         }
-        assert!(material_url("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf").is_ok());
+        assert!(lms_resource_url("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf").is_ok());
+        assert!(lms_resource_url("https://lms.s.isct.ac.jp/2024/pluginfile.php/1/a.pdf").is_ok());
+        assert!(matches!(
+            lms_resource_url("https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42"),
+            Ok((_, LmsResourceKind::View { cmid: 42, .. }))
+        ));
+        for url in [
+            "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=42",
+            "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=abc",
+        ] {
+            assert!(lms_resource_url(url).is_err(), "{url}");
+        }
     }
     #[test]
     fn names_materials_readably_and_uniquely() {

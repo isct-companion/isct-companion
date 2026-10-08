@@ -6,12 +6,22 @@ mod data;
 mod kyomu_ingest;
 #[path = "../src/lms_ingest.rs"]
 mod lms_ingest;
+mod school_parser {
+    pub(crate) mod kyomu {
+        include!("../src/school_parser/kyomu.rs");
+    }
+    pub(crate) mod lms {
+        include!("../src/school_parser/lms.rs");
+    }
+}
 
-use kyomu_ingest::{declared_credits, gpa_summaries, parse_kyomu_payload, KyomuStage};
-use lms_ingest::{
-    aggregate_slots, apply_lms_payload, decode_entities, parse_lms_payload, LmsStage,
-};
+use kyomu_ingest::{declared_credits, gpa_summaries};
+use lms_ingest::apply_lms_payload;
 use rusqlite::Connection;
+use school_parser::{
+    kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
+    lms::{aggregate_slots, decode_entities, parse_payload as parse_lms_payload, LmsStage},
+};
 use serde_json::{json, Value};
 
 #[test]

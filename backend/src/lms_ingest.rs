@@ -1,17 +1,10 @@
 use crate::data::{resolve_course_id, versioned::content_hash};
+use crate::school_parser::lms::{id_of, lms_url, LmsPayload};
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use url::Url;
 use uuid::Uuid;
-
-const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
-const MAX_COURSES: usize = 500;
-const MAX_STRUCTURES: usize = 500;
-const MAX_ITEMS: usize = 5_000;
-const MAX_EVENTS: usize = 5_000;
 
 /// Read-only Moodle transport. Every request passes through `call`, whose
 /// closed allowlist is also checked before the request is constructed.
@@ -22,6 +15,9 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     r#";
   const forumContent = "#,
     include_str!("lms_forum_content.js"),
+    r#";
+  const resolveLmsResource = "#,
+    include_str!("lms_resource_resolve.js"),
     r#";
   const methods = new Set([
     'core_course_get_enrolled_courses_by_timeline_classification',
@@ -202,11 +198,15 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       await Promise.all(selectedCourses.slice(index, index + 4).map(loadStructure));
     // Bounded read-only module details, using the same signed-in session.
     const courseById = new Map(courses.map(course => [Number(course.id), course]));
-    const detailCms = structures.flatMap(item => (item.state?.cm || []).map(cm => ({...cm, courseId:item.courseId})))
-      .filter(cm => cm.uservisible !== false && ['resource','folder','url','page','forum','assign'].includes(cm.module)).slice(0, 60);
-    let forumBudget = 16;
+    // Details are written onto the returned state's own module objects. Each
+    // course gets its own share, newest modules first, so a large or
+    // fast-loading course cannot starve the rest; cached details fill gaps.
+    const detailCms = structures.flatMap(item => (item.state?.cm || [])
+      .filter(cm => cm.uservisible !== false && ['resource','folder','url','page','forum','assign'].includes(cm.module))
+      .reverse().slice(0, 40).map(cm => ({cm, courseId:item.courseId}))).slice(0, 320);
+    const forumBudget = new Map();
     const assignStatus = [];
-    const readDetail = async cm => {
+    const readDetail = async (cm, courseId) => {
       try {
         const target = new URL(cm.url, sourceUrl);
         if (target.origin !== location.origin || !/^\/2025\/mod\/(resource|folder|url|page|forum|assign)\/view\.php$/.test(target.pathname)) return;
@@ -241,8 +241,8 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
               if (u.origin !== location.origin || u.pathname !== '/2025/mod/forum/discuss.php' || !/^\d+$/.test(u.searchParams.get('d') || '')) return null;
               const id = u.searchParams.get('d'); u.hash = ''; u.search = '?d=' + id; return u.href;
             } catch { return null; }
-          }).filter(Boolean))].slice(0, Math.min(8, forumBudget));
-          forumBudget -= discussions.length;
+          }).filter(Boolean))].slice(0, Math.min(8, forumBudget.get(courseId) ?? 16));
+          forumBudget.set(courseId, (forumBudget.get(courseId) ?? 16) - discussions.length);
           const bodies = [];
           for (const url of discussions) {
             try {
@@ -256,30 +256,19 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
           const intro = page.getElementById('intro')?.innerHTML || '';
           if (contentBudget > 0) cm.bodyHtml = boundedBody(intro + bodies.join('\n'));
         } else if (contentBudget > 0) cm.bodyHtml = boundedBody([...nodes].map(node => node.innerHTML).join('\n'));
-        if (cm.module === 'url') {
-          const link = page.querySelector('#region-main a[href^="https://"]');
-          if (link) cm.resourceUrl = link.href;
-        }
-        // "Automatic"/embed display (Moodle's default for images and PDFs)
-        // answers with a page that embeds the file instead of redirecting.
-        if (cm.module === 'resource') {
-          for (const [selector, attr] of [['.resourcecontent img', 'src'], ['.resourcecontent object', 'data'],
-            ['.resourcecontent iframe', 'src'], ['.resourcecontent video source, .resourcecontent audio source', 'src'],
-            ['.resourceworkaround a', 'href'], ['.resourcecontent a', 'href']]) {
-            const raw = page.querySelector(selector)?.getAttribute(attr);
-            const file = raw && new URL(raw, response.url);
-            if (file && file.origin === location.origin && file.pathname.includes('/pluginfile.php/')) { cm.resourceUrl = file.href; break; }
-          }
-        }
+        const resolved = resolveLmsResource({page, responseUrl:response.url,
+          cmid:Number(cm.id), module:String(cm.module || '')});
+        if (resolved.kind === 'file' || resolved.kind === 'external')
+          cm.resourceUrl = resolved.url;
       } catch { /* Keep cached detail on a later incomplete read. */ }
     };
     let detailsDone = 0;
-    const readDetailWithProgress = async cm => {
-      await readDetail(cm);
+    const readDetailWithProgress = async ({cm, courseId}) => {
+      await readDetail(cm, courseId);
       detailsDone += 1;
-      const course = courseById.get(Number(cm.courseId));
+      const course = courseById.get(Number(courseId));
       reportProgress({phase:'material', completed:detailsDone, total:detailCms.length,
-        courseId:Number(cm.courseId) || 0, courseTitle:String(course?.fullname || course?.shortname || ''),
+        courseId:Number(courseId) || 0, courseTitle:String(course?.fullname || course?.shortname || ''),
         term:course ? courseContext(course).term : '', itemTitle:String(cm.name || '')});
     };
     for (let index = 0; index < detailCms.length; index += 4)
@@ -325,460 +314,6 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
   }
 })()"#
 );
-
-/// Moodle sends ids as numbers in some functions and numeric strings in
-/// others (`core_courseformat_get_state`).
-fn id_of(value: Option<&Value>) -> Option<u64> {
-    match value? {
-        Value::Number(number) => number.as_u64(),
-        Value::String(text) => text.trim().parse().ok(),
-        _ => None,
-    }
-}
-
-fn category_number<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-    Ok(match Value::deserialize(deserializer)? {
-        Value::Number(number) => number.as_u64().unwrap_or(0),
-        Value::String(text) => text.trim().parse().unwrap_or(0),
-        _ => 0,
-    })
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsCourse {
-    pub id: u64,
-    #[serde(default)]
-    pub fullname: String,
-    #[serde(default)]
-    pub shortname: String,
-    #[serde(default)]
-    pub idnumber: String,
-    /// The category *name*, which Science Tokyo LMS sets to the quarter
-    /// (`"1"`…`"4"`; `"他"` for others). Moodle sends it as a string.
-    #[serde(default, deserialize_with = "category_number")]
-    pub coursecategory: u64,
-    #[serde(default)]
-    pub startdate: i64,
-    #[serde(default)]
-    pub enddate: i64,
-    #[serde(default)]
-    pub viewurl: String,
-    #[serde(default)]
-    pub hidden: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsStructure {
-    pub course_id: u64,
-    pub complete: bool,
-    pub state: Option<Value>,
-    #[serde(default)]
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsPayload {
-    pub status: String,
-    pub source_url: String,
-    #[serde(default)]
-    pub language: String,
-    #[serde(default)]
-    pub courses_complete: bool,
-    #[serde(default)]
-    pub courses: Vec<LmsCourse>,
-    #[serde(default)]
-    pub structures: Vec<LmsStructure>,
-    #[serde(default)]
-    pub action_events: Vec<Value>,
-    #[serde(default)]
-    pub dated_events: Vec<Value>,
-    /// Submission state read from each assignment page (`cmid` → state).
-    #[serde(default)]
-    pub assign_status: HashMap<u64, String>,
-    /// The dashboard timetable grid, aggregated per course.
-    #[serde(default)]
-    pub timetable: Option<LmsTimetable>,
-    /// Records dropped by validation; the rest of the payload is still used.
-    #[serde(default, skip_deserializing)]
-    pub skipped: usize,
-}
-
-/// The payload as sent, before each record is checked on its own.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawLmsPayload {
-    status: String,
-    source_url: String,
-    #[serde(default)]
-    language: String,
-    #[serde(default)]
-    courses_complete: bool,
-    #[serde(default)]
-    courses: Vec<Value>,
-    #[serde(default)]
-    structures: Vec<Value>,
-    #[serde(default)]
-    action_events: Vec<Value>,
-    #[serde(default)]
-    dated_events: Vec<Value>,
-    #[serde(default)]
-    timetable: Option<Value>,
-    #[serde(default)]
-    assign_status: Vec<Value>,
-}
-
-/// What the dashboard timetable says for one term: weekly meetings per LMS
-/// course, and the courses it lists without a slot (集中講義など).
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsTimetable {
-    pub term: String,
-    pub meetings: HashMap<u64, Vec<Value>>,
-    pub unscheduled: Vec<u64>,
-}
-
-/// Turns grid cells (course, day, period) into weekly meetings with
-/// contiguous period ranges, e.g. 月3 + 月4 → `{day:1, periods:[3,4]}`.
-pub fn aggregate_slots(cells: &[(u64, u8, u8)]) -> HashMap<u64, Vec<Value>> {
-    let mut by_course: HashMap<u64, std::collections::BTreeMap<u8, Vec<u8>>> = HashMap::new();
-    for &(course, day, period) in cells {
-        by_course
-            .entry(course)
-            .or_default()
-            .entry(day)
-            .or_default()
-            .push(period);
-    }
-    by_course
-        .into_iter()
-        .map(|(course, days)| {
-            let mut meetings = Vec::new();
-            for (day, mut periods) in days {
-                periods.sort_unstable();
-                periods.dedup();
-                let mut start = periods[0];
-                let mut end = start;
-                for &period in &periods[1..] {
-                    if period == end + 1 {
-                        end = period;
-                    } else {
-                        meetings.push(json!({"day": day, "periods": [start, end]}));
-                        start = period;
-                        end = period;
-                    }
-                }
-                meetings.push(json!({"day": day, "periods": [start, end]}));
-            }
-            (course, meetings)
-        })
-        .collect()
-}
-
-/// Validates the grid read from the page; anything off drops the whole grid
-/// (it is a cross-check, never required).
-fn parse_timetable(raw: &Value, courses: &HashSet<u64>) -> Option<LmsTimetable> {
-    let year = raw
-        .get("year")?
-        .as_u64()
-        .filter(|year| (2000..2100).contains(year))?;
-    let quarter = raw
-        .get("quarter")?
-        .as_str()?
-        .trim()
-        .parse::<u8>()
-        .ok()
-        .filter(|q| (1..=4).contains(q))?;
-    let slots = raw.get("slots")?.as_array()?;
-    if slots.len() > 500 {
-        return None;
-    }
-    let mut cells = Vec::new();
-    for slot in slots {
-        let course = id_of(slot.get("courseId"))?;
-        let day = slot
-            .get("day")?
-            .as_u64()
-            .filter(|day| (1..=7).contains(day))? as u8;
-        let period = slot
-            .get("period")?
-            .as_u64()
-            .filter(|p| (1..=12).contains(p))? as u8;
-        if courses.contains(&course) {
-            cells.push((course, day, period));
-        }
-    }
-    let unscheduled = raw
-        .get("unscheduled")
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|id| id_of(Some(id)))
-                .filter(|id| courses.contains(id))
-                .take(200)
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(LmsTimetable {
-        term: format!("{year}-{quarter}Q"),
-        meetings: aggregate_slots(&cells),
-        unscheduled,
-    })
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LmsStage {
-    Ready,
-    ReconnectRequired,
-}
-
-fn lms_url(raw: &str) -> bool {
-    Url::parse(raw).is_ok_and(|url| {
-        url.scheme() == "https"
-            && url.host_str() == Some("lms.s.isct.ac.jp")
-            && url.username().is_empty()
-            && url.password().is_none()
-    })
-}
-
-/// Moodle sends names HTML-escaped (`A &amp; B`). Decodes the named
-/// entities it uses and numeric references; anything else stays as written.
-pub fn decode_entities(text: &str) -> String {
-    if !text.contains('&') {
-        return text.to_string();
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(start) = rest.find('&') {
-        out.push_str(&rest[..start]);
-        rest = &rest[start..];
-        let decoded = rest.find(';').filter(|end| *end <= 10).and_then(|end| {
-            let entity = &rest[1..end];
-            let character = match entity {
-                "amp" => Some('&'),
-                "lt" => Some('<'),
-                "gt" => Some('>'),
-                "quot" => Some('"'),
-                "apos" | "#39" => Some('\''),
-                "nbsp" => Some(' '),
-                _ => entity
-                    .strip_prefix("#x")
-                    .or_else(|| entity.strip_prefix("#X"))
-                    .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-                    .or_else(|| entity.strip_prefix('#').and_then(|dec| dec.parse().ok()))
-                    .and_then(char::from_u32),
-            }?;
-            Some((character, end))
-        });
-        match decoded {
-            Some((character, end)) => {
-                out.push(character);
-                rest = &rest[end + 1..];
-            }
-            None => {
-                out.push('&');
-                rest = &rest[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// Decodes the named string fields of a JSON record in place.
-fn decode_fields(value: &mut Value, keys: &[&str]) {
-    for key in keys {
-        if let Some(Value::String(text)) = value.get_mut(*key) {
-            *text = decode_entities(text);
-        }
-    }
-}
-
-fn valid_cm(cm: &Value) -> bool {
-    id_of(cm.get("id")).is_some()
-        && id_of(cm.get("sectionid")).is_some()
-        && cm.get("module").and_then(Value::as_str).is_some()
-        && cm.get("name").and_then(Value::as_str).is_some()
-        && !cm
-            .get("url")
-            .and_then(Value::as_str)
-            .is_some_and(|url| !url.is_empty() && !lms_url(url))
-}
-
-fn valid_event(event: &Value) -> bool {
-    id_of(event.get("instance")).is_some()
-        && id_of(event.get("course").and_then(|course| course.get("id"))).is_some()
-        && event.get("timesort").and_then(Value::as_i64).is_some()
-}
-
-/// Checks the envelope strictly and every record on its own: a record Moodle
-/// shapes unexpectedly is dropped (and counted) instead of failing the whole
-/// pull. A dropped course makes the course list incomplete, so nothing is
-/// tombstoned from it.
-pub fn parse_lms_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), String> {
-    if raw.len() > MAX_PAYLOAD_BYTES {
-        return Err("LMS payload exceeds the size limit".into());
-    }
-    let raw: RawLmsPayload =
-        serde_json::from_str(raw).map_err(|_| "LMS payload is not valid JSON")?;
-    if !lms_url(&raw.source_url) {
-        return Err("LMS payload has an invalid source URL".into());
-    }
-    if raw.status == "login" {
-        return Ok((LmsStage::ReconnectRequired, None));
-    }
-    if raw.status != "ok" {
-        return Err("LMS extraction was incomplete".into());
-    }
-    if raw.courses.len() > MAX_COURSES
-        || raw.structures.len() > MAX_STRUCTURES
-        || raw.action_events.len() > MAX_EVENTS
-        || raw.dated_events.len() > MAX_EVENTS
-    {
-        return Err("LMS payload exceeds a collection limit".into());
-    }
-    let mut skipped = 0;
-    let mut skipped_courses = false;
-    let mut course_ids = HashSet::new();
-    let mut courses = Vec::new();
-    for value in raw.courses {
-        let course = serde_json::from_value::<LmsCourse>(value)
-            .ok()
-            .filter(|course| {
-                course.id != 0
-                    && !course_ids.contains(&course.id)
-                    && !course.fullname.trim().is_empty()
-                    && course.fullname.len() <= 1_000
-                    && course.shortname.len() <= 255
-                    && lms_url(&course.viewurl)
-            });
-        match course {
-            Some(mut course) => {
-                course.fullname = decode_entities(&course.fullname);
-                course_ids.insert(course.id);
-                courses.push(course);
-            }
-            None => {
-                skipped += 1;
-                skipped_courses = true;
-            }
-        }
-    }
-    let mut item_count = 0;
-    let mut structures = Vec::new();
-    for value in raw.structures {
-        let Ok(mut structure) = serde_json::from_value::<LmsStructure>(value) else {
-            skipped += 1;
-            continue;
-        };
-        if !course_ids.contains(&structure.course_id) {
-            skipped += 1;
-            continue;
-        }
-        if structure.complete {
-            let cms = structure
-                .state
-                .as_ref()
-                .and_then(|state| state.get("cm"))
-                .and_then(Value::as_array)
-                .cloned();
-            let Some(cms) = cms else {
-                // Without a module list the structure is unusable, but the
-                // course's existing items must not be tombstoned either.
-                structure.complete = false;
-                structure.state = None;
-                skipped += 1;
-                structures.push(structure);
-                continue;
-            };
-            let kept: Vec<Value> = cms
-                .into_iter()
-                .filter(valid_cm)
-                .map(|mut cm| {
-                    decode_fields(&mut cm, &["name"]);
-                    cm
-                })
-                .collect();
-            let total = structure
-                .state
-                .as_ref()
-                .and_then(|s| s.get("cm"))
-                .and_then(Value::as_array)
-                .map_or(0, Vec::len);
-            if kept.len() < total {
-                // A partial module list would tombstone the dropped items.
-                skipped += total - kept.len();
-                structure.complete = false;
-            }
-            item_count += kept.len();
-            if let Some(state) = structure.state.as_mut().and_then(Value::as_object_mut) {
-                state.insert("cm".into(), Value::Array(kept));
-                if let Some(Value::Array(sections)) = state.get_mut("section") {
-                    for section in sections {
-                        decode_fields(section, &["title"]);
-                        // Moodle serializes these IDs as strings, unlike material sectionId.
-                        if let Some(id) = id_of(section.get("id")) {
-                            section["id"] = json!(id);
-                        }
-                    }
-                }
-            }
-        }
-        structures.push(structure);
-    }
-    if item_count > MAX_ITEMS {
-        return Err("LMS structure exceeds the item limit".into());
-    }
-    let mut events = |list: Vec<Value>| {
-        let total = list.len();
-        let kept: Vec<Value> = list
-            .into_iter()
-            .filter(valid_event)
-            .map(|mut event| {
-                decode_fields(&mut event, &["name", "activityname"]);
-                event
-            })
-            .collect();
-        skipped += total - kept.len();
-        kept
-    };
-    let action_events = events(raw.action_events);
-    let dated_events = events(raw.dated_events);
-    let timetable = raw
-        .timetable
-        .as_ref()
-        .and_then(|grid| parse_timetable(grid, &course_ids));
-    let assign_status = raw
-        .assign_status
-        .iter()
-        .take(200)
-        .filter_map(|row| {
-            let state = row.get("submission")?.as_str()?;
-            if !matches!(state, "open" | "submitted" | "graded") {
-                return None;
-            }
-            Some((id_of(row.get("cmid"))?, state.to_string()))
-        })
-        .collect();
-    Ok((
-        LmsStage::Ready,
-        Some(LmsPayload {
-            status: raw.status,
-            source_url: raw.source_url,
-            language: raw.language,
-            courses_complete: raw.courses_complete && !skipped_courses,
-            courses,
-            structures,
-            action_events,
-            dated_events,
-            timetable,
-            assign_status,
-            skipped,
-        }),
-    ))
-}
 
 fn split_title(fullname: &str, language: &str) -> Value {
     if let Some((ja, en)) = fullname.split_once(" / ") {
