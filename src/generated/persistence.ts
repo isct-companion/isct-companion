@@ -4,156 +4,700 @@ export type Quarter = "1Q" | "2Q" | "3Q" | "4Q";
 
 export type InstructionLanguage = "ja" | "en" | "ja-en" | "other";
 
-export type Localized = { ja?: string, en?: string, };
+export type Localized = { ja?: string; en?: string };
 
-export type SyncMeta = { id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type SyncMeta = {
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type SourceProvider = "sample" | "school" | "syllabus" | "lms" | "kyomu" | "manual" | "import" | "mcp" | "subscription";
+export type SourceProvider =
+  | "sample"
+  | "school"
+  | "syllabus"
+  | "lms"
+  | "kyomu"
+  | "manual"
+  | "import"
+  | "mcp"
+  | "subscription";
 
-export type SourceRef = { provider: SourceProvider, externalId?: string, importRunId?: string, fetchedAt?: string, hash?: string, };
+export type SourceRef = {
+  provider: SourceProvider;
+  externalId?: string;
+  importRunId?: string;
+  fetchedAt?: string;
+  hash?: string;
+};
 
-export type CreditSplit = { lecture: number, exercise: number, lab: number, };
+export type CreditSplit = { lecture: number; exercise: number; lab: number };
 
-export type Meeting = { days: Array<number>, periods: Array<number>, startTime: string, endTime: string, room: string, roomNames?: Localized, validFrom?: string, validTo?: string, };
+export type Meeting = {
+  days: Array<number>;
+  periods: Array<number>;
+  startTime: string;
+  endTime: string;
+  room: string;
+  roomNames?: Localized;
+  validFrom?: string;
+  validTo?: string;
+};
 
-export type CourseNames = { title: Localized, instructor: Localized, };
+export type CourseNames = { title: Localized; instructor: Localized };
 
-export type CourseOverrides = { title?: string, instructor?: string, color?: string, };
+export type LessonMark = { occurrence: string; sectionId: number };
 
-export type Course = { kind: "course", termId: `${number}-${Quarter}`, sourceKey?: string, offeringId?: string, names?: CourseNames, code: string, title: string, instructor: string, credits: number, creditSplit: CreditSplit, instructionLanguage: InstructionLanguage, color: string, meetings: Array<Meeting>, source: SourceRef, overrides?: CourseOverrides, url?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type CourseOverrides = {
+  title?: string;
+  instructor?: string;
+  color?: string;
+  lessonLog?: Array<LessonMark>;
+};
 
-export type Membership = { kind: "membership", termId: `${number}-${Quarter}`, courseId: string, status: "declared" | "registered" | "lms-member" | "completed" | "withdrawn", evidence: SourceRef, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Course = {
+  kind: "course";
+  termId: `${number}-${Quarter}`;
+  sourceKey?: string;
+  offeringId?: string;
+  names?: CourseNames;
+  code: string;
+  title: string;
+  instructor: string;
+  credits: number;
+  creditSplit: CreditSplit;
+  instructionLanguage: InstructionLanguage;
+  color: string;
+  meetings: Array<Meeting>;
+  source: SourceRef;
+  overrides?: CourseOverrides;
+  url?: string;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type Assignment = { kind: "assignment", courseId: string, title: string, details: string, dueAt: string | null, sourceKey?: string, sourceUrl?: string, lmsCmid?: number, lmsCourseId?: number, submission?: "unknown" | "open" | "submitted" | "graded", submissionStatus?: "unknown" | "draft" | "submitted" | "late" | "not-submitted", hidden?: boolean, completedAt?: string, source: SourceRef, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Membership = {
+  kind: "membership";
+  termId: `${number}-${Quarter}`;
+  courseId: string;
+  status: "declared" | "registered" | "lms-member" | "completed" | "withdrawn";
+  evidence: SourceRef;
+  sourceKey?: string;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type Material = { kind: "material", courseId: string, session: number, title: string, type: "pdf" | "link" | "video", sourceKey?: string, cmid?: number, lmsCourseId?: number, sectionId?: number, sectionNumber?: number, sectionTitle?: string, module?: string, visible?: boolean, bodyHtml?: string, resourceUrl?: string, url?: string, source: SourceRef, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Assignment = {
+  kind: "assignment";
+  courseId: string;
+  title: string;
+  details: string;
+  dueAt: string | null;
+  sourceKey?: string;
+  sourceUrl?: string;
+  lmsCmid?: number;
+  lmsCourseId?: number;
+  submission?: "unknown" | "open" | "submitted" | "graded";
+  submissionStatus?:
+    "unknown" | "draft" | "submitted" | "late" | "not-submitted";
+  hidden?: boolean;
+  completedAt?: string;
+  source: SourceRef;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type PersonalEvent = { kind: "event", termId: `${number}-${Quarter}`, title: string, room: string, date?: string, days?: Array<number>, startTime: string, endTime: string, blocking: boolean, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type FolderFile = { name: string; url: string };
 
-export type PlanItem = { kind: "plan-item", termId: `${number}-${Quarter}`, offeringId?: string, courseId?: string, state: "candidate" | "planned", id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Material = {
+  kind: "material";
+  courseId: string;
+  session: number;
+  title: string;
+  type: "pdf" | "link" | "video";
+  sourceKey?: string;
+  cmid?: number;
+  lmsCourseId?: number;
+  sectionId?: number;
+  sectionNumber?: number;
+  sectionTitle?: string;
+  module?: string;
+  visible?: boolean;
+  bodyHtml?: string;
+  resourceUrl?: string;
+  /**
+   * A folder's files, kept from its last successful read.
+   */
+  folderFiles?: Array<FolderFile>;
+  url?: string;
+  source: SourceRef;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type CalendarException = { date: string, type: "no-class" | "replacement" | "break", replacementDay?: number, label: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type PersonalEvent = {
+  kind: "event";
+  termId: `${number}-${Quarter}`;
+  title: string;
+  room: string;
+  date?: string;
+  days?: Array<number>;
+  startTime: string;
+  endTime: string;
+  blocking: boolean;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type ScheduleEntry = { "kind": "weekly", day: number, periods: [number, number], room: Localized | null, } | { "kind": "intensive", room: Localized | null, } | { "kind": "seminar", room: Localized | null, } | { "kind": "internship", room: Localized | null, } | { "kind": "on-demand", room: Localized | null, } | { "kind": "tba", room: Localized | null, } | { "kind": "registration-only", room: Localized | null, };
+export type PlanItem = {
+  kind: "plan-item";
+  termId: `${number}-${Quarter}`;
+  offeringId?: string;
+  courseId?: string;
+  state: "candidate" | "planned";
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type ClassFormat = { kinds: Array<string>, delivery?: string, };
+export type CalendarException = {
+  date: string;
+  type: "no-class" | "replacement" | "break";
+  replacementDay?: number;
+  label: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type Offering = { year: number, quarters: Array<Quarter>, code: string, sourceKey?: string, classCode?: string, unitCode?: string, title: Localized, instructors: Array<Localized>, instructionLanguage: InstructionLanguage, format: ClassFormat, media: Localized, classLabel?: string, credits: CreditSplit, schedule: Array<ScheduleEntry>, academicUnit: Localized, intensive: boolean, syllabusUrl: string, sourceUpdated?: string, fetchedAt: Localized, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type ScheduleEntry =
+  | {
+      kind: "weekly";
+      day: number;
+      periods: [number, number];
+      room: Localized | null;
+    }
+  | { kind: "intensive"; room: Localized | null }
+  | { kind: "seminar"; room: Localized | null }
+  | { kind: "internship"; room: Localized | null }
+  | { kind: "on-demand"; room: Localized | null }
+  | { kind: "tba"; room: Localized | null }
+  | { kind: "registration-only"; room: Localized | null };
 
-export type IntensiveDay = { date: string, periods: [number, number] | null, };
+export type ClassFormat = { kinds: Array<string>; delivery?: string };
 
-export type IntensiveSchedule = { courseId: string, from: string, to: string, periods: [number, number], days?: Array<IntensiveDay>, room?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Offering = {
+  year: number;
+  quarters: Array<Quarter>;
+  code: string;
+  sourceKey?: string;
+  classCode?: string;
+  unitCode?: string;
+  title: Localized;
+  instructors: Array<Localized>;
+  instructionLanguage: InstructionLanguage;
+  format: ClassFormat;
+  media: Localized;
+  classLabel?: string;
+  credits: CreditSplit;
+  schedule: Array<ScheduleEntry>;
+  academicUnit: Localized;
+  intensive: boolean;
+  syllabusUrl: string;
+  sourceUpdated?: string;
+  fetchedAt: Localized;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type Plan = { title: string, courseId?: string, room?: string, start: string, duration: number, rrule?: string, exdates: Array<string>, reminder?: number, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type IntensiveDay = { date: string; periods: [number, number] | null };
 
-export type DateRange = { start: string, end: string, };
+export type IntensiveSchedule = {
+  courseId: string;
+  from: string;
+  to: string;
+  periods: [number, number];
+  days?: Array<IntensiveDay>;
+  room?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type AcademicCalendarDay = { sourceKey?: string, academicYear?: number, quarter?: Quarter, teachingRanges?: Array<DateRange>, examRanges?: Array<DateRange>, date: string, type: string, replacementDay?: number, label: Localized, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Plan = {
+  title: string;
+  courseId?: string;
+  room?: string;
+  start: string;
+  duration: number;
+  rrule?: string;
+  exdates: Array<string>;
+  reminder?: number;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type GpaSummary = { scope: string, gpa?: number, gpt?: number, earnedCredits: number, fetchedAt: string, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type DateRange = { start: string; end: string };
 
-export type Department = { admissionYear: number, name: Localized, syllabusScope: string, unitCode: string, guidePdf: string, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type AcademicCalendarDay = {
+  sourceKey?: string;
+  academicYear?: number;
+  quarter?: Quarter;
+  teachingRanges?: Array<DateRange>;
+  examRanges?: Array<DateRange>;
+  date: string;
+  type: string;
+  replacementDay?: number;
+  label: Localized;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type RecommendedCourse = { admissionYear: number, departmentId: string, category: Localized, level: number, code: string, group: string, mark?: "required" | "recommended", title: Localized, credits?: CreditSplit, sourcePages?: Array<number>, sourceKind?: string, note?: string, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type GpaSummary = {
+  scope: string;
+  gpa?: number;
+  gpt?: number;
+  earnedCredits: number;
+  fetchedAt: string;
+  sourceKey?: string;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type ImportantDate = { academicYear: number, startDate: string, endDate: string, label: Localized, category: string, sourceIds: Array<string>, labelEnglishSource?: string, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Department = {
+  admissionYear: number;
+  name: Localized;
+  syllabusScope: string;
+  unitCode: string;
+  guidePdf: string;
+  sourceKey?: string;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type Exam = { academicYear: number, level: "undergraduate" | "graduate", quarter: Quarter, courseCode: string, date: string, label: Localized, courseId?: string, classLabel?: Localized, syllabusCourseId?: string, periods?: [number, number], startTime?: string, endTime?: string, room: Localized | null, rooms: Array<Localized>, status: "scheduled" | "cancelled", notes?: Localized, sourceIds: Array<string>, sourcePages: Array<number>, sourceKey?: string, lastSeenAt?: string, missingSince?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type RecommendedCourse = {
+  admissionYear: number;
+  departmentId: string;
+  category: Localized;
+  level: number;
+  code: string;
+  group: string;
+  mark?: "required" | "recommended";
+  title: Localized;
+  credits?: CreditSplit;
+  sourcePages?: Array<number>;
+  sourceKind?: string;
+  note?: string;
+  sourceKey?: string;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type ScheduleOverride = { targetKey: string, targetKind?: "course" | "exam", courseId?: string, date?: string, periods?: [number, number], startTime?: string, endTime?: string, room?: string, title?: string, hidden: boolean, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type ImportantDate = {
+  academicYear: number;
+  startDate: string;
+  endDate: string;
+  label: Localized;
+  category: string;
+  sourceIds: Array<string>;
+  labelEnglishSource?: string;
+  sourceKey?: string;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type Subscription = { dataUrl?: string, url: string, kind: "calendar" | "departments" | "important-dates" | "exams", enabled: boolean, indexHash?: string, remoteHash?: string, sourceTs?: string, fetchedAt?: string, lastError?: string, year?: number, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Exam = {
+  academicYear: number;
+  level: "undergraduate" | "graduate";
+  quarter: Quarter;
+  courseCode: string;
+  date: string;
+  label: Localized;
+  courseId?: string;
+  classLabel?: Localized;
+  syllabusCourseId?: string;
+  periods?: [number, number];
+  startTime?: string;
+  endTime?: string;
+  room: Localized | null;
+  rooms: Array<Localized>;
+  status: "scheduled" | "cancelled";
+  notes?: Localized;
+  sourceIds: Array<string>;
+  sourcePages: Array<number>;
+  sourceKey?: string;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type ScheduledTask = { name: string, action: "school-refresh" | "lms-refresh" | "reference-refresh" | "export" | "hook", hookId?: string, schedule: string, enabled: boolean, lastOccurrenceAt?: string, lastRunAt?: string, lastResult?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type ScheduleOverride = {
+  targetKey: string;
+  targetKind?: "course" | "exam";
+  courseId?: string;
+  date?: string;
+  periods?: [number, number];
+  startTime?: string;
+  endTime?: string;
+  room?: string;
+  title?: string;
+  hidden: boolean;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type AssignmentMark = { sourceKey: string, hidden: boolean, completedAt?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type Subscription = {
+  dataUrl?: string;
+  url: string;
+  kind: "calendar" | "departments" | "important-dates" | "exams";
+  enabled: boolean;
+  indexHash?: string;
+  remoteHash?: string;
+  sourceTs?: string;
+  fetchedAt?: string;
+  lastError?: string;
+  year?: number;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type CourseOverride = { sourceKey: string, title?: string, instructor?: string, color?: string, id: string, rev: number, updatedAt: string, updatedBy: string, deletedAt?: string, };
+export type ScheduledTask = {
+  name: string;
+  action:
+    "school-refresh" | "lms-refresh" | "reference-refresh" | "export" | "hook";
+  hookId?: string;
+  schedule: string;
+  enabled: boolean;
+  lastOccurrenceAt?: string;
+  lastRunAt?: string;
+  lastResult?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type AgentWrite = { at: string, tool: string, };
+export type AssignmentMark = {
+  sourceKey: string;
+  hidden: boolean;
+  completedAt?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type AgentAccess = { enabled: boolean, lastWrites: Array<AgentWrite>, };
+export type CourseOverride = {
+  sourceKey: string;
+  title?: string;
+  instructor?: string;
+  color?: string;
+  lessonLog?: Array<LessonMark>;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
 
-export type Notifications = { classes: boolean, assignments: boolean, classLeadMinutes?: number, localPermission: NotificationPermission, };
+export type AgentWrite = { at: string; tool: string };
 
-export type CloudSettings = { provider: "none" | "google-drive" | "onedrive", clientId: string, redirectUri?: string, conflict: "keep-current" | "use-latest" | "resolve-manually", };
+export type AgentAccess = { enabled: boolean; lastWrites: Array<AgentWrite> };
 
-export type SubscriptionRefreshSettings = { frequency: "daily", allowCellular: boolean, lastCheckedAt?: string, };
+export type Notifications = {
+  classes: boolean;
+  assignments: boolean;
+  classLeadMinutes?: number;
+  localPermission: NotificationPermission;
+};
 
-export type SiteCustomization = { css: string, js: string, enabled: boolean, };
+export type CloudSettings = {
+  provider: "none" | "google-drive" | "onedrive";
+  clientId: string;
+  redirectUri?: string;
+  conflict: "keep-current" | "use-latest" | "resolve-manually";
+};
 
-export type SiteCustomizations = { portal: SiteCustomization, lms: SiteCustomization, syllabus: SiteCustomization, };
+export type SubscriptionRefreshSettings = {
+  frequency: "daily";
+  allowCellular: boolean;
+  lastCheckedAt?: string;
+};
 
-export type CustomizationHook = { id: string, name: string, action: string, schedule: string, script: string, enabled: boolean, };
+export type SiteCustomization = { css: string; js: string; enabled: boolean };
 
-export type Customization = { background: string, sites: SiteCustomizations, hooks: Array<CustomizationHook>, };
+export type SiteCustomizations = {
+  portal: SiteCustomization;
+  lms: SiteCustomization;
+  syllabus: SiteCustomization;
+};
 
-export type SiteConsents = { portal: boolean, lms: boolean, syllabus: boolean, };
+export type CustomizationHook = {
+  id: string;
+  name: string;
+  action: string;
+  schedule: string;
+  script: string;
+  enabled: boolean;
+};
 
-export type Settings = { departmentId?: string, lmsBilingualFilter?: boolean, autoDownloadLimitMb?: number, autoCleanDays?: number, agentAccess?: AgentAccess, appearance: "system" | "light" | "dark", density: "comfortable" | "compact", textSize?: "small" | "medium" | "large", restoreSchoolPage?: boolean, activeSchoolSite?: string, schoolServiceWidth?: number, schoolWebZoom?: number, showGrades?: boolean, siteConsents?: SiteConsents, locale: "en" | "ja" | "zh", contentLanguage?: "auto" | "ja" | "en", notifications: Notifications, cloud: CloudSettings, subscriptionRefresh: SubscriptionRefreshSettings, customization?: Customization, };
+export type Customization = {
+  background: string;
+  sites: SiteCustomizations;
+  hooks: Array<CustomizationHook>;
+};
 
-export type GradePathEntry = { grade: string, academicYear: number, };
+export type SiteConsents = { portal: boolean; lms: boolean; syllabus: boolean };
 
-export type QuarterStarts = { "1Q": string, "2Q": string, "3Q": string, "4Q": string, };
+export type Settings = {
+  departmentId?: string;
+  lmsBilingualFilter?: boolean;
+  autoDownloadLimitMb?: number;
+  autoCleanDays?: number;
+  agentAccess?: AgentAccess;
+  appearance: "system" | "light" | "dark";
+  density: "comfortable" | "compact";
+  textSize?: "small" | "medium" | "large";
+  restoreSchoolPage?: boolean;
+  activeSchoolSite?: string;
+  schoolServiceWidth?: number;
+  schoolWebZoom?: number;
+  showGrades?: boolean;
+  siteConsents?: SiteConsents;
+  locale: "en" | "ja" | "zh";
+  contentLanguage?: "auto" | "ja" | "en";
+  notifications: Notifications;
+  cloud: CloudSettings;
+  subscriptionRefresh: SubscriptionRefreshSettings;
+  customization?: Customization;
+};
 
-export type AcademicYearConfig = { academicYear: number, quarterStarts: QuarterStarts, };
+export type GradePathEntry = { grade: string; academicYear: number };
 
-export type AcademicProfile = { name: string, admissionYear?: number, gradePath: Array<GradePathEntry>, years: Array<AcademicYearConfig>, };
+export type QuarterStarts = {
+  "1Q": string;
+  "2Q": string;
+  "3Q": string;
+  "4Q": string;
+};
 
-export type ImportStatus = { school: "not-configured" | "connected" | "reconnect-required" | "error", lastImportedAt?: string, message?: string, lastResult?: "fresh" | "cached" | "reconnect-required" | "error", timetableReviewedAt?: string, };
+export type AcademicYearConfig = {
+  academicYear: number;
+  quarterStarts: QuarterStarts;
+};
 
-export type SyncStatus = { state: "idle" | "needs-configuration" | "syncing" | "error", lastSyncedAt?: string, message?: string, };
+export type AcademicProfile = {
+  name: string;
+  admissionYear?: number;
+  gradePath: Array<GradePathEntry>;
+  years: Array<AcademicYearConfig>;
+};
 
-export type WorkspaceLog = { at: string, source: string, phase: string, state: string, message: string, retryable: boolean, };
+export type ImportStatus = {
+  school: "not-configured" | "connected" | "reconnect-required" | "error";
+  lastImportedAt?: string;
+  message?: string;
+  lastResult?: "fresh" | "cached" | "reconnect-required" | "error";
+  timetableReviewedAt?: string;
+};
 
-export type Workspace = { schemaVersion: 3, deviceId: string, selectedTerm: `${number}-${Quarter}`, terms?: Array<`${number}-${Quarter}`>, courses: Array<Course>, memberships: Array<Membership>, assignments: Array<Assignment>, materials: Array<Material>, events: Array<PersonalEvent>, planItems: Array<PlanItem>, exceptions: Array<CalendarException>, offerings: Array<Offering>, intensiveSchedules: Array<IntensiveSchedule>, plans: Array<Plan>, academicCalendar: Array<AcademicCalendarDay>, gpaSummary: Array<GpaSummary>, departments: Array<Department>, recommendedCourses: Array<RecommendedCourse>, importantDates: Array<ImportantDate>, exams: Array<Exam>, scheduleOverrides: Array<ScheduleOverride>, subscriptions: Array<Subscription>, scheduledTasks: Array<ScheduledTask>, settings: Settings, academicProfile: AcademicProfile, logs?: Array<WorkspaceLog>, importStatus: ImportStatus, syncStatus: SyncStatus, };
+export type SyncStatus = {
+  state: "idle" | "needs-configuration" | "syncing" | "error";
+  lastSyncedAt?: string;
+  message?: string;
+};
 
-export type CatalogSearchItem = { id: string, year: number, code: string, title: Localized, instructors: Array<Localized>, quarters: Array<Quarter>, syllabusUrl: string, };
+export type WorkspaceLog = {
+  at: string;
+  source: string;
+  phase: string;
+  state: string;
+  message: string;
+  retryable: boolean;
+};
 
-export type LifetimePolicy = { "kind": "session" } | { "kind": "until-disabled" } | { "kind": "expires-at", expiresAt: string, };
+export type Workspace = {
+  schemaVersion: 3;
+  deviceId: string;
+  selectedTerm: `${number}-${Quarter}`;
+  /**
+   * Derived by Rust from profile overrides, then the subscribed academic
+   * calendar. If neither has a usable boundary, the selected term is kept;
+   * no month-based academic-calendar assumptions are made here.
+   */
+  currentTerm: `${number}-${Quarter}`;
+  terms?: Array<`${number}-${Quarter}`>;
+  courses: Array<Course>;
+  memberships: Array<Membership>;
+  assignments: Array<Assignment>;
+  materials: Array<Material>;
+  events: Array<PersonalEvent>;
+  planItems: Array<PlanItem>;
+  exceptions: Array<CalendarException>;
+  offerings: Array<Offering>;
+  intensiveSchedules: Array<IntensiveSchedule>;
+  plans: Array<Plan>;
+  academicCalendar: Array<AcademicCalendarDay>;
+  gpaSummary: Array<GpaSummary>;
+  departments: Array<Department>;
+  recommendedCourses: Array<RecommendedCourse>;
+  importantDates: Array<ImportantDate>;
+  exams: Array<Exam>;
+  scheduleOverrides: Array<ScheduleOverride>;
+  subscriptions: Array<Subscription>;
+  scheduledTasks: Array<ScheduledTask>;
+  settings: Settings;
+  academicProfile: AcademicProfile;
+  logs?: Array<WorkspaceLog>;
+  importStatus: ImportStatus;
+  syncStatus: SyncStatus;
+};
 
-export type RefreshPolicy = { staleAfterSeconds: number, refreshMode: string, };
+export type CatalogSearchItem = {
+  id: string;
+  year: number;
+  code: string;
+  title: Localized;
+  instructors: Array<Localized>;
+  quarters: Array<Quarter>;
+  syllabusUrl: string;
+};
 
-export type EvictionPolicy = { evictAfterUnusedSeconds: number, maxBytes: number | null, };
+export type LifetimePolicy =
+  | { kind: "session" }
+  | { kind: "until-disabled" }
+  | { kind: "expires-at"; expiresAt: string };
 
-export type DataPolicy = { lms: RefreshPolicy, timetable: RefreshPolicy, kyomu: RefreshPolicy, syllabus: RefreshPolicy, courseMaterials: EvictionPolicy, };
+export type RefreshPolicy = { staleAfterSeconds: number; refreshMode: string };
 
-export type IntegerPolicy = { default: number, min: number, max: number, };
+export type EvictionPolicy = {
+  evictAfterUnusedSeconds: number;
+  maxBytes: number | null;
+};
 
-export type CourseFilePolicy = { autoDownloadLimitMb: IntegerPolicy, retentionDays: IntegerPolicy, };
+export type DataPolicy = {
+  lms: RefreshPolicy;
+  timetable: RefreshPolicy;
+  kyomu: RefreshPolicy;
+  syllabus: RefreshPolicy;
+  courseMaterials: EvictionPolicy;
+};
+
+export type IntegerPolicy = { default: number; min: number; max: number };
+
+export type CourseFilePolicy = {
+  autoDownloadLimitMb: IntegerPolicy;
+  retentionDays: IntegerPolicy;
+};
 
 export const DATA_POLICY: DataPolicy = {
-  "lms": {
-    "staleAfterSeconds": 43200,
-    "refreshMode": "on-access"
+  lms: {
+    staleAfterSeconds: 43200,
+    refreshMode: "on-access",
   },
-  "timetable": {
-    "staleAfterSeconds": 2592000,
-    "refreshMode": "manual-review"
+  timetable: {
+    staleAfterSeconds: 2592000,
+    refreshMode: "manual-review",
   },
-  "kyomu": {
-    "staleAfterSeconds": 604800,
-    "refreshMode": "on-access"
+  kyomu: {
+    staleAfterSeconds: 604800,
+    refreshMode: "on-access",
   },
-  "syllabus": {
-    "staleAfterSeconds": 604800,
-    "refreshMode": "on-access"
+  syllabus: {
+    staleAfterSeconds: 604800,
+    refreshMode: "on-access",
   },
-  "courseMaterials": {
-    "evictAfterUnusedSeconds": 2592000,
-    "maxBytes": null
-  }
+  courseMaterials: {
+    evictAfterUnusedSeconds: 2592000,
+    maxBytes: null,
+  },
 };
 
 export const COURSE_FILE_POLICY: CourseFilePolicy = {
-  "autoDownloadLimitMb": {
-    "default": 20,
-    "min": 1,
-    "max": 1024
+  autoDownloadLimitMb: {
+    default: 20,
+    min: 1,
+    max: 1024,
   },
-  "retentionDays": {
-    "default": 30,
-    "min": 1,
-    "max": 3650
-  }
+  retentionDays: {
+    default: 30,
+    min: 1,
+    max: 3650,
+  },
 };

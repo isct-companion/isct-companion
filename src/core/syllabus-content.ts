@@ -52,7 +52,7 @@ export function validSyllabusContent(value: unknown): value is SyllabusContent {
       ? (new URL(identity).searchParams.get("hl") ?? "ja")
       : undefined;
     return (
-      JSON.stringify(c).length <= 400000 &&
+      JSON.stringify(c).length <= 1_000_000 &&
       c.schemaVersion === 1 &&
       !!identity &&
       ["en", "ja"].includes(c.sourceLanguage) &&
@@ -67,7 +67,7 @@ export function validSyllabusContent(value: unknown): value is SyllabusContent {
       rows(c.metadata, 80, (r) => str(r.label) && str(r.value)) &&
       rows(
         c.sections,
-        80,
+        200,
         (s) =>
           str(s.key) &&
           str(s.heading) &&
@@ -83,7 +83,7 @@ export function validSyllabusContent(value: unknown): value is SyllabusContent {
           ) &&
           rows(
             s.links,
-            100,
+            128,
             (l) =>
               str(l.label) &&
               str(l.url) &&

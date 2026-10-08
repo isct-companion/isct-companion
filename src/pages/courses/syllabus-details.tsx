@@ -2,6 +2,7 @@ import { ExternalLink } from "../../components/ExternalLink";
 import { t } from "../../i18n";
 import { useEffect, useRef, useState } from "react";
 import type { SyllabusCourse } from "../../core/syllabus";
+import { lessonNumber } from "../today/lms/lessons";
 import {
   syllabusIdentity,
   validSyllabusContent,
@@ -11,9 +12,15 @@ import {
 export function SyllabusDetails({
   url,
   fetchCourse,
+  variant = "accordion",
+  currentLesson,
 }: {
   url: string;
   fetchCourse?: (url: string) => Promise<SyllabusCourse>;
+  /** `document` reads straight through, for the course reader; `accordion` folds, for tight panels. */
+  variant?: "accordion" | "document";
+  /** The lesson the course is at, marked in the lesson plan. */
+  currentLesson?: number;
 }) {
   // Official offering-ID locators redirect to the canonical dated syllabus.
   const identity = syllabusIdentity(url);
@@ -62,6 +69,94 @@ export function SyllabusDetails({
       generation.current += 1;
     };
   }, [identity, Boolean(fetchCourse)]);
+  const status = (error || !identity || (!content && busy)) && (
+    <p className="syllabusStatus" role="status">
+      {error || (!identity ? t("No syllabus is linked to this course.") : t("Loading the syllabus…"))}
+    </p>
+  );
+  const prose = (section: SyllabusContent["sections"][number]) => (
+    <div className="syllabusProse">
+      {section.blocks.map((block, j) =>
+        block.kind === "tableRow" ? (
+          <p key={j}>{block.cells?.join(" · ") || block.text}</p>
+        ) : block.kind === "subheading" ? (
+          <h4 key={j}>{block.text}</h4>
+        ) : block.kind === "listItem" ? (
+          <p key={j} className="syllabusItem">{block.text}</p>
+        ) : (
+          <p key={j}>{block.text}</p>
+        ),
+      )}
+      {section.links.map((link, j) => (
+        <p key={`link-${j}`}>
+          <ExternalLink href={link.url}>{link.label || link.url} ↗</ExternalLink>
+        </p>
+      ))}
+    </div>
+  );
+  if (variant === "document")
+    return (
+      <article className="syllabusDocument" aria-label={t("Official syllabus")}>
+        {status}
+        {content && (
+          <>
+            {!!content.metadata.length && (
+              <dl className="syllabusFacts">
+                {content.metadata.map((row, i) => (
+                  <div key={i}>
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {content.sections
+              .filter(
+                (section) =>
+                  !(section.key === "lecturePlan" && content.lecturePlan.length) &&
+                  section.key !== "competencies",
+              )
+              .map((section, i) => (
+                <section key={`${section.key}-${i}`} className="syllabusPart">
+                  <h3>{section.heading}</h3>
+                  {prose(section)}
+                </section>
+              ))}
+            {!!content.lecturePlan.length && (
+              <section className="syllabusPart">
+                <h3>{t("Lesson plan")}</h3>
+                <ol className="syllabusPlan">
+                  {content.lecturePlan.map((lesson, i) => {
+                    const number = lessonNumber(lesson.label) ?? i + 1;
+                    return (
+                      <li key={i} className={number === currentLesson ? "current" : number < (currentLesson ?? 0) ? "held" : ""}>
+                        <span className="syllabusPlanNo">{String(number).padStart(2, "0")}</span>
+                        <div>
+                          <p>{lesson.topic}</p>
+                          {lesson.objective && <p className="syllabusObjective">{lesson.objective}</p>}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
+            )}
+            {!!content.competencies.filter((c) => c.selected).length && (
+              <section className="syllabusPart">
+                <h3>{t("Competencies")}</h3>
+                <ul className="syllabusTags">
+                  {content.competencies
+                    .filter((c) => c.selected)
+                    .map((c, i) => (
+                      <li key={i}>{c.label}</li>
+                    ))}
+                </ul>
+              </section>
+            )}
+          </>
+        )}
+      </article>
+    );
   return (
     <section className="syllabusDetails" aria-label={t("Official syllabus")}>
       {(error || !identity || (!content && busy)) && (

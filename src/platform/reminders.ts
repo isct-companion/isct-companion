@@ -1,7 +1,10 @@
 import { t } from "../i18n";
-import { contentLanguage, pickLocalized, type TermId, type Workspace } from "../core/model";
-import { academicTermForDate } from "../core/academic-calendar";
-import { termForDate } from "../core/academic";
+import {
+  contentLanguage,
+  pickLocalized,
+  type TermId,
+  type Workspace,
+} from "../core/model";
 import {
   resolveDayAgenda,
   scheduledCourses,
@@ -18,9 +21,8 @@ export const REMINDER_GRACE_MS = 5 * 60_000;
 export type Reminder = { key: string; at: number; title: string; body: string };
 
 /** The term whose timetable Today shows for this moment. */
-export function reminderTerm(data: Workspace, now: Date): TermId {
-  const current =
-    academicTermForDate(now, data.academicProfile) ?? termForDate(now);
+export function reminderTerm(data: Workspace, _now: Date): TermId {
+  const current = data.currentTerm;
   return data.courses.some((row) => row.termId === current && !row.deletedAt)
     ? current
     : data.selectedTerm;

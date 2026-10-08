@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { UiButton } from "../../components/mantine";
-import { deadlineState } from "../../core/academic";
+import { deadlineState, dueCountdown } from "../../core/academic";
 import {
   contentLanguage,
   pickLocalized,
@@ -201,7 +201,19 @@ export function Today({
               {submitted ? "submitted" : (assignment.submission ?? "unknown")}
             </small>
           </span>
-          <time className={due.ms < 0 ? "overdue" : due.tone}>{due.label}</time>
+          {due.ms >= 0 && !submitted ? (
+            <time
+              className={`dueChip ${dueCountdown(assignment.dueAt!, now).tone}`}
+              dateTime={assignment.dueAt!}
+              title={due.label}
+            >
+              {dueCountdown(assignment.dueAt!, now).label}
+            </time>
+          ) : (
+            <time className={due.ms < 0 ? "overdue" : due.tone}>
+              {due.label}
+            </time>
+          )}
         </UiButton>
         <UiButton
           className="textButton"

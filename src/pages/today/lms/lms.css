@@ -330,6 +330,87 @@
 .lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h1 { margin-bottom: 24px; font-size: 28px; letter-spacing: -.03em; }
 .lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h2 { margin-top: 32px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 
+/* ---------- Lessons: a rail of 第N回, one lesson open, the rest folded ---------- */
+.lmsLessonRail { display: flex; gap: 2px; width: 100%; max-width: 900px; align-self: center; padding: 0 24px 10px; overflow-x: auto; scrollbar-width: none; }
+.lmsLessonRail button {
+  position: relative; flex: 1 0 22px; min-width: 22px; padding: 4px 0 8px; border: 0; background: none;
+  color: var(--muted) !important; font-size: 11px !important; font-variant-numeric: tabular-nums; text-align: center;
+}
+.lmsLessonRail button::after { content: ""; position: absolute; left: 2px; right: 2px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--line); transition: background-color var(--lms-fast); }
+/* Held lessons read as progress; open work shows as a warm segment, not a mark on the number. */
+.lmsLessonRail button.held { color: var(--ink) !important; }
+.lmsLessonRail button.held::after { background: color-mix(in srgb, var(--ink) 45%, transparent); }
+.lmsLessonRail button.due::after { background: var(--warn); }
+.lmsLessonRail button.current { color: var(--accent) !important; font-weight: 700; }
+/* The page being read: one bar that slides between entries instead of jumping. */
+.lmsLessonRail { position: relative; }
+.lmsRailIndicator {
+  position: absolute; left: 0; bottom: 2px; height: 3px; width: 0; border-radius: 2px; background: var(--accent);
+  pointer-events: none; opacity: 0; z-index: 1;
+  transition: transform 420ms cubic-bezier(.2, .9, .25, 1), width 420ms cubic-bezier(.2, .9, .25, 1), opacity var(--lms-fast);
+}
+.lmsWorkspaceTools .lmsLessonRail .lmsRailIndicator { bottom: 8px; }
+.lmsLessonRail button:hover::after { background: var(--lms-hover-line); }
+
+/* Sections without a number (一般, 連絡先 …) and Activities: text tabs before the numbers. */
+.lmsLessonRail .lmsRailTab { flex: 0 1 auto; max-width: 9em; min-width: 0; padding-left: 8px; padding-right: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lmsRailDivider { flex: 0 0 1px; align-self: stretch; margin: 4px 6px 8px; background: var(--line); }
+.lmsLessonPage { padding-bottom: 16px; }
+
+/* ---------- Lesson pages ----------
+   The course is one continuous outline; each lesson starts a page, and a
+   resting outline settles onto the nearest page edge (see gravityTarget). */
+.lmsLessonPage { padding-top: 28px; }
+
+/* ---------- Folder in the outline: its files list under its row ---------- */
+.lmsFolder.open > .lmsItemRow { border-color: var(--lms-hover-line); }
+.lmsFolderChevron { transition: transform var(--lms-fast) var(--lms-ease); }
+.lmsFolder.open .lmsFolderChevron { transform: rotate(90deg); }
+.lmsFolderFiles { display: grid; gap: 2px; margin: 0 0 8px 22px; padding-left: 12px; border-left: 1px solid var(--line); animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
+.lmsFolderFile { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--lms-radius-sm); background: none; text-align: left; }
+.lmsFolderFile:hover { background: var(--surface-2); }
+.lmsFolderFile .lmsFileTile { flex-basis: 30px; width: 30px; height: 30px; border-radius: 8px; }
+.lmsFolderFile .lmsFileTile svg { width: 15px; height: 15px; }
+.lmsFolderFile b { display: block; font-size: 13px; font-weight: 520; overflow-wrap: anywhere; }
+.lmsFolderFile small { color: var(--muted); font-size: 11px; }
+.lmsFolderNote { margin-left: 34px; }
+.lmsTextLink { padding: 0; border: 0; background: none; color: var(--accent) !important; font-size: 12px !important; font-weight: 550; }
+.lmsTextLink:hover { text-decoration: underline; }
+
+/* ---------- Assignment card: state and deadline first ---------- */
+.lmsAssignmentCard {
+  margin: 8px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--lms-radius);
+  background: var(--surface); scroll-margin: 30px;
+}
+.lmsAssignmentCard > header { display: flex; align-items: flex-start; gap: 10px; }
+.lmsAssignmentMark { flex: 0 0 8px; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--accent); }
+.lmsAssignmentCard.done .lmsAssignmentMark, .lmsAssignmentCard.graded .lmsAssignmentMark { background: var(--ok); }
+.lmsAssignmentCard.missed .lmsAssignmentMark { background: var(--danger); }
+.lmsAssignmentTitle { flex: 1; min-width: 0; }
+.lmsAssignmentTitle h4 { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.45; }
+.lmsAssignmentTitle time { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lmsAssignmentState { flex: 0 0 auto; padding: 2px 7px; border-radius: 6px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.lmsAssignmentState.done, .lmsAssignmentState.graded { background: var(--ok-soft); color: var(--ok); }
+.lmsAssignmentState.missed { background: var(--danger-soft); color: var(--danger); }
+.lmsAssignmentBody { margin: 10px 0 0 18px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.75; animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
+.lmsAssignmentCard > footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin: 10px 0 0 18px; }
+.lmsAssignmentCard > footer > .lmsTextLink:first-child { margin-right: auto; }
+.lmsAssignmentCard .lmsSubmit { margin-top: 0; padding: 6px 11px; }
+
+/* ---------- Folder: its files as rows, read in the same pane ---------- */
+.lmsFolderView { display: flex; flex-direction: column; gap: 16px; padding: 24px; }
+.lmsFolderHeader { display: flex; align-items: center; gap: 14px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.lmsFolderHeader h3 { margin: 0; font-size: 17px; font-weight: 620; }
+.lmsFolderHeader small { color: var(--muted); font-size: 12px; }
+.lmsFolderList { display: grid; gap: 8px; }
+.lmsFolderList a.lmsItemRow { color: inherit; text-decoration: none; }
+
+.lmsAssignmentMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-variant-numeric: tabular-nums; }
+.lmsAssignmentMeta time::before { content: "·"; margin-right: 10px; }
+
+/* Quiet overlay-width scrollbars, even where the system always shows them. */
+.lmsWorkspace *, .lectureList { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+
 /* ---------- Development preview (?preview=lms) ---------- */
 .lmsPreviewShell { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); }
 .lmsPreviewNotice { display: flex; justify-content: space-between; padding: 9px 24px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
@@ -349,8 +430,115 @@
   .lmsOutlineTools, .lmsOutlineScroll { padding-left: 12px; padding-right: 12px; }
   .lmsDocument { padding: 20px 16px; }
 }
+/* ---------- Outline items: typed rows, not one card for everything ----------
+   Files are list rows marked by their type's icon and colour; tasks carry a
+   state bar, announcements read as quotes, tables are hairline grids. */
+.lmsSectionBody .lmsItemRow, .lmsActivityGroup .lmsItemRow {
+  margin: 1px 0; padding: 6px 8px; border-color: transparent; background: none; border-radius: var(--lms-radius-sm);
+}
+.lmsSectionBody .lmsItemRow:hover, .lmsActivityGroup .lmsItemRow:hover { border-color: transparent; background: var(--surface-2); }
+.lmsSectionBody .lmsItemRow.selected, .lmsActivityGroup .lmsItemRow.selected { border-color: transparent; background: var(--accent-soft); }
+.lmsSectionBody .lmsItemRow .lmsFileTile, .lmsActivityGroup .lmsItemRow .lmsFileTile { flex-basis: 32px; width: 32px; height: 32px; border-radius: 8px; }
+.lmsSectionBody .lmsItemRow .lmsFileTile svg, .lmsActivityGroup .lmsItemRow .lmsFileTile svg { width: 16px; height: 16px; }
+.lmsSectionBody .lmsItemRow .lmsRowAction { opacity: 0; transition: opacity var(--lms-fast); }
+.lmsSectionBody .lmsItemRow:hover .lmsRowAction, .lmsSectionBody .lmsFolder.open .lmsRowAction { opacity: 1; }
+.lmsFileTile[data-family="archive"], .lmsFileTile[data-family="file"] { --tint: #6b7280; }
+.lmsFolder.open > .lmsItemRow { border-color: transparent; }
+
+/* Announcements: a quote with its date, no card. */
+.lmsInlineActivity:has(.lmsAnnouncementCard) > h4 { display: none; }
+.lmsSectionBody .lmsAnnouncementCard {
+  margin: 4px 0; padding: 4px 32px 4px 14px; border: 0; border-left: 2px solid var(--line-strong); border-radius: 0; background: none;
+}
+.lmsSectionBody .lmsAnnouncementCard:hover { border-left-color: var(--lms-hover-line); background: none; }
+.lmsSectionBody .lmsAnnouncementCard.selected { border-left-color: var(--accent); background: none; }
+.lmsSectionBody .lmsAnnouncementCard strong { font-size: 13px; font-weight: 600; }
+.lmsInlineActivity:has(.lmsAnnouncementCard), .lmsInlineActivity:has(.lmsQuiet:only-child) { padding: 8px 0; border-top: 0; }
+
+/* Tasks: a state bar instead of a box. */
+.lmsAssignmentCard {
+  display: grid; grid-template-columns: 3px minmax(0, 1fr); column-gap: 12px; margin: 10px 0; padding: 2px 0;
+  border: 0; border-radius: 0; background: none;
+}
+.lmsAssignmentCard::before { content: ""; grid-row: 1 / span 3; border-radius: 2px; background: var(--accent); }
+.lmsAssignmentCard.done::before, .lmsAssignmentCard.graded::before { background: var(--ok); }
+.lmsAssignmentCard.missed::before { background: var(--danger); }
+.lmsAssignmentCard:has(.dueChip.urgent)::before { background: var(--danger); }
+.lmsAssignmentCard:has(.dueChip.soon)::before { background: var(--warn); }
+.lmsAssignmentCard > * { grid-column: 2; }
+.lmsAssignmentMark { display: none; }
+.lmsAssignmentTitle h4 button { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; text-align: left; }
+.lmsAssignmentTitle h4 button:hover { color: var(--accent); }
+.lmsAssignmentChevron { color: var(--muted); transition: transform var(--lms-fast) var(--lms-ease); }
+.lmsAssignmentTitle h4 button[aria-expanded="true"] .lmsAssignmentChevron { transform: rotate(90deg); }
+.lmsAssignmentBody { margin: 8px 0 0; padding: 0; border-top: 0; color: var(--ink); }
+.lmsAssignmentCard > footer { justify-content: flex-start; margin: 8px 0 0; }
+.lmsAssignmentCard .lmsSubmit { padding: 5px 10px; }
+
+/* The open lesson: its number large, its plan as the title. */
+.lmsLessonHead { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.lmsLessonHead > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lmsLessonNo { flex: 0 0 auto; color: var(--muted); font-size: 26px; font-weight: 600; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.lmsLessonPage .lmsSectionHeading h3 button { cursor: default; }
+.lmsLessonPage .lmsSectionHeading h3 button:hover { background: none; }
+.lmsLessonPage .lmsSectionHeading .lmsSectionChevron, .lmsLessonPage .lmsSectionHeading h3 small { display: none; }
+.lmsLessonPage .lmsSectionBody > .lmsRichContent:first-child { color: var(--muted); font-size: 12.5px; line-height: 1.75; }
+
+/* Tables: hairline rows; a schedule marks where the course is. */
+.lmsRichContent th, .lmsRichContent td { padding: 6px 10px; border: 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.lmsRichContent tr:first-child > th, .lmsRichContent tr:first-child > td:only-child,
+.lmsRichContent thead td, .lmsRichContent table:not(:has(th)) tr:first-child > td {
+  color: var(--muted); font-size: 11.5px; font-weight: 600; border-bottom-color: var(--line-strong);
+}
+.lmsRichContent tr.lmsRowPast > td { color: var(--muted); }
+.lmsRichContent tr.lmsRowOff > td { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.lmsRichContent tr.lmsRowNow > td { background: var(--accent-soft); color: var(--ink); }
+.lmsRichContent tr.lmsRowNow > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* Search and the lesson rail span the workspace, above outline and reader. */
+.lmsWorkspaceTools { display: grid; gap: 4px; padding: 12px 0 2px; border-bottom: 1px solid var(--line); }
+.lmsWorkspaceTools .lmsOutlineTools, .lmsWorkspaceTools .lmsLessonRail { max-width: none; padding-left: 4px; padding-right: 4px; }
+.lmsWorkspaceTools .lmsOutlineTools { padding-top: 0; padding-bottom: 6px; }
+.lmsWorkspaceTools .lmsOutlineTools input { max-width: 420px; }
+.lmsWorkspaceTools .lmsOutlineTools button { margin-left: auto; }
+.lmsWorkspaceTools .lmsLessonRail { padding-bottom: 6px; }
+.lmsOutlineScroll > h2:first-child { margin-top: 16px; }
+
 @media (prefers-reduced-motion: reduce) {
+  .lmsRailIndicator { transition: none; }
   .todayWorkbench.working .todayWorkbenchContent, .lmsViewer, .lmsSectionBody, .lmsInlineThumbnail, .lmsFileCard, .lmsFilePopover { animation: none; }
   .todayWorkbenchContent, .lmsItemRow, .lmsAnnouncementCard, .lmsSectionChevron, .lmsThumbnail img { transition: none; }
   .lmsImageCard [data-image-src][data-state="loading"] { animation: none; }
 }
+
+/* ---------- Syllabus as a document in the reader ----------
+   Facts first as a compact grid, then each part read straight through under
+   a quiet heading; the lesson plan marks where the course is. */
+.syllabusDocument { max-width: 78ch; margin: 0 auto; font-size: 14px; line-height: 1.8; }
+.syllabusDocument .syllabusStatus { color: var(--muted); font-size: 13px; }
+.syllabusFacts {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 24px;
+  margin: 0 0 8px; padding: 0 0 22px; border-bottom: 1px solid var(--line);
+}
+.syllabusFacts > div { min-width: 0; }
+.syllabusFacts dt { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+.syllabusFacts dd { margin: 2px 0 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.syllabusPart { padding: 22px 0 4px; }
+.syllabusPart + .syllabusPart { border-top: 1px solid var(--line); }
+.syllabusPart > h3 { margin: 0 0 8px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+.syllabusDocument .syllabusProse { max-width: none; padding: 0; }
+.syllabusDocument .syllabusProse p { margin: 0 0 8px; font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.syllabusDocument .syllabusProse h4 { margin: 14px 0 4px; font-size: 13px; font-weight: 600; }
+.syllabusDocument .syllabusItem { position: relative; padding-left: 14px; }
+.syllabusDocument .syllabusItem::before { content: ""; position: absolute; left: 2px; top: .8em; width: 4px; height: 4px; border-radius: 50%; background: var(--line-strong); }
+.syllabusPlan { margin: 0; padding: 0; list-style: none; }
+.syllabusPlan > li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 8px 8px 8px 6px; border-radius: var(--lms-radius-sm); }
+.syllabusPlan p { margin: 0; font-size: 13.5px; line-height: 1.6; }
+.syllabusPlanNo { color: var(--muted); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.syllabusPlan > li.held .syllabusPlanNo, .syllabusPlan > li.held p { color: var(--muted); }
+.syllabusPlan > li.current { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.syllabusPlan > li.current .syllabusPlanNo { color: var(--accent); }
+.syllabusDocument .syllabusObjective { color: var(--muted); font-size: 12.5px; }
+.syllabusTags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.syllabusTags > li { padding: 3px 9px; border-radius: 6px; background: var(--surface-3); color: var(--ink); font-size: 12px; }
+.lmsRefresh[aria-pressed="true"] { background: var(--accent-soft); }

@@ -5,7 +5,13 @@ import type {
   Workspace,
 } from "../../core/model";
 import { contentLanguage, pickLocalized } from "../../core/model";
-import { calendarState, importantDatesOnDate, quarterRange, resolveDayAgenda, scheduledCourses } from "../../core/schedule";
+import {
+  calendarState,
+  importantDatesOnDate,
+  quarterRange,
+  resolveDayAgenda,
+  scheduledCourses,
+} from "../../core/schedule";
 import { dayNames, type Block, type DayColumn } from "./timetable";
 import { stamp, jstDate } from "../../app/shared";
 
@@ -23,7 +29,12 @@ export function onTimetable(data: Workspace, course: Course) {
     data.planItems.some((x) => x.courseId === course.id && !x.deletedAt)
   );
 }
-export function setTimetable(d: Workspace, course: Course, on: boolean, membershipId?: string) {
+export function setTimetable(
+  d: Workspace,
+  course: Course,
+  on: boolean,
+  membershipId?: string,
+) {
   const now = stamp();
   const membership = d.memberships.find(
     (m) => m.courseId === course.id && !m.deletedAt,
@@ -33,7 +44,8 @@ export function setTimetable(d: Workspace, course: Course, on: boolean, membersh
   );
   if (on) {
     if (membership || draft) return;
-    if (!membershipId) throw new Error("A backend-generated membership ID is required");
+    if (!membershipId)
+      throw new Error("A backend-generated membership ID is required");
     d.memberships.push({
       id: membershipId,
       kind: "membership",
@@ -128,9 +140,29 @@ export function weekColumnsAt(
     const calendar = calendarState(data, iso);
     const rawLabel = calendar?.label;
     const range = quarterRange(data, term);
-    const outsideTeaching = iso >= range.from && iso <= range.to && Boolean(range.teachingRanges && calendar?.type !== "replacement" && !range.teachingRanges.some(r => iso >= r.start && iso <= r.end));
-    const noClasses = outsideTeaching || ["holiday", "no-class", "break"].includes(calendar?.type ?? "");
-    const fullNotice = typeof rawLabel === "string" ? rawLabel : rawLabel ? rawLabel[contentLanguage(data.settings)] || rawLabel.en || rawLabel.ja : noClasses ? (data.settings.locale === "ja" ? "授業休み" : "No classes") : undefined;
+    const outsideTeaching = Boolean(
+      range &&
+      iso >= range.from &&
+      iso <= range.to &&
+      range.teachingRanges &&
+      calendar?.type !== "replacement" &&
+      !range.teachingRanges.some((r) => iso >= r.start && iso <= r.end),
+    );
+    const noClasses =
+      outsideTeaching ||
+      ["holiday", "no-class", "break"].includes(calendar?.type ?? "");
+    const fullNotice =
+      typeof rawLabel === "string"
+        ? rawLabel
+        : rawLabel
+          ? rawLabel[contentLanguage(data.settings)] ||
+            rawLabel.en ||
+            rawLabel.ja
+          : noClasses
+            ? data.settings.locale === "ja"
+              ? "授業休み"
+              : "No classes"
+            : undefined;
     const important = importantDatesOnDate(data, iso)
       .map((item) => pickLocalized(item.label, contentLanguage(data.settings)))
       .filter(Boolean);
@@ -145,9 +177,10 @@ export function weekColumnsAt(
       label,
       date: iso,
       isToday: iso === todayIso,
-      calendarNotice: [fullNotice?.replace(/^No classes due to\s+/i, ""), ...important]
-        .filter(Boolean)
-        .join(" · ") || undefined,
+      calendarNotice:
+        [fullNotice?.replace(/^No classes due to\s+/i, ""), ...important]
+          .filter(Boolean)
+          .join(" · ") || undefined,
       noClasses,
       blocks: blocks.sort((a, b) => a.startTime.localeCompare(b.startTime)),
     };

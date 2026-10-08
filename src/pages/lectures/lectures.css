@@ -1,0 +1,45 @@
+/* Lecture Desk: this quarter's lectures beside the open lecture's workspace. */
+.workspaceMain.lecturesMain { height: 100dvh; overflow: hidden; }
+.page.lectureDesk { flex-direction: row; gap: 20px; width: 100%; height: 100%; }
+.lectureList { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; padding-right: 16px; border-right: 1px solid var(--line); }
+.lectureList > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 12px; }
+.lectureList > header h1 { margin: 0; white-space: nowrap; font-size: 15px; font-weight: 620; letter-spacing: -.01em; }
+.lectureTerm { flex: 0 0 auto; width: auto; }
+.lectureTerm select, select.lectureTerm {
+  appearance: none; height: 26px; min-height: 26px; padding: 0 20px 0 8px; border: 0; border-radius: 7px;
+  background: var(--surface-3) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%236f716c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E") no-repeat right 6px center / 10px;
+  color: var(--ink); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.lectureTerm select:hover, select.lectureTerm:hover { background-color: var(--line); }
+.lectureTerm select:focus-visible, select.lectureTerm:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lectureMode { display: flex; margin: 0 0 8px; }
+.lectureMode > button { flex: 1; border: 0; background: none; cursor: pointer; }
+.lectureFilter { margin: 0 0 8px; }
+.lectureFilter input, input.lectureFilter { height: 32px; min-height: 32px; font-size: 13px; }
+.lectureRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center;
+  width: 100%; padding: 8px 10px 8px 12px; border: 0; border-radius: 9px; background: none;
+  color: var(--ink); text-align: left; cursor: pointer; position: relative;
+}
+.lectureRow::before { content: ""; position: absolute; left: 3px; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--course, var(--line-strong)); opacity: .55; }
+.lectureRow:hover { background: var(--surface-2); }
+.lectureRow.selected { background: var(--accent-soft); }
+.lectureRow.selected::before, .lectureRow.now::before { opacity: 1; }
+.lectureRow b { grid-column: 1; overflow: hidden; font-size: 13px; font-weight: 560; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.lectureRow small { grid-column: 1; overflow: hidden; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.lectureRow.now small { color: var(--accent); font-weight: 560; }
+.lectureRow .dueChip { grid-column: 2; grid-row: 1 / span 2; }
+.lectureContent { flex: 1; min-width: 0; min-height: 0; overflow: hidden; contain: layout paint; }
+.lectureSlot { height: 100%; }
+.lectureSlot[hidden] { display: none; }
+.lectureBack { display: none; }
+
+@media (max-width: 48em) {
+  .workspaceMain.lecturesMain { height: auto; min-height: 100dvh; overflow: visible; }
+  .page.lectureDesk { display: block; }
+  .lectureList { overflow: visible; padding-right: 0; border-right: 0; }
+  .lectureRow { padding-block: 12px; }
+  .lectureDesk.open .lectureList, .lectureDesk:not(.open) .lectureContent { display: none; }
+  .lectureDesk.open .lectureContent { height: calc(100dvh - 166px); }
+  .lectureBack { display: inline-flex; margin: 0 0 8px; padding: 6px 2px; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 560; }
+}
