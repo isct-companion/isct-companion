@@ -9,8 +9,8 @@ use url::Url;
 /// pool and keep-alive) and one limiter: at most `CONCURRENT` requests in
 /// flight, and request starts at least `SPACING` apart, however many
 /// commands are asking at once.
-const CONCURRENT: usize = 4;
-const SPACING: Duration = Duration::from_millis(120);
+const CONCURRENT: usize = 6;
+const SPACING: Duration = Duration::from_millis(60);
 static PERMITS: Semaphore = Semaphore::const_new(CONCURRENT);
 static NEXT_START: Mutex<Option<Instant>> = Mutex::const_new(None);
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();

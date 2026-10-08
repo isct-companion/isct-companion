@@ -470,6 +470,11 @@ function WorkspaceApp() {
   const pullBusy = useRef(false);
   const fullLmsPull = useRef(false);
   const kyomuBusy = useRef(false);
+  // LMS courses whose material details were read this session.
+  const detailedLms = useRef(new Set<number>());
+  const fetchLmsRef = useRef<(quiet?: boolean, lmsCourseId?: number) => Promise<void>>(
+    async () => undefined,
+  );
   const refreshStale = useRef<
     (profile: "science" | "tokyo-tech") => Promise<void>
   >(async () => undefined);
@@ -686,6 +691,32 @@ function WorkspaceApp() {
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
   }, []);
+  // Pulls across courses leave material details out (files, pages,
+  // announcements); opening a lecture fills in its own, once per session.
+  useEffect(() => {
+    if (page !== "lectures" || !lectureEntry || !sourceData) return;
+    const course = sourceData.courses.find(
+      (item) => item.id === lectureEntry.courseId && !item.deletedAt,
+    );
+    const record =
+      course &&
+      schoolRecords?.lmsCourses.find(
+        (item) =>
+          (course.offeringId && item.offeringId === course.offeringId) ||
+          String(item.lmsId) === course.source.externalId,
+      );
+    if (
+      !record ||
+      detailedLms.current.has(record.lmsId) ||
+      pullBusy.current ||
+      fullLmsPull.current ||
+      kyomuBusy.current
+    )
+      return;
+    detailedLms.current.add(record.lmsId);
+    void fetchLmsRef.current(true, record.lmsId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, lectureEntry?.courseId, Boolean(schoolRecords)]);
   if (!data)
     return (
       <div className="loading">
@@ -1261,6 +1292,7 @@ function WorkspaceApp() {
       setLmsProgress(null);
     }
   };
+  fetchLmsRef.current = fetchLms;
   const refreshKyomu = async (quiet = false) => {
     if (
       !desktopBridge?.pullSchool ||

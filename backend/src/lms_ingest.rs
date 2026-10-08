@@ -198,11 +198,19 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       await Promise.all(selectedCourses.slice(index, index + 4).map(loadStructure));
     // Bounded read-only module details, using the same signed-in session.
     const courseById = new Map(courses.map(course => [Number(course.id), course]));
+    // Two layers. A pull across courses reads only what Today needs: the
+    // structure, section text and assignment states. Material details
+    // (files, folders, links, pages, announcements) are read for one course
+    // at a time, when it is opened in the app or refreshed there; files also
+    // resolve on demand. Cached details stay meanwhile.
     // Details are written onto the returned state's own module objects. Each
     // course gets its own share, newest modules first, so a large or
     // fast-loading course cannot starve the rest; cached details fill gaps.
+    const detailModules = requestedCourseId
+      ? ['resource','folder','url','page','forum','assign']
+      : ['assign'];
     const detailCms = structures.flatMap(item => (item.state?.cm || [])
-      .filter(cm => cm.uservisible !== false && ['resource','folder','url','page','forum','assign'].includes(cm.module))
+      .filter(cm => cm.uservisible !== false && detailModules.includes(cm.module))
       .reverse().slice(0, 40).map(cm => ({cm, courseId:item.courseId}))).slice(0, 320);
     const forumBudget = new Map();
     const assignStatus = [];
