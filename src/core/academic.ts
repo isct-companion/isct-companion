@@ -45,6 +45,34 @@ export function deadlineState(
     ms,
   };
 }
+/**
+ * Time left before a deadline, for a chip: exact to the hour inside three
+ * days ("1d 12h"), whole days beyond. Tone tiers: under a day, under three.
+ */
+export function dueCountdown(
+  dueAt: string,
+  now = new Date(),
+): { label: string; tone: "urgent" | "soon" | "normal" | "past"; ms: number } {
+  const ms = new Date(dueAt).getTime() - now.getTime();
+  if (ms < 0) return { label: `${relative(-ms)} ago`, tone: "past", ms };
+  const hours = Math.floor(ms / 36e5);
+  const days = Math.floor(hours / 24);
+  const label =
+    hours < 1
+      ? `${Math.max(1, Math.floor(ms / 6e4))}m`
+      : hours < 24
+        ? `${hours}h`
+        : hours < 72
+          ? hours % 24
+            ? `${days}d ${hours % 24}h`
+            : `${days}d`
+          : `${days}d`;
+  return {
+    label,
+    tone: hours < 24 ? "urgent" : hours < 72 ? "soon" : "normal",
+    ms,
+  };
+}
 const relative = (ms: number) => {
   const h = Math.max(1, Math.round(ms / 36e5));
   return h < 24 ? `${h}h` : `${Math.round(h / 24)}d`;

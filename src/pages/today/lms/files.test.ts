@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("../../../app/native", () => ({ desktopBridge: {} }));
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke,
-  convertFileSrc: (path: string) => `asset:${path}`,
-}));
+vi.mock("@tauri-apps/api/core", () => ({ invoke, convertFileSrc: (path: string) => `asset://localhost${path}` }));
 import {
   downloadLimit,
   folderComponent,
+  lmsFileUrl,
   moveNote,
   previewKind,
   readNote,
@@ -21,6 +19,32 @@ const context = {
 };
 beforeEach(() => invoke.mockReset());
 describe("local course files", () => {
+  it("builds the platform-specific LMS file address in one helper", () => {
+    const source = "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42";
+    expect(lmsFileUrl(source, context, { native: false })).toBe(source);
+    expect(
+      lmsFileUrl(source, context, { native: true, platform: "MacIntel" }),
+    ).toBe(
+      "lmsfile://localhost/get?u=https%3A%2F%2Flms.s.isct.ac.jp%2F2025%2Fmod%2Fresource%2Fview.php%3Fid%3D42&term=2026-3Q&course=CSC.T251",
+    );
+    expect(
+      lmsFileUrl(source, context, { native: true, platform: "Windows" }),
+    ).toMatch(/^http:\/\/lmsfile\.localhost\/get\?/);
+    expect(
+      lmsFileUrl(source, context, {
+        native: true,
+        platform: "Android",
+        download: true,
+      }),
+    ).toContain("download=1");
+    expect(
+      lmsFileUrl(source, context, {
+        native: true,
+        platform: "MacIntel",
+        foreground: true,
+      }),
+    ).toContain("foreground=1");
+  });
   it("recognizes source files without executing them and bounds path components", () => {
     for (const extension of ["tex", "java", "py", "rs", "json", "txt"])
       expect(

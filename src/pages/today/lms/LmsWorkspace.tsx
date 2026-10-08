@@ -96,12 +96,22 @@ const groupFor = (module?: string) =>
 
 const ImageThumbnail = memo(function ImageThumbnail({ url, files }: { url: string; files: FileAccess }) {
   const element = useRef<HTMLSpanElement>(null);
-  const [src, setSrc] = useState(() => cachedThumbnail(url));
+  const [src, setSrc] = useState<string | undefined>(() =>
+    cachedThumbnail(files.context, url),
+  );
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  useEffect(() => onSignedIn(() => setAttempt(value => value + 1)), []);
+  useEffect(
+    () =>
+      onSignedIn(() => {
+        setFailed(false);
+        setAttempt((value) => value + 1);
+      }),
+    [],
+  );
   useEffect(() => {
-    if (src) return;
+    if (src || failed) return;
     let disposed = false;
     const load = () => void loadThumbnail(files.context, url, files.limit).then(value => { if (!disposed && value) setSrc(value); }).catch(() => undefined);
     const observer = typeof IntersectionObserver === "undefined" ? undefined : new IntersectionObserver(entries => {
@@ -109,10 +119,10 @@ const ImageThumbnail = memo(function ImageThumbnail({ url, files }: { url: strin
     }, { rootMargin: "200px" });
     if (observer && element.current) observer.observe(element.current); else load();
     return () => { disposed = true; observer?.disconnect(); };
-  }, [url, src, attempt, files]);
+  }, [url, src, failed, attempt, files]);
   return <span ref={element} className={`lmsFileTile lmsThumbnail${loaded ? " loaded" : ""}`} data-family="image" aria-hidden="true">
     <LmsIcon name="image" size={18} />
-    {src && <img src={src} alt="" decoding="async" onLoad={() => setLoaded(true)} onError={() => { dropThumbnail(url); setSrc(undefined); setLoaded(false); }} />}
+    {src && <img src={src} alt="" decoding="async" onLoad={() => setLoaded(true)} onError={() => { dropThumbnail(url); setSrc(undefined); setLoaded(false); setFailed(true); }} />}
   </span>;
 });
 
@@ -922,19 +932,47 @@ export function LmsWorkspace({
                   {(() => {
                     const url = safeUrl(
                       material?.resourceUrl ||
-                        (material?.url && !material.url.includes("/mod/")
+                        (material?.url &&
+                        ["resource", "url", "folder"].includes(
+                          material.module ?? "",
+                        )
                           ? material.url
                           : undefined) ||
                         (activeTab.kind === "link" ? activeTab.url : undefined),
                     );
-                    if (!url)
+                    if (!url) {
+                      // A forum read without posts is empty, not unsynced; any
+                      // unresolved activity can still open on the official page.
+                      const official = safeUrl(material?.url);
                       return material && !material.bodyHtml ? (
-                        <p className="lmsQuiet">
-                          {t(
-                            "File details have not been synced. Refresh LMS to resolve this resource.",
-                          )}
-                        </p>
+                        <>
+                          <p className="lmsQuiet">
+                            {t(
+                              material.module === "forum"
+                                ? "No announcements yet."
+                                : "No content in this section",
+                            )}
+                          </p>
+                          {official &&
+                            new URL(official).hostname === "lms.s.isct.ac.jp" && (
+                              <button
+                                type="button"
+                                className="lmsRefresh"
+                                onClick={() =>
+                                  open({
+                                    id: `official:${official}`,
+                                    title: activeTab.title,
+                                    kind: "official",
+                                    url: official,
+                                  })
+                                }
+                              >
+                                {t("Open in LMS")}
+                              </button>
+                            )}
+                        </>
                       ) : null;
+                    }
                     return (
                       <Suspense fallback={<p>{t("Loading preview…")}</p>}>
                         <FilePreview

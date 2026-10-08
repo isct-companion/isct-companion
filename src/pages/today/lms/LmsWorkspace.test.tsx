@@ -161,6 +161,24 @@ describe("LMS reading workspace", () => {
     expect(host.querySelector('.lmsViewerClose')?.getAttribute("aria-label")).toContain("Classroom change");
   });
 
+  it("shows an announcement forum without posts as empty, with its official page", () => {
+    const f = fixture();
+    f.data.settings.locale = "en";
+    Object.assign(f.data.materials[0], {
+      title: "アナウンスメント",
+      module: "forum",
+      bodyHtml: "",
+      url: "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7",
+    });
+    act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:610}} active schoolWebAvailable={false} close={()=>{}} />));
+    click([...host.querySelectorAll(".lmsItemRow")].find(row => row.textContent?.includes("アナウンスメント"))!);
+    const viewer = host.querySelector(".lmsViewer")!;
+    expect(viewer.textContent).toContain("No announcements yet.");
+    expect(viewer.textContent).not.toContain("have not been synced");
+    click(button("Open in LMS"));
+    expect(host.querySelector(".lmsSourceBar")?.textContent).toContain("Official LMS");
+  });
+
   it("hides the redundant syllabus entry and opens its dedicated right panel", () => {
     const f = fixture();
     f.course.offeringId = "20260001";

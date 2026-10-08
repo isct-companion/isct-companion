@@ -212,8 +212,8 @@ p {
   height: 100dvh;
   overflow: hidden;
 }
-/* Courses fits the window; the syllabus list scrolls inside its panel. */
-.workspaceMain.coursesMain {
+/* Home fits the window; the day and the syllabus list scroll inside their panels. */
+.workspaceMain.homeMain {
   height: 100dvh;
   overflow: hidden;
 }
@@ -2993,11 +2993,6 @@ p {
   display: none;
 }
 
-.workspaceMain.todayWorkspaceMain {
-  height: 100dvh;
-  overflow: hidden;
-}
-
 .todayNavigation {
   width: 100%;
   padding: 0 !important;
@@ -3810,7 +3805,7 @@ p {
   clip-path: inset(50%);
 }
 @media (max-width: 760px) {
-  .workspaceMain.coursesMain {
+  .workspaceMain.homeMain {
     height: auto;
     min-height: 100dvh;
     overflow: visible;
@@ -4506,3 +4501,74 @@ textarea.codeArea {
     transition: none;
   }
 }
+
+/* ---------- Home: the day beside the week ---------- */
+.homePage {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  gap: 24px;
+  min-width: 0;
+  min-height: 0;
+}
+.homeDay {
+  display: flex;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 20px;
+  border-right: 1px solid var(--line);
+}
+.homeWeek {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* The week beside the day already shows the days, so the strip and Week link step aside. */
+@media (min-width: 1001px) {
+  .homeDay .weekStrip,
+  .homeDay [data-today-section="classes"] > header > .textButton {
+    display: none;
+  }
+}
+.homeBack {
+  display: none;
+}
+.homeDay .todayHeader {
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.homePage.planning {
+  grid-template-columns: minmax(0, 1fr);
+}
+.homePage.planning .homeDay {
+  display: none;
+}
+@media (max-width: 1000px) {
+  .homePage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .homeDay {
+    padding-right: 0;
+    border-right: 0;
+  }
+  .homePage.day:not(.planning) .homeWeek,
+  .homePage.week .homeDay {
+    display: none;
+  }
+  .homePage.week:not(.planning) .homeBack {
+    display: inline-flex;
+    align-self: flex-start;
+    margin-bottom: 8px;
+    color: var(--accent);
+  }
+}
+
+/* Remaining time before a deadline; tone rises inside three days and one day. */
+.dueChip {
+  display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 6px;
+  background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.dueChip.soon { background: var(--warn-soft); color: var(--warn); }
+.dueChip.urgent { background: var(--danger-soft); color: var(--danger); }
