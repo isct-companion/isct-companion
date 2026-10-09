@@ -605,11 +605,7 @@ function WorkspaceApp() {
     if (!sourceData) return;
     return startReminderRuntime({
       getWorkspace: () => workspaceStore.getState().workspace,
-      deliver: ({ title, body }) => {
-        if (desktopBridge) return desktopBridge.notify(title, body);
-        if ("Notification" in window && Notification.permission === "granted")
-          new Notification(title, { body });
-      },
+      deliver: ({ title, body }) => desktopBridge?.notify(title, body),
     });
   }, [sourceData?.deviceId]);
 

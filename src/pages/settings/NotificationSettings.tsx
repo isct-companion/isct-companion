@@ -1,11 +1,7 @@
 import { t } from "../../i18n";
 import type { Workspace } from "../../core/model";
-import type { Platform } from "../../app/shared";
 import { desktopBridge } from "../../app/native";
-import {
-  detectPlatform,
-  resolveCapabilities,
-} from "../../platform/capabilities";
+import { resolveCapabilities } from "../../platform/capabilities";
 import {
   CLASS_LEAD_CHOICES,
   DEFAULT_CLASS_LEAD,
@@ -22,37 +18,27 @@ import {
 export function NotificationSettings({
   data,
   update,
-  platform,
   caps,
   notify,
 }: {
   data: Workspace;
   update: (f: (d: Workspace) => Workspace) => void;
-  platform: Platform;
   caps: ReturnType<typeof resolveCapabilities>;
   notify: (message: string) => void;
 }) {
   const settings = data.settings.notifications;
   const capability = caps["local-notifications"];
   const allowed = settings.localPermission === "granted";
-  const canAsk =
-    capability.support === "supported" || platform === "browser-preview";
+  const canAsk = capability.support === "supported";
 
   const requestPermission = async () => {
-    let permission: NotificationPermission;
-    if (detectPlatform() === "browser-preview") {
-      if (!("Notification" in window)) return;
-      permission = await Notification.requestPermission();
-    } else {
-      if (!desktopBridge || capability.support !== "supported")
-        return notify(capability.reason);
-      permission = await desktopBridge.requestNotificationPermission();
-    }
+    if (!desktopBridge || !canAsk) return notify(capability.reason);
+    const permission = await desktopBridge.requestNotificationPermission();
     update((draft) => {
       draft.settings.notifications.localPermission = permission;
       return draft;
     });
-    if (permission === "granted" && desktopBridge)
+    if (permission === "granted")
       await desktopBridge.notify("IsctCompanion", t("Notifications are on."));
   };
 
