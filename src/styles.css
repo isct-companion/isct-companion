@@ -1594,14 +1594,20 @@ p {
 .siteEditor {
   border-bottom: 1px solid var(--line);
   padding: 8px 0;
+}
+/* The grid sits inside <details>, not on it: WebKit lays details content out
+   through an internal slot, and the open editor overlapped the next row. */
+.siteEditorBody {
   display: grid;
   gap: 8px;
+  padding-top: 8px;
 }
 .siteEditor summary {
   cursor: pointer;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
   padding: 4px 0;
   list-style: none;
 }
@@ -1611,9 +1617,6 @@ p {
 .siteEditor summary b {
   flex: 1;
   font-size: calc(13px * var(--text));
-}
-.siteEditor summary {
-  gap: 10px;
 }
 .siteEditor label {
   display: grid;
