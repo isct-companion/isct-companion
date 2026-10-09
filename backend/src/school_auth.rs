@@ -298,6 +298,57 @@ impl<V: SecretVault> SchoolAuthService<V> {
         self.vault.store(SCHOOL_CREDENTIAL_ACCOUNT, &payload)
     }
 
+    /// Returns the validated native credential bundle for Rust-owned encrypted
+    /// cloud sync. This value must never cross the WebView IPC boundary.
+    pub fn export_sync_payload(&self) -> Result<String, String> {
+        let mut unlocked = self
+            .unlocked
+            .lock()
+            .map_err(|_| "Credential cache unavailable")?;
+        self.unlock_accounts(&mut unlocked)?;
+        let accounts = unlocked
+            .iter()
+            .filter_map(|(profile, value)| value.clone().map(|value| (*profile, value)))
+            .collect();
+        serde_json::to_string(&SchoolCredentialBundle {
+            version: 1,
+            accounts,
+        })
+        .map_err(|_| "School credentials could not be encoded.".to_string())
+    }
+
+    /// Validates and replaces the native credential bundle after Rust has
+    /// authenticated and decrypted it. No plaintext is returned to the UI.
+    pub fn import_sync_payload(&self, payload: &str) -> Result<usize, String> {
+        let mut bundle: SchoolCredentialBundle = serde_json::from_str(payload)
+            .map_err(|_| "Synced school credentials are invalid.".to_string())?;
+        if bundle.version != 1 {
+            return Err("Synced school credentials version is unsupported.".into());
+        }
+        for (profile, credentials) in &mut bundle.accounts {
+            credentials.validate(*profile)?;
+        }
+        let mut unlocked = self
+            .unlocked
+            .lock()
+            .map_err(|_| "Credential cache unavailable")?;
+        self.write_accounts(&bundle.accounts)?;
+        for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
+            let credentials = bundle.accounts.get(&profile).cloned();
+            unlocked.insert(profile, credentials.clone());
+            self.record_summary(
+                profile,
+                credentials.as_ref(),
+                if credentials.is_some() {
+                    CredentialAvailability::Available
+                } else {
+                    CredentialAvailability::NotConfigured
+                },
+            );
+        }
+        Ok(bundle.accounts.len())
+    }
+
     pub fn save(
         &self,
         profile: SchoolAuthProfile,

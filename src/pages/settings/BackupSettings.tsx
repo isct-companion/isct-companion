@@ -1,22 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { t } from "../../i18n";
 import type { Workspace } from "../../core/model";
 import type { Platform } from "../../app/shared";
 import { desktopBridge } from "../../app/native";
 import { workspaceActions } from "../../store/workspace";
-import { performAction } from "../../platform/actions";
-import {
-  detectPlatform,
-  resolveCapabilities,
-} from "../../platform/capabilities";
-import {
-  CloudTransportError,
-  createCloudAdapter,
-  resolveCloudClientId,
-  type CloudAdapter,
-  type CloudProvider,
-} from "../../connectors/cloud";
-import { UiButton, UiSelect } from "../../components/mantine";
+import { resolveCapabilities } from "../../platform/capabilities";
+import type {
+  CloudProvider,
+  CloudSyncResult,
+} from "../../platform/desktop-bridge";
+import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import {
   Row,
   SettingsGroup,
@@ -28,12 +21,11 @@ import { formatDay } from "./subscription-status";
 const providerName = (provider: CloudProvider) =>
   provider === "google-drive" ? "Google Drive" : "OneDrive";
 
-function bytesToBase64(bytes: Uint8Array) {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000)
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  return btoa(binary);
-}
+const GOOGLE_DRIVE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID?.trim() ?? "";
+const resolveCloudClientId = (provider: CloudProvider, override: string) =>
+  override.trim() ||
+  (provider === "google-drive" ? GOOGLE_DRIVE_CLIENT_ID : "");
 
 async function exportWorkspaceFile() {
   const blob = new Blob([await workspaceActions.exportData()], {
@@ -49,7 +41,6 @@ async function exportWorkspaceFile() {
 export function BackupSettings({
   data,
   update,
-  platform,
   caps,
   notify,
 }: {
@@ -60,10 +51,12 @@ export function BackupSettings({
   notify: (message: string) => void;
 }) {
   const locale = data.settings.locale;
-  const [conflict, setConflict] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<CloudSyncResult | null>(null);
   const [authorized, setAuthorized] = useState<CloudProvider[]>([]);
+  const [credentialSync, setCredentialSync] = useState(false);
+  const [encryptionPassword, setEncryptionPassword] = useState("");
+  const encryptionPasswordLength = Array.from(encryptionPassword).length;
   const [busy, setBusy] = useState(false);
-  const pending = useRef<CloudAdapter | null>(null);
   useEffect(() => {
     if (!desktopBridge) return;
     let disposed = false;
@@ -73,15 +66,19 @@ export function BackupSettings({
         if (!disposed) setAuthorized(providers);
       })
       .catch(() => undefined);
+    void desktopBridge
+      .cloudCredentialSyncStatus()
+      .then((configured) => {
+        if (!disposed) setCredentialSync(configured);
+      })
+      .catch(() => undefined);
     return () => {
       disposed = true;
     };
   }, []);
 
   const cloud = data.settings.cloud;
-  const cloudAvailable =
-    platform === "browser-preview" ||
-    caps["cloud-sync"].support === "supported";
+  const cloudAvailable = caps["cloud-sync"].support === "supported";
   const selected = cloud.provider === "none" ? null : cloud.provider;
   const connected = Boolean(
     selected &&
@@ -91,67 +88,12 @@ export function BackupSettings({
   const configured = (provider: CloudProvider) =>
     Boolean(resolveCloudClientId(provider, cloud.clientId));
 
-  const adapter = async () => {
-    if (
-      detectPlatform() !== "browser-preview" &&
-      caps["cloud-sync"].support !== "supported"
-    )
+  const requireCloud = () => {
+    if (!cloudAvailable || !desktopBridge)
       throw new Error(caps["cloud-sync"].reason);
     if (cloud.provider === "none")
       throw new Error(t("Choose Google Drive or OneDrive first."));
-    const provider = cloud.provider;
-    const clientId = resolveCloudClientId(provider, cloud.clientId);
-    const bridge = desktopBridge;
-    const desktopOAuth = bridge
-      ? {
-          oauth: {
-            connect: () =>
-              bridge
-                .connectCloud(provider, clientId, cloud.redirectUri!)
-                .then(() => undefined),
-            requireAccessToken: async () => "protected-main-process-token",
-          },
-          fetch: async (url: string | URL | Request, init?: RequestInit) => {
-            const body = init?.body;
-            const binary =
-              body instanceof Blob
-                ? new Uint8Array(await body.arrayBuffer())
-                : body instanceof ArrayBuffer
-                  ? new Uint8Array(body)
-                  : body instanceof Uint8Array
-                    ? body
-                    : undefined;
-            if (body && typeof body !== "string" && !binary)
-              throw new Error("Unsupported cloud request body.");
-            const response = await bridge.cloudRequest(
-              provider,
-              url instanceof Request ? url.url : String(url),
-              {
-                method: init?.method,
-                headers: Object.fromEntries(new Headers(init?.headers)),
-                bodyText: typeof body === "string" ? body : undefined,
-                bodyBase64: binary ? bytesToBase64(binary) : undefined,
-              },
-            );
-            return new Response(
-              Uint8Array.from(atob(response.body), (c) => c.charCodeAt(0)),
-              {
-                status: response.status,
-                statusText: response.statusText,
-                headers: response.headers,
-              },
-            );
-          },
-        }
-      : {};
-    return createCloudAdapter(provider, clientId, {
-      redirectUri: desktopBridge
-        ? cloud.redirectUri
-        : `${location.origin}${location.pathname}`,
-      readOnly: !desktopBridge,
-      deviceId: data.deviceId,
-      ...desktopOAuth,
-    });
+    return { bridge: desktopBridge, provider: cloud.provider };
   };
   const mark = (
     state: Workspace["syncStatus"]["state"],
@@ -218,8 +160,12 @@ export function BackupSettings({
   };
   const connect = () =>
     run("Could not connect.", async () => {
-      await (await adapter()).connect();
-      const provider = cloud.provider as CloudProvider;
+      const { bridge, provider } = requireCloud();
+      await bridge.connectCloud(
+        provider,
+        resolveCloudClientId(provider, cloud.clientId),
+        cloud.redirectUri!,
+      );
       setAuthorized([provider]);
       mark("idle", t("Connected. Nothing backed up yet."));
       notify(
@@ -228,52 +174,57 @@ export function BackupSettings({
     });
   const restore = () =>
     run("Could not restore.", async () => {
-      const remote = await (await adapter()).pull();
       if (!confirm(t("Replace the data on this device with the cloud backup?")))
         return;
-      await workspaceActions.importData(remote);
+      const { bridge, provider } = requireCloud();
+      await bridge.restoreCloudWorkspace(provider);
+      await workspaceActions.refreshSchool();
       mark("idle", t("Restored from the cloud backup."), true);
       notify(t("Restored from the cloud backup."));
     });
   const backUp = () =>
     run("Could not back up.", async () => {
-      const cloudAdapter = await adapter();
-      try {
-        const remote = await cloudAdapter.pull();
-        const current = await workspaceActions.exportData();
-        if (
-          JSON.stringify(JSON.parse(remote).tables) !==
-          JSON.stringify(JSON.parse(current).tables)
-        ) {
-          pending.current = cloudAdapter;
-          setConflict(remote);
-          return;
-        }
-      } catch (error) {
-        if (!(error instanceof CloudTransportError) || error.status !== 404)
-          throw error;
+      const { bridge, provider } = requireCloud();
+      const result = await bridge.backupCloudWorkspace(provider, false);
+      if (result.state === "conflict") {
+        setConflict(result);
+        return;
       }
-      await performAction("push-cloud", detectPlatform(), () =>
-        workspaceActions
-          .exportData()
-          .then((document) => cloudAdapter.push(document)),
-      );
       mark("idle", t("Backup is up to date."), true);
       notify(t("Backed up."));
     });
   const keepThisDevice = () =>
     run("Could not back up.", async () => {
-      await pending.current?.push(await workspaceActions.exportData());
+      const { bridge, provider } = requireCloud();
+      await bridge.backupCloudWorkspace(provider, true);
       setConflict(null);
       mark("idle", t("Backup is up to date."), true);
       notify(t("Kept this device and backed it up."));
     });
   const useCloud = () =>
     run("Could not restore.", async () => {
-      await workspaceActions.importData(conflict!);
+      const { bridge, provider } = requireCloud();
+      await bridge.restoreCloudWorkspace(provider);
+      await workspaceActions.refreshSchool();
       setConflict(null);
       mark("idle", t("Restored from the cloud backup."), true);
       notify(t("Restored from the cloud backup."));
+    });
+  const saveCredentialSync = () =>
+    run("Could not enable credential sync.", async () => {
+      const { bridge } = requireCloud();
+      await bridge.setCloudCredentialSyncPassword(encryptionPassword);
+      setEncryptionPassword("");
+      setCredentialSync(true);
+      notify(t("Login credential sync is enabled on this device."));
+    });
+  const disableCredentialSync = () =>
+    run("Could not disable credential sync.", async () => {
+      const { bridge } = requireCloud();
+      await bridge.clearCloudCredentialSyncPassword();
+      setEncryptionPassword("");
+      setCredentialSync(false);
+      notify(t("Login credential sync is disabled on this device."));
     });
   const importFile = async (file: File) => {
     if (!confirm(t("Replace the data on this device with this file?"))) return;
@@ -422,6 +373,65 @@ export function BackupSettings({
               </UiButton>
             </div>
           </div>
+        )}
+        {selected && (
+          <>
+            <Row
+              id="credential-sync"
+              group
+              title="Sync login credentials"
+              hint={
+                credentialSync
+                  ? "Enabled on this device"
+                  : "Optional encrypted sync for ISCT portal accounts"
+              }
+            >
+              <div className="actions">
+                <UiInput
+                  type="password"
+                  value={encryptionPassword}
+                  minLength={8}
+                  autoComplete="new-password"
+                  placeholder={
+                    credentialSync
+                      ? t("Enter a new 8–12 character password")
+                      : t("8–12 character password")
+                  }
+                  aria-label={t("Credential encryption password")}
+                  disabled={!connected || busy}
+                  onChange={(event) =>
+                    setEncryptionPassword(event.currentTarget.value)
+                  }
+                />
+                <UiButton
+                  className="button small"
+                  disabled={
+                    !connected ||
+                    busy ||
+                    encryptionPasswordLength < 8 ||
+                    encryptionPasswordLength > 12
+                  }
+                  onClick={saveCredentialSync}
+                >
+                  {credentialSync ? t("Change") : t("Enable")}
+                </UiButton>
+                {credentialSync && (
+                  <UiButton
+                    className="button small"
+                    disabled={busy}
+                    onClick={disableCredentialSync}
+                  >
+                    {t("Disable")}
+                  </UiButton>
+                )}
+              </div>
+            </Row>
+            <div className="alert" role="note">
+              {t(
+                "If you sync ISCT login credentials, choose an 8–12 character encryption password. The encrypted credential file is stored in Google Drive or OneDrive. The encryption password stays only in this device's system credential vault and is never uploaded. Beyond this encryption, we cannot guarantee the security of your credentials. Enter the same password on another device to restore them.",
+              )}
+            </div>
+          </>
         )}
       </SettingsGroup>
       <SettingsGroup title="Backup file">

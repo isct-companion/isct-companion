@@ -35,6 +35,7 @@ fn secure_key_for(app_id: &str, account: &str) -> Result<String, String> {
         "school-tokyo-tech" => "passwords.titech-portal",
         "google-drive" => "passwords.google-drive",
         "onedrive" => "passwords.onedrive",
+        "cloud-credential-sync" => "passwords.cloud-credential-sync",
         _ => return Err("Secret account is not allowed.".into()),
     };
     Ok(format!("{app_id}.{suffix}"))
