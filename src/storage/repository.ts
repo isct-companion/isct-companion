@@ -525,12 +525,20 @@ export class SqliteRepository implements WorkspaceRepository {
     return invoke<string>("export_data");
   }
 
+  // Import and reset rewrite SQLite wholesale; their result is the new
+  // baseline, or the next save would re-send every row with a stale rev.
   async import(document: string) {
-    return normalize(await invoke<Workspace>("import_data", { document }));
+    const workspace = normalize(
+      await invoke<Workspace>("import_data", { document }),
+    );
+    this.baseline = structuredClone(workspace);
+    return workspace;
   }
 
   async reset() {
-    return normalize(await invoke<Workspace>("reset_workspace"));
+    const workspace = normalize(await invoke<Workspace>("reset_workspace"));
+    this.baseline = structuredClone(workspace);
+    return workspace;
   }
 }
 

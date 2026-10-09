@@ -279,4 +279,39 @@ describe("SqliteRepository desktop bridge", () => {
     expect(puts.map((call) => (call.payload as { expectedRev: number }).expectedRev))
       .toEqual([1, 2, 3]);
   });
+
+  it("treats an imported workspace as stored instead of re-sending its rows", async () => {
+    native.tables = new Map();
+    const repository = new SqliteRepository();
+    const store = createWorkspaceStore(repository);
+    await store.initialize();
+    // Rows written behind the store's back, then restored from a backup.
+    const event = nativePut({
+      table: "personal_events",
+      record: {
+        id: "event-1",
+        title: "Seminar",
+        start: "2026-10-10T10:00:00+09:00",
+        end: "2026-10-10T11:00:00+09:00",
+        rev: 1,
+        updatedAt: "2026-10-09T00:00:00.000Z",
+        updatedBy: "agent",
+      },
+    });
+    native.workspace!.events = [event as unknown as Workspace["events"][number]];
+    const workspace = await repository.import(native.exported);
+    store.update(() => workspace);
+    await store.flush();
+    expect(
+      native.calls.filter((call) => call.command === "put_user_record"),
+    ).toEqual([]);
+    store.update((draft) => {
+      draft.events[0]!.title = "Seminar (moved)";
+    });
+    await store.flush();
+    expect(native.tables.get("personal_events")!.get("event-1")).toMatchObject({
+      title: "Seminar (moved)",
+      rev: 2,
+    });
+  });
 });
