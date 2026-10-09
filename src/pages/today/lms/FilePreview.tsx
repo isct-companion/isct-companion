@@ -166,8 +166,8 @@ export function FilePreview({
     <div className="lmsAttachmentPreview">
       {toolbar}
       {kind === "image" ? <ImageView src={src} title={title} onBroken={() => course.setView({ state: "failed", reason: "network", error: t("This image can't be displayed here.") })} />
-        : kind === "video" ? <div className="lmsImageStage"><video className="lmsMediaPreview" src={src} controls preload="metadata" /></div>
-        : kind === "audio" ? <div className="lmsAudioStage"><audio src={src} controls preload="metadata" /></div>
+        : kind === "video" ? <div className="lmsImageStage"><MediaView kind="video" src={src} /></div>
+        : kind === "audio" ? <div className="lmsAudioStage"><MediaView kind="audio" src={src} /></div>
         : kind === "markdown" ? <Suspense fallback={<p className="lmsQuiet lmsLoading">{t("Loading…")}</p>}><MarkdownDocument value={ready?.text ?? ""} /></Suspense>
         : <Suspense fallback={<p className="lmsQuiet lmsLoading">{t("Loading preview…")}</p>}><TextDocument value={ready?.text ?? ""} url={url} /></Suspense>}
     </div>
@@ -289,15 +289,42 @@ function Toolbar({ title, url, children }: { title: string; url: string; childre
   );
 }
 
+/**
+ * WebKit keeps a detached element's decoded image or media player until its
+ * garbage collector runs, which can be long after the viewer closed. Dropping
+ * the source on unmount releases them at once, like the PDF canvases.
+ */
+function useReleaseSource<T extends HTMLImageElement | HTMLMediaElement>() {
+  const element = useRef<T>(null);
+  useEffect(() => {
+    const current = element.current;
+    return () => {
+      if (!current) return;
+      if (current instanceof HTMLMediaElement) current.pause();
+      current.removeAttribute("src");
+      if (current instanceof HTMLMediaElement) current.load();
+    };
+  }, []);
+  return element;
+}
+
 /** Fit to the pane; click toggles actual size for large scans. */
 function ImageView({ src, title, onBroken }: { src: string; title: string; onBroken: () => void }) {
   const [actual, setActual] = useState(false);
+  const image = useReleaseSource<HTMLImageElement>();
   return (
     <div className={`lmsImageStage${actual ? " actual" : ""}`}>
-      <img className="lmsImagePreview" src={src} alt={title} title={t(actual ? "Fit to window" : "Actual size")}
+      <img ref={image} className="lmsImagePreview" src={src} alt={title} title={t(actual ? "Fit to window" : "Actual size")}
         onClick={() => setActual(value => !value)} onError={onBroken} />
     </div>
   );
+}
+
+function MediaView({ kind, src }: { kind: "video" | "audio"; src: string }) {
+  const media = useReleaseSource<HTMLMediaElement>();
+  return kind === "video"
+    ? <video ref={media as React.RefObject<HTMLVideoElement>} className="lmsMediaPreview" src={src} controls preload="metadata" />
+    : <audio ref={media as React.RefObject<HTMLAudioElement>} src={src} controls preload="metadata" />;
 }
 
 /**
