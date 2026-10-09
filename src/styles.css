@@ -2260,7 +2260,12 @@ p {
   min-width: 0;
   min-height: 38px;
   display: grid;
-  grid-template-columns: minmax(0, 85fr) minmax(0, 10fr) minmax(0, 5fr);
+  /* The zoom and open controls keep their minimum width on narrow windows;
+     a shrunk track let "Zoom in" slide under "Open in browser". */
+  grid-template-columns: minmax(0, 85fr) minmax(min-content, 10fr) minmax(
+      min-content,
+      5fr
+    );
   align-items: center;
   gap: 0;
   padding: 2px 0 2px 10px;
@@ -2337,7 +2342,7 @@ p {
 }
 .webOpenOutside {
   width: 100%;
-  min-width: 0;
+  min-width: 30px;
   border-radius: 0 7px 7px 0;
 }
 .servicesBody {

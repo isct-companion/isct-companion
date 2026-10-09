@@ -64,8 +64,9 @@ describe("refactored application architecture", () => {
     expect(web).toContain('className="webAddress"');
     expect(web).toContain('className="webZoom"');
     expect(web).toContain('className="iconButton webOpenOutside"');
-    expect(styles).toContain(
-      "grid-template-columns: minmax(0, 85fr) minmax(0, 10fr) minmax(0, 5fr)",
+    // The zoom and open tracks keep a min-content floor on narrow windows.
+    expect(styles).toMatch(
+      /grid-template-columns: minmax\(0, 85fr\) minmax\(min-content, 10fr\) minmax\(\s*min-content,\s*5fr\s*\)/,
     );
   });
 
