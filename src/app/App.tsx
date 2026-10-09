@@ -358,6 +358,9 @@ function WorkspaceApp() {
   const [page, setPage] = useState<Page>("home");
   const visitedPages = useRef(new Set<Page>());
   const pageRef = useRef<Page>("home");
+  // LMS/教務 extractors commit straight to SQLite while the official page is
+  // open; leaving Web reloads the workspace only if one of them ran.
+  const ingestedOnWeb = useRef(false);
   const navigateRef = useRef<(next: Page) => Promise<void>>(
     async () => undefined,
   );
@@ -511,6 +514,8 @@ function WorkspaceApp() {
   useEffect(
     () =>
       desktopBridge?.onSchoolIngest?.((outcome) => {
+        if (outcome.state === "ok" && pageRef.current === "web")
+          ingestedOnWeb.current = true;
         if (outcome.state === "ok" && !pullBusy.current && !kyomuBusy.current)
           void workspaceActions.refreshSchool().catch(() => undefined);
       }),
@@ -1395,10 +1400,6 @@ function WorkspaceApp() {
       try {
         await hideNativeSchoolWeb();
         void desktopBridge?.setKyomuGuide?.([]).catch(() => undefined);
-        // LMS/教務 extractors commit directly to SQLite while the official
-        // page is open. Reload once on return so the UI reflects that real
-        // signed-in snapshot; no mock/import bridge is involved.
-        await workspaceStore.reload();
       } catch (error) {
         if (request === navigationSequence.current)
           setToast(
@@ -1411,6 +1412,14 @@ function WorkspaceApp() {
         return;
       }
       if (request !== navigationSequence.current) return;
+      // Switch first; the reload runs in the background so the UI reflects
+      // the signed-in snapshot without holding up navigation.
+      if (ingestedOnWeb.current) {
+        ingestedOnWeb.current = false;
+        void workspaceStore.reload().catch((error) =>
+          setToast(error instanceof Error ? error.message : String(error)),
+        );
+      }
     }
 
     if (next !== "web") setDrawerId(null);
