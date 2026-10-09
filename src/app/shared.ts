@@ -18,3 +18,10 @@ export type Platform = "native-desktop" | "native-mobile" | "browser-preview";
 
 export { tokyoDate as jstDate } from "../core/schedule";
 export const stamp = () => new Date().toISOString();
+/** Tauri commands reject with plain strings, not Errors. */
+export const errorText = (error: unknown) =>
+  error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : undefined;

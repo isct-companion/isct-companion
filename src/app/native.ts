@@ -1,6 +1,7 @@
 import { getDesktopBridge, type SchoolSite } from "../platform/desktop-bridge";
 import { createSchoolWebExit } from "../platform/school-web-exit";
 import { t } from "../i18n";
+import { errorText } from "./shared";
 export type CustomizationSite = "portal" | "lms" | "syllabus";
 export const official: Record<
   SchoolSite,
@@ -68,7 +69,11 @@ export async function saveExportFile(
     if (await desktopBridge.saveFile(name, await contents()))
       notify(t("Saved {{name}}", { name }));
   } catch (error) {
-    notify(error instanceof Error ? error.message : t("Export failed."));
+    notify(
+      t("Export failed: {{reason}}", {
+        reason: errorText(error) ?? t("unknown error"),
+      }),
+    );
   }
 }
 export const schoolWebExit = createSchoolWebExit(desktopBridge);

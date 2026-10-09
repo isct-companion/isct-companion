@@ -69,6 +69,8 @@ const USER_BACKUP_TABLES: &[&str] = &[
 ];
 
 const USER_BACKUP_SETTINGS: &[&str] = &["userPreferences", "academicProfile"];
+const BACKUP_KIND: &str = "IsctCompanion.local-backup";
+const BACKUP_SCHEMA_VERSION: u64 = 6;
 
 fn merge_object(target: &mut Value, source: Value) {
     let (Some(target), Value::Object(source)) = (target.as_object_mut(), source) else {
@@ -710,6 +712,62 @@ fn save_setting(
     Ok(true)
 }
 
+/// Checks a local backup document before anything is restored from it. The
+/// kind and schema come first so an old or foreign file is reported as such
+/// rather than by whichever field it happens to fail on.
+pub fn parse_import(document: &str) -> Result<Value, String> {
+    let parsed: Value =
+        serde_json::from_str(document).map_err(|_| "the file is not valid JSON".to_string())?;
+    if parsed.get("kind").and_then(Value::as_str) != Some(BACKUP_KIND) {
+        return Err("the file is not an IsctCompanion backup".into());
+    }
+    match parsed.get("schemaVersion") {
+        Some(version) if version.as_u64() == Some(BACKUP_SCHEMA_VERSION) => {}
+        Some(version) => {
+            return Err(format!(
+                "the backup uses schema version {version}; this app reads version {BACKUP_SCHEMA_VERSION}"
+            ))
+        }
+        None => return Err("the backup has no schema version".into()),
+    }
+    let exported_at = string_field(&parsed, "exportedAt")?;
+        DateTime::parse_from_rfc3339(exported_at)
+            .map_err(|_| "import exportedAt must be RFC 3339".to_string())?;
+        let tables = parsed
+            .get("tables")
+            .and_then(Value::as_object)
+            .ok_or_else(|| "import tables must be an object".to_string())?;
+        if !parsed.get("localNotes").is_some_and(Value::is_array) {
+            return Err("import localNotes must be an array".into());
+        }
+        let required: HashSet<_> = USER_BACKUP_TABLES
+            .iter()
+            .copied()
+            .chain(["settings"])
+            .collect();
+        for table in &required {
+            if !tables.get(*table).is_some_and(Value::is_array) {
+                return Err(format!("import table {table} must be an array"));
+            }
+        }
+        for (name, rows) in tables {
+            let rows = rows
+                .as_array()
+                .ok_or_else(|| format!("import table {name} must be an array"))?;
+            for row in rows {
+                if name == "settings" {
+                    string_field(row, "key")?;
+                    setting_version(row)?;
+                } else {
+                    string_field(row, "id")?;
+                    row_version(row)?;
+                }
+            }
+        }
+
+    Ok(parsed)
+}
+
 impl DataStore {
     pub fn initialize(path: PathBuf) -> Result<(Self, bool), String> {
         if let Some(parent) = path.parent() {
@@ -1278,9 +1336,9 @@ impl DataStore {
         tables.insert("settings".into(), Value::Array(settings));
 
         serde_json::to_string_pretty(&json!({
-            "schemaVersion": 6,
+            "schemaVersion": BACKUP_SCHEMA_VERSION,
             "exportedAt": now(),
-            "kind": "IsctCompanion.local-backup",
+            "kind": BACKUP_KIND,
             "deviceId": "local-backup",
             "tables": tables,
             "localNotes": notes
@@ -1288,49 +1346,12 @@ impl DataStore {
         .map_err(|error| error.to_string())
     }
 
-    pub fn import_data(&self, document: &str) -> Result<Value, String> {
-        let parsed: Value =
-            serde_json::from_str(document).map_err(|_| "import is not valid JSON".to_string())?;
-        if parsed.get("schemaVersion").and_then(Value::as_u64) != Some(6)
-            || parsed.get("kind").and_then(Value::as_str) != Some("IsctCompanion.local-backup")
-        {
-            return Err("import must be a version 6 local backup".into());
-        }
-        let exported_at = string_field(&parsed, "exportedAt")?;
-        DateTime::parse_from_rfc3339(exported_at)
-            .map_err(|_| "import exportedAt must be RFC 3339".to_string())?;
+    /// Restores a document that passed [`parse_import`].
+    pub fn import_data(&self, parsed: &Value) -> Result<Value, String> {
         let tables = parsed
             .get("tables")
             .and_then(Value::as_object)
-            .ok_or_else(|| "import tables must be an object".to_string())?;
-        if !parsed.get("localNotes").is_some_and(Value::is_array) {
-            return Err("import localNotes must be an array".into());
-        }
-        let required: HashSet<_> = USER_BACKUP_TABLES
-            .iter()
-            .copied()
-            .chain(["settings"])
-            .collect();
-        for table in &required {
-            if !tables.get(*table).is_some_and(Value::is_array) {
-                return Err(format!("import table {table} must be an array"));
-            }
-        }
-        for (name, rows) in tables {
-            let rows = rows
-                .as_array()
-                .ok_or_else(|| format!("import table {name} must be an array"))?;
-            for row in rows {
-                if name == "settings" {
-                    string_field(row, "key")?;
-                    setting_version(row)?;
-                } else {
-                    string_field(row, "id")?;
-                    row_version(row)?;
-                }
-            }
-        }
-
+            .expect("validated by parse_import");
         let mut connection = self.open()?;
         let transaction = connection
             .transaction()
@@ -2238,6 +2259,21 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn backup_from_another_schema_is_rejected_by_its_version() {
+        let store = store("backup-schema");
+        let mut document: Value =
+            serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        document["schemaVersion"] = json!(5);
+        // Older backups also carried localNotes in a different shape.
+        document["localNotes"] = json!({ "notes": [] });
+        assert_eq!(
+            parse_import(&document.to_string()).unwrap_err(),
+            "the backup uses schema version 5; this app reads version 6"
         );
         let _ = fs::remove_file(store.path());
     }

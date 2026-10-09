@@ -807,19 +807,14 @@ fn import_data_inner(
     store: &data::DataStore,
     document: &str,
 ) -> Result<serde_json::Value, String> {
-    let parsed: serde_json::Value =
-        serde_json::from_str(document).map_err(|_| "import is not valid JSON")?;
-    let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
-        parsed
-            .get("localNotes")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-    )
-    .map_err(|_| "import localNotes is invalid")?;
+    let parsed = data::parse_import(document)?;
+    let notes: Vec<lms_files::LocalNoteBackup> =
+        serde_json::from_value(parsed["localNotes"].clone())
+            .map_err(|error| format!("the backup's local notes are invalid: {error}"))?;
     // Validate and restore local user notes under the file-store lock. School
     // materials are never present in this document.
     lms_files::restore_notes(app, &notes)?;
-    store.import_data(document)
+    store.import_data(&parsed)
 }
 
 #[tauri::command]

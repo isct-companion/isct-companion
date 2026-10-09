@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import type { Workspace } from "../../core/model";
-import type { Platform } from "../../app/shared";
+import { errorText, type Platform } from "../../app/shared";
 import { desktopBridge, saveExportFile } from "../../app/native";
 import { workspaceActions } from "../../store/workspace";
 import { performAction } from "../../platform/actions";
@@ -161,7 +161,7 @@ export function BackupSettings({
       setBusy(true);
       await action();
     } catch (error) {
-      const message = error instanceof Error ? error.message : t(failure);
+      const message = errorText(error) ?? t(failure);
       mark("error", message);
       notify(message);
     } finally {
@@ -273,7 +273,11 @@ export function BackupSettings({
       await workspaceActions.importData(await file.text());
       notify(t("Backup restored."));
     } catch (error) {
-      notify(error instanceof Error ? error.message : t("Import failed."));
+      notify(
+        t("Import failed: {{reason}}", {
+          reason: errorText(error) ?? t("unknown error"),
+        }),
+      );
     }
   };
   const erase = async () => {
