@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import type { Workspace } from "../../core/model";
-import { errorText, type Platform } from "../../app/shared";
+import { errorText } from "../../app/shared";
 import { desktopBridge, saveExportFile } from "../../app/native";
 import { workspaceActions } from "../../store/workspace";
 import { performAction } from "../../platform/actions";
@@ -38,13 +38,11 @@ function bytesToBase64(bytes: Uint8Array) {
 export function BackupSettings({
   data,
   update,
-  platform,
   caps,
   notify,
 }: {
   data: Workspace;
   update: (f: (d: Workspace) => Workspace) => void;
-  platform: Platform;
   caps: ReturnType<typeof resolveCapabilities>;
   notify: (message: string) => void;
 }) {
@@ -71,78 +69,60 @@ export function BackupSettings({
     saveExportFile("IsctCompanion.json", workspaceActions.exportData, notify);
 
   const cloud = data.settings.cloud;
-  const cloudAvailable =
-    platform === "browser-preview" ||
-    caps["cloud-sync"].support === "supported";
+  const cloudAvailable = caps["cloud-sync"].support === "supported";
   const selected = cloud.provider === "none" ? null : cloud.provider;
-  const connected = Boolean(
-    selected &&
-    (authorized.includes(selected) ||
-      (!desktopBridge && data.syncStatus.state === "idle")),
-  );
+  const connected = Boolean(selected && authorized.includes(selected));
   const configured = (provider: CloudProvider) =>
     Boolean(resolveCloudClientId(provider, cloud.clientId));
 
   const adapter = async () => {
-    if (
-      detectPlatform() !== "browser-preview" &&
-      caps["cloud-sync"].support !== "supported"
-    )
-      throw new Error(caps["cloud-sync"].reason);
+    const bridge = desktopBridge;
+    if (!bridge || !cloudAvailable) throw new Error(caps["cloud-sync"].reason);
     if (cloud.provider === "none")
       throw new Error(t("Choose Google Drive or OneDrive first."));
     const provider = cloud.provider;
     const clientId = resolveCloudClientId(provider, cloud.clientId);
-    const bridge = desktopBridge;
-    const desktopOAuth = bridge
-      ? {
-          oauth: {
-            connect: () =>
-              bridge
-                .connectCloud(provider, clientId, cloud.redirectUri!)
-                .then(() => undefined),
-            requireAccessToken: async () => "protected-main-process-token",
-          },
-          fetch: async (url: string | URL | Request, init?: RequestInit) => {
-            const body = init?.body;
-            const binary =
-              body instanceof Blob
-                ? new Uint8Array(await body.arrayBuffer())
-                : body instanceof ArrayBuffer
-                  ? new Uint8Array(body)
-                  : body instanceof Uint8Array
-                    ? body
-                    : undefined;
-            if (body && typeof body !== "string" && !binary)
-              throw new Error("Unsupported cloud request body.");
-            const response = await bridge.cloudRequest(
-              provider,
-              url instanceof Request ? url.url : String(url),
-              {
-                method: init?.method,
-                headers: Object.fromEntries(new Headers(init?.headers)),
-                bodyText: typeof body === "string" ? body : undefined,
-                bodyBase64: binary ? bytesToBase64(binary) : undefined,
-              },
-            );
-            return new Response(
-              Uint8Array.from(atob(response.body), (c) => c.charCodeAt(0)),
-              {
-                status: response.status,
-                statusText: response.statusText,
-                headers: response.headers,
-              },
-            );
-          },
-        }
-      : {};
     return createCloudAdapter(provider, clientId, {
-      redirectUri: desktopBridge
-        ? cloud.redirectUri
-        : `${location.origin}${location.pathname}`,
-      readOnly: !desktopBridge,
+      redirectUri: cloud.redirectUri,
       deviceId: data.deviceId,
-      ...desktopOAuth,
+      oauth: {
+        connect: () =>
+          bridge
+            .connectCloud(provider, clientId, cloud.redirectUri!)
+            .then(() => undefined),
+        requireAccessToken: async () => "protected-main-process-token",
+      },
+      fetch: async (url: string | URL | Request, init?: RequestInit) => {
+        const body = init?.body;
+        const binary =
+          body instanceof Blob
+            ? new Uint8Array(await body.arrayBuffer())
+            : body instanceof ArrayBuffer
+              ? new Uint8Array(body)
+              : body instanceof Uint8Array
+                ? body
+                : undefined;
+        if (body && typeof body !== "string" && !binary)
+          throw new Error("Unsupported cloud request body.");
+        const response = await bridge.cloudRequest(
+          provider,
+          url instanceof Request ? url.url : String(url),
+          {
+            method: init?.method,
+            headers: Object.fromEntries(new Headers(init?.headers)),
+            bodyText: typeof body === "string" ? body : undefined,
+            bodyBase64: binary ? bytesToBase64(binary) : undefined,
+          },
+        );
+        return new Response(
+          Uint8Array.from(atob(response.body), (c) => c.charCodeAt(0)),
+          {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          },
+        );
+      },
     });
   };
   const mark = (
@@ -382,7 +362,7 @@ export function BackupSettings({
             >
               {t("Restore from cloud")}
             </UiButton>
-            {desktopBridge && cloudAvailable && (
+            {cloudAvailable && (
               <UiButton
                 className="button primary"
                 disabled={!connected || busy}

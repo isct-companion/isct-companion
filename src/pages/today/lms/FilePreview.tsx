@@ -32,7 +32,7 @@ const revealLabel = /Mac/i.test(navigator.platform) ? "Show in Finder" : "Show i
 type View =
   | { state: "loading" }
   | { state: "missing" }
-  | { state: "ready"; src: string; kind?: ReturnType<typeof previewKind>; text?: string; contentType: string }
+  | { state: "ready"; src: string; kind?: ReturnType<typeof previewKind>; text?: string }
   | { state: "folder"; files: { name: string; url: string }[] }
   | { state: "external"; url: string }
   | { state: "tooLarge"; bytes: number }
@@ -43,23 +43,13 @@ type CourseFile = ReturnType<typeof useCourseFile>;
  * A course file's state on disk. With `autoDownload`, a missing file within
  * `limit` bytes is downloaded at once; `fetchNow` downloads at any size.
  */
-function kindFor(contentType: string, url: string) {
-  if (contentType.includes("application/pdf")) return "pdf" as const;
-  if (contentType.startsWith("image/")) return "image" as const;
-  if (contentType.startsWith("video/")) return "video" as const;
-  if (contentType.startsWith("audio/")) return "audio" as const;
-  if (contentType.includes("markdown")) return "markdown" as const;
-  if (contentType.startsWith("text/") || contentType.includes("json")) return "text" as const;
-  return previewKind(url);
-}
-
 function useCourseFile(url: string, context: CourseFolder, limit: number, autoDownload: boolean, readText = false) {
   const managed = isLmsResource(url) && Boolean(desktopBridge);
   const [view, setView] = useState<View>({ state: "loading" });
   const [request, setRequest] = useState({ download: false, attempt: 0 });
   useEffect(() => {
     if (!managed) {
-      setView(autoDownload ? { state: "ready", src: url, kind: previewKind(url), contentType: "" } : { state: "missing" });
+      setView(autoDownload ? { state: "ready", src: url, kind: previewKind(url) } : { state: "missing" });
       return;
     }
     if (!autoDownload && !request.download) { setView({ state: "missing" }); return; }
@@ -78,13 +68,11 @@ function useCourseFile(url: string, context: CourseFolder, limit: number, autoDo
         if (material.state === "tooLarge") return setView({ state: "tooLarge", bytes: material.bytes });
         if (material.state === "missing") return setView({ state: "missing" });
         if (material.state === "failed") throw new LmsFileError(material.reason);
-        const kind = kindFor("", material.file.name || url);
         setView({
           state: "ready",
           src: localFileUrl(material.file.path),
-          kind,
+          kind: previewKind(material.file.name || url),
           text: material.file.text ?? undefined,
-          contentType: "",
         });
       } catch (error) {
         if (disposed) return;

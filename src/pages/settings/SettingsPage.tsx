@@ -275,7 +275,6 @@ export function Settings({
       <BackupSettings
         data={data}
         update={update}
-        platform={platform}
         caps={caps}
         notify={notify}
       />
