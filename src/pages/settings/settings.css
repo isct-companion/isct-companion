@@ -76,6 +76,8 @@
   color: var(--muted);
   font-size: calc(11.5px * var(--text));
   line-height: 1.5;
+  /* Errors here can carry URLs or ids with no break opportunity. */
+  overflow-wrap: anywhere;
 }
 .groupFooter a {
   color: inherit;
