@@ -3,21 +3,22 @@
 This document is the authority for persistence boundaries. Cloud transport and
 merge behavior are deliberately out of scope.
 
-| Data | Owner | Storage | Deletion / lifetime |
-| --- | --- | --- | --- |
-| LMS courses, memberships, assignments and material metadata | School | SQLite school-cache tables | `lastSeenAt` / `missingSince`; never a user tombstone |
-| Kyomu registrations, grades, GPA and requirements | School | SQLite school-cache tables | `lastSeenAt` / `missingSince`; refreshed from the school site |
-| Syllabus offerings and detail content | Official source | SQLite reference cache | Refresh TTL; may be rebuilt |
-| Academic calendar, departments and recommendations | Official subscription | SQLite reference cache | `lastSeenAt` / `missingSince`; may be rebuilt |
-| Assignment marks and course overrides | User | Dedicated SQLite overlay tables | Explicit soft delete only; overlays survive missing school rows |
-| Events, plans, plan items and manual courses | User | SQLite user tables | Explicit soft delete only |
-| Markdown course notes | Local user | Course notes directory and local export | Never removed by cache cleanup; not cloud-sync data |
-| Downloaded school attachments and thumbnails | Cache | Course materials directory / memory | May be evicted by cache policy |
-| Search indexes and parsed projections | Derived cache | SQLite FTS / memory | May be rebuilt |
-| Appearance, locale, school content language, active view, download path and refresh preferences | Device | Device settings | Local to one device |
-| Import runs, refresh timestamps, logs and connection state | Runtime | SQLite runtime tables | Local diagnostic/refresh state |
-| School credentials, OTP material and OAuth tokens | Secret | OS credential vault | Never exported |
-| School WebView cookies and restore location | Session/device | WebView store / app data | Session or explicit restore preference |
+| Data                                                                                            | Owner                 | Storage                                                         | Deletion / lifetime                                             |
+| ----------------------------------------------------------------------------------------------- | --------------------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
+| LMS courses, memberships, assignments and material metadata                                     | School                | SQLite school-cache tables                                      | `lastSeenAt` / `missingSince`; never a user tombstone           |
+| Kyomu registrations, grades, GPA and requirements                                               | School                | SQLite school-cache tables                                      | `lastSeenAt` / `missingSince`; refreshed from the school site   |
+| Syllabus offerings and detail content                                                           | Official source       | SQLite reference cache                                          | Refresh TTL; may be rebuilt                                     |
+| Academic calendar, departments and recommendations                                              | Official subscription | SQLite reference cache                                          | `lastSeenAt` / `missingSince`; may be rebuilt                   |
+| Assignment marks and course overrides                                                           | User                  | Dedicated SQLite overlay tables                                 | Explicit soft delete only; overlays survive missing school rows |
+| Events, plans, plan items and manual courses                                                    | User                  | SQLite user tables                                              | Explicit soft delete only                                       |
+| Markdown course notes                                                                           | Local user            | Course notes directory, local export and workspace cloud backup | Never removed by cache cleanup                                  |
+| Downloaded school attachments and thumbnails                                                    | Cache                 | Course materials directory / memory                             | May be evicted by cache policy                                  |
+| Search indexes and parsed projections                                                           | Derived cache         | SQLite FTS / memory                                             | May be rebuilt                                                  |
+| Appearance, locale, school content language, active view, download path and refresh preferences | Device                | Device settings                                                 | Local to one device                                             |
+| Import runs, refresh timestamps, logs and connection state                                      | Runtime               | SQLite runtime tables                                           | Local diagnostic/refresh state                                  |
+| School credentials and OTP material                                                             | Secret                | OS credential vault; optional AES-256-GCM cloud file            | Cloud sync is opt-in and never uploads plaintext                |
+| OAuth tokens and cloud credential-encryption password                                           | Secret                | OS credential vault                                             | Device-local; never exported or returned to the WebView         |
+| School WebView cookies and restore location                                                     | Session/device        | WebView store / app data                                        | Session or explicit restore preference                          |
 
 ## Stable source keys
 
@@ -48,3 +49,18 @@ school row hides its overlay from composed UI views but does not delete it.
 - User data has no eviction TTL.
 
 The backend contract is the single source of policy values.
+
+## Cloud files
+
+Rust owns cloud authorization, provider requests, conflict detection, export
+and restore. The WebView can start an operation and display its result, but it
+cannot read tokens, workspace export bytes, school credentials or encryption
+keys.
+
+- `IsctCompanion.json` is the readable versioned workspace export in the
+  provider's private app folder.
+- `IsctCompanion.credentials.json` is optional and contains only an authenticated
+  encrypted school-credential bundle.
+- The credential encryption password is 8–12 characters and stays in a separate
+  device-local credential-vault entry. Another device must be given the same
+  password explicitly.
