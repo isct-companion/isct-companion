@@ -36,11 +36,13 @@ function nativePut(payload: unknown) {
   if (
     stored &&
     !stored.deletedAt &&
-    nativeContent(stored) === nativeContent(record)
+    nativeContent(stored) ===
+      nativeContent({ source: { provider: "manual" }, ...record })
   )
     return structuredClone(stored);
   const { deletedAt: _deleted, ...live } = record;
   const next = {
+    source: { provider: "manual" },
     ...live,
     rev: actual + 1,
     updatedAt: new Date(Date.UTC(2026, 9, 9, 0, 0, ++native.clock)).toISOString(),
@@ -265,6 +267,14 @@ describe("SqliteRepository desktop bridge", () => {
       .get("scheduled_tasks")!
       .get(LMS_BACKGROUND_REFRESH_TASK_ID)!;
     expect(stored).toMatchObject({ enabled: true, rev: 4 });
+    // The live store adopted the stored row, defaults and all.
+    expect(
+      store
+        .getState()
+        .workspace!.scheduledTasks.find(
+          (item) => item.id === LMS_BACKGROUND_REFRESH_TASK_ID,
+        ),
+    ).toEqual(stored);
     const puts = native.calls.filter((call) => call.command === "put_user_record");
     expect(puts.map((call) => (call.payload as { expectedRev: number }).expectedRev))
       .toEqual([1, 2, 3]);

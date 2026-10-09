@@ -303,6 +303,24 @@ export class LocalRepository implements WorkspaceRepository {
   }
 }
 
+/**
+ * Workspace collections persisted row by row. SqliteRepository.save writes the
+ * stored copy (server rev/updatedAt/updatedBy and defaults) back into the
+ * records of the workspace object it was given.
+ */
+export const USER_RECORD_COLLECTIONS = [
+  ["courses", "manual_courses"],
+  ["memberships", "manual_memberships"],
+  ["events", "personal_events"],
+  ["planItems", "plan_items"],
+  ["exceptions", "calendar_exceptions"],
+  ["intensiveSchedules", "intensive_schedules"],
+  ["plans", "plans"],
+  ["scheduleOverrides", "schedule_overrides"],
+  ["subscriptions", "subscriptions"],
+  ["scheduledTasks", "scheduled_tasks"],
+] as const;
+
 /** Desktop source of truth. Rust owns the SQLite database and all merge rules. */
 export class SqliteRepository implements WorkspaceRepository {
   private baseline?: Workspace;
@@ -326,18 +344,7 @@ export class SqliteRepository implements WorkspaceRepository {
         record as Record<string, unknown>;
       return rest;
     };
-    const collections = [
-      ["courses", "manual_courses"],
-      ["memberships", "manual_memberships"],
-      ["events", "personal_events"],
-      ["planItems", "plan_items"],
-      ["exceptions", "calendar_exceptions"],
-      ["intensiveSchedules", "intensive_schedules"],
-      ["plans", "plans"],
-      ["scheduleOverrides", "schedule_overrides"],
-      ["subscriptions", "subscriptions"],
-      ["scheduledTasks", "scheduled_tasks"],
-    ] as const;
+    const collections = USER_RECORD_COLLECTIONS;
     const schoolCopy = (field: string, record: object) =>
       (field === "courses" || field === "memberships") &&
       "lastSeenAt" in record &&

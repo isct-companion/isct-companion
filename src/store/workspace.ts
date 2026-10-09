@@ -6,7 +6,11 @@ import type {
 } from "../platform/desktop-bridge";
 import type { Workspace } from "../core/model";
 import { seedWorkspace } from "../core/model";
-import { repository, type WorkspaceRepository } from "../storage/repository";
+import {
+  USER_RECORD_COLLECTIONS,
+  repository,
+  type WorkspaceRepository,
+} from "../storage/repository";
 import { requireAction } from "../platform/actions";
 import {
   recordSubscriptionPoll,
@@ -87,6 +91,41 @@ function validate(value: Workspace) {
   });
 }
 
+/**
+ * Adopts the rows the repository stored (server rev/updatedAt/updatedBy and
+ * defaults) into the live workspace, skipping any record edited again while
+ * the save was in flight. Returns undefined when nothing changed.
+ */
+function adoptStoredRecords(
+  live: Workspace,
+  sent: Workspace,
+  stored: Workspace,
+): Workspace | undefined {
+  let next: Workspace | undefined;
+  for (const [field] of USER_RECORD_COLLECTIONS) {
+    if (JSON.stringify(sent[field]) === JSON.stringify(stored[field])) continue;
+    const sentById = new Map<string, object>(
+      sent[field].map((record) => [record.id, record]),
+    );
+    const storedById = new Map<string, object>(
+      stored[field].map((record) => [record.id, record]),
+    );
+    let records: object[] | undefined;
+    live[field].forEach((record: object & { id: string }, index) => {
+      const before = sentById.get(record.id);
+      const after = storedById.get(record.id);
+      if (!before || !after) return;
+      const json = JSON.stringify(record);
+      if (json !== JSON.stringify(before) || json === JSON.stringify(after))
+        return;
+      records ??= [...live[field]];
+      records[index] = after;
+    });
+    if (records) (next ??= { ...live })[field] = records as never;
+  }
+  return next && freeze(structuredClone(next));
+}
+
 export function createWorkspaceStore(
   storage: Pick<WorkspaceRepository, "load" | "save">,
   school?: {
@@ -115,9 +154,15 @@ export function createWorkspaceStore(
   const persist = (workspace: Workspace, revision: number) => {
     writes = writes.then(async () => {
       try {
-        await storage.save(structuredClone(workspace));
+        const stored = structuredClone(workspace);
+        await storage.save(stored);
+        const current = state.getState();
         publish({
-          ...state.getState(),
+          ...current,
+          workspace:
+            (current.workspace &&
+              adoptStoredRecords(current.workspace, workspace, stored)) ??
+            current.workspace,
           persistedRevision: revision,
           error: undefined,
         });
