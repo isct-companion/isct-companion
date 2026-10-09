@@ -4,6 +4,9 @@
   gap: 8px;
   min-height: 0;
 }
+.settingsSearch {
+  margin-bottom: 6px;
+}
 .settingsNavList,
 .settingsResults {
   display: grid;

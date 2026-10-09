@@ -6,7 +6,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
-use cloud::{CloudProvider, CloudRequestInput, CloudResponse, DesktopCloudService};
+use cloud::{CloudProvider, CloudSyncResult, DesktopCloudService};
 use lifecycle::SchoolSite;
 use school_auth::{
     SchoolAuthProfile, SchoolAuthService, SchoolCredentialStatus, SchoolCredentials,
@@ -552,15 +552,98 @@ fn disconnect_cloud(
 }
 
 #[tauri::command]
-async fn cloud_request(
+async fn cloud_backup_workspace(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    store: tauri::State<'_, data::DataStore>,
+    provider: CloudProvider,
+    overwrite: bool,
+) -> Result<CloudSyncResult, String> {
+    require_local_main(&webview)?;
+    let notes =
+        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
+    let document = store.export_data(notes)?;
+    let workspace = store.load_workspace()?;
+    let device_id = workspace
+        .get("deviceId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Local device identifier is unavailable.".to_string())?
+        .to_string();
+    let credentials = if service.credential_sync_configured()? {
+        Some(auth.export_sync_payload()?)
+    } else {
+        None
+    };
+    let result = service
+        .back_up_workspace(provider, &document, &device_id, overwrite)
+        .await?;
+    if result.state != cloud::CloudSyncState::Conflict {
+        if let Some(credentials) = credentials {
+            service.back_up_credentials(provider, &credentials).await?;
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+async fn cloud_restore_workspace(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    store: tauri::State<'_, data::DataStore>,
+    provider: CloudProvider,
+) -> Result<CloudSyncResult, String> {
+    require_local_main(&webview)?;
+    let (document, result) = service.pull_workspace(provider).await?;
+    let credentials = service.pull_credentials(provider).await?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&document).map_err(|_| "cloud workspace is invalid JSON")?;
+    let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
+        parsed
+            .get("localNotes")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    )
+    .map_err(|_| "cloud workspace localNotes is invalid")?;
+    lms_files::restore_notes(&app, &notes)?;
+    store.import_data(&document)?;
+    if let Some(credentials) = credentials {
+        auth.import_sync_payload(&credentials)?;
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+fn cloud_credential_sync_status(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-    provider: CloudProvider,
-    url: String,
-    init: CloudRequestInput,
-) -> Result<CloudResponse, String> {
+) -> Result<bool, String> {
     require_local_main(&webview)?;
-    service.request(provider, &url, init).await
+    service.credential_sync_configured()
+}
+
+#[tauri::command]
+fn set_cloud_credential_sync_password(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    password: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    service.set_credential_sync_password(&password)?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn clear_cloud_credential_sync_password(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    service.clear_credential_sync_password()?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -1320,7 +1403,11 @@ pub fn run() {
             connect_cloud,
             cloud_authorization_status,
             disconnect_cloud,
-            cloud_request,
+            cloud_backup_workspace,
+            cloud_restore_workspace,
+            cloud_credential_sync_status,
+            set_cloud_credential_sync_password,
+            clear_cloud_credential_sync_password,
             load_workspace,
             new_user_record_id,
             put_user_record,

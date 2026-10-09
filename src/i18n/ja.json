@@ -633,5 +633,14 @@
   "Lesson {{number}}": "第{{number}}回",
   "Activities": "その他の活動",
   "Syllabus": "シラバス",
-  "Competencies": "コンピテンシー"
+  "Competencies": "コンピテンシー",
+  "Sync login credentials": "ログイン認証情報を同期",
+  "Enabled on this device": "このデバイスで有効",
+  "Optional encrypted sync for ISCT portal accounts": "ISCTポータルアカウント用の任意の暗号化同期",
+  "Enter a new 8–12 character password": "新しい8～12文字のパスワードを入力",
+  "8–12 character password": "8～12文字のパスワード",
+  "Credential encryption password": "認証情報の暗号化パスワード",
+  "Login credential sync is enabled on this device.": "このデバイスでログイン認証情報の同期を有効にしました。",
+  "Login credential sync is disabled on this device.": "このデバイスでログイン認証情報の同期を無効にしました。",
+  "If you sync ISCT login credentials, choose an 8–12 character encryption password. The encrypted credential file is stored in Google Drive or OneDrive. The encryption password stays only in this device's system credential vault and is never uploaded. Beyond this encryption, we cannot guarantee the security of your credentials. Enter the same password on another device to restore them.": "ISCTのログイン認証情報を同期する場合は、8～12文字の暗号化パスワードを設定してください。暗号化された認証情報ファイルはGoogle DriveまたはOneDriveに保存されます。暗号化パスワードはこのデバイスのシステム認証情報保管庫にのみ保存され、アップロードされません。この暗号化以外に、認証情報の安全性を保証することはできません。別のデバイスで復元するには、同じパスワードを入力してください。"
 }

@@ -180,6 +180,13 @@ export type NativeCapabilitySnapshot = {
   syllabusSearch: boolean;
   matrixOcr: boolean;
 };
+export type CloudProvider = "google-drive" | "onedrive";
+export type CloudSyncResult = {
+  state: "backed-up" | "up-to-date" | "conflict" | "restored";
+  revision: number;
+  updatedAt: string;
+  updatedBy: string;
+};
 export type InvokeNative = (
   command: string,
   payload?: Record<string, unknown>,
@@ -283,27 +290,20 @@ export interface DesktopBridge {
   /** Saves a validated workspace export under app-owned local storage. */
   writeScheduledExport(): Promise<string>;
   connectCloud(
-    provider: "google-drive" | "onedrive",
+    provider: CloudProvider,
     clientId: string,
     redirectUri: string,
   ): Promise<boolean>;
-  cloudAuthorizationStatus(): Promise<Array<"google-drive" | "onedrive">>;
-  disconnectCloud(provider: "google-drive" | "onedrive"): Promise<boolean>;
-  cloudRequest(
-    provider: "google-drive" | "onedrive",
-    url: string,
-    init: {
-      method?: string;
-      headers?: Record<string, string>;
-      bodyText?: string;
-      bodyBase64?: string;
-    },
-  ): Promise<{
-    status: number;
-    statusText: string;
-    headers: Record<string, string>;
-    body: string;
-  }>;
+  cloudAuthorizationStatus(): Promise<CloudProvider[]>;
+  disconnectCloud(provider: CloudProvider): Promise<boolean>;
+  backupCloudWorkspace(
+    provider: CloudProvider,
+    overwrite: boolean,
+  ): Promise<CloudSyncResult>;
+  restoreCloudWorkspace(provider: CloudProvider): Promise<CloudSyncResult>;
+  cloudCredentialSyncStatus(): Promise<boolean>;
+  setCloudCredentialSyncPassword(password: string): Promise<boolean>;
+  clearCloudCredentialSyncPassword(): Promise<boolean>;
   syllabusCourse(url: string, language: "en" | "ja"): Promise<SyllabusCourse>;
   catalogSyncDepartment(
     year: number,
@@ -745,11 +745,19 @@ export function createTauriDesktopBridge(
     connectCloud: (provider, clientId, redirectUri) =>
       booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
     cloudAuthorizationStatus: () =>
-      result<Array<"google-drive" | "onedrive">>("cloud_authorization_status"),
+      result<CloudProvider[]>("cloud_authorization_status"),
     disconnectCloud: (provider) =>
       booleanCommand("disconnect_cloud", { provider }),
-    cloudRequest: (provider, url, init) =>
-      result("cloud_request", { provider, url, init }),
+    backupCloudWorkspace: (provider, overwrite) =>
+      result("cloud_backup_workspace", { provider, overwrite }),
+    restoreCloudWorkspace: (provider) =>
+      result("cloud_restore_workspace", { provider }),
+    cloudCredentialSyncStatus: () =>
+      booleanCommand("cloud_credential_sync_status"),
+    setCloudCredentialSyncPassword: (password) =>
+      booleanCommand("set_cloud_credential_sync_password", { password }),
+    clearCloudCredentialSyncPassword: () =>
+      booleanCommand("clear_cloud_credential_sync_password"),
     syllabusCourse: async (url, language) => {
       const synced = requireObject<{
         offering: unknown;

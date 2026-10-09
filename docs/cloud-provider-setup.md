@@ -16,7 +16,8 @@ Use these names consistently when registering providers:
 - product / OAuth application name: `IsctCompanion`;
 - native application identifier and Keychain service prefix: `app.isctcompanion`;
 - iCloud container identifier: `iCloud.app.isctcompanion`;
-- provider file name: `IsctCompanion.json`.
+- workspace file: `IsctCompanion.json`;
+- optional encrypted school-credential file: `IsctCompanion.credentials.json`.
 
 ## Google Drive
 
@@ -65,9 +66,6 @@ Registration: [Microsoft Entra app registrations](https://entra.microsoft.com/#v
 
 ## iCloud
 
-iCloud is not registered through OAuth. It requires an Apple Developer team,
-an iCloud container entitlement attached to the app identifier, and native
-platform code. Do not show iCloud as available until that transport is built;
-it will store the same plaintext `IsctCompanion.json` format.
-
-Registration: [Apple identifiers](https://developer.apple.com/account/resources/identifiers/list), then [CloudKit Console](https://icloud.developer.apple.com/dashboard/).
+iCloud transport is not implemented and must not be shown as available. Native
+Keychain synchronization is separate from the Google Drive/OneDrive encrypted
+credential file described above.

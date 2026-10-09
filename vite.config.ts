@@ -4,5 +4,10 @@ export default defineConfig({
   plugins: [react()],
   base: "./",
   build: { outDir: "dist" },
-  server: { port: 4173 },
+  server: {
+    port: 4173,
+    watch: {
+      ignored: ["**/backend/target/**"],
+    },
+  },
 });

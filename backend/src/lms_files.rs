@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
 };
 use tauri::{AppHandle, Manager};
@@ -122,6 +122,23 @@ fn root(app: &AppHandle) -> Result<(PathBuf, bool), String> {
     #[cfg(mobile)]
     let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok((base.join("IsctCompanion"), false))
+}
+
+/// Keep canonical/extended paths internally, but never expose Windows' `\\?\`
+/// prefix or locale-dependent backslashes in user-facing text.
+fn display_root(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        let value = value
+            .strip_prefix(r"\\?\UNC\")
+            .map(|rest| format!(r"\\{rest}"))
+            .or_else(|| value.strip_prefix(r"\\?\").map(str::to_string))
+            .unwrap_or_else(|| value.into_owned());
+        return value.replace('\u{5c}', "/");
+    }
+    #[cfg(not(windows))]
+    value.into_owned()
 }
 fn folder(app: &AppHandle, context: &CourseFolder, kind: &str) -> Result<PathBuf, String> {
     storage_dir(
@@ -459,7 +476,7 @@ pub async fn course_storage_info(
     crate::require_local_main(&webview)?;
     let (root, custom) = root(&app)?;
     Ok(StorageInfo {
-        root: root.to_string_lossy().into(),
+        root: display_root(&root),
         custom,
         can_choose: cfg!(desktop),
     })
@@ -975,6 +992,19 @@ mod tests {
         // An encoded slash cannot escape the folder.
         assert!(
             !name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/..%2F..%2Fx.pdf").contains('/')
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hides_extended_windows_prefix_and_uses_unambiguous_separators() {
+        assert_eq!(
+            display_root(Path::new(r"\\?\E:\IsctCompanion")),
+            "E:/IsctCompanion"
+        );
+        assert_eq!(
+            display_root(Path::new(r"\\?\UNC\server\courses")),
+            "//server/courses"
         );
     }
 }

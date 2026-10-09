@@ -1,15 +1,26 @@
 use crate::secrets::SecretVault;
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::Engine;
 use rand::RngCore;
+use ring::{aead, pbkdf2};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::num::NonZeroU32;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 const MAX_BODY_BYTES: usize = 25 * 1024 * 1024;
+const CLOUD_FILE_NAME: &str = "IsctCompanion.json";
+const CLOUD_FORMAT: &str = "IsctCompanion";
+const CLOUD_FORMAT_VERSION: u64 = 1;
+const CREDENTIAL_FILE_NAME: &str = "IsctCompanion.credentials.json";
+const CREDENTIAL_FORMAT: &str = "IsctCompanion.credentials";
+const CREDENTIAL_PASSWORD_ACCOUNT: &str = "cloud-credential-sync";
+const CREDENTIAL_KDF_ITERATIONS: u32 = 600_000;
+const CREDENTIAL_AAD: &[u8] = b"IsctCompanion.credentials.v1";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -18,101 +29,56 @@ pub enum CloudProvider {
     Onedrive,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CloudRequestInput {
-    pub method: Option<String>,
-    #[serde(default)]
-    pub headers: BTreeMap<String, String>,
-    pub body_text: Option<String>,
-    pub body_base64: Option<String>,
+struct CloudWorkspaceFile {
+    format: String,
+    format_version: u64,
+    revision: u64,
+    updated_at: String,
+    updated_by: String,
+    document: Value,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub struct ValidatedCloudRequest {
-    pub method: String,
-    pub url: Url,
-    pub content_type: Option<String>,
-    pub body_size: usize,
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CloudSyncState {
+    BackedUp,
+    UpToDate,
+    Conflict,
+    Restored,
 }
 
-fn allowed_endpoint(provider: CloudProvider, url: &Url) -> bool {
-    match provider {
-        CloudProvider::GoogleDrive => {
-            url.host_str() == Some("www.googleapis.com")
-                && (url.path().starts_with("/drive/v3/")
-                    || url.path().starts_with("/upload/drive/v3/"))
-        }
-        CloudProvider::Onedrive => {
-            url.host_str() == Some("graph.microsoft.com")
-                && (url.path() == "/v1.0/me/drive/special/approot"
-                    || url.path().starts_with("/v1.0/me/drive/special/approot/")
-                    || url.path().starts_with("/v1.0/me/drive/special/approot:"))
-        }
-    }
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudSyncResult {
+    pub state: CloudSyncState,
+    pub revision: u64,
+    pub updated_at: String,
+    pub updated_by: String,
 }
 
-pub fn validate_cloud_request(
-    provider: CloudProvider,
-    raw_url: &str,
-    input: &CloudRequestInput,
-) -> Result<ValidatedCloudRequest, String> {
-    let url = Url::parse(raw_url).map_err(|_| "Cloud URL is invalid.".to_string())?;
-    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
-        return Err("Cloud URL must be credential-free HTTPS.".into());
-    }
-    if url.fragment().is_some() {
-        return Err("Cloud URL fragments are not allowed.".into());
-    }
-    let encoded_path = url.path().to_ascii_lowercase();
-    if encoded_path.contains("%2e") || encoded_path.contains("%2f") || encoded_path.contains("%5c")
-    {
-        return Err("Cloud URL contains an encoded path delimiter.".into());
-    }
-    if !allowed_endpoint(provider, &url) {
-        return Err("Cloud endpoint is not allowed for this provider.".into());
-    }
-    let method = input
-        .method
-        .as_deref()
-        .unwrap_or("GET")
-        .to_ascii_uppercase();
-    if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH") {
-        return Err("Cloud method is not allowed.".into());
-    }
-    let mut content_type = None;
-    for (name, value) in &input.headers {
-        if !name.eq_ignore_ascii_case("content-type") {
-            return Err("Cloud request header is not allowed.".into());
-        }
-        if value.contains('\r') || value.contains('\n') {
-            return Err("Cloud content type is invalid.".into());
-        }
-        content_type = Some(value.clone());
-    }
-    if input.body_text.is_some() && input.body_base64.is_some() {
-        return Err("Cloud request has more than one body.".into());
-    }
-    let body_size = input
-        .body_text
-        .as_ref()
-        .map(|value| value.len())
-        .or_else(|| {
-            input
-                .body_base64
-                .as_ref()
-                .map(|value| value.len().saturating_mul(3) / 4)
-        })
-        .unwrap_or(0);
-    if body_size > MAX_BODY_BYTES {
-        return Err("Cloud request body is too large.".into());
-    }
-    Ok(ValidatedCloudRequest {
-        method,
-        url,
-        content_type,
-        body_size,
-    })
+#[derive(Debug, Deserialize)]
+struct GoogleDriveFile {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleDriveFiles {
+    files: Option<Vec<GoogleDriveFile>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EncryptedCredentialFile {
+    format: String,
+    format_version: u64,
+    kdf: String,
+    iterations: u32,
+    salt: String,
+    cipher: String,
+    nonce: String,
+    ciphertext: String,
 }
 
 pub fn validate_redirect_uri(raw: &str) -> Result<Url, String> {
@@ -157,15 +123,6 @@ struct TokenResponse {
     access_token: String,
     refresh_token: Option<String>,
     expires_in: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CloudResponse {
-    pub status: u16,
-    pub status_text: String,
-    pub headers: BTreeMap<String, String>,
-    pub body: String,
 }
 
 fn provider_account(provider: CloudProvider) -> &'static str {
@@ -222,6 +179,143 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
+}
+
+fn validate_workspace_document(document: &Value) -> Result<(), String> {
+    if document.get("schemaVersion").and_then(Value::as_u64) != Some(6)
+        || document.get("kind").and_then(Value::as_str) != Some("IsctCompanion.local-backup")
+        || !document.get("tables").is_some_and(Value::is_object)
+        || !document.get("localNotes").is_some_and(Value::is_array)
+    {
+        return Err("Cloud workspace format is invalid or unsupported.".into());
+    }
+    Ok(())
+}
+
+fn parse_cloud_workspace(bytes: &[u8]) -> Result<CloudWorkspaceFile, String> {
+    let file: CloudWorkspaceFile = serde_json::from_slice(bytes)
+        .map_err(|_| "Cloud workspace is not valid JSON.".to_string())?;
+    if file.format != CLOUD_FORMAT
+        || file.format_version != CLOUD_FORMAT_VERSION
+        || file.revision == 0
+        || file.updated_by.trim().is_empty()
+        || chrono::DateTime::parse_from_rfc3339(&file.updated_at).is_err()
+    {
+        return Err("Cloud workspace format is invalid or unsupported.".into());
+    }
+    validate_workspace_document(&file.document)?;
+    Ok(file)
+}
+
+fn sync_result(state: CloudSyncState, file: &CloudWorkspaceFile) -> CloudSyncResult {
+    CloudSyncResult {
+        state,
+        revision: file.revision,
+        updated_at: file.updated_at.clone(),
+        updated_by: file.updated_by.clone(),
+    }
+}
+
+fn workspace_contents_equal(left: &Value, right: &Value) -> bool {
+    left.get("tables") == right.get("tables") && left.get("localNotes") == right.get("localNotes")
+}
+
+fn validate_credential_password(password: &str) -> Result<(), String> {
+    let length = password.chars().count();
+    if !(8..=12).contains(&length) || password.chars().any(char::is_control) {
+        return Err("Encryption password must be 8–12 characters.".into());
+    }
+    Ok(())
+}
+
+fn derive_credential_key(password: &str, salt: &[u8], iterations: u32) -> Result<[u8; 32], String> {
+    let iterations = NonZeroU32::new(iterations)
+        .ok_or_else(|| "Encrypted credential KDF is invalid.".to_string())?;
+    let mut key = [0u8; 32];
+    pbkdf2::derive(
+        pbkdf2::PBKDF2_HMAC_SHA256,
+        iterations,
+        salt,
+        password.as_bytes(),
+        &mut key,
+    );
+    Ok(key)
+}
+
+fn encrypt_credentials(payload: &str, password: &str) -> Result<Vec<u8>, String> {
+    validate_credential_password(password)?;
+    let mut salt = [0u8; 16];
+    let mut nonce_bytes = [0u8; 12];
+    rand::rng().fill_bytes(&mut salt);
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let key = derive_credential_key(password, &salt, CREDENTIAL_KDF_ITERATIONS)?;
+    let key = aead::UnboundKey::new(&aead::AES_256_GCM, &key)
+        .map_err(|_| "Credential encryption setup failed.".to_string())?;
+    let key = aead::LessSafeKey::new(key);
+    let mut ciphertext = payload.as_bytes().to_vec();
+    key.seal_in_place_append_tag(
+        aead::Nonce::assume_unique_for_key(nonce_bytes),
+        aead::Aad::from(CREDENTIAL_AAD),
+        &mut ciphertext,
+    )
+    .map_err(|_| "Credential encryption failed.".to_string())?;
+    let encode = base64::engine::general_purpose::STANDARD;
+    serde_json::to_vec_pretty(&EncryptedCredentialFile {
+        format: CREDENTIAL_FORMAT.into(),
+        format_version: 1,
+        kdf: "pbkdf2-sha256".into(),
+        iterations: CREDENTIAL_KDF_ITERATIONS,
+        salt: encode.encode(salt),
+        cipher: "aes-256-gcm".into(),
+        nonce: encode.encode(nonce_bytes),
+        ciphertext: encode.encode(ciphertext),
+    })
+    .map_err(|_| "Encrypted credentials could not be encoded.".to_string())
+}
+
+fn decrypt_credentials(bytes: &[u8], password: &str) -> Result<String, String> {
+    validate_credential_password(password)?;
+    let file: EncryptedCredentialFile = serde_json::from_slice(bytes)
+        .map_err(|_| "Encrypted credential file is invalid.".to_string())?;
+    if file.format != CREDENTIAL_FORMAT
+        || file.format_version != 1
+        || file.kdf != "pbkdf2-sha256"
+        || file.iterations != CREDENTIAL_KDF_ITERATIONS
+        || file.cipher != "aes-256-gcm"
+    {
+        return Err("Encrypted credential file version is unsupported.".into());
+    }
+    let decode = base64::engine::general_purpose::STANDARD;
+    let salt = decode
+        .decode(file.salt)
+        .map_err(|_| "Encrypted credential salt is invalid.".to_string())?;
+    if salt.len() != 16 {
+        return Err("Encrypted credential salt is invalid.".into());
+    }
+    let nonce: [u8; 12] = decode
+        .decode(file.nonce)
+        .map_err(|_| "Encrypted credential nonce is invalid.".to_string())?
+        .try_into()
+        .map_err(|_| "Encrypted credential nonce is invalid.".to_string())?;
+    let mut ciphertext = decode
+        .decode(file.ciphertext)
+        .map_err(|_| "Encrypted credential payload is invalid.".to_string())?;
+    if !(16..=(64 * 1024 + 16)).contains(&ciphertext.len()) {
+        return Err("Encrypted credential payload is invalid.".into());
+    }
+    let key = derive_credential_key(password, &salt, file.iterations)?;
+    let key = aead::UnboundKey::new(&aead::AES_256_GCM, &key)
+        .map_err(|_| "Credential decryption setup failed.".to_string())?;
+    let key = aead::LessSafeKey::new(key);
+    let plaintext = key
+        .open_in_place(
+            aead::Nonce::assume_unique_for_key(nonce),
+            aead::Aad::from(CREDENTIAL_AAD),
+            &mut ciphertext,
+        )
+        .map_err(|_| "Credential decryption failed. Check the encryption password.".to_string())?;
+    String::from_utf8(plaintext.to_vec())
+        .map_err(|_| "Decrypted credential payload is invalid.".to_string())
 }
 
 fn valid_client_id(value: &str) -> bool {
@@ -448,34 +542,25 @@ impl<V: SecretVault> DesktopCloudService<V> {
         Ok(token.access_token)
     }
 
-    pub async fn request(
+    async fn send(
         &self,
         provider: CloudProvider,
-        raw_url: &str,
-        input: CloudRequestInput,
-    ) -> Result<CloudResponse, String> {
-        let validated = validate_cloud_request(provider, raw_url, &input)?;
-        let body = match (&input.body_text, &input.body_base64) {
-            (Some(text), None) => text.as_bytes().to_vec(),
-            (None, Some(encoded)) => STANDARD
-                .decode(encoded)
-                .map_err(|_| "Cloud request body encoding is invalid.".to_string())?,
-            (None, None) => Vec::new(),
-            _ => return Err("Cloud request has more than one body.".into()),
-        };
-        if body.len() > MAX_BODY_BYTES {
-            return Err("Cloud request body is too large.".into());
-        }
-        let method = reqwest::Method::from_bytes(validated.method.as_bytes())
-            .map_err(|_| "Cloud method is invalid.".to_string())?;
+        method: reqwest::Method,
+        url: Url,
+        content_type: Option<&str>,
+        body: Option<Vec<u8>>,
+    ) -> Result<reqwest::Response, String> {
         let mut request = self
             .client
-            .request(method, validated.url)
+            .request(method, url)
             .bearer_auth(self.access_token(provider).await?);
-        if let Some(content_type) = validated.content_type {
+        if let Some(content_type) = content_type {
             request = request.header(reqwest::header::CONTENT_TYPE, content_type);
         }
-        if !body.is_empty() {
+        if let Some(body) = body {
+            if body.len() > MAX_BODY_BYTES {
+                return Err("Cloud request body is too large.".into());
+            }
             request = request.body(body);
         }
         let response = request
@@ -485,24 +570,256 @@ impl<V: SecretVault> DesktopCloudService<V> {
         if response.status().is_redirection() {
             return Err("Cloud redirects are not followed.".into());
         }
-        let status = response.status();
-        let mut headers = BTreeMap::new();
-        for name in [reqwest::header::CONTENT_TYPE, reqwest::header::ETAG] {
-            if let Some(value) = response
-                .headers()
-                .get(&name)
-                .and_then(|value| value.to_str().ok())
-            {
-                headers.insert(name.as_str().to_string(), value.to_string());
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err("Cloud authorization expired; reconnect is required.".into());
+        }
+        Ok(response)
+    }
+
+    async fn google_file_id(&self, name: &str) -> Result<Option<String>, String> {
+        let mut url = Url::parse("https://www.googleapis.com/drive/v3/files")
+            .map_err(|_| "Google Drive endpoint is invalid.".to_string())?;
+        url.query_pairs_mut()
+            .append_pair("spaces", "appDataFolder")
+            .append_pair("q", &format!("name = '{}' and trashed = false", name))
+            .append_pair("fields", "files(id)")
+            .append_pair("pageSize", "2");
+        let response = self
+            .send(
+                CloudProvider::GoogleDrive,
+                reqwest::Method::GET,
+                url,
+                None,
+                None,
+            )
+            .await?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Google Drive lookup failed ({}).",
+                response.status().as_u16()
+            ));
+        }
+        let bytes = read_limited(response, 1024 * 1024).await?;
+        let files: GoogleDriveFiles = serde_json::from_slice(&bytes)
+            .map_err(|_| "Google Drive lookup response was invalid.".to_string())?;
+        Ok(files
+            .files
+            .and_then(|files| files.into_iter().next())
+            .map(|file| file.id))
+    }
+
+    async fn read_file(
+        &self,
+        provider: CloudProvider,
+        name: &str,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let response = match provider {
+            CloudProvider::GoogleDrive => {
+                let Some(id) = self.google_file_id(name).await? else {
+                    return Ok(None);
+                };
+                let mut url =
+                    Url::parse(&format!("https://www.googleapis.com/drive/v3/files/{id}"))
+                        .map_err(|_| "Google Drive endpoint is invalid.".to_string())?;
+                url.query_pairs_mut().append_pair("alt", "media");
+                self.send(provider, reqwest::Method::GET, url, None, None)
+                    .await?
+            }
+            CloudProvider::Onedrive => {
+                let url = Url::parse(&format!(
+                    "https://graph.microsoft.com/v1.0/me/drive/special/approot:/{name}:/content"
+                ))
+                .map_err(|_| "OneDrive endpoint is invalid.".to_string())?;
+                let response = self
+                    .send(provider, reqwest::Method::GET, url, None, None)
+                    .await?;
+                if response.status() == reqwest::StatusCode::NOT_FOUND {
+                    return Ok(None);
+                }
+                response
+            }
+        };
+        if !response.status().is_success() {
+            return Err(format!(
+                "Cloud file read failed ({}).",
+                response.status().as_u16()
+            ));
+        }
+        read_limited(response, MAX_BODY_BYTES).await.map(Some)
+    }
+
+    async fn write_file(
+        &self,
+        provider: CloudProvider,
+        name: &str,
+        bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        let response = match provider {
+            CloudProvider::GoogleDrive => {
+                if let Some(id) = self.google_file_id(name).await? {
+                    let mut url = Url::parse(&format!(
+                        "https://www.googleapis.com/upload/drive/v3/files/{id}"
+                    ))
+                    .map_err(|_| "Google Drive endpoint is invalid.".to_string())?;
+                    url.query_pairs_mut().append_pair("uploadType", "media");
+                    self.send(
+                        provider,
+                        reqwest::Method::PATCH,
+                        url,
+                        Some("application/json"),
+                        Some(bytes),
+                    )
+                    .await?
+                } else {
+                    let boundary = format!("isct-companion-{}", random_urlsafe(18));
+                    let metadata = serde_json::to_string(&serde_json::json!({
+                        "name": name,
+                        "parents": ["appDataFolder"]
+                    }))
+                    .map_err(|_| "Google Drive metadata serialization failed.".to_string())?;
+                    let mut body = Vec::new();
+                    write!(
+                        body,
+                        "--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Type: application/json\r\n\r\n"
+                    )
+                    .map_err(|_| "Google Drive upload could not be prepared.".to_string())?;
+                    body.extend_from_slice(&bytes);
+                    write!(body, "\r\n--{boundary}--\r\n")
+                        .map_err(|_| "Google Drive upload could not be prepared.".to_string())?;
+                    let mut url = Url::parse("https://www.googleapis.com/upload/drive/v3/files")
+                        .map_err(|_| "Google Drive endpoint is invalid.".to_string())?;
+                    url.query_pairs_mut().append_pair("uploadType", "multipart");
+                    self.send(
+                        provider,
+                        reqwest::Method::POST,
+                        url,
+                        Some(&format!("multipart/related; boundary={boundary}")),
+                        Some(body),
+                    )
+                    .await?
+                }
+            }
+            CloudProvider::Onedrive => {
+                let url = Url::parse(&format!(
+                    "https://graph.microsoft.com/v1.0/me/drive/special/approot:/{name}:/content"
+                ))
+                .map_err(|_| "OneDrive endpoint is invalid.".to_string())?;
+                self.send(
+                    provider,
+                    reqwest::Method::PUT,
+                    url,
+                    Some("application/json"),
+                    Some(bytes),
+                )
+                .await?
+            }
+        };
+        if !response.status().is_success() {
+            return Err(format!(
+                "Cloud file write failed ({}).",
+                response.status().as_u16()
+            ));
+        }
+        Ok(())
+    }
+
+    async fn read_workspace(
+        &self,
+        provider: CloudProvider,
+    ) -> Result<Option<CloudWorkspaceFile>, String> {
+        self.read_file(provider, CLOUD_FILE_NAME)
+            .await?
+            .map(|bytes| parse_cloud_workspace(&bytes))
+            .transpose()
+    }
+
+    pub async fn back_up_workspace(
+        &self,
+        provider: CloudProvider,
+        document: &str,
+        updated_by: &str,
+        overwrite: bool,
+    ) -> Result<CloudSyncResult, String> {
+        let document: Value = serde_json::from_str(document)
+            .map_err(|_| "Local workspace is not valid JSON.".to_string())?;
+        validate_workspace_document(&document)?;
+        if updated_by.trim().is_empty() {
+            return Err("Local device identifier is unavailable.".into());
+        }
+        let remote = self.read_workspace(provider).await?;
+        if let Some(remote) = &remote {
+            if workspace_contents_equal(&remote.document, &document) {
+                return Ok(sync_result(CloudSyncState::UpToDate, remote));
+            }
+            if !overwrite {
+                return Ok(sync_result(CloudSyncState::Conflict, remote));
             }
         }
-        let bytes = read_limited(response, MAX_BODY_BYTES).await?;
-        Ok(CloudResponse {
-            status: status.as_u16(),
-            status_text: status.canonical_reason().unwrap_or("").to_string(),
-            headers,
-            body: STANDARD.encode(bytes),
-        })
+        let file = CloudWorkspaceFile {
+            format: CLOUD_FORMAT.into(),
+            format_version: CLOUD_FORMAT_VERSION,
+            revision: remote.as_ref().map_or(1, |file| file.revision + 1),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            updated_by: updated_by.to_string(),
+            document,
+        };
+        let bytes = serde_json::to_vec_pretty(&file)
+            .map_err(|_| "Cloud workspace serialization failed.".to_string())?;
+        self.write_file(provider, CLOUD_FILE_NAME, bytes).await?;
+        Ok(sync_result(CloudSyncState::BackedUp, &file))
+    }
+
+    pub async fn pull_workspace(
+        &self,
+        provider: CloudProvider,
+    ) -> Result<(String, CloudSyncResult), String> {
+        let file = self
+            .read_workspace(provider)
+            .await?
+            .ok_or_else(|| "No cloud workspace exists yet.".to_string())?;
+        let document = serde_json::to_string(&file.document)
+            .map_err(|_| "Cloud workspace serialization failed.".to_string())?;
+        Ok((document, sync_result(CloudSyncState::Restored, &file)))
+    }
+
+    pub fn credential_sync_configured(&self) -> Result<bool, String> {
+        Ok(self.vault.load(CREDENTIAL_PASSWORD_ACCOUNT)?.is_some())
+    }
+
+    pub fn set_credential_sync_password(&self, password: &str) -> Result<(), String> {
+        validate_credential_password(password)?;
+        self.vault.store(CREDENTIAL_PASSWORD_ACCOUNT, password)
+    }
+
+    pub fn clear_credential_sync_password(&self) -> Result<(), String> {
+        self.vault.delete(CREDENTIAL_PASSWORD_ACCOUNT)
+    }
+
+    pub async fn back_up_credentials(
+        &self,
+        provider: CloudProvider,
+        payload: &str,
+    ) -> Result<(), String> {
+        let password = self
+            .vault
+            .load(CREDENTIAL_PASSWORD_ACCOUNT)?
+            .ok_or_else(|| "Credential sync is not configured on this device.".to_string())?;
+        let encrypted = encrypt_credentials(payload, &password)?;
+        self.write_file(provider, CREDENTIAL_FILE_NAME, encrypted)
+            .await
+    }
+
+    pub async fn pull_credentials(
+        &self,
+        provider: CloudProvider,
+    ) -> Result<Option<String>, String> {
+        let Some(password) = self.vault.load(CREDENTIAL_PASSWORD_ACCOUNT)? else {
+            return Ok(None);
+        };
+        let Some(encrypted) = self.read_file(provider, CREDENTIAL_FILE_NAME).await? else {
+            return Ok(None);
+        };
+        decrypt_credentials(&encrypted, &password).map(Some)
     }
 }
 
@@ -542,57 +859,40 @@ mod tests {
         }
     }
 
-    fn request() -> CloudRequestInput {
-        CloudRequestInput {
-            method: Some("GET".into()),
-            headers: BTreeMap::new(),
-            body_text: None,
-            body_base64: None,
-        }
+    #[test]
+    fn parses_workspace_wrapper_and_compares_only_restorable_content() {
+        let document = serde_json::json!({
+            "schemaVersion": 6,
+            "exportedAt": "2026-01-01T00:00:00Z",
+            "kind": "IsctCompanion.local-backup",
+            "deviceId": "local-backup",
+            "tables": {},
+            "localNotes": []
+        });
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "format": CLOUD_FORMAT,
+            "formatVersion": CLOUD_FORMAT_VERSION,
+            "revision": 2,
+            "updatedAt": "2026-01-01T00:00:00Z",
+            "updatedBy": "device-a",
+            "document": document
+        }))
+        .unwrap();
+        let parsed = parse_cloud_workspace(&bytes).unwrap();
+        let mut later = parsed.document.clone();
+        later["exportedAt"] = Value::String("2026-02-01T00:00:00Z".into());
+        assert!(workspace_contents_equal(&parsed.document, &later));
     }
 
     #[test]
-    fn rejects_cross_provider_and_credentials() {
-        assert!(validate_cloud_request(
-            CloudProvider::GoogleDrive,
-            "https://graph.microsoft.com/v1.0/me/drive/special/approot/x",
-            &request()
-        )
-        .is_err());
-        assert!(validate_cloud_request(
-            CloudProvider::Onedrive,
-            "https://token@example.com/v1.0/me/drive/special/approot/x",
-            &request()
-        )
-        .is_err());
-        assert!(validate_cloud_request(
-            CloudProvider::GoogleDrive,
-            "https://www.googleapis.com/drive/v3/%2e%2e/token",
-            &request()
-        )
-        .is_err());
-        assert!(validate_cloud_request(
-            CloudProvider::GoogleDrive,
-            "https://www.googleapis.com/drive/v3/files#access_token=secret",
-            &request()
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn accepts_scoped_provider_paths() {
-        assert!(validate_cloud_request(
-            CloudProvider::GoogleDrive,
-            "https://www.googleapis.com/drive/v3/files",
-            &request()
-        )
-        .is_ok());
-        assert!(validate_cloud_request(
-            CloudProvider::Onedrive,
-            "https://graph.microsoft.com/v1.0/me/drive/special/approot:/IsctCompanion.json:/content",
-            &request()
-        )
-        .is_ok());
+    fn credential_encryption_round_trips_and_rejects_wrong_password() {
+        let encrypted = encrypt_credentials("{\"version\":1}", "eight888").unwrap();
+        assert_eq!(
+            decrypt_credentials(&encrypted, "eight888").unwrap(),
+            "{\"version\":1}"
+        );
+        assert!(decrypt_credentials(&encrypted, "wrong999").is_err());
+        assert!(encrypt_credentials("{}", "short").is_err());
     }
 
     #[test]
