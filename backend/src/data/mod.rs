@@ -934,7 +934,14 @@ impl DataStore {
         }
         normalize_optional_nulls(&mut value);
         validate_user_record(table, &value)?;
-        upsert_row(&transaction, table, &value, true)?;
+        if !upsert_row(&transaction, table, &value, true)? {
+            // Unchanged content keeps the stored revision; returning the
+            // bumped copy would make the caller's next expected rev wrong.
+            let (raw, _) = previous.ok_or_else(|| "record vanished during save".to_string())?;
+            transaction.commit().map_err(|error| error.to_string())?;
+            return serde_json::from_str(&raw)
+                .map_err(|_| format!("{table} contains invalid JSON"));
+        }
         match table {
             "assignment_marks" => {
                 transaction.execute(
@@ -2039,6 +2046,39 @@ mod tests {
             store.user_rows("plans").unwrap()[0]["title"],
             "First writer"
         );
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn unchanged_checked_put_returns_the_stored_revision() {
+        let store = store("record-unchanged");
+        let row = store
+            .put_user_record(
+                "plans",
+                json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+                "test",
+            )
+            .unwrap();
+        let mut edited = row.clone();
+        edited["title"] = json!("Edited");
+        let edited = store
+            .put_user_record_checked("plans", edited, "desktop", Some(1))
+            .unwrap();
+        assert_eq!(edited["rev"], 2);
+        let same = store
+            .put_user_record_checked("plans", edited.clone(), "desktop", Some(2))
+            .unwrap();
+        let stored = store.user_rows("plans").unwrap()[0].clone();
+        assert_eq!(same["rev"], stored["rev"]);
+        assert_eq!(same, stored);
+        assert_eq!(same["rev"], 2);
+        let mut next = same;
+        next["title"] = json!("Edited again");
+        let next = store
+            .put_user_record_checked("plans", next, "desktop", Some(2))
+            .unwrap();
+        assert_eq!(next["rev"], 3);
+        assert_eq!(store.user_rows("plans").unwrap()[0]["title"], "Edited again");
         let _ = fs::remove_file(store.path());
     }
 

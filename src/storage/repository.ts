@@ -303,6 +303,24 @@ export class LocalRepository implements WorkspaceRepository {
   }
 }
 
+/**
+ * Workspace collections persisted row by row. SqliteRepository.save writes the
+ * stored copy (server rev/updatedAt/updatedBy and defaults) back into the
+ * records of the workspace object it was given.
+ */
+export const USER_RECORD_COLLECTIONS = [
+  ["courses", "manual_courses"],
+  ["memberships", "manual_memberships"],
+  ["events", "personal_events"],
+  ["planItems", "plan_items"],
+  ["exceptions", "calendar_exceptions"],
+  ["intensiveSchedules", "intensive_schedules"],
+  ["plans", "plans"],
+  ["scheduleOverrides", "schedule_overrides"],
+  ["subscriptions", "subscriptions"],
+  ["scheduledTasks", "scheduled_tasks"],
+] as const;
+
 /** Desktop source of truth. Rust owns the SQLite database and all merge rules. */
 export class SqliteRepository implements WorkspaceRepository {
   private baseline?: Workspace;
@@ -314,41 +332,54 @@ export class SqliteRepository implements WorkspaceRepository {
   }
 
   async save(data: Workspace) {
-    const previous = this.baseline ?? (await this.load());
+    if (!this.baseline) await this.load();
+    const previous = this.baseline!;
     const same = (left: unknown, right: unknown) =>
       JSON.stringify(left) === JSON.stringify(right);
-    const collections = [
-      ["courses", "manual_courses"],
-      ["memberships", "manual_memberships"],
-      ["events", "personal_events"],
-      ["planItems", "plan_items"],
-      ["exceptions", "calendar_exceptions"],
-      ["intensiveSchedules", "intensive_schedules"],
-      ["plans", "plans"],
-      ["scheduleOverrides", "schedule_overrides"],
-      ["subscriptions", "subscriptions"],
-      ["scheduledTasks", "scheduled_tasks"],
-    ] as const;
+    // SQLite owns rev/updatedAt/updatedBy. Local edits bump them too, so a
+    // record whose content matches the stored copy must not be re-sent.
+    const content = (record: object | undefined) => {
+      if (!record) return undefined;
+      const { rev: _rev, updatedAt: _at, updatedBy: _by, ...rest } =
+        record as Record<string, unknown>;
+      return rest;
+    };
+    const collections = USER_RECORD_COLLECTIONS;
+    const schoolCopy = (field: string, record: object) =>
+      (field === "courses" || field === "memberships") &&
+      "lastSeenAt" in record &&
+      Boolean(record.lastSeenAt);
+    const persisted = new Map<string, Map<string, object>>();
     for (const [field, table] of collections) {
-      const before = new Map(
-        previous[field].map((record) => [record.id, record]),
+      // `previous` is the live baseline: each write is recorded as it lands,
+      // so a failure later in this save cannot strand rows on a stale rev.
+      const stored: object[] = previous[field];
+      const rows = new Map(
+        stored.map((record) => [(record as { id: string }).id, record]),
       );
+      persisted.set(field, rows);
+      const remember = (record: { id: string }) => {
+        const copy = structuredClone(record);
+        const old = rows.get(record.id);
+        if (old) stored[stored.indexOf(old)] = copy;
+        else stored.push(copy);
+        rows.set(record.id, copy);
+      };
       for (const record of data[field]) {
-        if (
-          (field === "courses" || field === "memberships") &&
-          "lastSeenAt" in record &&
-          record.lastSeenAt
-        )
-          continue;
-        const old = before.get(record.id);
-        if (same(old, record)) continue;
+        if (schoolCopy(field, record)) continue;
+        const old = rows.get(record.id) as typeof record | undefined;
+        if (same(content(old), content(record))) continue;
         if (record.deletedAt) {
-          if (!old?.deletedAt)
-            await invoke("delete_user_record", {
+          let rev = old?.rev ?? 0;
+          if (!old?.deletedAt) {
+            const deleted = await invoke<boolean>("delete_user_record", {
               table,
               id: record.id,
-              expectedRev: old?.rev ?? 0,
+              expectedRev: rev,
             });
+            if (deleted) rev += 1;
+          }
+          remember({ ...record, rev } as typeof record);
         } else {
           const saved = await invoke<typeof record>("put_user_record", {
             table,
@@ -356,6 +387,7 @@ export class SqliteRepository implements WorkspaceRepository {
             expectedRev: old?.rev ?? 0,
           });
           Object.assign(record, saved);
+          remember(record);
         }
       }
     }
@@ -478,19 +510,35 @@ export class SqliteRepository implements WorkspaceRepository {
           data.currentTerm = currentTerm as Workspace["currentTerm"];
       }
     }
-    this.baseline = structuredClone(data);
+    // Unsent records keep the stored metadata, not the locally bumped copy.
+    const baseline = structuredClone(data);
+    for (const [field] of collections)
+      (baseline[field] as object[]) = baseline[field].map((record) =>
+        schoolCopy(field, record)
+          ? record
+          : structuredClone(persisted.get(field)!.get(record.id) ?? record),
+      );
+    this.baseline = baseline;
   }
 
   async export() {
     return invoke<string>("export_data");
   }
 
+  // Import and reset rewrite SQLite wholesale; their result is the new
+  // baseline, or the next save would re-send every row with a stale rev.
   async import(document: string) {
-    return normalize(await invoke<Workspace>("import_data", { document }));
+    const workspace = normalize(
+      await invoke<Workspace>("import_data", { document }),
+    );
+    this.baseline = structuredClone(workspace);
+    return workspace;
   }
 
   async reset() {
-    return normalize(await invoke<Workspace>("reset_workspace"));
+    const workspace = normalize(await invoke<Workspace>("reset_workspace"));
+    this.baseline = structuredClone(workspace);
+    return workspace;
   }
 }
 

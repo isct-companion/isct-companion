@@ -2,11 +2,75 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { seedWorkspace, type Workspace } from "../core/model";
 
+type NativeRow = Record<string, unknown> & { id: string; rev: number };
+
 const native = vi.hoisted(() => ({
   calls: [] as Array<{ command: string; payload: unknown }>,
   workspace: undefined as Workspace | undefined,
   exported: "",
+  /** When set, user-record commands follow the Rust revision rules. */
+  tables: undefined as Map<string, Map<string, NativeRow>> | undefined,
+  clock: 0,
 }));
+
+// Mirrors DataStore::put_user_record_checked / delete_user_record_checked.
+function nativeContent(row: Record<string, unknown> | undefined) {
+  if (!row) return undefined;
+  const { rev: _r, updatedAt: _a, updatedBy: _b, deletedAt: _d, ...rest } = row;
+  return JSON.stringify(rest);
+}
+function nativePut(payload: unknown) {
+  const { table, record, expectedRev } = payload as {
+    table: string;
+    record: NativeRow;
+    expectedRev?: number;
+  };
+  const rows = native.tables!.get(table) ?? new Map<string, NativeRow>();
+  native.tables!.set(table, rows);
+  const stored = rows.get(record.id);
+  const actual = stored?.rev ?? 0;
+  if (expectedRev !== undefined && expectedRev !== actual)
+    throw new Error(
+      `revision conflict: ${table}/${record.id} expected ${expectedRev}, actual ${actual}`,
+    );
+  if (
+    stored &&
+    !stored.deletedAt &&
+    nativeContent(stored) ===
+      nativeContent({ source: { provider: "manual" }, ...record })
+  )
+    return structuredClone(stored);
+  const { deletedAt: _deleted, ...live } = record;
+  const next = {
+    source: { provider: "manual" },
+    ...live,
+    rev: actual + 1,
+    updatedAt: new Date(Date.UTC(2026, 9, 9, 0, 0, ++native.clock)).toISOString(),
+    updatedBy: "desktop",
+  };
+  rows.set(record.id, next);
+  return structuredClone(next);
+}
+function nativeDelete(payload: unknown) {
+  const { table, id, expectedRev } = payload as {
+    table: string;
+    id: string;
+    expectedRev?: number;
+  };
+  const stored = native.tables!.get(table)?.get(id);
+  const actual = stored?.rev ?? 0;
+  if (expectedRev !== undefined && expectedRev !== actual)
+    throw new Error(
+      `revision conflict: ${table}/${id} expected ${expectedRev}, actual ${actual}`,
+    );
+  if (!stored) return false;
+  Object.assign(stored, {
+    rev: actual + 1,
+    updatedAt: new Date(Date.UTC(2026, 9, 9, 0, 0, ++native.clock)).toISOString(),
+    deletedAt: "2026-10-09T00:00:00.000Z",
+  });
+  return true;
+}
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (command: string, payload: unknown) => {
@@ -18,6 +82,8 @@ vi.mock("@tauri-apps/api/core", () => ({
         Object.assign(native.workspace.settings, value);
       return;
     }
+    if (native.tables && command === "put_user_record") return nativePut(payload);
+    if (native.tables && command === "delete_user_record") return nativeDelete(payload);
     if (command === "put_user_record" || command === "delete_user_record") return;
     if (command === "export_data") return native.exported;
     if (command === "import_data") return structuredClone(native.workspace);
@@ -26,6 +92,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
 }));
 
+import { createWorkspaceStore } from "../store/workspace";
+import {
+  LMS_BACKGROUND_REFRESH_TASK_ID,
+  lmsBackgroundRefreshTask,
+  referenceRefreshTask,
+} from "../core/model";
 import {
   LocalRepository,
   SqliteRepository,
@@ -38,6 +110,8 @@ const STORAGE_KEY = "isct-companion-workspace-v3";
 beforeEach(() => {
   localStorage.clear();
   native.calls.length = 0;
+  native.tables = undefined;
+  native.clock = 0;
   native.workspace = seedWorkspace();
   native.exported = JSON.stringify({
     schemaVersion: 6,
@@ -144,5 +218,100 @@ describe("SqliteRepository desktop bridge", () => {
       "import_data",
       "reset_workspace",
     ]);
+  });
+
+  it("keeps saving after record edits whose content later stops changing", async () => {
+    const tasks = [
+      lmsBackgroundRefreshTask("device"),
+      referenceRefreshTask("device"),
+    ];
+    native.workspace!.scheduledTasks = structuredClone(tasks);
+    native.tables = new Map([
+      ["scheduled_tasks", new Map(tasks.map((task) => [task.id, { ...task }]))],
+    ]);
+    const store = createWorkspaceStore(new SqliteRepository());
+    await store.initialize();
+    const settle = () => store.flush();
+    const toggle = (enabled: boolean) =>
+      store.update((draft) => {
+        const task = draft.scheduledTasks.find(
+          (item) => item.id === LMS_BACKGROUND_REFRESH_TASK_ID,
+        )!;
+        task.enabled = enabled;
+        task.rev += 1;
+        task.updatedAt = new Date().toISOString();
+      });
+
+    toggle(true);
+    await settle();
+    // Unrelated saves after the record edit, the way Appearance did.
+    for (const appearance of ["dark", "light", "system", "dark"] as const) {
+      store.update((draft) => {
+        draft.settings.appearance = appearance;
+      });
+      await settle();
+    }
+    // A local-only rev bump with unchanged content (subscription polling did this).
+    store.update((draft) => {
+      draft.scheduledTasks[0]!.rev += 5;
+    });
+    await settle();
+    toggle(false);
+    await settle();
+    toggle(true);
+    await settle();
+
+    expect(store.getState().error).toBeUndefined();
+    expect(store.getState().persistedRevision).toBe(store.getState().revision);
+    const stored = native.tables
+      .get("scheduled_tasks")!
+      .get(LMS_BACKGROUND_REFRESH_TASK_ID)!;
+    expect(stored).toMatchObject({ enabled: true, rev: 4 });
+    // The live store adopted the stored row, defaults and all.
+    expect(
+      store
+        .getState()
+        .workspace!.scheduledTasks.find(
+          (item) => item.id === LMS_BACKGROUND_REFRESH_TASK_ID,
+        ),
+    ).toEqual(stored);
+    const puts = native.calls.filter((call) => call.command === "put_user_record");
+    expect(puts.map((call) => (call.payload as { expectedRev: number }).expectedRev))
+      .toEqual([1, 2, 3]);
+  });
+
+  it("treats an imported workspace as stored instead of re-sending its rows", async () => {
+    native.tables = new Map();
+    const repository = new SqliteRepository();
+    const store = createWorkspaceStore(repository);
+    await store.initialize();
+    // Rows written behind the store's back, then restored from a backup.
+    const event = nativePut({
+      table: "personal_events",
+      record: {
+        id: "event-1",
+        title: "Seminar",
+        start: "2026-10-10T10:00:00+09:00",
+        end: "2026-10-10T11:00:00+09:00",
+        rev: 1,
+        updatedAt: "2026-10-09T00:00:00.000Z",
+        updatedBy: "agent",
+      },
+    });
+    native.workspace!.events = [event as unknown as Workspace["events"][number]];
+    const workspace = await repository.import(native.exported);
+    store.update(() => workspace);
+    await store.flush();
+    expect(
+      native.calls.filter((call) => call.command === "put_user_record"),
+    ).toEqual([]);
+    store.update((draft) => {
+      draft.events[0]!.title = "Seminar (moved)";
+    });
+    await store.flush();
+    expect(native.tables.get("personal_events")!.get("event-1")).toMatchObject({
+      title: "Seminar (moved)",
+      rev: 2,
+    });
   });
 });

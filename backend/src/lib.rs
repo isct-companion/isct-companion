@@ -79,6 +79,25 @@ fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
     Ok(())
 }
 
+/// SQLite-backed commands run on a blocking thread so a slow query never stalls
+/// WebView frames on the main thread. They stay serialized with each other, as
+/// they were when Tauri ran them on the main thread.
+async fn run_data_command<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    static DATA_COMMANDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    tauri::async_runtime::spawn_blocking(move || {
+        let _serialized = DATA_COMMANDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        work()
+    })
+    .await
+    .map_err(|_| "The native data command stopped unexpectedly.".to_string())?
+}
+
 #[cfg(matrix_ocr)]
 #[tauri::command]
 async fn recognize_matrix_image(
@@ -313,11 +332,16 @@ async fn pull_school(
 /// School-owned records the workspace does not carry (LMS courses,
 /// registrations, grades, GPA by term, requirements).
 #[tauri::command]
-fn school_records(
+async fn school_records(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
+    let store = store.inner().clone();
+    run_data_command(move || school_records_inner(&store)).await
+}
+
+fn school_records_inner(store: &data::DataStore) -> Result<serde_json::Value, String> {
     let mut records = serde_json::Map::new();
     for (key, table) in [
         ("lmsCourses", "lms_courses"),
@@ -540,12 +564,13 @@ async fn cloud_request(
 }
 
 #[tauri::command]
-fn load_workspace(
+async fn load_workspace(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    store.load_workspace()
+    let store = store.inner().clone();
+    run_data_command(move || store.load_workspace()).await
 }
 
 #[tauri::command]
@@ -555,7 +580,7 @@ fn new_user_record_id(webview: tauri::Webview) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn put_user_record(
+async fn put_user_record(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
     table: String,
@@ -563,11 +588,15 @@ fn put_user_record(
     expected_rev: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    store.put_user_record_checked(&table, record, "desktop", expected_rev)
+    let store = store.inner().clone();
+    run_data_command(move || {
+        store.put_user_record_checked(&table, record, "desktop", expected_rev)
+    })
+    .await
 }
 
 #[tauri::command]
-fn delete_user_record(
+async fn delete_user_record(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
     table: String,
@@ -575,7 +604,11 @@ fn delete_user_record(
     expected_rev: Option<u64>,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    store.delete_user_record_checked(&table, &id, "desktop", expected_rev)
+    let store = store.inner().clone();
+    run_data_command(move || {
+        store.delete_user_record_checked(&table, &id, "desktop", expected_rev)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -590,53 +623,63 @@ async fn run_scheduled_task(
 }
 
 #[tauri::command]
-fn put_workspace_setting(
+async fn put_workspace_setting(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
     key: String,
     value: serde_json::Value,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    store.put_workspace_setting(&key, value, "desktop")?;
-    store
-        .load_workspace()?
-        .get("currentTerm")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| "current academic term is unavailable".to_string())
+    let store = store.inner().clone();
+    run_data_command(move || {
+        store.put_workspace_setting(&key, value, "desktop")?;
+        store
+            .load_workspace()?
+            .get("currentTerm")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "current academic term is unavailable".to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-fn reset_workspace(
+async fn reset_workspace(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    store.reset_workspace()
+    let store = store.inner().clone();
+    run_data_command(move || store.reset_workspace()).await
 }
 
 #[tauri::command]
-fn export_data(
+async fn export_data(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    let notes =
-        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
-    store.export_data(notes)
+    let store = store.inner().clone();
+    run_data_command(move || {
+        let notes = serde_json::to_value(lms_files::export_notes(&app)?)
+            .map_err(|error| error.to_string())?;
+        store.export_data(notes)
+    })
+    .await
 }
 
 /// Writes the shared export document into app-owned storage. Scheduled tasks
 /// must not trigger browser downloads or reuse an interactive cloud token.
 #[tauri::command]
-fn write_scheduled_export(
+async fn write_scheduled_export(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    write_scheduled_export_inner(&app, store.inner())
+    let store = store.inner().clone();
+    run_data_command(move || write_scheduled_export_inner(&app, &store)).await
 }
 
 fn write_scheduled_export_inner(
@@ -706,15 +749,24 @@ fn write_scheduled_export_inner(
 }
 
 #[tauri::command]
-fn import_data(
+async fn import_data(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
     document: String,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
+    let store = store.inner().clone();
+    run_data_command(move || import_data_inner(&app, &store, &document)).await
+}
+
+fn import_data_inner(
+    app: &tauri::AppHandle,
+    store: &data::DataStore,
+    document: &str,
+) -> Result<serde_json::Value, String> {
     let parsed: serde_json::Value =
-        serde_json::from_str(&document).map_err(|_| "import is not valid JSON")?;
+        serde_json::from_str(document).map_err(|_| "import is not valid JSON")?;
     let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
         parsed
             .get("localNotes")
@@ -724,49 +776,55 @@ fn import_data(
     .map_err(|_| "import localNotes is invalid")?;
     // Validate and restore local user notes under the file-store lock. School
     // materials are never present in this document.
-    lms_files::restore_notes(&app, &notes)?;
-    store.import_data(&document)
+    lms_files::restore_notes(app, &notes)?;
+    store.import_data(document)
 }
 
 #[tauri::command]
-fn catalog_upsert_offerings(
+async fn catalog_upsert_offerings(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
     offerings: Vec<serde_json::Value>,
 ) -> Result<usize, String> {
     require_local_main(&webview)?;
-    store.catalog_upsert_offerings(&offerings)
+    let store = store.inner().clone();
+    run_data_command(move || store.catalog_upsert_offerings(&offerings)).await
 }
 
 /// Every stored offering of one academic year, with schedule, credits, language and
 /// format, so the course finder can filter and suggest locally without a round trip.
 #[tauri::command]
-fn catalog_offerings(
+async fn catalog_offerings(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
     year: u16,
 ) -> Result<Vec<serde_json::Value>, String> {
     require_local_main(&webview)?;
-    Ok(store
-        .catalog_search("")?
-        .into_iter()
-        .filter(|row| {
-            row.get("year").and_then(serde_json::Value::as_u64) == Some(u64::from(year))
-                && row
-                    .get("deletedAt")
-                    .map_or(true, serde_json::Value::is_null)
-        })
-        .collect())
+    let store = store.inner().clone();
+    run_data_command(move || {
+        Ok(store
+            .catalog_search("")?
+            .into_iter()
+            .filter(|row| {
+                row.get("year").and_then(serde_json::Value::as_u64) == Some(u64::from(year))
+                    && row
+                        .get("deletedAt")
+                        .map_or(true, serde_json::Value::is_null)
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-fn catalog_offering(
+async fn catalog_offering(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
     id: String,
 ) -> Result<Option<serde_json::Value>, String> {
     require_local_main(&webview)?;
-    store.catalog_offering(&id)
+    let store = store.inner().clone();
+    run_data_command(move || store.catalog_offering(&id)).await
 }
 
 #[tauri::command]
@@ -1025,17 +1083,22 @@ fn agent_command(
 }
 
 #[tauri::command]
-fn apply_bundled_subscriptions(
+async fn apply_bundled_subscriptions(
     webview: tauri::Webview,
     store: tauri::State<'_, data::DataStore>,
     academic_year: i32,
     admission_year: i32,
 ) -> Result<usize, String> {
     require_local_main(&webview)?;
-    let (calendar, departments) = subscriptions::bundled_selection(academic_year, admission_year)?;
-    let mut connection =
-        rusqlite::Connection::open(store.path()).map_err(|error| error.to_string())?;
-    subscriptions::apply_subscription(&mut connection, &calendar, &departments)
+    let store = store.inner().clone();
+    run_data_command(move || {
+        let (calendar, departments) =
+            subscriptions::bundled_selection(academic_year, admission_year)?;
+        let mut connection =
+            rusqlite::Connection::open(store.path()).map_err(|error| error.to_string())?;
+        subscriptions::apply_subscription(&mut connection, &calendar, &departments)
+    })
+    .await
 }
 
 #[tauri::command]
