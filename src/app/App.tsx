@@ -1515,6 +1515,23 @@ function WorkspaceApp() {
                 : null
             }
             active={page === "lectures"}
+            restoreAssignment={
+              readOnly
+                ? undefined
+                : (assignmentId) =>
+                    academicUpdate((draft) => {
+                      const assignment = draft.assignments.find(
+                        (item) => item.id === assignmentId,
+                      );
+                      if (assignment) {
+                        assignment.hidden = false;
+                        assignment.rev += 1;
+                        assignment.updatedAt = stamp();
+                        assignment.updatedBy = draft.deviceId;
+                      }
+                      return draft;
+                    })
+            }
             select={(courseId, assignmentId) =>
               (assignmentId
                 ? lectureEntry?.assignmentId !== assignmentId
@@ -1840,7 +1857,6 @@ function WorkspaceApp() {
             platform={platform}
             data={data}
             update={update}
-            academicUpdate={academicUpdate}
             advancedCalendarUpdate={advancedCalendarUpdate}
             caps={caps}
             section={section}
@@ -1856,14 +1872,6 @@ function WorkspaceApp() {
             refreshReferences={
               desktopBridge
                 ? () => refreshReferenceSubscriptions(true)
-                : undefined
-            }
-            refreshSchool={
-              desktopBridge?.pullSchool
-                ? async () => {
-                    await pullLms("term", false, currentTerm);
-                    await refreshKyomu();
-                  }
                 : undefined
             }
             matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}

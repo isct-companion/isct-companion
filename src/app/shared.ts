@@ -7,13 +7,13 @@ export type Section =
   | "appearance"
   | "files"
   | "backup"
-  | "hidden"
   | "sources"
   | "automation"
   | "developer"
   | "agent"
   | "extensions"
-  | "diagnostics";
+  | "diagnostics"
+  | "about";
 export type Platform = "native-desktop" | "native-mobile" | "browser-preview";
 
 export { tokyoDate as jstDate } from "../core/schedule";

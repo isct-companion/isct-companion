@@ -1279,12 +1279,23 @@ p {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.settingsNav .settingsSearch {
+  margin-bottom: 10px;
+}
+.settingsNavDivider {
+  margin: 16px 0 6px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+/* Group headings sit left of the items they hold, above a hairline. */
 .settingsNavGroup {
-  margin: 14px 11px 4px;
-  color: var(--muted);
-  font-size: calc(10.5px * var(--text));
+  margin: 16px 0 4px;
+  padding: 12px 2px 2px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  font-size: calc(11px * var(--text));
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .settingsPane {

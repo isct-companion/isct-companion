@@ -52,44 +52,32 @@ export function NotificationSettings({
 
   return (
     <>
-      <SettingsHeader
-        title="Notifications"
-        description="Reminders for classes and deadlines, shown while the app is open."
-      />
-      {allowed ? (
-        <Status id="permission" tone="ok">
-          {t("Notifications are allowed on this device.")}
-        </Status>
-      ) : settings.localPermission === "denied" ? (
+      <SettingsHeader title="Notifications" />
+      {settings.localPermission === "denied" ? (
         <Status id="permission" tone="error">
-          {t("Notifications are blocked. Allow them in your system settings.")}
-        </Status>
-      ) : canAsk ? (
-        <Status
-          id="permission"
-          tone="warn"
-          action={
-            <UiButton
-              className="button small primary"
-              onClick={requestPermission}
-            >
-              {t("Allow notifications")}
-            </UiButton>
-          }
-        >
-          {t("Allow notifications so reminders can appear.")}
+          {t("Notifications are blocked in system settings.")}
         </Status>
       ) : (
-        <Status id="permission" tone="idle">
-          {t("Notifications are not available here.")}
-        </Status>
+        !allowed &&
+        canAsk && (
+          <Status
+            id="permission"
+            tone="warn"
+            action={
+              <UiButton
+                className="button small primary"
+                onClick={requestPermission}
+              >
+                {t("Allow notifications")}
+              </UiButton>
+            }
+          >
+            {t("Notifications are off.")}
+          </Status>
+        )
       )}
-      <SettingsGroup title="Reminders">
-        <Row
-          id="classes"
-          title="Class reminders"
-          hint="Before each class and exam"
-        >
+      <SettingsGroup>
+        <Row id="classes" title="Class reminders">
           <Toggle
             checked={settings.classes}
             onChange={(value) => set((n) => (n.classes = value))}
@@ -114,7 +102,7 @@ export function NotificationSettings({
         <Row
           id="assignments"
           title="Assignment reminders"
-          hint="One day and one hour before the deadline, until you submit"
+          hint="1 day and 1 hour before"
         >
           <Toggle
             checked={settings.assignments}

@@ -1,5 +1,4 @@
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { Badge } from "@mantine/core";
+import { Fragment, useState, type FormEvent } from "react";
 import { t } from "../../i18n";
 import {
   contentLanguage,
@@ -7,7 +6,6 @@ import {
   type CalendarException,
   type Workspace,
 } from "../../core/model";
-import { validateAcademicProfile } from "../../core/academic-calendar";
 import {
   academicYearCalendar,
   academicYearOf,
@@ -15,15 +13,10 @@ import {
   type CalendarOrigin,
 } from "../../core/calendar-view";
 import { subscriptionYear } from "../../platform/subscription-polling";
-import { saveExportFile } from "../../app/native";
+import { tokyoDate } from "../../core/schedule";
 import { newUserRecordId } from "../../storage/ids";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
-import {
-  MoreOptions,
-  SettingsGroup,
-  SettingsHeader,
-  Status,
-} from "../../components/forms";
+import { SettingsGroup, SettingsHeader, Status } from "../../components/forms";
 import {
   formatDay,
   languageTag,
@@ -48,46 +41,6 @@ function isCalendarDate(value: string) {
   );
 }
 
-/** Personal overrides file: `{ schema, version, exceptions, profile? }`. */
-function parseOverrides(value: unknown): Draft[] {
-  const root = value as {
-    schema?: unknown;
-    version?: unknown;
-    exceptions?: unknown;
-  };
-  if (!root || !Array.isArray(root.exceptions))
-    throw new Error(t("This file has no calendar changes."));
-  if (
-    (root.schema !== undefined && root.schema !== "isct-academic-calendar") ||
-    (root.version !== undefined && root.version !== 1)
-  )
-    throw new Error(t("This calendar file format is not supported."));
-  const dates = new Set<string>();
-  return root.exceptions.map((raw, index) => {
-    const item = (raw ?? {}) as Record<string, unknown>;
-    const date = String(item.date ?? "");
-    const type = String(item.type);
-    const replacementDay =
-      type === "replacement" ? Number(item.replacementDay) : undefined;
-    const label = typeof item.label === "string" ? item.label.trim() : "";
-    if (
-      !isCalendarDate(date) ||
-      dates.has(date) ||
-      !["no-class", "replacement", "break"].includes(type) ||
-      (type === "replacement" &&
-        (!Number.isInteger(replacementDay) ||
-          replacementDay! < 1 ||
-          replacementDay! > 7)) ||
-      !label
-    )
-      throw new Error(
-        t("Row {{row}} of the file is not valid.", { row: index + 1 }),
-      );
-    dates.add(date);
-    return { date, type: type as Draft["type"], replacementDay, label };
-  });
-}
-
 function weekdayName(day: number, locale: Workspace["settings"]["locale"]) {
   // 2024-01-01 was a Monday; day 1 = Monday … 7 = Sunday.
   return new Intl.DateTimeFormat(languageTag(locale), {
@@ -109,20 +62,12 @@ function describe(
   return t("No classes");
 }
 
-const ORIGIN: Record<CalendarOrigin, { label: string; color: string }> = {
-  official: { label: "Official", color: "blue" },
-  changed: { label: "Changed by you", color: "orange" },
-  own: { label: "Added by you", color: "grape" },
-  estimated: { label: "Estimated", color: "gray" },
+/** Official rows need no mark; only personal and estimated ones say so. */
+const ORIGIN_NOTE: Partial<Record<CalendarOrigin, string>> = {
+  changed: "Changed by you",
+  own: "Added by you",
+  estimated: "Estimated",
 };
-
-function OriginBadge({ origin }: { origin: CalendarOrigin }) {
-  return (
-    <Badge size="sm" variant="light" tt="none" color={ORIGIN[origin].color}>
-      {t(ORIGIN[origin].label)}
-    </Badge>
-  );
-}
 
 export function AcademicCalendarSettings({
   data,
@@ -130,14 +75,14 @@ export function AcademicCalendarSettings({
   notify,
   readOnly,
   refreshReferences,
-  openSection,
+  back,
 }: {
   data: Workspace;
   update: (f: (d: Workspace) => Workspace) => void;
   notify: (message: string) => void;
   readOnly: boolean;
   refreshReferences?: () => Promise<string>;
-  openSection: (section: "sources") => void;
+  back: () => void;
 }) {
   const locale = data.settings.locale;
   const followedYear =
@@ -145,7 +90,7 @@ export function AcademicCalendarSettings({
   const [year, setYear] = useState(followedYear);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [busy, setBusy] = useState(false);
-  const file = useRef<HTMLInputElement>(null);
+  const [showPast, setShowPast] = useState(false);
   const view = academicYearCalendar(data, year);
   const years = [
     ...new Set([
@@ -177,52 +122,30 @@ export function AcademicCalendarSettings({
     </UiButton>
   );
   const subscription = subscriptionState(data, "calendar");
+  // Only problems are worth a line; a healthy official calendar says nothing.
   const status =
     year !== followedYear ? (
-      <Status tone={view.published ? "ok" : "idle"}>
-        {view.published
-          ? t("Official calendar for {{year}}", { year })
-          : t("No official calendar saved for {{year}}.", { year })}
-      </Status>
-    ) : subscription.state === "off" ? (
-      <Status
-        tone="idle"
-        action={
-          <UiButton
-            className="textButton"
-            onClick={() => openSection("sources")}
-          >
-            {t("Data updates")}
-          </UiButton>
-        }
-      >
-        {t("Official calendar updates are turned off.")}
-      </Status>
+      !view.published && (
+        <Status tone="idle">
+          {t("No official calendar saved for {{year}}.", { year })}
+        </Status>
+      )
     ) : subscription.state === "error" ? (
       <Status tone="error" action={checkButton}>
         {t("Could not update the official calendar.")}{" "}
         <small>{subscription.message}</small>
       </Status>
-    ) : view.published ? (
-      <Status tone="ok" action={checkButton}>
-        {t("Official calendar for {{year}}", { year })}
-        {subscription.state === "current" && (
-          <small>
-            {" · "}
-            {t("Updated {{date}}", {
-              date: formatDay(subscription.fetchedAt, locale),
-            })}
-          </small>
-        )}
-      </Status>
     ) : (
-      <Status tone="warn" action={checkButton}>
-        {subscription.state === "current"
-          ? t("The official calendar for {{year}} is not published yet.", {
-              year,
-            })
-          : t("The official calendar has not been downloaded yet.")}
-      </Status>
+      !view.published &&
+      subscription.state !== "off" && (
+        <Status tone="warn" action={checkButton}>
+          {subscription.state === "current"
+            ? t("The official calendar for {{year}} is not published yet.", {
+                year,
+              })
+            : t("The official calendar has not been downloaded yet.")}
+        </Status>
+      )
     );
 
   const own = data.exceptions.filter((row) => !row.deletedAt);
@@ -320,65 +243,11 @@ export function AcademicCalendarSettings({
           },
     );
 
-  const importFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const selected = event.target.files?.[0];
-    event.target.value = "";
-    if (!selected || readOnly) return;
-    try {
-      const parsed = JSON.parse(await selected.text()) as { profile?: unknown };
-      const incoming = parseOverrides(parsed);
-      const profile =
-        parsed.profile === undefined
-          ? undefined
-          : validateAcademicProfile(parsed.profile);
-      const now = new Date().toISOString();
-      const ids = await Promise.all(incoming.map(() => newUserRecordId()));
-      update((workspace) => ({
-        ...workspace,
-        academicProfile: profile ?? workspace.academicProfile,
-        exceptions: [
-          ...workspace.exceptions.filter(
-            (row) =>
-              row.deletedAt || !incoming.some((next) => next.date === row.date),
-          ),
-          ...incoming.map((row, index) => ({
-            ...row,
-            id: ids[index],
-            rev: 1,
-            updatedAt: now,
-            updatedBy: workspace.deviceId,
-          })),
-        ],
-      }));
-      notify(
-        t("{{count}} calendar changes imported", { count: incoming.length }),
-      );
-    } catch (error) {
-      notify(error instanceof Error ? error.message : t("Import failed."));
-    }
-  };
-  const exportFile = () => {
-    const payload = {
-      schema: "isct-academic-calendar",
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      profile: data.academicProfile,
-      exceptions: own
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .map(({ date, type, replacementDay, label }) => ({
-          date,
-          type,
-          ...(replacementDay ? { replacementDay } : {}),
-          label,
-        })),
-    };
-    void saveExportFile(
-      "academic-calendar-changes.json",
-      () => JSON.stringify(payload, null, 2),
-      notify,
-    );
-  };
-
+  const editingException =
+    editing && editing.id !== "new"
+      ? view.days.find((day) => day.exception?.id === editing.id)
+      : undefined;
+  const editingExceptionRow = editingException?.exception;
   const editor = editing && !readOnly && (
     <form className="calendarEditor" onSubmit={save}>
       <label>
@@ -458,6 +327,17 @@ export function AcademicCalendarSettings({
         />
       </label>
       <div className="actions end wide">
+        {editingExceptionRow && (
+          <UiButton
+            className="textButton"
+            type="button"
+            onClick={() => remove(editingExceptionRow!.id)}
+          >
+            {editingException!.origin === "changed"
+              ? t("Use official")
+              : t("Delete")}
+          </UiButton>
+        )}
         <UiButton
           className="button"
           type="button"
@@ -472,11 +352,22 @@ export function AcademicCalendarSettings({
     </form>
   );
 
+  const today = tokyoDate(new Date());
+  const past = view.days.filter((day) => day.date < today);
+  const days = showPast ? view.days : view.days.slice(past.length);
+  const editingKey = (day: CalendarDayView) =>
+    editing !== null &&
+    (day.exception
+      ? editing.id === day.exception.id
+      : editing.id === "new" && editing.fixedDate && editing.draft.date === day.date);
+
   return (
     <>
+      <UiButton className="textButton settingsBack" onClick={back}>
+        ‹ {t("Study")}
+      </UiButton>
       <SettingsHeader
         title="Academic calendar"
-        description="Holidays, make-up days and quarter dates. Official dates update by themselves; your own changes always win."
         actions={
           years.length > 1 && (
             <UiSelect
@@ -485,6 +376,7 @@ export function AcademicCalendarSettings({
               onChange={(event) => {
                 setYear(Number(event.target.value));
                 setEditing(null);
+                setShowPast(false);
               }}
             >
               {years.map((item) => (
@@ -506,88 +398,85 @@ export function AcademicCalendarSettings({
                 {formatDay(quarter.from, locale)} –{" "}
                 {formatDay(quarter.to, locale)}
               </span>
-              <OriginBadge origin={quarter.origin} />
+              {ORIGIN_NOTE[quarter.origin] && (
+                <small>{t(ORIGIN_NOTE[quarter.origin]!)}</small>
+              )}
             </div>
           ))}
         </div>
       </SettingsGroup>
       <SettingsGroup
         title="Class days"
-        footer={
-          readOnly
-            ? t("Change class days in the desktop app.")
-            : t(
-                "Change an official day, or add your own, to fix your timetable on that date.",
-              )
-        }
+        footer={readOnly ? t("Change class days in the desktop app.") : undefined}
       >
-        <div data-setting="days" className="calendarDays">
-          {view.days.length === 0 && (
-            <p className="paneEmpty">{t("No holidays or make-up days yet.")}</p>
-          )}
-          {view.days.map((day) => (
-            <div className="calendarDay" key={day.date}>
-              <time dateTime={day.date}>
-                {formatDay(day.date, locale, { weekday: "short" })}
-              </time>
-              <span>
-                <b>{day.label}</b>
-                <small>
-                  {describe(day, locale)}
-                  {day.official &&
-                    ` · ${t("Official: {{label}}", { label: day.official.label })}`}
-                </small>
-              </span>
-              <OriginBadge origin={day.origin} />
-              {!readOnly && (
-                <span className="actions">
-                  <UiButton
-                    className="textButton"
-                    onClick={() => beginEdit(day)}
-                  >
-                    {day.origin === "official" ? t("Change") : t("Edit")}
-                  </UiButton>
-                  {day.exception && (
-                    <UiButton
-                      className="textButton"
-                      onClick={() => remove(day.exception!.id)}
-                    >
-                      {day.origin === "changed"
-                        ? t("Use official")
-                        : t("Delete")}
-                    </UiButton>
-                  )}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-        {editor}
-        {!readOnly && !editing && (
-          <div className="actions">
+        {!readOnly && (
+          <div className="actions calendarAdd">
             <UiButton
-              className="button small"
-              onClick={() =>
-                setEditing({
-                  id: "new",
-                  draft: {
-                    ...blank,
-                    date: "",
-                  },
-                })
-              }
+              className="textButton"
+              disabled={editing?.id === "new" && !editing.fixedDate}
+              onClick={() => setEditing({ id: "new", draft: { ...blank } })}
             >
               ＋ {t("Add a day")}
             </UiButton>
           </div>
         )}
+        {editing?.id === "new" && !editing.fixedDate && editor}
+        <div data-setting="days" className="calendarDays">
+          {view.days.length === 0 && (
+            <p className="paneEmpty">{t("No holidays or make-up days yet.")}</p>
+          )}
+          {past.length > 0 && (
+            <UiButton
+              className="textButton calendarPast"
+              onClick={() => setShowPast((value) => !value)}
+            >
+              {showPast ? t("Hide past days") : t("Show past days")}
+            </UiButton>
+          )}
+          {days.map((day) => {
+            const open = editingKey(day);
+            const note = ORIGIN_NOTE[day.origin];
+            const content = (
+              <>
+                <time dateTime={day.date}>
+                  {formatDay(day.date, locale, { weekday: "short" })}
+                </time>
+                <span>
+                  <b>{day.label}</b>
+                  <small>
+                    {[
+                      describe(day, locale),
+                      note && t(note),
+                      day.official &&
+                        t("Official: {{label}}", { label: day.official.label }),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </small>
+                </span>
+              </>
+            );
+            return (
+              <Fragment key={day.date}>
+                {readOnly ? (
+                  <div className="calendarDay">{content}</div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`calendarDay${open ? " open" : ""}`}
+                    aria-expanded={open}
+                    onClick={() => (open ? setEditing(null) : beginEdit(day))}
+                  >
+                    {content}
+                  </button>
+                )}
+                {open && editor}
+              </Fragment>
+            );
+          })}
+        </div>
       </SettingsGroup>
-      <SettingsGroup
-        title="Important dates"
-        footer={t(
-          "Shown on Today and in Schedule. They do not cancel classes.",
-        )}
-      >
+      <SettingsGroup title="Important dates">
         <div data-setting="important-dates" className="calendarDays">
           {view.importantDates.length === 0 ? (
             <p className="paneEmpty">
@@ -602,36 +491,19 @@ export function AcademicCalendarSettings({
                     ` – ${formatDay(row.endDate, locale)}`}
                 </time>
                 <span>
-                  <b>{pickLocalized(row.label, contentLanguage(data.settings), row.category)}</b>
+                  <b>
+                    {pickLocalized(
+                      row.label,
+                      contentLanguage(data.settings),
+                      row.category,
+                    )}
+                  </b>
                 </span>
-                <OriginBadge origin="official" />
               </div>
             ))
           )}
         </div>
       </SettingsGroup>
-      {!readOnly && (
-        <MoreOptions label="Back up your calendar changes">
-          <div className="actions">
-            <UiInput
-              ref={file}
-              hidden
-              type="file"
-              accept="application/json,.json"
-              onChange={importFile}
-            />
-            <UiButton className="button small" onClick={exportFile}>
-              {t("Export changes")}
-            </UiButton>
-            <UiButton
-              className="button small"
-              onClick={() => file.current?.click()}
-            >
-              {t("Import changes…")}
-            </UiButton>
-          </div>
-        </MoreOptions>
-      )}
     </>
   );
 }
