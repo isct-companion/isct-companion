@@ -26,8 +26,10 @@ export {
   ConfigurationError,
 };
 export type CloudProvider = "google-drive" | "onedrive";
+// Picked per build target from config/oauth-clients.yaml; client IDs are public.
 export const GOOGLE_DRIVE_CLIENT_ID =
-  import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID?.trim() ?? "";
+  import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID?.trim() ||
+  __GOOGLE_DRIVE_CLIENT_ID__;
 
 export function resolveCloudClientId(
   provider: CloudProvider,

@@ -28,10 +28,12 @@ Use these names consistently when registering providers:
    the console does not require this URI to be entered as an authorized web
    redirect.
 
-The registered IsctCompanion desktop client ID is compiled into the app from
-`VITE_GOOGLE_DRIVE_CLIENT_ID`. GitHub Actions reads it from the repository
-secret `ISCTCOMPANION_GOOGLE_CLIENT_ID`. The Settings field remains available
-only as a development override; no client secret is compiled or required.
+The registered IsctCompanion client IDs (desktop, iOS, Android) are committed
+in `config/oauth-clients.yaml`. Vite compiles in the one matching Tauri's
+`TAURI_ENV_PLATFORM`, and `scripts/tauri.mjs` writes the derived iOS callback
+scheme into `backend/Info.ios.plist` (generated, ignored), which Tauri merges
+into the iOS app's Info.plist. OAuth client IDs are public and appear in every authorization URL. `VITE_GOOGLE_DRIVE_CLIENT_ID` and the Settings field remain
+available only as development overrides. Never commit the client secret.
 
 The app requests only `https://www.googleapis.com/auth/drive.appdata`, the
 non-sensitive scope for the hidden application-data folder. It also requests

@@ -62,10 +62,11 @@ const adapter = (transport: MemoryTransport, deviceId: string) =>
   });
 
 describe("plaintext cloud workspace", () => {
-  it("uses the registered Google desktop client unless development overrides it", () => {
+  it("uses the build's registered Google client unless development overrides it", () => {
     expect(resolveCloudClientId("google-drive", "")).toBe(
       GOOGLE_DRIVE_CLIENT_ID,
     );
+    expect(GOOGLE_DRIVE_CLIENT_ID).toMatch(/\.apps\.googleusercontent\.com$/);
     expect(resolveCloudClientId("google-drive", " local-override ")).toBe(
       "local-override",
     );

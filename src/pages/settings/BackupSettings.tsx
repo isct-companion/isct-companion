@@ -79,7 +79,7 @@ export function BackupSettings({
     const bridge = desktopBridge;
     if (!bridge || !cloudAvailable) throw new Error(caps["cloud-sync"].reason);
     if (cloud.provider === "none")
-      throw new Error(t("Choose Google Drive or OneDrive first."));
+      throw new Error(t("Choose Google Drive first."));
     const provider = cloud.provider;
     const clientId = resolveCloudClientId(provider, cloud.clientId);
     return createCloudAdapter(provider, clientId, {
@@ -333,7 +333,11 @@ export function BackupSettings({
             }
           >
             <option value="none">{t("Off")}</option>
-            {(["google-drive", "onedrive"] as const).map((provider) => (
+            {/* Only Google Drive is offered; a saved OneDrive choice stays visible. */}
+            {(cloud.provider === "onedrive"
+              ? (["google-drive", "onedrive"] as const)
+              : (["google-drive"] as const)
+            ).map((provider) => (
               <option
                 key={provider}
                 value={provider}
