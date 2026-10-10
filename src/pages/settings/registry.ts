@@ -2,10 +2,11 @@ import type { Platform, Section } from "../../app/shared";
 
 /**
  * Settings follow the layered model of mature system settings: everyday
- * pages first, rarely changed ones under Advanced, and tools for people who
- * write code behind one Developer options switch. Search reaches every layer.
+ * pages first; Advanced for capable users who never touch code (data
+ * updates, automation, AI agents); and code-level tools behind the Developer
+ * options switch. About closes the list. Search reaches every layer.
  */
-export type SectionTier = "basic" | "advanced" | "developer";
+export type SectionTier = "basic" | "advanced" | "developer" | "about";
 
 export type SectionDefinition = {
   id: Section;
@@ -15,20 +16,24 @@ export type SectionDefinition = {
 
 const SECTIONS: SectionDefinition[] = [
   { id: "accounts", label: "School accounts", tier: "basic" },
-  { id: "study", label: "Study profile", tier: "basic" },
+  { id: "study", label: "Study", tier: "basic" },
   { id: "notifications", label: "Notifications", tier: "basic" },
-  { id: "calendar", label: "Academic calendar", tier: "basic" },
-  { id: "appearance", label: "Appearance & language", tier: "basic" },
+  { id: "appearance", label: "Appearance", tier: "basic" },
   { id: "files", label: "Course files", tier: "basic" },
-  { id: "backup", label: "Backup & sync", tier: "basic" },
-  { id: "hidden", label: "Hidden assignments", tier: "basic" },
+  { id: "backup", label: "Backup", tier: "basic" },
   { id: "sources", label: "Data updates", tier: "advanced" },
   { id: "automation", label: "Automation", tier: "advanced" },
+  { id: "agent", label: "AI agent access", tier: "advanced" },
   { id: "developer", label: "Developer options", tier: "advanced" },
-  { id: "agent", label: "AI agent access", tier: "developer" },
   { id: "extensions", label: "Site styles & scripts", tier: "developer" },
   { id: "diagnostics", label: "Diagnostics", tier: "developer" },
+  { id: "about", label: "About", tier: "about" },
 ];
+
+/** Pages reached from another page rather than listed in the sidebar. */
+const NESTED: Partial<Record<Section, { label: string; parent: Section }>> = {
+  calendar: { label: "Academic calendar", parent: "study" },
+};
 
 export type SectionContext = {
   platform: Platform;
@@ -66,11 +71,20 @@ export function visibleSections(context: SectionContext) {
 }
 
 export function sectionLabel(id: Section) {
-  return SECTIONS.find((section) => section.id === id)?.label ?? id;
+  return (
+    SECTIONS.find((section) => section.id === id)?.label ??
+    NESTED[id]?.label ??
+    id
+  );
 }
 
 export function sectionTier(id: Section) {
   return SECTIONS.find((section) => section.id === id)?.tier ?? "basic";
+}
+
+/** The sidebar entry a page belongs to; nested pages highlight their parent. */
+export function sectionParent(id: Section) {
+  return NESTED[id]?.parent ?? id;
 }
 
 /**
@@ -96,18 +110,6 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "tokyo-tech",
     title: "Tokyo Tech account",
     terms: "login sign in matrix portal ログイン マトリクス",
-  },
-  {
-    section: "accounts",
-    id: "refresh",
-    title: "Refresh school records",
-    terms: "lms kyomu 教務 sync 更新",
-  },
-  {
-    section: "accounts",
-    id: "restore-page",
-    title: "Reopen the last school page",
-    terms: "web launch startup 起動",
   },
   {
     section: "study",
@@ -189,21 +191,15 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   },
   {
     section: "appearance",
-    id: "density",
-    title: "Density",
-    terms: "compact spacing 密度",
-  },
-  {
-    section: "appearance",
     id: "background",
     title: "Background image",
     terms: "wallpaper 背景",
   },
   {
     section: "appearance",
-    id: "shortcuts",
-    title: "Keyboard shortcuts",
-    terms: "keys hotkey ショートカット",
+    id: "density",
+    title: "Density",
+    terms: "compact spacing 密度",
   },
   {
     section: "files",
@@ -218,13 +214,7 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     terms: "cache size 自動 ダウンロード",
   },
   {
-    section: "files",
-    id: "cleanup",
-    title: "Remove unused downloads",
-    terms: "clean storage disk 削除 容量",
-  },
-  {
-    section: "files",
+    section: "appearance",
     id: "bilingual",
     title: "Show one language in bilingual LMS",
     terms: "translation 二言語",
@@ -232,8 +222,8 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "backup",
     id: "cloud",
-    title: "Cloud backup",
-    terms: "google drive onedrive sync クラウド 同期",
+    title: "Google Drive",
+    terms: "cloud backup sync クラウド 同期",
   },
   {
     section: "backup",
@@ -248,12 +238,6 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     terms: "reset clear delete 初期化",
   },
   {
-    section: "hidden",
-    id: "list",
-    title: "Hidden assignments",
-    terms: "restore unhide 非表示 戻す",
-  },
-  {
     section: "sources",
     id: "calendar",
     title: "Official data updates",
@@ -262,8 +246,8 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "sources",
     id: "cellular",
-    title: "Update on mobile data",
-    terms: "cellular metered wifi モバイル通信",
+    title: "Update on cellular data",
+    terms: "mobile data metered wifi モバイル通信",
   },
   {
     section: "automation",
@@ -290,12 +274,6 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     terms: "index url github subscription",
   },
   {
-    section: "developer",
-    id: "client-id",
-    title: "OAuth client ID",
-    terms: "google drive onedrive cloud oauth",
-  },
-  {
     section: "agent",
     id: "mcp",
     title: "AI agent access",
@@ -312,5 +290,17 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "capabilities",
     title: "Diagnostics",
     terms: "logs activity debug capability ログ",
+  },
+  {
+    section: "about",
+    id: "version",
+    title: "Version",
+    terms: "about info バージョン 情報",
+  },
+  {
+    section: "about",
+    id: "licenses",
+    title: "Open-source licenses",
+    terms: "license oss third party ライセンス",
   },
 ];

@@ -126,6 +126,44 @@ it("lists lectures in class order and opens the one in class", async () => {
   expect(work[0].querySelector("small")?.textContent).toBe("Course later");
   await act(async () => work[0].click());
   expect(select).toHaveBeenLastCalledWith("later", "a1");
+
+  // Hidden assignments fold under the open ones and can be restored there.
+  const restore = vi.fn();
+  data.assignments = [
+    ...data.assignments,
+    {
+      ...meta,
+      id: "a2",
+      kind: "assignment",
+      courseId: "now",
+      title: "Quiz",
+      dueAt: "2026-10-09T15:00:00Z",
+      submission: "open",
+      hidden: true,
+    },
+  ];
+  await act(async () =>
+    root.render(
+      <LectureDesk
+        data={{ ...data }}
+        term="2026-3Q"
+        entry={null}
+        select={select}
+        clear={() => {}}
+        active
+        renderWorkspace={() => null}
+        restoreAssignment={restore}
+      />,
+    ),
+  );
+  expect(host.textContent).not.toContain("Quiz");
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".lectureHiddenToggle")!.click(),
+  );
+  const hidden = host.querySelector(".lectureRow.hidden")!;
+  expect(hidden.querySelector("b")?.textContent).toBe("Quiz");
+  await act(async () => hidden.querySelector("button")!.click());
+  expect(restore).toHaveBeenCalledWith("a2");
 });
 
 it("counts down to the hour inside three days and in days beyond", () => {

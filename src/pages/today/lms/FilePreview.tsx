@@ -32,7 +32,7 @@ const revealLabel = /Mac/i.test(navigator.platform) ? "Show in Finder" : "Show i
 type View =
   | { state: "loading" }
   | { state: "missing" }
-  | { state: "ready"; src: string; kind?: ReturnType<typeof previewKind>; text?: string; contentType: string }
+  | { state: "ready"; src: string; kind?: ReturnType<typeof previewKind>; text?: string }
   | { state: "folder"; files: { name: string; url: string }[] }
   | { state: "external"; url: string }
   | { state: "tooLarge"; bytes: number }
@@ -43,23 +43,13 @@ type CourseFile = ReturnType<typeof useCourseFile>;
  * A course file's state on disk. With `autoDownload`, a missing file within
  * `limit` bytes is downloaded at once; `fetchNow` downloads at any size.
  */
-function kindFor(contentType: string, url: string) {
-  if (contentType.includes("application/pdf")) return "pdf" as const;
-  if (contentType.startsWith("image/")) return "image" as const;
-  if (contentType.startsWith("video/")) return "video" as const;
-  if (contentType.startsWith("audio/")) return "audio" as const;
-  if (contentType.includes("markdown")) return "markdown" as const;
-  if (contentType.startsWith("text/") || contentType.includes("json")) return "text" as const;
-  return previewKind(url);
-}
-
 function useCourseFile(url: string, context: CourseFolder, limit: number, autoDownload: boolean, readText = false) {
   const managed = isLmsResource(url) && Boolean(desktopBridge);
   const [view, setView] = useState<View>({ state: "loading" });
   const [request, setRequest] = useState({ download: false, attempt: 0 });
   useEffect(() => {
     if (!managed) {
-      setView(autoDownload ? { state: "ready", src: url, kind: previewKind(url), contentType: "" } : { state: "missing" });
+      setView(autoDownload ? { state: "ready", src: url, kind: previewKind(url) } : { state: "missing" });
       return;
     }
     if (!autoDownload && !request.download) { setView({ state: "missing" }); return; }
@@ -78,13 +68,11 @@ function useCourseFile(url: string, context: CourseFolder, limit: number, autoDo
         if (material.state === "tooLarge") return setView({ state: "tooLarge", bytes: material.bytes });
         if (material.state === "missing") return setView({ state: "missing" });
         if (material.state === "failed") throw new LmsFileError(material.reason);
-        const kind = kindFor("", material.file.name || url);
         setView({
           state: "ready",
           src: localFileUrl(material.file.path),
-          kind,
+          kind: previewKind(material.file.name || url),
           text: material.file.text ?? undefined,
-          contentType: "",
         });
       } catch (error) {
         if (disposed) return;
@@ -166,8 +154,8 @@ export function FilePreview({
     <div className="lmsAttachmentPreview">
       {toolbar}
       {kind === "image" ? <ImageView src={src} title={title} onBroken={() => course.setView({ state: "failed", reason: "network", error: t("This image can't be displayed here.") })} />
-        : kind === "video" ? <div className="lmsImageStage"><video className="lmsMediaPreview" src={src} controls preload="metadata" /></div>
-        : kind === "audio" ? <div className="lmsAudioStage"><audio src={src} controls preload="metadata" /></div>
+        : kind === "video" ? <div className="lmsImageStage"><MediaView kind="video" src={src} /></div>
+        : kind === "audio" ? <div className="lmsAudioStage"><MediaView kind="audio" src={src} /></div>
         : kind === "markdown" ? <Suspense fallback={<p className="lmsQuiet lmsLoading">{t("Loading…")}</p>}><MarkdownDocument value={ready?.text ?? ""} /></Suspense>
         : <Suspense fallback={<p className="lmsQuiet lmsLoading">{t("Loading preview…")}</p>}><TextDocument value={ready?.text ?? ""} url={url} /></Suspense>}
     </div>
@@ -289,15 +277,42 @@ function Toolbar({ title, url, children }: { title: string; url: string; childre
   );
 }
 
+/**
+ * WebKit keeps a detached element's decoded image or media player until its
+ * garbage collector runs, which can be long after the viewer closed. Dropping
+ * the source on unmount releases them at once, like the PDF canvases.
+ */
+function useReleaseSource<T extends HTMLImageElement | HTMLMediaElement>() {
+  const element = useRef<T>(null);
+  useEffect(() => {
+    const current = element.current;
+    return () => {
+      if (!current) return;
+      if (current instanceof HTMLMediaElement) current.pause();
+      current.removeAttribute("src");
+      if (current instanceof HTMLMediaElement) current.load();
+    };
+  }, []);
+  return element;
+}
+
 /** Fit to the pane; click toggles actual size for large scans. */
 function ImageView({ src, title, onBroken }: { src: string; title: string; onBroken: () => void }) {
   const [actual, setActual] = useState(false);
+  const image = useReleaseSource<HTMLImageElement>();
   return (
     <div className={`lmsImageStage${actual ? " actual" : ""}`}>
-      <img className="lmsImagePreview" src={src} alt={title} title={t(actual ? "Fit to window" : "Actual size")}
+      <img ref={image} className="lmsImagePreview" src={src} alt={title} title={t(actual ? "Fit to window" : "Actual size")}
         onClick={() => setActual(value => !value)} onError={onBroken} />
     </div>
   );
+}
+
+function MediaView({ kind, src }: { kind: "video" | "audio"; src: string }) {
+  const media = useReleaseSource<HTMLMediaElement>();
+  return kind === "video"
+    ? <video ref={media as React.RefObject<HTMLVideoElement>} className="lmsMediaPreview" src={src} controls preload="metadata" />
+    : <audio ref={media as React.RefObject<HTMLAudioElement>} src={src} controls preload="metadata" />;
 }
 
 /**

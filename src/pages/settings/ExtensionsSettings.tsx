@@ -53,36 +53,38 @@ export function ExtensionsSettings({
                   {t(enabled ? "Disable" : "Enable")}
                 </UiButton>
               </summary>
-              <label>
-                CSS
-                <UiTextarea
-                  aria-label={`${site} CSS`}
-                  spellCheck={false}
-                  value={custom.sites[site].css}
-                  onChange={(event) =>
-                    update((d) => {
-                      d.settings.customization!.sites[site].css =
-                        event.target.value;
-                      return d;
-                    })
-                  }
-                />
-              </label>
-              <label>
-                JavaScript
-                <UiTextarea
-                  aria-label={`${site} JavaScript`}
-                  spellCheck={false}
-                  value={custom.sites[site].js}
-                  onChange={(event) =>
-                    update((d) => {
-                      d.settings.customization!.sites[site].js =
-                        event.target.value;
-                      return d;
-                    })
-                  }
-                />
-              </label>
+              <div className="siteEditorBody">
+                <label>
+                  CSS
+                  <UiTextarea
+                    aria-label={`${site} CSS`}
+                    spellCheck={false}
+                    value={custom.sites[site].css}
+                    onChange={(event) =>
+                      update((d) => {
+                        d.settings.customization!.sites[site].css =
+                          event.target.value;
+                        return d;
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  JavaScript
+                  <UiTextarea
+                    aria-label={`${site} JavaScript`}
+                    spellCheck={false}
+                    value={custom.sites[site].js}
+                    onChange={(event) =>
+                      update((d) => {
+                        d.settings.customization!.sites[site].js =
+                          event.target.value;
+                        return d;
+                      })
+                    }
+                  />
+                </label>
+              </div>
             </details>
           );
         })}

@@ -1,5 +1,15 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import {
+  googleDriveClientId,
+  oauthClientTarget,
+} from "./scripts/oauth-config.mjs";
+
+const { version } = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { version: string };
+
 export default defineConfig({
   plugins: [react()],
   base: "./",
@@ -9,5 +19,11 @@ export default defineConfig({
     watch: {
       ignored: ["**/backend/target/**"],
     },
+  },
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+    __GOOGLE_DRIVE_CLIENT_ID__: JSON.stringify(
+      googleDriveClientId(oauthClientTarget()),
+    ),
   },
 });

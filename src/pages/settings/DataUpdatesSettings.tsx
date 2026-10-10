@@ -166,12 +166,12 @@ export function DataUpdatesSettings({
       <SettingsGroup>
         <Row
           id="cellular"
-          title="Update on mobile data"
+          title="Update on cellular data"
           hint={
             network === "cellular" &&
             !data.settings.subscriptionRefresh.allowCellular
               ? t("Paused until Wi-Fi is available")
-              : t("Only a small file is checked unless something changed")
+              : undefined
           }
         >
           <Toggle

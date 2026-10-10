@@ -41,9 +41,10 @@ function clickButton(scope: ParentNode, label: string) {
 
 function renderSettings(
   data: Workspace,
-  section: "hidden" | "automation",
-  routes: { academicUpdate?: (f: (w: Workspace) => Workspace) => void } = {},
+  section: "automation",
 ) {
+  // Automation sits behind Developer options.
+  localStorage.setItem("isct-developer-mode", "1");
   const update = vi.fn((operation: (workspace: Workspace) => Workspace) => {
     operation(data);
   });
@@ -54,7 +55,6 @@ function renderSettings(
           platform="browser-preview"
           data={data}
           update={update}
-          academicUpdate={routes.academicUpdate ?? update}
           advancedCalendarUpdate={update}
           caps={resolveCapabilities("browser-preview")}
           section={section}
@@ -109,64 +109,6 @@ describe("Task 9 plan editor", () => {
 });
 
 describe("Task 10 Settings", () => {
-  it("restores one hidden local item and restore-all restores the rest with revisions", () => {
-    const data = seedWorkspace();
-    data.assignments = ["first", "second"].map((id, index) => ({
-      id: `local-${id}`,
-      rev: 1,
-      updatedAt: "2026-09-29T00:00:00Z",
-      updatedBy: data.deviceId,
-      kind: "assignment" as const,
-      courseId: "local-course",
-      title: `Local hidden item ${index + 1}`,
-      details: "",
-      dueAt: `2026-10-${10 + index}T09:00:00+09:00`,
-      hidden: true,
-      source: { provider: "manual" as const },
-    }));
-    const update = renderSettings(data, "hidden");
-
-    clickButton(host, "Restore");
-    expect(data.assignments[0]).toMatchObject({ hidden: false, rev: 2 });
-    expect(data.assignments[0].updatedAt).not.toBe("2026-09-29T00:00:00Z");
-    expect(data.assignments[1]).toMatchObject({ hidden: true, rev: 1 });
-
-    clickButton(host, "Restore all");
-    expect(data.assignments.map(({ hidden, rev }) => ({ hidden, rev }))).toEqual([
-      { hidden: false, rev: 2 },
-      { hidden: false, rev: 2 },
-    ]);
-    expect(update).toHaveBeenCalledTimes(2);
-  });
-
-  it("restores hidden items through the academic edit route, not preferences", () => {
-    const data = seedWorkspace();
-    data.assignments = [
-      {
-        id: "local-hidden",
-        rev: 1,
-        updatedAt: "2026-09-29T00:00:00Z",
-        updatedBy: data.deviceId,
-        kind: "assignment" as const,
-        courseId: "local-course",
-        title: "Local hidden item",
-        details: "",
-        dueAt: "2026-10-10T09:00:00+09:00",
-        hidden: true,
-        source: { provider: "manual" as const },
-      },
-    ];
-    const academicUpdate = vi.fn(
-      (operation: (workspace: Workspace) => Workspace) => void operation(data),
-    );
-    const preferences = renderSettings(data, "hidden", { academicUpdate });
-
-    clickButton(host, "Restore");
-    expect(academicUpdate).toHaveBeenCalledTimes(1);
-    expect(preferences).not.toHaveBeenCalled();
-    expect(data.assignments[0].hidden).toBe(false);
-  });
-
   it("toggles a scheduled task and preserves its schedule", () => {
     const data = seedWorkspace();
     data.scheduledTasks = [

@@ -104,5 +104,5 @@ export const UiTextarea = forwardRef<
 >(function UiTextarea(props, ref) {
   const hasMantine = useContext(MantineContext) !== null;
   if (!hasMantine) return <textarea ref={ref} {...props} />;
-  return <MantineInput component="textarea" ref={ref} {...props} />;
+  return <MantineInput component="textarea" multiline ref={ref} {...props} />;
 });

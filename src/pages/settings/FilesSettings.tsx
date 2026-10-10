@@ -1,14 +1,8 @@
 import { useState } from "react";
-import { t } from "../../i18n";
 import { UiInput } from "../../components/mantine";
 import { COURSE_FILE_POLICY } from "../../core/course-file-policy";
 import type { Workspace } from "../../core/model";
-import {
-  Row,
-  SettingsGroup,
-  SettingsHeader,
-  Toggle,
-} from "../../components/forms";
+import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
 import { CourseStorage } from "./CourseStorage";
 
 export function FilesSettings({
@@ -20,17 +14,10 @@ export function FilesSettings({
 }) {
   return (
     <>
-      <SettingsHeader
-        title="Course files"
-        description="Where course materials are saved, and how much downloads by itself."
-      />
+      <SettingsHeader title="Course files" />
       <SettingsGroup>
         <CourseStorage />
-        <Row
-          id="auto-download"
-          title="Download new files automatically"
-          hint="Files up to this size. Larger ones download when you open them."
-        >
+        <Row id="auto-download" title="Download new files automatically">
           <NumberSetting
             value={
               data.settings.autoDownloadLimitMb ??
@@ -42,44 +29,6 @@ export function FilesSettings({
             onChange={(value) =>
               update((d) => {
                 d.settings.autoDownloadLimitMb = value;
-                return d;
-              })
-            }
-          />
-        </Row>
-        <Row
-          id="cleanup"
-          title="Remove unused downloads"
-          hint="After this many days without opening them. Your notes are kept."
-        >
-          <NumberSetting
-            value={
-              data.settings.autoCleanDays ??
-              COURSE_FILE_POLICY.retentionDays.default
-            }
-            min={COURSE_FILE_POLICY.retentionDays.min}
-            max={COURSE_FILE_POLICY.retentionDays.max}
-            unit={t("days")}
-            onChange={(value) =>
-              update((d) => {
-                d.settings.autoCleanDays = value;
-                return d;
-              })
-            }
-          />
-        </Row>
-      </SettingsGroup>
-      <SettingsGroup title="Reading">
-        <Row
-          id="bilingual"
-          title="Show one language in bilingual LMS"
-          hint="When a page has both Japanese and English, show only the school content language"
-        >
-          <Toggle
-            checked={data.settings.lmsBilingualFilter ?? false}
-            onChange={(checked) =>
-              update((d) => {
-                d.settings.lmsBilingualFilter = checked;
                 return d;
               })
             }
