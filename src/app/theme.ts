@@ -3,6 +3,7 @@ import {
   type CSSVariablesResolver,
   type MantineColorsTuple,
 } from "@mantine/core";
+import { t } from "../i18n";
 
 // Mantine queries the system scheme even when the app has an explicit scheme.
 // Browsers implement matchMedia; lightweight DOM test environments may not.
@@ -56,6 +57,13 @@ export const appTheme = createTheme({
     },
     PasswordInput: {
       defaultProps: { size: "sm", radius: "md" },
+    },
+    // Resolved on each render so the label follows the current language.
+    Modal: {
+      defaultProps: () => ({ closeButtonProps: { "aria-label": t("Close") } }),
+    },
+    Drawer: {
+      defaultProps: () => ({ closeButtonProps: { "aria-label": t("Close") } }),
     },
   },
 });

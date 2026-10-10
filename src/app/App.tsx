@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { UiButton } from "../components/mantine";
 import i18n, { t } from "../i18n";
 import { useTranslation } from "react-i18next";
-import { desktopBridge, hideNativeSchoolWeb } from "./native";
+import { desktopBridge, hideNativeSchoolWeb, saveExportFile } from "./native";
 import { cleanMaterials, retentionDays } from "../pages/today/lms/files";
 import { jstDate, stamp, type Page, type Section } from "./shared";
 import {
@@ -605,11 +605,7 @@ function WorkspaceApp() {
     if (!sourceData) return;
     return startReminderRuntime({
       getWorkspace: () => workspaceStore.getState().workspace,
-      deliver: ({ title, body }) => {
-        if (desktopBridge) return desktopBridge.notify(title, body);
-        if ("Notification" in window && Notification.permission === "granted")
-          new Notification(title, { body });
-      },
+      deliver: ({ title, body }) => desktopBridge?.notify(title, body),
     });
   }, [sourceData?.deviceId]);
 
@@ -1519,6 +1515,23 @@ function WorkspaceApp() {
                 : null
             }
             active={page === "lectures"}
+            restoreAssignment={
+              readOnly
+                ? undefined
+                : (assignmentId) =>
+                    academicUpdate((draft) => {
+                      const assignment = draft.assignments.find(
+                        (item) => item.id === assignmentId,
+                      );
+                      if (assignment) {
+                        assignment.hidden = false;
+                        assignment.rev += 1;
+                        assignment.updatedAt = stamp();
+                        assignment.updatedBy = draft.deviceId;
+                      }
+                      return draft;
+                    })
+            }
             select={(courseId, assignmentId) =>
               (assignmentId
                 ? lectureEntry?.assignmentId !== assignmentId
@@ -1804,25 +1817,13 @@ function WorkspaceApp() {
                   openOfficial={() => openWeb(KYOMU_GPA)}
                 />
               }
-              exportIcs={(term, scope = "courses") => {
-                try {
-                  const calendar = exportQuarterIcs(data, term, scope);
-                  const url = URL.createObjectURL(
-                    new Blob([calendar], { type: "text/calendar" }),
-                  );
-                  const link = document.createElement("a");
-                  link.href = url;
-                  link.download = `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`;
-                  link.click();
-                  setTimeout(() => URL.revokeObjectURL(url), 1000);
-                } catch (error) {
-                  setToast(
-                    error instanceof Error
-                      ? error.message
-                      : "Calendar export failed.",
-                  );
-                }
-              }}
+              exportIcs={(term, scope = "courses") =>
+                saveExportFile(
+                  `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
+                  () => exportQuarterIcs(data, term, scope),
+                  setToast,
+                )
+              }
             />
             </div>
           </div>,
@@ -1856,7 +1857,6 @@ function WorkspaceApp() {
             platform={platform}
             data={data}
             update={update}
-            academicUpdate={academicUpdate}
             advancedCalendarUpdate={advancedCalendarUpdate}
             caps={caps}
             section={section}
@@ -1872,14 +1872,6 @@ function WorkspaceApp() {
             refreshReferences={
               desktopBridge
                 ? () => refreshReferenceSubscriptions(true)
-                : undefined
-            }
-            refreshSchool={
-              desktopBridge?.pullSchool
-                ? async () => {
-                    await pullLms("term", false, currentTerm);
-                    await refreshKyomu();
-                  }
                 : undefined
             }
             matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}

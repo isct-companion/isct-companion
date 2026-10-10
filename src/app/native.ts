@@ -1,5 +1,7 @@
 import { getDesktopBridge, type SchoolSite } from "../platform/desktop-bridge";
 import { createSchoolWebExit } from "../platform/school-web-exit";
+import { t } from "../i18n";
+import { errorText } from "./shared";
 export type CustomizationSite = "portal" | "lms" | "syllabus";
 export const official: Record<
   SchoolSite,
@@ -52,6 +54,28 @@ export const customizationNames: Record<CustomizationSite, string> = {
   syllabus: "Syllabus",
 };
 export const desktopBridge = getDesktopBridge();
+/**
+ * Saves an export through the system Save dialog (the webview cancels
+ * `<a download>`) and reports the outcome. Cancelling the dialog stays quiet.
+ */
+export async function saveExportFile(
+  name: string,
+  contents: () => string | Promise<string>,
+  notify: (message: string) => void,
+) {
+  try {
+    if (!desktopBridge)
+      throw new Error(t("Saving files needs the desktop app."));
+    if (await desktopBridge.saveFile(name, await contents()))
+      notify(t("Saved {{name}}", { name }));
+  } catch (error) {
+    notify(
+      t("Export failed: {{reason}}", {
+        reason: errorText(error) ?? t("unknown error"),
+      }),
+    );
+  }
+}
 export const schoolWebExit = createSchoolWebExit(desktopBridge);
 export const hideNativeSchoolWeb = () => schoolWebExit.close();
 let schoolViewOwner: symbol | undefined;

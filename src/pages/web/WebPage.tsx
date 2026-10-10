@@ -70,7 +70,6 @@ export function Web({
     if (requestedUrl) return "science-lms";
     const active = sessionStorage.getItem("isct-companion-active-school-site");
     if (active && active in official) return active as SchoolSite;
-    if (!data.settings.restoreSchoolPage) return "science-portal";
     const saved = data.settings.activeSchoolSite;
     return saved && saved in official
       ? (saved as SchoolSite)
@@ -112,10 +111,10 @@ export function Web({
   useEffect(() => {
     if (!desktopBridge || !schoolWebAvailable) return;
     void desktopBridge.configureSchoolWebPolicy({
-      restoreAcrossRestarts: data.settings.restoreSchoolPage ?? false,
+      restoreAcrossRestarts: true,
       idleMinutes: 10,
     });
-  }, [schoolWebAvailable, data.settings.restoreSchoolPage]);
+  }, [schoolWebAvailable]);
 
   useEffect(
     () =>
@@ -261,11 +260,10 @@ export function Web({
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
     sessionStorage.setItem("isct-companion-active-school-site", next);
-    if (data.settings.restoreSchoolPage)
-      update((draft) => {
-        draft.settings.activeSchoolSite = next;
-        return draft;
-      });
+    update((draft) => {
+      draft.settings.activeSchoolSite = next;
+      return draft;
+    });
     const nextUrl = official[next].url;
     setCurrentUrl(nextUrl);
     setAddress(nextUrl);
@@ -311,11 +309,10 @@ export function Web({
     }
     if (destination !== site) {
       sessionStorage.setItem("isct-companion-active-school-site", destination);
-      if (data.settings.restoreSchoolPage)
-        update((draft) => {
-          draft.settings.activeSchoolSite = destination;
-          return draft;
-        });
+      update((draft) => {
+        draft.settings.activeSchoolSite = destination;
+        return draft;
+      });
       setSite(destination);
     }
     setCurrentUrl(target);

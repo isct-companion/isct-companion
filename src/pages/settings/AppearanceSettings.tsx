@@ -7,6 +7,7 @@ import {
   Row,
   SettingsGroup,
   SettingsHeader,
+  Toggle,
 } from "../../components/forms";
 
 type Settings = Workspace["settings"];
@@ -25,17 +26,9 @@ export function AppearanceSettings({
     });
   return (
     <>
-      <SettingsHeader
-        title="Appearance & language"
-        description="How the app looks on this device."
-      />
+      <SettingsHeader title="Appearance" />
       <SettingsGroup>
-        <Row
-          id="language"
-          group
-          title="Language"
-          hint="Menus and buttons"
-        >
+        <Row id="language" group title="Language">
           <Choice
             value={data.settings.locale === "ja" ? "ja" : "en"}
             options={[
@@ -45,12 +38,7 @@ export function AppearanceSettings({
             onChange={(locale) => set("locale", locale)}
           />
         </Row>
-        <Row
-          id="content-language"
-          group
-          title="School content language"
-          hint="Course names, rooms and syllabus text. Automatic uses the menu language."
-        >
+        <Row id="content-language" group title="School content language">
           <Choice
             value={data.settings.contentLanguage ?? "auto"}
             options={[
@@ -83,22 +71,15 @@ export function AppearanceSettings({
             onChange={(textSize) => set("textSize", textSize)}
           />
         </Row>
-        <Row
-          id="shortcuts"
-          group
-          title="Keyboard shortcuts"
-          hint="⌘1–⌘4 switch pages · Esc closes panels"
-        >
-          <span />
+        <Row id="bilingual" title="Show one language in bilingual LMS">
+          <Toggle
+            checked={data.settings.lmsBilingualFilter ?? false}
+            onChange={(checked) => set("lmsBilingualFilter", checked)}
+          />
         </Row>
       </SettingsGroup>
       <MoreOptions>
-        <Row
-          id="density"
-          group
-          title="Density"
-          hint="Compact fits more rows on screen"
-        >
+        <Row id="density" group title="Density">
           <Choice
             value={data.settings.density}
             options={[
@@ -108,11 +89,7 @@ export function AppearanceSettings({
             onChange={(density) => set("density", density)}
           />
         </Row>
-        <Row
-          id="background"
-          title="Background image"
-          hint="Paste an image link. Leave empty for none."
-        >
+        <Row id="background" title="Background image">
           <UiInput
             value={data.settings.customization?.background ?? ""}
             placeholder="https://…"

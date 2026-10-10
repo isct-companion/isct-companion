@@ -15,15 +15,6 @@
   min-height: 0;
   overflow: auto;
 }
-.settingsNav button .navCount {
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--surface-3);
-  color: var(--muted);
-  font-size: calc(10.5px * var(--text));
-  font-weight: 700;
-}
 .settingsResults button {
   display: grid;
   gap: 1px;
@@ -79,6 +70,8 @@
   color: var(--muted);
   font-size: calc(11.5px * var(--text));
   line-height: 1.5;
+  /* Errors here can carry URLs or ids with no break opportunity. */
+  overflow-wrap: anywhere;
 }
 .groupFooter a {
   color: inherit;
@@ -207,17 +200,44 @@
   font-size: calc(12px * var(--text));
   font-variant-numeric: tabular-nums;
 }
+.quarterGrid small {
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+}
 .calendarDays {
   display: grid;
 }
 .calendarDay {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) auto auto;
+  grid-template-columns: 92px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
+  width: 100%;
   min-height: 46px;
-  padding: 6px 0;
+  padding: 6px 8px;
+  border: 0;
   border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+button.calendarDay {
+  cursor: pointer;
+}
+button.calendarDay:hover,
+button.calendarDay.open {
+  background: var(--surface-2);
+}
+.calendarPast {
+  justify-self: start;
+  margin: 2px 0 4px;
+}
+.calendarAdd {
+  margin-bottom: 4px;
+}
+.settingsBack {
+  margin: 0 0 6px -4px;
 }
 .calendarDay time {
   color: var(--muted);
@@ -239,14 +259,11 @@
   color: var(--muted);
   font-size: calc(11.5px * var(--text));
 }
-.calendarDay > .actions {
-  gap: 2px;
-}
 .calendarEditor {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 12px;
-  margin-top: 10px;
+  margin: 6px 0 10px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -271,7 +288,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .calendarDay {
-    grid-template-columns: 76px minmax(0, 1fr) auto;
+    grid-template-columns: 76px minmax(0, 1fr);
   }
   .calendarDay > .actions {
     grid-column: 2 / -1;
@@ -281,4 +298,27 @@
     flex-direction: column;
     gap: 8px;
   }
+}
+
+/* ---------- settings: about ---------- */
+.aboutValue {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.aboutLicenses {
+  display: grid;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.aboutLicenses li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: calc(12.5px * var(--text));
+}
+.aboutLicenses small {
+  color: var(--muted);
 }

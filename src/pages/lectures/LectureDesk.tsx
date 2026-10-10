@@ -42,6 +42,7 @@ export function LectureDesk({
   clear,
   active,
   renderWorkspace,
+  restoreAssignment,
 }: {
   data: Workspace;
   term: TermId;
@@ -50,6 +51,8 @@ export function LectureDesk({
   clear: () => void;
   active: boolean;
   renderWorkspace: (entry: CourseEntry, active: boolean) => ReactNode;
+  /** Brings a hidden assignment back to Today and this list. */
+  restoreAssignment?: (assignmentId: string) => void;
 }) {
   // The quarter shown here is browsed on its own; it starts at the current one.
   const [shownTerm, setShownTerm] = useState(term);
@@ -57,6 +60,7 @@ export function LectureDesk({
   const [query, setQuery] = useState("");
   // The list shows the quarter's lectures, or its open assignments.
   const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
+  const [showHidden, setShowHidden] = useState(false);
   const terms = allTerms(data, term);
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -153,6 +157,18 @@ export function LectureDesk({
         due: a.dueAt ? dueCountdown(a.dueAt, now) : undefined,
       }));
   }, [data, shownTerm, now]);
+  // Hidden assignments stay with their quarter, folded under the open ones.
+  const hiddenWork = useMemo(() => {
+    const courses = new Map(
+      timetableCourses(data, shownTerm).map((course) => [course.id, course]),
+    );
+    return data.assignments
+      .filter((a) => !a.deletedAt && a.hidden && courses.has(a.courseId))
+      .sort((left, right) =>
+        (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999"),
+      )
+      .map((a) => ({ assignment: a, course: courses.get(a.courseId)! }));
+  }, [data, shownTerm]);
   const needle = query.trim().toLowerCase();
   const shownWork = needle
     ? work.filter(({ assignment, course }) =>
@@ -161,6 +177,13 @@ export function LectureDesk({
           .includes(needle),
       )
     : work;
+  const shownHidden = needle
+    ? hiddenWork.filter(({ assignment, course }) =>
+        `${assignment.title} ${course.title} ${course.code}`
+          .toLowerCase()
+          .includes(needle),
+      )
+    : hiddenWork;
   const shown = needle
     ? lectures.filter((lecture) =>
         `${lecture.title} ${lecture.code}`.toLowerCase().includes(needle),
@@ -254,6 +277,36 @@ export function LectureDesk({
           ))}
         {mode === "assignments" && !shownWork.length && (
           <p className="quietEmpty compact">{t(work.length ? "No matching assignments." : "No open assignments.")}</p>
+        )}
+        {mode === "assignments" && restoreAssignment && shownHidden.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="lectureHiddenToggle"
+              aria-expanded={showHidden}
+              onClick={() => setShowHidden((value) => !value)}
+            >
+              {showHidden ? "▾" : "▸"} {t("Hidden assignments")}
+            </button>
+            {showHidden &&
+              shownHidden.map(({ assignment, course }) => (
+                <div
+                  key={assignment.id}
+                  className="lectureRow hidden"
+                  style={{ "--course": course.color } as React.CSSProperties}
+                >
+                  <b>{assignment.title}</b>
+                  <small>{course.title}</small>
+                  <button
+                    type="button"
+                    className="textButton"
+                    onClick={() => restoreAssignment(assignment.id)}
+                  >
+                    {t("Restore")}
+                  </button>
+                </div>
+              ))}
+          </>
         )}
         {mode === "lectures" && shown.map((lecture) => (
           <button

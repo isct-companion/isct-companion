@@ -1,20 +1,15 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../core/model";
-import { desktopBridge } from "../../app/native";
 import type { Platform, Section } from "../../app/shared";
 import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
 import { performAction } from "../../platform/actions";
 import { resolveCapabilities } from "../../platform/capabilities";
 import { workspaceActions } from "../../store/workspace";
 import { UiButton, UiInput } from "../../components/mantine";
-import {
-  Row,
-  SettingsGroup,
-  SettingsHeader,
-  Toggle,
-} from "../../components/forms";
+import { SettingsHeader } from "../../components/forms";
 import { AcademicCalendarSettings } from "./AcademicCalendarSettings";
+import { AboutSettings } from "./AboutSettings";
 import { AgentSettings } from "./AgentSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { AutomationSettings } from "./AutomationSettings";
@@ -24,13 +19,13 @@ import { DeveloperSettings, useDeveloperMode } from "./DeveloperSettings";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { ExtensionsSettings } from "./ExtensionsSettings";
 import { FilesSettings } from "./FilesSettings";
-import { HiddenItems } from "./HiddenItems";
 import { NotificationSettings } from "./NotificationSettings";
 import { SchoolAccounts } from "./SchoolAccounts";
 import { StudyProfileSettings } from "./StudyProfileSettings";
 import {
   SETTING_ENTRIES,
   sectionLabel,
+  sectionParent,
   sectionSupported,
   sectionTier,
   visibleSections,
@@ -78,7 +73,6 @@ export function Settings({
   platform,
   data,
   update,
-  academicUpdate,
   advancedCalendarUpdate,
   caps,
   section,
@@ -87,15 +81,12 @@ export function Settings({
   showLoginPage,
   runScheduledTask,
   refreshReferences,
-  refreshSchool,
   matrixOcrAvailable = false,
 }: {
   platform: Platform;
   data: Workspace;
   /** Preferences and device state. */
   update: Update;
-  /** Personal academic records (hidden assignments). */
-  academicUpdate?: Update;
   /** Calendar overrides, academic profile and subscription rows. */
   advancedCalendarUpdate: Update;
   caps: ReturnType<typeof resolveCapabilities>;
@@ -105,7 +96,6 @@ export function Settings({
   showLoginPage: (profile: SchoolAuthProfile) => void;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
   refreshReferences?: () => Promise<string>;
-  refreshSchool?: () => Promise<void>;
   matrixOcrAvailable?: boolean;
 }) {
   const [developer, setDeveloper] = useDeveloperMode();
@@ -124,9 +114,11 @@ export function Settings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [query, platform, context.extensionsAvailable, data.settings.locale],
   );
-  const current = sections.some((item) => item.id === section)
-    ? section
-    : sections[0].id;
+  const current =
+    sections.some((item) => item.id === section) ||
+    (sectionParent(section) !== section && sectionSupported(section, context))
+      ? section
+      : sections[0].id;
 
   const open = (target: Section, id?: string) => {
     const locked =
@@ -163,9 +155,6 @@ export function Settings({
     return () => cancelAnimationFrame(frame);
   }, [focus, current]);
 
-  const hiddenCount = data.assignments.filter(
-    (row) => row.hidden && !row.deletedAt,
-  ).length;
   const setAdmissionYear = (year: number | undefined) => {
     try {
       workspaceActions.setAdmissionYear(year);
@@ -180,7 +169,6 @@ export function Settings({
       notify(error instanceof Error ? error.message : "Action denied"),
     );
   };
-  const [refreshingSchool, setRefreshingSchool] = useState(false);
 
   const page =
     current === "accounts" ? (
@@ -191,57 +179,6 @@ export function Settings({
           showLoginPage={showLoginPage}
           matrixOcrAvailable={matrixOcrAvailable}
         />
-        {desktopBridge && (
-          <SettingsGroup title="School records">
-            {refreshSchool && (
-              <Row
-                id="refresh"
-                group
-                title="Refresh school records"
-                hint="Reads your courses, assignments and grades again now"
-              >
-                <div className="actions">
-                  <UiButton
-                    className="button small"
-                    disabled={refreshingSchool}
-                    onClick={async () => {
-                      setRefreshingSchool(true);
-                      try {
-                        await refreshSchool();
-                      } finally {
-                        setRefreshingSchool(false);
-                      }
-                    }}
-                  >
-                    {refreshingSchool ? t("Refreshing…") : t("Refresh now")}
-                  </UiButton>
-                </div>
-              </Row>
-            )}
-            {desktop && (
-              <Row
-                id="restore-page"
-                title="Reopen the last school page"
-                hint="Web opens where you left off, even after a restart"
-              >
-                <Toggle
-                  checked={data.settings.restoreSchoolPage ?? false}
-                  onChange={(enabled) => {
-                    update((draft) => {
-                      draft.settings.restoreSchoolPage = enabled;
-                      if (!enabled) draft.settings.activeSchoolSite = undefined;
-                      return draft;
-                    });
-                    void desktopBridge?.configureSchoolWebPolicy({
-                      restoreAcrossRestarts: enabled,
-                      idleMinutes: 10,
-                    });
-                  }}
-                />
-              </Row>
-            )}
-          </SettingsGroup>
-        )}
       </>
     ) : current === "study" ? (
       <StudyProfileSettings
@@ -249,13 +186,14 @@ export function Settings({
         update={update}
         setAdmissionYear={setAdmissionYear}
         refreshReferences={refreshReferences}
-        openSection={open}
+        openSection={
+          sectionSupported("calendar", context) ? open : undefined
+        }
       />
     ) : current === "notifications" ? (
       <NotificationSettings
         data={data}
         update={update}
-        platform={platform}
         caps={caps}
         notify={notify}
       />
@@ -266,7 +204,7 @@ export function Settings({
         notify={notify}
         readOnly={!desktop}
         refreshReferences={refreshReferences}
-        openSection={open}
+        back={() => open("study")}
       />
     ) : current === "appearance" ? (
       <AppearanceSettings data={data} update={update} />
@@ -276,12 +214,9 @@ export function Settings({
       <BackupSettings
         data={data}
         update={update}
-        platform={platform}
         caps={caps}
         notify={notify}
       />
-    ) : current === "hidden" ? (
-      <HiddenItems data={data} update={academicUpdate ?? update} />
     ) : current === "sources" ? (
       <DataUpdatesSettings
         data={data}
@@ -313,6 +248,8 @@ export function Settings({
       <ExtensionsSettings data={data} update={customizeSite} />
     ) : current === "diagnostics" ? (
       <DiagnosticsSettings data={data} caps={caps} />
+    ) : current === "about" ? (
+      <AboutSettings />
     ) : null;
 
   return (
@@ -354,20 +291,21 @@ export function Settings({
             {sections.map((item, index) => (
               <Fragment key={item.id}>
                 {item.tier !== sections[index - 1]?.tier &&
-                  item.tier !== "basic" && (
-                    <span className="settingsNavGroup">
-                      {t(item.tier === "advanced" ? "Advanced" : "Developer")}
-                    </span>
-                  )}
+                  (item.tier === "about" ? (
+                    <hr className="settingsNavDivider" />
+                  ) : (
+                    item.tier !== "basic" && (
+                      <span className="settingsNavGroup">
+                        {t(item.tier === "advanced" ? "Advanced" : "Developer")}
+                      </span>
+                    )
+                  ))}
                 <UiButton
-                  className={current === item.id ? "active" : ""}
+                  className={sectionParent(current) === item.id ? "active" : ""}
                   aria-current={current === item.id ? "page" : undefined}
                   onClick={() => open(item.id)}
                 >
                   {t(item.label)}
-                  {item.id === "hidden" && hiddenCount > 0 && (
-                    <span className="navCount">{hiddenCount}</span>
-                  )}
                 </UiButton>
               </Fragment>
             ))}

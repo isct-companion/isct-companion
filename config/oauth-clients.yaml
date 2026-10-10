@@ -1,0 +1,6 @@
+# Public OAuth client IDs, one per Google Cloud client type. These are not
+# secrets: they appear in every authorization URL. Never add client secrets.
+google-drive:
+  desktop: 681098185092-t5f8k0j85gbjjpkiefv75ab563ubtuf9.apps.googleusercontent.com
+  ios: 681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv.apps.googleusercontent.com
+  android: 681098185092-0lkuilhi6s34bm3e9hkp3c241bjmcf0g.apps.googleusercontent.com
