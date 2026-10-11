@@ -1,0 +1,243 @@
+name: Desktop release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish all installers to the public distribution repository
+        type: boolean
+        default: false
+      sign_macos:
+        description: Sign and notarize both Mac installers (requires Apple secrets)
+        type: boolean
+        default: false
+      source_run_id:
+        description: Successful Desktop release run to publish without rebuilding (leave blank to build)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    if: inputs.source_run_id == '' || github.event_name != 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - runner: macos-14
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+    runs-on: ${{ matrix.runner }}
+    env:
+      SIGN_MACOS: ${{ inputs.sign_macos || vars.MACOS_SIGNING_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: corepack enable
+      - name: Set up Yarn cache
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+          key: desktop-${{ matrix.target }}
+      - run: yarn install --immutable
+      - name: Validate frontend and release version
+        shell: bash
+        run: |
+          yarn build
+          node scripts/desktop-release.mjs validate
+      - name: Apply optional OAuth overrides
+        shell: bash
+        env:
+          CI_GOOGLE_CLIENT_ID: ${{ secrets.ISCTCOMPANION_GOOGLE_CLIENT_ID }}
+          CI_GOOGLE_CLIENT_SECRET: ${{ secrets.ISCTCOMPANION_GOOGLE_DESKTOP_CLIENT_SECRET }}
+        run: |
+          if [[ -n "$CI_GOOGLE_CLIENT_ID" ]]; then
+            echo "ISCT_GOOGLE_DESKTOP_CLIENT_ID=$CI_GOOGLE_CLIENT_ID" >> "$GITHUB_ENV"
+          fi
+          if [[ -n "$CI_GOOGLE_CLIENT_SECRET" ]]; then
+            echo "ISCT_GOOGLE_DESKTOP_CLIENT_SECRET=$CI_GOOGLE_CLIENT_SECRET" >> "$GITHUB_ENV"
+          fi
+      - name: Build desktop installer
+        env:
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_TEAM_ID || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == macOS && "$SIGN_MACOS" == true ]]; then
+            for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+              test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
+            done
+            [[ "$APPLE_SIGNING_IDENTITY" == "Developer ID Application:"* ]] || { echo 'Use a Developer ID Application signing identity.'; exit 1; }
+          else
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          fi
+          yarn desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          if [[ "$RUNNER_OS" == macOS && "$SIGN_MACOS" == true ]]; then
+            app="backend/target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
+            codesign --verify --deep --strict "$app"
+            spctl --assess --type execute --verbose "$app"
+            xcrun stapler validate "$app"
+            for dmg in backend/target/${{ matrix.target }}/release/bundle/dmg/*.dmg; do
+              report="$RUNNER_TEMP/notarization-${{ matrix.target }}.json"
+              xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --output-format json > "$report"
+              jq -e '.status == "Accepted"' "$report" > /dev/null
+              xcrun stapler staple "$dmg"
+              xcrun stapler validate "$dmg"
+            done
+          fi
+      - name: Collect only public distribution files
+        run: node scripts/desktop-release.mjs collect ${{ matrix.target }}
+      - name: Record Mac signing status
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [[ "$SIGN_MACOS" == true ]]; then
+            echo signed-notarized > artifacts/desktop/${{ matrix.target }}/MACOS_SIGNING_STATUS
+          else
+            echo unsigned > artifacts/desktop/${{ matrix.target }}/MACOS_SIGNING_STATUS
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.target }}
+          path: artifacts/desktop/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish public release
+    needs: build
+    if: >-
+      always() && !cancelled() &&
+      (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.source_run_id != '')) &&
+      (startsWith(github.ref, 'refs/tags/v') || inputs.publish == true)
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+      GH_REPO: isct-companion/Isct-Companion-App
+    steps:
+      - name: Check cross-repository credentials
+        run: |
+          test -n "$GH_TOKEN" || { echo 'Set PUBLIC_RELEASE_TOKEN with Contents: write on the public repository.'; exit 1; }
+      - name: Verify source build
+        if: inputs.source_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          PRIVATE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid source run ID'; exit 1; }
+          gh api "repos/$PRIVATE_REPO/actions/runs/$SOURCE_RUN_ID" > source-run.json
+          jq -e '.name == "Desktop release" and .status == "completed" and .conclusion == "success"' source-run.json > /dev/null
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: installers
+          run-id: ${{ inputs.source_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Assemble public documents and installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir public-files release-assets
+          cp installers/desktop-aarch64-apple-darwin/{README.md,LICENSE,LICENSE.ja.md} public-files/
+          version=$(cat installers/desktop-aarch64-apple-darwin/VERSION)
+          mac_status=$(cat installers/desktop-aarch64-apple-darwin/MACOS_SIGNING_STATUS 2>/dev/null || echo unsigned)
+          intel_status=$(cat installers/desktop-x86_64-apple-darwin/MACOS_SIGNING_STATUS 2>/dev/null || echo unsigned)
+          test "$mac_status" = "$intel_status"
+          echo "MACOS_SIGNING_STATUS=$mac_status" >> "$GITHUB_ENV"
+          for target in aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc; do
+            dir="installers/desktop-$target"
+            test "$(cat "$dir/VERSION")" = "$version"
+            diff --strip-trailing-cr public-files/LICENSE "$dir/LICENSE"
+            diff --strip-trailing-cr public-files/LICENSE.ja.md "$dir/LICENSE.ja.md"
+            if [[ "$target" == *apple* ]]; then
+              cp "$dir"/*.dmg release-assets/
+            else
+              cp "$dir"/*.exe release-assets/
+            fi
+          done
+          echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
+      - name: Check out only the public repository
+        uses: actions/checkout@v5
+        with:
+          repository: isct-companion/Isct-Companion-App
+          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          path: public-repo
+          ref: main
+      - name: Update public README and licenses
+        working-directory: public-repo
+        run: |
+          set -euo pipefail
+          cp ../public-files/{README.md,LICENSE,LICENSE.ja.md} .
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md LICENSE LICENSE.ja.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Update distribution documents for $RELEASE_TAG"
+            git push origin HEAD:main
+          fi
+      - name: Verify public write access and create distribution tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api user --jq '{login}'
+          gh api "repos/$GH_REPO" --jq '{full_name,permissions}'
+          if ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+            public_sha=$(git -C public-repo rev-parse HEAD)
+            gh api --include --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$public_sha"
+          fi
+      - name: Upload complete release as a draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          Desktop preview for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
+
+          Download the installer for your architecture. Intel Mac builds currently do not include campus-card OCR. Build success does not replace testing on each supported operating system.
+
+          Read [LICENSE](https://github.com/isct-companion/Isct-Companion-App/blob/main/LICENSE) and [LICENSE.ja.md](https://github.com/isct-companion/Isct-Companion-App/blob/main/LICENSE.ja.md) before installing. Third-party notices are bundled in the app.
+          NOTES
+          if [[ "$MACOS_SIGNING_STATUS" == signed-notarized ]]; then
+            echo 'Mac installers are signed with Developer ID and notarized by Apple. The Windows installer is unsigned.' >> release-notes.md
+          else
+            echo 'These preview installers are unsigned; Mac installers are not notarized. Operating-system security prompts may appear.' >> release-notes.md
+          fi
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > draft-state.txt 2>/dev/null; then
+            test "$(cat draft-state.txt)" = true || { echo 'A published release already exists; use a new version.'; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false

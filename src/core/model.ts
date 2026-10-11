@@ -18,7 +18,7 @@ export function contentLanguage(
 ): Lang {
   const chosen = settings.contentLanguage;
   if (chosen === "ja" || chosen === "en") return chosen;
-  return settings.locale === "ja" ? "ja" : "en";
+  return settings.locale === "en" ? "en" : "ja";
 }
 
 /** Pick stored school text without synthesizing a translation. */
@@ -27,7 +27,8 @@ export function pickLocalized(
   locale: Settings["locale"] | string,
   fallback = "",
 ): string {
-  const order: Lang[] = locale === "ja" ? ["ja", "en"] : ["en", "ja"];
+  const order: Lang[] =
+    locale === "ja" || locale === "zh" ? ["ja", "en"] : ["en", "ja"];
   for (const lang of order) {
     const candidate = value?.[lang]?.trim();
     if (candidate) return candidate;

@@ -67,14 +67,14 @@ ETag based on the URL digest/size/modification time, and private revalidation.
 A single byte range receives `206` and `Content-Range`. Typed JSON failures are
 also exposed as `X-Isct-Reason`:
 
-| Status | Reason | Meaning |
-| ---: | --- | --- |
-| 401 | `login` | LMS session is missing or expired |
-| 404 | `unresolved` | The activity did not resolve to a file |
-| 413 | `tooLarge` | Automatic download limit exceeded |
-| 502 | `network` | LMS request failed |
-| 504 | `timeout` | Resolution or download timed out |
-| 400 | `invalid` | URL or course folder left the allowlist |
+| Status | Reason       | Meaning                                 |
+| -----: | ------------ | --------------------------------------- |
+|    401 | `login`      | LMS session is missing or expired       |
+|    404 | `unresolved` | The activity did not resolve to a file  |
+|    413 | `tooLarge`   | Automatic download limit exceeded       |
+|    502 | `network`    | LMS request failed                      |
+|    504 | `timeout`    | Resolution or download timed out        |
+|    400 | `invalid`    | URL or course folder left the allowlist |
 
 The persisted settings are JSON integers:
 
@@ -129,11 +129,10 @@ are renamed only after completion. File paths coming back from JavaScript are
 canonicalized and must remain inside the active root before they can be opened
 or revealed.
 
-Markdown notes are local user data: the UI labels them “Local note · stored
-only on this device”. They are included in manual local export/backup (including
-soft-deleted notes), but are outside the future cloud-sync boundary. Downloaded
-materials and custom-root configuration are never exported; another device can
-download official materials again.
+Markdown notes are local user data and remain outside cache cleanup. They are
+included in manual exports and the workspace cloud backup, including
+soft-deleted notes. Downloaded materials and custom-root configuration are
+never exported; another device can download official materials again.
 
 Unsaved browser recovery drafts are capped at 1 MB each, 20 entries and 5 MiB
 total, and expire after 30 days. They are removed after a successful save.

@@ -19,6 +19,9 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
   const resolveLmsResource = "#,
     include_str!("lms_resource_resolve.js"),
     r#";
+  const submissionStatus = "#,
+    include_str!("lms_submission_status.js"),
+    r#";
   const methods = new Set([
     'core_course_get_enrolled_courses_by_timeline_classification',
     'core_courseformat_get_state',
@@ -230,14 +233,8 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
         const page = new DOMParser().parseFromString(text, 'text/html');
         if (page.querySelector('input[type=password]') || !page.body.classList.contains('cmid-' + cm.id)) return;
         if (cm.module === 'assign') {
-          const table = page.querySelector('.submissionstatustable');
-          if (table) {
-            const has = name => Boolean(table.querySelector('td.' + name));
-            const submission = has('submissiongraded') ? 'graded'
-              : has('submissionstatussubmitted') ? 'submitted' : 'open';
-            assignStatus.push({cmid:Number(cm.id), submission,
-              late:has('latesubmission') || has('overdue')});
-          }
+          const status = submissionStatus({page, cmid:Number(cm.id), module:'assign'});
+          if (status) assignStatus.push(status);
         }
         const nodes = cm.module === 'forum' ? page.querySelectorAll('#intro, .forumheaderlist')
           : cm.module === 'folder' ? page.querySelectorAll('#intro, .foldertree')
@@ -281,27 +278,22 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     };
     for (let index = 0; index < detailCms.length; index += 4)
       await Promise.all(detailCms.slice(index, index + 4).map(readDetailWithProgress));
-    // Submission state as the assignment page shows it (a plain GET, read
-    // through the classes Moodle puts on the status table), for the
-    // assignments of the loaded quarters.
+    // Submission state as the assignment or quiz page shows it (a plain GET),
+    // for the work of the loaded quarters.
     const statusRead = new Set(assignStatus.map(item => item.cmid));
     const assignIds = structures.flatMap(item => (item.state?.cm || [])
-      .filter(cm => cm.module === 'assign').map(cm => ({id:Number(cm.id), courseId:item.courseId, name:String(cm.name || '')})))
+      .filter(cm => cm.module === 'assign' || cm.module === 'quiz')
+      .map(cm => ({id:Number(cm.id), module:cm.module, courseId:item.courseId, name:String(cm.name || '')})))
       .filter(item => item.id > 0 && !statusRead.has(item.id)).slice(0, 60);
     let statusesDone = 0;
     const readStatus = async item => {
       const cmid = item.id;
       try {
-        const response = await fetch('/2025/mod/assign/view.php?id=' + cmid, {credentials:'same-origin'});
+        const response = await fetch('/2025/mod/' + item.module + '/view.php?id=' + cmid, {credentials:'same-origin'});
         if (!response.ok) return;
         const page = new DOMParser().parseFromString(await response.text(), 'text/html');
-        if (!page.body.classList.contains('cmid-' + cmid)) return;
-        const table = page.querySelector('.submissionstatustable');
-        if (!table) return;
-        const has = name => Boolean(table.querySelector('td.' + name));
-        const submission = has('submissiongraded') ? 'graded'
-          : has('submissionstatussubmitted') ? 'submitted' : 'open';
-        assignStatus.push({cmid, submission, late:has('latesubmission') || has('overdue')});
+        const status = submissionStatus({page, cmid, module:item.module});
+        if (status) assignStatus.push(status);
       } catch {} finally {
         statusesDone += 1;
         const course = courseById.get(Number(item.courseId));

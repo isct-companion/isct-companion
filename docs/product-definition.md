@@ -162,9 +162,9 @@ School data remains primary. Users may quickly add a plan, task, exam or event w
 
 - All data lives in one local SQLite database owned by the native app.
 - Every stored record is versioned: content hash, timestamp, source and revision. The same mechanism detects changed school data, reconciles imports and updates subscriptions, with `use latest` / `use current` (or manual resolution) when both sides changed.
-- Cloud sync is export/import of one readable JSON document in the provider's private app folder on Google Drive, OneDrive or later providers. It is a convenience feature, not an application-provided confidentiality guarantee; provider account security is the boundary. The application has no account or sync server.
+- Rust synchronizes one readable workspace JSON document through the provider's private app folder. It is a convenience feature, not an application-provided confidentiality guarantee; provider account security is the workspace boundary. The application has no account or sync server.
 - The export includes the person's own data and their school records (courses, registration, grades, requirement progress, assignments); rebuildable caches (full syllabus text, search index) are excluded.
-- Credentials, Matrix/OTP data, cookies, files, raw HTML, WebView state and diagnostic payloads never sync.
+- School credentials and Matrix/OTP data sync only when explicitly enabled, in a separate authenticated encrypted file whose password remains device-local. Cookies, OAuth tokens, downloaded files, raw HTML, WebView state and diagnostics never sync.
 - macOS, Windows and iOS may independently sign in to school systems and reconcile through the same export.
 
 ## Subscriptions

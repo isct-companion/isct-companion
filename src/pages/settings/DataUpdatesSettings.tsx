@@ -1,3 +1,4 @@
+import { notify as appNotify } from "../../app/notify";
 import { Fragment, useState } from "react";
 import { t } from "../../i18n";
 import type { Subscription, Workspace } from "../../core/model";
@@ -91,7 +92,7 @@ export function DataUpdatesSettings({
     try {
       notify(t(await refreshReferences()));
     } catch (error) {
-      notify(error instanceof Error ? error.message : String(error));
+      appNotify.error(error);
     } finally {
       setBusy(false);
     }
@@ -166,12 +167,12 @@ export function DataUpdatesSettings({
       <SettingsGroup>
         <Row
           id="cellular"
-          title="Update on mobile data"
+          title="Update on cellular data"
           hint={
             network === "cellular" &&
             !data.settings.subscriptionRefresh.allowCellular
               ? t("Paused until Wi-Fi is available")
-              : t("Only a small file is checked unless something changed")
+              : undefined
           }
         >
           <Toggle

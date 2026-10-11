@@ -16,7 +16,7 @@ import {
   schoolWebExit,
   official,
 } from "../../app/native";
-import { type Platform } from "../../app/shared";
+import { errorText, type Platform } from "../../app/shared";
 
 const serviceTiers: Array<{
   frequency: "high" | "medium" | "low";
@@ -51,6 +51,7 @@ export function Web({
   notify,
   schoolWebAvailable,
   requestedUrl,
+  request,
   returnLabel,
   onReturn,
   active = true,
@@ -63,6 +64,7 @@ export function Web({
   notify: (s: string) => void;
   schoolWebAvailable: boolean;
   requestedUrl?: string;
+  request?: number;
   returnLabel?: string;
   onReturn?: () => void;
 }) {
@@ -70,7 +72,6 @@ export function Web({
     if (requestedUrl) return "science-lms";
     const active = sessionStorage.getItem("isct-companion-active-school-site");
     if (active && active in official) return active as SchoolSite;
-    if (!data.settings.restoreSchoolPage) return "science-portal";
     const saved = data.settings.activeSchoolSite;
     return saved && saved in official
       ? (saved as SchoolSite)
@@ -102,6 +103,10 @@ export function Web({
   const owner = useRef(Symbol("web-page"));
   const addressInput = useRef<HTMLInputElement>(null);
   const editingAddress = useRef(false);
+  const openedRequest = useRef<string | undefined>(undefined);
+  const requestKey = requestedUrl
+    ? JSON.stringify([requestedUrl, request])
+    : undefined;
   const embedded =
     Boolean(desktopBridge?.setSchoolWebBounds) && schoolWebAvailable;
   const bounds = () => {
@@ -112,10 +117,10 @@ export function Web({
   useEffect(() => {
     if (!desktopBridge || !schoolWebAvailable) return;
     void desktopBridge.configureSchoolWebPolicy({
-      restoreAcrossRestarts: data.settings.restoreSchoolPage ?? false,
+      restoreAcrossRestarts: true,
       idleMinutes: 10,
     });
-  }, [schoolWebAvailable, data.settings.restoreSchoolPage]);
+  }, [schoolWebAvailable]);
 
   useEffect(
     () =>
@@ -175,22 +180,21 @@ export function Web({
       const shown = await desktopBridge?.revealSchoolDownload?.(path);
       if (!shown) setStatus("That file can no longer be shown.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unavailable");
+      setStatus(errorText(error) ?? "Unavailable");
     }
   };
 
   useEffect(() => {
     if (!embedded || !desktopBridge || !active) return;
+    const target =
+      requestedUrl && openedRequest.current !== requestKey
+        ? requestedUrl
+        : undefined;
     // Settings → "Show page" asks for a site while this page is kept alive.
     const requested = sessionStorage.getItem(
       "isct-companion-active-school-site",
     );
-    if (
-      !requestedUrl &&
-      requested &&
-      requested in official &&
-      requested !== site
-    ) {
+    if (!target && requested && requested in official && requested !== site) {
       setSite(requested as SchoolSite);
       return;
     }
@@ -207,8 +211,8 @@ export function Web({
         if (cancelled) return undefined;
         claimSchoolView(owner.current);
         return (
-          requestedUrl
-            ? desktopBridge!.resolveSchoolUrl(requestedUrl)
+          target
+            ? desktopBridge!.resolveSchoolUrl(target)
             : Promise.resolve({ site, url: undefined })
         ).then((resolved) => {
           if (resolved.site !== site) {
@@ -226,14 +230,14 @@ export function Web({
       })
       .then(async (state) => {
         if (cancelled || !state) return;
+        openedRequest.current = requestKey;
         setCurrentUrl(state.url);
         if (!editingAddress.current) setAddress(state.url);
         setStatus("");
         await desktopBridge?.setSchoolWebZoom?.(site, resolvedZoom);
       })
       .catch((error) => {
-        if (!cancelled)
-          setStatus(error instanceof Error ? error.message : "Unavailable");
+        if (!cancelled) setStatus(errorText(error) ?? "Unavailable");
       });
     const observer = new ResizeObserver(() => {
       const next = bounds();
@@ -256,16 +260,15 @@ export function Web({
     };
     // Site changes intentionally reuse the resident view and its shared session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site, embedded, active]);
+  }, [site, embedded, active, requestKey]);
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
     sessionStorage.setItem("isct-companion-active-school-site", next);
-    if (data.settings.restoreSchoolPage)
-      update((draft) => {
-        draft.settings.activeSchoolSite = next;
-        return draft;
-      });
+    update((draft) => {
+      draft.settings.activeSchoolSite = next;
+      return draft;
+    });
     const nextUrl = official[next].url;
     setCurrentUrl(nextUrl);
     setAddress(nextUrl);
@@ -281,7 +284,7 @@ export function Web({
       const resolved = await desktopBridge.resolveSchoolUrl(target);
       await openTarget(resolved.url, resolved.site);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Invalid address");
+      setStatus(errorText(error) ?? "Invalid address");
     }
   };
 
@@ -311,11 +314,10 @@ export function Web({
     }
     if (destination !== site) {
       sessionStorage.setItem("isct-companion-active-school-site", destination);
-      if (data.settings.restoreSchoolPage)
-        update((draft) => {
-          draft.settings.activeSchoolSite = destination;
-          return draft;
-        });
+      update((draft) => {
+        draft.settings.activeSchoolSite = destination;
+        return draft;
+      });
       setSite(destination);
     }
     setCurrentUrl(target);
@@ -332,9 +334,7 @@ export function Web({
         if (schoolWebExit.pending || !(destination in official)) return;
         openTargetRef
           .current(url, destination)
-          .catch((error) =>
-            setStatus(error instanceof Error ? error.message : "Unavailable"),
-          );
+          .catch((error) => setStatus(errorText(error) ?? "Unavailable"));
       }),
     [],
   );
@@ -344,7 +344,7 @@ export function Web({
       const moved = await desktopBridge?.schoolWebBack?.(site);
       setStatus(moved ? "" : "No previous page.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unavailable");
+      setStatus(errorText(error) ?? "Unavailable");
     }
   };
 
@@ -469,9 +469,7 @@ export function Web({
               title="教務Web top page"
               onClick={() =>
                 void openTarget(official.kyomu.url, "kyomu").catch((error) =>
-                  setStatus(
-                    error instanceof Error ? error.message : "Unavailable",
-                  ),
+                  setStatus(errorText(error) ?? "Unavailable"),
                 )
               }
             >

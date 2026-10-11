@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type {
   Course,
   PersonalEvent,
@@ -159,9 +160,7 @@ export function weekColumnsAt(
             rawLabel.en ||
             rawLabel.ja
           : noClasses
-            ? data.settings.locale === "ja"
-              ? "授業休み"
-              : "No classes"
+            ? t("No classes")
             : undefined;
     const important = importantDatesOnDate(data, iso)
       .map((item) => pickLocalized(item.label, contentLanguage(data.settings)))

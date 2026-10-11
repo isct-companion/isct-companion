@@ -11,7 +11,10 @@
   },
   "app": {
     "security": {
-      "assetProtocol": {"enable": true, "scope": []},
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      },
       "capabilities": [
         "main"
       ]
@@ -20,7 +23,13 @@
   },
   "bundle": {
     "active": true,
-    "icon": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "targets": "all",
     "macOS": {
       "minimumSystemVersion": "14.0"
@@ -35,7 +44,16 @@
       "models/paddle/README.md",
       "models/paddle/PADDLE-LICENSE",
       "models/paddle/ONNX-RUNTIME-LICENSE",
-      "models/paddle/ONNX-THIRD-PARTY-NOTICES.txt"
-    ]
+      "models/paddle/ONNX-THIRD-PARTY-NOTICES.txt",
+      "../docs/legal/EULA.md",
+      "../docs/legal/EULA.ja.md"
+    ],
+    "licenseFile": "../docs/legal/EULA.md",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
   }
 }

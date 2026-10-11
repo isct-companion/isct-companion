@@ -6,7 +6,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
-use cloud::{CloudProvider, CloudRequestInput, CloudResponse, DesktopCloudService};
+use cloud::{CloudProvider, CloudSyncResult, DesktopCloudService};
 use lifecycle::SchoolSite;
 use school_auth::{
     SchoolAuthProfile, SchoolAuthService, SchoolCredentialStatus, SchoolCredentials,
@@ -31,6 +31,7 @@ mod matrix_ocr;
 #[cfg(matrix_ocr)]
 mod matrix_red_crops;
 pub mod plans;
+#[cfg(test)]
 mod policy;
 mod scheduler;
 mod school_auth;
@@ -552,15 +553,98 @@ fn disconnect_cloud(
 }
 
 #[tauri::command]
-async fn cloud_request(
+async fn cloud_backup_workspace(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    store: tauri::State<'_, data::DataStore>,
+    provider: CloudProvider,
+    overwrite: bool,
+) -> Result<CloudSyncResult, String> {
+    require_local_main(&webview)?;
+    let notes =
+        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
+    let document = store.export_data(notes)?;
+    let workspace = store.load_workspace()?;
+    let device_id = workspace
+        .get("deviceId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Local device identifier is unavailable.".to_string())?
+        .to_string();
+    let credentials = if service.credential_sync_configured()? {
+        Some(auth.export_sync_payload()?)
+    } else {
+        None
+    };
+    let result = service
+        .back_up_workspace(provider, &document, &device_id, overwrite)
+        .await?;
+    if result.state != cloud::CloudSyncState::Conflict {
+        if let Some(credentials) = credentials {
+            service.back_up_credentials(provider, &credentials).await?;
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+async fn cloud_restore_workspace(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    store: tauri::State<'_, data::DataStore>,
+    provider: CloudProvider,
+) -> Result<CloudSyncResult, String> {
+    require_local_main(&webview)?;
+    let (document, result) = service.pull_workspace(provider).await?;
+    let credentials = service.pull_credentials(provider).await?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&document).map_err(|_| "cloud workspace is invalid JSON")?;
+    let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
+        parsed
+            .get("localNotes")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    )
+    .map_err(|_| "cloud workspace localNotes is invalid")?;
+    lms_files::restore_notes(&app, &notes)?;
+    store.import_data(&parsed)?;
+    if let Some(credentials) = credentials {
+        auth.import_sync_payload(&credentials)?;
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+fn cloud_credential_sync_status(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-    provider: CloudProvider,
-    url: String,
-    init: CloudRequestInput,
-) -> Result<CloudResponse, String> {
+) -> Result<bool, String> {
     require_local_main(&webview)?;
-    service.request(provider, &url, init).await
+    service.credential_sync_configured()
+}
+
+#[tauri::command]
+fn set_cloud_credential_sync_password(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    password: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    service.set_credential_sync_password(&password)?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn clear_cloud_credential_sync_password(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    service.clear_credential_sync_password()?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -669,6 +753,48 @@ async fn export_data(
     .await
 }
 
+/// Saves a file the person exported (calendar, backup) where they choose.
+/// The main webview has no `on_download` handler, so WebKit cancels
+/// `<a download>` clicks there. Resolves false when the dialog is cancelled.
+#[tauri::command]
+async fn save_file(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    name: String,
+    contents: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    if name.trim().is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
+        return Err("invalid file name".into());
+    }
+    if contents.len() > 64 * 1024 * 1024 {
+        return Err("file exceeds the 64 MiB limit".into());
+    }
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_dialog::DialogExt;
+        tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+            let mut dialog = app.dialog().file().set_file_name(&name);
+            if let Some((_, extension)) = name.rsplit_once('.') {
+                dialog = dialog.add_filter(extension.to_uppercase(), &[extension]);
+            }
+            let Some(chosen) = dialog.blocking_save_file() else {
+                return Ok(false);
+            };
+            let path = chosen.into_path().map_err(|e| e.to_string())?;
+            std::fs::write(path, contents).map_err(|e| e.to_string())?;
+            Ok(true)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, contents);
+        Err("Saving files is available on desktop.".into())
+    }
+}
+
 /// Writes the shared export document into app-owned storage. Scheduled tasks
 /// must not trigger browser downloads or reuse an interactive cloud token.
 #[tauri::command]
@@ -765,19 +891,14 @@ fn import_data_inner(
     store: &data::DataStore,
     document: &str,
 ) -> Result<serde_json::Value, String> {
-    let parsed: serde_json::Value =
-        serde_json::from_str(document).map_err(|_| "import is not valid JSON")?;
-    let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
-        parsed
-            .get("localNotes")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-    )
-    .map_err(|_| "import localNotes is invalid")?;
+    let parsed = data::parse_import(document)?;
+    let notes: Vec<lms_files::LocalNoteBackup> =
+        serde_json::from_value(parsed["localNotes"].clone())
+            .map_err(|error| format!("the backup's local notes are invalid: {error}"))?;
     // Validate and restore local user notes under the file-store lock. School
     // materials are never present in this document.
     lms_files::restore_notes(app, &notes)?;
-    store.import_data(document)
+    store.import_data(&parsed)
 }
 
 #[tauri::command]
@@ -1235,6 +1356,30 @@ async fn refresh_reference_source_inner(
     }
 }
 
+/// Keeps a plugin's Rust API but drops its JavaScript side. The notification
+/// plugin's init script replaces `window.Notification` in every webview and
+/// calls `is_permission_granted`, which no capability grants; the app
+/// delivers notifications through its own `notify` command instead.
+struct RustOnlyPlugin<R: tauri::Runtime>(tauri::plugin::TauriPlugin<R>);
+
+impl<R: tauri::Runtime> tauri::plugin::Plugin<R> for RustOnlyPlugin<R> {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+
+    fn initialize(
+        &mut self,
+        app: &tauri::AppHandle<R>,
+        config: serde_json::Value,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.0.initialize(app, config)
+    }
+
+    fn on_event(&mut self, app: &tauri::AppHandle<R>, event: &tauri::RunEvent) {
+        self.0.on_event(app, event)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -1260,7 +1405,7 @@ pub fn run() {
                 responder.respond(lms_protocol::handle(app, request).await);
             });
         })
-        .plugin(tauri_plugin_notification::init())
+        .plugin(RustOnlyPlugin(tauri_plugin_notification::init()))
         // The plugin's default link script runs in every webview and turns a
         // `target="_blank"` click into an `open_url` IPC call, which no
         // capability grants: links in school pages silently did nothing.
@@ -1320,7 +1465,11 @@ pub fn run() {
             connect_cloud,
             cloud_authorization_status,
             disconnect_cloud,
-            cloud_request,
+            cloud_backup_workspace,
+            cloud_restore_workspace,
+            cloud_credential_sync_status,
+            set_cloud_credential_sync_password,
+            clear_cloud_credential_sync_password,
             load_workspace,
             new_user_record_id,
             put_user_record,
@@ -1329,6 +1478,7 @@ pub fn run() {
             put_workspace_setting,
             reset_workspace,
             export_data,
+            save_file,
             write_scheduled_export,
             import_data,
             catalog_upsert_offerings,

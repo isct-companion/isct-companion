@@ -288,7 +288,7 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
         .and_then(|row| row.get("resourceUrl"))
         .and_then(serde_json::Value::as_str);
     let mut resolved = known.map(str::to_string);
-    let folder_listing = |files: Vec<crate::lms_downloader::ResolvedFile>| {
+    let folder_listing = |files: Vec<crate::school_parser::lms::ResolvedFile>| {
         files
             .into_iter()
             .filter_map(|file| {

@@ -1,27 +1,13 @@
-# Task 15 — Plaintext cloud workspace sync
+# Task 15 — Native cloud sync
 
-## Goal
+Rust owns OAuth, provider requests, workspace export/import, version checks and
+credential encryption. The WebView only starts high-level operations and shows
+their status.
 
-Synchronize the task-1 export through a provider-owned private app folder. The
-feature is for convenience between the user's devices, not an additional
-security boundary.
+## Workspace file
 
-## Security and storage contract
-
-- Store one readable JSON file named `IsctCompanion.json`. Do not encrypt its
-  contents and do not ask for or retain a recovery phrase.
-- State this clearly in Settings: the app does not guarantee confidentiality
-  of the cloud copy. Access control, account recovery and storage security are
-  supplied by Google Drive, OneDrive, or a future iCloud transport.
-- OAuth access and refresh tokens remain in the operating-system credential
-  vault. School credentials, cookies, OTP material, raw HTML, diagnostics and
-  downloaded course files are never included.
-- This is an internal-development format. Do not migrate the former encrypted
-  `backup.bin` / `_meta.json` pair; it may be discarded.
-
-## File format
-
-The provider transport atomically reads or replaces one document:
+Google Drive `appDataFolder` and the OneDrive app root contain one readable
+workspace file named `IsctCompanion.json`:
 
 ```json
 {
@@ -34,34 +20,22 @@ The provider transport atomically reads or replaces one document:
 }
 ```
 
-`document` is the exact local export. `revision`, `updatedAt` and `updatedBy`
-are transport metadata used for optimistic conflict detection. Validate the
-entire wrapper and export before importing or replacing a remote copy.
+The document is a schema-v6 local export. Rust validates both layers before
+restore. A backup that differs from the remote document returns an explicit
+conflict until the user chooses the device or cloud version.
 
-## Providers
+## Optional credential file
 
-- Google Drive: `appDataFolder`, OAuth scope `drive.appdata`.
-- OneDrive: app root, OAuth scope `Files.ReadWrite.AppFolder`.
-- iCloud: use the same file format when a native ubiquity-container transport
-  is added. It is not exposed as available until that transport exists.
+When enabled, Rust reads the validated school credential bundle from the OS
+credential vault and uploads `IsctCompanion.credentials.json`. Its payload is
+encrypted and authenticated with AES-256-GCM; the key is derived with
+PBKDF2-SHA256 from the user's 8–12 character password. The password has its own
+device-local vault entry and is never uploaded or returned to the WebView.
 
-Provider-owner registration steps are in
-[`docs/cloud-provider-setup.md`](../cloud-provider-setup.md).
+Cookies, OAuth tokens, raw HTML, diagnostics and downloaded files are never
+included. The UI states that the app cannot guarantee credential security
+beyond the described encryption.
 
-## Conflict behavior
-
-- A client records the revision it last pulled.
-- A push to an existing file without a prior pull is a conflict.
-- A push fails if the remote revision changed after the pull.
-- The existing Keep this device / Use latest / Export first UI resolves the
-  conflict; invalid remote data never replaces local data.
-
-## Acceptance
-
-- A first push writes one valid, human-readable `IsctCompanion.json` file.
-- Pull accepts the current schema-v6 export and rejects malformed or obsolete
-  cloud files without changing local data.
-- A stale or blind push raises an explicit conflict.
-- No encryption, cipher, recovery-key UI, `backup.bin`, or `_meta.json` code
-  remains.
-- TypeScript build and cloud adapter tests pass.
+Provider registration is documented in
+[`docs/cloud-provider-setup.md`](../cloud-provider-setup.md). iCloud transport
+is not implemented; native Keychain synchronization is a separate mechanism.

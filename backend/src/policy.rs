@@ -53,6 +53,11 @@ mod tests {
 
     #[test]
     fn mobile_keeps_foreground_writes_but_denies_advanced_execution() {
+        let desktop = NativeCapabilities::for_target(NativeTarget::Desktop);
+        assert!(desktop.site_script_execution);
+        assert!(desktop.raw_academic_json);
+        assert!(desktop.unattended_schedules);
+        assert!(desktop.advanced_merge);
         let mobile = NativeCapabilities::for_target(NativeTarget::Mobile);
         assert!(mobile.academic_writes);
         assert!(mobile.foreground_school_sync);

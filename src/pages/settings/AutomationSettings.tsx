@@ -1,3 +1,4 @@
+import { errorText } from "../../app/shared";
 import { useState } from "react";
 import { t } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../core/model";
@@ -84,7 +85,7 @@ export function AutomationSettings({
     try {
       result = await runScheduledTask(task);
     } catch (error) {
-      result = error instanceof Error ? error.message : "Run failed";
+      result = errorText(error) ?? t("Run failed");
     } finally {
       setRunning(undefined);
     }

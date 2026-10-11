@@ -659,3 +659,8 @@ describe("inert course HTML", () => {
     ).not.toContain("日本語");
   });
 });
+
+it("falls back to the available school language when the preferred blocks are absent", () => {
+  expect(safeContent('<p lang="en">English-only announcement</p>', "ja")).toContain("English-only announcement");
+  expect(safeContent('<p lang="ja">日本語のみ</p>', "en")).toContain("日本語のみ");
+});

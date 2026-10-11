@@ -1,9 +1,7 @@
 # Cloud provider registration
 
-The repository does not contain shared OAuth credentials. A project owner must
-register the public desktop clients and paste their client IDs into **Settings →
-Developer options → Cloud sign-in** (turn on Developer options first). Do not
-create or embed a client secret.
+The registered OAuth clients live in `config/oauth-clients.yaml` (see Google
+Drive below). Only Google Drive is offered in the app for now.
 
 The native app uses this exact loopback redirect:
 
@@ -16,7 +14,8 @@ Use these names consistently when registering providers:
 - product / OAuth application name: `IsctCompanion`;
 - native application identifier and Keychain service prefix: `app.isctcompanion`;
 - iCloud container identifier: `iCloud.app.isctcompanion`;
-- provider file name: `IsctCompanion.json`.
+- workspace file: `IsctCompanion.json`;
+- optional encrypted school-credential file: `IsctCompanion.credentials.json`.
 
 ## Google Drive
 
@@ -28,10 +27,17 @@ Use these names consistently when registering providers:
    the console does not require this URI to be entered as an authorized web
    redirect.
 
-The registered IsctCompanion desktop client ID is compiled into the app from
-`VITE_GOOGLE_DRIVE_CLIENT_ID`. GitHub Actions reads it from the repository
-secret `ISCTCOMPANION_GOOGLE_CLIENT_ID`. The Settings field remains available
-only as a development override; no client secret is compiled or required.
+The registered IsctCompanion client IDs (desktop, iOS, Android) are committed
+in `config/oauth-clients.yaml`. Vite compiles in the one matching Tauri's
+`TAURI_ENV_PLATFORM`, and `scripts/tauri.mjs` writes the derived iOS callback
+scheme into `backend/Info.ios.plist` (generated, ignored), which Tauri merges
+into the iOS app's Info.plist. OAuth client IDs are public and appear in every authorization URL. `VITE_GOOGLE_DRIVE_CLIENT_ID` and the Settings field remain
+available only as development overrides. Google's token endpoint also
+requires the Desktop client's secret, even with PKCE; set it as
+`google-drive.desktop-secret` in the YAML (or `ISCT_GOOGLE_DESKTOP_CLIENT_SECRET`
+in the environment). `yarn tauri …` compiles it into the native backend, which
+sends it only with the registered desktop client ID. Google documents this
+secret as non-confidential for installed apps; it ships inside the binary.
 
 The app requests only `https://www.googleapis.com/auth/drive.appdata`, the
 non-sensitive scope for the hidden application-data folder. It also requests
@@ -65,9 +71,6 @@ Registration: [Microsoft Entra app registrations](https://entra.microsoft.com/#v
 
 ## iCloud
 
-iCloud is not registered through OAuth. It requires an Apple Developer team,
-an iCloud container entitlement attached to the app identifier, and native
-platform code. Do not show iCloud as available until that transport is built;
-it will store the same plaintext `IsctCompanion.json` format.
-
-Registration: [Apple identifiers](https://developer.apple.com/account/resources/identifiers/list), then [CloudKit Console](https://icloud.developer.apple.com/dashboard/).
+iCloud transport is not implemented and must not be shown as available. Native
+Keychain synchronization is separate from the Google Drive/OneDrive encrypted
+credential file described above.

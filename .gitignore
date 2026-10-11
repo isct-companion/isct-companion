@@ -1,8 +1,10 @@
 # Dependencies and build output
 node_modules/
+.yarn/
 dist/
 backend/target/
 backend/gen/
+backend/Info.ios.plist
 *.tsbuildinfo
 coverage/
 

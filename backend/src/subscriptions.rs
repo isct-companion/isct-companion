@@ -7,12 +7,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 
-pub const ACADEMIC_CALENDAR_SCHEMA: &str =
-    include_str!("../subscriptions/schema/academic-calendar.schema.json");
-pub const DEPARTMENTS_SCHEMA: &str =
-    include_str!("../subscriptions/schema/departments.schema.json");
-pub const EXAMS_SCHEMA: &str = include_str!("../subscriptions/schema/exams.schema.json");
+#[cfg(test)]
 pub const BUNDLED_INDEX: &str = include_str!("../subscriptions/index.json");
+#[cfg(test)]
 pub const BUNDLED_INDEX_HASH: &str = include_str!("../subscriptions/index.sha256");
 pub const BUNDLED_ACADEMIC_CALENDAR_2026: &str =
     include_str!("../subscriptions/data/2026/academic-calendar.json");
@@ -711,25 +708,6 @@ impl SubscriptionClient {
         Ok((base, index, actual))
     }
 
-    pub async fn fetch_selection(
-        &self,
-        index_url: &str,
-        academic_year: i32,
-        admission_year: i32,
-    ) -> Result<(AcademicCalendar, Departments), String> {
-        let calendar = self
-            .fetch_calendar(index_url, academic_year, None, None)
-            .await?
-            .value
-            .ok_or("calendar unexpectedly not modified")?;
-        let departments = self
-            .fetch_departments(index_url, admission_year, None, None)
-            .await?
-            .value
-            .ok_or("departments unexpectedly not modified")?;
-        Ok((calendar, departments))
-    }
-
     pub async fn fetch_calendar(
         &self,
         index_url: &str,
@@ -887,16 +865,7 @@ impl SubscriptionClient {
             source_ts,
         })
     }
-    /// Convenience for installations where the current academic year and the
-    /// student's admission cohort happen to be the same. Callers with a saved
-    /// profile must use `fetch_selection` instead.
-    pub async fn fetch_year(
-        &self,
-        index_url: &str,
-        year: i32,
-    ) -> Result<(AcademicCalendar, Departments), String> {
-        self.fetch_selection(index_url, year, year).await
-    }
+
 }
 
 fn apply_row(
@@ -1353,6 +1322,7 @@ pub fn apply_exam_feed(
     Ok(changed)
 }
 
+#[cfg(test)]
 pub fn bundled_2026() -> Result<(AcademicCalendar, Departments), String> {
     Ok((
         validate_academic_calendar(BUNDLED_ACADEMIC_CALENDAR_2026)?,

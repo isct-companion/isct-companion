@@ -1,69 +1,39 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { t } from "../../i18n";
 import type { Workspace } from "../../core/model";
-import type { Platform } from "../../app/shared";
-import { desktopBridge } from "../../app/native";
+import { errorText } from "../../app/shared";
+import { desktopBridge, saveExportFile } from "../../app/native";
 import { workspaceActions } from "../../store/workspace";
-import { performAction } from "../../platform/actions";
-import {
-  detectPlatform,
-  resolveCapabilities,
-} from "../../platform/capabilities";
-import {
-  CloudTransportError,
-  createCloudAdapter,
-  resolveCloudClientId,
-  type CloudAdapter,
-  type CloudProvider,
-} from "../../connectors/cloud";
-import { UiButton, UiSelect } from "../../components/mantine";
-import {
-  Row,
-  SettingsGroup,
-  SettingsHeader,
-  Status,
-} from "../../components/forms";
+import { resolveCapabilities } from "../../platform/capabilities";
+import type {
+  CloudProvider,
+  CloudSyncResult,
+} from "../../platform/desktop-bridge";
+import { UiButton, UiInput } from "../../components/mantine";
+import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
 import { formatDay } from "./subscription-status";
 
-const providerName = (provider: CloudProvider) =>
-  provider === "google-drive" ? "Google Drive" : "OneDrive";
-
-function bytesToBase64(bytes: Uint8Array) {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000)
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  return btoa(binary);
-}
-
-async function exportWorkspaceFile() {
-  const blob = new Blob([await workspaceActions.exportData()], {
-    type: "application/json",
-  });
-  const anchor = document.createElement("a");
-  anchor.href = URL.createObjectURL(blob);
-  anchor.download = "IsctCompanion.json";
-  anchor.click();
-  URL.revokeObjectURL(anchor.href);
-}
+// Google Drive is the only cloud service offered for now.
+const PROVIDER: CloudProvider = "google-drive";
 
 export function BackupSettings({
   data,
   update,
-  platform,
   caps,
   notify,
 }: {
   data: Workspace;
   update: (f: (d: Workspace) => Workspace) => void;
-  platform: Platform;
   caps: ReturnType<typeof resolveCapabilities>;
   notify: (message: string) => void;
 }) {
   const locale = data.settings.locale;
-  const [conflict, setConflict] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<CloudSyncResult | null>(null);
   const [authorized, setAuthorized] = useState<CloudProvider[]>([]);
+  const [credentialSync, setCredentialSync] = useState(false);
+  const [encryptionPassword, setEncryptionPassword] = useState("");
+  const encryptionPasswordLength = Array.from(encryptionPassword).length;
   const [busy, setBusy] = useState(false);
-  const pending = useRef<CloudAdapter | null>(null);
   useEffect(() => {
     if (!desktopBridge) return;
     let disposed = false;
@@ -73,85 +43,30 @@ export function BackupSettings({
         if (!disposed) setAuthorized(providers);
       })
       .catch(() => undefined);
+    void desktopBridge
+      .cloudCredentialSyncStatus()
+      .then((configured) => {
+        if (!disposed) setCredentialSync(configured);
+      })
+      .catch(() => undefined);
     return () => {
       disposed = true;
     };
   }, []);
 
-  const cloud = data.settings.cloud;
-  const cloudAvailable =
-    platform === "browser-preview" ||
-    caps["cloud-sync"].support === "supported";
-  const selected = cloud.provider === "none" ? null : cloud.provider;
-  const connected = Boolean(
-    selected &&
-    (authorized.includes(selected) ||
-      (!desktopBridge && data.syncStatus.state === "idle")),
-  );
-  const configured = (provider: CloudProvider) =>
-    Boolean(resolveCloudClientId(provider, cloud.clientId));
+  const exportWorkspace = () =>
+    saveExportFile("IsctCompanion.json", workspaceActions.exportData, notify);
 
-  const adapter = async () => {
-    if (
-      detectPlatform() !== "browser-preview" &&
-      caps["cloud-sync"].support !== "supported"
-    )
+  const cloud = data.settings.cloud;
+  const cloudAvailable = caps["cloud-sync"].support === "supported";
+  const clientId = cloud.clientId.trim() || __GOOGLE_DRIVE_CLIENT_ID__.trim();
+  const connected =
+    cloud.provider === PROVIDER && authorized.includes(PROVIDER);
+
+  const requireCloud = () => {
+    if (!cloudAvailable || !desktopBridge)
       throw new Error(caps["cloud-sync"].reason);
-    if (cloud.provider === "none")
-      throw new Error(t("Choose Google Drive or OneDrive first."));
-    const provider = cloud.provider;
-    const clientId = resolveCloudClientId(provider, cloud.clientId);
-    const bridge = desktopBridge;
-    const desktopOAuth = bridge
-      ? {
-          oauth: {
-            connect: () =>
-              bridge
-                .connectCloud(provider, clientId, cloud.redirectUri!)
-                .then(() => undefined),
-            requireAccessToken: async () => "protected-main-process-token",
-          },
-          fetch: async (url: string | URL | Request, init?: RequestInit) => {
-            const body = init?.body;
-            const binary =
-              body instanceof Blob
-                ? new Uint8Array(await body.arrayBuffer())
-                : body instanceof ArrayBuffer
-                  ? new Uint8Array(body)
-                  : body instanceof Uint8Array
-                    ? body
-                    : undefined;
-            if (body && typeof body !== "string" && !binary)
-              throw new Error("Unsupported cloud request body.");
-            const response = await bridge.cloudRequest(
-              provider,
-              url instanceof Request ? url.url : String(url),
-              {
-                method: init?.method,
-                headers: Object.fromEntries(new Headers(init?.headers)),
-                bodyText: typeof body === "string" ? body : undefined,
-                bodyBase64: binary ? bytesToBase64(binary) : undefined,
-              },
-            );
-            return new Response(
-              Uint8Array.from(atob(response.body), (c) => c.charCodeAt(0)),
-              {
-                status: response.status,
-                statusText: response.statusText,
-                headers: response.headers,
-              },
-            );
-          },
-        }
-      : {};
-    return createCloudAdapter(provider, clientId, {
-      redirectUri: desktopBridge
-        ? cloud.redirectUri
-        : `${location.origin}${location.pathname}`,
-      readOnly: !desktopBridge,
-      deviceId: data.deviceId,
-      ...desktopOAuth,
-    });
+    return { bridge: desktopBridge, provider: PROVIDER };
   };
   const mark = (
     state: Workspace["syncStatus"]["state"],
@@ -169,7 +84,7 @@ export function BackupSettings({
       setBusy(true);
       await action();
     } catch (error) {
-      const message = error instanceof Error ? error.message : t(failure);
+      const message = errorText(error) ?? t(failure);
       mark("error", message);
       notify(message);
     } finally {
@@ -177,103 +92,88 @@ export function BackupSettings({
     }
   };
 
-  const chooseProvider = async (
-    next: Workspace["settings"]["cloud"]["provider"],
-  ) => {
-    if (next === cloud.provider) return;
-    const disconnect = authorized.filter((provider) => provider !== next);
-    if (
-      disconnect.length > 0 &&
-      !confirm(
-        t(
-          "Switch cloud service? This signs out of {{services}} on this device.",
-          {
-            services: disconnect.map(providerName).join(" / "),
-          },
-        ),
-      )
-    )
-      return;
-    await run("Could not switch cloud service.", async () => {
+  const disconnect = () =>
+    run("Could not disconnect.", async () => {
       const bridge = desktopBridge;
       if (bridge)
         await Promise.all(
-          disconnect.map((provider) => bridge.disconnectCloud(provider)),
+          authorized.map((service) => bridge.disconnectCloud(service)),
         );
-      const remaining = authorized.filter(
-        (provider) => !disconnect.includes(provider),
-      );
-      setAuthorized(remaining);
+      setAuthorized([]);
       update((draft) => {
-        draft.settings.cloud.provider = next;
-        draft.syncStatus.state =
-          next !== "none" && remaining.includes(next)
-            ? "idle"
-            : "needs-configuration";
+        draft.settings.cloud.provider = "none";
+        draft.syncStatus.state = "needs-configuration";
         draft.syncStatus.lastSyncedAt = undefined;
         draft.syncStatus.message = undefined;
         return draft;
       });
     });
-  };
   const connect = () =>
     run("Could not connect.", async () => {
-      await (await adapter()).connect();
-      const provider = cloud.provider as CloudProvider;
+      const { bridge, provider } = requireCloud();
+      await bridge.connectCloud(provider, clientId, cloud.redirectUri!);
       setAuthorized([provider]);
-      mark("idle", t("Connected. Nothing backed up yet."));
-      notify(
-        t("Connected to {{service}}.", { service: providerName(provider) }),
-      );
+      update((draft) => {
+        draft.settings.cloud.provider = provider;
+        draft.syncStatus.state = "idle";
+        draft.syncStatus.message = undefined;
+        return draft;
+      });
+      notify(t("Connected to {{service}}.", { service: "Google Drive" }));
     });
   const restore = () =>
     run("Could not restore.", async () => {
-      const remote = await (await adapter()).pull();
       if (!confirm(t("Replace the data on this device with the cloud backup?")))
         return;
-      await workspaceActions.importData(remote);
+      const { bridge, provider } = requireCloud();
+      await bridge.restoreCloudWorkspace(provider);
+      await workspaceActions.refreshSchool();
       mark("idle", t("Restored from the cloud backup."), true);
       notify(t("Restored from the cloud backup."));
     });
   const backUp = () =>
     run("Could not back up.", async () => {
-      const cloudAdapter = await adapter();
-      try {
-        const remote = await cloudAdapter.pull();
-        const current = await workspaceActions.exportData();
-        if (
-          JSON.stringify(JSON.parse(remote).tables) !==
-          JSON.stringify(JSON.parse(current).tables)
-        ) {
-          pending.current = cloudAdapter;
-          setConflict(remote);
-          return;
-        }
-      } catch (error) {
-        if (!(error instanceof CloudTransportError) || error.status !== 404)
-          throw error;
+      const { bridge, provider } = requireCloud();
+      const result = await bridge.backupCloudWorkspace(provider, false);
+      if (result.state === "conflict") {
+        setConflict(result);
+        return;
       }
-      await performAction("push-cloud", detectPlatform(), () =>
-        workspaceActions
-          .exportData()
-          .then((document) => cloudAdapter.push(document)),
-      );
       mark("idle", t("Backup is up to date."), true);
       notify(t("Backed up."));
     });
   const keepThisDevice = () =>
     run("Could not back up.", async () => {
-      await pending.current?.push(await workspaceActions.exportData());
+      const { bridge, provider } = requireCloud();
+      await bridge.backupCloudWorkspace(provider, true);
       setConflict(null);
       mark("idle", t("Backup is up to date."), true);
       notify(t("Kept this device and backed it up."));
     });
   const useCloud = () =>
     run("Could not restore.", async () => {
-      await workspaceActions.importData(conflict!);
+      const { bridge, provider } = requireCloud();
+      await bridge.restoreCloudWorkspace(provider);
+      await workspaceActions.refreshSchool();
       setConflict(null);
       mark("idle", t("Restored from the cloud backup."), true);
       notify(t("Restored from the cloud backup."));
+    });
+  const saveCredentialSync = () =>
+    run("Could not enable credential sync.", async () => {
+      const { bridge } = requireCloud();
+      await bridge.setCloudCredentialSyncPassword(encryptionPassword);
+      setEncryptionPassword("");
+      setCredentialSync(true);
+      notify(t("Login credential sync is enabled on this device."));
+    });
+  const disableCredentialSync = () =>
+    run("Could not disable credential sync.", async () => {
+      const { bridge } = requireCloud();
+      await bridge.clearCloudCredentialSyncPassword();
+      setEncryptionPassword("");
+      setCredentialSync(false);
+      notify(t("Login credential sync is disabled on this device."));
     });
   const importFile = async (file: File) => {
     if (!confirm(t("Replace the data on this device with this file?"))) return;
@@ -281,7 +181,11 @@ export function BackupSettings({
       await workspaceActions.importData(await file.text());
       notify(t("Backup restored."));
     } catch (error) {
-      notify(error instanceof Error ? error.message : t("Import failed."));
+      notify(
+        t("Import failed: {{reason}}", {
+          reason: errorText(error) ?? t("unknown error"),
+        }),
+      );
     }
   };
   const erase = async () => {
@@ -300,103 +204,68 @@ export function BackupSettings({
   const lastBackup = data.syncStatus.lastSyncedAt;
   return (
     <>
-      <SettingsHeader
-        title="Backup & sync"
-        description="Save your plans, calendar changes and preferences, and bring them to another device. School data is downloaded again from the school."
-      />
+      <SettingsHeader title="Backup" />
       <SettingsGroup
-        title="Cloud backup"
-        footer={t(
-          "Saved as a readable file in a private app folder of your cloud account. The file is not encrypted by this app; your cloud account protects it.",
-        )}
+        title="Google Drive"
+        footer={t("Stored unencrypted in a private app folder in your Drive.")}
       >
-        <Status
+        <Row
           id="cloud"
-          tone={
-            data.syncStatus.state === "error"
-              ? "error"
-              : connected
-                ? "ok"
-                : "idle"
+          group
+          title={connected ? "Connected" : "Not connected"}
+          hint={
+            data.syncStatus.state === "error" && data.syncStatus.message ? (
+              <span className="danger">{data.syncStatus.message}</span>
+            ) : connected ? (
+              lastBackup ? (
+                t("Last backup {{date}}", {
+                  date: formatDay(lastBackup, locale, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }),
+                })
+              ) : (
+                t("Never backed up")
+              )
+            ) : undefined
           }
         >
-          {!selected
-            ? t("Cloud backup is off.")
-            : data.syncStatus.state === "error"
-              ? data.syncStatus.message
-              : connected
-                ? t("Connected to {{service}}", {
-                    service: providerName(selected),
-                  })
-                : t("Connect {{service}} to start backing up.", {
-                    service: providerName(selected),
-                  })}
-          {selected && (
-            <small>
-              {" · "}
-              {lastBackup
-                ? t("Last backup {{date}}", {
-                    date: formatDay(lastBackup, locale, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                  })
-                : t("Never backed up")}
-            </small>
-          )}
-        </Status>
-        <Row title="Cloud service">
-          <UiSelect
-            value={cloud.provider}
-            disabled={busy || !cloudAvailable}
-            onChange={(event) =>
-              void chooseProvider(
-                event.target
-                  .value as Workspace["settings"]["cloud"]["provider"],
-              )
-            }
-          >
-            <option value="none">{t("Off")}</option>
-            {(["google-drive", "onedrive"] as const).map((provider) => (
-              <option
-                key={provider}
-                value={provider}
-                disabled={!configured(provider) && cloud.provider !== provider}
-              >
-                {configured(provider)
-                  ? providerName(provider)
-                  : `${providerName(provider)} (${t("not set up in this build")})`}
-              </option>
-            ))}
-          </UiSelect>
-        </Row>
-        {selected && (
-          <div className="actions end">
-            <UiButton
-              className={`button${connected ? "" : " primary"}`}
-              disabled={!cloudAvailable || busy}
-              onClick={connect}
-            >
-              {connected ? t("Reconnect") : t("Connect")}
-            </UiButton>
-            <UiButton
-              className="button"
-              disabled={!cloudAvailable || !connected || busy}
-              onClick={restore}
-            >
-              {t("Restore from cloud")}
-            </UiButton>
-            {desktopBridge && cloudAvailable && (
+          <div className="actions">
+            {connected ? (
+              <>
+                <UiButton
+                  className="textButton"
+                  disabled={busy}
+                  onClick={disconnect}
+                >
+                  {t("Disconnect")}
+                </UiButton>
+                <UiButton
+                  className="button small"
+                  disabled={busy}
+                  onClick={restore}
+                >
+                  {t("Restore")}
+                </UiButton>
+                <UiButton
+                  className="button small primary"
+                  disabled={busy}
+                  onClick={backUp}
+                >
+                  {t("Back up now")}
+                </UiButton>
+              </>
+            ) : (
               <UiButton
-                className="button primary"
-                disabled={!connected || busy}
-                onClick={backUp}
+                className="button small primary"
+                disabled={!clientId || !cloudAvailable || busy}
+                onClick={connect}
               >
-                {t("Back up now")}
+                {t("Connect")}
               </UiButton>
             )}
           </div>
-        )}
+        </Row>
         {conflict && (
           <div className="alert" role="alert">
             <b>{t("The cloud backup is different from this device")}</b>
@@ -413,40 +282,82 @@ export function BackupSettings({
               </UiButton>
               <UiButton
                 className="button"
-                onClick={() => {
-                  void exportWorkspaceFile();
-                  notify(t("Saved a copy of this device first."));
-                }}
+                onClick={() => void exportWorkspace()}
               >
                 {t("Save a copy first")}
               </UiButton>
             </div>
           </div>
         )}
+        {connected && (
+          <>
+            <Row
+              id="credential-sync"
+              group
+              title="Sync login credentials"
+              hint={
+                credentialSync
+                  ? "Enabled on this device"
+                  : "Optional encrypted sync for ISCT portal accounts"
+              }
+            >
+              <div className="actions">
+                <UiInput
+                  type="password"
+                  value={encryptionPassword}
+                  minLength={8}
+                  autoComplete="new-password"
+                  placeholder={
+                    credentialSync
+                      ? t("Enter a new 8–12 character password")
+                      : t("8–12 character password")
+                  }
+                  aria-label={t("Credential encryption password")}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setEncryptionPassword(event.currentTarget.value)
+                  }
+                />
+                <UiButton
+                  className="button small"
+                  disabled={
+                    busy ||
+                    encryptionPasswordLength < 8 ||
+                    encryptionPasswordLength > 12
+                  }
+                  onClick={saveCredentialSync}
+                >
+                  {credentialSync ? t("Change") : t("Enable")}
+                </UiButton>
+                {credentialSync && (
+                  <UiButton
+                    className="button small"
+                    disabled={busy}
+                    onClick={disableCredentialSync}
+                  >
+                    {t("Disable")}
+                  </UiButton>
+                )}
+              </div>
+            </Row>
+            <div className="alert" role="note">
+              {t(
+                "If you sync ISCT login credentials, choose an 8–12 character encryption password. The encrypted credential file is stored in Google Drive. The encryption password stays only in this device's system credential vault and is never uploaded. Beyond this encryption, we cannot guarantee the security of your credentials. Enter the same password on another device to restore them.",
+              )}
+            </div>
+          </>
+        )}
       </SettingsGroup>
-      <SettingsGroup title="Backup file">
-        <Row
-          id="file"
-          group
-          title="Back up to a file"
-          hint="A JSON file you can keep anywhere"
-        >
+      <SettingsGroup>
+        <Row id="file" group title="Backup file">
           <div className="actions">
             <UiButton
               className="button small"
-              onClick={() => void exportWorkspaceFile()}
+              onClick={() => void exportWorkspace()}
             >
               {t("Export…")}
             </UiButton>
-          </div>
-        </Row>
-        <Row
-          group
-          title="Restore from a file"
-          hint="Replaces the data on this device"
-        >
-          <div className="actions">
-            <label className="button">
+            <label className="button small">
               {t("Import…")}
               <input
                 hidden
@@ -462,12 +373,12 @@ export function BackupSettings({
           </div>
         </Row>
       </SettingsGroup>
-      <SettingsGroup title="Reset" tone="danger">
+      <SettingsGroup tone="danger">
         <Row
           id="reset"
           group
           title="Erase data on this device"
-          hint="Removes plans, calendar changes and preferences, then starts empty"
+          hint="Can't be undone."
         >
           <div className="actions">
             <UiButton className="button small danger" onClick={erase}>

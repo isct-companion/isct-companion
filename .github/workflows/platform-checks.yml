@@ -14,15 +14,19 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
-    env:
-      VITE_GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.ISCTCOMPANION_GOOGLE_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: corepack enable
+      - name: Set up Yarn cache
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: yarn
-      - run: yarn install --frozen-lockfile
+      - run: yarn install --immutable
       - run: yarn build
       - run: yarn test
 

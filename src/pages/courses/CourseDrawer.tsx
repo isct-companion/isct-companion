@@ -10,6 +10,7 @@ export function CourseDrawer({
   readOnly,
   onTimetable,
   initialTab = "overview",
+  onTabChange,
   close,
   edit,
   toggle,
@@ -24,6 +25,7 @@ export function CourseDrawer({
   readOnly: boolean;
   onTimetable: boolean;
   initialTab?: CourseTab;
+  onTabChange?: (tab: CourseTab) => void;
   close: () => void;
   edit: () => void;
   toggle: () => void;
@@ -67,6 +69,7 @@ export function CourseDrawer({
         course={course}
         data={data}
         initialTab={initialTab}
+        onTabChange={onTabChange}
         lmsUrl={lmsUrl}
         openWeb={openWeb}
         fetchLms={fetchLms}

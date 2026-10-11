@@ -54,16 +54,13 @@ export function DeveloperSettings({
 }) {
   return (
     <>
-      <SettingsHeader
-        title="Developer options"
-        description="Tools for people who write code or debug the app. Everyday use never needs them."
-      />
+      <SettingsHeader title="Developer options" />
       <SettingsGroup
         footer={
           developer
             ? t("New pages are listed under Developer in the sidebar.")
             : t(
-                "Adds AI agent access, site styles and scripts, and diagnostics.",
+                "Adds site styles and scripts, diagnostics, and raw data settings.",
               )
         }
       >
@@ -99,26 +96,6 @@ export function DeveloperSettings({
             <div data-setting="sources">
               <DataSourceUrls data={data} update={calendarUpdate} />
             </div>
-          </SettingsGroup>
-          <SettingsGroup
-            title="Cloud sign-in"
-            footer={t(
-              "Overrides the OAuth client ID built into the app. See docs/cloud-provider-setup.md.",
-            )}
-          >
-            <Row id="client-id" title="OAuth client ID">
-              <UiInput
-                value={data.settings.cloud.clientId}
-                spellCheck={false}
-                placeholder={t("Built-in")}
-                onChange={(event) =>
-                  update((draft) => {
-                    draft.settings.cloud.clientId = event.target.value.trim();
-                    return draft;
-                  })
-                }
-              />
-            </Row>
           </SettingsGroup>
         </>
       )}

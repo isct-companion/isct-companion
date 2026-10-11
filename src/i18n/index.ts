@@ -1,8 +1,14 @@
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 import ja from "./ja.json";
+import zh from "./zh.json";
+export { intlLocale } from "./locale";
 void i18next.use(initReactI18next).init({
-  resources: { en: { translation: {} }, ja: { translation: ja } },
+  resources: {
+    en: { translation: {} },
+    ja: { translation: ja },
+    zh: { translation: zh },
+  },
   lng: "en",
   fallbackLng: "en",
   keySeparator: false,

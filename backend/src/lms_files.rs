@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
 };
 use tauri::{AppHandle, Manager};
@@ -50,7 +50,7 @@ pub enum Material {
         bytes: u64,
     },
     Folder {
-        files: Vec<crate::lms_downloader::ResolvedFile>,
+        files: Vec<crate::school_parser::lms::ResolvedFile>,
     },
     External {
         url: String,
@@ -122,6 +122,23 @@ fn root(app: &AppHandle) -> Result<(PathBuf, bool), String> {
     #[cfg(mobile)]
     let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok((base.join("IsctCompanion"), false))
+}
+
+/// Keep canonical/extended paths internally, but never expose Windows' `\\?\`
+/// prefix or locale-dependent backslashes in user-facing text.
+fn display_root(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        let value = value
+            .strip_prefix(r"\\?\UNC\")
+            .map(|rest| format!(r"\\{rest}"))
+            .or_else(|| value.strip_prefix(r"\\?\").map(str::to_string))
+            .unwrap_or_else(|| value.into_owned());
+        return value.replace('\u{5c}', "/");
+    }
+    #[cfg(not(windows))]
+    value.into_owned()
 }
 fn folder(app: &AppHandle, context: &CourseFolder, kind: &str) -> Result<PathBuf, String> {
     storage_dir(
@@ -427,7 +444,7 @@ pub(crate) fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), Stri
 
 /// The contract form of a resolved folder's files, as stored on its material.
 pub(crate) fn folder_contract(
-    files: &[crate::lms_downloader::ResolvedFile],
+    files: &[crate::school_parser::lms::ResolvedFile],
 ) -> Vec<crate::contracts::FolderFile> {
     files
         .iter()
@@ -441,8 +458,8 @@ pub(crate) fn folder_contract(
 /// A folder's files kept from its last read, when every entry is still an LMS file.
 pub(crate) fn stored_folder_files(
     row: Option<&serde_json::Value>,
-) -> Option<Vec<crate::lms_downloader::ResolvedFile>> {
-    let files: Vec<crate::lms_downloader::ResolvedFile> =
+) -> Option<Vec<crate::school_parser::lms::ResolvedFile>> {
+    let files: Vec<crate::school_parser::lms::ResolvedFile> =
         serde_json::from_value(row?.get("folderFiles")?.clone()).ok()?;
     (!files.is_empty()
         && files
@@ -459,7 +476,7 @@ pub async fn course_storage_info(
     crate::require_local_main(&webview)?;
     let (root, custom) = root(&app)?;
     Ok(StorageInfo {
-        root: root.to_string_lossy().into(),
+        root: display_root(&root),
         custom,
         can_choose: cfg!(desktop),
     })
@@ -703,44 +720,56 @@ pub async fn open_course_material(
                     return Ok(Material::Failed { reason: "invalid" });
                 }
             } else {
-                let downloader = app.state::<crate::lms_downloader::Downloader>();
-                match downloader.resolve(&app, &source_url, cmid, &module).await {
-                    Ok(crate::lms_downloader::ResolvedResource::File { url }) => {
-                        let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url) else {
-                            return Ok(Material::Failed { reason: "invalid" });
-                        };
-                        let _ = store.update_lms_resource_url(cmid, &source, &url);
-                        url_value
-                    }
-                    Ok(crate::lms_downloader::ResolvedResource::External { url }) => {
-                        if !safe_external_url(&url) {
+                #[cfg(mobile)]
+                {
+                    let _ = cmid;
+                    return Err("Course files are resolved in the desktop app".into());
+                }
+                #[cfg(desktop)]
+                {
+                    let downloader = app.state::<crate::lms_downloader::Downloader>();
+                    match downloader.resolve(&app, &source_url, cmid, &module).await {
+                        Ok(crate::lms_downloader::ResolvedResource::File { url }) => {
+                            let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url)
+                            else {
+                                return Ok(Material::Failed { reason: "invalid" });
+                            };
+                            let _ = store.update_lms_resource_url(cmid, &source, &url);
+                            url_value
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::External { url }) => {
+                            if !safe_external_url(&url) {
+                                return Ok(Material::Failed { reason: "invalid" });
+                            }
+                            let _ = store.update_lms_resource_url(cmid, &source, &url);
+                            return Ok(Material::External { url });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
+                            let _ = store.update_lms_folder_files(
+                                cmid,
+                                &source,
+                                &folder_contract(&files),
+                            );
+                            return Ok(Material::Folder { files });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Login)
+                        | Err(crate::lms_downloader::FetchError::Login) => {
+                            return Ok(Material::Failed { reason: "login" });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Unresolved) => {
+                            return Ok(Material::Failed {
+                                reason: "unresolved",
+                            });
+                        }
+                        Err(crate::lms_downloader::FetchError::Invalid) => {
                             return Ok(Material::Failed { reason: "invalid" });
                         }
-                        let _ = store.update_lms_resource_url(cmid, &source, &url);
-                        return Ok(Material::External { url });
-                    }
-                    Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
-                        let _ =
-                            store.update_lms_folder_files(cmid, &source, &folder_contract(&files));
-                        return Ok(Material::Folder { files });
-                    }
-                    Ok(crate::lms_downloader::ResolvedResource::Login)
-                    | Err(crate::lms_downloader::FetchError::Login) => {
-                        return Ok(Material::Failed { reason: "login" });
-                    }
-                    Ok(crate::lms_downloader::ResolvedResource::Unresolved) => {
-                        return Ok(Material::Failed {
-                            reason: "unresolved",
-                        });
-                    }
-                    Err(crate::lms_downloader::FetchError::Invalid) => {
-                        return Ok(Material::Failed { reason: "invalid" });
-                    }
-                    Err(crate::lms_downloader::FetchError::Timeout) => {
-                        return Ok(Material::Failed { reason: "timeout" });
-                    }
-                    Err(crate::lms_downloader::FetchError::Network) => {
-                        return Ok(Material::Failed { reason: "network" });
+                        Err(crate::lms_downloader::FetchError::Timeout) => {
+                            return Ok(Material::Failed { reason: "timeout" });
+                        }
+                        Err(crate::lms_downloader::FetchError::Network) => {
+                            return Ok(Material::Failed { reason: "network" });
+                        }
                     }
                 }
             }
@@ -975,6 +1004,19 @@ mod tests {
         // An encoded slash cannot escape the folder.
         assert!(
             !name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/..%2F..%2Fx.pdf").contains('/')
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hides_extended_windows_prefix_and_uses_unambiguous_separators() {
+        assert_eq!(
+            display_root(Path::new(r"\\?\E:\IsctCompanion")),
+            "E:/IsctCompanion"
+        );
+        assert_eq!(
+            display_root(Path::new(r"\\?\UNC\server\courses")),
+            "//server/courses"
         );
     }
 }
