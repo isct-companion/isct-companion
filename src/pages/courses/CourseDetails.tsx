@@ -80,6 +80,7 @@ export function CourseDetails({
   course,
   data,
   initialTab = "overview",
+  onTabChange,
   lmsUrl,
   openWeb,
   fetchLms,
@@ -88,6 +89,7 @@ export function CourseDetails({
   course: Course;
   data: Workspace;
   initialTab?: CourseTab;
+  onTabChange?: (tab: CourseTab) => void;
   /** The course's LMS page, when it is linked to one. */
   lmsUrl?: string;
   openWeb: (url: string) => void;
@@ -96,7 +98,8 @@ export function CourseDetails({
   /** 0–100 while an LMS pull runs, else null. */
   progress?: number | null;
 }) {
-  const [tab, setTab] = useState<CourseTab>(initialTab);
+  const [localTab, setTab] = useState<CourseTab>(initialTab);
+  const tab = onTabChange ? initialTab : localTab;
   const bridge = getDesktopBridge();
   const language = contentLanguage(data.settings);
   const materials = (data.materials as LmsItem[])
@@ -156,7 +159,9 @@ export function CourseDetails({
     <div className="courseDetails">
       <Tabs
         value={tab}
-        onChange={(value) => setTab((value ?? "overview") as CourseTab)}
+        onChange={(value) =>
+          (onTabChange ?? setTab)((value ?? "overview") as CourseTab)
+        }
       >
         <Tabs.List grow>
           <Tabs.Tab value="overview">{t("Overview")}</Tabs.Tab>

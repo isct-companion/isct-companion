@@ -297,10 +297,4 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     title: "Version",
     terms: "about info バージョン 情報",
   },
-  {
-    section: "about",
-    id: "licenses",
-    title: "Open-source licenses",
-    terms: "license oss third party ライセンス",
-  },
 ];

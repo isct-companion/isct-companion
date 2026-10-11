@@ -7,11 +7,12 @@ scheduling and cloud synchronization. The browser build is a read-only preview.
 
 ## Development
 
-Requirements: Node.js, Yarn, Rust and the platform dependencies required by
+Requirements: Node.js 22+, Yarn 4 (via Corepack), Rust and the platform dependencies required by
 Tauri.
 
 ```sh
-yarn install
+corepack enable
+yarn install --immutable
 yarn dev             # browser preview on port 4173
 yarn desktop:dev     # native app with the Rust backend
 ```

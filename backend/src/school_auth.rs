@@ -146,6 +146,7 @@ pub struct SchoolAuthService<V: SecretVault> {
 }
 
 impl<V: SecretVault> SchoolAuthService<V> {
+    #[cfg(test)]
     pub fn new(vault: V) -> Self {
         Self {
             vault,

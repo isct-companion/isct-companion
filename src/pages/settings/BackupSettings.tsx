@@ -9,16 +9,12 @@ import type {
   CloudProvider,
   CloudSyncResult,
 } from "../../platform/desktop-bridge";
-import { UiButton, UiInput, UiSelect } from "../../components/mantine";
+import { UiButton, UiInput } from "../../components/mantine";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
 import { formatDay } from "./subscription-status";
 
-const providerName = (provider: CloudProvider) =>
-  provider === "google-drive" ? "Google Drive" : "OneDrive";
-
-const resolveCloudClientId = (provider: CloudProvider, override: string) =>
-  override.trim() ||
-  (provider === "google-drive" ? __GOOGLE_DRIVE_CLIENT_ID__.trim() : "");
+// Google Drive is the only cloud service offered for now.
+const PROVIDER: CloudProvider = "google-drive";
 
 export function BackupSettings({
   data,
@@ -63,17 +59,14 @@ export function BackupSettings({
 
   const cloud = data.settings.cloud;
   const cloudAvailable = caps["cloud-sync"].support === "supported";
-  const selected = cloud.provider === "none" ? null : cloud.provider;
-  const connected = Boolean(selected && authorized.includes(selected));
-  const configured = (provider: CloudProvider) =>
-    Boolean(resolveCloudClientId(provider, cloud.clientId));
+  const clientId = cloud.clientId.trim() || __GOOGLE_DRIVE_CLIENT_ID__.trim();
+  const connected =
+    cloud.provider === PROVIDER && authorized.includes(PROVIDER);
 
   const requireCloud = () => {
     if (!cloudAvailable || !desktopBridge)
       throw new Error(caps["cloud-sync"].reason);
-    if (cloud.provider === "none")
-      throw new Error(t("Choose Google Drive or OneDrive first."));
-    return { bridge: desktopBridge, provider: cloud.provider };
+    return { bridge: desktopBridge, provider: PROVIDER };
   };
   const mark = (
     state: Workspace["syncStatus"]["state"],
@@ -99,27 +92,6 @@ export function BackupSettings({
     }
   };
 
-  const chooseProvider = async (
-    next: Workspace["settings"]["cloud"]["provider"],
-  ) => {
-    if (next === cloud.provider) return;
-    await run("Could not switch cloud service.", async () => {
-      const bridge = desktopBridge;
-      if (bridge)
-        await Promise.all(
-          authorized.map((service) => bridge.disconnectCloud(service)),
-        );
-      setAuthorized([]);
-      update((draft) => {
-        draft.settings.cloud.provider = next;
-        draft.syncStatus.state = "needs-configuration";
-        draft.syncStatus.lastSyncedAt = undefined;
-        draft.syncStatus.message = undefined;
-        return draft;
-      });
-    });
-  };
-
   const disconnect = () =>
     run("Could not disconnect.", async () => {
       const bridge = desktopBridge;
@@ -139,11 +111,7 @@ export function BackupSettings({
   const connect = () =>
     run("Could not connect.", async () => {
       const { bridge, provider } = requireCloud();
-      await bridge.connectCloud(
-        provider,
-        resolveCloudClientId(provider, cloud.clientId),
-        cloud.redirectUri!,
-      );
+      await bridge.connectCloud(provider, clientId, cloud.redirectUri!);
       setAuthorized([provider]);
       update((draft) => {
         draft.settings.cloud.provider = provider;
@@ -151,9 +119,7 @@ export function BackupSettings({
         draft.syncStatus.message = undefined;
         return draft;
       });
-      notify(
-        t("Connected to {{service}}.", { service: providerName(provider) }),
-      );
+      notify(t("Connected to {{service}}.", { service: "Google Drive" }));
     });
   const restore = () =>
     run("Could not restore.", async () => {
@@ -240,46 +206,13 @@ export function BackupSettings({
     <>
       <SettingsHeader title="Backup" />
       <SettingsGroup
-        title="Cloud backup"
-        footer={t(
-          "Saved as a readable file in a private app folder of your cloud account. The file is not encrypted by this app; your cloud account protects it.",
-        )}
+        title="Google Drive"
+        footer={t("Stored unencrypted in a private app folder in your Drive.")}
       >
-        <Row title="Cloud service">
-          <UiSelect
-            value={cloud.provider}
-            disabled={busy || !cloudAvailable}
-            onChange={(event) =>
-              void chooseProvider(
-                event.target
-                  .value as Workspace["settings"]["cloud"]["provider"],
-              )
-            }
-          >
-            <option value="none">{t("Off")}</option>
-            {(["google-drive", "onedrive"] as const).map((service) => (
-              <option
-                key={service}
-                value={service}
-                disabled={!configured(service) && cloud.provider !== service}
-              >
-                {configured(service)
-                  ? providerName(service)
-                  : `${providerName(service)} (${t("not set up in this build")})`}
-              </option>
-            ))}
-          </UiSelect>
-        </Row>
         <Row
           id="cloud"
           group
-          title={
-            selected
-              ? connected
-                ? "Connected"
-                : "Not connected"
-              : "Cloud backup is off."
-          }
+          title={connected ? "Connected" : "Not connected"}
           hint={
             data.syncStatus.state === "error" && data.syncStatus.message ? (
               <span className="danger">{data.syncStatus.message}</span>
@@ -325,7 +258,7 @@ export function BackupSettings({
             ) : (
               <UiButton
                 className="button small primary"
-                disabled={!selected || !cloudAvailable || busy}
+                disabled={!clientId || !cloudAvailable || busy}
                 onClick={connect}
               >
                 {t("Connect")}
@@ -356,7 +289,7 @@ export function BackupSettings({
             </div>
           </div>
         )}
-        {selected && (
+        {connected && (
           <>
             <Row
               id="credential-sync"
@@ -380,7 +313,7 @@ export function BackupSettings({
                       : t("8–12 character password")
                   }
                   aria-label={t("Credential encryption password")}
-                  disabled={!connected || busy}
+                  disabled={busy}
                   onChange={(event) =>
                     setEncryptionPassword(event.currentTarget.value)
                   }
@@ -388,7 +321,6 @@ export function BackupSettings({
                 <UiButton
                   className="button small"
                   disabled={
-                    !connected ||
                     busy ||
                     encryptionPasswordLength < 8 ||
                     encryptionPasswordLength > 12
@@ -410,7 +342,7 @@ export function BackupSettings({
             </Row>
             <div className="alert" role="note">
               {t(
-                "If you sync ISCT login credentials, choose an 8–12 character encryption password. The encrypted credential file is stored in Google Drive or OneDrive. The encryption password stays only in this device's system credential vault and is never uploaded. Beyond this encryption, we cannot guarantee the security of your credentials. Enter the same password on another device to restore them.",
+                "If you sync ISCT login credentials, choose an 8–12 character encryption password. The encrypted credential file is stored in Google Drive. The encryption password stays only in this device's system credential vault and is never uploaded. Beyond this encryption, we cannot guarantee the security of your credentials. Enter the same password on another device to restore them.",
               )}
             </div>
           </>

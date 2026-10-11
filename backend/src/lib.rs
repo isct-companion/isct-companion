@@ -31,6 +31,7 @@ mod matrix_ocr;
 #[cfg(matrix_ocr)]
 mod matrix_red_crops;
 pub mod plans;
+#[cfg(test)]
 mod policy;
 mod scheduler;
 mod school_auth;

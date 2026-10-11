@@ -1,3 +1,4 @@
+import { notify as appNotify } from "../../app/notify";
 import { Fragment, useState } from "react";
 import { t } from "../../i18n";
 import type { Subscription, Workspace } from "../../core/model";
@@ -91,7 +92,7 @@ export function DataUpdatesSettings({
     try {
       notify(t(await refreshReferences()));
     } catch (error) {
-      notify(error instanceof Error ? error.message : String(error));
+      appNotify.error(error);
     } finally {
       setBusy(false);
     }

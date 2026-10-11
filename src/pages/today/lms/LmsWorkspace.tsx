@@ -672,7 +672,10 @@ export function LmsWorkspace({
     },
     [data.materials, data.assignments, openMaterial, openAssignment, open],
   );
+  const positionedRequest = useRef<number | undefined>(undefined);
   useEffect(() => {
+    // Revealing Activity resumes the retained DOM; only a new entrance repositions it.
+    if (positionedRequest.current === entry.request) return;
     const assignment = assignments.find((a) => a.id === entry.assignmentId);
     if (assignment) {
       const source = data.materials.find(
@@ -697,6 +700,7 @@ export function LmsWorkspace({
     // No date→section association exists in the current importer. Resume the
     // real reading position rather than guessing the lesson from the week.
     const frame = requestAnimationFrame(() => {
+      positionedRequest.current = entry.request;
       if (outline.current) {
         const anchor = current.current.anchor;
         const element =

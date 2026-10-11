@@ -1,6 +1,10 @@
 # Public OAuth client IDs, one per Google Cloud client type. These are not
-# secrets: they appear in every authorization URL. Never add client secrets.
+# secrets: they appear in every authorization URL.
+# desktop-secret: Google requires the Desktop client's secret in token
+# requests. It ships inside the app, and Google treats it as non-confidential
+# for installed apps. ISCT_GOOGLE_DESKTOP_CLIENT_SECRET overrides it.
 google-drive:
   desktop: 681098185092-t5f8k0j85gbjjpkiefv75ab563ubtuf9.apps.googleusercontent.com
+  desktop-secret: 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
   ios: 681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv.apps.googleusercontent.com
   android: 681098185092-0lkuilhi6s34bm3e9hkp3c241bjmcf0g.apps.googleusercontent.com

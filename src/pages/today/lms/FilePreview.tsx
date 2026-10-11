@@ -47,12 +47,15 @@ function useCourseFile(url: string, context: CourseFolder, limit: number, autoDo
   const managed = isLmsResource(url) && Boolean(desktopBridge);
   const [view, setView] = useState<View>({ state: "loading" });
   const [request, setRequest] = useState({ download: false, attempt: 0 });
+  const loadedRequest = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!managed) {
       setView(autoDownload ? { state: "ready", src: url, kind: previewKind(url) } : { state: "missing" });
       return;
     }
     if (!autoDownload && !request.download) { setView({ state: "missing" }); return; }
+    const requestKey = JSON.stringify([url, context.term, context.course, request, managed, autoDownload, readText]);
+    if (loadedRequest.current === requestKey) return;
     let disposed = false;
     setView({ state: "loading" });
     const load = async () => {
@@ -63,6 +66,7 @@ function useCourseFile(url: string, context: CourseFolder, limit: number, autoDo
           limit: request.download ? undefined : limit,
         });
         if (disposed) return;
+        if (material.state !== "failed") loadedRequest.current = requestKey;
         if (material.state === "folder") return setView({ state: "folder", files: material.files });
         if (material.state === "external") return setView({ state: "external", url: material.url });
         if (material.state === "tooLarge") return setView({ state: "tooLarge", bytes: material.bytes });

@@ -1,3 +1,4 @@
+import { intlLocale } from "../../i18n/locale";
 import { t } from "../../i18n";
 import { useState, type ReactNode } from "react";
 import { detectConflicts } from "../../core/academic";
@@ -143,14 +144,11 @@ export function Courses({
         undefined,
         term,
       );
-  const dateFormat = new Intl.DateTimeFormat(
-    data.settings.locale === "ja" ? "ja-JP" : "en-GB",
-    {
-      day: "numeric",
-      month: "short",
-      timeZone: "Asia/Tokyo",
-    },
-  );
+  const dateFormat = new Intl.DateTimeFormat(intlLocale(data.settings.locale), {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Tokyo",
+  });
   const weekLabel = editing
     ? ""
     : `${dateFormat.format(new Date(`${allColumns[0].date}T12:00:00+09:00`))} – ${dateFormat.format(new Date(`${allColumns[6].date}T12:00:00+09:00`))}`;
