@@ -663,5 +663,17 @@
   "Version": "バージョン",
   "Adds site styles and scripts, diagnostics, and raw data settings.": "サイトのスタイルとスクリプト、診断、データの詳細設定を追加します。",
   "Update on cellular data": "モバイル通信でも更新",
-  "If you sync ISCT login credentials, choose an 8–12 character encryption password. The encrypted credential file is stored in Google Drive. The encryption password stays only in this device's system credential vault and is never uploaded. Beyond this encryption, we cannot guarantee the security of your credentials. Enter the same password on another device to restore them.": "ISCTのログイン認証情報を同期する場合は、8～12文字の暗号化パスワードを設定してください。暗号化された認証情報ファイルはGoogle Driveに保存されます。暗号化パスワードはこのデバイスのシステム認証情報保管庫にのみ保存され、アップロードされません。この暗号化以外に、認証情報の安全性を保証することはできません。別のデバイスで復元するには、同じパスワードを入力してください。"
+  "If you sync ISCT login credentials, choose an 8–12 character encryption password. The encrypted credential file is stored in Google Drive. The encryption password stays only in this device's system credential vault and is never uploaded. Beyond this encryption, we cannot guarantee the security of your credentials. Enter the same password on another device to restore them.": "ISCTのログイン認証情報を同期する場合は、8～12文字の暗号化パスワードを設定してください。暗号化された認証情報ファイルはGoogle Driveに保存されます。暗号化パスワードはこのデバイスのシステム認証情報保管庫にのみ保存され、アップロードされません。この暗号化以外に、認証情報の安全性を保証することはできません。別のデバイスで復元するには、同じパスワードを入力してください。",
+  "Home": "ホーム",
+  "Retry saving": "保存を再試行",
+  "Timetable updated from LMS": "LMSから時間割を更新しました",
+  "Plan saved": "予定を保存しました",
+  "Plan deleted": "予定を削除しました",
+  "Intensive dates saved": "集中授業の日程を保存しました",
+  "Course saved": "授業を保存しました",
+  "Course added": "授業を追加しました",
+  "Course deleted": "授業を削除しました",
+  "Event saved": "予定を保存しました",
+  "Event deleted": "予定を削除しました",
+  "The school page could not be closed. Please retry.": "学内ページを閉じられませんでした。再試行してください。"
 }

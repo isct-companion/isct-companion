@@ -45,7 +45,7 @@ const meeting = (day: number, startTime: string, endTime: string): Meeting => ({
   room: `R${day}`,
 });
 
-it("lists lectures in class order and opens the one in class", async () => {
+it("lists lectures in class order and waits for an explicit selection", async () => {
   const data = seedWorkspace();
   data.academicProfile.years = [
     {
@@ -105,6 +105,8 @@ it("lists lectures in class order and opens the one in class", async () => {
   ]);
   expect(rows[0].querySelector("small")?.textContent).toBe("Now · R3");
   expect(rows[1].querySelector(".dueChip")?.textContent).toBe("1d 12h");
+  expect(select).not.toHaveBeenCalled();
+  await act(async () => (rows[0] as HTMLButtonElement).click());
   expect(select).toHaveBeenCalledWith("now");
 
   const filter = host.querySelector<HTMLInputElement>(".lectureFilter input, input.lectureFilter")!;

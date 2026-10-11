@@ -1,3 +1,4 @@
+import { notify as appNotify } from "../../app/notify";
 import { Fragment, useState, type FormEvent } from "react";
 import { t } from "../../i18n";
 import {
@@ -111,7 +112,7 @@ export function AcademicCalendarSettings({
     try {
       notify(t(await refreshReferences()));
     } catch (error) {
-      notify(error instanceof Error ? error.message : String(error));
+      appNotify.error(error);
     } finally {
       setBusy(false);
     }
@@ -359,7 +360,9 @@ export function AcademicCalendarSettings({
     editing !== null &&
     (day.exception
       ? editing.id === day.exception.id
-      : editing.id === "new" && editing.fixedDate && editing.draft.date === day.date);
+      : editing.id === "new" &&
+        editing.fixedDate &&
+        editing.draft.date === day.date);
 
   return (
     <>
@@ -407,7 +410,9 @@ export function AcademicCalendarSettings({
       </SettingsGroup>
       <SettingsGroup
         title="Class days"
-        footer={readOnly ? t("Change class days in the desktop app.") : undefined}
+        footer={
+          readOnly ? t("Change class days in the desktop app.") : undefined
+        }
       >
         {!readOnly && (
           <div className="actions calendarAdd">

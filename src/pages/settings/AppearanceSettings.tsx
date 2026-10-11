@@ -30,10 +30,11 @@ export function AppearanceSettings({
       <SettingsGroup>
         <Row id="language" group title="Language">
           <Choice
-            value={data.settings.locale === "ja" ? "ja" : "en"}
+            value={data.settings.locale}
             options={[
               { value: "en", label: "English" },
               { value: "ja", label: "日本語" },
+              { value: "zh", label: "中文" },
             ]}
             onChange={(locale) => set("locale", locale)}
           />

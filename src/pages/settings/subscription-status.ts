@@ -1,11 +1,11 @@
+import { intlLocale } from "../../i18n/locale";
 import type { Subscription, Workspace } from "../../core/model";
 import { subscriptionYear } from "../../platform/subscription-polling";
 
 export const subscriptionRow = (data: Workspace, kind: Subscription["kind"]) =>
   data.subscriptions.find((row) => row.kind === kind && !row.deletedAt);
 
-export const languageTag = (locale: Workspace["settings"]["locale"]) =>
-  locale === "ja" ? "ja-JP" : "en-GB";
+export const languageTag = intlLocale;
 
 /** "3 Oct" / "10月3日" for an ISO timestamp or civil date, in Japan time. */
 export function formatDay(

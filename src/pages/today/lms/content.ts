@@ -1,3 +1,4 @@
+import { intlLocale } from "../../../i18n/locale";
 import { extension, fileFamily, previewKind } from "./file-types";
 /** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
 export function safeContent(html: string, language?: "ja" | "en"): string {
@@ -18,7 +19,7 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
     if (url.hostname === "lms.s.isct.ac.jp" && url.pathname.endsWith("/course/view.php") && (href.endsWith("#") || /^#coursecontentcollapse\d+$/.test(url.hash))) link.remove();
   }
   // Only explicit block language metadata can filter arbitrary content.
-  if (language)
+  if (language && source.body.querySelector(`[lang="${language}"]`))
     source.body.querySelectorAll("[lang]").forEach((n) => {
       const lang = n.getAttribute("lang")?.toLowerCase();
       if ((lang === "ja" || lang === "en") && lang !== language) n.remove();
@@ -247,5 +248,5 @@ export function formatLmsDate(value: string, locale: string) {
   if (!parts || locale === "ja") return value;
   const [,year,month,day,hour,minute] = parts;
   const date = new Date(`${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}T${hour.padStart(2,"0")}:${minute}:00+09:00`);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(locale, {year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:"Asia/Tokyo"}).format(date);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(intlLocale(locale), {year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:"Asia/Tokyo"}).format(date);
 }

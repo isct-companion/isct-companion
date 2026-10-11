@@ -78,6 +78,7 @@ export function NoteEditor({
   });
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const mounted = useRef(true);
+  const loadedNote = useRef<string | undefined>(undefined);
   const savedCallback = useRef(onSaved);
   savedCallback.current = onSaved;
   const flush = () => {
@@ -117,31 +118,42 @@ export function NoteEditor({
   };
   useEffect(() => {
     mounted.current = true;
-    setText(undefined);
-    setFailure(false);
-    setStatus("Loading…");
+    const noteKey = JSON.stringify([
+      id,
+      context.term,
+      context.course,
+      context.section,
+      reload,
+    ]);
     let cancelled = false;
-    void readNote(context, id)
-      .then((file) => {
-        if (cancelled) return;
-        if (file.text == null)
-          throw new Error(
-            "This note exceeds the 1 MB editing limit. Open it from its storage folder.",
+    // Revealing an Activity must keep the live draft, even while its save is pending.
+    if (loadedNote.current !== noteKey) {
+      setText(undefined);
+      setFailure(false);
+      setStatus("Loading…");
+      void readNote(context, id)
+        .then((file) => {
+          if (cancelled) return;
+          if (file.text == null)
+            throw new Error(
+              "This note exceeds the 1 MB editing limit. Open it from its storage folder.",
+            );
+          const recovery = readRecovery(id);
+          const value = recovery ?? file.text ?? "";
+          loadedNote.current = noteKey;
+          draft.current = { text: value, dirty: recovery !== null };
+          setText(value);
+          setStatus(
+            recovery !== null ? "Recovered unsaved draft" : "Saved locally",
           );
-        const recovery = readRecovery(id);
-        const value = recovery ?? file.text ?? "";
-        draft.current = { text: value, dirty: recovery !== null };
-        setText(value);
-        setStatus(
-          recovery !== null ? "Recovered unsaved draft" : "Saved locally",
-        );
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setStatus(String(error));
-          setFailure(true);
-        }
-      });
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setStatus(String(error));
+            setFailure(true);
+          }
+        });
+    }
     const leave = () => flush();
     window.addEventListener("pagehide", leave);
     return () => {

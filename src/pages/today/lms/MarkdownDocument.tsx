@@ -32,6 +32,7 @@ export function MarkdownDocument({
   }>(null);
   const [error, setError] = useState<string>();
   const editable = Boolean(onChange);
+  const scroll = useRef(0);
   useEffect(() => {
     // A separate mount prevents a late async destroy from touching a replacement editor.
     const mount = document.createElement("div");
@@ -99,6 +100,7 @@ export function MarkdownDocument({
       .then(() => {
         if (!disposed) {
           current.current = instance;
+          if (root.current) root.current.scrollTop = scroll.current;
           if (state.current.value !== instance.value) {
             instance.replacing = true;
             instance.value = state.current.value;
@@ -116,6 +118,7 @@ export function MarkdownDocument({
     return () => {
       disposed = true;
       if (current.current === instance) current.current = null;
+      scroll.current = root.current?.scrollTop ?? scroll.current;
       mount.remove();
       void ready.then(() => editor.destroy()).catch(console.error);
     };

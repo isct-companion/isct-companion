@@ -1,5 +1,5 @@
 import "./lectures.css";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Activity, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { dueCountdown } from "../../core/academic";
 import type { Assignment, TermId, Workspace } from "../../core/model";
 import { addDays, civilWeekday, resolveDayAgenda } from "../../core/schedule";
@@ -14,8 +14,6 @@ import { t } from "../../i18n";
 import type { CourseEntry } from "../today/lms/LmsWorkspace";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const narrow = () =>
-  typeof matchMedia === "function" && matchMedia("(max-width: 48em)").matches;
 const submitted = (a: Assignment) =>
   a.submission === "submitted" ||
   a.submission === "graded" ||
@@ -56,7 +54,13 @@ export function LectureDesk({
 }) {
   // The quarter shown here is browsed on its own; it starts at the current one.
   const [shownTerm, setShownTerm] = useState(term);
-  useEffect(() => setShownTerm(term), [term]);
+  const lastTerm = useRef(term);
+  useEffect(() => {
+    if (lastTerm.current !== term) {
+      lastTerm.current = term;
+      setShownTerm(term);
+    }
+  }, [term]);
   const [query, setQuery] = useState("");
   // The list shows the quarter's lectures, or its open assignments.
   const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
@@ -189,13 +193,6 @@ export function LectureDesk({
         `${lecture.title} ${lecture.code}`.toLowerCase().includes(needle),
       )
     : lectures;
-
-  // Arriving with nothing open shows the class happening now or next.
-  const first = lectures[0]?.id;
-  useEffect(() => {
-    if (active && !entry && first && !narrow()) select(first);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, Boolean(entry), first]);
 
   // The two most recent lectures stay mounted so switching back is instant.
   const [recent, setRecent] = useState<CourseEntry[]>([]);
@@ -351,7 +348,9 @@ export function LectureDesk({
             key={item.courseId}
             hidden={entry?.courseId !== item.courseId}
           >
-            {renderWorkspace(item, active && entry?.courseId === item.courseId)}
+            <Activity mode={active && entry?.courseId === item.courseId ? "visible" : "hidden"}>
+              {renderWorkspace(item, active && entry?.courseId === item.courseId)}
+            </Activity>
           </div>
         ))}
       </div>

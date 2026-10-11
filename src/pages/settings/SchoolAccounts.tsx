@@ -1,3 +1,5 @@
+import { errorText } from "../../app/shared";
+import { notify as appNotify } from "../../app/notify";
 import { useEffect, useRef, useState } from "react";
 import {
   Badge,
@@ -189,7 +191,7 @@ function MatrixEditor({
       setConfidence([]);
       notify("Matrix pasted. Verify it against your card, then Connect.");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Matrix paste failed.");
+      appNotify.error(error);
     }
   };
   const recognize = async (file?: File) => {
@@ -212,7 +214,7 @@ function MatrixEditor({
         "Scan complete. Verify all letters against your card; highlighted cells need review.",
       );
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Matrix OCR failed.");
+      appNotify.error(error);
     } finally {
       resetScanInput.current?.();
       setRecognizing(false);
@@ -495,7 +497,7 @@ function Account({
         state: "error",
         step: "",
         message:
-          error instanceof Error ? error.message : "Sign-in could not start.",
+          errorText(error) ?? "Sign-in could not start.",
       });
       setBusy(false);
       await refresh().catch(() => undefined);
@@ -514,7 +516,7 @@ function Account({
         notify("Matrix copied. Paste it soon, then replace your clipboard.");
     } catch (error) {
       // Native commands reject with their error string.
-      notify(error instanceof Error ? error.message : String(error));
+      appNotify.error(error);
     }
   };
   const forget = async () => {
@@ -695,11 +697,7 @@ export function SchoolAccounts({
   };
   useEffect(() => {
     void refresh().catch((error) =>
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Credential vault is unavailable.",
-      ),
+      appNotify.error(error),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

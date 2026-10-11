@@ -307,19 +307,25 @@ p {
   padding: 22px 12px;
   font-size: calc(12px * var(--text));
 }
-.toast {
-  position: fixed;
+.appNotifications[data-position="bottom-center"] {
   bottom: 66px;
-  left: 50%;
-  transform: translateX(-50%);
+  width: max-content;
+  max-width: 80vw;
+}
+.workspaceNotice {
   background: var(--ink);
   color: var(--bg);
+  border: 0;
   border-radius: 9px;
   padding: 9px 14px;
-  font-size: calc(12.5px * var(--text));
-  z-index: 60;
-  max-width: 80vw;
   box-shadow: var(--shadow);
+}
+.workspaceNotice::before {
+  display: none;
+}
+.workspaceNoticeText {
+  color: var(--bg);
+  font-size: calc(12.5px * var(--text));
 }
 
 /* ---------- school status ---------- */
@@ -1693,7 +1699,7 @@ p {
   .schoolStatusAccount small {
     max-width: min(34vw, 150px);
   }
-  .toast {
+  .appNotifications[data-position="bottom-center"] {
     bottom: 150px;
   }
   .coursesBody {
@@ -2993,14 +2999,6 @@ p {
 .finderFoot > span {
   flex: 1;
   color: var(--muted);
-}
-
-/* Keep-alive page slots: inactive pages stay mounted but are not shown. */
-.pageSlot {
-  display: contents;
-}
-.pageSlot.inactive {
-  display: none;
 }
 
 .todayNavigation {

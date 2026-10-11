@@ -1,3 +1,5 @@
+import { notify as appNotify } from "../../app/notify";
+import { settingsSection } from "../../app/routes";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../core/model";
@@ -82,6 +84,7 @@ export function Settings({
   runScheduledTask,
   refreshReferences,
   matrixOcrAvailable = false,
+  capabilitiesReady = true,
 }: {
   platform: Platform;
   data: Workspace;
@@ -97,6 +100,7 @@ export function Settings({
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
   refreshReferences?: () => Promise<string>;
   matrixOcrAvailable?: boolean;
+  capabilitiesReady?: boolean;
 }) {
   const [developer, setDeveloper] = useDeveloperMode();
   const [query, setQuery] = useState("");
@@ -106,7 +110,9 @@ export function Settings({
     platform,
     developer,
     extensionsAvailable:
-      desktop && caps["site-customization"].support === "supported",
+      desktop &&
+      (!capabilitiesReady ||
+        caps["site-customization"].support === "supported"),
   };
   const sections = visibleSections(context);
   const results = useMemo(
@@ -114,11 +120,11 @@ export function Settings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [query, platform, context.extensionsAvailable, data.settings.locale],
   );
-  const current =
-    sections.some((item) => item.id === section) ||
-    (sectionParent(section) !== section && sectionSupported(section, context))
-      ? section
-      : sections[0].id;
+  const current = settingsSection(section, context);
+  useEffect(() => {
+    if (section === "extensions" && !capabilitiesReady) return;
+    if (current !== section) setSection(current);
+  }, [current, section, setSection, capabilitiesReady]);
 
   const open = (target: Section, id?: string) => {
     const locked =
@@ -159,15 +165,13 @@ export function Settings({
     try {
       workspaceActions.setAdmissionYear(year);
     } catch (error) {
-      notify(error instanceof Error ? error.message : String(error));
+      appNotify.error(error);
     }
   };
   const customizeSite = (fn: (d: Workspace) => Workspace) => {
     void performAction("customize-school-site", platform, () =>
       update(fn),
-    ).catch((error) =>
-      notify(error instanceof Error ? error.message : "Action denied"),
-    );
+    ).catch((error) => appNotify.error(error));
   };
 
   const page =
@@ -186,9 +190,7 @@ export function Settings({
         update={update}
         setAdmissionYear={setAdmissionYear}
         refreshReferences={refreshReferences}
-        openSection={
-          sectionSupported("calendar", context) ? open : undefined
-        }
+        openSection={sectionSupported("calendar", context) ? open : undefined}
       />
     ) : current === "notifications" ? (
       <NotificationSettings
@@ -211,12 +213,7 @@ export function Settings({
     ) : current === "files" ? (
       <FilesSettings data={data} update={update} />
     ) : current === "backup" ? (
-      <BackupSettings
-        data={data}
-        update={update}
-        caps={caps}
-        notify={notify}
-      />
+      <BackupSettings data={data} update={update} caps={caps} notify={notify} />
     ) : current === "sources" ? (
       <DataUpdatesSettings
         data={data}
