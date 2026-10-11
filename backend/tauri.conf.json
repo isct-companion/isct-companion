@@ -11,7 +11,10 @@
   },
   "app": {
     "security": {
-      "assetProtocol": {"enable": true, "scope": []},
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      },
       "capabilities": [
         "main"
       ]
@@ -41,7 +44,16 @@
       "models/paddle/README.md",
       "models/paddle/PADDLE-LICENSE",
       "models/paddle/ONNX-RUNTIME-LICENSE",
-      "models/paddle/ONNX-THIRD-PARTY-NOTICES.txt"
-    ]
+      "models/paddle/ONNX-THIRD-PARTY-NOTICES.txt",
+      "../docs/legal/EULA.md",
+      "../docs/legal/EULA.ja.md"
+    ],
+    "licenseFile": "../docs/legal/EULA.md",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
   }
 }

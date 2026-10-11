@@ -305,20 +305,3 @@ button.calendarDay.open {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.aboutLicenses {
-  display: grid;
-  margin: 0 0 8px;
-  padding: 0;
-  list-style: none;
-}
-.aboutLicenses li {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: calc(12.5px * var(--text));
-}
-.aboutLicenses small {
-  color: var(--muted);
-}

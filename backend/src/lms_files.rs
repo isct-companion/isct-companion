@@ -50,7 +50,7 @@ pub enum Material {
         bytes: u64,
     },
     Folder {
-        files: Vec<crate::lms_downloader::ResolvedFile>,
+        files: Vec<crate::school_parser::lms::ResolvedFile>,
     },
     External {
         url: String,
@@ -444,7 +444,7 @@ pub(crate) fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), Stri
 
 /// The contract form of a resolved folder's files, as stored on its material.
 pub(crate) fn folder_contract(
-    files: &[crate::lms_downloader::ResolvedFile],
+    files: &[crate::school_parser::lms::ResolvedFile],
 ) -> Vec<crate::contracts::FolderFile> {
     files
         .iter()
@@ -458,8 +458,8 @@ pub(crate) fn folder_contract(
 /// A folder's files kept from its last read, when every entry is still an LMS file.
 pub(crate) fn stored_folder_files(
     row: Option<&serde_json::Value>,
-) -> Option<Vec<crate::lms_downloader::ResolvedFile>> {
-    let files: Vec<crate::lms_downloader::ResolvedFile> =
+) -> Option<Vec<crate::school_parser::lms::ResolvedFile>> {
+    let files: Vec<crate::school_parser::lms::ResolvedFile> =
         serde_json::from_value(row?.get("folderFiles")?.clone()).ok()?;
     (!files.is_empty()
         && files
@@ -720,44 +720,56 @@ pub async fn open_course_material(
                     return Ok(Material::Failed { reason: "invalid" });
                 }
             } else {
-                let downloader = app.state::<crate::lms_downloader::Downloader>();
-                match downloader.resolve(&app, &source_url, cmid, &module).await {
-                    Ok(crate::lms_downloader::ResolvedResource::File { url }) => {
-                        let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url) else {
-                            return Ok(Material::Failed { reason: "invalid" });
-                        };
-                        let _ = store.update_lms_resource_url(cmid, &source, &url);
-                        url_value
-                    }
-                    Ok(crate::lms_downloader::ResolvedResource::External { url }) => {
-                        if !safe_external_url(&url) {
+                #[cfg(mobile)]
+                {
+                    let _ = cmid;
+                    return Err("Course files are resolved in the desktop app".into());
+                }
+                #[cfg(desktop)]
+                {
+                    let downloader = app.state::<crate::lms_downloader::Downloader>();
+                    match downloader.resolve(&app, &source_url, cmid, &module).await {
+                        Ok(crate::lms_downloader::ResolvedResource::File { url }) => {
+                            let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url)
+                            else {
+                                return Ok(Material::Failed { reason: "invalid" });
+                            };
+                            let _ = store.update_lms_resource_url(cmid, &source, &url);
+                            url_value
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::External { url }) => {
+                            if !safe_external_url(&url) {
+                                return Ok(Material::Failed { reason: "invalid" });
+                            }
+                            let _ = store.update_lms_resource_url(cmid, &source, &url);
+                            return Ok(Material::External { url });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
+                            let _ = store.update_lms_folder_files(
+                                cmid,
+                                &source,
+                                &folder_contract(&files),
+                            );
+                            return Ok(Material::Folder { files });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Login)
+                        | Err(crate::lms_downloader::FetchError::Login) => {
+                            return Ok(Material::Failed { reason: "login" });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Unresolved) => {
+                            return Ok(Material::Failed {
+                                reason: "unresolved",
+                            });
+                        }
+                        Err(crate::lms_downloader::FetchError::Invalid) => {
                             return Ok(Material::Failed { reason: "invalid" });
                         }
-                        let _ = store.update_lms_resource_url(cmid, &source, &url);
-                        return Ok(Material::External { url });
-                    }
-                    Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
-                        let _ =
-                            store.update_lms_folder_files(cmid, &source, &folder_contract(&files));
-                        return Ok(Material::Folder { files });
-                    }
-                    Ok(crate::lms_downloader::ResolvedResource::Login)
-                    | Err(crate::lms_downloader::FetchError::Login) => {
-                        return Ok(Material::Failed { reason: "login" });
-                    }
-                    Ok(crate::lms_downloader::ResolvedResource::Unresolved) => {
-                        return Ok(Material::Failed {
-                            reason: "unresolved",
-                        });
-                    }
-                    Err(crate::lms_downloader::FetchError::Invalid) => {
-                        return Ok(Material::Failed { reason: "invalid" });
-                    }
-                    Err(crate::lms_downloader::FetchError::Timeout) => {
-                        return Ok(Material::Failed { reason: "timeout" });
-                    }
-                    Err(crate::lms_downloader::FetchError::Network) => {
-                        return Ok(Material::Failed { reason: "network" });
+                        Err(crate::lms_downloader::FetchError::Timeout) => {
+                            return Ok(Material::Failed { reason: "timeout" });
+                        }
+                        Err(crate::lms_downloader::FetchError::Network) => {
+                            return Ok(Material::Failed { reason: "network" });
+                        }
                     }
                 }
             }

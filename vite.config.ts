@@ -5,15 +5,32 @@ import {
   googleDriveClientId,
   oauthClientTarget,
 } from "./scripts/oauth-config.mjs";
+import { thirdPartyNotices } from "./scripts/third-party-notices.mjs";
 
 const { version } = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), thirdPartyNotices()],
   base: "./",
-  build: { outDir: "dist" },
+  build: {
+    outDir: "dist",
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "vendor",
+              test: /node_modules[\\/]/,
+              maxSize: 400_000,
+              includeDependenciesRecursively: false,
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 4173,
     watch: {

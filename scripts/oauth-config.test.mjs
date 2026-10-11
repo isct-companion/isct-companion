@@ -3,6 +3,7 @@ import {
   googleDriveClientId,
   googleRedirectScheme,
   iosInfoPlist,
+  nativeOAuthEnv,
   oauthClientTarget,
 } from "./oauth-config.mjs";
 
@@ -32,5 +33,19 @@ describe("build-time OAuth config", () => {
     expect(iosInfoPlist("1-ios.apps.googleusercontent.com")).toContain(
       "<string>com.googleusercontent.apps.1-ios</string>",
     );
+  });
+
+  it("hands the desktop client and its secret to the native build", () => {
+    const withSecret = {
+      "google-drive": { ...clients["google-drive"], "desktop-secret": "s" },
+    };
+    expect(nativeOAuthEnv(withSecret, {})).toEqual({
+      ISCT_GOOGLE_DESKTOP_CLIENT_ID: "1-desk.apps.googleusercontent.com",
+      ISCT_GOOGLE_DESKTOP_CLIENT_SECRET: "s",
+    });
+    expect(
+      nativeOAuthEnv(withSecret, { ISCT_GOOGLE_DESKTOP_CLIENT_SECRET: "ci" })
+        .ISCT_GOOGLE_DESKTOP_CLIENT_SECRET,
+    ).toBe("ci");
   });
 });

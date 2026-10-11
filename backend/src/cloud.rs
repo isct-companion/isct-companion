@@ -125,6 +125,47 @@ struct TokenResponse {
     expires_in: Option<u64>,
 }
 
+/// Google requires the client secret of a Desktop OAuth client in token
+/// requests, even with PKCE; Google documents it as not confidential for
+/// installed apps. `scripts/tauri.mjs` supplies both values at build time
+/// from config/oauth-clients.yaml, and the secret is only sent with the
+/// client it belongs to (not with a development override).
+const GOOGLE_DESKTOP_CLIENT_ID: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID");
+const GOOGLE_DESKTOP_CLIENT_SECRET: Option<&str> =
+    option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET");
+
+fn client_secret_for(provider: CloudProvider, client_id: &str) -> Option<&'static str> {
+    if provider != CloudProvider::GoogleDrive || GOOGLE_DESKTOP_CLIENT_ID != Some(client_id) {
+        return None;
+    }
+    GOOGLE_DESKTOP_CLIENT_SECRET.filter(|secret| !secret.is_empty())
+}
+
+/// Rejection message with the provider's own error code, e.g.
+/// `invalid_client`, so a misconfigured client is diagnosable.
+async fn rejection(prefix: &str, response: reqwest::Response) -> String {
+    #[derive(Deserialize)]
+    struct OAuthError {
+        error: Option<String>,
+        error_description: Option<String>,
+    }
+    let status = response.status().as_u16();
+    let detail = read_limited(response, 64 * 1024)
+        .await
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<OAuthError>(&bytes).ok())
+        .and_then(|body| match (body.error, body.error_description) {
+            (Some(code), Some(text)) => Some(format!("{code}: {text}")),
+            (Some(code), None) => Some(code),
+            (None, text) => text,
+        })
+        .map(|text| text.chars().filter(|c| !c.is_control()).take(200).collect::<String>());
+    match detail {
+        Some(text) => format!("{prefix} ({status} {text})"),
+        None => format!("{prefix} ({status})"),
+    }
+}
+
 fn provider_account(provider: CloudProvider) -> &'static str {
     match provider {
         CloudProvider::GoogleDrive => "google-drive",
@@ -426,18 +467,24 @@ impl<V: SecretVault> DesktopCloudService<V> {
         let response = self
             .client
             .post(token_endpoint)
-            .form(&[
-                ("client_id", client_id),
-                ("code", callback.as_str()),
-                ("code_verifier", verifier.as_str()),
-                ("redirect_uri", redirect.as_str()),
-                ("grant_type", "authorization_code"),
-            ])
+            .form(&{
+                let mut form = vec![
+                    ("client_id", client_id),
+                    ("code", callback.as_str()),
+                    ("code_verifier", verifier.as_str()),
+                    ("redirect_uri", redirect.as_str()),
+                    ("grant_type", "authorization_code"),
+                ];
+                if let Some(secret) = client_secret_for(provider, client_id) {
+                    form.push(("client_secret", secret));
+                }
+                form
+            })
             .send()
             .await
             .map_err(|_| "OAuth token exchange failed.".to_string())?;
         if response.status().is_redirection() || !response.status().is_success() {
-            return Err("OAuth token exchange was rejected.".into());
+            return Err(rejection("OAuth token exchange was rejected.", response).await);
         }
         let token_bytes = read_limited(response, 1024 * 1024).await?;
         let token: TokenResponse = serde_json::from_slice(&token_bytes)
@@ -512,16 +559,22 @@ impl<V: SecretVault> DesktopCloudService<V> {
             let response = self
                 .client
                 .post(endpoint)
-                .form(&[
-                    ("client_id", token.client_id.as_str()),
-                    ("refresh_token", refresh.as_str()),
-                    ("grant_type", "refresh_token"),
-                ])
+                .form(&{
+                    let mut form = vec![
+                        ("client_id", token.client_id.as_str()),
+                        ("refresh_token", refresh.as_str()),
+                        ("grant_type", "refresh_token"),
+                    ];
+                    if let Some(secret) = client_secret_for(provider, &token.client_id) {
+                        form.push(("client_secret", secret));
+                    }
+                    form
+                })
                 .send()
                 .await
                 .map_err(|_| "Cloud token refresh failed.".to_string())?;
             if response.status().is_redirection() || !response.status().is_success() {
-                return Err("Cloud token refresh was rejected.".into());
+                return Err(rejection("Cloud token refresh was rejected.", response).await);
             }
             let refreshed_bytes = read_limited(response, 1024 * 1024).await?;
             let refreshed: TokenResponse = serde_json::from_slice(&refreshed_bytes)
