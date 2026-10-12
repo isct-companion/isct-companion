@@ -1,8 +1,11 @@
 name: iOS and iPadOS build
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_call:
+    inputs:
+      upload_testflight:
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       upload_testflight:
@@ -111,7 +114,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: ios-ipados-${{ github.run_number }}
+          name: mobile-ios-ipados
           path: artifacts/ios/
           if-no-files-found: warn
           retention-days: 14
