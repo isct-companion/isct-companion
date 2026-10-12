@@ -3,7 +3,8 @@ import PackageDescription
 
 let package = Package(
     name: "tauri-plugin-google-drive-auth",
-    platforms: [.iOS(.v17)],
+    // SwiftPM also validates the host platform during iOS cross-compilation.
+    platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(
             name: "tauri-plugin-google-drive-auth",
