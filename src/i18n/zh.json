@@ -757,5 +757,15 @@
   "Forget": "忘记",
   "Forget saved {{title}} credentials on this device?": "忘记此设备上保存的 {{title}} 登录信息？",
   "Delete {{title}}? This cannot be undone.": "删除 {{title}}？此操作无法撤销。",
-  "Delete {{title}}?": "删除 {{title}}？"
+  "Delete {{title}}?": "删除 {{title}}？",
+  "ScienceTokyo Wi-Fi": "ScienceTokyo Wi-Fi",
+  "Connecting…": "正在连接…",
+  "Save the Tokyo Tech Portal account first": "请先保存 Tokyo Tech Portal 账户",
+  "The portal refused the Tokyo Tech account": "认证页面拒绝了 Tokyo Tech 账户",
+  "Sign-in failed": "登录失败",
+  "Campus Wi-Fi": "校园 Wi-Fi",
+  "Signed in to ScienceTokyo": "已登录 ScienceTokyo",
+  "Already connected": "已处于联网状态",
+  "Joins ScienceTokyo and signs in to its login page with your Tokyo Tech Portal ID and password.": "连接 ScienceTokyo，并用 Tokyo Tech Portal 的账号和密码登录其认证页面。",
+  "Runs only when you click. Sign-in lasts 12 hours; click again after it expires.": "只在点击时执行。认证有效期 12 小时，过期后请再次点击。"
 }
