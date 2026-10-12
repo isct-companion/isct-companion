@@ -121,6 +121,7 @@ describe("Tauri bridge contract", () => {
       if (command === "navigate_school_web") return true;
       if (command === "set_school_web_zoom") return true;
       if (command === "school_web_back") return false;
+      if (command === "school_web_forward") return true;
       if (command === "open_school_site")
         return {
           site: "science-portal",
@@ -173,6 +174,10 @@ describe("Tauri bridge contract", () => {
       scale: 1.2,
     });
     expect(invoke).toHaveBeenNthCalledWith(6, "school_web_back", {
+      site: "kyomu",
+    });
+    await expect(bridge.schoolWebForward?.("kyomu")).resolves.toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("school_web_forward", {
       site: "kyomu",
     });
   });

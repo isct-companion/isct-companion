@@ -3,6 +3,7 @@ import { matchRoutes, replace, type RouteObject } from "react-router";
 import type { CourseTab } from "../pages/courses/CourseDetails";
 import type { Course } from "../core/model";
 import type { Page, Section } from "./shared";
+import { isStacked } from "./form-factor";
 import {
   sectionParent,
   sectionSupported,
@@ -24,6 +25,7 @@ export const routePatterns = {
   course: "/lectures/:courseId",
   assignment: "/lectures/:courseId/assignments/:aid",
   web: "/web",
+  webSite: "/web/:site",
   settings: "/settings",
   section: "/settings/:section",
 } as const;
@@ -35,7 +37,8 @@ export const paths = {
     courseId
       ? `${routePatterns.lectures}/${encode(courseId)}${assignmentId ? `/assignments/${encode(assignmentId)}` : ""}`
       : routePatterns.lectures,
-  web: () => routePatterns.web,
+  web: (site?: string) =>
+    site ? `${routePatterns.web}/${encode(site)}` : routePatterns.web,
   settings: (section?: Section) =>
     section ? `${routePatterns.settings}/${section}` : routePatterns.settings,
   page: (page: Page) => paths[page](),
@@ -76,7 +79,7 @@ export function parseRoute(location: string) {
       ? "lectures"
       : id === "settings" || id === "section"
         ? "settings"
-        : id === "web"
+        : id === "web" || id === "webSite"
           ? "web"
           : "home";
   return {
@@ -128,12 +131,18 @@ export function routeRedirect(
   options: {
     context?: SectionContext;
     courses?: Pick<Course, "id" | "deletedAt">[];
+    /** The mobile shell shows the bare /settings route as the section list. */
+    stacked?: boolean;
   } = {},
 ) {
   const route = parseRoute(location);
   let target: string | undefined;
   if (!route.matched) target = paths.home();
-  else if (route.page === "settings" && !isSection(route.section))
+  else if (
+    route.page === "settings" &&
+    !isSection(route.section) &&
+    !(options.stacked && route.section === undefined)
+  )
     target = paths.settings("accounts");
   else if (
     route.page === "settings" &&
@@ -171,9 +180,12 @@ export function workspaceRoutes(Layout: ComponentType): RouteObject[] {
           ...(id === "settings"
             ? {
                 loader: ({ request }: { request: Request }) =>
-                  replace(
-                    paths.settings("accounts") + new URL(request.url).search,
-                  ),
+                  isStacked()
+                    ? null
+                    : replace(
+                        paths.settings("accounts") +
+                          new URL(request.url).search,
+                      ),
               }
             : {}),
         })),

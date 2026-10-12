@@ -16,20 +16,6 @@ export default defineConfig({
   base: "./",
   build: {
     outDir: "dist",
-    rolldownOptions: {
-      output: {
-        codeSplitting: {
-          groups: [
-            {
-              name: "vendor",
-              test: /node_modules[\\/]/,
-              maxSize: 400_000,
-              includeDependenciesRecursively: false,
-            },
-          ],
-        },
-      },
-    },
   },
   server: {
     port: 4173,
@@ -40,7 +26,7 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
     __GOOGLE_DRIVE_CLIENT_ID__: JSON.stringify(
-      googleDriveClientId(oauthClientTarget()),
+      googleDriveClientId(oauthClientTarget(process.env.ISCT_BUILD_TARGET)),
     ),
   },
 });

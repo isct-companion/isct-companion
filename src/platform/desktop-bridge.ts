@@ -8,6 +8,12 @@ import type { SyllabusCourse } from "../core/syllabus";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop" | "native-mobile";
+/** Rust's `std::env::consts::OS` for this build, injected at startup. */
+export type NativeOs = "macos" | "ios" | "android" | "windows" | "linux";
+export const nativeOs = (): NativeOs | undefined =>
+  typeof window === "undefined"
+    ? undefined
+    : window.__ISCT_COMPANION_NATIVE_OS__;
 export type SchoolSite =
   | "science-portal"
   | "science-lms"
@@ -180,7 +186,27 @@ export type NativeCapabilitySnapshot = {
   syllabusSearch: boolean;
   matrixOcr: boolean;
 };
-export type CloudProvider = "google-drive" | "onedrive";
+export type CloudProvider = "google-drive" | "onedrive" | "icloud";
+/** Automatic sync, per device; contract in docs/cloud-sync.md. */
+export type CloudSyncProvider = "icloud" | "google-drive";
+export type CloudSyncVersion = {
+  id: string;
+  provider: CloudSyncProvider;
+  savedAt: string;
+  device: string;
+};
+export type CloudSyncState = {
+  syncing: boolean;
+  providers: {
+    provider: CloudSyncProvider;
+    enabled: boolean;
+    lastSyncedAt?: string;
+    error?: string;
+  }[];
+  /** Earlier cloud copies, newest first. */
+  versions: CloudSyncVersion[];
+};
+
 export type CloudSyncResult = {
   state: "backed-up" | "up-to-date" | "conflict" | "restored";
   revision: number;
@@ -199,7 +225,8 @@ export type ListenNative = <T>(
 export interface DesktopBridge {
   runtime: DesktopRuntime;
   target: NativeTarget;
-  platform: string;
+  /** The build's operating system; see `nativeOs`. */
+  os?: NativeOs;
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
   resolveSchoolUrl(url: string): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
@@ -247,6 +274,7 @@ export interface DesktopBridge {
   navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
   /** Load the view's previous page as a fresh GET; false when there is none. */
   schoolWebBack?(site: SchoolSite): Promise<boolean>;
+  schoolWebForward?(site: SchoolSite): Promise<boolean>;
   setSchoolWebZoom?(site: SchoolSite, scale: number): Promise<boolean>;
   onSchoolWebUrl?(
     callback: (request: { site: SchoolSite; url: string }) => void,
@@ -297,6 +325,21 @@ export interface DesktopBridge {
     redirectUri: string,
   ): Promise<boolean>;
   cloudAuthorizationStatus(): Promise<CloudProvider[]>;
+  schoolRefreshEvent?(event: {
+    kind: "account-active" | "foreground" | "background" | "lecture-opened";
+    profile?: SchoolAuthProfile;
+    courseId?: number;
+    network?: string;
+  }): Promise<void>;
+  cloudLifecycle?(kind: "foreground" | "background"): Promise<void>;
+  cloudSyncState?(): Promise<CloudSyncState>;
+  setCloudSyncProvider?(
+    provider: CloudSyncProvider,
+    enabled: boolean,
+  ): Promise<CloudSyncState>;
+  syncCloudNow?(): Promise<CloudSyncState>;
+  restoreCloudVersion?(id: string): Promise<CloudSyncState>;
+  onCloudSyncState?(callback: (state: CloudSyncState) => void): () => void;
   disconnectCloud(provider: CloudProvider): Promise<boolean>;
   backupCloudWorkspace(
     provider: CloudProvider,
@@ -304,7 +347,12 @@ export interface DesktopBridge {
   ): Promise<CloudSyncResult>;
   restoreCloudWorkspace(provider: CloudProvider): Promise<CloudSyncResult>;
   cloudCredentialSyncStatus(): Promise<boolean>;
+  cloudCredentialBackupStatus(provider: CloudProvider): Promise<boolean>;
   setCloudCredentialSyncPassword(password: string): Promise<boolean>;
+  syncCloudCredentials(
+    provider: CloudProvider,
+    restoreExisting: boolean,
+  ): Promise<boolean>;
   clearCloudCredentialSyncPassword(): Promise<boolean>;
   syllabusCourse(url: string, language: "en" | "ja"): Promise<SyllabusCourse>;
   catalogSyncDepartment(
@@ -464,7 +512,7 @@ export function createTauriDesktopBridge(
   return {
     runtime: "tauri",
     target,
-    platform: navigator.platform,
+    os: nativeOs(),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url) => result("resolve_school_url", { url }),
     openExternal: async (url) => {
@@ -540,6 +588,7 @@ export function createTauriDesktopBridge(
     navigateSchoolWeb: (site, url) =>
       booleanCommand("navigate_school_web", { site, url }),
     schoolWebBack: (site) => booleanCommand("school_web_back", { site }),
+    schoolWebForward: (site) => booleanCommand("school_web_forward", { site }),
     setSchoolWebZoom: (site, scale) =>
       booleanCommand("set_school_web_zoom", { site, scale }),
     onSchoolWebUrl: (callback) => {
@@ -750,6 +799,30 @@ export function createTauriDesktopBridge(
       booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
     cloudAuthorizationStatus: () =>
       result<CloudProvider[]>("cloud_authorization_status"),
+    schoolRefreshEvent: (event) =>
+      result<void>("school_refresh_event", { event }),
+    cloudLifecycle: (kind) => result<void>("cloud_lifecycle", { kind }),
+    cloudSyncState: () => result<CloudSyncState>("cloud_sync_state"),
+    setCloudSyncProvider: (provider, enabled) =>
+      result<CloudSyncState>("set_cloud_sync_provider", { provider, enabled }),
+    syncCloudNow: () => result<CloudSyncState>("sync_cloud_now"),
+    restoreCloudVersion: (id) =>
+      result<CloudSyncState>("restore_cloud_version", { id }),
+    onCloudSyncState: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<CloudSyncState>("cloud-sync-state", (payload) => {
+        if (!disposed && payload && Array.isArray(payload.providers))
+          callback(payload);
+      }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
     disconnectCloud: (provider) =>
       booleanCommand("disconnect_cloud", { provider }),
     backupCloudWorkspace: (provider, overwrite) =>
@@ -758,8 +831,12 @@ export function createTauriDesktopBridge(
       result("cloud_restore_workspace", { provider }),
     cloudCredentialSyncStatus: () =>
       booleanCommand("cloud_credential_sync_status"),
+    cloudCredentialBackupStatus: (provider) =>
+      booleanCommand("cloud_credential_backup_status", { provider }),
     setCloudCredentialSyncPassword: (password) =>
       booleanCommand("set_cloud_credential_sync_password", { password }),
+    syncCloudCredentials: (provider, restoreExisting) =>
+      booleanCommand("sync_cloud_credentials", { provider, restoreExisting }),
     clearCloudCredentialSyncPassword: () =>
       booleanCommand("clear_cloud_credential_sync_password"),
     syllabusCourse: async (url, language) => {
@@ -842,6 +919,8 @@ declare global {
   interface Window {
     /** Set by the trusted native bootstrap from its compile/runtime target. */
     __ISCT_COMPANION_NATIVE_TARGET__?: NativeTarget;
+    /** Set by the same bootstrap from the binary's compile-time OS. */
+    __ISCT_COMPANION_NATIVE_OS__?: NativeOs;
   }
 }
 

@@ -23,6 +23,7 @@ const fixture = vi.hoisted(() => ({
   lectureCleanup: vi.fn(),
   retry: vi.fn(),
   pull: vi.fn(),
+  refreshEvent: vi.fn().mockResolvedValue(undefined),
   platform: "native-desktop",
 }));
 vi.mock("../store/workspace", () => ({
@@ -54,6 +55,7 @@ vi.mock("./native", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   desktopBridge: {
     getRuntimeCapabilities: fixture.capabilities,
+    schoolRefreshEvent: fixture.refreshEvent,
     onWorkspaceChanged: () => () => {},
     onSchoolIngest: (callback: (event: SchoolIngestOutcome) => void) => {
       fixture.ingest.add(callback);
@@ -120,6 +122,7 @@ vi.mock("../pages/today/lms/LmsWorkspace", () => ({
 }));
 import App, { WorkspaceApp } from "./App";
 import { paths, workspaceRoutes } from "./routes";
+import { STACKED_QUERY } from "./form-factor";
 import { notify } from "./notify";
 import i18n from "../i18n";
 
@@ -148,7 +151,7 @@ const go = async (target: string) => {
     await router.navigate(target);
   });
 };
-const currentPage = () => host.querySelector(".workspaceMain");
+const currentPage = () => host.querySelector(".workspaceMain, .mobileMain");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -414,26 +417,25 @@ describe("hash-driven desktop navigation", () => {
       effectCount,
     );
   });
-  it("fills LMS details once per session and retries a failed fill after reentry", async () => {
+  it("reports lecture opens to Rust without starting a frontend pull", async () => {
     fixture.state.workspace!.courses[0].source.externalId = "12";
     fixture.state.schoolRecords = {
       lmsCourses: [{ lmsId: 12 }],
       registrations: [],
     } as never;
-    fixture.pull.mockResolvedValueOnce([
-      { state: "failed", message: "Temporary failure" },
-    ]);
     await mount(paths.lectures("course-1"));
-    expect(fixture.pull).toHaveBeenCalledTimes(1);
-    await go(paths.home());
-    await go(paths.lectures("course-1"));
-    expect(fixture.pull).toHaveBeenCalledTimes(2);
-    expect(fixture.pull).toHaveBeenLastCalledWith("science-lms", {
-      lmsCourseId: 12,
+    expect(fixture.refreshEvent).toHaveBeenCalledWith({
+      kind: "lecture-opened",
+      courseId: 12,
     });
+    expect(fixture.pull).not.toHaveBeenCalled();
     await go(paths.home());
     await go(paths.lectures("course-1"));
-    expect(fixture.pull).toHaveBeenCalledTimes(2);
+    expect(fixture.refreshEvent).toHaveBeenLastCalledWith({
+      kind: "lecture-opened",
+      courseId: 12,
+    });
+    expect(fixture.pull).not.toHaveBeenCalled();
   });
   it("retains settings subpage DOM, disclosure state and scroll across page switches", async () => {
     await mount(paths.settings("appearance"));
@@ -559,5 +561,121 @@ describe("hash-driven desktop navigation", () => {
     expect(document.querySelector(".workspaceNotice")?.textContent).toContain(
       "Plain Tauri rejection",
     );
+  });
+});
+
+describe("mobile shell", () => {
+  const desktopMedia = window.matchMedia;
+  beforeEach(() => {
+    window.matchMedia = ((media: string) => ({
+      media,
+      matches: media === STACKED_QUERY,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as never;
+  });
+  afterEach(() => {
+    window.matchMedia = desktopMedia;
+  });
+
+  it("drops the fixed status bar and shows four bottom tabs", async () => {
+    await mount(paths.home());
+    expect(host.querySelector(".mobileShell")).not.toBeNull();
+    expect(host.querySelector(".schoolStatusBar")).toBeNull();
+    expect(
+      [...host.querySelectorAll(".mobileTabs button")].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Home", "Lectures", "Web", "Settings"]);
+    expect(host.querySelector(".mobileStatusDot")).not.toBeNull();
+  });
+
+  it("keeps bare /settings as the section list and pushes a section", async () => {
+    await mount(paths.settings());
+    expect(window.location.hash).toBe("#" + paths.settings());
+    expect(host.querySelector(".settings.list")).not.toBeNull();
+    const appearance = [
+      ...host.querySelectorAll<HTMLButtonElement>(".settingsNav button"),
+    ].find((button) => button.textContent?.trim() === "Appearance")!;
+    await act(async () => appearance.click());
+    expect(window.location.hash).toBe("#" + paths.settings("appearance"));
+    expect(router.state.historyAction).toBe("PUSH");
+    expect(host.querySelector(".settings.detail .settingsBack")).not.toBeNull();
+  });
+
+  it("lists school services on Web and browses one through the route", async () => {
+    await mount(paths.web());
+    const rows = [...host.querySelectorAll<HTMLButtonElement>(".mobileWebRow")];
+    expect(rows.length).toBeGreaterThan(3);
+    expect(host.querySelector(".servicePicker")).toBeNull();
+    await waitFor(() => expect(fixture.capabilities).toHaveBeenCalled());
+    const lms = rows.find((row) => row.dataset.site === "science-lms")!;
+    await act(async () => lms.click());
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#" + paths.web("science-lms")),
+    );
+    expect(host.querySelector(".mobileBrowserBar")).not.toBeNull();
+    expect(host.querySelector(".mobileBrowserTitle")?.textContent).toContain(
+      "LMS",
+    );
+    // Browsing marks the Web tab; tapping it again opens the services sheet.
+    const webTab = [
+      ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
+    ].find((button) => button.querySelector(".mobileTabMenuMark"))!;
+    expect(webTab).toBeDefined();
+    await act(async () => webTab.click());
+    await waitFor(() =>
+      expect(document.querySelector(".mobileSiteSheet")).not.toBeNull(),
+    );
+    expect(window.location.hash).toBe("#" + paths.web("science-lms"));
+  });
+  it("goes up one level, reusing the parent entry when it is just below", async () => {
+    await mount(paths.settings());
+    const appearance = [
+      ...host.querySelectorAll<HTMLButtonElement>(".settingsNav button"),
+    ].find((button) => button.textContent?.trim() === "Appearance")!;
+    await act(async () => appearance.click());
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settingsBack")!.click(),
+    );
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#" + paths.settings()),
+    );
+    expect(router.state.historyAction).toBe("POP");
+  });
+
+  it("opened deep, back replaces with the parent instead of leaving", async () => {
+    await mount(paths.settings("appearance"));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settingsBack")!.click(),
+    );
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#" + paths.settings()),
+    );
+    expect(router.state.historyAction).toBe("REPLACE");
+  });
+
+  it("tapping the current tab again returns to its root", async () => {
+    await mount(paths.settings("appearance"));
+    const settingsTab = [
+      ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
+    ].find((button) => button.textContent === "Settings")!;
+    await act(async () => settingsTab.click());
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#" + paths.settings()),
+    );
+    await go(paths.home("week"));
+    const homeTab = [
+      ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
+    ].find((button) => button.textContent === "Home")!;
+    await act(async () => homeTab.click());
+    await waitFor(() => expect(window.location.hash).toBe("#" + paths.home()));
+  });
+
+  it("opens a lecture as a dialog over the list", async () => {
+    await mount(paths.lectures("course-1"));
+    const content = host.querySelector(".lectureContent");
+    expect(content?.getAttribute("role")).toBe("dialog");
+    expect(host.querySelector(".testReader")).not.toBeNull();
   });
 });

@@ -17,6 +17,12 @@ const clients = {
 describe("build-time OAuth config", () => {
   it("picks the client type from Tauri's target platform", () => {
     expect(oauthClientTarget("ios")).toBe("ios");
+    expect(oauthClientTarget(undefined, { PLATFORM_NAME: "iphoneos" })).toBe(
+      "ios",
+    );
+    expect(
+      oauthClientTarget(undefined, { SDK_NAME: "iphonesimulator27.0" }),
+    ).toBe("ios");
     expect(oauthClientTarget("android")).toBe("android");
     expect(oauthClientTarget("darwin")).toBe("desktop");
     expect(oauthClientTarget(undefined)).toBe("desktop");
@@ -33,6 +39,9 @@ describe("build-time OAuth config", () => {
     expect(iosInfoPlist("1-ios.apps.googleusercontent.com")).toContain(
       "<string>com.googleusercontent.apps.1-ios</string>",
     );
+    expect(iosInfoPlist("1-ios.apps.googleusercontent.com")).toContain(
+      "<key>GIDClientID</key>",
+    );
   });
 
   it("hands the desktop client and its secret to the native build", () => {
@@ -40,6 +49,8 @@ describe("build-time OAuth config", () => {
       "google-drive": { ...clients["google-drive"], "desktop-secret": "s" },
     };
     expect(nativeOAuthEnv(withSecret, {})).toEqual({
+      ISCT_GOOGLE_IOS_CLIENT_ID: "1-ios.apps.googleusercontent.com",
+      ISCT_GOOGLE_ANDROID_CLIENT_ID: "",
       ISCT_GOOGLE_DESKTOP_CLIENT_ID: "1-desk.apps.googleusercontent.com",
       ISCT_GOOGLE_DESKTOP_CLIENT_SECRET: "s",
     });

@@ -488,7 +488,7 @@ export type Notifications = {
 };
 
 export type CloudSettings = {
-  provider: "none" | "google-drive" | "onedrive";
+  provider: "none" | "google-drive" | "onedrive" | "icloud";
   clientId: string;
   redirectUri?: string;
   conflict: "keep-current" | "use-latest" | "resolve-manually";

@@ -12,6 +12,7 @@ import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
 import { t } from "../../i18n";
 import type { CourseEntry } from "../today/lms/LmsWorkspace";
+import { useFormFactor } from "../../app/form-factor";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const submitted = (a: Assignment) =>
@@ -52,6 +53,8 @@ export function LectureDesk({
   /** Brings a hidden assignment back to Today and this list. */
   restoreAssignment?: (assignmentId: string) => void;
 }) {
+  // Single-column layouts open the lecture as a dialog over the list.
+  const stacked = useFormFactor() === "mobile";
   // The quarter shown here is browsed on its own; it starts at the current one.
   const [shownTerm, setShownTerm] = useState(term);
   const lastTerm = useRef(term);
@@ -336,7 +339,11 @@ export function LectureDesk({
           </p>
         )}
       </nav>
-      <div className="lectureContent">
+      <div
+        className="lectureContent"
+        role={stacked && entry ? "dialog" : undefined}
+        aria-modal={stacked && entry ? true : undefined}
+      >
         {entry && (
           <button type="button" className="lectureBack" onClick={clear}>
             ‹ {t("Lectures")}

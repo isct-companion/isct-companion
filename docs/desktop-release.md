@@ -67,14 +67,23 @@ Encode it using `openssl base64 -A -in certificate.p12 -out certificate-base64.t
 
 Add these Actions secrets to the **private** repository:
 
-| Secret | Value |
-| --- | --- |
-| `APPLE_CERTIFICATE` | Base64 contents of the `.p12` file |
-| `APPLE_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
-| `APPLE_SIGNING_IDENTITY` | Full `Developer ID Application: Name (TEAMID)` identity |
-| `APPLE_ID` | Apple account email |
-| `APPLE_PASSWORD` | Apple **app-specific password** for notarization |
-| `APPLE_TEAM_ID` | Team ID from the membership page |
+| Secret                       | Value                                                   |
+| ---------------------------- | ------------------------------------------------------- |
+| `APPLE_CERTIFICATE`          | Base64 contents of the `.p12` file                      |
+| `APPLE_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12`                 |
+| `APPLE_SIGNING_IDENTITY`     | Full `Developer ID Application: Name (TEAMID)` identity |
+| `APPLE_MACOS_PROVISIONING_PROFILE` | Base64 contents of the Developer ID provisioning profile |
+| `APPLE_API_KEY_ID`           | App Store Connect team API key ID                       |
+| `APPLE_API_ISSUER`           | App Store Connect issuer ID                             |
+| `APPLE_API_PRIVATE_KEY`      | Contents of the matching `.p8` team API private key     |
+
+The provisioning profile must be a macOS **Developer ID** profile for
+`app.isctcompanion` and authorize both `iCloud.app.isctcompanion` and the
+`FB7AL944GK.app.isctcompanion` Keychain access group. Encode it with
+`openssl base64 -A -in profile.provisionprofile -out profile-base64.txt`.
+The build validates the profile and embeds it as
+`Contents/embedded.provisionprofile`; this is required for CloudKit and
+synchronizable Keychain access in the distributed desktop app.
 
 Select `sign_macos` when dispatching a new build. For automatic signed tag
 releases, also set the repository Actions variable `MACOS_SIGNING_ENABLED`

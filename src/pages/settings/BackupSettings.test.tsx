@@ -1,0 +1,156 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MantineProvider } from "@mantine/core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appTheme } from "../../app/theme";
+import { seedWorkspace } from "../../core/model";
+import type { CloudSyncState } from "../../platform/desktop-bridge";
+
+const mocks = vi.hoisted(() => {
+  const state = (enabled: boolean): CloudSyncState => ({
+    syncing: false,
+    providers: [
+      {
+        provider: "icloud",
+        enabled: true,
+        lastSyncedAt: "2026-10-12T03:00:00Z",
+      },
+      { provider: "google-drive", enabled },
+    ],
+    versions: [
+      {
+        id: "v1",
+        provider: "icloud",
+        savedAt: "2026-10-12T02:00:00Z",
+        device: "MacBook",
+      },
+    ],
+  });
+  return {
+    state,
+    listeners: [] as Array<(state: CloudSyncState) => void>,
+    bridge: {
+      cloudSyncState: vi.fn(async () => state(false)),
+      setCloudSyncProvider: vi.fn(async (_: string, enabled: boolean) =>
+        state(enabled),
+      ),
+      syncCloudNow: vi.fn(async () => state(false)),
+      restoreCloudVersion: vi.fn(async () => state(false)),
+      onCloudSyncState: vi.fn((callback: (state: CloudSyncState) => void) => {
+        mocks.listeners.push(callback);
+        return vi.fn();
+      }),
+      cloudCredentialSyncStatus: vi.fn(async () => false),
+      cloudCredentialBackupStatus: vi.fn(async () => false),
+    },
+  };
+});
+vi.mock("../../app/native", () => ({
+  desktopBridge: mocks.bridge,
+  saveExportFile: vi.fn(),
+}));
+vi.mock("../../store/workspace", () => ({
+  workspaceActions: { refreshSchool: vi.fn(async () => {}) },
+}));
+
+import { BackupSettings } from "./BackupSettings";
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+let host: HTMLDivElement;
+let root: Root;
+const notify = vi.fn();
+const caps = {
+  "cloud-sync": { support: "supported", readiness: "ready", reason: "" },
+} as never;
+
+const flush = () =>
+  act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+const button = (name: string) =>
+  [...host.querySelectorAll("button")].find(
+    (item) => item.textContent?.trim() === name,
+  ) as HTMLButtonElement;
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  mocks.listeners.length = 0;
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <MantineProvider theme={appTheme} defaultColorScheme="light">
+        <BackupSettings
+          data={seedWorkspace()}
+          update={vi.fn()}
+          caps={caps}
+          notify={notify}
+        />
+      </MantineProvider>,
+    );
+  });
+  await flush();
+});
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+});
+
+describe("BackupSettings", () => {
+  it("lists providers with sync status and no manual backup or conflict UI", () => {
+    const text = host.textContent ?? "";
+    expect(text).toContain("iCloud");
+    expect(text).toContain("Google Drive");
+    expect(text).toContain("Sync now");
+    expect(text).not.toContain("Back up now");
+    expect(
+      host.querySelector('[data-setting="credential-keychain"]'),
+    ).not.toBeNull();
+    // Drive is off, so its encrypted credential flow stays hidden.
+    expect(host.querySelector('[data-setting="credential-sync"]')).toBeNull();
+  });
+
+  it("turns Google Drive on and then offers the encrypted credential flow", async () => {
+    const drive = host.querySelector<HTMLInputElement>(
+      '[data-setting="cloud"] input[type="checkbox"]',
+    )!;
+    await act(async () => drive.click());
+    await flush();
+    expect(mocks.bridge.setCloudSyncProvider).toHaveBeenCalledWith(
+      "google-drive",
+      true,
+    );
+    expect(
+      host.querySelector('[data-setting="credential-sync"]'),
+    ).not.toBeNull();
+    // Off: no password fields until Set up is chosen.
+    expect(host.querySelectorAll('input[type="password"]')).toHaveLength(0);
+    await act(async () => button("Set up").click());
+    expect(host.querySelectorAll('input[type="password"]')).toHaveLength(2);
+    expect(host.textContent).toContain(
+      "Encrypted with this password before upload.",
+    );
+    await act(async () => button("Cancel").click());
+    expect(host.querySelectorAll('input[type="password"]')).toHaveLength(0);
+  });
+
+  it("syncs on request and restores a kept version after confirming", async () => {
+    await act(async () => button("Sync now").click());
+    expect(mocks.bridge.syncCloudNow).toHaveBeenCalled();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await act(async () => button("Restore").click());
+    await flush();
+    expect(mocks.bridge.restoreCloudVersion).toHaveBeenCalledWith("v1");
+    expect(notify).toHaveBeenCalledWith("Restored the earlier version.");
+  });
+
+  it("follows native sync state events", async () => {
+    await act(async () =>
+      mocks.listeners[0]({ ...mocks.state(false), syncing: true }),
+    );
+    expect(host.textContent).toContain("Syncing…");
+  });
+});
