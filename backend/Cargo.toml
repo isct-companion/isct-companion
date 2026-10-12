@@ -62,6 +62,7 @@ objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CK
 # Campus Wi-Fi (campus_wifi.rs): Wi-Fi interface, its address, and DNS bound to it.
 objc2-core-wlan = { version = "0.3.2", default-features = false, features = ["std", "CWWiFiClient", "CWInterface"] }
 if-addrs = "0.14"
+ipnet = "2"
 hickory-resolver = { version = "0.25", default-features = false, features = ["tokio"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSResponder", "NSView"] }
 # School view PDF save hook (school_pdf_save.rs). Same versions wry already uses.

@@ -2,7 +2,7 @@ import { clockForPeriods } from "../core/user-schedule";
 import type { FinderCourse } from "../core/course-query";
 import { validSyllabusContent } from "../core/syllabus-content";
 import { pickLocalized, type Localized } from "../core/model";
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type { SyllabusCourse } from "../core/syllabus";
 
@@ -187,7 +187,21 @@ export type NativeCapabilitySnapshot = {
   matrixOcr: boolean;
 };
 export type CampusWifiOutcome =
-  "signed-in" | "already-online" | "needs-account" | "rejected";
+  | "signed-in"
+  | "already-online"
+  | "needs-account"
+  | "rejected"
+  | "science-tokyo-x";
+export type CampusWifiStatus =
+  "signed-in" | "sign-in-required" | "science-tokyo-x" | "other";
+/** Sign-in stages in order; "joining" is skipped when already on ScienceTokyo. */
+export const CAMPUS_WIFI_STEPS = [
+  "joining",
+  "opening-portal",
+  "signing-in",
+  "verifying",
+] as const;
+export type CampusWifiStep = (typeof CAMPUS_WIFI_STEPS)[number];
 export type CloudProvider = "google-drive" | "onedrive" | "icloud";
 /** Automatic sync, per device; contract in docs/cloud-sync.md. */
 export type CloudSyncProvider = "icloud" | "google-drive";
@@ -299,8 +313,17 @@ export interface DesktopBridge {
     callback: (request: { site: SchoolSite; url: string }) => void,
   ): () => void;
   onSchoolLoginStatus?(callback: (event: SchoolLoginEvent) => void): () => void;
-  /** Joins ScienceTokyo if needed and signs in once with the Tokyo Tech account (macOS builds only). */
-  campusWifiConnect?(): Promise<CampusWifiOutcome>;
+  /** What the Wi-Fi interface is on now (macOS builds only). */
+  campusWifiStatus?(): Promise<CampusWifiStatus>;
+  /**
+   * Joins ScienceTokyo if needed and signs in once with the Tokyo Tech account
+   * (macOS builds only). Returns "science-tokyo-x" without changing anything
+   * unless leaving ScienceTokyoX was confirmed.
+   */
+  campusWifiConnect?(
+    leaveScienceTokyoX: boolean,
+    onStep: (step: CampusWifiStep) => void,
+  ): Promise<CampusWifiOutcome>;
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;
@@ -557,7 +580,15 @@ export function createTauriDesktopBridge(
       };
     },
     schoolCredentialStatus: () => result("school_credential_status"),
-    campusWifiConnect: () => invokeCommand("campus_wifi_connect"),
+    campusWifiStatus: () => invokeCommand("campus_wifi_status"),
+    campusWifiConnect: (leaveScienceTokyoX, onStep) => {
+      const steps = new Channel<CampusWifiStep>();
+      steps.onmessage = onStep;
+      return invokeCommand("campus_wifi_connect", {
+        leaveScienceTokyoX,
+        onStep: steps,
+      });
+    },
     saveSchoolCredentials: (profile, credentials) =>
       booleanCommand("save_school_credentials", { profile, credentials }),
     deleteSchoolCredentials: (profile) =>

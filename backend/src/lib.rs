@@ -1674,7 +1674,9 @@ pub fn run() {
             probe_reference_source,
             refresh_reference_source,
             #[cfg(target_os = "macos")]
-            campus_wifi::campus_wifi_connect
+            campus_wifi::campus_wifi_connect,
+            #[cfg(target_os = "macos")]
+            campus_wifi::campus_wifi_status
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;

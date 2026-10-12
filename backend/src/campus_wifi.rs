@@ -37,6 +37,17 @@ use url::Url;
 const SSID: &str = "ScienceTokyo";
 const PASSPHRASE: &str = "STWireless";
 const CLIENT_PREFIX: [u8; 2] = [10, 2];
+/// ScienceTokyoX (802.1X, NOC ID) client ranges, Ookayama/Tamachi then
+/// Yokohama, published on
+/// https://www.noc.cii.isct.ac.jp/service/nocid/sciencetokyox/. IPv4 is often
+/// not leased at all (IPv6 only, macOS adds a 192.0.0.2 CLAT address), so the
+/// IPv6 prefixes matter as much.
+const X_CLIENT_NETS: [&str; 4] = [
+    "10.3.0.0/17",
+    "10.3.128.0/20",
+    "2403:4440:40:61::/64",
+    "2403:4440:50:63::/64",
+];
 const PROBE_URL: &str = "http://captive.apple.com/hotspot-detect.html";
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -47,34 +58,96 @@ pub enum CampusWifiOutcome {
     AlreadyOnline,
     NeedsAccount,
     Rejected,
+    /// On ScienceTokyoX and leaving it was not confirmed; nothing changed.
+    ScienceTokyoX,
+}
+
+/// What the Wi-Fi interface is on right now, checked when the page opens.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CampusWifiStatus {
+    /// ScienceTokyo with the splash already passed.
+    SignedIn,
+    /// ScienceTokyo, still behind the splash.
+    SignInRequired,
+    ScienceTokyoX,
+    Other,
+}
+
+/// Sign-in stages, in order, reported as they start. A stage that is not
+/// needed (already on ScienceTokyo) is skipped.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CampusWifiStep {
+    Joining,
+    OpeningPortal,
+    SigningIn,
+    Verifying,
 }
 
 /// Serialises clicks: one sign-in at a time.
 #[derive(Default)]
 pub struct CampusWifi(tokio::sync::Mutex<()>);
 
-/// Joins ScienceTokyo if needed, then signs in once.
+#[tauri::command]
+pub async fn campus_wifi_status(webview: tauri::Webview) -> Result<CampusWifiStatus, String> {
+    crate::require_local_main(&webview)?;
+    let result = status().await;
+    eprintln!("[campus-wifi] status {result:?}");
+    result
+}
+
+async fn status() -> Result<CampusWifiStatus, String> {
+    let interface = wifi_interface().ok_or("No Wi-Fi interface found.")?;
+    let Some(address) = campus_address(&interface) else {
+        return Ok(if on_science_tokyo_x(&interface) {
+            CampusWifiStatus::ScienceTokyoX
+        } else {
+            CampusWifiStatus::Other
+        });
+    };
+    Ok(match probe(&client(&interface, address)?).await? {
+        None => CampusWifiStatus::SignedIn,
+        Some(_) => CampusWifiStatus::SignInRequired,
+    })
+}
+
+/// Joins ScienceTokyo if needed, then signs in once. Leaving ScienceTokyoX
+/// needs `leave_science_tokyo_x`, so the user can confirm it first.
 #[tauri::command]
 pub async fn campus_wifi_connect(
     webview: tauri::Webview,
     app: AppHandle,
     state: tauri::State<'_, CampusWifi>,
+    leave_science_tokyo_x: bool,
+    on_step: tauri::ipc::Channel<CampusWifiStep>,
 ) -> Result<CampusWifiOutcome, String> {
     crate::require_local_main(&webview)?;
     let _busy = state
         .0
         .try_lock()
         .map_err(|_| "A Wi-Fi sign-in is already running.".to_string())?;
-    let result = connect(&app).await;
+    let step = |step| {
+        let _ = on_step.send(step);
+    };
+    let result = connect(&app, leave_science_tokyo_x, step).await;
     eprintln!("[campus-wifi] {result:?}");
     result
 }
 
-async fn connect(app: &AppHandle) -> Result<CampusWifiOutcome, String> {
+async fn connect(
+    app: &AppHandle,
+    leave_science_tokyo_x: bool,
+    step: impl Fn(CampusWifiStep),
+) -> Result<CampusWifiOutcome, String> {
     let interface = wifi_interface().ok_or("No Wi-Fi interface found.")?;
     let address = match campus_address(&interface) {
         Some(address) => address,
         None => {
+            if !leave_science_tokyo_x && on_science_tokyo_x(&interface) {
+                return Ok(CampusWifiOutcome::ScienceTokyoX);
+            }
+            step(CampusWifiStep::Joining);
             let name = interface.clone();
             tauri::async_runtime::spawn_blocking(move || join(&name))
                 .await
@@ -92,9 +165,11 @@ async fn connect(app: &AppHandle) -> Result<CampusWifiOutcome, String> {
         }
     };
     let client = client(&interface, address)?;
+    step(CampusWifiStep::OpeningPortal);
     let Some((portal, html)) = probe(&client).await? else {
         return Ok(CampusWifiOutcome::AlreadyOnline);
     };
+    step(CampusWifiStep::SigningIn);
     let handle = app.clone();
     let credentials = tauri::async_runtime::spawn_blocking(move || {
         handle
@@ -111,6 +186,7 @@ async fn connect(app: &AppHandle) -> Result<CampusWifiOutcome, String> {
     }
     // The access point applies the grant a moment after the portal answers;
     // errors meanwhile are transient.
+    step(CampusWifiStep::Verifying);
     for _ in 0..6 {
         if let Ok(None) = probe(&client).await {
             return Ok(CampusWifiOutcome::SignedIn);
@@ -222,16 +298,37 @@ fn wifi_interface() -> Option<String> {
     }
 }
 
-/// The interface's IPv4 address when it is a ScienceTokyo client address.
-fn campus_address(interface: &str) -> Option<Ipv4Addr> {
+fn addresses(interface: &str) -> Vec<IpAddr> {
     if_addrs::get_if_addrs()
-        .ok()?
+        .unwrap_or_default()
         .into_iter()
         .filter(|entry| entry.name == interface)
-        .find_map(|entry| match entry.ip() {
-            IpAddr::V4(ip) if ip.octets()[..2] == CLIENT_PREFIX => Some(ip),
-            _ => None,
-        })
+        .map(|entry| entry.ip())
+        .collect()
+}
+
+/// The interface's IPv4 address when it is a ScienceTokyo client address.
+fn campus_address(interface: &str) -> Option<Ipv4Addr> {
+    addresses(interface).into_iter().find_map(|ip| match ip {
+        IpAddr::V4(ip) if ip.octets()[..2] == CLIENT_PREFIX => Some(ip),
+        _ => None,
+    })
+}
+
+/// Told apart by address, like ScienceTokyo: reading the SSID would need
+/// location permission.
+fn on_science_tokyo_x(interface: &str) -> bool {
+    addresses(interface)
+        .into_iter()
+        .any(is_science_tokyo_x_address)
+}
+
+fn is_science_tokyo_x_address(ip: IpAddr) -> bool {
+    X_CLIENT_NETS.iter().any(|net| {
+        net.parse::<ipnet::IpNet>()
+            .expect("static network")
+            .contains(&ip)
+    })
 }
 
 fn join(interface: &str) -> Result<(), String> {
@@ -293,5 +390,25 @@ impl reqwest::dns::Resolve for WifiResolver {
             );
             Ok(addrs)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_science_tokyo_x_address;
+
+    #[test]
+    fn science_tokyo_x_ranges_match_the_noc_guide() {
+        for ip in [
+            "10.3.0.1",
+            "10.3.143.254",
+            "2403:4440:40:61::1",
+            "2403:4440:50:63::1",
+        ] {
+            assert!(is_science_tokyo_x_address(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in ["10.2.0.1", "10.3.144.1", "192.0.0.2", "2403:4440:40:62::1"] {
+            assert!(!is_science_tokyo_x_address(ip.parse().unwrap()), "{ip}");
+        }
     }
 }

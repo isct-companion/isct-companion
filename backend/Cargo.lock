@@ -2148,6 +2148,7 @@ dependencies = [
  "hickory-resolver",
  "if-addrs",
  "image",
+ "ipnet",
  "keyring",
  "objc2",
  "objc2-app-kit",
