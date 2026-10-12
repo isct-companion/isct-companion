@@ -9,15 +9,7 @@ const bundleId = "app.isctcompanion";
 const teamId = "FB7AL944GK";
 
 function decodeProfile(profilePath) {
-  const decoded = spawnSync("openssl", [
-    "smime",
-    "-verify",
-    "-inform",
-    "der",
-    "-in",
-    profilePath,
-    "-noverify",
-  ], {
+  const decoded = spawnSync("security", ["cms", "-D", "-i", profilePath], {
     encoding: "buffer",
   });
   if (decoded.status !== 0) return undefined;
