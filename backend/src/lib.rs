@@ -15,6 +15,8 @@ use school_extract::sanitize_school_url;
 use school_web::{SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds};
 use secrets::OsSecretVault;
 
+#[cfg(target_os = "macos")]
+mod campus_wifi;
 mod cloud;
 pub mod contracts;
 pub mod data;
@@ -1523,6 +1525,8 @@ pub fn run() {
         .manage(lms_files::FileStore(std::sync::Mutex::new(())))
         .manage(SchoolWebController::new())
         .manage(scheduler::Scheduler::default());
+    #[cfg(target_os = "macos")]
+    let builder = builder.manage(campus_wifi::CampusWifi::default());
     #[cfg(desktop)]
     let builder = builder.manage(lms_downloader::Downloader::default());
     #[cfg(target_os = "android")]
@@ -1600,7 +1604,9 @@ pub fn run() {
             agent_command,
             apply_bundled_subscriptions,
             probe_reference_source,
-            refresh_reference_source
+            refresh_reference_source,
+            #[cfg(target_os = "macos")]
+            campus_wifi::campus_wifi_connect
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;

@@ -700,5 +700,15 @@
   "Forward": "進む",
   "Back": "戻る",
   "Reload": "再読み込み",
-  "School services": "学内サービス"
+  "School services": "学内サービス",
+  "ScienceTokyo Wi-Fi": "ScienceTokyo Wi-Fi",
+  "Connecting…": "接続中…",
+  "Save the Tokyo Tech Portal account first": "先に Tokyo Tech Portal アカウントを保存してください",
+  "The portal refused the Tokyo Tech account": "認証ページが Tokyo Tech アカウントを拒否しました",
+  "Sign-in failed": "ログインに失敗しました",
+  "Campus Wi-Fi": "キャンパス Wi-Fi",
+  "Signed in to ScienceTokyo": "ScienceTokyo にログインしました",
+  "Already connected": "すでに接続済みです",
+  "Joins ScienceTokyo and signs in to its login page with your Tokyo Tech Portal ID and password.": "ScienceTokyo に接続し、Tokyo Tech Portal の ID とパスワードで認証ページにログインします。",
+  "Runs only when you click. Sign-in lasts 12 hours; click again after it expires.": "クリックしたときだけ実行します。認証は 12 時間有効です。期限が切れたらもう一度クリックしてください。"
 }

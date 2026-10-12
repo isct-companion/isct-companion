@@ -186,6 +186,8 @@ export type NativeCapabilitySnapshot = {
   syllabusSearch: boolean;
   matrixOcr: boolean;
 };
+export type CampusWifiOutcome =
+  "signed-in" | "already-online" | "needs-account" | "rejected";
 export type CloudProvider = "google-drive" | "onedrive" | "icloud";
 export type CloudSyncResult = {
   state: "backed-up" | "up-to-date" | "conflict" | "restored";
@@ -264,6 +266,8 @@ export interface DesktopBridge {
     callback: (request: { site: SchoolSite; url: string }) => void,
   ): () => void;
   onSchoolLoginStatus?(callback: (event: SchoolLoginEvent) => void): () => void;
+  /** Joins ScienceTokyo if needed and signs in once with the Tokyo Tech account (macOS builds only). */
+  campusWifiConnect?(): Promise<CampusWifiOutcome>;
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;
@@ -508,6 +512,7 @@ export function createTauriDesktopBridge(
       };
     },
     schoolCredentialStatus: () => result("school_credential_status"),
+    campusWifiConnect: () => invokeCommand("campus_wifi_connect"),
     saveSchoolCredentials: (profile, credentials) =>
       booleanCommand("save_school_credentials", { profile, credentials }),
     deleteSchoolCredentials: (profile) =>
