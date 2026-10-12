@@ -40,6 +40,7 @@ function decodeProfile(profilePath) {
   };
   return {
     Platform: extract("Platform", "json"),
+    ProvisionsAllDevices: extract("ProvisionsAllDevices") === "true",
     ExpirationDate: extract("ExpirationDate"),
     Entitlements: {
       "com.apple.application-identifier": extract(
@@ -70,6 +71,7 @@ function validateProfile(profilePath) {
   const appIdentifier = entitlements["com.apple.application-identifier"];
   const expires = Date.parse(profile?.ExpirationDate ?? "");
   if (!platforms.includes("OSX")) return undefined;
+  if (!profile.ProvisionsAllDevices) return undefined;
   if (!(expires > Date.now())) return undefined;
   if (
     appIdentifier !== `${teamId}.${bundleId}` &&

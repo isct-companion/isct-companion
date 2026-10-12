@@ -39,7 +39,7 @@
     "iOS": {
       "minimumSystemVersion": "17.0",
       "developmentTeam": "FB7AL944GK",
-      "bundleVersion": "1.0.0"
+      "bundleVersion": "1.0"
     },
     "android": {
       "minSdkVersion": 34,
