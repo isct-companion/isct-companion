@@ -5,8 +5,13 @@ iPadOS build alongside the desktop jobs. Publication waits for all platforms
 and the TestFlight upload to succeed. Both mobile workflows can also be
 dispatched manually.
 
-The original app icon is `public/icon.png`. Regenerate native icons with
-`yarn tauri icon public/icon.png --output backend/icons`.
+The unchanged original app artwork is `backend/icons/source.png`.
+`yarn icons:desktop` generates transparent rounded Windows/web icons and an
+inset rounded macOS icon using Tauri's SVG renderer. It leaves mobile assets
+unchanged: iOS/iPadOS and Android adaptive icons receive their shape from the OS.
+Regenerate mobile assets from `backend/icons/source.png`, never the rounded
+`public/icon.png`, with `yarn tauri icon backend/icons/source.png --output backend/icons`;
+then run `yarn icons:desktop` again to restore the desktop shapes.
 iOS source PNGs must be opaque RGB without an alpha channel. The project
 patcher validates and copies these committed icons into every fresh Xcode
 project; convert the generated iOS PNGs to RGB after regenerating them.
