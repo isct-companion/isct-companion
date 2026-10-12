@@ -773,6 +773,16 @@ pub fn parse_import(document: &str) -> Result<Value, String> {
     Ok(parsed)
 }
 
+pub(crate) fn validate_sync_document(document: &Value) -> Result<(), String> {
+    parse_import(&document.to_string())?;
+    for table in USER_BACKUP_TABLES {
+        for row in document["tables"][table].as_array().into_iter().flatten() {
+            validate_user_record(table, row)?;
+        }
+    }
+    Ok(())
+}
+
 impl DataStore {
     pub fn initialize(path: PathBuf) -> Result<(Self, bool), String> {
         if let Some(parent) = path.parent() {
@@ -1240,6 +1250,10 @@ impl DataStore {
                     if mark.get("hidden").and_then(Value::as_bool) == Some(true) {
                         object.insert("hidden".into(), Value::Bool(true));
                     }
+                    object.insert(
+                        "pinned".into(),
+                        json!(mark.get("pinned").and_then(Value::as_bool).unwrap_or(false)),
+                    );
                     if let Some(completed) = mark.get("completedAt").and_then(Value::as_str) {
                         object.insert("completedAt".into(), Value::String(completed.to_string()));
                     }
@@ -1366,6 +1380,7 @@ impl DataStore {
             "exportedAt": now(),
             "kind": BACKUP_KIND,
             "deviceId": "local-backup",
+            "sync": read_setting(&connection, "cloudSyncMetadata")?,
             "tables": tables,
             "localNotes": notes
         }))
@@ -1379,6 +1394,22 @@ impl DataStore {
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| e.to_string())?;
+        let local_meta = json!({"sync":read_setting(&transaction, "cloudSyncMetadata")?});
+        if cloud_merge::generation(remote) < cloud_merge::generation(&local_meta) {
+            return Ok(());
+        }
+        if cloud_merge::generation(remote) > cloud_merge::generation(&local_meta) {
+            for table in USER_BACKUP_TABLES {
+                transaction
+                    .execute(&format!("DELETE FROM {table}"), [])
+                    .map_err(|e| e.to_string())?;
+            }
+            for key in USER_BACKUP_SETTINGS {
+                transaction
+                    .execute("DELETE FROM settings WHERE key=?1", [key])
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         for table in USER_BACKUP_TABLES {
             let local = read_rows(&transaction, table)?;
             for incoming in remote["tables"][table].as_array().into_iter().flatten() {
@@ -1409,6 +1440,10 @@ impl DataStore {
             {
                 import_setting(&transaction, incoming)?;
             }
+        }
+        if remote["sync"].is_object() {
+            transaction.execute("INSERT INTO settings(key,value,hash,updated_at,updated_by,rev) VALUES('cloudSyncMetadata',?1,?3,?2,'sync',1) ON CONFLICT(key) DO UPDATE SET value=excluded.value,hash=excluded.hash,updated_at=excluded.updated_at",
+                params![remote["sync"].to_string(), now(), content_hash(&remote["sync"])?]).map_err(|e|e.to_string())?;
         }
         transaction.commit().map_err(|e| e.to_string())
     }
@@ -1949,6 +1984,22 @@ mod tests {
     }
 
     #[test]
+    fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
+        let store = store("restore-generation");
+        store.put_user_record("plans",json!({"title":"Later","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),"test").unwrap();
+        let old: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        let mut restored = old.clone();
+        restored["tables"]["plans"] = json!([]);
+        restored["sync"] =
+            json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"restore-a"}});
+        store.merge_cloud_data(&restored).unwrap();
+        store.merge_cloud_data(&old).unwrap();
+        assert!(store.user_rows("plans").unwrap().is_empty());
+        let current: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        assert_eq!(current["sync"], restored["sync"]);
+        assert!(store.load_workspace().unwrap()["deviceId"].is_string());
+    }
+    #[test]
     fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes() {
         let a = store("cloud-a");
         let b = store("cloud-b");
@@ -2303,6 +2354,36 @@ mod tests {
         assert_eq!(rows[0]["id"], "202602427");
         assert_eq!(rows[0]["detailed"], Value::Null);
         let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn assignment_pin_round_trips_as_a_syncable_overlay() {
+        let store = store("pinned-assignment");
+        insert_school_assignment(&store);
+        store
+            .put_user_record(
+                "assignment_marks",
+                json!({"sourceKey":"lms:default:assignment:42","hidden":false,"pinned":true}),
+                "test",
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"][0]["pinned"],
+            true
+        );
+        let exported: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        assert_eq!(exported["tables"]["assignment_marks"][0]["pinned"], true);
+        store
+            .put_user_record(
+                "assignment_marks",
+                json!({"sourceKey":"lms:default:assignment:42","hidden":false,"pinned":false}),
+                "test",
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"][0]["pinned"],
+            false
+        );
     }
 
     #[test]

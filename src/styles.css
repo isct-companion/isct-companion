@@ -3423,10 +3423,17 @@ p {
   opacity: 0;
   transition: opacity 120ms;
 }
-.dueRow:hover .textButton,
-.dueRow .textButton:focus-visible {
-  opacity: 1;
+.dueRow .textButton:focus-visible { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .dueRow:hover .textButton { opacity: 1; }
 }
+@media (hover: none) {
+  .dueRow .textButton { opacity: 1; }
+}
+.dueRow.touchRow { grid-template-columns: 3px minmax(0, 1fr); }
+.dueRow.touchRow .dueAssignment { min-height: 48px; touch-action: pan-y; }
+.duePinned { display: grid; gap: 4px; }
+.duePinned > small { color: var(--muted); }
 .moreToggle {
   justify-self: start;
   margin-top: 4px;

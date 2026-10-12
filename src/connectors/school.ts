@@ -140,6 +140,7 @@ export function publishSchoolImport(
         dueAt: item.dueAt,
         sourceUrl: item.url,
         hidden: previous?.hidden,
+        pinned: previous?.pinned,
         source: {
           provider: "school",
           externalId: item.externalId,

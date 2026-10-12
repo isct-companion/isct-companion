@@ -26,7 +26,7 @@ const providerName: Record<CloudSyncProvider, string> = {
 
 /**
  * Sync runs on its own (docs/cloud-sync.md): this page only chooses the
- * services, shows when they last synced, and offers the two kept versions.
+ * services, shows queued operations, and offers cloud and local recovery points.
  */
 export function BackupSettings({
   data,
@@ -85,18 +85,26 @@ export function BackupSettings({
       const next = await bridge?.setCloudSyncProvider?.(provider, enabled);
       if (next) setSync(next);
     });
-  const syncNow = () =>
-    run("Could not sync.", async () => {
-      const next = await bridge?.syncCloudNow?.();
+  const setAutomatic = (automatic: boolean) =>
+    run("Could not change sync.", async () => {
+      const next = await bridge?.setCloudSyncAutomatic?.(automatic);
       if (next) setSync(next);
     });
-  const restoreVersion = (version: CloudSyncVersion) =>
+  const syncNow = (direction: "upload" | "pull") =>
+    run("Could not sync.", async () => {
+      const next = await bridge?.syncCloudNow?.(direction);
+      if (next) setSync(next);
+    });
+  const restoreVersion = (version: Pick<CloudSyncVersion, "id" | "savedAt">) =>
     run("Could not restore.", async () => {
       if (
         !confirm(
-          t("Replace the data on this device with the version from {{date}}?", {
-            date: when(version.savedAt),
-          }),
+          t(
+            "Restore the version from {{date}} on all connected devices? Unsynced work on older devices will be kept in recovery files.",
+            {
+              date: when(version.savedAt),
+            },
+          ),
         )
       )
         return;
@@ -109,7 +117,14 @@ export function BackupSettings({
   const exportWorkspace = () =>
     saveExportFile("IsctCompanion.json", workspaceActions.exportData, notify);
   const importFile = async (file: File) => {
-    if (!confirm(t("Replace the data on this device with this file?"))) return;
+    if (
+      !confirm(
+        t(
+          "Restore this file on all connected devices? A recovery copy of current data will be kept.",
+        ),
+      )
+    )
+      return;
     try {
       await workspaceActions.importData(await file.text());
       notify(t("Backup restored."));
@@ -141,6 +156,23 @@ export function BackupSettings({
     (item) => item.provider === "icloud" && !item.error,
   );
   const drive = enabled.some((item) => item.provider === "google-drive");
+  const pending =
+    sync?.tasks?.filter((task) =>
+      task.deliveries.some((d) => d.status !== "completed"),
+    ) ?? [];
+  const upToDate =
+    enabled.length > 0 &&
+    pending.length === 0 &&
+    Boolean(sync?.localVersion) &&
+    enabled.every((p) => p.syncedVersion === sync?.localVersion);
+  const versions = [
+    ...new Map(
+      (sync?.versions ?? []).map((version) => [
+        version.version || version.id,
+        version,
+      ]),
+    ).values(),
+  ];
   const lastSynced = enabled
     .map((item) => item.lastSyncedAt)
     .filter((value): value is string => Boolean(value))
@@ -153,7 +185,7 @@ export function BackupSettings({
       <SettingsGroup
         title="Sync"
         footer={t(
-          "Changes sync automatically. When the same item changed on two devices, the newer change is kept.",
+          "Upload merges your changes into the cloud. Pull brings cloud changes here without uploading. Mixed-platform devices should all connect the same Google Drive account.",
         )}
       >
         {(!syncAvailable || syncError) && (
@@ -164,6 +196,23 @@ export function BackupSettings({
             hint={syncError ?? caps["cloud-sync"].reason}
           >
             <span />
+          </Row>
+        )}
+        {syncAvailable && (
+          <Row
+            id="sync-automatic"
+            title="Auto"
+            hint={
+              sync?.automatic
+                ? "Every saved change queues an update. Interrupted tasks resume automatically."
+                : "Manual mode. Use Upload or Pull; previously submitted tasks still resume."
+            }
+          >
+            <Toggle
+              checked={sync?.automatic ?? false}
+              disabled={busy || !sync}
+              onChange={(value) => void setAutomatic(value)}
+            />
           </Row>
         )}
         {providers.map((item) => (
@@ -195,11 +244,11 @@ export function BackupSettings({
             title={
               sync?.syncing
                 ? "Syncing…"
-                : enabled.some((item) => item.error)
-                  ? lastSynced
-                    ? "Sync paused"
-                    : "Not synced yet"
-                  : "Up to date"
+                : pending.length > 0
+                  ? "Waiting to sync"
+                  : upToDate
+                    ? "Up to date"
+                    : "Saved on this device"
             }
             hint={
               lastSynced
@@ -211,31 +260,119 @@ export function BackupSettings({
               <UiButton
                 className="textButton"
                 disabled={busy || sync?.syncing}
-                onClick={() => void syncNow()}
+                onClick={() => void syncNow("upload")}
               >
-                {t("Sync now")}
+                {t("Upload")}
+              </UiButton>
+              <UiButton
+                className="textButton"
+                disabled={busy || sync?.syncing}
+                onClick={() => void syncNow("pull")}
+              >
+                {t("Pull")}
               </UiButton>
             </div>
           </Row>
         )}
+        {sync?.localVersion && (
+          <p className="settingsNote">
+            {t("Local version")} · <code>{sync.localVersion.slice(0, 15)}</code>
+          </p>
+        )}
+        {pending.map((task) => (
+          <Row
+            key={task.id}
+            group
+            title={task.direction === "upload" ? "Upload" : "Pull"}
+            hint={`${when(task.createdAt)} · ${task.version.slice(0, 15)} · ${task.id}`}
+          >
+            <span className="syncDeliveries">
+              {task.deliveries.map((d) => (
+                <small key={d.provider}>
+                  {providerName[d.provider]} ·{" "}
+                  {t(
+                    d.status === "completed"
+                      ? "Completed"
+                      : d.status === "running"
+                        ? "Syncing…"
+                        : d.attempts > 0
+                          ? "Waiting to retry"
+                          : "Queued",
+                  )}{" "}
+                  · {t("Attempts")}: {d.attempts}
+                  {d.error ? ` · ${d.error}` : ""}
+                </small>
+              ))}
+            </span>
+          </Row>
+        ))}
       </SettingsGroup>
-      {(sync?.versions.length ?? 0) > 0 && (
+      {versions.length > 0 && (
         <SettingsGroup
           title="Earlier versions"
-          footer={t("The two copies before the latest sync are kept.")}
+          footer={t(
+            "Two recent versions and seven daily recovery points are kept separately from sync.",
+          )}
         >
-          {sync!.versions.map((version) => (
+          {versions.map((version) => (
             <Row
               key={version.id}
               group
               title={when(version.savedAt)}
-              hint={`${version.device} · ${providerName[version.provider]}`}
+              hint={`${version.device} · ${version.version?.slice(0, 15) ?? ""} · ${(
+                sync?.versions ?? []
+              )
+                .filter(
+                  (v) =>
+                    (v.version || v.id) === (version.version || version.id),
+                )
+                .map((v) => providerName[v.provider])
+                .join(" / ")}`}
             >
               <div className="actions">
                 <UiButton
                   className="button small"
-                  disabled={busy}
+                  disabled={busy || sync?.syncing || pending.length > 0}
                   onClick={() => void restoreVersion(version)}
+                >
+                  {t("Restore")}
+                </UiButton>
+              </div>
+            </Row>
+          ))}
+        </SettingsGroup>
+      )}
+      {(sync?.recoveryPoints?.length ?? 0) > 0 && (
+        <SettingsGroup
+          title="Local recovery files"
+          footer={t(
+            "Saved before cloud changes or a restore replace local content.",
+          )}
+        >
+          {sync!.recoveryPoints!.map((point) => (
+            <Row
+              key={point.id}
+              group
+              title={when(point.savedAt)}
+              hint={point.version.slice(0, 15)}
+            >
+              <div className="actions">
+                <UiButton
+                  className="textButton"
+                  onClick={() =>
+                    void saveExportFile(
+                      `IsctCompanion-${point.version.slice(0, 15)}.json`,
+                      () => bridge!.cloudRecoveryDocument!(point.id),
+                      notify,
+                    )
+                  }
+                >
+                  {t("Export…")}
+                </UiButton>
+                <UiButton
+                  className="textButton"
+                  disabled={busy || sync?.syncing || pending.length > 0}
+                  onClick={() => void restoreVersion(point)}
                 >
                   {t("Restore")}
                 </UiButton>

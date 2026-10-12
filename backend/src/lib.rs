@@ -6,7 +6,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
-use cloud::{CloudProvider, CloudSyncResult, DesktopCloudService};
+use cloud::{CloudProvider, DesktopCloudService};
 use lifecycle::SchoolSite;
 use school_auth::{
     SchoolAuthProfile, SchoolAuthService, SchoolCredentialStatus, SchoolCredentials,
@@ -564,7 +564,8 @@ async fn cloud_lifecycle(
 ) -> Result<(), String> {
     require_local_main(&webview)?;
     if matches!(kind.as_str(), "foreground" | "background") {
-        app.state::<cloud_sync::CloudSync>().sync(&app).await?;
+        cloud_sync::CloudSync::changed(&app);
+        app.state::<cloud_sync::CloudSync>().resume(&app).await?;
     }
     Ok(())
 }
@@ -582,9 +583,33 @@ fn cloud_sync_state(
 async fn sync_cloud_now(
     webview: tauri::Webview,
     app: tauri::AppHandle,
+    direction: cloud_sync::Direction,
 ) -> Result<cloud_sync::SyncState, String> {
     require_local_main(&webview)?;
-    app.state::<cloud_sync::CloudSync>().sync(&app).await
+    app.state::<cloud_sync::CloudSync>()
+        .sync(&app, direction)
+        .await
+}
+
+#[tauri::command]
+fn set_cloud_sync_automatic(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    automatic: bool,
+) -> Result<cloud_sync::SyncState, String> {
+    require_local_main(&webview)?;
+    app.state::<cloud_sync::CloudSync>()
+        .set_automatic(&app, automatic)
+}
+
+#[tauri::command]
+fn cloud_recovery_document(
+    webview: tauri::Webview,
+    sync: tauri::State<'_, cloud_sync::CloudSync>,
+    id: String,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    sync.recovery_document(&id)
 }
 
 #[tauri::command]
@@ -644,7 +669,8 @@ async fn set_cloud_sync_provider(
     app.state::<cloud_sync::CloudSync>()
         .set_provider(&app, provider, enabled)
         .await?;
-    app.state::<cloud_sync::CloudSync>().sync(&app).await
+    cloud_sync::CloudSync::changed(&app);
+    app.state::<cloud_sync::CloudSync>().state()
 }
 
 #[tauri::command]
@@ -715,76 +741,6 @@ fn disconnect_cloud(
     let _ = app;
     service.disconnect(provider)?;
     Ok(true)
-}
-
-#[tauri::command]
-async fn cloud_backup_workspace(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
-    store: tauri::State<'_, data::DataStore>,
-    provider: CloudProvider,
-    overwrite: bool,
-) -> Result<CloudSyncResult, String> {
-    require_local_main(&webview)?;
-    let notes =
-        serde_json::to_value(lms_files::export_notes(&app)?).map_err(|error| error.to_string())?;
-    let document = store.export_data(notes)?;
-    let workspace = store.load_workspace()?;
-    let device_id = workspace
-        .get("deviceId")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "Local device identifier is unavailable.".to_string())?
-        .to_string();
-    let credentials =
-        if provider != CloudProvider::Icloud && service.credential_sync_configured()? {
-            Some(auth.export_sync_payload()?)
-        } else {
-            None
-        };
-    let result = service
-        .back_up_workspace(provider, &document, &device_id, overwrite)
-        .await?;
-    if result.state != cloud::CloudSyncState::Conflict {
-        if let Some(credentials) = credentials {
-            service.back_up_credentials(provider, &credentials).await?;
-        }
-    }
-    Ok(result)
-}
-
-#[tauri::command]
-async fn cloud_restore_workspace(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
-    store: tauri::State<'_, data::DataStore>,
-    provider: CloudProvider,
-) -> Result<CloudSyncResult, String> {
-    require_local_main(&webview)?;
-    let (document, result) = service.pull_workspace(provider).await?;
-    let credentials = if provider == CloudProvider::Icloud {
-        None
-    } else {
-        service.pull_credentials(provider).await?
-    };
-    let parsed: serde_json::Value =
-        serde_json::from_str(&document).map_err(|_| "cloud workspace is invalid JSON")?;
-    let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
-        parsed
-            .get("localNotes")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-    )
-    .map_err(|_| "cloud workspace localNotes is invalid")?;
-    lms_files::restore_notes(&app, &notes)?;
-    store.import_data(&parsed)?;
-    if let Some(credentials) = credentials {
-        auth.import_sync_payload(&credentials)?;
-    }
-    Ok(result)
 }
 
 #[tauri::command]
@@ -869,6 +825,7 @@ fn new_user_record_id(webview: tauri::Webview) -> Result<String, String> {
 #[tauri::command]
 async fn put_user_record(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
     table: String,
     record: serde_json::Value,
@@ -876,13 +833,18 @@ async fn put_user_record(
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    run_data_command(move || store.put_user_record_checked(&table, record, "desktop", expected_rev))
-        .await
+    let result = run_data_command(move || {
+        store.put_user_record_checked(&table, record, "desktop", expected_rev)
+    })
+    .await?;
+    cloud_sync::CloudSync::changed(&app);
+    Ok(result)
 }
 
 #[tauri::command]
 async fn delete_user_record(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
     table: String,
     id: String,
@@ -890,8 +852,12 @@ async fn delete_user_record(
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    run_data_command(move || store.delete_user_record_checked(&table, &id, "desktop", expected_rev))
-        .await
+    let result = run_data_command(move || {
+        store.delete_user_record_checked(&table, &id, "desktop", expected_rev)
+    })
+    .await?;
+    cloud_sync::CloudSync::changed(&app);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -908,13 +874,14 @@ async fn run_scheduled_task(
 #[tauri::command]
 async fn put_workspace_setting(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
     key: String,
     value: serde_json::Value,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    run_data_command(move || {
+    let result = run_data_command(move || {
         store.put_workspace_setting(&key, value, "desktop")?;
         store
             .load_workspace()?
@@ -923,17 +890,25 @@ async fn put_workspace_setting(
             .map(str::to_string)
             .ok_or_else(|| "current academic term is unavailable".to_string())
     })
-    .await
+    .await?;
+    cloud_sync::CloudSync::changed(&app);
+    Ok(result)
 }
 
 #[tauri::command]
 async fn reset_workspace(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     store: tauri::State<'_, data::DataStore>,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
+    app.state::<cloud_sync::CloudSync>()
+        .prepare_reset(&app)
+        .await?;
     let store = store.inner().clone();
-    run_data_command(move || store.reset_workspace()).await
+    let result = run_data_command(move || store.reset_workspace()).await?;
+    cloud_sync::CloudSync::changed(&app);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1081,23 +1056,11 @@ async fn import_data(
     document: String,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    let store = store.inner().clone();
-    run_data_command(move || import_data_inner(&app, &store, &document)).await
-}
-
-fn import_data_inner(
-    app: &tauri::AppHandle,
-    store: &data::DataStore,
-    document: &str,
-) -> Result<serde_json::Value, String> {
-    let parsed = data::parse_import(document)?;
-    let notes: Vec<lms_files::LocalNoteBackup> =
-        serde_json::from_value(parsed["localNotes"].clone())
-            .map_err(|error| format!("the backup's local notes are invalid: {error}"))?;
-    // Validate and restore local user notes under the file-store lock. School
-    // materials are never present in this document.
-    lms_files::restore_notes(app, &notes)?;
-    store.import_data(&parsed)
+    let parsed = data::parse_import(&document)?;
+    app.state::<cloud_sync::CloudSync>()
+        .restore_document(&app, &parsed)
+        .await?;
+    store.load_workspace()
 }
 
 #[tauri::command]
@@ -1672,12 +1635,12 @@ pub fn run() {
             cloud_sync_state,
             set_cloud_sync_provider,
             sync_cloud_now,
+            set_cloud_sync_automatic,
             restore_cloud_version,
+            cloud_recovery_document,
             connect_cloud,
             cloud_authorization_status,
             disconnect_cloud,
-            cloud_backup_workspace,
-            cloud_restore_workspace,
             cloud_credential_sync_status,
             cloud_credential_backup_status,
             set_cloud_credential_sync_password,
@@ -1774,7 +1737,7 @@ pub fn run() {
                     api.prevent_exit();
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
-                        let _ = app.state::<cloud_sync::CloudSync>().sync(&app).await;
+                        cloud_sync::CloudSync::changed(&app);
                         app.exit(0);
                     });
                 }
@@ -1814,7 +1777,8 @@ pub fn run() {
                     });
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = app.state::<cloud_sync::CloudSync>().sync(&app).await;
+                    cloud_sync::CloudSync::changed(&app);
+                    let _ = app.state::<cloud_sync::CloudSync>().resume(&app).await;
                 });
             }
             #[cfg(target_os = "ios")]

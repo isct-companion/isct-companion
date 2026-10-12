@@ -346,7 +346,7 @@ pub fn restore_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), S
 pub fn merge_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), String> {
     write_notes(app, notes, true)
 }
-fn write_notes(app: &AppHandle, notes: &[LocalNoteBackup], merge: bool) -> Result<(), String> {
+pub(crate) fn validate_notes(notes: &[LocalNoteBackup]) -> Result<(), String> {
     if notes.len() > MAX_BACKUP_NOTES {
         return Err("Too many notes in backup".into());
     }
@@ -366,9 +366,37 @@ fn write_notes(app: &AppHandle, notes: &[LocalNoteBackup], merge: bool) -> Resul
             return Err("Notes exceed the local backup safety limit".into());
         }
     }
+    Ok(())
+}
+fn write_notes(app: &AppHandle, notes: &[LocalNoteBackup], merge: bool) -> Result<(), String> {
+    validate_notes(notes)?;
     let state = app.state::<FileStore>();
     let _guard = state.0.lock().map_err(|_| "Storage lock unavailable")?;
     let current = export_notes(app)?;
+    if !merge {
+        for old in current
+            .iter()
+            .filter(|old| !notes.iter().any(|n| n.id == old.id))
+        {
+            let context = CourseFolder {
+                term: old.term.clone(),
+                course: old.course.clone(),
+                section: old.section.clone(),
+            };
+            let path = folder(
+                app,
+                &context,
+                if old.deleted {
+                    "deleted-notes"
+                } else {
+                    "notes"
+                },
+            )?
+            .join(format!("{}.md", old.id));
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+            let _ = fs::remove_file(path.with_extension("sync.json"));
+        }
+    }
     for note in notes {
         if let Some(local) = current.iter().find(|local| local.id == note.id) {
             if merge
@@ -662,6 +690,7 @@ pub async fn save_course_note(
     })
     .await
     .map_err(|e| e.to_string())??;
+    crate::cloud_sync::CloudSync::changed(&app);
     Ok(file)
 }
 #[tauri::command]
@@ -695,7 +724,9 @@ pub async fn move_course_note(
     restore: bool,
 ) -> Result<bool, String> {
     crate::require_local_main(&webview)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        let app = handle;
         let state = app.state::<FileStore>();
         let _guard = state.0.lock().map_err(|_| "Storage lock unavailable")?;
         let note = note_path(&app, &context, &id)?;
@@ -727,7 +758,9 @@ pub async fn move_course_note(
         Ok(true)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    crate::cloud_sync::CloudSync::changed(&app);
+    Ok(result)
 }
 #[tauri::command]
 pub async fn list_course_notes(

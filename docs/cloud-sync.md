@@ -1,164 +1,165 @@
-# Automatic cloud sync
+# Cloud sync and recovery
 
-Backup becomes sync: it runs on its own, merges per record, and keeps two
-earlier versions for rollback. The Backup settings page
-(`src/pages/settings/BackupSettings.tsx`) is already built against the bridge
-contract below. The native side implements it.
+Sync and backup have separate responsibilities. Sync distributes user changes;
+recovery points retain earlier content even when deletes have already synced.
+School data is a refetchable cache; only user records, overlays, preferences
+allowed by `data-ownership.md`, and local notes enter this protocol.
 
-## Providers
+## Triggers
 
-| Device | Default | Optional |
+The Backup settings page has an **Auto** switch, off by default, and separate
+**Upload** and **Pull** buttons. This is device state.
+
+- Manual: saving, launching, focusing or closing the app does not start a new
+  transfer. Upload reconciles reachable cloud copies and publishes the merged
+  data. Pull merges cloud changes locally and never creates an upload.
+- Auto: each relevant native record/setting/note save immediately journals an
+  upload. There is no 30-second debounce and no periodic cloud polling. A
+  five-second local comparison also detects external MCP writes; multiple
+  external changes between observations can be represented by one snapshot.
+- Opening/resuming the app resumes unfinished operations in either mode. Turning
+  Auto off prevents new automatic operations; it does not revoke submitted work.
+- Auto is change-triggered, not a real-time remote subscription. Another device's
+  changes arrive on Pull or the next local change's reconciliation.
+- Exit captures pending changes durably and exits without waiting for a network
+  round trip. The next launch resumes work. The OS need not grant background time.
+- Disabling a provider disconnects only it and cancels its unfinished deliveries.
+  Enabling it in manual mode does not upload anything.
+
+## Platform and account boundaries
+
+| Platform | Available providers | Recommended common channel |
 | --- | --- | --- |
-| macOS, iOS, iPadOS | iCloud (CloudKit private DB), on without setup | Google Drive, for people who also use Windows or Android |
-| Windows, Android, Linux | none until the person connects | Google Drive |
+| macOS / iOS / iPadOS | iCloud enabled by default; optional Drive | iCloud for Apple-only use |
+| Windows / Android / Linux | Drive after connecting | Google Drive |
+| Mixed platforms | Drive on every device; optional iCloud on Apple | Google Drive |
 
-- iCloud is enabled on first launch when the iCloud account is available. If
-  it is not, it reports `available: true, enabled: true, error: "…"` and
-  retries silently; it never asks.
-- Several enabled providers are all kept in sync: pull and merge from each,
-  then push the merged result to each.
-- Pick the provider set with `#[cfg(target_vendor = "apple")]` /
-  `#[cfg(...)]`, never at runtime (see AGENTS.md rule 3). iCloud is not
-  compiled in elsewhere, so it is absent from `providers` there.
-- Sync configuration (enabled providers, tokens, last sync) is device state in
-  native storage, not part of the workspace document. The workspace's
-  `settings.cloud` and `syncStatus` become legacy: migrate an existing Drive
-  connection once, then stop reading them. Keep the developer `clientId`
-  override.
+An Apple device connected to both services can relay changes between them;
+iCloud and Drive do not communicate independently. Provider support is compiled
+with Rust cfg flags. No user-agent platform detection is used.
 
-## Fix first: providers must not sign each other out
+OAuth credentials remain independent, device-local vault entries. Cloud content
+carries a `sync.workspaceId`. The first identified cloud workspace binds the
+installation; a different workspace is rejected before merging or uploading.
+Cloud errors do not clear another provider's token or acknowledgement. The
+shared cross-platform channel, Drive, is serviced first. Reads/writes have bounded
+timeouts; an unavailable provider retains its own retry state.
 
-Today `connect`, `connect_with_native_token` and `connect_icloud` in
-`backend/src/cloud.rs` delete every other provider's stored token, because
-only one provider was allowed. On an Apple device, any iCloud connect wipes
-the Google Drive token, so Drive asks to sign in again. This is a design
-defect, not a rebuild artifact. Keep each provider's token independently;
-disconnect only removes its own.
+## Versions and merge priority
 
-Also check token validity: a stored token is ignored when its `client_id`
-no longer matches the build's configured client (per-target IDs from
-`config/oauth-clients.yaml`, or the developer override). Prefer keeping the
-token and refreshing with the client it was issued to, and report a clear
-`error` when that fails, instead of silently showing "not connected".
+There are three different identities, each with one responsibility:
 
-## When it runs
+1. **Content version**: `v1-<SHA-256>` of normalized user data and restore
+   generation. The same content has the same version on every device/provider.
+   Export time, device identity and array ordering do not change it. The UI
+   abbreviates the hash; the journal retains it in full.
+2. **Task ID**: UUIDv7, created once before network work. Retries retain the ID.
+   Every delivery records provider, pending/running/completed, attempts, next
+   retry and error. Network reconciliation may refine its target content version.
+3. **Provider revision**: the provider-local numeric revision plus its ETag or
+   CloudKit change tag, used only for conditional writes. It is not a global
+   sequence number and does not determine which user's edit wins.
 
-- On launch and when the app returns to the foreground: pull, merge, push.
-- After local changes: push about 30 s after the last change (debounced).
-- When the app goes to the background or the window closes: push right away
-  if there are unpushed changes.
-- In the background scheduler, alongside the existing scheduled tasks.
-- One run at a time. A run that overlaps another is folded into it.
+Within the same restore generation, merge by record ID. Higher record revision
+wins; equal revisions compare modification/deletion timestamps, then writer ID,
+then canonical content. Writes increment the stored/imported revision, so a
+subsequent edit survives a clock moving backwards. Concurrent edits to one
+record use deterministic whole-record resolution, not field-level collaboration.
+Independent records are all retained; deletes are versioned tombstones.
+Singleton preferences/profile/terms use the same rules.
 
-## Merge: newest change wins, per record
+A cloud's name or download order never gives its content priority. Upload first
+merges reachable replicas. Conditional writes re-read for concurrent updates.
+If an update is discovered during publication, a follow-up task brings lagging
+providers to that merged version, including in manual mode. Local edits made
+after a manual Upload remain local unless separately submitted.
 
-- Records with an `id` (courses, assignments, plans, events, plan items,
-  memberships, intensive schedules, …) merge by `id`. The side with the newer
-  `updatedAt` wins. Ties go to the higher `rev`, then to the larger device
-  id, so every device reaches the same result.
-- Deletions are tombstones (`deletedAt`). They take part like any other
-  change, so a delete newer than an edit wins and an edit newer than a delete
-  revives the record.
-- Singleton blocks without ids (synced settings, academic profile, terms)
-  use the same rule as a whole block, with the block's own updated time.
-  Device-only settings (window layout, density, local permissions, sync
-  configuration) never leave the device.
-- Merging is a pure function in Rust with unit tests, shared by every
-  platform (AGENTS.md rule 2). Replace the current conflict prompt and the
-  `conflict` setting; no dialog is shown.
+## Durable queue and acknowledgements
 
-## Versions
+`cloud-sync.sqlite` contains the device configuration, queued snapshots, task
+receipts, provider acknowledgements and interrupted local-apply intent. SQLite
+commits use `synchronous=FULL`; a failed commit cannot advance the in-memory
+journal. Legacy `cloud-sync.json` configuration is imported once.
 
-- Before each push that changes the cloud copy, the previous copy becomes
-  `previous-1` and the old `previous-1` becomes `previous-2`. Only two are
-  kept.
-- Restoring a version replaces local data with it and pushes it as the new
-  current copy, which keeps the replaced copy as `previous-1`.
+The sequence is:
 
-## Login credentials
+1. Save user data locally.
+2. Persist a task containing the source snapshot and provider deliveries.
+3. Reconcile the clouds; persist the resulting target before uploading.
+4. Persist `running` and increment attempts before each delivery.
+5. Conditionally write/read, durably stage local application, apply it, then
+   persist that provider's completed receipt and acknowledged content version.
 
-- With iCloud enabled on Apple devices: store school credentials as
-  synchronizable Keychain items (`kSecAttrSynchronizable`), so iCloud
-  Keychain carries them with no extra password.
-- With Google Drive: keep the existing encrypted credential file and its
-  8–12 character password flow. The settings page keeps that UI unchanged.
+A crash between data save and task creation is recovered by comparing saved
+content with the journal on launch. A crash after a cloud accepted an upload but
+before acknowledgement re-reads it: identical content does not create another
+cloud version. Interrupted `running` deliveries become pending on restart.
+Retries back off from 30 seconds to a few minutes; an explicit request retries
+pending work immediately. New changes queue separately while a transfer runs.
 
-## Bridge contract
+Acknowledgement is per provider. Drive at version B and iCloud at A is partial
+completion, not globally "Up to date". The UI shows unfinished tasks and only
+shows up-to-date when all enabled providers acknowledge local content and no
+delivery remains pending. The ten latest completed receipts are retained.
 
-Types and methods are in `src/platform/desktop-bridge.ts`
-(`CloudSyncState`, `cloudSyncState`, …). Commands:
+## Recovery
 
-| Command | Payload | Returns |
-| --- | --- | --- |
-| `cloud_sync_state` | none | `CloudSyncState` |
-| `set_cloud_sync_provider` | `{ provider, enabled }` | `CloudSyncState` (enabling Drive runs its OAuth connect first) |
-| `sync_cloud_now` | none | `CloudSyncState` after the run |
-| `restore_cloud_version` | `{ id }` | `CloudSyncState` |
+The cloud format is now version 2. The reader accepts legacy version 1; older
+apps reject new envelopes rather than silently bypassing restore generations.
+Current data, two immediate predecessors and up to seven daily recovery points
+live in one conditionally written envelope. History entries are flat; syncing
+unchanged content never rotates history. Daily points represent distinct days
+with saved changes, not a guarantee of an upload on idle days. The existing
+25 MiB envelope limit is enforced without silently dropping notes or history.
 
-Event `cloud-sync-state` carries a `CloudSyncState` whenever any field
-changes (run started or finished, error, versions updated).
+The UI groups cloud versions by content version, listing their storage locations.
+Before importing changed cloud content or restoring a version, a content-addressed
+local recovery file is saved atomically. These local files are independently
+listed for export or restoration and are not automatically removed.
 
-```ts
-type CloudSyncState = {
-  syncing: boolean;
-  providers: {
-    provider: "icloud" | "google-drive";
-    enabled: boolean;
-    lastSyncedAt?: string; // ISO time of the last successful run
-    error?: string; // last failure, cleared by a success
-  }[];
-  versions: {
-    id: string;
-    provider: "icloud" | "google-drive";
-    savedAt: string;
-    device: string; // device name shown to the person
-  }[]; // newest first, at most two per provider
-};
-```
+Restoring is an explicit operation affecting all connected devices, in either
+mode. Pending transfers must finish or their provider must be disconnected first.
+The operation reads enabled providers to determine the generation boundary;
+if one is unavailable, restore stops before changing current data. It then:
 
-## Acceptance
+- saves a local recovery point;
+- assigns a new `{ counter, id }` restore generation;
+- journals the upload intent before replacing local content;
+- replaces user tables and sync metadata in one SQLite transaction;
+- replays a durable local-apply intent if notes/table application is interrupted;
+- publishes the new generation through the ordinary retryable queue.
 
-- Rust unit tests for the merge rules: newer edit wins, tie-breaks, delete
-  vs edit both ways, device-only settings untouched, deterministic on both
-  sides.
-- Rust tests for version rotation: never more than two, restore pushes and
-  rotates.
-- Two devices editing different records offline both keep their edits after
-  syncing.
-- No sync UI prompts. Failures show only as the provider's `error` on the
-  Backup page.
+A higher generation replaces the old branch rather than merging missing records
+back into it. Local backup-file imports use this same restore protocol; clearing
+this device instead disconnects the queue and keeps a local recovery file.
+An old device saves its local content for recovery before adopting
+the new generation. Simultaneous restores compare generation counter and ID
+consistently. School caches and device-only settings are not restored from cloud.
 
-## Native implementation
+## Credentials
 
-`cloud_sync.rs` owns device configuration (`cloud-sync.json` in app data),
-serialized runs and lifecycle flushing. It samples user data every 5 seconds,
-then waits 30 seconds after the last observed change; unchanged remote data is
-checked every 5 minutes. This also observes writes from the separate MCP
-process. Launch, foreground, background and orderly app exit request a run.
+Credentials are a separate channel. Apple Keychain synchronization is managed
+by the OS. Drive's encrypted credential backup uses the existing explicit setup,
+upload and restore flow. Workspace uploads no longer blindly overwrite that
+file from possibly stale credentials on another device. Tokens and encryption
+passwords never enter workspace snapshots or task payloads.
 
-`data/cloud_merge.rs` merges the same user-owned tables used by local backups,
-including tombstones and versioned `terms`, `academicProfile` and
-`userPreferences`. School/reference caches remain refetchable data as defined
-in `data-ownership.md`. SQLite imports merge inside an IMMEDIATE transaction
-so edits committed during a network request are retained. Note files carry
-modification clocks and writer metadata; deletions remain in `deleted-notes`.
+## Bridge
 
-The current cloud envelope embeds two flat earlier envelopes in `previous`
-(newest first). This is the physical representation of `previous-1` and
-`previous-2`: current and history are committed together, avoiding partially
-rotated history. Restoring stamps the selected content as a fresh edit and
-creates tombstones for records introduced since that version. Drive writes
-use ETag conditions; CloudKit writes check the fetched revision and retain the
-record change tag. Concurrent-write conflicts are retried without a dialog.
+- `cloud_sync_state` / `cloud-sync-state`: configuration, current content version,
+  per-provider acknowledgement, tasks, cloud versions and local recovery points.
+- `set_cloud_sync_automatic { automatic }`: change Auto and capture current data.
+- `set_cloud_sync_provider { provider, enabled }`: independently connect/disconnect.
+- `sync_cloud_now { direction: "upload" | "pull" }`: enqueue an explicit operation.
+- `restore_cloud_version { id }`: restore a cloud or registered local recovery point.
+- `cloud_recovery_document { id }`: read a registered recovery point for export.
 
-Google authorization uses the client that issued the stored token. Build-time
-client IDs are also supplied to native mobile builds; the developer override
-is used for new connections. Android uses Google Identity AuthorizationClient
-and only opens consent for an explicit enable request; background renewal
-reports an error if additional consent is needed. Apple school credentials
-continue to use the existing synchronizable Keychain implementation.
+## Verification
 
-Unit tests cover merge ordering, tombstones, offline records on two SQLite
-stores, concurrent local writes, device setting isolation, history rotation,
-rollback and persisted provider selection. Live provider authorization and
-phone WebView behavior require signed-device integration testing.
+Unit tests exercise durable restart, immutable saved source changes, separate
+provider acknowledgements, content-version normalization, revision ordering with
+clock skew, restore generations, and SQLite replacement rejecting stale uploads.
+Frontend tests exercise the switch, separate directions, partial completion,
+and mobile single-tap/directional actions. Real provider authentication,
+network loss during a native upload, and phone sleep/resume still require signed
+device integration testing.
