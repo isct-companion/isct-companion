@@ -7,6 +7,9 @@ dispatched manually.
 
 The original app icon is `public/icon.png`. Regenerate native icons with
 `yarn tauri icon public/icon.png --output backend/icons`.
+iOS source PNGs must be opaque RGB without an alpha channel. The project
+patcher validates and copies these committed icons into every fresh Xcode
+project; convert the generated iOS PNGs to RGB after regenerating them.
 
 ## Android
 

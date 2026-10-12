@@ -24,9 +24,16 @@ jobs:
   build-and-upload:
     runs-on: macos-15
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
       UPLOAD_TESTFLIGHT: ${{ inputs.upload_testflight || vars.IOS_TESTFLIGHT_ENABLED == 'true' }}
     steps:
       - uses: actions/checkout@v5
+      - name: Verify iOS distribution SDK
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
       - uses: actions/setup-node@v7
         with:
           node-version: 22
