@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { SwipeActions } from "../../components/SwipeActions";
+import { useFormFactor } from "../../app/form-factor";
+import { t } from "../../i18n";
 import { UiButton } from "../../components/mantine";
 import { deadlineState, dueCountdown } from "../../core/academic";
 import {
@@ -39,6 +42,7 @@ export function Today({
   openPlan,
   openTask,
   hideAssignment,
+  pinAssignment,
   openSchedule,
   focusSection,
   compact = false,
@@ -56,12 +60,14 @@ export function Today({
   openPlan: (plan: Plan) => void;
   openTask: (assignmentId: string) => void;
   hideAssignment: (assignmentId: string) => void;
+  pinAssignment?: (assignmentId: string) => void;
   openSchedule: () => void;
   compact?: boolean;
   active?: boolean;
   selection?: { courseId: string; assignmentId?: string };
   focusSection?: { section: "classes" | "assignments"; request: number };
 }) {
+  const mobile = useFormFactor() === "mobile";
   const page = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (focusSection)
@@ -135,7 +141,7 @@ export function Today({
     return course
       ? course.termId === term
       : assignment.dueAt !== null &&
-        new Date(assignment.dueAt).getTime() >= now.getTime();
+          new Date(assignment.dueAt).getTime() >= now.getTime();
   };
   const assignments = data.assignments
     .filter(
@@ -154,12 +160,13 @@ export function Today({
   const pending = assignments.filter(
     (item) => !isSubmitted(item) && !isPast(item),
   );
+  const pinned = assignments.filter((item) => item.pinned);
+  const unpinned = assignments.filter((item) => !item.pinned);
   const upcoming =
     dueScope === "earlier"
-      ? assignments.filter((item) => !isPast(item))
-      : pending;
-  const past =
-    dueScope === "earlier" ? assignments.filter(isPast).reverse() : [];
+      ? unpinned.filter((item) => !isPast(item))
+      : pending.filter((item) => !item.pinned);
+  const past = dueScope === "earlier" ? unpinned.filter(isPast).reverse() : [];
   // This week first; later deadlines in their own group.
   const weekEnd = now.getTime() + 7 * 86_400_000;
   const soon = upcoming.filter(
@@ -184,8 +191,11 @@ export function Today({
         : submitted
           ? " done"
           : "";
-    return (
-      <div className={`dueRow${state}`} key={assignment.id}>
+    const content = (
+      <div
+        className={`dueRow${state}${mobile ? " touchRow" : ""}`}
+        key={assignment.id}
+      >
         <i style={{ background: course?.color ?? "#888" }} />
         <UiButton
           className={`dueAssignment${selection?.assignmentId === assignment.id ? " selected" : ""}`}
@@ -215,13 +225,33 @@ export function Today({
             </time>
           )}
         </UiButton>
-        <UiButton
-          className="textButton"
-          onClick={() => hideAssignment(assignment.id)}
-        >
-          Hide
-        </UiButton>
+        {!mobile && (
+          <UiButton
+            className="textButton"
+            onClick={() => hideAssignment(assignment.id)}
+          >
+            {t("Hide")}
+          </UiButton>
+        )}
       </div>
+    );
+    return mobile ? (
+      <SwipeActions
+        key={assignment.id}
+        leading={
+          pinAssignment
+            ? {
+                label: assignment.pinned ? "Unpin" : "Pin",
+                run: () => pinAssignment(assignment.id),
+              }
+            : undefined
+        }
+        trailing={{ label: "Hide", run: () => hideAssignment(assignment.id) }}
+      >
+        {content}
+      </SwipeActions>
+    ) : (
+      content
     );
   };
   // With no agenda today, show the next actual occurrence within a week.
@@ -324,10 +354,7 @@ export function Today({
             </div>
             <span className="teachingState">
               {!isToday && (
-                <UiButton
-                  className="textButton"
-                  onClick={() => pick(null)}
-                >
+                <UiButton className="textButton" onClick={() => pick(null)}>
                   Today
                 </UiButton>
               )}
@@ -342,9 +369,17 @@ export function Today({
           <aside className="importantDates" aria-label="Important dates">
             {importantDates.map((item) => (
               <span key={item.id}>
-                <b>{pickLocalized(item.label, contentLanguage(data.settings), "Important date")}</b>
+                <b>
+                  {pickLocalized(
+                    item.label,
+                    contentLanguage(data.settings),
+                    "Important date",
+                  )}
+                </b>
                 {item.startDate !== item.endDate && (
-                  <small>{item.startDate}–{item.endDate}</small>
+                  <small>
+                    {item.startDate}–{item.endDate}
+                  </small>
                 )}
               </span>
             ))}
@@ -403,13 +438,20 @@ export function Today({
                     <span className="agendaState">{state}</span>
                     <time>
                       {timeLabel(block.startTime)}
-                      {block.kind === "exam" && <small>EXAM · {block.timeLabel}</small>}
+                      {block.kind === "exam" && (
+                        <small>EXAM · {block.timeLabel}</small>
+                      )}
                     </time>
                     <span className="agendaLine" aria-hidden="true" />
                     <span className="agendaCourse">
                       <b>{block.title}</b>
                       <small>
-                        {[block.room || block.subtitle, block.conflictWith?.length ? `Overlaps ${block.conflictWith.join(", ")}` : ""]
+                        {[
+                          block.room || block.subtitle,
+                          block.conflictWith?.length
+                            ? `Overlaps ${block.conflictWith.join(", ")}`
+                            : "",
+                        ]
                           .filter(Boolean)
                           .join(" · ") || "—"}
                       </small>
@@ -497,6 +539,12 @@ export function Today({
             <span>{pending.length ? `${pending.length} active` : "Clear"}</span>
           </header>
           <div className="dueList">
+            {pinned.length > 0 && (
+              <div className="duePinned">
+                <small>{t("Pinned")}</small>
+                {pinned.map(row)}
+              </div>
+            )}
             {(allDue ? soon : soon.slice(0, DUE_ROWS)).map(row)}
             {soon.length > DUE_ROWS &&
               more(allDue ? 0 : soon.length - DUE_ROWS, allDue, () =>

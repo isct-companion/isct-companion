@@ -113,6 +113,7 @@ export type Assignment = {
   submissionStatus?:
     "unknown" | "draft" | "submitted" | "late" | "not-submitted";
   hidden?: boolean;
+  pinned?: boolean;
   completedAt?: string;
   source: SourceRef;
   lastSeenAt?: string;
@@ -455,6 +456,7 @@ export type ScheduledTask = {
 export type AssignmentMark = {
   sourceKey: string;
   hidden: boolean;
+  pinned?: boolean;
   completedAt?: string;
   id: string;
   rev: number;

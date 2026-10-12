@@ -126,6 +126,7 @@ contract!(Assignment {
     #[serde(default)] #[ts(optional, type = "\"unknown\" | \"open\" | \"submitted\" | \"graded\"")] pub submission: Option<String>,
     #[serde(default)] #[ts(optional, type = "\"unknown\" | \"draft\" | \"submitted\" | \"late\" | \"not-submitted\"")] pub submission_status: Option<String>,
     #[serde(default)] #[ts(optional)] pub hidden: Option<bool>,
+    #[serde(default)] #[ts(optional)] pub pinned: Option<bool>,
     #[serde(default)] #[ts(optional)] pub completed_at: Option<String>,
     pub source: SourceRef,
     #[serde(default)] #[ts(optional)] pub last_seen_at: Option<String>,
@@ -359,6 +360,7 @@ contract!(ScheduledTask {
 contract!(AssignmentMark {
     #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
     pub source_key: String, pub hidden: bool,
+    #[serde(default)] #[ts(optional)] pub pinned: Option<bool>,
     #[serde(default)] #[ts(optional)] pub completed_at: Option<String>,
 });
 contract!(CourseOverride {

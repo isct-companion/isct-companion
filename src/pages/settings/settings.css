@@ -305,3 +305,65 @@ button.calendarDay.open {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* Size to the pane: narrow phones must not inherit the matrix's desktop minimums. */
+.settingsPane,
+.schoolAccounts,
+.schoolAccount,
+.credentialFields > *,
+.matrixEditor,
+.matrixGrid,
+.matrixRow > *,
+.settingsPane .row > * {
+  min-width: 0;
+}
+.settings.detail {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+}
+.settings.detail .settingsPane {
+  width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@container (max-width: 420px) {
+  .settingsPane .matrixGrid {
+    width: 100%;
+    grid-template-columns: 14px repeat(10, minmax(0, 1fr));
+    gap: 2px;
+    overflow: visible;
+  }
+  .matrixGrid .mantine-Input-wrapper {
+    min-width: 0;
+  }
+  .matrixGrid input {
+    padding: 0;
+    font-size: 12px;
+  }
+  .credentialFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .schoolAccount > header,
+  .matrixTools,
+  .schoolAccountActions {
+    flex-wrap: wrap;
+  }
+  .settingsPane .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settingsPane .row > .mantine-Input-wrapper {
+    width: 100%;
+    max-width: 100%;
+  }
+  .settingsPane .actions {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+}
+
+.syncDeliveries {
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}

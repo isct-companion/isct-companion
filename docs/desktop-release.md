@@ -2,7 +2,8 @@
 
 The private repository builds the app. The public repository
 `isct-companion/Isct-Companion-App` holds only README and license documents;
-Releases contain only the three desktop installers. Third-party notices and
+Releases contain the three desktop installers, signed Android APK and signed
+iOS/iPadOS IPA. Third-party notices and
 licenses are bundled in the app.
 The two repositories have independent Git histories.
 
@@ -37,8 +38,10 @@ runtime compatibility on every supported OS.
 4. Push a version tag such as `v0.1.1`. Alternatively, dispatch the workflow
    with `publish` enabled. The version guard rejects mismatched tags.
 
-All three builds must succeed before publication. Only `.dmg`/`.exe`
-installers are uploaded as Release assets.
+All desktop and mobile builds, including the TestFlight upload, must succeed
+before publication. Only `.dmg`/`.exe` installers, `.apk` and `.ipa` packages
+are uploaded as Release assets. See [mobile releases](mobile-release.md) for
+mobile signing and TestFlight setup.
 The job creates a draft, uploads the complete set, then publishes it as a
 prerelease. An existing published version is never overwritten; bump the
 version for another build. No private source archive or commit history is

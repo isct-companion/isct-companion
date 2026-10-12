@@ -20,7 +20,7 @@ use url::Url;
 const MAX_BODY_BYTES: usize = 25 * 1024 * 1024;
 const CLOUD_FILE_NAME: &str = "IsctCompanion.json";
 const CLOUD_FORMAT: &str = "IsctCompanion";
-const CLOUD_FORMAT_VERSION: u64 = 1;
+const CLOUD_FORMAT_VERSION: u64 = 2;
 const CREDENTIAL_FILE_NAME: &str = "IsctCompanion.credentials.json";
 const CREDENTIAL_FORMAT: &str = "IsctCompanion.credentials";
 const CREDENTIAL_PASSWORD_ACCOUNT: &str = "cloud-credential-sync";
@@ -41,6 +41,8 @@ pub(crate) struct CloudWorkspaceFile {
     format: String,
     format_version: u64,
     revision: u64,
+    #[serde(default)]
+    version: String,
     updated_at: String,
     updated_by: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,6 +52,8 @@ pub(crate) struct CloudWorkspaceFile {
     pub(crate) document: Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     previous: Vec<CloudWorkspaceFile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    checkpoints: Vec<CloudWorkspaceFile>,
 }
 
 impl CloudWorkspaceFile {
@@ -58,24 +62,6 @@ impl CloudWorkspaceFile {
             crate::cloud_merge::merge(&a, b)
         })
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CloudSyncState {
-    BackedUp,
-    UpToDate,
-    Conflict,
-    Restored,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CloudSyncResult {
-    pub state: CloudSyncState,
-    pub revision: u64,
-    pub updated_at: String,
-    pub updated_by: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -269,7 +255,7 @@ fn parse_cloud_workspace(bytes: &[u8]) -> Result<CloudWorkspaceFile, String> {
     let file: CloudWorkspaceFile = serde_json::from_slice(bytes)
         .map_err(|_| "Cloud workspace is not valid JSON.".to_string())?;
     if file.format != CLOUD_FORMAT
-        || file.format_version != CLOUD_FORMAT_VERSION
+        || !(1..=CLOUD_FORMAT_VERSION).contains(&file.format_version)
         || file.revision == 0
         || file.updated_by.trim().is_empty()
         || chrono::DateTime::parse_from_rfc3339(&file.updated_at).is_err()
@@ -278,15 +264,6 @@ fn parse_cloud_workspace(bytes: &[u8]) -> Result<CloudWorkspaceFile, String> {
     }
     validate_workspace_document(&file.document)?;
     Ok(file)
-}
-
-fn sync_result(state: CloudSyncState, file: &CloudWorkspaceFile) -> CloudSyncResult {
-    CloudSyncResult {
-        state,
-        revision: file.revision,
-        updated_at: file.updated_at.clone(),
-        updated_by: file.updated_by.clone(),
-    }
 }
 
 fn make_workspace_file(
@@ -298,6 +275,7 @@ fn make_workspace_file(
         format: CLOUD_FORMAT.into(),
         format_version: CLOUD_FORMAT_VERSION,
         revision: remote.map_or(1, |r| r.revision + 1),
+        version: crate::cloud_merge::version(&document).unwrap_or_default(),
         updated_at: chrono::Utc::now().to_rfc3339(),
         updated_by: device.into(),
         device_name: Some(
@@ -314,6 +292,7 @@ fn make_workspace_file(
         siblings: Vec::new(),
         document,
         previous: rotate_versions(remote),
+        checkpoints: daily_checkpoints(remote),
     }
 }
 
@@ -329,13 +308,34 @@ fn rotate_versions(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFi
         .map(|old| {
             let mut old = old.clone();
             old.previous.clear();
+            old.checkpoints.clear();
+            old
+        })
+        .collect()
+}
+
+// Daily recovery points are independent of the two immediate predecessors.
+fn daily_checkpoints(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFile> {
+    let Some(current) = current else {
+        return Vec::new();
+    };
+    let mut days = std::collections::BTreeSet::new();
+    std::iter::once(current)
+        .chain(current.checkpoints.iter())
+        .filter(|old| days.insert(old.updated_at.get(..10).unwrap_or("").to_owned()))
+        .take(7)
+        .map(|old| {
+            let mut old = old.clone();
+            old.previous.clear();
+            old.checkpoints.clear();
             old
         })
         .collect()
 }
 
 fn workspace_contents_equal(left: &Value, right: &Value) -> bool {
-    left.get("tables") == right.get("tables") && left.get("localNotes") == right.get("localNotes")
+    crate::cloud_merge::contents(left) == crate::cloud_merge::contents(right)
+        && left.get("sync") == right.get("sync")
 }
 
 fn validate_credential_password(password: &str) -> Result<(), String> {
@@ -1038,12 +1038,15 @@ impl<V: SecretVault> DesktopCloudService<V> {
             .read_workspace(provider)
             .await?
             .map(|file| {
+                let mut seen = std::collections::BTreeSet::new();
                 file.previous
                     .into_iter()
-                    .take(2)
+                    .chain(file.checkpoints)
+                    .filter(|old| seen.insert(old.revision))
                     .map(|old| crate::cloud_sync::CloudVersion {
                         id: format!("{}:{}", provider_account(provider), old.revision),
                         provider,
+                        version: crate::cloud_merge::version(&old.document).unwrap_or_default(),
                         saved_at: old.updated_at,
                         device: old.device_name.unwrap_or(old.updated_by),
                     })
@@ -1062,6 +1065,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
             .and_then(|file| {
                 file.previous
                     .into_iter()
+                    .chain(file.checkpoints)
                     .find(|old| old.revision == revision)
             })
             .map(|file| file.document)
@@ -1078,6 +1082,21 @@ impl<V: SecretVault> DesktopCloudService<V> {
     ) -> Result<Value, String> {
         for _ in 0..3 {
             let remote = self.read_workspace(provider).await?;
+            if let Some(remote) = &remote {
+                if let (Some(a), Some(b)) = (
+                    document
+                        .pointer("/sync/workspaceId")
+                        .and_then(Value::as_str),
+                    remote
+                        .document
+                        .pointer("/sync/workspaceId")
+                        .and_then(Value::as_str),
+                ) {
+                    if a != b {
+                        return Err("This cloud account contains a different workspace.".into());
+                    }
+                }
+            }
             let merged = remote
                 .as_ref()
                 .map(|r| crate::cloud_merge::merge(document, &r.merged_document()))
@@ -1186,47 +1205,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
         }
     }
 
-    pub async fn back_up_workspace(
-        &self,
-        provider: CloudProvider,
-        document: &str,
-        updated_by: &str,
-        overwrite: bool,
-    ) -> Result<CloudSyncResult, String> {
-        let document: Value = serde_json::from_str(document)
-            .map_err(|_| "Local workspace is not valid JSON.".to_string())?;
-        validate_workspace_document(&document)?;
-        if updated_by.trim().is_empty() {
-            return Err("Local device identifier is unavailable.".into());
-        }
-        let remote = self.read_workspace(provider).await?;
-        if let Some(remote) = &remote {
-            if workspace_contents_equal(&remote.document, &document) {
-                return Ok(sync_result(CloudSyncState::UpToDate, remote));
-            }
-            if !overwrite {
-                return Ok(sync_result(CloudSyncState::Conflict, remote));
-            }
-        }
-        let file = make_workspace_file(document, updated_by, remote.as_ref());
-        self.write_workspace_file(provider, &file, remote.as_ref().map(|r| r.revision))
-            .await?;
-        Ok(sync_result(CloudSyncState::BackedUp, &file))
-    }
-
-    pub async fn pull_workspace(
-        &self,
-        provider: CloudProvider,
-    ) -> Result<(String, CloudSyncResult), String> {
-        let file = self
-            .read_workspace(provider)
-            .await?
-            .ok_or_else(|| "No cloud workspace exists yet.".to_string())?;
-        let document = serde_json::to_string(&file.document)
-            .map_err(|_| "Cloud workspace serialization failed.".to_string())?;
-        Ok((document, sync_result(CloudSyncState::Restored, &file)))
-    }
-
     pub fn credential_sync_configured(&self) -> Result<bool, String> {
         Ok(self.vault.load(CREDENTIAL_PASSWORD_ACCOUNT)?.is_some())
     }
@@ -1314,6 +1292,29 @@ mod tests {
         }
     }
 
+    #[test]
+    fn daily_recovery_survives_frequent_same_day_updates() {
+        let mut file = make_workspace_file(serde_json::json!({"day":0}), "Phone", None);
+        file.updated_at = "2026-10-01T00:00:00Z".into();
+        for day in 2..=9 {
+            file = make_workspace_file(serde_json::json!({"day":day}), "Phone", Some(&file));
+            file.updated_at = format!("2026-10-{day:02}T00:00:00Z");
+        }
+        for edit in 0..20 {
+            file = make_workspace_file(serde_json::json!({"edit":edit}), "Phone", Some(&file));
+            file.updated_at = "2026-10-09T12:00:00Z".into();
+        }
+        assert_eq!(file.previous.len(), 2);
+        assert_eq!(file.checkpoints.len(), 7);
+        assert!(file
+            .checkpoints
+            .iter()
+            .any(|p| p.updated_at.starts_with("2026-10-03")));
+        assert!(file
+            .checkpoints
+            .iter()
+            .all(|p| p.previous.is_empty() && p.checkpoints.is_empty()));
+    }
     #[test]
     fn rotations_keep_two_flat_versions_and_restore_rotates_current() {
         let mut file = make_workspace_file(serde_json::json!({"value":1}), "Laptop", None);

@@ -36,6 +36,10 @@ const mocks = vi.hoisted(() => {
         state(enabled),
       ),
       syncCloudNow: vi.fn(async () => state(false)),
+      setCloudSyncAutomatic: vi.fn(async (automatic: boolean) => ({
+        ...state(false),
+        automatic,
+      })),
       restoreCloudVersion: vi.fn(async () => state(false)),
       onCloudSyncState: vi.fn((callback: (state: CloudSyncState) => void) => {
         mocks.listeners.push(callback);
@@ -100,11 +104,17 @@ afterEach(() => {
 });
 
 describe("BackupSettings", () => {
-  it("lists providers with sync status and no manual backup or conflict UI", () => {
+  it("lists providers with separate upload, pull and Auto controls", () => {
     const text = host.textContent ?? "";
     expect(text).toContain("iCloud");
     expect(text).toContain("Google Drive");
-    expect(text).toContain("Sync now");
+    expect(text).toContain("Upload");
+    expect(text).toContain("Pull");
+    expect(
+      host.querySelector<HTMLInputElement>(
+        '[data-setting="sync-automatic"] input',
+      )?.checked,
+    ).toBe(false);
     expect(text).not.toContain("Back up now");
     expect(
       host.querySelector('[data-setting="credential-keychain"]'),
@@ -138,8 +148,10 @@ describe("BackupSettings", () => {
   });
 
   it("syncs on request and restores a kept version after confirming", async () => {
-    await act(async () => button("Sync now").click());
-    expect(mocks.bridge.syncCloudNow).toHaveBeenCalled();
+    await act(async () => button("Upload").click());
+    expect(mocks.bridge.syncCloudNow).toHaveBeenCalledWith("upload");
+    await act(async () => button("Pull").click());
+    expect(mocks.bridge.syncCloudNow).toHaveBeenLastCalledWith("pull");
     vi.spyOn(window, "confirm").mockReturnValue(true);
     await act(async () => button("Restore").click());
     await flush();
@@ -152,5 +164,44 @@ describe("BackupSettings", () => {
       mocks.listeners[0]({ ...mocks.state(false), syncing: true }),
     );
     expect(host.textContent).toContain("Syncing…");
+  });
+  it("switches Auto explicitly and shows unfinished provider deliveries", async () => {
+    const toggle = host.querySelector<HTMLInputElement>(
+      '[data-setting="sync-automatic"] input',
+    )!;
+    await act(async () => toggle.click());
+    expect(mocks.bridge.setCloudSyncAutomatic).toHaveBeenCalledWith(true);
+    await act(async () =>
+      mocks.listeners[0]({
+        ...mocks.state(true),
+        localVersion: "v1-new",
+        tasks: [
+          {
+            id: "task-1",
+            direction: "upload",
+            version: "v1-new",
+            createdAt: "2026-10-12T03:00:00Z",
+            deliveries: [
+              {
+                provider: "icloud",
+                status: "pending",
+                attempts: 2,
+                retryAt: 1,
+              },
+              {
+                provider: "google-drive",
+                status: "completed",
+                attempts: 1,
+                retryAt: 0,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(host.textContent).toContain("Waiting to sync");
+    expect(host.textContent).toContain("task-1");
+    expect(host.textContent).not.toContain("Up to date");
+    expect(button("Restore").disabled).toBe(true);
   });
 });

@@ -194,25 +194,38 @@ export type CloudSyncVersion = {
   provider: CloudSyncProvider;
   savedAt: string;
   device: string;
+  version?: string;
+};
+export type CloudSyncTask = {
+  id: string;
+  direction: "upload" | "pull";
+  version: string;
+  createdAt: string;
+  deliveries: {
+    provider: CloudSyncProvider;
+    status: "pending" | "running" | "completed";
+    attempts: number;
+    retryAt: number;
+    error?: string;
+  }[];
 };
 export type CloudSyncState = {
   syncing: boolean;
+  automatic?: boolean;
+  localVersion?: string;
+  tasks?: CloudSyncTask[];
+  recoveryPoints?: { id: string; version: string; savedAt: string }[];
   providers: {
     provider: CloudSyncProvider;
     enabled: boolean;
     lastSyncedAt?: string;
+    syncedVersion?: string;
     error?: string;
   }[];
   /** Earlier cloud copies, newest first. */
   versions: CloudSyncVersion[];
 };
 
-export type CloudSyncResult = {
-  state: "backed-up" | "up-to-date" | "conflict" | "restored";
-  revision: number;
-  updatedAt: string;
-  updatedBy: string;
-};
 export type InvokeNative = (
   command: string,
   payload?: Record<string, unknown>,
@@ -337,15 +350,12 @@ export interface DesktopBridge {
     provider: CloudSyncProvider,
     enabled: boolean,
   ): Promise<CloudSyncState>;
-  syncCloudNow?(): Promise<CloudSyncState>;
+  syncCloudNow?(direction: "upload" | "pull"): Promise<CloudSyncState>;
+  setCloudSyncAutomatic?(automatic: boolean): Promise<CloudSyncState>;
   restoreCloudVersion?(id: string): Promise<CloudSyncState>;
+  cloudRecoveryDocument?(id: string): Promise<string>;
   onCloudSyncState?(callback: (state: CloudSyncState) => void): () => void;
   disconnectCloud(provider: CloudProvider): Promise<boolean>;
-  backupCloudWorkspace(
-    provider: CloudProvider,
-    overwrite: boolean,
-  ): Promise<CloudSyncResult>;
-  restoreCloudWorkspace(provider: CloudProvider): Promise<CloudSyncResult>;
   cloudCredentialSyncStatus(): Promise<boolean>;
   cloudCredentialBackupStatus(provider: CloudProvider): Promise<boolean>;
   setCloudCredentialSyncPassword(password: string): Promise<boolean>;
@@ -805,7 +815,12 @@ export function createTauriDesktopBridge(
     cloudSyncState: () => result<CloudSyncState>("cloud_sync_state"),
     setCloudSyncProvider: (provider, enabled) =>
       result<CloudSyncState>("set_cloud_sync_provider", { provider, enabled }),
-    syncCloudNow: () => result<CloudSyncState>("sync_cloud_now"),
+    syncCloudNow: (direction) =>
+      result<CloudSyncState>("sync_cloud_now", { direction }),
+    setCloudSyncAutomatic: (automatic) =>
+      result<CloudSyncState>("set_cloud_sync_automatic", { automatic }),
+    cloudRecoveryDocument: (id) =>
+      result<string>("cloud_recovery_document", { id }),
     restoreCloudVersion: (id) =>
       result<CloudSyncState>("restore_cloud_version", { id }),
     onCloudSyncState: (callback) => {
@@ -825,10 +840,6 @@ export function createTauriDesktopBridge(
     },
     disconnectCloud: (provider) =>
       booleanCommand("disconnect_cloud", { provider }),
-    backupCloudWorkspace: (provider, overwrite) =>
-      result("cloud_backup_workspace", { provider, overwrite }),
-    restoreCloudWorkspace: (provider) =>
-      result("cloud_restore_workspace", { provider }),
     cloudCredentialSyncStatus: () =>
       booleanCommand("cloud_credential_sync_status"),
     cloudCredentialBackupStatus: (provider) =>

@@ -1677,6 +1677,14 @@ export function WorkspaceApp() {
             );
             if (assignment) openLecture(assignment.courseId, { assignmentId });
           }}
+          pinAssignment={(assignmentId) => academicUpdate((draft) => {
+            const assignment = draft.assignments.find((item) => item.id === assignmentId);
+            if (assignment) {
+              assignment.pinned = !assignment.pinned;
+              assignment.rev += 1; assignment.updatedAt = stamp(); assignment.updatedBy = draft.deviceId;
+            }
+            return draft;
+          })}
           hideAssignment={(assignmentId) =>
             academicUpdate((draft) => {
               const assignment = draft.assignments.find(

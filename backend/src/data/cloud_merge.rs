@@ -14,14 +14,14 @@ fn time(row: &Value) -> Option<chrono::DateTime<chrono::FixedOffset>> {
 }
 
 pub fn compare(a: &Value, b: &Value) -> Ordering {
-    time(a)
-        .cmp(&time(b))
-        .then_with(|| {
-            a["rev"]
-                .as_u64()
-                .unwrap_or(0)
-                .cmp(&b["rev"].as_u64().unwrap_or(0))
-        })
+    // Revisions advance from the imported record, so a subsequent edit still
+    // wins if the device clock moved backwards. Concurrent equal revisions
+    // use timestamps and a deterministic actor tie-break.
+    a["rev"]
+        .as_u64()
+        .unwrap_or(0)
+        .cmp(&b["rev"].as_u64().unwrap_or(0))
+        .then_with(|| time(a).cmp(&time(b)))
         .then_with(|| {
             a["updatedBy"]
                 .as_str()
@@ -46,8 +46,34 @@ fn rows(a: &Value, b: &Value, key: &str) -> Value {
     Value::Array(records.into_values().collect())
 }
 
+pub fn generation(document: &Value) -> (u64, String) {
+    (
+        document["sync"]["generation"]["counter"]
+            .as_u64()
+            .unwrap_or(0),
+        document["sync"]["generation"]["id"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned(),
+    )
+}
+
+pub fn version(document: &Value) -> Result<String, String> {
+    let normalized = merge(document, document);
+    crate::data::versioned::content_hash(&contents(&normalized)).map(|hash| format!("v1-{hash}"))
+}
+
 pub fn merge(a: &Value, b: &Value) -> Value {
+    // A restore starts a new generation; rows from the old branch cannot reappear.
+    let (a, b) = match generation(a).cmp(&generation(b)) {
+        Ordering::Less => (b, b),
+        Ordering::Greater => (a, a),
+        Ordering::Equal => (a, b),
+    };
     let mut merged = a.clone();
+    if merged["sync"].is_null() && !b["sync"].is_null() {
+        merged["sync"] = b["sync"].clone();
+    }
     let mut tables = serde_json::Map::new();
     // This whitelist is also used by backup/import: device state and school
     // caches cannot enter sync even through an older or foreign cloud copy.
@@ -98,7 +124,7 @@ pub fn sanitize_setting(row: &mut Value) {
 }
 
 pub fn contents(document: &Value) -> Value {
-    json!({"tables":document["tables"], "localNotes":document["localNotes"]})
+    json!({"tables":document["tables"], "localNotes":document["localNotes"], "generation": generation(document)})
 }
 
 #[cfg(test)]
@@ -108,17 +134,58 @@ mod tests {
         json!({"id":"a", "updatedAt":at,"rev":rev,"updatedBy":device})
     }
     #[test]
+    fn later_revision_survives_a_clock_moving_backwards() {
+        assert!(compare(
+            &record("2020-01-01T00:00:00Z", 8, "phone"),
+            &record("2030-01-01T00:00:00Z", 7, "laptop")
+        )
+        .is_gt());
+    }
+    #[test]
+    fn content_versions_ignore_export_time_device_and_row_order() {
+        let a = json!({"exportedAt":"yesterday", "deviceId":"a", "tables":{"plans":[{"id":"b","rev":1},{"id":"a","rev":1}]},"localNotes":[]});
+        let b = json!({"exportedAt":"today", "deviceId":"b", "tables":{"plans":[{"id":"a","rev":1},{"id":"b","rev":1}]},"localNotes":[]});
+        assert_eq!(version(&a).unwrap(), version(&b).unwrap());
+        let mut c = b.clone();
+        c["tables"]["plans"][0]["rev"] = json!(2);
+        assert_ne!(version(&a).unwrap(), version(&c).unwrap());
+    }
+    #[test]
+    fn restore_generation_prevents_stale_device_resurrection() {
+        let old = json!({"tables":{"plans":[{"id":"p","rev":999,"updatedAt":"2099-01-01T00:00:00Z"}]},"localNotes":[{"id":"n"}]});
+        let restored = json!({"sync":{"generation":{"counter":1,"id":"restore-a"}},"tables":{},"localNotes":[]});
+        assert!(merge(&old, &restored)["tables"]["plans"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            contents(&merge(&old, &restored)),
+            contents(&merge(&restored, &old))
+        );
+        assert!(merge(&old, &restored)["localNotes"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        let mut simultaneous = restored.clone();
+        simultaneous["sync"]["generation"]["id"] = json!("restore-b");
+        assert_eq!(
+            contents(&merge(&restored, &simultaneous)),
+            contents(&merge(&simultaneous, &restored))
+        );
+    }
+    #[test]
     fn edits_deletes_and_ties_converge() {
-        let old = record("2026-01-01T00:00:00Z", 9, "z");
-        let edit = record("2026-01-02T00:00:00Z", 1, "a");
+        let old = record("2026-01-01T00:00:00Z", 1, "z");
+        let edit = record("2026-01-02T00:00:00Z", 2, "a");
         assert!(compare(&edit, &old).is_gt());
         let mut deleted = old.clone();
         deleted["deletedAt"] = json!("2026-01-03T00:00:00Z");
+        deleted["rev"] = json!(3);
         assert!(compare(&deleted, &edit).is_gt());
-        let revived = record("2026-01-04T00:00:00Z", 1, "a");
+        let revived = record("2026-01-04T00:00:00Z", 4, "a");
         assert!(compare(&revived, &deleted).is_gt());
-        assert!(compare(&record("2026-01-02T09:00:00+09:00", 2, "a"), &edit).is_gt());
-        assert!(compare(&record("2026-01-02T00:00:00Z", 1, "b"), &edit).is_gt());
+        assert!(compare(&record("2026-01-02T09:00:00+09:00", 3, "a"), &edit).is_gt());
+        assert!(compare(&record("2026-01-02T00:00:00Z", 2, "b"), &edit).is_gt());
         let a = json!({"tables":{"plans":[deleted],"settings":[{"key":"devicePreferences","value":{"density":"compact"}}]},"localNotes":[]});
         let b = json!({"tables":{"plans":[revived,{"id":"b","updatedAt":"2026-01-01T00:00:00Z"}]},"localNotes":[]});
         assert_eq!(contents(&merge(&a, &b)), contents(&merge(&b, &a)));
