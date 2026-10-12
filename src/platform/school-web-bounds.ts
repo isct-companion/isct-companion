@@ -1,9 +1,13 @@
-import type { SchoolWebBounds } from "./desktop-bridge";
+import {
+  nativeOs,
+  type NativeOs,
+  type SchoolWebBounds,
+} from "./desktop-bridge";
 
 type Rect = Pick<DOMRect, "left" | "top" | "width" | "height">;
 type Viewport = Pick<
   Window,
-  "innerWidth" | "innerHeight" | "outerWidth" | "outerHeight" | "navigator"
+  "innerWidth" | "innerHeight" | "outerWidth" | "outerHeight"
 >;
 
 const chromeInset = (outer: number, inner: number, maximum: number) =>
@@ -11,15 +15,15 @@ const chromeInset = (outer: number, inner: number, maximum: number) =>
 
 /**
  * DOM rectangles and Tauri child-webview bounds share client-area coordinates
- * on Windows and Linux. WKWebView is the exception: its child origin includes
+ * everywhere but macOS, whose WKWebView is the exception: its child origin includes
  * the macOS title-bar inset, which must be added back here.
  */
 export function schoolWebBounds(
   rect: Rect,
   viewport: Viewport,
+  os: NativeOs | undefined = nativeOs(),
 ): SchoolWebBounds {
-  const platform = `${viewport.navigator.platform} ${viewport.navigator.userAgent}`;
-  if (!/Mac/i.test(platform)) {
+  if (os !== "macos") {
     return {
       x: Math.round(rect.left),
       y: Math.round(rect.top),

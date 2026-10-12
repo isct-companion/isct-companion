@@ -3,6 +3,7 @@ import { t } from "../../i18n";
 import { useState, type ReactNode } from "react";
 import { detectConflicts } from "../../core/academic";
 import {
+  ActionIcon,
   Badge,
   Button,
   Group,
@@ -70,6 +71,7 @@ export function Courses({
   onEditingChange,
   openPlan,
   newPlan,
+  compact = false,
 }: {
   editing?: boolean;
   onEditingChange?: (value: boolean) => void;
@@ -104,6 +106,8 @@ export function Courses({
   register?: (term: TermId) => void;
   /** GPA / credits summary opened from the top toolbar. */
   academic?: ReactNode;
+  /** Mobile: one header row, viewing only; extras move into a menu. */
+  compact?: boolean;
 }) {
   const terms = allTerms(data, currentTerm);
   const term = coursesTerm(data, currentTerm);
@@ -184,9 +188,46 @@ export function Courses({
       if (event) openEvent(event, term);
     }
   };
+  const exportMenu = (target: ReactNode) => (
+    <Menu position="bottom-end" withinPortal>
+      <Menu.Target>{target}</Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Item onClick={() => exportIcs(term, "courses")}>
+          {t("Courses only")}
+        </Menu.Item>
+        <Menu.Item onClick={() => exportIcs(term, "courses-and-plans")}>
+          {t("Courses + personal plans")}
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
+  const header = compact ? (
+    <header className="scheduleCompactBar">
+      <h1>{t("Schedule")}</h1>
+      <YearQuarterPicker
+        terms={terms}
+        selected={term}
+        current={currentTerm}
+        onSelect={(selectedTerm) => update((d) => ({ ...d, selectedTerm }))}
+      />
+      {exportMenu(
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size={36}
+          aria-label={t("Calendar export options")}
+        >
+          ⋯
+        </ActionIcon>,
+      )}
+    </header>
+  ) : null;
   return (
-    <div className={`page unifiedSchedule${editing ? " editing" : ""}`}>
-      <div className="scheduleTitleRow">
+    <div
+      className={`page unifiedSchedule${editing ? " editing" : ""}${compact ? " compact" : ""}`}
+    >
+      {header}
+      <div className="scheduleTitleRow" hidden={compact}>
         <div>
           <h1>{t("Schedule")}</h1>
           <span>
@@ -201,7 +242,7 @@ export function Courses({
           onChange={(event) => onEditingChange?.(event.currentTarget.checked)}
         />
       </div>
-      <header className="pageBar">
+      <header className="pageBar" hidden={compact}>
         <YearQuarterPicker
           terms={terms}
           selected={term}

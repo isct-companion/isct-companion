@@ -27,7 +27,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { UiButton } from "../components/mantine";
 import i18n, { t } from "../i18n";
 import { useTranslation } from "react-i18next";
-import { desktopBridge, hideNativeSchoolWeb, saveExportFile } from "./native";
+import {
+  desktopBridge,
+  hideNativeSchoolWeb,
+  official,
+  saveExportFile,
+} from "./native";
 import { cleanMaterials, retentionDays } from "../pages/today/lms/files";
 import { errorText, jstDate, stamp, type Page, type Section } from "./shared";
 import {
@@ -80,6 +85,7 @@ import {
   catalogCourse,
   type NativeCapabilitySnapshot,
   type SchoolPullOptions,
+  type SchoolSite,
 } from "../platform/desktop-bridge";
 
 import type { SchedulerRuntimeState } from "../platform/scheduler";
@@ -107,6 +113,9 @@ import { staleSources } from "../platform/school-freshness";
 import { declaredTermCredits } from "../core/declared-credits";
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
+import { useFormFactor } from "./form-factor";
+import { MobileShell } from "../pages/mobile/MobileShell";
+import { openExternalUrl } from "../components/ExternalLink";
 import { coursesTerm } from "../pages/courses/CoursesPage";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "../core/departments";
 import {
@@ -297,6 +306,9 @@ async function executeScheduledTask(
   );
 }
 
+/** A school service named in the route, or null when it names none. */
+const schoolSite = (value?: string): SchoolSite | null =>
+  value && value in official ? (value as SchoolSite) : null;
 const pages: Page[] = ["home", "lectures", "web"];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
@@ -329,6 +341,7 @@ const icons: Record<Page, React.ReactElement> = {
 
 export function WorkspaceApp() {
   useTranslation();
+  const formFactor = useFormFactor();
   const scienceSession = useSchoolSession(desktopBridge, "science");
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
   const store = useWorkspace((state) => state);
@@ -368,7 +381,7 @@ export function WorkspaceApp() {
   const params = useParams();
   const homeMatch = useMatch(`${routePatterns.home}/*`);
   const lecturesMatch = useMatch(`${routePatterns.lectures}/*`);
-  const webMatch = useMatch(routePatterns.web);
+  const webMatch = useMatch(`${routePatterns.web}/*`);
   const settingsMatch = useMatch(`${routePatterns.settings}/*`);
   const weekMatch = useMatch(routePatterns.week);
   const page: Page = lecturesMatch
@@ -404,6 +417,13 @@ export function WorkspaceApp() {
   pageLocations.current[page] = location.pathname;
   const pagePath = (next: Page) =>
     pageLocations.current[next] ?? paths.page(next);
+  // On mobile a pushed screen closes by going back, so the system back
+  // gesture and the on-screen back button walk the same history.
+  const closeTo = (path: string) => {
+    if (formFactor === "mobile" && (window.history.state?.idx ?? 0) > 0)
+      void navigate(-1);
+    else void navigate(path);
+  };
   // Official-page extractors write to SQLite; reload only after an ingestion.
   const ingestedOnWeb = useRef(false);
   const [webContext, setWebContext] = useState<{
@@ -427,9 +447,19 @@ export function WorkspaceApp() {
   );
   // Hidden Activities keep their last route props so another page's params
   // cannot replace retained subpages. Visible navigation always reads the URL.
-  const renderedRoutes = useRef({ homeView, section, lectureEntry });
+  const renderedRoutes = useRef({
+    homeView,
+    section,
+    settingsOpen: Boolean(params.section),
+    webSite: schoolSite(params.site),
+    lectureEntry,
+  });
+  if (page === "web") renderedRoutes.current.webSite = schoolSite(params.site);
   if (page === "home") renderedRoutes.current.homeView = homeView;
-  if (page === "settings") renderedRoutes.current.section = section;
+  if (page === "settings") {
+    renderedRoutes.current.section = section;
+    renderedRoutes.current.settingsOpen = Boolean(params.section);
+  }
   if (page === "lectures") renderedRoutes.current.lectureEntry = lectureEntry;
   const retainedLecture = renderedRoutes.current.lectureEntry;
   const blocker = useBlocker(
@@ -465,9 +495,16 @@ export function WorkspaceApp() {
     if (!sourceData) return;
     const target = routeRedirect(location.pathname + location.search, {
       courses: sourceData.courses,
+      stacked: formFactor === "mobile",
     });
     if (target) void navigate(target, { replace: true });
-  }, [location.pathname, location.search, sourceData?.courses, navigate]);
+  }, [
+    location.pathname,
+    location.search,
+    sourceData?.courses,
+    navigate,
+    formFactor,
+  ]);
   const [courseEditor, setCourseEditor] = useState<{
     course?: Course;
     term: TermId;
@@ -1192,13 +1229,24 @@ export function WorkspaceApp() {
       return workspace;
     });
   const openWeb = (url: string, from: "home" | "lectures" = "home") => {
+    // Without an embedded school view the system browser takes over.
+    if (
+      platform === "native-mobile" &&
+      nativeCapabilities?.schoolWeb !== true
+    ) {
+      void openExternalUrl(url).catch(notify.error);
+      return;
+    }
     setWebContext({
       page: from,
       label: navigation[from],
       url,
       request: Date.now(),
     });
-    void navigate(paths.web());
+    // Phones browse inside a service; Web corrects the service once resolved.
+    void navigate(
+      formFactor === "mobile" ? paths.web("science-lms") : paths.web(),
+    );
   };
   /** Opens a lecture on Lecture Desk, optionally at one assignment. */
   const openLecture = (
@@ -1470,517 +1518,443 @@ export function WorkspaceApp() {
     void navigate(pagePath(next));
   };
 
-  return (
-    <AppShell
-      className="app"
-      data-density={data.settings.density}
-      navbar={{ width: 72, breakpoint: "48em", collapsed: { mobile: true } }}
-      footer={{ height: 62, offset: false }}
-      padding={0}
-    >
-      <AppShell.Navbar className="rail">
-        <nav aria-label="Pages">
-          {pages.map((p, i) => (
-            <UiButton
-              className={page === p ? "active" : ""}
-              onClick={() => navigatePage(p)}
-              key={p}
-              title={`${navigation[p]} (⌘${i + 1})`}
-            >
-              {icons[p]}
-              <span>{navigation[p]}</span>
-            </UiButton>
-          ))}
-        </nav>
-        <UiButton
-          className={`railUtility${page === "settings" ? " active" : ""}`}
-          onClick={() => void navigate(pagePath("settings"))}
-          title={navigation.settings}
-        >
-          {icons.settings}
-          <span>{navigation.settings}</span>
-        </UiButton>
-      </AppShell.Navbar>
-      <AppShell.Footer className="mobileRail" hiddenFrom="sm">
-        <nav aria-label="Pages">
-          {pages.map((p) => (
-            <UiButton
-              className={page === p ? "active" : ""}
-              onClick={() => navigatePage(p)}
-              key={p}
-              title={navigation[p]}
-            >
-              {icons[p]}
-              <span>{navigation[p]}</span>
-            </UiButton>
-          ))}
-          <UiButton
-            className={page === "settings" ? "active" : ""}
-            onClick={() => void navigate(pagePath("settings"))}
-            title={navigation.settings}
-          >
-            {icons.settings}
-            <span>{navigation.settings}</span>
-          </UiButton>
-        </nav>
-      </AppShell.Footer>
-      <AppShell.Main
-        component="main"
-        className={`workspaceMain${page === "home" ? " homeMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
-      >
-        {mountedPages.includes("lectures") && (
-          <Activity mode={page === "lectures" ? "visible" : "hidden"}>
-            <PageErrorBoundary name="lectures">
-              <LectureDesk
-                data={data}
-                term={todayTerm}
-                entry={
-                  retainedLecture &&
-                  data.courses.some(
-                    (c) => c.id === retainedLecture.courseId && !c.deletedAt,
-                  )
-                    ? retainedLecture
-                    : null
+  const keep = (name: Page, node: React.ReactNode) =>
+    mountedPages.includes(name) && (
+      <Activity mode={page === name ? "visible" : "hidden"} key={name}>
+        <PageErrorBoundary name={name}>{node}</PageErrorBoundary>
+      </Activity>
+    );
+  const lecturesPage = (
+    <LectureDesk
+      data={data}
+      term={todayTerm}
+      entry={
+        retainedLecture &&
+        data.courses.some(
+          (c) => c.id === retainedLecture.courseId && !c.deletedAt,
+        )
+          ? retainedLecture
+          : null
+      }
+      active={page === "lectures"}
+      restoreAssignment={
+        readOnly
+          ? undefined
+          : (assignmentId) =>
+              academicUpdate((draft) => {
+                const assignment = draft.assignments.find(
+                  (item) => item.id === assignmentId,
+                );
+                if (assignment) {
+                  assignment.hidden = false;
+                  assignment.rev += 1;
+                  assignment.updatedAt = stamp();
+                  assignment.updatedBy = draft.deviceId;
                 }
-                active={page === "lectures"}
-                restoreAssignment={
-                  readOnly
-                    ? undefined
-                    : (assignmentId) =>
-                        academicUpdate((draft) => {
-                          const assignment = draft.assignments.find(
-                            (item) => item.id === assignmentId,
-                          );
-                          if (assignment) {
-                            assignment.hidden = false;
-                            assignment.rev += 1;
-                            assignment.updatedAt = stamp();
-                            assignment.updatedBy = draft.deviceId;
-                          }
-                          return draft;
-                        })
-                }
-                select={(courseId, assignmentId) => {
-                  if (
-                    lectureEntry?.courseId !== courseId ||
-                    lectureEntry?.assignmentId !== assignmentId
-                  )
-                    openLecture(courseId, { assignmentId });
-                }}
-                clear={() =>
-                  void hideNativeSchoolWeb()
-                    .then(() => navigate(paths.lectures()))
-                    .catch(notify.error)
-                }
-                renderWorkspace={(entry, active) => {
-                  const course = data.courses.find(
-                    (c) => c.id === entry.courseId && !c.deletedAt,
-                  );
-                  if (!course) return null;
-                  const record = schoolRecords?.lmsCourses.find(
-                    (item) =>
-                      (course.offeringId &&
-                        item.offeringId === course.offeringId) ||
-                      String(item.lmsId) === course.source.externalId,
-                  );
-                  return (
-                    <Suspense fallback={<p role="status">{t("Loading…")}</p>}>
-                      <LmsWorkspace
-                        course={course}
-                        data={data}
-                        record={record}
-                        entry={entry}
-                        active={active}
-                        navigationProvided
-                        schoolWebAvailable={
-                          nativeCapabilities?.schoolWeb === true
-                        }
-                        close={() =>
-                          void hideNativeSchoolWeb()
-                            .then(() => navigate(paths.lectures()))
-                            .catch(notify.error)
-                        }
-                        refresh={
-                          desktopBridge?.pullSchool && record
-                            ? () => void fetchLms(false, record.lmsId)
-                            : undefined
-                        }
-                        progress={lmsProgress}
-                        markLesson={
-                          readOnly
-                            ? undefined
-                            : (sectionId, occurrence, label) => {
-                                academicUpdate((draft) => {
-                                  const target = draft.courses.find(
-                                    (c) => c.id === course.id,
-                                  );
-                                  if (!target) return draft;
-                                  // One mark per class meeting; the latest marks are enough.
-                                  const log = (
-                                    target.overrides?.lessonLog ?? []
-                                  ).filter(
-                                    (mark) => mark.occurrence !== occurrence,
-                                  );
-                                  target.overrides = {
-                                    ...target.overrides,
-                                    lessonLog: [
-                                      ...log,
-                                      { occurrence, sectionId },
-                                    ].slice(-60),
-                                  };
-                                  target.rev += 1;
-                                  target.updatedAt = stamp();
-                                  target.updatedBy = draft.deviceId;
-                                  return draft;
-                                });
-                                // Say which class the mark is for: today's, or a later one.
-                                const when = new Date(occurrence);
-                                const format = (
-                                  options: Intl.DateTimeFormatOptions,
-                                ) =>
-                                  new Intl.DateTimeFormat(
-                                    data.settings.locale,
-                                    {
-                                      ...options,
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                      hourCycle: "h23",
-                                      timeZone: "Asia/Tokyo",
-                                    },
-                                  ).format(when);
-                                notify.info(
-                                  occurrence.startsWith(jstDate(new Date()))
-                                    ? t(
-                                        "Today's {{time}} class is recorded as {{lesson}}.",
-                                        { time: format({}), lesson: label },
-                                      )
-                                    : t(
-                                        "Your next class, {{date}}, is set to {{lesson}}.",
-                                        {
-                                          date: format({
-                                            month: "numeric",
-                                            day: "numeric",
-                                            weekday: "short",
-                                          }),
-                                          lesson: label,
-                                        },
-                                      ),
-                                );
-                              }
-                        }
-                      />
-                    </Suspense>
-                  );
-                }}
-              />
-            </PageErrorBoundary>
-          </Activity>
-        )}
-        {mountedPages.includes("home") && (
-          <Activity mode={page === "home" ? "visible" : "hidden"}>
-            <PageErrorBoundary name="home">
-              <div
-                className={`homePage ${renderedRoutes.current.homeView}${editMode ? " planning" : ""}`}
-              >
-                <div className="homeDay">
-                  <Today
-                    active={page === "home"}
-                    data={data}
-                    term={todayTerm}
-                    open={(courseId, _tab, context) =>
-                      openLecture(courseId, context)
-                    }
-                    openEvent={(event) =>
-                      !readOnly && setEventEditor({ event, term: event.termId })
-                    }
-                    openPlan={(plan) => !readOnly && setPlanEditor(plan)}
-                    openTask={(assignmentId) => {
-                      const assignment = data.assignments.find(
-                        (item) => item.id === assignmentId,
-                      );
-                      if (assignment)
-                        openLecture(assignment.courseId, { assignmentId });
-                    }}
-                    hideAssignment={(assignmentId) =>
+                return draft;
+              })
+      }
+      select={(courseId, assignmentId) => {
+        if (
+          lectureEntry?.courseId !== courseId ||
+          lectureEntry?.assignmentId !== assignmentId
+        )
+          openLecture(courseId, { assignmentId });
+      }}
+      clear={() =>
+        void hideNativeSchoolWeb()
+          .then(() => closeTo(paths.lectures()))
+          .catch(notify.error)
+      }
+      renderWorkspace={(entry, active) => {
+        const course = data.courses.find(
+          (c) => c.id === entry.courseId && !c.deletedAt,
+        );
+        if (!course) return null;
+        const record = schoolRecords?.lmsCourses.find(
+          (item) =>
+            (course.offeringId && item.offeringId === course.offeringId) ||
+            String(item.lmsId) === course.source.externalId,
+        );
+        return (
+          <Suspense fallback={<p role="status">{t("Loading…")}</p>}>
+            <LmsWorkspace
+              course={course}
+              data={data}
+              record={record}
+              entry={entry}
+              active={active}
+              navigationProvided
+              schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
+              close={() =>
+                void hideNativeSchoolWeb()
+                  .then(() => closeTo(paths.lectures()))
+                  .catch(notify.error)
+              }
+              refresh={
+                desktopBridge?.pullSchool && record
+                  ? () => void fetchLms(false, record.lmsId)
+                  : undefined
+              }
+              progress={lmsProgress}
+              markLesson={
+                readOnly
+                  ? undefined
+                  : (sectionId, occurrence, label) => {
                       academicUpdate((draft) => {
-                        const assignment = draft.assignments.find(
-                          (item) => item.id === assignmentId,
+                        const target = draft.courses.find(
+                          (c) => c.id === course.id,
                         );
-                        if (assignment) {
-                          assignment.hidden = true;
-                          assignment.rev += 1;
-                          assignment.updatedAt = stamp();
-                          assignment.updatedBy = draft.deviceId;
-                        }
+                        if (!target) return draft;
+                        // One mark per class meeting; the latest marks are enough.
+                        const log = (target.overrides?.lessonLog ?? []).filter(
+                          (mark) => mark.occurrence !== occurrence,
+                        );
+                        target.overrides = {
+                          ...target.overrides,
+                          lessonLog: [...log, { occurrence, sectionId }].slice(
+                            -60,
+                          ),
+                        };
+                        target.rev += 1;
+                        target.updatedAt = stamp();
+                        target.updatedBy = draft.deviceId;
                         return draft;
-                      })
+                      });
+                      // Say which class the mark is for: today's, or a later one.
+                      const when = new Date(occurrence);
+                      const format = (options: Intl.DateTimeFormatOptions) =>
+                        new Intl.DateTimeFormat(data.settings.locale, {
+                          ...options,
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hourCycle: "h23",
+                          timeZone: "Asia/Tokyo",
+                        }).format(when);
+                      notify.info(
+                        occurrence.startsWith(jstDate(new Date()))
+                          ? t(
+                              "Today's {{time}} class is recorded as {{lesson}}.",
+                              { time: format({}), lesson: label },
+                            )
+                          : t(
+                              "Your next class, {{date}}, is set to {{lesson}}.",
+                              {
+                                date: format({
+                                  month: "numeric",
+                                  day: "numeric",
+                                  weekday: "short",
+                                }),
+                                lesson: label,
+                              },
+                            ),
+                      );
                     }
-                    openSchedule={() => void navigate(paths.home("week"))}
-                  />
-                </div>
-                <div className="homeWeek">
-                  <UiButton
-                    className="textButton homeBack"
-                    onClick={() => void navigate(paths.home())}
-                  >
-                    ‹ {t("Today")}
-                  </UiButton>
-                  <Courses
-                    editing={editMode}
-                    onEditingChange={(value) => {
-                      setEditMode(value);
-                      setOfferingPanel(null);
-                      setPanelCourseId(null);
-                    }}
-                    openPlan={(plan) => !readOnly && setPlanEditor(plan)}
-                    newPlan={() => !readOnly && setPlanEditor("new")}
-                    side={
-                      <CourseFinder
-                        key={courseTerm}
-                        year={Number(courseTerm.slice(0, 4))}
-                        term={courseTerm}
-                        summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
-                        language={contentLanguage(data.settings)}
-                        load={(year) =>
-                          desktopBridge?.catalogOfferings
-                            ? desktopBridge.catalogOfferings(year)
-                            : Promise.resolve([])
-                        }
-                        context={finderContext}
-                        onTimetable={finderPlaced}
-                        keys={finderKeys}
-                        setKeys={setFinderKeys}
-                        openCourse={(course) => {
-                          setPanelCourseId(null);
-                          setOfferingPanel(course);
-                        }}
-                        activeId={offeringPanel?.id}
-                        replaces={(course) =>
-                          clashingCourses(course, replaceable).length > 0
-                        }
-                        readOnly={readOnly}
-                        add={addFinderCourses}
-                        undo={(rows) =>
-                          academicUpdate((draft) => {
-                            for (const row of rows) {
-                              const course = draft.courses.find(
-                                (item) =>
-                                  isSyllabusCourse(item) &&
-                                  item.source.externalId === row.id &&
-                                  item.termId === courseTerm &&
-                                  !item.deletedAt,
-                              );
-                              if (course)
-                                removeSyllabusDraft(
-                                  draft,
-                                  course.id,
-                                  course.termId,
-                                );
-                            }
-                            // Bring back what the add replaced.
-                            const now = stamp();
-                            for (const courseId of replacedByAdd.current) {
-                              const item = draft.planItems
-                                .filter(
-                                  (x) =>
-                                    x.courseId === courseId &&
-                                    x.termId === courseTerm &&
-                                    x.deletedAt,
-                                )
-                                .sort((x, y) =>
-                                  (y.deletedAt ?? "").localeCompare(
-                                    x.deletedAt ?? "",
-                                  ),
-                                )[0];
-                              if (item) {
-                                item.deletedAt = undefined;
-                                item.rev += 1;
-                                item.updatedAt = now;
-                                item.updatedBy = draft.deviceId;
-                              }
-                            }
-                            replacedByAdd.current = [];
-                            return draft;
-                          })
-                        }
-                        manual={
-                          readOnly
-                            ? undefined
-                            : () => setCourseEditor({ term: courseTerm })
-                        }
-                        query={desktopBridge?.catalogQuery}
-                        syncDetails={desktopBridge?.catalogSyncOfferings}
-                      />
-                    }
-                    leftPanel={
-                      offeringPanel && (
-                        <OfferingPanel
-                          key={offeringPanel.id}
-                          course={offeringPanel}
-                          language={contentLanguage(data.settings)}
-                          placed={finderPlaced.has(offeringPanel.code)}
-                          replaces={clashingCourses(
-                            offeringPanel,
-                            replaceable,
-                          ).map((c) => c.title)}
-                          readOnly={readOnly}
-                          close={() => setOfferingPanel(null)}
-                          add={() => addFinderCourses([offeringPanel])}
-                        />
+              }
+            />
+          </Suspense>
+        );
+      }}
+    />
+  );
+  // Phones view the timetable; planning stays on the workstation.
+  const planning = editMode && formFactor !== "mobile";
+  const homePage = (
+    <div
+      className={`homePage ${renderedRoutes.current.homeView}${planning ? " planning" : ""}`}
+    >
+      <div className="homeDay">
+        <Today
+          active={page === "home"}
+          data={data}
+          term={todayTerm}
+          open={(courseId, _tab, context) => openLecture(courseId, context)}
+          openEvent={(event) =>
+            !readOnly && setEventEditor({ event, term: event.termId })
+          }
+          openPlan={(plan) => !readOnly && setPlanEditor(plan)}
+          openTask={(assignmentId) => {
+            const assignment = data.assignments.find(
+              (item) => item.id === assignmentId,
+            );
+            if (assignment) openLecture(assignment.courseId, { assignmentId });
+          }}
+          hideAssignment={(assignmentId) =>
+            academicUpdate((draft) => {
+              const assignment = draft.assignments.find(
+                (item) => item.id === assignmentId,
+              );
+              if (assignment) {
+                assignment.hidden = true;
+                assignment.rev += 1;
+                assignment.updatedAt = stamp();
+                assignment.updatedBy = draft.deviceId;
+              }
+              return draft;
+            })
+          }
+          openSchedule={() => void navigate(paths.home("week"))}
+        />
+      </div>
+      <div className="homeWeek">
+        <UiButton
+          className="textButton homeBack"
+          onClick={() => closeTo(paths.home())}
+        >
+          ‹ {t("Today")}
+        </UiButton>
+        <Courses
+          compact={formFactor === "mobile"}
+          editing={planning}
+          onEditingChange={(value) => {
+            setEditMode(value);
+            setOfferingPanel(null);
+            setPanelCourseId(null);
+          }}
+          openPlan={(plan) => !readOnly && setPlanEditor(plan)}
+          newPlan={() => !readOnly && setPlanEditor("new")}
+          side={
+            <CourseFinder
+              key={courseTerm}
+              year={Number(courseTerm.slice(0, 4))}
+              term={courseTerm}
+              summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
+              language={contentLanguage(data.settings)}
+              load={(year) =>
+                desktopBridge?.catalogOfferings
+                  ? desktopBridge.catalogOfferings(year)
+                  : Promise.resolve([])
+              }
+              context={finderContext}
+              onTimetable={finderPlaced}
+              keys={finderKeys}
+              setKeys={setFinderKeys}
+              openCourse={(course) => {
+                setPanelCourseId(null);
+                setOfferingPanel(course);
+              }}
+              activeId={offeringPanel?.id}
+              replaces={(course) =>
+                clashingCourses(course, replaceable).length > 0
+              }
+              readOnly={readOnly}
+              add={addFinderCourses}
+              undo={(rows) =>
+                academicUpdate((draft) => {
+                  for (const row of rows) {
+                    const course = draft.courses.find(
+                      (item) =>
+                        isSyllabusCourse(item) &&
+                        item.source.externalId === row.id &&
+                        item.termId === courseTerm &&
+                        !item.deletedAt,
+                    );
+                    if (course)
+                      removeSyllabusDraft(draft, course.id, course.termId);
+                  }
+                  // Bring back what the add replaced.
+                  const now = stamp();
+                  for (const courseId of replacedByAdd.current) {
+                    const item = draft.planItems
+                      .filter(
+                        (x) =>
+                          x.courseId === courseId &&
+                          x.termId === courseTerm &&
+                          x.deletedAt,
                       )
+                      .sort((x, y) =>
+                        (y.deletedAt ?? "").localeCompare(x.deletedAt ?? ""),
+                      )[0];
+                    if (item) {
+                      item.deletedAt = undefined;
+                      item.rev += 1;
+                      item.updatedAt = now;
+                      item.updatedBy = draft.deviceId;
                     }
-                    panel={
-                      panelCourse && (
-                        <CoursePanel
-                          key={panelCourse.id}
-                          course={panelCourse}
-                          data={data}
-                          readOnly={readOnly || !editMode}
-                          close={() => setPanelCourseId(null)}
-                          remove={() => removeFromTimetable(panelCourse)}
-                          editIntensive={() =>
-                            setIntensiveCourseId(panelCourse.id)
-                          }
-                          lmsUrl={lmsUrlFor(panelCourse)}
-                          openWeb={(url) => openWeb(url)}
-                          fetchLms={
-                            desktopBridge?.pullSchool
-                              ? () => void fetchLms()
-                              : undefined
-                          }
-                          progress={lmsProgress}
-                        />
-                      )
-                    }
-                    data={data}
-                    currentTerm={currentTerm}
-                    readOnly={readOnly}
-                    update={academicUpdate}
-                    open={(courseId) => {
-                      if (editMode) {
-                        setOfferingPanel(null);
-                        setPanelCourseId(courseId);
-                      } else openLecture(courseId);
-                    }}
-                    openEvent={(event, term) =>
-                      !readOnly && setEventEditor({ event, term })
-                    }
-                    onSlot={toggleFinderSlot}
-                    activeSlots={finderSlots}
-                    onIntensive={(append) => pickFinderTime("集中", append)}
-                    intensiveActive={finderKeys.includes("集中")}
-                    addTerm={() => setTermDialog(true)}
-                    pullLms={
-                      desktopBridge?.pullSchool && !readOnly
-                        ? (scope) => void pullLms(scope)
-                        : undefined
-                    }
-                    pullProgress={lmsProgress}
-                    register={
-                      desktopBridge?.setKyomuGuide
-                        ? (term) => void openRegistration(term)
-                        : undefined
-                    }
-                    academic={
-                      <AcademicSummary
-                        summaries={data.gpaSummary}
-                        termCredits={termCredits}
-                        progress={kyomuProgress ?? (pulling ? 0 : null)}
-                        refresh={
-                          desktopBridge?.pullSchool
-                            ? () => void refreshKyomu()
-                            : undefined
-                        }
-                        openOfficial={() => openWeb(KYOMU_GPA)}
-                      />
-                    }
-                    exportIcs={(term, scope = "courses") =>
-                      saveExportFile(
-                        `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
-                        () => exportQuarterIcs(data, term, scope),
-                        notify.info,
-                      )
-                    }
-                  />
-                </div>
-              </div>
-            </PageErrorBoundary>
-          </Activity>
-        )}
-        {mountedPages.includes("web") && (
-          <Activity mode={page === "web" ? "visible" : "hidden"}>
-            <PageErrorBoundary name="web">
-              <Web
-                key={webContext?.url ?? "web"}
-                active={page === "web"}
-                platform={platform}
-                data={data}
-                update={update}
-                notify={notify.info}
-                schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
-                requestedUrl={webContext?.url}
-                request={webContext?.request}
-                returnLabel={webContext?.label}
-                onReturn={
-                  webContext
-                    ? () => {
-                        const destination = webContext.page;
-                        setWebContext(null);
-                        void navigate(pagePath(destination));
-                      }
-                    : undefined
-                }
+                  }
+                  replacedByAdd.current = [];
+                  return draft;
+                })
+              }
+              manual={
+                readOnly
+                  ? undefined
+                  : () => setCourseEditor({ term: courseTerm })
+              }
+              query={desktopBridge?.catalogQuery}
+              syncDetails={desktopBridge?.catalogSyncOfferings}
+            />
+          }
+          leftPanel={
+            offeringPanel && (
+              <OfferingPanel
+                key={offeringPanel.id}
+                course={offeringPanel}
+                language={contentLanguage(data.settings)}
+                placed={finderPlaced.has(offeringPanel.code)}
+                replaces={clashingCourses(offeringPanel, replaceable).map(
+                  (c) => c.title,
+                )}
+                readOnly={readOnly}
+                close={() => setOfferingPanel(null)}
+                add={() => addFinderCourses([offeringPanel])}
               />
-            </PageErrorBoundary>
-          </Activity>
-        )}
-        {mountedPages.includes("settings") && (
-          <Activity mode={page === "settings" ? "visible" : "hidden"}>
-            <PageErrorBoundary name="settings">
-              <Settings
-                platform={platform}
+            )
+          }
+          panel={
+            panelCourse && (
+              <CoursePanel
+                key={panelCourse.id}
+                course={panelCourse}
                 data={data}
-                update={update}
-                advancedCalendarUpdate={advancedCalendarUpdate}
-                caps={caps}
-                capabilitiesReady={
-                  platform !== "native-desktop" || nativeCapabilitiesReady
+                readOnly={readOnly || !planning}
+                close={() => setPanelCourseId(null)}
+                remove={() => removeFromTimetable(panelCourse)}
+                editIntensive={() => setIntensiveCourseId(panelCourse.id)}
+                lmsUrl={lmsUrlFor(panelCourse)}
+                openWeb={(url) => openWeb(url)}
+                fetchLms={
+                  desktopBridge?.pullSchool ? () => void fetchLms() : undefined
                 }
-                section={renderedRoutes.current.section}
-                setSection={(next) =>
-                  void navigate(paths.settings(next), { replace: true })
-                }
-                notify={notify.info}
-                runScheduledTask={async (task) => {
-                  if (!desktopBridge?.runScheduledTask)
-                    return executeScheduledTask(task, true);
-                  const result = await desktopBridge.runScheduledTask(task.id);
-                  await workspaceStore.reload();
-                  return result;
-                }}
-                refreshReferences={
-                  desktopBridge
-                    ? () => refreshReferenceSubscriptions(true)
-                    : undefined
-                }
-                matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
-                showLoginPage={(profile) => {
-                  sessionStorage.setItem(
-                    "isct-companion-active-school-site",
-                    profile === "science" ? "science-portal" : "tokyo-portal",
-                  );
-                  void navigate(paths.web());
-                }}
+                progress={lmsProgress}
               />
-            </PageErrorBoundary>
-          </Activity>
-        )}
-      </AppShell.Main>
+            )
+          }
+          data={data}
+          currentTerm={currentTerm}
+          readOnly={readOnly}
+          update={academicUpdate}
+          open={(courseId) => {
+            if (planning) {
+              setOfferingPanel(null);
+              setPanelCourseId(courseId);
+            } else openLecture(courseId);
+          }}
+          openEvent={(event, term) =>
+            !readOnly && setEventEditor({ event, term })
+          }
+          onSlot={toggleFinderSlot}
+          activeSlots={finderSlots}
+          onIntensive={(append) => pickFinderTime("集中", append)}
+          intensiveActive={finderKeys.includes("集中")}
+          addTerm={() => setTermDialog(true)}
+          pullLms={
+            desktopBridge?.pullSchool && !readOnly
+              ? (scope) => void pullLms(scope)
+              : undefined
+          }
+          pullProgress={lmsProgress}
+          register={
+            desktopBridge?.setKyomuGuide
+              ? (term) => void openRegistration(term)
+              : undefined
+          }
+          academic={
+            <AcademicSummary
+              summaries={data.gpaSummary}
+              termCredits={termCredits}
+              progress={kyomuProgress ?? (pulling ? 0 : null)}
+              refresh={
+                desktopBridge?.pullSchool
+                  ? () => void refreshKyomu()
+                  : undefined
+              }
+              openOfficial={() => openWeb(KYOMU_GPA)}
+            />
+          }
+          exportIcs={(term, scope = "courses") =>
+            saveExportFile(
+              `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
+              () => exportQuarterIcs(data, term, scope),
+              notify.info,
+            )
+          }
+        />
+      </div>
+    </div>
+  );
+  const webPage = (
+    <Web
+      key={webContext?.url ?? "web"}
+      layout={formFactor === "mobile" ? "mobile" : "workstation"}
+      mobileSite={renderedRoutes.current.webSite}
+      openMobileSite={(site, replace) =>
+        site
+          ? void navigate(paths.web(site), { replace })
+          : closeTo(paths.web())
+      }
+      active={page === "web"}
+      platform={platform}
+      data={data}
+      update={update}
+      notify={notify.info}
+      schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
+      requestedUrl={webContext?.url}
+      request={webContext?.request}
+      returnLabel={webContext?.label}
+      onReturn={
+        webContext
+          ? () => {
+              const destination = webContext.page;
+              setWebContext(null);
+              void navigate(pagePath(destination));
+            }
+          : undefined
+      }
+    />
+  );
+  const settingsPage = (
+    <Settings
+      platform={platform}
+      data={data}
+      update={update}
+      advancedCalendarUpdate={advancedCalendarUpdate}
+      caps={caps}
+      capabilitiesReady={
+        platform !== "native-desktop" || nativeCapabilitiesReady
+      }
+      section={renderedRoutes.current.section}
+      layout={
+        formFactor !== "mobile"
+          ? "split"
+          : renderedRoutes.current.settingsOpen
+            ? "detail"
+            : "list"
+      }
+      back={() => closeTo(paths.settings())}
+      setSection={(next) =>
+        void navigate(paths.settings(next), {
+          replace: formFactor !== "mobile",
+        })
+      }
+      notify={notify.info}
+      runScheduledTask={async (task) => {
+        if (!desktopBridge?.runScheduledTask)
+          return executeScheduledTask(task, true);
+        const result = await desktopBridge.runScheduledTask(task.id);
+        await workspaceStore.reload();
+        return result;
+      }}
+      refreshReferences={
+        desktopBridge ? () => refreshReferenceSubscriptions(true) : undefined
+      }
+      matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
+      showLoginPage={(profile) => {
+        sessionStorage.setItem(
+          "isct-companion-active-school-site",
+          profile === "science" ? "science-portal" : "tokyo-portal",
+        );
+        void navigate(paths.web());
+      }}
+    />
+  );
+  const overlays = (
+    <>
       {drawerCourse && (
         <CourseDrawer
           course={drawerCourse}
           data={data}
-          readOnly={readOnly || (page === "home" && !editMode)}
+          readOnly={readOnly || (page === "home" && !planning)}
           onTimetable={onTimetable(data, drawerCourse)}
           initialTab={drawerTab}
           onTabChange={(tab) =>
@@ -2165,6 +2139,137 @@ export function WorkspaceApp() {
           }}
         />
       )}
+    </>
+  );
+  const sessionLabel = (profile: "science" | "tokyo-tech") =>
+    profile === "science"
+      ? sessionStatusLabel(scienceSession, loginSteps.science)
+      : sessionStatusLabel(tokyoTechSession, loginSteps["tokyo-tech"]);
+
+  // The screen pushed over the current tab's root, closed by an edge swipe.
+  const mobileBack =
+    page === "settings" && params.section
+      ? () => closeTo(paths.settings())
+      : page === "home" && homeView === "week"
+        ? () => closeTo(paths.home())
+        : page === "lectures" && params.courseId
+          ? () =>
+              void hideNativeSchoolWeb()
+                .then(() => closeTo(paths.lectures()))
+                .catch(notify.error)
+          : page === "web" && params.site
+            ? () => closeTo(paths.web())
+            : undefined;
+  if (formFactor === "mobile")
+    return (
+      <MobileShell
+        back={mobileBack}
+        page={page}
+        density={data.settings.density}
+        labels={navigation}
+        icons={icons}
+        openPage={(next) =>
+          next === "settings"
+            ? void navigate(pagePath("settings"))
+            : navigatePage(next)
+        }
+        pages={{
+          home: keep("home", homePage),
+          lectures: keep("lectures", lecturesPage),
+          web: keep("web", webPage),
+          settings: keep("settings", settingsPage),
+        }}
+        overlays={overlays}
+        status={{
+          accounts: [
+            {
+              profile: "science",
+              name: "Science Tokyo",
+              state: scienceSession,
+              label: sessionLabel("science"),
+            },
+            {
+              profile: "tokyo-tech",
+              name: "TokyoTech",
+              state: tokyoTechSession,
+              label: sessionLabel("tokyo-tech"),
+            },
+          ],
+          lmsPhase,
+          progress: lmsProgress,
+          refresh:
+            desktopBridge?.pullSchool && !readOnly
+              ? () => void fetchLms()
+              : undefined,
+          openAccounts: () => void navigate(paths.settings("accounts")),
+        }}
+      />
+    );
+
+  return (
+    <AppShell
+      className="app"
+      data-density={data.settings.density}
+      navbar={{ width: 72, breakpoint: "48em", collapsed: { mobile: true } }}
+      footer={{ height: 62, offset: false }}
+      padding={0}
+    >
+      <AppShell.Navbar className="rail">
+        <nav aria-label="Pages">
+          {pages.map((p, i) => (
+            <UiButton
+              className={page === p ? "active" : ""}
+              onClick={() => navigatePage(p)}
+              key={p}
+              title={`${navigation[p]} (⌘${i + 1})`}
+            >
+              {icons[p]}
+              <span>{navigation[p]}</span>
+            </UiButton>
+          ))}
+        </nav>
+        <UiButton
+          className={`railUtility${page === "settings" ? " active" : ""}`}
+          onClick={() => void navigate(pagePath("settings"))}
+          title={navigation.settings}
+        >
+          {icons.settings}
+          <span>{navigation.settings}</span>
+        </UiButton>
+      </AppShell.Navbar>
+      <AppShell.Footer className="mobileRail" hiddenFrom="sm">
+        <nav aria-label="Pages">
+          {pages.map((p) => (
+            <UiButton
+              className={page === p ? "active" : ""}
+              onClick={() => navigatePage(p)}
+              key={p}
+              title={navigation[p]}
+            >
+              {icons[p]}
+              <span>{navigation[p]}</span>
+            </UiButton>
+          ))}
+          <UiButton
+            className={page === "settings" ? "active" : ""}
+            onClick={() => void navigate(pagePath("settings"))}
+            title={navigation.settings}
+          >
+            {icons.settings}
+            <span>{navigation.settings}</span>
+          </UiButton>
+        </nav>
+      </AppShell.Footer>
+      <AppShell.Main
+        component="main"
+        className={`workspaceMain${page === "home" ? " homeMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
+      >
+        {keep("lectures", lecturesPage)}
+        {keep("home", homePage)}
+        {keep("web", webPage)}
+        {keep("settings", settingsPage)}
+      </AppShell.Main>
+      {overlays}
       <aside className="schoolStatusBar" aria-label="School connection status">
         <div className="schoolStatusAccounts">
           <span

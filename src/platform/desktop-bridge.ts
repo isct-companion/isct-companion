@@ -8,6 +8,12 @@ import type { SyllabusCourse } from "../core/syllabus";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop" | "native-mobile";
+/** Rust's `std::env::consts::OS` for this build, injected at startup. */
+export type NativeOs = "macos" | "ios" | "android" | "windows" | "linux";
+export const nativeOs = (): NativeOs | undefined =>
+  typeof window === "undefined"
+    ? undefined
+    : window.__ISCT_COMPANION_NATIVE_OS__;
 export type SchoolSite =
   | "science-portal"
   | "science-lms"
@@ -180,7 +186,7 @@ export type NativeCapabilitySnapshot = {
   syllabusSearch: boolean;
   matrixOcr: boolean;
 };
-export type CloudProvider = "google-drive" | "onedrive";
+export type CloudProvider = "google-drive" | "onedrive" | "icloud";
 export type CloudSyncResult = {
   state: "backed-up" | "up-to-date" | "conflict" | "restored";
   revision: number;
@@ -199,7 +205,8 @@ export type ListenNative = <T>(
 export interface DesktopBridge {
   runtime: DesktopRuntime;
   target: NativeTarget;
-  platform: string;
+  /** The build's operating system; see `nativeOs`. */
+  os?: NativeOs;
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
   resolveSchoolUrl(url: string): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
@@ -304,7 +311,12 @@ export interface DesktopBridge {
   ): Promise<CloudSyncResult>;
   restoreCloudWorkspace(provider: CloudProvider): Promise<CloudSyncResult>;
   cloudCredentialSyncStatus(): Promise<boolean>;
+  cloudCredentialBackupStatus(provider: CloudProvider): Promise<boolean>;
   setCloudCredentialSyncPassword(password: string): Promise<boolean>;
+  syncCloudCredentials(
+    provider: CloudProvider,
+    restoreExisting: boolean,
+  ): Promise<boolean>;
   clearCloudCredentialSyncPassword(): Promise<boolean>;
   syllabusCourse(url: string, language: "en" | "ja"): Promise<SyllabusCourse>;
   catalogSyncDepartment(
@@ -464,7 +476,7 @@ export function createTauriDesktopBridge(
   return {
     runtime: "tauri",
     target,
-    platform: navigator.platform,
+    os: nativeOs(),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url) => result("resolve_school_url", { url }),
     openExternal: async (url) => {
@@ -758,8 +770,12 @@ export function createTauriDesktopBridge(
       result("cloud_restore_workspace", { provider }),
     cloudCredentialSyncStatus: () =>
       booleanCommand("cloud_credential_sync_status"),
+    cloudCredentialBackupStatus: (provider) =>
+      booleanCommand("cloud_credential_backup_status", { provider }),
     setCloudCredentialSyncPassword: (password) =>
       booleanCommand("set_cloud_credential_sync_password", { password }),
+    syncCloudCredentials: (provider, restoreExisting) =>
+      booleanCommand("sync_cloud_credentials", { provider, restoreExisting }),
     clearCloudCredentialSyncPassword: () =>
       booleanCommand("clear_cloud_credential_sync_password"),
     syllabusCourse: async (url, language) => {
@@ -842,6 +858,8 @@ declare global {
   interface Window {
     /** Set by the trusted native bootstrap from its compile/runtime target. */
     __ISCT_COMPANION_NATIVE_TARGET__?: NativeTarget;
+    /** Set by the same bootstrap from the binary's compile-time OS. */
+    __ISCT_COMPANION_NATIVE_OS__?: NativeOs;
   }
 }
 

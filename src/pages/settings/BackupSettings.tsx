@@ -5,16 +5,14 @@ import { errorText } from "../../app/shared";
 import { desktopBridge, saveExportFile } from "../../app/native";
 import { workspaceActions } from "../../store/workspace";
 import { resolveCapabilities } from "../../platform/capabilities";
-import type {
-  CloudProvider,
-  CloudSyncResult,
+import {
+  nativeOs,
+  type CloudProvider,
+  type CloudSyncResult,
 } from "../../platform/desktop-bridge";
 import { UiButton, UiInput } from "../../components/mantine";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
 import { formatDay } from "./subscription-status";
-
-// Google Drive is the only cloud service offered for now.
-const PROVIDER: CloudProvider = "google-drive";
 
 export function BackupSettings({
   data,
@@ -31,9 +29,20 @@ export function BackupSettings({
   const [conflict, setConflict] = useState<CloudSyncResult | null>(null);
   const [authorized, setAuthorized] = useState<CloudProvider[]>([]);
   const [credentialSync, setCredentialSync] = useState(false);
+  const [credentialBackupExists, setCredentialBackupExists] = useState<
+    boolean | null
+  >(null);
   const [encryptionPassword, setEncryptionPassword] = useState("");
+  const [confirmEncryptionPassword, setConfirmEncryptionPassword] =
+    useState("");
   const encryptionPasswordLength = Array.from(encryptionPassword).length;
+  const passwordsMatch = encryptionPassword === confirmEncryptionPassword;
   const [busy, setBusy] = useState(false);
+  const os = nativeOs();
+  const appleDevice = os === "macos" || os === "ios";
+  const [provider, setProvider] = useState<CloudProvider>(() =>
+    data.settings.cloud.provider === "icloud" ? "icloud" : "google-drive",
+  );
   useEffect(() => {
     if (!desktopBridge) return;
     let disposed = false;
@@ -61,12 +70,33 @@ export function BackupSettings({
   const cloudAvailable = caps["cloud-sync"].support === "supported";
   const clientId = cloud.clientId.trim() || __GOOGLE_DRIVE_CLIENT_ID__.trim();
   const connected =
-    cloud.provider === PROVIDER && authorized.includes(PROVIDER);
+    cloud.provider === provider && authorized.includes(provider);
+  const serviceName = provider === "icloud" ? "iCloud" : "Google Drive";
+
+  useEffect(() => {
+    if (!desktopBridge || !connected || provider === "icloud") {
+      setCredentialBackupExists(null);
+      return;
+    }
+    let disposed = false;
+    setCredentialBackupExists(null);
+    void desktopBridge
+      .cloudCredentialBackupStatus(provider)
+      .then((exists) => {
+        if (!disposed) setCredentialBackupExists(exists);
+      })
+      .catch(() => {
+        if (!disposed) setCredentialBackupExists(null);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [connected, provider]);
 
   const requireCloud = () => {
     if (!cloudAvailable || !desktopBridge)
       throw new Error(caps["cloud-sync"].reason);
-    return { bridge: desktopBridge, provider: PROVIDER };
+    return { bridge: desktopBridge, provider };
   };
   const mark = (
     state: Workspace["syncStatus"]["state"],
@@ -100,6 +130,7 @@ export function BackupSettings({
           authorized.map((service) => bridge.disconnectCloud(service)),
         );
       setAuthorized([]);
+      setCredentialBackupExists(null);
       update((draft) => {
         draft.settings.cloud.provider = "none";
         draft.syncStatus.state = "needs-configuration";
@@ -111,15 +142,23 @@ export function BackupSettings({
   const connect = () =>
     run("Could not connect.", async () => {
       const { bridge, provider } = requireCloud();
-      await bridge.connectCloud(provider, clientId, cloud.redirectUri!);
+      await bridge.connectCloud(
+        provider,
+        provider === "google-drive" ? clientId : "",
+        provider === "google-drive" ? cloud.redirectUri! : "",
+      );
       setAuthorized([provider]);
+      if (provider !== "icloud")
+        setCredentialBackupExists(
+          await bridge.cloudCredentialBackupStatus(provider),
+        );
       update((draft) => {
         draft.settings.cloud.provider = provider;
         draft.syncStatus.state = "idle";
         draft.syncStatus.message = undefined;
         return draft;
       });
-      notify(t("Connected to {{service}}.", { service: "Google Drive" }));
+      notify(t("Connected to {{service}}.", { service: serviceName }));
     });
   const restore = () =>
     run("Could not restore.", async () => {
@@ -161,18 +200,32 @@ export function BackupSettings({
     });
   const saveCredentialSync = () =>
     run("Could not enable credential sync.", async () => {
-      const { bridge } = requireCloud();
+      const { bridge, provider } = requireCloud();
+      const wasConfigured = credentialSync;
+      const restoreExisting = credentialBackupExists === true && !wasConfigured;
       await bridge.setCloudCredentialSyncPassword(encryptionPassword);
+      try {
+        await bridge.syncCloudCredentials(provider, restoreExisting);
+      } catch (error) {
+        if (!wasConfigured) await bridge.clearCloudCredentialSyncPassword();
+        throw error;
+      }
       setEncryptionPassword("");
+      setConfirmEncryptionPassword("");
       setCredentialSync(true);
-      notify(t("Login credential sync is enabled on this device."));
+      setCredentialBackupExists(true);
+      notify(t("Login credentials have been synced."));
     });
   const disableCredentialSync = () =>
     run("Could not disable credential sync.", async () => {
       const { bridge } = requireCloud();
       await bridge.clearCloudCredentialSyncPassword();
       setEncryptionPassword("");
+      setConfirmEncryptionPassword("");
       setCredentialSync(false);
+      // Disabling removes only this device's key. The encrypted Drive backup
+      // remains available to unlock again here or on another device.
+      setCredentialBackupExists(true);
       notify(t("Login credential sync is disabled on this device."));
     });
   const importFile = async (file: File) => {
@@ -206,9 +259,43 @@ export function BackupSettings({
     <>
       <SettingsHeader title="Backup" />
       <SettingsGroup
-        title="Google Drive"
-        footer={t("Stored unencrypted in a private app folder in your Drive.")}
+        title={serviceName}
+        footer={
+          provider === "icloud"
+            ? t("Stored privately in your iCloud account with CloudKit.")
+            : t("Stored unencrypted in a private app folder in your Drive.")
+        }
       >
+        {!connected && (
+          <Row id="cloud-provider" group title="Cloud service">
+            <div className="actions">
+              <UiButton
+                className={
+                  provider === "google-drive"
+                    ? "button small primary"
+                    : "button small"
+                }
+                disabled={busy}
+                onClick={() => setProvider("google-drive")}
+              >
+                Google Drive
+              </UiButton>
+              {appleDevice && (
+                <UiButton
+                  className={
+                    provider === "icloud"
+                      ? "button small primary"
+                      : "button small"
+                  }
+                  disabled={busy}
+                  onClick={() => setProvider("icloud")}
+                >
+                  iCloud
+                </UiButton>
+              )}
+            </div>
+          </Row>
+        )}
         <Row
           id="cloud"
           group
@@ -258,7 +345,11 @@ export function BackupSettings({
             ) : (
               <UiButton
                 className="button small primary"
-                disabled={!clientId || !cloudAvailable || busy}
+                disabled={
+                  (provider === "google-drive" && !clientId) ||
+                  !cloudAvailable ||
+                  busy
+                }
                 onClick={connect}
               >
                 {t("Connect")}
@@ -289,16 +380,26 @@ export function BackupSettings({
             </div>
           </div>
         )}
-        {connected && (
+        {connected && provider === "google-drive" && (
           <>
             <Row
               id="credential-sync"
               group
-              title="Sync login credentials"
+              title={
+                credentialSync
+                  ? "Login credentials synced"
+                  : credentialBackupExists
+                    ? "Restore login credentials"
+                    : "Create credential backup"
+              }
               hint={
                 credentialSync
                   ? "Enabled on this device"
-                  : "Optional encrypted sync for ISCT portal accounts"
+                  : credentialBackupExists === null
+                    ? "Checking Google Drive…"
+                    : credentialBackupExists
+                      ? "Enter the encryption password used on your other device"
+                      : "Create a password to encrypt your ISCT portal accounts"
               }
             >
               <div className="actions">
@@ -310,7 +411,9 @@ export function BackupSettings({
                   placeholder={
                     credentialSync
                       ? t("Enter a new 8–12 character password")
-                      : t("8–12 character password")
+                      : credentialBackupExists
+                        ? t("Encryption password")
+                        : t("Create an 8–12 character password")
                   }
                   aria-label={t("Credential encryption password")}
                   disabled={busy}
@@ -318,16 +421,37 @@ export function BackupSettings({
                     setEncryptionPassword(event.currentTarget.value)
                   }
                 />
+                {(credentialSync || credentialBackupExists === false) && (
+                  <UiInput
+                    type="password"
+                    value={confirmEncryptionPassword}
+                    minLength={8}
+                    autoComplete="new-password"
+                    placeholder={t("Confirm password")}
+                    aria-label={t("Confirm credential encryption password")}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setConfirmEncryptionPassword(event.currentTarget.value)
+                    }
+                  />
+                )}
                 <UiButton
                   className="button small"
                   disabled={
                     busy ||
+                    credentialBackupExists === null ||
                     encryptionPasswordLength < 8 ||
-                    encryptionPasswordLength > 12
+                    encryptionPasswordLength > 12 ||
+                    ((credentialSync || credentialBackupExists === false) &&
+                      !passwordsMatch)
                   }
                   onClick={saveCredentialSync}
                 >
-                  {credentialSync ? t("Change") : t("Enable")}
+                  {credentialSync
+                    ? t("Change")
+                    : credentialBackupExists
+                      ? t("Restore")
+                      : t("Create and sync")}
                 </UiButton>
                 {credentialSync && (
                   <UiButton
@@ -340,12 +464,26 @@ export function BackupSettings({
                 )}
               </div>
             </Row>
+            {(credentialSync || credentialBackupExists === false) &&
+              confirmEncryptionPassword &&
+              !passwordsMatch && (
+                <div className="alert" role="alert">
+                  {t("The two passwords do not match.")}
+                </div>
+              )}
             <div className="alert" role="note">
               {t(
                 "If you sync ISCT login credentials, choose an 8–12 character encryption password. The encrypted credential file is stored in Google Drive. The encryption password stays only in this device's system credential vault and is never uploaded. Beyond this encryption, we cannot guarantee the security of your credentials. Enter the same password on another device to restore them.",
               )}
             </div>
           </>
+        )}
+        {connected && provider === "icloud" && (
+          <div className="alert" role="note">
+            {t(
+              "ISCT login credentials sync separately through iCloud Keychain. Device-only settings such as window layout, display density, and local permissions stay on this device.",
+            )}
+          </div>
         )}
       </SettingsGroup>
       <SettingsGroup>

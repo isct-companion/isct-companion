@@ -6,29 +6,22 @@ import {
   type FormEvent,
   type PointerEvent,
 } from "react";
+import { Drawer } from "@mantine/core";
 import { UiButton, UiInput } from "../../components/mantine";
+import { MobileWebList } from "../mobile/MobileWeb";
+import { t } from "../../i18n";
 import { type SchoolSite } from "../../platform/desktop-bridge";
+import { serviceTiers } from "./services";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
 import type { Workspace } from "../../core/model";
 import {
   claimSchoolView,
   desktopBridge,
+  hideNativeSchoolWeb,
   schoolWebExit,
   official,
 } from "../../app/native";
 import { errorText, type Platform } from "../../app/shared";
-
-const serviceTiers: Array<{
-  frequency: "high" | "medium" | "low";
-  sites: SchoolSite[];
-}> = [
-  { frequency: "high", sites: ["science-lms", "kyomu"] },
-  {
-    frequency: "medium",
-    sites: ["science-portal", "tokyo-portal", "tokyo-mail", "syllabus"],
-  },
-  { frequency: "low", sites: ["library", "tsubame"] },
-];
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -55,6 +48,9 @@ export function Web({
   returnLabel,
   onReturn,
   active = true,
+  layout = "workstation",
+  mobileSite = null,
+  openMobileSite,
 }: {
   /** False while another page is shown; the page stays mounted (keep alive). */
   active?: boolean;
@@ -67,8 +63,17 @@ export function Web({
   request?: number;
   returnLabel?: string;
   onReturn?: () => void;
+  /** Phones list the services, then browse one full screen. */
+  layout?: "workstation" | "mobile";
+  /** The service browsed on a phone (from the route); null shows the list. */
+  mobileSite?: SchoolSite | null;
+  openMobileSite?: (site: SchoolSite | null, replace?: boolean) => void;
 }) {
+  const mobile = layout === "mobile";
+  const browsing = !mobile || Boolean(mobileSite);
+  const [sitesOpen, setSitesOpen] = useState(false);
   const [site, setSite] = useState<SchoolSite>(() => {
+    if (mobileSite) return mobileSite;
     if (requestedUrl) return "science-lms";
     const active = sessionStorage.getItem("isct-companion-active-school-site");
     if (active && active in official) return active as SchoolSite;
@@ -184,8 +189,10 @@ export function Web({
     }
   };
 
+  // A sheet over the page must hide the native view, which sits above the DOM.
+  const viewActive = active && browsing && !sitesOpen;
   useEffect(() => {
-    if (!embedded || !desktopBridge || !active) return;
+    if (!embedded || !desktopBridge || !viewActive) return;
     const target =
       requestedUrl && openedRequest.current !== requestKey
         ? requestedUrl
@@ -196,6 +203,7 @@ export function Web({
     );
     if (!target && requested && requested in official && requested !== site) {
       setSite(requested as SchoolSite);
+      if (mobile) openMobileSite?.(requested as SchoolSite, true);
       return;
     }
     let cancelled = false;
@@ -217,6 +225,7 @@ export function Web({
         ).then((resolved) => {
           if (resolved.site !== site) {
             setSite(resolved.site);
+            if (mobile) openMobileSite?.(resolved.site, true);
             return undefined;
           }
           return desktopBridge!.openSchoolSite(
@@ -260,7 +269,7 @@ export function Web({
     };
     // Site changes intentionally reuse the resident view and its shared session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site, embedded, active, requestKey]);
+  }, [site, embedded, viewActive, requestKey]);
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
@@ -319,6 +328,7 @@ export function Web({
         return draft;
       });
       setSite(destination);
+      if (mobile) openMobileSite?.(destination, true);
     }
     setCurrentUrl(target);
     setStatus("");
@@ -346,6 +356,28 @@ export function Web({
     } catch (error) {
       setStatus(errorText(error) ?? "Unavailable");
     }
+  };
+
+  // Phones: the route picks the service; leaving it for the list hides the view.
+  useEffect(() => {
+    if (mobile && mobileSite && mobileSite !== site) choose(mobileSite);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileSite]);
+  useEffect(() => {
+    if (mobile && (!mobileSite || sitesOpen) && embedded && active)
+      void hideNativeSchoolWeb().catch(() => undefined);
+  }, [mobile, mobileSite, sitesOpen, embedded, active]);
+  const mobileBack = async () => {
+    const moved = await desktopBridge?.schoolWebBack?.(site).catch(() => false);
+    if (!moved) openMobileSite?.(null);
+  };
+  const openSiteOutside = (target: SchoolSite) => {
+    const url = official[target].url;
+    if (desktopBridge && platform !== "browser-preview")
+      void desktopBridge
+        .openExternal(url)
+        .catch(() => notify("Could not open the system browser."));
+    else window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const setPageZoom = (next: number) => {
@@ -395,6 +427,94 @@ export function Web({
   };
 
   const frameable = site !== "science-lms";
+  if (mobile && !browsing)
+    return (
+      <MobileWebList
+        current={site}
+        open={(target) =>
+          embedded ? openMobileSite?.(target) : openSiteOutside(target)
+        }
+      />
+    );
+  if (mobile)
+    return (
+      <div className="page web mobileBrowser">
+        <div className="mobileBrowserBar">
+          <UiButton
+            className="iconButton"
+            aria-label={t("Back")}
+            onClick={() => void mobileBack()}
+          >
+            ‹
+          </UiButton>
+          <UiButton
+            className="mobileBrowserTitle"
+            aria-haspopup="dialog"
+            onClick={() => setSitesOpen(true)}
+          >
+            <b>{official[site].name}</b>
+            <span aria-hidden="true">▾</span>
+          </UiButton>
+          {embedded && desktopBridge?.reloadSchoolWeb && (
+            <UiButton
+              className="iconButton"
+              aria-label={t("Reload")}
+              onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
+            >
+              ↻
+            </UiButton>
+          )}
+          <UiButton
+            className="iconButton"
+            aria-label={t("Open in browser")}
+            onClick={openOutside}
+          >
+            ↗
+          </UiButton>
+        </div>
+        {status && (
+          <p className="mobileBrowserStatus" role="status">
+            {status}
+          </p>
+        )}
+        <div className="webHost" ref={host}>
+          {!embedded && (
+            <div className="webFallback">
+              <b>{official[site].name}</b>
+              <UiButton className="button primary" onClick={openOutside}>
+                {t("Open in browser")} ↗
+              </UiButton>
+            </div>
+          )}
+        </div>
+        <Drawer
+          opened={sitesOpen}
+          onClose={() => setSitesOpen(false)}
+          position="bottom"
+          size="auto"
+          title={t("School services")}
+          classNames={{ content: "mobileSheet" }}
+        >
+          <ul className="mobileSiteSheet">
+            {serviceTiers
+              .flatMap((tier) => tier.sites)
+              .map((key) => (
+                <li key={key}>
+                  <UiButton
+                    className={site === key ? "active" : ""}
+                    onClick={() => {
+                      setSitesOpen(false);
+                      openMobileSite?.(key, true);
+                    }}
+                  >
+                    {official[key].name}
+                  </UiButton>
+                </li>
+              ))}
+          </ul>
+        </Drawer>
+      </div>
+    );
   return (
     <div className="page web servicesPage">
       <form className="webToolbar" onSubmit={(event) => void navigate(event)}>

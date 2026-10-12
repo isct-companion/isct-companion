@@ -1,4 +1,5 @@
 import "./lms.css";
+import { STACKED_QUERY } from "../../../app/form-factor";
 import {
   createContext,
   lazy,
@@ -58,6 +59,9 @@ const FilePreview = lazy(() =>
 const NoteEditor = lazy(() =>
   import("./NoteEditor").then((m) => ({ default: m.NoteEditor })),
 );
+
+// Outline and viewer take turns in narrow windows and every mobile layout.
+const NARROW_QUERY = `(max-width: 850px), ${STACKED_QUERY}`;
 
 export type CourseEntry = {
   courseId: string;
@@ -299,10 +303,10 @@ export function LmsWorkspace({
   const [mobileViewer, setMobileViewer] = useState(false);
   const outline = useRef<HTMLDivElement>(null);
   const [narrow, setNarrow] = useState(
-    () => window.matchMedia?.("(max-width: 850px)").matches ?? false,
+    () => window.matchMedia?.(NARROW_QUERY).matches ?? false,
   );
   useEffect(() => {
-    const media = window.matchMedia?.("(max-width: 850px)");
+    const media = window.matchMedia?.(NARROW_QUERY);
     if (!media) return;
     const changed = () => setNarrow(media.matches);
     media.addEventListener("change", changed);

@@ -120,6 +120,7 @@ vi.mock("../pages/today/lms/LmsWorkspace", () => ({
 }));
 import App, { WorkspaceApp } from "./App";
 import { paths, workspaceRoutes } from "./routes";
+import { STACKED_QUERY } from "./form-factor";
 import { notify } from "./notify";
 import i18n from "../i18n";
 
@@ -148,7 +149,7 @@ const go = async (target: string) => {
     await router.navigate(target);
   });
 };
-const currentPage = () => host.querySelector(".workspaceMain");
+const currentPage = () => host.querySelector(".workspaceMain, .mobileMain");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -559,5 +560,70 @@ describe("hash-driven desktop navigation", () => {
     expect(document.querySelector(".workspaceNotice")?.textContent).toContain(
       "Plain Tauri rejection",
     );
+  });
+});
+
+describe("mobile shell", () => {
+  const desktopMedia = window.matchMedia;
+  beforeEach(() => {
+    window.matchMedia = ((media: string) => ({
+      media,
+      matches: media === STACKED_QUERY,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as never;
+  });
+  afterEach(() => {
+    window.matchMedia = desktopMedia;
+  });
+
+  it("drops the fixed status bar and shows four bottom tabs", async () => {
+    await mount(paths.home());
+    expect(host.querySelector(".mobileShell")).not.toBeNull();
+    expect(host.querySelector(".schoolStatusBar")).toBeNull();
+    expect(
+      [...host.querySelectorAll(".mobileTabs button")].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Home", "Lectures", "Web", "Settings"]);
+    expect(host.querySelector(".mobileStatusDot")).not.toBeNull();
+  });
+
+  it("keeps bare /settings as the section list and pushes a section", async () => {
+    await mount(paths.settings());
+    expect(window.location.hash).toBe("#" + paths.settings());
+    expect(host.querySelector(".settings.list")).not.toBeNull();
+    const appearance = [
+      ...host.querySelectorAll<HTMLButtonElement>(".settingsNav button"),
+    ].find((button) => button.textContent?.trim() === "Appearance")!;
+    await act(async () => appearance.click());
+    expect(window.location.hash).toBe("#" + paths.settings("appearance"));
+    expect(router.state.historyAction).toBe("PUSH");
+    expect(host.querySelector(".settings.detail .settingsBack")).not.toBeNull();
+  });
+
+  it("lists school services on Web and browses one through the route", async () => {
+    await mount(paths.web());
+    const rows = [...host.querySelectorAll<HTMLButtonElement>(".mobileWebRow")];
+    expect(rows.length).toBeGreaterThan(3);
+    expect(host.querySelector(".servicePicker")).toBeNull();
+    await waitFor(() =>
+      expect(fixture.capabilities).toHaveBeenCalled(),
+    );
+    const lms = rows.find((row) => row.dataset.site === "science-lms")!;
+    await act(async () => lms.click());
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#" + paths.web("science-lms")),
+    );
+    expect(host.querySelector(".mobileBrowserBar")).not.toBeNull();
+    expect(host.querySelector(".mobileBrowserTitle")?.textContent).toContain(
+      "LMS",
+    );
+  });
+  it("opens a lecture as a dialog over the list", async () => {
+    await mount(paths.lectures("course-1"));
+    const content = host.querySelector(".lectureContent");
+    expect(content?.getAttribute("role")).toBe("dialog");
+    expect(host.querySelector(".testReader")).not.toBeNull();
   });
 });
