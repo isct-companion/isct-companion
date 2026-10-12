@@ -68,6 +68,7 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 # Matrix OCR: ort ships no prebuilt ONNX Runtime for Intel macOS, so the scanner
 # is compiled out there. Keep this condition in sync with build.rs (`matrix_ocr`).
 [target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+imageproc = { version = "0.27", default-features = false }
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"] }
 
 [profile.release]

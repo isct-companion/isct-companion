@@ -158,6 +158,10 @@ fn folder(app: &AppHandle, context: &CourseFolder, kind: &str) -> Result<PathBuf
 fn materials_dir(app: &AppHandle, course: &CourseKey) -> Result<PathBuf, String> {
     storage_dir(app, &[&course.term, &course.course, "materials"])
 }
+#[cfg(debug_assertions)]
+pub(crate) fn debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    storage_dir(app, &["debug"])
+}
 fn storage_dir(app: &AppHandle, parts: &[&str]) -> Result<PathBuf, String> {
     let (root, _) = root(app)?;
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
