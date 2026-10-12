@@ -4,9 +4,14 @@ use rand::RngCore;
 use ring::{aead, pbkdf2};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(desktop)]
 use sha2::{Digest, Sha256};
+#[cfg(desktop)]
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+#[cfg(desktop)]
+use std::io::Read;
+use std::io::Write;
+#[cfg(desktop)]
 use std::net::TcpListener;
 use std::num::NonZeroU32;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -27,6 +32,7 @@ const CREDENTIAL_AAD: &[u8] = b"IsctCompanion.credentials.v1";
 pub enum CloudProvider {
     GoogleDrive,
     Onedrive,
+    Icloud,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -81,6 +87,7 @@ struct EncryptedCredentialFile {
     ciphertext: String,
 }
 
+#[cfg(desktop)]
 pub fn validate_redirect_uri(raw: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "OAuth redirect URI is invalid.".to_string())?;
     if url.scheme() != "http"
@@ -95,6 +102,7 @@ pub fn validate_redirect_uri(raw: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+#[cfg(desktop)]
 pub fn validate_pkce_state(verifier: &str, state: &str) -> Result<(), String> {
     let url_safe = |value: &str| {
         value
@@ -130,10 +138,13 @@ struct TokenResponse {
 /// installed apps. `scripts/tauri.mjs` supplies both values at build time
 /// from config/oauth-clients.yaml, and the secret is only sent with the
 /// client it belongs to (not with a development override).
+#[cfg(desktop)]
 const GOOGLE_DESKTOP_CLIENT_ID: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID");
+#[cfg(desktop)]
 const GOOGLE_DESKTOP_CLIENT_SECRET: Option<&str> =
     option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET");
 
+#[cfg(desktop)]
 fn client_secret_for(provider: CloudProvider, client_id: &str) -> Option<&'static str> {
     if provider != CloudProvider::GoogleDrive || GOOGLE_DESKTOP_CLIENT_ID != Some(client_id) {
         return None;
@@ -170,14 +181,16 @@ fn provider_account(provider: CloudProvider) -> &'static str {
     match provider {
         CloudProvider::GoogleDrive => "google-drive",
         CloudProvider::Onedrive => "onedrive",
+        CloudProvider::Icloud => "icloud",
     }
 }
 
-fn other_provider(provider: CloudProvider) -> CloudProvider {
-    match provider {
-        CloudProvider::GoogleDrive => CloudProvider::Onedrive,
-        CloudProvider::Onedrive => CloudProvider::GoogleDrive,
-    }
+fn providers() -> [CloudProvider; 3] {
+    [
+        CloudProvider::GoogleDrive,
+        CloudProvider::Onedrive,
+        CloudProvider::Icloud,
+    ]
 }
 
 fn oauth_endpoints(provider: CloudProvider) -> (&'static str, &'static str, &'static str) {
@@ -192,6 +205,7 @@ fn oauth_endpoints(provider: CloudProvider) -> (&'static str, &'static str, &'st
             "https://login.microsoftonline.com/common/oauth2/v2.0/token",
             "Files.ReadWrite.AppFolder offline_access",
         ),
+        CloudProvider::Icloud => ("", "", ""),
     }
 }
 
@@ -384,26 +398,23 @@ impl<V: SecretVault> DesktopCloudService<V> {
         Ok(Self { client, vault })
     }
 
-    pub async fn connect<F>(
-        &self,
+    /// The PKCE authorization request for a redirect; returns the URL to open
+    /// and the verifier and state that the callback must match.
+    #[cfg(desktop)]
+    fn authorization_request(
         provider: CloudProvider,
         client_id: &str,
-        redirect_uri: &str,
-        open_browser: F,
-    ) -> Result<bool, String>
-    where
-        F: FnOnce(&str) -> Result<(), String>,
-    {
+        redirect: &Url,
+    ) -> Result<(Url, String, String), String> {
         if !valid_client_id(client_id) {
             return Err("OAuth client ID is invalid.".into());
         }
-        let redirect = validate_redirect_uri(redirect_uri)?;
         let verifier = random_urlsafe(48);
         let state = random_urlsafe(32);
         validate_pkce_state(&verifier, &state)?;
         let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(Sha256::digest(verifier.as_bytes()));
-        let (authorize_endpoint, token_endpoint, scope) = oauth_endpoints(provider);
+        let (authorize_endpoint, _, scope) = oauth_endpoints(provider);
         let mut authorize =
             Url::parse(authorize_endpoint).map_err(|_| "OAuth endpoint is invalid.")?;
         authorize
@@ -421,6 +432,24 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 .append_pair("access_type", "offline")
                 .append_pair("prompt", "consent");
         }
+        Ok((authorize, verifier, state))
+    }
+
+    /// Desktop sign-in: the system browser returns to a loopback listener.
+    #[cfg(desktop)]
+    pub async fn connect<F>(
+        &self,
+        provider: CloudProvider,
+        client_id: &str,
+        redirect_uri: &str,
+        open_browser: F,
+    ) -> Result<bool, String>
+    where
+        F: FnOnce(&str) -> Result<(), String>,
+    {
+        let redirect = validate_redirect_uri(redirect_uri)?;
+        let (authorize, verifier, state) =
+            Self::authorization_request(provider, client_id, &redirect)?;
         let listener = TcpListener::bind(("127.0.0.1", redirect.port().unwrap()))
             .map_err(|_| "OAuth loopback port is unavailable.".to_string())?;
         listener
@@ -464,14 +493,29 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 }
             }
         }).await.map_err(|_| "OAuth callback task failed.".to_string())??;
+        self.finish_connect(provider, client_id, &redirect, &verifier, &callback)
+            .await
+    }
+
+    /// Exchanges an authorization code and stores the token in the vault.
+    #[cfg(desktop)]
+    async fn finish_connect(
+        &self,
+        provider: CloudProvider,
+        client_id: &str,
+        redirect: &Url,
+        verifier: &str,
+        callback: &str,
+    ) -> Result<bool, String> {
+        let (_, token_endpoint, _) = oauth_endpoints(provider);
         let response = self
             .client
             .post(token_endpoint)
             .form(&{
                 let mut form = vec![
                     ("client_id", client_id),
-                    ("code", callback.as_str()),
-                    ("code_verifier", verifier.as_str()),
+                    ("code", callback),
+                    ("code_verifier", verifier),
                     ("redirect_uri", redirect.as_str()),
                     ("grant_type", "authorization_code"),
                 ];
@@ -506,37 +550,100 @@ impl<V: SecretVault> DesktopCloudService<V> {
             provider_account(provider),
             &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
         )?;
-        if let Err(error) = self
-            .vault
-            .delete(provider_account(other_provider(provider)))
-        {
-            let _ = self.vault.delete(provider_account(provider));
-            return Err(error);
+        for other in providers().into_iter().filter(|other| *other != provider) {
+            if let Err(error) = self.vault.delete(provider_account(other)) {
+                let _ = self.vault.delete(provider_account(provider));
+                return Err(error);
+            }
         }
         Ok(true)
     }
 
     pub fn authorized_providers(&self) -> Result<Vec<CloudProvider>, String> {
-        let mut providers = Vec::new();
-        for provider in [CloudProvider::GoogleDrive, CloudProvider::Onedrive] {
+        let mut authorized = Vec::new();
+        for provider in providers() {
             let Some(raw) = self.vault.load(provider_account(provider))? else {
                 continue;
             };
+            if provider == CloudProvider::Icloud && raw == "connected" {
+                authorized.push(provider);
+                continue;
+            }
             let Ok(token) = serde_json::from_str::<StoredToken>(&raw) else {
                 continue;
             };
             if !token.access_token.is_empty() && valid_client_id(&token.client_id) {
-                providers.push(provider);
+                authorized.push(provider);
             }
         }
-        Ok(providers)
+        Ok(authorized)
+    }
+
+    /// Saves credentials issued by a provider's native mobile SDK.
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    #[cfg(target_os = "ios")]
+    pub fn connect_with_native_token(
+        &self,
+        provider: CloudProvider,
+        client_id: &str,
+        access_token: String,
+        refresh_token: Option<String>,
+        expires_in: u64,
+    ) -> Result<bool, String> {
+        if provider != CloudProvider::GoogleDrive
+            || !valid_client_id(client_id)
+            || access_token.is_empty()
+        {
+            return Err("Native cloud authorization is invalid.".into());
+        }
+        let stored = StoredToken {
+            access_token,
+            refresh_token: refresh_token.filter(|value| !value.is_empty()),
+            expires_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                + bounded_expiry(Some(expires_in)).saturating_sub(60),
+            client_id: client_id.to_string(),
+        };
+        self.vault.store(
+            provider_account(provider),
+            &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
+        )?;
+        for other in providers().into_iter().filter(|other| *other != provider) {
+            if let Err(error) = self.vault.delete(provider_account(other)) {
+                let _ = self.vault.delete(provider_account(provider));
+                return Err(error);
+            }
+        }
+        Ok(true)
     }
 
     pub fn disconnect(&self, provider: CloudProvider) -> Result<(), String> {
         self.vault.delete(provider_account(provider))
     }
 
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub async fn connect_icloud(&self) -> Result<bool, String> {
+        crate::icloud::account_available().await?;
+        self.vault
+            .store(provider_account(CloudProvider::Icloud), "connected")?;
+        for other in providers()
+            .into_iter()
+            .filter(|provider| *provider != CloudProvider::Icloud)
+        {
+            if let Err(error) = self.vault.delete(provider_account(other)) {
+                let _ = self.vault.delete(provider_account(CloudProvider::Icloud));
+                return Err(error);
+            }
+        }
+        Ok(true)
+    }
+
     async fn access_token(&self, provider: CloudProvider) -> Result<String, String> {
+        if provider == CloudProvider::Icloud {
+            return Err("iCloud does not use OAuth tokens.".into());
+        }
         let raw = self
             .vault
             .load(provider_account(provider))?
@@ -565,6 +672,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
                         ("refresh_token", refresh.as_str()),
                         ("grant_type", "refresh_token"),
                     ];
+                    #[cfg(desktop)]
                     if let Some(secret) = client_secret_for(provider, &token.client_id) {
                         form.push(("client_secret", secret));
                     }
@@ -691,6 +799,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 }
                 response
             }
+            CloudProvider::Icloud => {
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                return crate::icloud::read(name).await;
+                #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+                return Err("iCloud sync is only available on Apple devices.".into());
+            }
         };
         if !response.status().is_success() {
             return Err(format!(
@@ -765,6 +879,14 @@ impl<V: SecretVault> DesktopCloudService<V> {
                     Some(bytes),
                 )
                 .await?
+            }
+            CloudProvider::Icloud => {
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                {
+                    return crate::icloud::write(name, bytes).await;
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+                return Err("iCloud sync is only available on Apple devices.".into());
             }
         };
         if !response.status().is_success() {
@@ -846,6 +968,19 @@ impl<V: SecretVault> DesktopCloudService<V> {
 
     pub fn clear_credential_sync_password(&self) -> Result<(), String> {
         self.vault.delete(CREDENTIAL_PASSWORD_ACCOUNT)
+    }
+
+    pub async fn credential_backup_exists(
+        &self,
+        provider: CloudProvider,
+    ) -> Result<bool, String> {
+        if provider == CloudProvider::Icloud {
+            return Ok(false);
+        }
+        Ok(self
+            .read_file(provider, CREDENTIAL_FILE_NAME)
+            .await?
+            .is_some())
     }
 
     pub async fn back_up_credentials(

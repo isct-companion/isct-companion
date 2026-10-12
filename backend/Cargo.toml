@@ -41,11 +41,27 @@ ring = "0.17"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"
 
+[target.'cfg(target_os = "ios")'.dependencies]
+wry = "0.57"
+security-framework = "3.7"
+objc2 = "0.6.4"
+block2 = "0.6"
+objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSError", "NSString", "NSURL"] }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "UIView", "UIWindow", "UIScreen"] }
+tauri-plugin-google-drive-auth = { path = "plugins/google-drive-auth" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-school-web = { path = "plugins/school-web" }
+
 [target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3.7", features = ["OSX_10_15"] }
+block2 = "0.6"
+objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSResponder", "NSView"] }
 # School view PDF save hook (school_pdf_save.rs). Same versions wry already uses.
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSURL"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKUIDelegate", "WKWebView"] }
 
 # Matrix OCR: ort ships no prebuilt ONNX Runtime for Intel macOS, so the scanner

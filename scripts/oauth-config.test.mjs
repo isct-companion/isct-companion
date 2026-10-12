@@ -17,6 +17,12 @@ const clients = {
 describe("build-time OAuth config", () => {
   it("picks the client type from Tauri's target platform", () => {
     expect(oauthClientTarget("ios")).toBe("ios");
+    expect(oauthClientTarget(undefined, { PLATFORM_NAME: "iphoneos" })).toBe(
+      "ios",
+    );
+    expect(
+      oauthClientTarget(undefined, { SDK_NAME: "iphonesimulator27.0" }),
+    ).toBe("ios");
     expect(oauthClientTarget("android")).toBe("android");
     expect(oauthClientTarget("darwin")).toBe("desktop");
     expect(oauthClientTarget(undefined)).toBe("desktop");
@@ -32,6 +38,9 @@ describe("build-time OAuth config", () => {
     );
     expect(iosInfoPlist("1-ios.apps.googleusercontent.com")).toContain(
       "<string>com.googleusercontent.apps.1-ios</string>",
+    );
+    expect(iosInfoPlist("1-ios.apps.googleusercontent.com")).toContain(
+      "<key>GIDClientID</key>",
     );
   });
 

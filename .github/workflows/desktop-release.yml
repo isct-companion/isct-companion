@@ -2,7 +2,7 @@ name: Desktop release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       publish:
@@ -16,7 +16,7 @@ on:
       source_run_id:
         description: Successful Desktop release run to publish without rebuilding (leave blank to build)
         type: string
-        default: ''
+        default: ""
 
 permissions:
   contents: read
@@ -88,29 +88,34 @@ jobs:
           APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_ID: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_MACOS_PROVISIONING_PROFILE: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_MACOS_PROVISIONING_PROFILE || '' }}
+          APPLE_API_KEY_ID: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_PRIVATE_KEY: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_API_PRIVATE_KEY || '' }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$RUNNER_OS" == macOS && "$SIGN_MACOS" == true ]]; then
-            for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_MACOS_PROVISIONING_PROFILE APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY; do
               test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
             done
             [[ "$APPLE_SIGNING_IDENTITY" == "Developer ID Application:"* ]] || { echo 'Use a Developer ID Application signing identity.'; exit 1; }
           else
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_MACOS_PROVISIONING_PROFILE APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY
           fi
           yarn desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            node scripts/verify-platform-bundle.mjs desktop "backend/target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
+          fi
           if [[ "$RUNNER_OS" == macOS && "$SIGN_MACOS" == true ]]; then
             app="backend/target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
+            key_file="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+            printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_file"
+            chmod 600 "$key_file"
             codesign --verify --deep --strict "$app"
-            spctl --assess --type execute --verbose "$app"
-            xcrun stapler validate "$app"
             for dmg in backend/target/${{ matrix.target }}/release/bundle/dmg/*.dmg; do
               report="$RUNNER_TEMP/notarization-${{ matrix.target }}.json"
-              xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --output-format json > "$report"
+              xcrun notarytool submit "$dmg" --key "$key_file" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait --output-format json > "$report"
               jq -e '.status == "Accepted"' "$report" > /dev/null
               xcrun stapler staple "$dmg"
               xcrun stapler validate "$dmg"

@@ -18,6 +18,8 @@ use secrets::OsSecretVault;
 mod cloud;
 pub mod contracts;
 pub mod data;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod icloud;
 mod kyomu_guide;
 mod kyomu_ingest;
 mod lifecycle;
@@ -37,6 +39,7 @@ mod scheduler;
 mod school_auth;
 mod school_extract;
 mod school_parser;
+mod school_web_shared;
 #[cfg(not(mobile))]
 mod school_web;
 #[cfg(mobile)]
@@ -45,6 +48,20 @@ mod school_web;
 mod secrets;
 mod subscriptions;
 mod syllabus;
+
+/// The frontend's build-time identity: shell kind and operating system, both
+/// fixed when this binary is compiled, so the UI never sniffs user agents.
+fn native_bootstrap() -> String {
+    #[cfg(desktop)]
+    const TARGET: &str = "native-desktop";
+    #[cfg(mobile)]
+    const TARGET: &str = "native-mobile";
+    format!(
+        "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{{value:'{TARGET}',writable:false,configurable:false}});\
+         Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_OS__',{{value:'{}',writable:false,configurable:false}});",
+        std::env::consts::OS
+    )
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -151,8 +168,8 @@ mod external_url_tests {
 fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCapabilities, String> {
     require_local_main(&webview)?;
     Ok(RuntimeCapabilities {
-        school_import: cfg!(not(mobile)),
-        school_web: cfg!(not(mobile)),
+        school_import: true,
+        school_web: true,
         notifications: true,
         background_schedule: cfg!(not(mobile)),
         cloud_sync: true,
@@ -523,13 +540,41 @@ async fn connect_cloud(
     redirect_uri: String,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    service
-        .connect(provider, &client_id, &redirect_uri, move |url| {
-            app.opener()
-                .open_url(url, None::<&str>)
-                .map_err(|_| "system browser could not be opened".to_string())
-        })
-        .await
+    if provider == CloudProvider::Icloud {
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        return service.connect_icloud().await;
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        return Err("iCloud sync is only available on Apple devices.".into());
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let _ = redirect_uri;
+        if provider != CloudProvider::GoogleDrive {
+            return Err("This cloud service is not available on this device.".into());
+        }
+        let token = tauri_plugin_google_drive_auth::sign_in(&app, &client_id)?;
+        service.connect_with_native_token(
+            provider,
+            &token.client_id,
+            token.access_token,
+            token.refresh_token,
+            token.expires_in,
+        )
+    }
+    #[cfg(desktop)]
+    {
+        service
+            .connect(provider, &client_id, &redirect_uri, move |url| {
+                app.opener()
+                    .open_url(url, None::<&str>)
+                    .map_err(|_| "system browser could not be opened".to_string())
+            })
+            .await
+    }
+    #[cfg(target_os = "android")]
+    {
+        Err("This cloud service is not available on this device.".into())
+    }
 }
 
 #[tauri::command]
@@ -544,10 +589,17 @@ fn cloud_authorization_status(
 #[tauri::command]
 fn disconnect_cloud(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
     provider: CloudProvider,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
+    #[cfg(target_os = "ios")]
+    if provider == CloudProvider::GoogleDrive {
+        tauri_plugin_google_drive_auth::sign_out(&app)?;
+    }
+    #[cfg(not(target_os = "ios"))]
+    let _ = app;
     service.disconnect(provider)?;
     Ok(true)
 }
@@ -572,7 +624,7 @@ async fn cloud_backup_workspace(
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "Local device identifier is unavailable.".to_string())?
         .to_string();
-    let credentials = if service.credential_sync_configured()? {
+    let credentials = if provider != CloudProvider::Icloud && service.credential_sync_configured()? {
         Some(auth.export_sync_payload()?)
     } else {
         None
@@ -599,7 +651,11 @@ async fn cloud_restore_workspace(
 ) -> Result<CloudSyncResult, String> {
     require_local_main(&webview)?;
     let (document, result) = service.pull_workspace(provider).await?;
-    let credentials = service.pull_credentials(provider).await?;
+    let credentials = if provider == CloudProvider::Icloud {
+        None
+    } else {
+        service.pull_credentials(provider).await?
+    };
     let parsed: serde_json::Value =
         serde_json::from_str(&document).map_err(|_| "cloud workspace is invalid JSON")?;
     let notes: Vec<lms_files::LocalNoteBackup> = serde_json::from_value(
@@ -627,6 +683,16 @@ fn cloud_credential_sync_status(
 }
 
 #[tauri::command]
+async fn cloud_credential_backup_status(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    provider: CloudProvider,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    service.credential_backup_exists(provider).await
+}
+
+#[tauri::command]
 fn set_cloud_credential_sync_password(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
@@ -634,6 +700,29 @@ fn set_cloud_credential_sync_password(
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
     service.set_credential_sync_password(&password)?;
+    Ok(true)
+}
+
+#[tauri::command]
+async fn sync_cloud_credentials(
+    webview: tauri::Webview,
+    service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
+    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    provider: CloudProvider,
+    restore_existing: bool,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    if provider == CloudProvider::Icloud {
+        return Err("iCloud credentials sync through iCloud Keychain.".into());
+    }
+    if restore_existing {
+        if let Some(credentials) = service.pull_credentials(provider).await? {
+            auth.import_sync_payload(&credentials)?;
+            return Ok(true);
+        }
+    }
+    let credentials = auth.export_sync_payload()?;
+    service.back_up_credentials(provider, &credentials).await?;
     Ok(true)
 }
 
@@ -1424,6 +1513,10 @@ pub fn run() {
         .manage(scheduler::Scheduler::default());
     #[cfg(desktop)]
     let builder = builder.manage(lms_downloader::Downloader::default());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_school_web::init());
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_google_drive_auth::init());
     #[cfg(matrix_ocr)]
     let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
     builder
@@ -1468,7 +1561,9 @@ pub fn run() {
             cloud_backup_workspace,
             cloud_restore_workspace,
             cloud_credential_sync_status,
+            cloud_credential_backup_status,
             set_cloud_credential_sync_password,
+            sync_cloud_credentials,
             clear_cloud_credential_sync_password,
             load_workspace,
             new_user_record_id,
@@ -1529,21 +1624,30 @@ pub fn run() {
                 .title("IsctCompanion")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(860.0, 620.0)
-                .initialization_script(
-                    "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{value:'native-desktop',writable:false,configurable:false});",
-                )
+                .initialization_script(&native_bootstrap())
                 .build()?;
             }
 
             #[cfg(mobile)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .initialization_script(
-                    "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{value:'native-mobile',writable:false,configurable:false});",
-                )
+                .initialization_script(&native_bootstrap())
                 .build()?;
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("failed to build IsctCompanion")
-        .run(|_, _| {});
+        .run(|app, event| {
+            #[cfg(target_os = "ios")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                for url in urls {
+                    if let Err(error) =
+                        tauri_plugin_google_drive_auth::handle_url(app, url.as_str())
+                    {
+                        eprintln!("Google OAuth callback could not be handled: {error}");
+                    }
+                }
+            }
+            #[cfg(not(target_os = "ios"))]
+            let _ = (app, event);
+        });
 }

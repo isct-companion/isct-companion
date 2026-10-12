@@ -378,7 +378,7 @@ contract!(Notifications {
     #[ts(type = "NotificationPermission")] pub local_permission: String,
 });
 contract!(CloudSettings {
-    #[ts(type = "\"none\" | \"google-drive\" | \"onedrive\"")] pub provider: String,
+    #[ts(type = "\"none\" | \"google-drive\" | \"onedrive\" | \"icloud\"")] pub provider: String,
     pub client_id: String,
     #[serde(default)] #[ts(optional)] pub redirect_uri: Option<String>,
     #[ts(type = "\"keep-current\" | \"use-latest\" | \"resolve-manually\"")] pub conflict: String,

@@ -32,10 +32,12 @@
     ],
     "targets": "all",
     "macOS": {
-      "minimumSystemVersion": "14.0"
+      "minimumSystemVersion": "14.0",
+      "entitlements": "Entitlements.plist"
     },
     "iOS": {
-      "minimumSystemVersion": "17.0"
+      "minimumSystemVersion": "17.0",
+      "developmentTeam": "FB7AL944GK"
     },
     "android": {
       "minSdkVersion": 34

@@ -12,8 +12,17 @@ export function readOAuthClients() {
 }
 
 /** Maps Tauri's TAURI_ENV_PLATFORM to a Google client type. */
-export function oauthClientTarget(platform = process.env.TAURI_ENV_PLATFORM) {
-  if (platform === "ios") return "ios";
+export function oauthClientTarget(
+  platform = process.env.TAURI_ENV_PLATFORM,
+  env = process.env,
+) {
+  if (
+    platform === "ios" ||
+    env.PLATFORM_NAME === "iphoneos" ||
+    env.PLATFORM_NAME === "iphonesimulator" ||
+    env.SDK_NAME?.startsWith("iphone")
+  )
+    return "ios";
   if (platform === "android") return "android";
   return "desktop";
 }
@@ -26,7 +35,10 @@ export function googleDriveClientId(target, clients = readOAuthClients()) {
  * Build env for the native backend: Google's Desktop client needs its
  * secret in token requests. An already-set environment value (CI) wins.
  */
-export function nativeOAuthEnv(clients = readOAuthClients(), env = process.env) {
+export function nativeOAuthEnv(
+  clients = readOAuthClients(),
+  env = process.env,
+) {
   const google = clients["google-drive"] ?? {};
   return {
     ISCT_GOOGLE_DESKTOP_CLIENT_ID:
@@ -49,6 +61,10 @@ export function iosInfoPlist(clientId) {
 <!-- Generated from config/oauth-clients.yaml by scripts/oauth-config.mjs. -->
 <plist version="1.0">
 <dict>
+  <key>GIDClientID</key>
+  <string>${clientId}</string>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

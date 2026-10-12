@@ -35,6 +35,7 @@ fn secure_key_for(app_id: &str, account: &str) -> Result<String, String> {
         "school-tokyo-tech" => "passwords.titech-portal",
         "google-drive" => "passwords.google-drive",
         "onedrive" => "passwords.onedrive",
+        "icloud" => "passwords.icloud",
         "cloud-credential-sync" => "passwords.cloud-credential-sync",
         _ => return Err("Secret account is not allowed.".into()),
     };
@@ -45,16 +46,29 @@ fn request(account: &str, data: Option<String>) -> Result<OptionsRequest, String
     Ok(OptionsRequest {
         prefixed_key: Some(secure_key(account)?),
         data,
-        // Credentials remain local to this device. Cloud sync has its own flow.
-        sync: Some(false),
+        // OAuth tokens and the optional Drive credential-sync password stay
+        // device-local. School logins use the native synchronized path below.
+        sync: Some(apple_keychain_sync(account)),
         keychain_access: None,
     })
+}
+
+fn apple_keychain_sync(account: &str) -> bool {
+    cfg!(any(target_os = "macos", target_os = "ios"))
+        && matches!(
+            account,
+            "school-accounts" | "school-science" | "school-tokyo-tech"
+        )
 }
 
 impl SecretVault for OsSecretVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), String> {
         if secret.is_empty() || secret.len() > 64 * 1024 {
             return Err("Secret payload is invalid.".into());
+        }
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        if apple_keychain_sync(account) {
+            return set_apple_synced(account, secret);
         }
         self.app
             .secure_storage()
@@ -68,6 +82,16 @@ impl SecretVault for OsSecretVault {
         if stored.is_some() {
             return Ok(stored);
         }
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        if apple_keychain_sync(account) {
+            if let Some(secret) = self.load_local_current(account)? {
+                migrate_secret(self, account, &secret)?;
+                // Keep the source if cleanup is denied; the synchronized item
+                // takes precedence from now on.
+                let _ = self.delete_local_current(account);
+                return Ok(Some(secret));
+            }
+        }
         if let Some(secret) = self.load_previous(account)? {
             migrate_secret(self, account, &secret)?;
             // A failed cleanup is harmless: the new entry takes precedence.
@@ -78,6 +102,14 @@ impl SecretVault for OsSecretVault {
     }
 
     fn delete(&self, account: &str) -> Result<(), String> {
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        if apple_keychain_sync(account) {
+            delete_apple_synced(account)?;
+            self.delete_local_current(account)?;
+            self.delete_previous(account)?;
+            self.delete_legacy(account)?;
+            return Ok(());
+        }
         let removed = self
             .app
             .secure_storage()
@@ -119,7 +151,41 @@ fn copy_verified(
 }
 
 impl OsSecretVault {
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    fn load_current(&self, account: &str) -> Result<Option<String>, String> {
+        if apple_keychain_sync(account) {
+            return get_apple_synced(account);
+        }
+        self.load_local_current(account)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn load_local_current(&self, account: &str) -> Result<Option<String>, String> {
+        let service = self
+            .app
+            .config()
+            .product_name
+            .as_deref()
+            .ok_or("OS credential vault is unavailable.")?;
+        let entry = keyring::Entry::new(service, &secure_key(account)?)
+            .map_err(|_| "OS credential vault is unavailable.".to_string())?;
+        read_entry(&entry)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn delete_local_current(&self, account: &str) -> Result<(), String> {
+        let service = self
+            .app
+            .config()
+            .product_name
+            .as_deref()
+            .ok_or("OS credential vault is unavailable.")?;
+        let entry = keyring::Entry::new(service, &secure_key(account)?)
+            .map_err(|_| "OS credential vault is unavailable.".to_string())?;
+        delete_entry(&entry)
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     fn load_current(&self, account: &str) -> Result<Option<String>, String> {
         // The plugin turns every read error into None on desktop. Query its
         // exact service/key directly so denied access cannot trigger migration
@@ -135,13 +201,47 @@ impl OsSecretVault {
         read_entry(&entry)
     }
 
-    #[cfg(any(target_os = "ios", target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    fn load_current(&self, account: &str) -> Result<Option<String>, String> {
+        if apple_keychain_sync(account) {
+            return get_apple_synced(account);
+        }
+        self.app
+            .secure_storage()
+            .get_item(self.app.clone(), request(account, None)?)
+            .map(|response| response.data)
+            .map_err(|_| "OS credential vault read failed.".into())
+    }
+
+    #[cfg(target_os = "android")]
     fn load_current(&self, account: &str) -> Result<Option<String>, String> {
         self.app
             .secure_storage()
             .get_item(self.app.clone(), request(account, None)?)
             .map(|response| response.data)
             .map_err(|_| "OS credential vault read failed.".into())
+    }
+
+    #[cfg(target_os = "ios")]
+    fn load_local_current(&self, account: &str) -> Result<Option<String>, String> {
+        let mut options = request(account, None)?;
+        options.sync = Some(false);
+        self.app
+            .secure_storage()
+            .get_item(self.app.clone(), options)
+            .map(|response| response.data)
+            .map_err(|_| "Local credential vault read failed.".into())
+    }
+
+    #[cfg(target_os = "ios")]
+    fn delete_local_current(&self, account: &str) -> Result<(), String> {
+        let mut options = request(account, None)?;
+        options.sync = Some(false);
+        self.app
+            .secure_storage()
+            .remove_item(self.app.clone(), options)
+            .map(|_| ())
+            .map_err(|_| "Local credential vault delete failed.".into())
     }
 
     // Desktop secure-storage uses productName as the service, independently of
@@ -224,6 +324,57 @@ impl OsSecretVault {
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
     fn delete_legacy(&self, _account: &str) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn apple_sync_options(
+    account: &str,
+) -> Result<security_framework::passwords::PasswordOptions, String> {
+    let mut options = security_framework::passwords::PasswordOptions::new_generic_password(
+        APP_ID,
+        &secure_key(account)?,
+    );
+    options.set_access_synchronized(Some(true));
+    #[cfg(target_os = "macos")]
+    options.use_protected_keychain();
+    Ok(options)
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn set_apple_synced(account: &str, secret: &str) -> Result<(), String> {
+    security_framework::passwords::set_generic_password_options(
+        secret.as_bytes(),
+        apple_sync_options(account)?,
+    )
+    .map_err(|error| format!("iCloud Keychain write failed (OSStatus {}).", error.code()))
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn get_apple_synced(account: &str) -> Result<Option<String>, String> {
+    match security_framework::passwords::generic_password(apple_sync_options(account)?) {
+        Ok(bytes) => String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|_| "iCloud Keychain contains invalid credentials.".to_string()),
+        Err(error) if error.code() == -25300 => Ok(None), // errSecItemNotFound
+        Err(error) => Err(format!(
+            "iCloud Keychain read failed (OSStatus {}).",
+            error.code()
+        )),
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn delete_apple_synced(account: &str) -> Result<(), String> {
+    match security_framework::passwords::delete_generic_password_options(apple_sync_options(
+        account,
+    )?) {
+        Ok(()) => Ok(()),
+        Err(error) if error.code() == -25300 => Ok(()), // errSecItemNotFound
+        Err(error) => Err(format!(
+            "iCloud Keychain delete failed (OSStatus {}).",
+            error.code()
+        )),
     }
 }
 

@@ -2028,12 +2028,15 @@ name = "isct-companion"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "chrono",
  "image",
  "keyring",
  "objc2",
  "objc2-app-kit",
+ "objc2-cloud-kit",
  "objc2-foundation",
+ "objc2-ui-kit",
  "objc2-web-kit",
  "ort",
  "percent-encoding",
@@ -2044,6 +2047,7 @@ dependencies = [
  "rrule",
  "rusqlite",
  "scraper",
+ "security-framework 3.7.0",
  "serde",
  "serde_json",
  "sha2",
@@ -2051,13 +2055,16 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
+ "tauri-plugin-google-drive-auth",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
+ "tauri-plugin-school-web",
  "tauri-plugin-secure-storage",
  "tokio",
  "ts-rs",
  "url",
  "uuid",
+ "wry",
 ]
 
 [[package]]
@@ -2606,6 +2613,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73ad74d880bb43877038da939b7427bba67e9dd42004a18b809ba7d87cee241c"
 dependencies = [
  "bitflags 2.13.1",
+ "block2",
  "objc2",
  "objc2-foundation",
 ]
@@ -4532,6 +4540,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-google-drive-auth"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-notification"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4570,6 +4587,16 @@ dependencies = [
  "url",
  "windows 0.61.3",
  "zbus",
+]
+
+[[package]]
+name = "tauri-plugin-school-web"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]
