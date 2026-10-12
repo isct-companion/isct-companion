@@ -305,7 +305,13 @@ jobs:
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > draft-state.txt 2>/dev/null; then
             [[ "$(cat draft-state.txt)" == true || "$REPLACE_EXISTING" == true ]] || { echo 'A published release exists; enable replace_existing or use a new version.'; exit 1; }
           else
-            gh release create "$RELEASE_TAG" --target "$SOURCE_SHA" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
+            # An existing tag needs no target_commitish; older workflow commits
+            # without a branch ref otherwise require workflows:write permission.
+            tag_args=(--verify-tag)
+            if ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+              tag_args=(--target "$SOURCE_SHA")
+            fi
+            gh release create "$RELEASE_TAG" "${tag_args[@]}" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
           fi
           gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe release-assets/*.apk release-assets/*.ipa --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
