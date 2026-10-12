@@ -696,5 +696,9 @@
   "Open the linked page": "打开链接的页面",
   "More services": "更多服务",
   "Stored privately in your iCloud account with CloudKit.": "通过 CloudKit 私密存储在你的 iCloud 账户中。",
-  "ISCT login credentials sync separately through iCloud Keychain. Device-only settings such as window layout, display density, and local permissions stay on this device.": "ISCT 登录凭据会通过 iCloud 钥匙串单独同步。窗口布局、显示密度和本地权限等设备设置只保留在本机。"
+  "ISCT login credentials sync separately through iCloud Keychain. Device-only settings such as window layout, display density, and local permissions stay on this device.": "ISCT 登录凭据会通过 iCloud 钥匙串单独同步。窗口布局、显示密度和本地权限等设备设置只保留在本机。",
+  "Forward": "前进",
+  "Back": "返回",
+  "Reload": "刷新",
+  "School services": "校内服务"
 }

@@ -696,5 +696,9 @@
   "Open the linked page": "リンク先のページを開く",
   "More services": "その他のサービス",
   "Stored privately in your iCloud account with CloudKit.": "CloudKitを使用してiCloudアカウントに非公開で保存されます。",
-  "ISCT login credentials sync separately through iCloud Keychain. Device-only settings such as window layout, display density, and local permissions stay on this device.": "ISCTのログイン認証情報はiCloudキーチェーンで個別に同期されます。ウインドウ配置、表示密度、ローカル権限などのデバイス設定はこのデバイスにのみ保存されます。"
+  "ISCT login credentials sync separately through iCloud Keychain. Device-only settings such as window layout, display density, and local permissions stay on this device.": "ISCTのログイン認証情報はiCloudキーチェーンで個別に同期されます。ウインドウ配置、表示密度、ローカル権限などのデバイス設定はこのデバイスにのみ保存されます。",
+  "Forward": "進む",
+  "Back": "戻る",
+  "Reload": "再読み込み",
+  "School services": "学内サービス"
 }

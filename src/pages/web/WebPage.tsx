@@ -51,6 +51,7 @@ export function Web({
   layout = "workstation",
   mobileSite = null,
   openMobileSite,
+  sitesRequest = 0,
 }: {
   /** False while another page is shown; the page stays mounted (keep alive). */
   active?: boolean;
@@ -68,10 +69,18 @@ export function Web({
   /** The service browsed on a phone (from the route); null shows the list. */
   mobileSite?: SchoolSite | null;
   openMobileSite?: (site: SchoolSite | null, replace?: boolean) => void;
+  /** Bumped when the Web tab is tapped again while browsing: open services. */
+  sitesRequest?: number;
 }) {
   const mobile = layout === "mobile";
   const browsing = !mobile || Boolean(mobileSite);
   const [sitesOpen, setSitesOpen] = useState(false);
+  const shownRequest = useRef(sitesRequest);
+  useEffect(() => {
+    if (sitesRequest === shownRequest.current) return;
+    shownRequest.current = sitesRequest;
+    if (mobile && browsing) setSitesOpen(true);
+  }, [sitesRequest, mobile, browsing]);
   const [site, setSite] = useState<SchoolSite>(() => {
     if (mobileSite) return mobileSite;
     if (requestedUrl) return "science-lms";
@@ -357,6 +366,14 @@ export function Web({
       setStatus(errorText(error) ?? "Unavailable");
     }
   };
+  const goForward = async () => {
+    try {
+      const moved = await desktopBridge?.schoolWebForward?.(site);
+      setStatus(moved ? "" : "No next page.");
+    } catch (error) {
+      setStatus(errorText(error) ?? "Unavailable");
+    }
+  };
 
   // Phones: the route picks the service; leaving it for the list hides the view.
   useEffect(() => {
@@ -447,14 +464,16 @@ export function Web({
           >
             ‹
           </UiButton>
-          <UiButton
-            className="mobileBrowserTitle"
-            aria-haspopup="dialog"
-            onClick={() => setSitesOpen(true)}
-          >
-            <b>{official[site].name}</b>
-            <span aria-hidden="true">▾</span>
-          </UiButton>
+          {embedded && desktopBridge?.schoolWebForward && (
+            <UiButton
+              className="iconButton"
+              aria-label={t("Forward")}
+              onClick={() => void goForward()}
+            >
+              ›
+            </UiButton>
+          )}
+          <b className="mobileBrowserTitle">{official[site].name}</b>
           {embedded && desktopBridge?.reloadSchoolWeb && (
             <UiButton
               className="iconButton"
@@ -570,6 +589,17 @@ export function Web({
               onClick={() => void goBack()}
             >
               ←
+            </UiButton>
+          )}
+          {embedded && desktopBridge?.schoolWebForward && (
+            <UiButton
+              type="button"
+              className="iconButton"
+              title="Next page"
+              aria-label="Next page"
+              onClick={() => void goForward()}
+            >
+              →
             </UiButton>
           )}
           {embedded && desktopBridge?.reloadSchoolWeb && (

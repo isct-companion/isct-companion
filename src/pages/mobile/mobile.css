@@ -54,6 +54,21 @@
 .mobileTabs button.active {
   color: var(--accent);
 }
+.mobileTabIcon {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.mobileTabs svg.mobileTabMenuMark {
+  position: absolute;
+  right: -6px;
+  bottom: -3px;
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  stroke-width: 1.4;
+}
 .mobileTabs svg {
   width: 22px;
   height: 22px;
@@ -505,7 +520,7 @@
 }
 .mobileBrowserBar {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 2px;
   min-height: 48px;
@@ -518,24 +533,13 @@
   font-size: 20px;
 }
 .mobileBrowserTitle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   min-width: 0;
-  height: 44px;
-  border-radius: 10px;
-}
-.mobileBrowserTitle b {
   overflow: hidden;
   font-size: calc(15px * var(--text));
   font-weight: 600;
+  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.mobileBrowserTitle span {
-  color: var(--muted);
-  font-size: 11px;
 }
 .mobileBrowserStatus {
   margin: 0;

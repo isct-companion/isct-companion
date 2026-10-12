@@ -304,6 +304,18 @@ fn school_web_back(
     controller.back(&app, site)
 }
 
+/// The app's Forward for the school view, the counterpart of Back.
+#[tauri::command]
+fn school_web_forward(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+    site: SchoolSite,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    controller.forward(&app, site)
+}
+
 /// Shows a file a school page saved this session in Finder; other paths are
 /// refused.
 #[tauri::command]
@@ -1541,6 +1553,7 @@ pub fn run() {
             reload_school_web,
             navigate_school_web,
             school_web_back,
+            school_web_forward,
             reveal_school_download,
             set_school_web_zoom,
             pull_school,

@@ -607,9 +607,7 @@ describe("mobile shell", () => {
     const rows = [...host.querySelectorAll<HTMLButtonElement>(".mobileWebRow")];
     expect(rows.length).toBeGreaterThan(3);
     expect(host.querySelector(".servicePicker")).toBeNull();
-    await waitFor(() =>
-      expect(fixture.capabilities).toHaveBeenCalled(),
-    );
+    await waitFor(() => expect(fixture.capabilities).toHaveBeenCalled());
     const lms = rows.find((row) => row.dataset.site === "science-lms")!;
     await act(async () => lms.click());
     await waitFor(() =>
@@ -619,6 +617,16 @@ describe("mobile shell", () => {
     expect(host.querySelector(".mobileBrowserTitle")?.textContent).toContain(
       "LMS",
     );
+    // Browsing marks the Web tab; tapping it again opens the services sheet.
+    const webTab = [
+      ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
+    ].find((button) => button.querySelector(".mobileTabMenuMark"))!;
+    expect(webTab).toBeDefined();
+    await act(async () => webTab.click());
+    await waitFor(() =>
+      expect(document.querySelector(".mobileSiteSheet")).not.toBeNull(),
+    );
+    expect(window.location.hash).toBe("#" + paths.web("science-lms"));
   });
   it("opens a lecture as a dialog over the list", async () => {
     await mount(paths.lectures("course-1"));

@@ -426,6 +426,8 @@ export function WorkspaceApp() {
   };
   // Official-page extractors write to SQLite; reload only after an ingestion.
   const ingestedOnWeb = useRef(false);
+  // Tapping the Web tab again while browsing asks Web for its service menu.
+  const [webSitesRequest, setWebSitesRequest] = useState(0);
   const [webContext, setWebContext] = useState<{
     page: "home" | "lectures";
     label: string;
@@ -1585,6 +1587,11 @@ export function WorkspaceApp() {
               entry={entry}
               active={active}
               navigationProvided
+              openOfficial={
+                formFactor === "mobile"
+                  ? (url) => openWeb(url, "lectures")
+                  : undefined
+              }
               schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
               close={() =>
                 void hideNativeSchoolWeb()
@@ -1878,6 +1885,7 @@ export function WorkspaceApp() {
       key={webContext?.url ?? "web"}
       layout={formFactor === "mobile" ? "mobile" : "workstation"}
       mobileSite={renderedRoutes.current.webSite}
+      sitesRequest={webSitesRequest}
       openMobileSite={(site, replace) =>
         site
           ? void navigate(paths.web(site), { replace })
@@ -2163,6 +2171,11 @@ export function WorkspaceApp() {
   if (formFactor === "mobile")
     return (
       <MobileShell
+        webMenu={
+          params.site
+            ? () => setWebSitesRequest((count) => count + 1)
+            : undefined
+        }
         back={mobileBack}
         page={page}
         density={data.settings.density}

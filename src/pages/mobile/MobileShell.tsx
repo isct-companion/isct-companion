@@ -51,6 +51,7 @@ export function MobileShell({
   overlays,
   status,
   back,
+  webMenu,
 }: {
   page: Page;
   density: string;
@@ -62,6 +63,8 @@ export function MobileShell({
   status: MobileStatus;
   /** Closes the screen pushed over a tab's root; undefined at the root. */
   back?: () => void;
+  /** While browsing a school service, tapping Web again opens this menu. */
+  webMenu?: () => void;
 }) {
   useEdgeSwipeBack(back);
   const [sheet, setSheet] = useState(false);
@@ -109,17 +112,35 @@ export function MobileShell({
         {tabs.map((name) => pages[name])}
       </main>
       <nav className="mobileTabs" aria-label={t("Pages")}>
-        {tabs.map((name) => (
-          <UiButton
-            key={name}
-            className={page === name ? "active" : ""}
-            aria-current={page === name ? "page" : undefined}
-            onClick={() => openPage(name)}
-          >
-            {icons[name]}
-            <span>{labels[name]}</span>
-          </UiButton>
-        ))}
+        {tabs.map((name) => {
+          const menu = name === "web" && page === "web" ? webMenu : undefined;
+          return (
+            <UiButton
+              key={name}
+              className={page === name ? "active" : ""}
+              aria-current={page === name ? "page" : undefined}
+              aria-haspopup={menu ? "dialog" : undefined}
+              aria-label={menu ? t("School services") : undefined}
+              onClick={() => (menu ? menu() : openPage(name))}
+            >
+              <span className="mobileTabIcon">
+                {icons[name]}
+                {menu && (
+                  // A drawer mark: tapping Web again opens the services.
+                  <svg
+                    className="mobileTabMenuMark"
+                    viewBox="0 0 12 12"
+                    aria-hidden="true"
+                  >
+                    <rect x="1.5" y="1.5" width="9" height="9" rx="2.5" />
+                    <path d="M4 5h4M4 7.5h4" />
+                  </svg>
+                )}
+              </span>
+              <span>{labels[name]}</span>
+            </UiButton>
+          );
+        })}
       </nav>
       <Drawer
         opened={sheet}

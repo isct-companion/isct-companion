@@ -507,12 +507,14 @@ struct SchoolWebOpen {
 
 const HISTORY_LIMIT: usize = 50;
 
-/// Back stack of one view. Back always loads an earlier page as a fresh GET:
+/// Back and Forward stacks of one view. Both load the page as a fresh GET:
 /// `history.back()` would resubmit 教務Web's WebForms postbacks (ViewState,
 /// "不正な画面遷移" guards, a second 申告).
 #[derive(Debug, Default)]
 struct PageHistory {
     pages: Vec<String>,
+    /// Pages left by Back, newest last; a new visit clears them.
+    forward: Vec<String>,
 }
 
 impl PageHistory {
@@ -522,6 +524,7 @@ impl PageHistory {
             return;
         }
         self.pages.push(url);
+        self.forward.clear();
         if self.pages.len() > HISTORY_LIMIT {
             self.pages.remove(0);
         }
@@ -534,8 +537,17 @@ impl PageHistory {
             .pages
             .iter()
             .rposition(|page| Some(page.as_str()) != current)?;
-        self.pages.truncate(index + 1);
+        if let Some(left) = self.pages.drain(index + 1..).last() {
+            self.forward.push(left);
+        }
         self.pages.last().cloned()
+    }
+
+    /// The page Back last left, which becomes the current page again.
+    fn forward_target(&mut self) -> Option<String> {
+        let next = self.forward.pop()?;
+        self.pages.push(next.clone());
+        Some(next)
     }
 
     /// Forgets everything after the newest visit to `url`.
@@ -1163,6 +1175,7 @@ mod tests {
     fn back_targets_the_newest_other_page() {
         let mut history = PageHistory {
             pages: vec!["a".into(), "b".into(), "c".into()],
+            ..Default::default()
         };
         assert_eq!(history.back_target(Some("c")).as_deref(), Some("b"));
         assert_eq!(history.pages, ["a", "b"]);
@@ -1172,6 +1185,26 @@ mod tests {
         assert_eq!(history.back_target(Some("a")), None);
         assert_eq!(history.pages, ["a"]);
         assert_eq!(PageHistory::default().back_target(None), None);
+    }
+
+    #[test]
+    fn forward_returns_to_pages_left_by_back_until_a_new_visit() {
+        let mut history = PageHistory::default();
+        for page in ["a", "b", "c"] {
+            history.push(page.into());
+        }
+        assert_eq!(history.back_target(Some("c")).as_deref(), Some("b"));
+        assert_eq!(history.back_target(Some("b")).as_deref(), Some("a"));
+        assert_eq!(history.forward_target().as_deref(), Some("b"));
+        assert_eq!(history.forward_target().as_deref(), Some("c"));
+        assert_eq!(history.forward_target(), None);
+        assert_eq!(history.pages, ["a", "b", "c"]);
+        // Back from a page the stack never saw leaves nothing to go forward to.
+        assert_eq!(history.back_target(Some("pulled")).as_deref(), Some("c"));
+        assert_eq!(history.forward_target(), None);
+        history.back_target(Some("c"));
+        history.push("d".into());
+        assert_eq!(history.forward_target(), None);
     }
 
     #[test]
@@ -2002,6 +2035,15 @@ impl SchoolWebController {
     /// Loads the previous page of the site's view as a fresh GET. False when
     /// there is no earlier page (or no view).
     pub fn back(&self, app: &AppHandle, site: SchoolSite) -> Result<bool, String> {
+        self.step(app, site, false)
+    }
+
+    /// Loads the page Back last left, as a fresh GET. False when there is none.
+    pub fn forward(&self, app: &AppHandle, site: SchoolSite) -> Result<bool, String> {
+        self.step(app, site, true)
+    }
+
+    fn step(&self, app: &AppHandle, site: SchoolSite, forward: bool) -> Result<bool, String> {
         let target = {
             let mut state = self
                 .state
@@ -2011,10 +2053,13 @@ impl SchoolWebController {
                 return Ok(false);
             }
             let current = state.urls.get(&site).cloned();
-            let target = state
-                .history
-                .get_mut(&site)
-                .and_then(|history| history.back_target(current.as_deref()));
+            let target = state.history.get_mut(&site).and_then(|history| {
+                if forward {
+                    history.forward_target()
+                } else {
+                    history.back_target(current.as_deref())
+                }
+            });
             if target.is_some() {
                 state.suppress_history.insert(site);
             }
@@ -2023,7 +2068,7 @@ impl SchoolWebController {
         let Some(target) = target else {
             return Ok(false);
         };
-        eprintln!("[school-web] {site:?} back");
+        eprintln!("[school-web] {site:?} {}", if forward { "forward" } else { "back" });
         let navigated = self.navigate(app, site, &target);
         if !matches!(navigated, Ok(true)) {
             if let Ok(mut state) = self.state.lock() {

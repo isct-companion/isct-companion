@@ -255,6 +255,7 @@ export function LmsWorkspace({
   progress,
   markLesson,
   navigationProvided = false,
+  openOfficial,
 }: {
   course: Course;
   data: Workspace;
@@ -268,7 +269,14 @@ export function LmsWorkspace({
   progress?: number | null;
   /** Records that the class starting at `occurrence` covers this lesson. */
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
+  /**
+   * Single-column layouts open official LMS pages on the Web page, where the
+   * route gives them a way back, instead of a school view inside this one.
+   */
+  openOfficial?: (url: string) => void;
 }) {
+  const openOfficialRef = useRef(openOfficial);
+  openOfficialRef.current = openOfficial;
   const key = `${data.deviceId}:${course.id}`;
   const [saved] = useState(
     () =>
@@ -628,6 +636,10 @@ export function LmsWorkspace({
     `${title} ${html ? searchable.get(html) || contentText(html) : ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
   const open = useCallback(
     (tab: ViewTab) => {
+      if (tab.kind === "official" && tab.url && openOfficialRef.current) {
+        openOfficialRef.current(tab.url);
+        return;
+      }
       if (outline.current) recordPosition(outline.current);
       setTabs((previous) =>
         previous.some((item) => item.id === tab.id)
