@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish all installers to the public distribution repository
+        description: Publish all installers to the selected release repository
         type: boolean
         default: false
       publish_target:
@@ -278,14 +278,7 @@ jobs:
               exit 1
             fi
           fi
-          if [[ "$GH_REPO" == "$BUILD_REPO" ]]; then
-            # GITHUB_TOKEN tag updates do not dispatch another build workflow.
-            if gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
-              gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA" -F force=true
-            else
-              gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA"
-            fi
-          elif ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+          if [[ "$GH_REPO" != "$BUILD_REPO" ]] && ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
             public_sha=$(git -C public-repo rev-parse HEAD)
             gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$public_sha"
           fi
@@ -295,6 +288,8 @@ jobs:
           set -euo pipefail
           cat > release-notes.md <<'NOTES'
           Desktop preview for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
+
+          This rc1 refresh adds HEIC/HEIF image decoding and matrix detection for arbitrary rotation, stretching and perspective. Debug crop exports use the configured download folder and are excluded from release builds.
 
           Download the installer for your architecture. Intel Mac builds currently do not include campus-card OCR. Build success does not replace testing on each supported operating system.
 
@@ -310,7 +305,7 @@ jobs:
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > draft-state.txt 2>/dev/null; then
             [[ "$(cat draft-state.txt)" == true || "$REPLACE_EXISTING" == true ]] || { echo 'A published release exists; enable replace_existing or use a new version.'; exit 1; }
           else
-            gh release create "$RELEASE_TAG" --verify-tag --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
+            gh release create "$RELEASE_TAG" --target "$SOURCE_SHA" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
           fi
           gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe release-assets/*.apk release-assets/*.ipa --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false

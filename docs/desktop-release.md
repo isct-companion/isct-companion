@@ -49,7 +49,8 @@ mobile signing and TestFlight setup.
 The job creates a draft, uploads the complete set, then publishes it as a
 prerelease. An existing published version is protected by default. An explicit
 manual dispatch with `replace_existing=true` can refresh that version's assets.
-Source-repository releases point their version tag at the verified build commit.
+New source-repository release tags point at the verified build commit. Existing
+tags are preserved, and release notes record the exact source build commit.
 Distribution-repository releases keep their independent document history; no
 source code is copied there, and their automatic source archives contain only
 the distribution documents.
