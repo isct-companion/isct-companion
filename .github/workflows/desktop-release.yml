@@ -2,6 +2,7 @@ name: Desktop release
 
 on:
   push:
+    branches: ["main"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:

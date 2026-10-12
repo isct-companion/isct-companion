@@ -32,6 +32,9 @@ jobs:
       - uses: actions/checkout@v5
       - name: Verify iOS distribution SDK
         run: |
+          # Tauri resolves xcodebuild through xcode-select, not DEVELOPER_DIR.
+          sudo xcode-select --switch "$DEVELOPER_DIR"
+          xcode-select --print-path
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
       - uses: actions/setup-node@v7
@@ -73,16 +76,20 @@ jobs:
           for name in IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY; do
             test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
           done
+      - name: Set iOS build number
+        run: |
+          # Local rc1 builds have already used 1.0.100; keep CI builds above it.
+          echo "IOS_BUILD_NUMBER=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
       - name: Build signed IPA
         if: env.UPLOAD_TESTFLIGHT == 'true'
         env:
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
-        run: yarn tauri ios build --ci --export-method app-store-connect --build-number "${{ github.run_number }}"
+        run: yarn tauri ios build --ci --export-method app-store-connect --build-number "$IOS_BUILD_NUMBER"
       - name: Build unsigned iPhone and iPad archive
         if: env.UPLOAD_TESTFLIGHT != 'true'
-        run: yarn tauri ios build --ci --no-sign --archive-only --build-number "${{ github.run_number }}"
+        run: yarn tauri ios build --ci --no-sign --archive-only --build-number "$IOS_BUILD_NUMBER"
       - name: Verify platform isolation
         shell: bash
         run: |
@@ -106,6 +113,14 @@ jobs:
             ditto -c -k --keepParent "$archive" artifacts/ios/IsctCompanion-ios-ipados-unsigned.xcarchive.zip
           fi
           test -n "$app"
+          python3 - "$app/Info.plist" <<'PYTHON'
+          import plistlib, sys
+          with open(sys.argv[1], "rb") as source:
+              info = plistlib.load(source)
+          sdk = info["DTSDKName"]
+          assert sdk.startswith("iphoneos") and int(sdk[8:].split(".")[0]) >= 26, f"Distribution requires iOS SDK 26+: {sdk}"
+          print(f"Distribution SDK verified: {sdk}")
+          PYTHON
           node scripts/verify-platform-bundle.mjs ios "$app"
           /usr/libexec/PlistBuddy -c 'Print UIDeviceFamily' "$app/Info.plist" | grep -q '1'
           /usr/libexec/PlistBuddy -c 'Print UIDeviceFamily' "$app/Info.plist" | grep -q '2'
@@ -122,7 +137,16 @@ jobs:
           mkdir -p "$key_dir"
           printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
           chmod 600 "$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
-          xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
+          report="$RUNNER_TEMP/app-store-upload.json"
+          xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER" --output-format json > "$report"
+          python3 - "$report" <<'PYTHON'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              report = json.load(source)
+          if report.get("product-errors") or report.get("errors") or not report.get("success-message"):
+              raise SystemExit("App Store Connect rejected the IPA or did not confirm upload success.")
+          print(report["success-message"])
+          PYTHON
       - uses: actions/upload-artifact@v7
         if: always()
         with:
