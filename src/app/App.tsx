@@ -109,7 +109,6 @@ import {
   type MergeDiff,
 } from "../core/lms-merge";
 
-import { staleSources } from "../platform/school-freshness";
 import { declaredTermCredits } from "../core/declared-credits";
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
@@ -417,12 +416,22 @@ export function WorkspaceApp() {
   pageLocations.current[page] = location.pathname;
   const pagePath = (next: Page) =>
     pageLocations.current[next] ?? paths.page(next);
-  // On mobile a pushed screen closes by going back, so the system back
-  // gesture and the on-screen back button walk the same history.
+  // The path of each history entry, so going up can reuse the entry below.
+  const historyPaths = useRef<string[]>([]);
+  {
+    const index = window.history.state?.idx ?? 0;
+    historyPaths.current[index] = location.pathname;
+    historyPaths.current.length = index + 1;
+  }
+  // On mobile, back means up one level (to `path`), never "wherever I came
+  // from". When the entry below is already that parent, step back to it so
+  // the system back button keeps a clean history; otherwise replace.
   const closeTo = (path: string) => {
-    if (formFactor === "mobile" && (window.history.state?.idx ?? 0) > 0)
+    if (formFactor !== "mobile") return void navigate(path);
+    const index = window.history.state?.idx ?? 0;
+    if (index > 0 && historyPaths.current[index - 1] === path)
       void navigate(-1);
-    else void navigate(path);
+    else void navigate(path, { replace: true });
   };
   // Official-page extractors write to SQLite; reload only after an ingestion.
   const ingestedOnWeb = useRef(false);
@@ -600,39 +609,44 @@ export function WorkspaceApp() {
   const pullBusy = useRef(false);
   const fullLmsPull = useRef(false);
   const kyomuBusy = useRef(false);
-  // LMS courses whose material details were read this session.
-  const detailedLms = useRef(new Set<number>());
-  const fetchLmsRef = useRef<
-    (quiet?: boolean, lmsCourseId?: number) => Promise<boolean>
-  >(async () => false);
-  const refreshStale = useRef<
-    (profile: "science" | "tokyo-tech") => Promise<void>
-  >(async () => undefined);
-  // TTL refresh once an account is signed in (launch, renewal), and when the
-  // window comes back after a while.
   useEffect(() => {
-    if (!desktopBridge?.onSchoolSession) return;
-    const active = new Set<"science" | "tokyo-tech">();
-    let lastFocus = 0;
-    const offSession = desktopBridge.onSchoolSession((event) => {
-      if (event.state !== "active") return;
-      active.add(event.profile);
-      void refreshStale.current(event.profile).catch(() => undefined);
-    });
-    const onFocus = () => {
-      if (
-        document.visibilityState === "hidden" ||
-        Date.now() - lastFocus < 10 * 60_000
-      )
-        return;
-      lastFocus = Date.now();
-      for (const profile of active)
-        void refreshStale.current(profile).catch(() => undefined);
+    if (!desktopBridge?.schoolRefreshEvent) return;
+    const report = (kind: "foreground" | "background") => {
+      void desktopBridge
+        ?.schoolRefreshEvent?.({
+          kind,
+          network: subscriptionNetwork(detectPlatform()),
+        })
+        .catch(() => undefined);
+      void desktopBridge?.cloudLifecycle?.(kind).catch(() => undefined);
     };
-    addEventListener("focus", onFocus);
+    const off = desktopBridge.onSchoolSession?.((event) => {
+      if (event.state === "active")
+        void desktopBridge
+          ?.schoolRefreshEvent?.({
+            kind: "account-active",
+            profile: event.profile,
+          })
+          .catch(() => undefined);
+    });
+    const focus = () => {
+      if (document.visibilityState !== "hidden") report("foreground");
+    };
+    const visibility = () =>
+      report(
+        document.visibilityState === "hidden" ? "background" : "foreground",
+      );
+    focus();
+    addEventListener("focus", focus);
+    addEventListener("online", focus);
+    addEventListener("offline", visibility);
+    document.addEventListener("visibilitychange", visibility);
     return () => {
-      offSession();
-      removeEventListener("focus", onFocus);
+      off?.();
+      removeEventListener("focus", focus);
+      removeEventListener("online", focus);
+      removeEventListener("offline", visibility);
+      document.removeEventListener("visibilitychange", visibility);
     };
   }, []);
   const [mergeDiff, setMergeDiff] = useState<MergeDiff | null>(null);
@@ -826,18 +840,10 @@ export function WorkspaceApp() {
           (course.offeringId && item.offeringId === course.offeringId) ||
           String(item.lmsId) === course.source.externalId,
       );
-    if (
-      !record ||
-      detailedLms.current.has(record.lmsId) ||
-      pullBusy.current ||
-      fullLmsPull.current ||
-      kyomuBusy.current
-    )
-      return;
-    detailedLms.current.add(record.lmsId);
-    void fetchLmsRef.current(true, record.lmsId).then((completed) => {
-      if (!completed) detailedLms.current.delete(record.lmsId);
-    });
+    if (!record) return;
+    void desktopBridge
+      ?.schoolRefreshEvent?.({ kind: "lecture-opened", courseId: record.lmsId })
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, lectureEntry?.courseId, Boolean(schoolRecords)]);
   if (!data)
@@ -1431,7 +1437,6 @@ export function WorkspaceApp() {
       setLmsProgress(null);
     }
   };
-  fetchLmsRef.current = fetchLms;
   const refreshKyomu = async (quiet = false) => {
     if (
       !desktopBridge?.pullSchool ||
@@ -1454,20 +1459,6 @@ export function WorkspaceApp() {
       kyomuBusy.current = false;
       setKyomuProgress(null);
     }
-  };
-  /** Pulls whatever cache is older than its TTL, for a signed-in account. */
-  refreshStale.current = async (profile) => {
-    if (readOnly) return;
-    const records = await loadSchoolRecords();
-    if (!records) return;
-    const stale = staleSources(
-      records.lastRuns,
-      workspaceStore.getState().workspace?.importStatus.timetableReviewedAt,
-    );
-    if (profile === "science") {
-      if (stale.timetable) await pullLms("term", true, currentTerm);
-      else if (stale.assignments) await fetchLms(true);
-    } else if (stale.kyomu) await refreshKyomu(true);
   };
   /** Opens 教務Web registration with this quarter's timetable as a queue. */
   const openRegistration = async (term: TermId) => {
@@ -2185,6 +2176,13 @@ export function WorkspaceApp() {
           next === "settings"
             ? void navigate(pagePath("settings"))
             : navigatePage(next)
+        }
+        openRoot={(root) =>
+          root === "lectures"
+            ? void hideNativeSchoolWeb()
+                .then(() => closeTo(paths.lectures()))
+                .catch(notify.error)
+            : closeTo(paths.page(root))
         }
         pages={{
           home: keep("home", homePage),

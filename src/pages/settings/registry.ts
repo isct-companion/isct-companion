@@ -222,8 +222,8 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "backup",
     id: "cloud",
-    title: "Google Drive",
-    terms: "cloud backup sync クラウド 同期",
+    title: "Sync",
+    terms: "cloud backup sync icloud google drive クラウド 同期 iCloud",
   },
   {
     section: "backup",

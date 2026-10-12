@@ -187,6 +187,26 @@ export type NativeCapabilitySnapshot = {
   matrixOcr: boolean;
 };
 export type CloudProvider = "google-drive" | "onedrive" | "icloud";
+/** Automatic sync, per device; contract in docs/cloud-sync.md. */
+export type CloudSyncProvider = "icloud" | "google-drive";
+export type CloudSyncVersion = {
+  id: string;
+  provider: CloudSyncProvider;
+  savedAt: string;
+  device: string;
+};
+export type CloudSyncState = {
+  syncing: boolean;
+  providers: {
+    provider: CloudSyncProvider;
+    enabled: boolean;
+    lastSyncedAt?: string;
+    error?: string;
+  }[];
+  /** Earlier cloud copies, newest first. */
+  versions: CloudSyncVersion[];
+};
+
 export type CloudSyncResult = {
   state: "backed-up" | "up-to-date" | "conflict" | "restored";
   revision: number;
@@ -305,6 +325,21 @@ export interface DesktopBridge {
     redirectUri: string,
   ): Promise<boolean>;
   cloudAuthorizationStatus(): Promise<CloudProvider[]>;
+  schoolRefreshEvent?(event: {
+    kind: "account-active" | "foreground" | "background" | "lecture-opened";
+    profile?: SchoolAuthProfile;
+    courseId?: number;
+    network?: string;
+  }): Promise<void>;
+  cloudLifecycle?(kind: "foreground" | "background"): Promise<void>;
+  cloudSyncState?(): Promise<CloudSyncState>;
+  setCloudSyncProvider?(
+    provider: CloudSyncProvider,
+    enabled: boolean,
+  ): Promise<CloudSyncState>;
+  syncCloudNow?(): Promise<CloudSyncState>;
+  restoreCloudVersion?(id: string): Promise<CloudSyncState>;
+  onCloudSyncState?(callback: (state: CloudSyncState) => void): () => void;
   disconnectCloud(provider: CloudProvider): Promise<boolean>;
   backupCloudWorkspace(
     provider: CloudProvider,
@@ -764,6 +799,30 @@ export function createTauriDesktopBridge(
       booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
     cloudAuthorizationStatus: () =>
       result<CloudProvider[]>("cloud_authorization_status"),
+    schoolRefreshEvent: (event) =>
+      result<void>("school_refresh_event", { event }),
+    cloudLifecycle: (kind) => result<void>("cloud_lifecycle", { kind }),
+    cloudSyncState: () => result<CloudSyncState>("cloud_sync_state"),
+    setCloudSyncProvider: (provider, enabled) =>
+      result<CloudSyncState>("set_cloud_sync_provider", { provider, enabled }),
+    syncCloudNow: () => result<CloudSyncState>("sync_cloud_now"),
+    restoreCloudVersion: (id) =>
+      result<CloudSyncState>("restore_cloud_version", { id }),
+    onCloudSyncState: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<CloudSyncState>("cloud-sync-state", (payload) => {
+        if (!disposed && payload && Array.isArray(payload.providers))
+          callback(payload);
+      }).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
     disconnectCloud: (provider) =>
       booleanCommand("disconnect_cloud", { provider }),
     backupCloudWorkspace: (provider, overwrite) =>

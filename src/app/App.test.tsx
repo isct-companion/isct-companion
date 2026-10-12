@@ -23,6 +23,7 @@ const fixture = vi.hoisted(() => ({
   lectureCleanup: vi.fn(),
   retry: vi.fn(),
   pull: vi.fn(),
+  refreshEvent: vi.fn().mockResolvedValue(undefined),
   platform: "native-desktop",
 }));
 vi.mock("../store/workspace", () => ({
@@ -54,6 +55,7 @@ vi.mock("./native", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   desktopBridge: {
     getRuntimeCapabilities: fixture.capabilities,
+    schoolRefreshEvent: fixture.refreshEvent,
     onWorkspaceChanged: () => () => {},
     onSchoolIngest: (callback: (event: SchoolIngestOutcome) => void) => {
       fixture.ingest.add(callback);
@@ -415,26 +417,25 @@ describe("hash-driven desktop navigation", () => {
       effectCount,
     );
   });
-  it("fills LMS details once per session and retries a failed fill after reentry", async () => {
+  it("reports lecture opens to Rust without starting a frontend pull", async () => {
     fixture.state.workspace!.courses[0].source.externalId = "12";
     fixture.state.schoolRecords = {
       lmsCourses: [{ lmsId: 12 }],
       registrations: [],
     } as never;
-    fixture.pull.mockResolvedValueOnce([
-      { state: "failed", message: "Temporary failure" },
-    ]);
     await mount(paths.lectures("course-1"));
-    expect(fixture.pull).toHaveBeenCalledTimes(1);
-    await go(paths.home());
-    await go(paths.lectures("course-1"));
-    expect(fixture.pull).toHaveBeenCalledTimes(2);
-    expect(fixture.pull).toHaveBeenLastCalledWith("science-lms", {
-      lmsCourseId: 12,
+    expect(fixture.refreshEvent).toHaveBeenCalledWith({
+      kind: "lecture-opened",
+      courseId: 12,
     });
+    expect(fixture.pull).not.toHaveBeenCalled();
     await go(paths.home());
     await go(paths.lectures("course-1"));
-    expect(fixture.pull).toHaveBeenCalledTimes(2);
+    expect(fixture.refreshEvent).toHaveBeenLastCalledWith({
+      kind: "lecture-opened",
+      courseId: 12,
+    });
+    expect(fixture.pull).not.toHaveBeenCalled();
   });
   it("retains settings subpage DOM, disclosure state and scroll across page switches", async () => {
     await mount(paths.settings("appearance"));
@@ -628,6 +629,49 @@ describe("mobile shell", () => {
     );
     expect(window.location.hash).toBe("#" + paths.web("science-lms"));
   });
+  it("goes up one level, reusing the parent entry when it is just below", async () => {
+    await mount(paths.settings());
+    const appearance = [
+      ...host.querySelectorAll<HTMLButtonElement>(".settingsNav button"),
+    ].find((button) => button.textContent?.trim() === "Appearance")!;
+    await act(async () => appearance.click());
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settingsBack")!.click(),
+    );
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#" + paths.settings()),
+    );
+    expect(router.state.historyAction).toBe("POP");
+  });
+
+  it("opened deep, back replaces with the parent instead of leaving", async () => {
+    await mount(paths.settings("appearance"));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settingsBack")!.click(),
+    );
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#" + paths.settings()),
+    );
+    expect(router.state.historyAction).toBe("REPLACE");
+  });
+
+  it("tapping the current tab again returns to its root", async () => {
+    await mount(paths.settings("appearance"));
+    const settingsTab = [
+      ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
+    ].find((button) => button.textContent === "Settings")!;
+    await act(async () => settingsTab.click());
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#" + paths.settings()),
+    );
+    await go(paths.home("week"));
+    const homeTab = [
+      ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
+    ].find((button) => button.textContent === "Home")!;
+    await act(async () => homeTab.click());
+    await waitFor(() => expect(window.location.hash).toBe("#" + paths.home()));
+  });
+
   it("opens a lecture as a dialog over the list", async () => {
     await mount(paths.lectures("course-1"));
     const content = host.querySelector(".lectureContent");

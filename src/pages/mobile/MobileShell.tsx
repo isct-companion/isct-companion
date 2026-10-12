@@ -47,6 +47,7 @@ export function MobileShell({
   labels,
   icons,
   openPage,
+  openRoot,
   pages,
   overlays,
   status,
@@ -58,6 +59,8 @@ export function MobileShell({
   labels: Record<Page, string>;
   icons: Record<Page, ReactElement>;
   openPage: (page: Page) => void;
+  /** Tapping the current tab again returns to that tab's root screen. */
+  openRoot: (page: Page) => void;
   pages: Record<Page, ReactNode>;
   overlays: ReactNode;
   status: MobileStatus;
@@ -121,7 +124,9 @@ export function MobileShell({
               aria-current={page === name ? "page" : undefined}
               aria-haspopup={menu ? "dialog" : undefined}
               aria-label={menu ? t("School services") : undefined}
-              onClick={() => (menu ? menu() : openPage(name))}
+              onClick={() =>
+                menu ? menu() : name === page ? openRoot(name) : openPage(name)
+              }
             >
               <span className="mobileTabIcon">
                 {icons[name]}
