@@ -410,9 +410,11 @@ pub fn project(corners: &[Point; 4], u: f64, v: f64) -> Point {
     }
 }
 pub fn locate(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
-    // Preserve the original TS anchors whenever they already form a valid grid.
-    // Gap recovery can merge another band and move the top edge on clear cards;
-    // it is a fallback for interrupted headers, not a replacement detector.
+    // Verify the complete projective grid before accepting the older header
+    // estimate, which can look valid while shifting crops on a skewed card.
+    if let Some(cells) = super::contours::locate(image) {
+        return Some(cells);
+    }
     if let Some(corners) = template(image, false).or_else(|| template(image, true)) {
         return Some(
             (0..70)

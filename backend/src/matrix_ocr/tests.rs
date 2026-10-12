@@ -339,3 +339,140 @@ fn white_header_letters_may_split_the_dark_band() {
     assert!((cells[0][0].y - 125.).abs() < 5.);
     assert!((cells[69][2].y - 300.).abs() < 5.);
 }
+
+#[test]
+#[ignore = "requires explicitly supplied prepared WebView PNGs and optional private ground truth"]
+fn supplied_photo_pipeline() {
+    let source = decode_image(
+        &std::fs::read(std::env::var("MATRIX_PHOTO").expect("Set MATRIX_PHOTO")).unwrap(),
+    )
+    .unwrap();
+    let small = decode_image(
+        &std::fs::read(std::env::var("MATRIX_PREVIEW").expect("Set MATRIX_PREVIEW")).unwrap(),
+    )
+    .unwrap();
+    let encode = |image: &RgbImage| {
+        let mut png = Cursor::new(Vec::new());
+        image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        STANDARD.encode(png.into_inner())
+    };
+    let service = MatrixOcrService::default();
+    #[cfg(debug_assertions)]
+    let service = service.with_debug_dir(Some(std::path::PathBuf::from(
+        std::env::var("MATRIX_PHOTO").unwrap(),
+    )));
+    // A file as the export directory forces a write failure on every OS.
+    // Recognition and all progress events must still be delivered.
+    let progress = std::sync::atomic::AtomicUsize::new(0);
+    let results = service
+        .scan(&encode(&source), &encode(&small), |n| {
+            assert_eq!(
+                n,
+                progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+            );
+        })
+        .unwrap();
+    assert_eq!(progress.load(std::sync::atomic::Ordering::Relaxed), 70);
+    assert_eq!(results.len(), 70);
+    let accepted = results.iter().filter(|r| !r.text.is_empty()).count();
+    let expected = std::env::var("MATRIX_EXPECTED_FILE")
+        .ok()
+        .map(|p| std::fs::read_to_string(p).unwrap());
+    let matched = expected
+        .as_ref()
+        .map(|expected| {
+            results
+                .iter()
+                .enumerate()
+                .filter(|(i, r)| r.text == expected[*i..*i + 1])
+                .count()
+        })
+        .unwrap_or(0);
+    if expected.is_some() {
+        assert_eq!(
+            matched, accepted,
+            "private photo accepted an incorrect letter"
+        );
+        assert!(
+            accepted >= 60,
+            "private photo lost too many readable letters"
+        );
+    }
+    eprintln!("Private photo: 70 cells returned, {accepted} accepted, {matched} matched");
+}
+
+fn outlined_card() -> RgbImage {
+    let mut image = RgbImage::from_pixel(600, 600, Rgb([255; 3]));
+    for y in 180..420 {
+        for x in 120..450 {
+            let header = y < 210 && x >= 150;
+            let label = x < 150 && y >= 210;
+            let grid = x >= 150 && y >= 210;
+            if header || label {
+                image.put_pixel(x, y, Rgb([30; 3]));
+            } else if grid {
+                let boundary = (x - 150) % 30 <= 1 || (y - 210) % 30 <= 1 || x >= 448 || y >= 418;
+                image.put_pixel(
+                    x,
+                    y,
+                    if boundary {
+                        Rgb([70; 3])
+                    } else {
+                        Rgb([245, 210, 210])
+                    },
+                );
+            }
+        }
+    }
+    // Distinct glyph shapes in each cell exercise crop direction as well as order.
+    for i in 0..70 {
+        for y in 7..23 {
+            for x in 8..20 {
+                if x == 8 || y == 7 || (y == 15 && x < 14) {
+                    image.put_pixel(
+                        150 + (i % 10) * 30 + x,
+                        210 + (i / 10) * 30 + y,
+                        Rgb([20; 3]),
+                    );
+                }
+            }
+        }
+    }
+    image
+}
+#[test]
+fn arbitrary_rotation_stretch_and_perspective_keep_cell_order() {
+    use imageproc::geometric_transformations::{warp, Border, Interpolation, Projection};
+    let image = outlined_card();
+    let perspective = Projection::from_control_points(
+        [(120., 180.), (450., 180.), (450., 420.), (120., 420.)],
+        [(135., 165.), (450., 200.), (415., 435.), (100., 400.)],
+    )
+    .unwrap();
+    let stretch = Projection::translate(300., 300.)
+        * Projection::scale(1.4, 0.75)
+        * Projection::translate(-300., -300.);
+    for (case, deformation) in [Projection::scale(1., 1.), stretch, perspective]
+        .into_iter()
+        .enumerate()
+    {
+        for degrees in (0..360).step_by(15).map(|d| d as f32).chain([17.5, 359.]) {
+            let transform = Projection::translate(300., 300.)
+                * Projection::rotate(degrees.to_radians())
+                * Projection::translate(-300., -300.)
+                * deformation;
+            let rotated = warp(
+                &image,
+                transform,
+                Interpolation::Bilinear,
+                Border::Constant(Rgb([255; 3])),
+            );
+            let cells = geometry::locate(&rotated)
+                .unwrap_or_else(|| panic!("grid lost at {degrees} degrees case {case}"));
+            for (actual, original) in [(cells[0][0], (150., 210.)), (cells[69][2], (450., 420.))] {
+                let expected = transform * original;
+                assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "incorrect cell order/geometry at {degrees} degrees: {actual:?} vs {expected:?}");
+            }
+        }
+    }
+}

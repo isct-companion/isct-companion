@@ -233,7 +233,7 @@ function MatrixEditor({
             resetRef={resetScanInput}
             disabled={recognizing || disabled}
             onChange={(file) => void recognize(file ?? undefined)}
-            accept="image/*"
+            accept="image/*,.heic,.heif"
           >
             {(props) => (
               <Button

@@ -34,7 +34,7 @@ mod lms_ingest;
 mod lms_protocol;
 #[cfg(matrix_ocr)]
 mod matrix_ocr;
-#[cfg(matrix_ocr)]
+#[cfg(all(matrix_ocr, debug_assertions))]
 mod matrix_red_crops;
 pub mod plans;
 #[cfg(test)]
@@ -126,6 +126,7 @@ where
 async fn recognize_matrix_image(
     webview: tauri::Webview,
     service: tauri::State<'_, matrix_ocr::MatrixOcrService>,
+    app: tauri::AppHandle,
     data: String,
     preview: String,
     on_progress: tauri::ipc::Channel<usize>,
@@ -133,6 +134,14 @@ async fn recognize_matrix_image(
     require_local_main(&webview)?;
     let service = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(debug_assertions)]
+        let service = service.with_debug_dir(
+            lms_files::debug_dir(&app)
+                .inspect_err(|error| eprintln!("Matrix debug directory unavailable: {error}"))
+                .ok(),
+        );
+        #[cfg(not(debug_assertions))]
+        let _ = app;
         service.scan(&data, &preview, |completed| {
             let _ = on_progress.send(completed);
         })

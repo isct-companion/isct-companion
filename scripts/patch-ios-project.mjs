@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -14,6 +14,8 @@ const entitlements = fileURLToPath(
     import.meta.url,
   ),
 );
+const iconSource = fileURLToPath(new URL("../backend/icons/ios/", import.meta.url));
+const iconDestination = fileURLToPath(new URL("../backend/gen/apple/Assets.xcassets/AppIcon.appiconset/", import.meta.url));
 
 export function patchIosEntitlements(file = entitlements, { required = true } = {}) {
   try {
@@ -39,6 +41,14 @@ export function patchIosEntitlements(file = entitlements, { required = true } = 
 
 export function patchIosProject({ required = true } = {}) {
   let changed = patchIosEntitlements(entitlements, { required });
+  if (existsSync(iconDestination)) {
+    // Use the committed opaque icons; fresh Tauri init generates RGBA PNGs.
+    for (const name of readdirSync(iconSource).filter((name) => name.endsWith(".png"))) {
+      const icon = readFileSync(`${iconSource}${name}`);
+      if (![0, 2].includes(icon[25])) throw new Error(`iOS icon must not contain an alpha channel: ${name}`);
+      copyFileSync(`${iconSource}${name}`, `${iconDestination}${name}`);
+    }
+  }
   let source;
   try {
     source = readFileSync(project, "utf8");

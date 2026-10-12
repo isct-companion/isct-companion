@@ -1,0 +1,22 @@
+name: Apple signing check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-profile:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Validate Mac distribution profile on the release runner
+        env:
+          APPLE_MACOS_PROVISIONING_PROFILE: ${{ secrets.APPLE_MACOS_PROVISIONING_PROFILE }}
+        run: |
+          node --input-type=module -e "import { macSigningConfig } from './scripts/macos-signing.mjs'; macSigningConfig({ required: true }); console.log('Mac distribution profile validated.');"

@@ -2359,6 +2359,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"heic-to@npm:^1.6.5":
+  version: 1.6.5
+  resolution: "heic-to@npm:1.6.5"
+  checksum: 10c0/fc43ab671eddc5687099f7a6b6b563261d33b607a8364a8f63d9e21a48a1ed93ff90e661f71a5543255c53cfee19e9cc4161258deaaef45e795e9e8df2fce9f9
+  languageName: node
+  linkType: hard
+
 "html-encoding-sniffer@npm:^6.0.0":
   version: 6.0.0
   resolution: "html-encoding-sniffer@npm:6.0.0"
@@ -2424,6 +2431,7 @@ __metadata:
     "@types/react": "npm:19.2.18"
     "@types/react-dom": "npm:19.2.7"
     "@vitejs/plugin-react": "npm:6.1.1"
+    heic-to: "npm:^1.6.5"
     i18next: "npm:^26.4.2"
     jsdom: "npm:30.0.1"
     katex: "npm:^0.19.0"
