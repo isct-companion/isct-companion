@@ -1,6 +1,6 @@
 # Desktop distribution
 
-The private repository builds the app. The public repository
+The source repository builds the app. The public repository
 `isct-companion/Isct-Companion-App` holds only README and license documents;
 Releases contain the three desktop installers, signed Android APK and signed
 iOS/iPadOS IPA. Third-party notices and
@@ -13,10 +13,14 @@ CI uses the Yarn version pinned in `package.json`, enabled through Corepack,
 and installs dependencies with `yarn install --immutable`.
 
 `.github/workflows/desktop-release.yml` builds Apple Silicon Mac, Intel Mac
-and Windows x64. Use **Desktop release → Run workflow**, with `publish` left
+and Windows x64. Pushes to `main`, version tags, and manual dispatches trigger
+the build. Use **Desktop release → Run workflow**, with `publish` left
 unchecked, to download private build artifacts. To publish an existing successful build without rebuilding, enable `publish`
 and enter its Actions run ID in `source_run_id`. The workflow checks that
-the source is a successful Desktop release run in this private repository.
+the source is a successful Desktop release run in this repository. During the
+public preview, `publish_target=source` publishes in the source repository.
+Select `publish_target=distribution` to use `Isct-Companion-App` and its
+`PUBLIC_RELEASE_TOKEN`; that mode also updates its distribution documents.
 
 macOS requires 14 or later. Windows installers target Windows 10/11 and install
 WebView2 through its bootstrapper if needed. Intel Mac currently excludes
@@ -43,10 +47,12 @@ before publication. Only `.dmg`/`.exe` installers, `.apk` and `.ipa` packages
 are uploaded as Release assets. See [mobile releases](mobile-release.md) for
 mobile signing and TestFlight setup.
 The job creates a draft, uploads the complete set, then publishes it as a
-prerelease. An existing published version is never overwritten; bump the
-version for another build. No private source archive or commit history is
-copied to the public repository. GitHub's automatic source archives contain
-only the public documents.
+prerelease. An existing published version is protected by default. An explicit
+manual dispatch with `replace_existing=true` can refresh that version's assets.
+Source-repository releases point their version tag at the verified build commit.
+Distribution-repository releases keep their independent document history; no
+source code is copied there, and their automatic source archives contain only
+the distribution documents.
 
 The public repository must already have a `main` branch. The initial README
 and licenses establish it. Public document sources are
