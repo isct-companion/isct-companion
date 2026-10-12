@@ -1,3 +1,4 @@
+mod contours;
 mod geometry;
 mod preprocess;
 #[cfg(test)]
@@ -59,8 +60,16 @@ fn err(error: impl std::fmt::Display) -> String {
 
 /// The mutex serializes scans; the session stays resident, but no photo/cell data does.
 #[derive(Clone, Default)]
-pub struct MatrixOcrService(Arc<Mutex<Option<Paddle>>>);
+pub struct MatrixOcrService(
+    Arc<Mutex<Option<Paddle>>>,
+    #[cfg(debug_assertions)] Option<std::path::PathBuf>,
+);
 impl MatrixOcrService {
+    #[cfg(debug_assertions)]
+    pub fn with_debug_dir(mut self, directory: Option<std::path::PathBuf>) -> Self {
+        self.1 = directory;
+        self
+    }
     pub fn scan(
         &self,
         data: &str,
@@ -84,6 +93,7 @@ impl MatrixOcrService {
         }
         let cells=geometry::locate(&small).ok_or("Could not locate all 7 × 10 cells. Include the A–J header and 1–7 row labels in a focused photo.")?;
         let mut results = Vec::with_capacity(70);
+        #[cfg(debug_assertions)]
         let mut red = vec![];
         for (i, corners) in cells.iter().enumerate() {
             let corners = corners.map(|p| geometry::Point {
@@ -108,22 +118,29 @@ impl MatrixOcrService {
                 }
                 accepted
             };
-            if recognition::is_red(&result) {
+            #[cfg(debug_assertions)]
+            if self.1.is_some() && recognition::is_red(&result) {
                 let mut bytes = Cursor::new(Vec::new());
-                prepared
+                match prepared
                     .preview
                     .write_to(&mut bytes, image::ImageFormat::Png)
-                    .map_err(err)?;
-                red.push(crate::matrix_red_crops::Crop::from_png(
-                    format!("{}{}.png", (b'A' + (i % 10) as u8) as char, i / 10 + 1),
-                    bytes.into_inner(),
-                ));
+                {
+                    Ok(()) => red.push(crate::matrix_red_crops::Crop::from_png(
+                        format!("{}{}.png", (b'A' + (i % 10) as u8) as char, i / 10 + 1),
+                        bytes.into_inner(),
+                    )),
+                    Err(error) => eprintln!("Matrix debug crop encoding failed: {error}"),
+                }
             }
             results.push(result);
             progress(i + 1);
         }
-        if !red.is_empty() {
-            crate::matrix_red_crops::save(red)?;
+        #[cfg(debug_assertions)]
+        if let Some(directory) = self.1.as_ref().filter(|_| !red.is_empty()) {
+            // Diagnostic exports must never turn a completed scan into an error.
+            if let Err(error) = crate::matrix_red_crops::save(directory, red) {
+                eprintln!("Matrix debug export failed: {error}");
+            }
         }
         Ok(results)
     }

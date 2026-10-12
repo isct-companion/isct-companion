@@ -9,53 +9,24 @@ const bundleId = "app.isctcompanion";
 const teamId = "FB7AL944GK";
 
 function decodeProfile(profilePath) {
-  const decoded = spawnSync("openssl", [
-    "smime",
-    "-verify",
-    "-inform",
-    "der",
-    "-in",
-    profilePath,
-    "-noverify",
-  ], {
+  const decoded = spawnSync("security", ["cms", "-D", "-i", profilePath], {
     encoding: "buffer",
   });
   if (decoded.status !== 0) return undefined;
-  const extract = (keyPath, format = "raw") => {
-    const result = spawnSync(
-      "plutil",
-      ["-extract", keyPath, format, "-o", "-", "-"],
-      { input: decoded.stdout, encoding: "utf8" },
-    );
-    if (result.status !== 0) return undefined;
-    const value = result.stdout.trim();
-    if (format === "json") {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return undefined;
-      }
-    }
-    return value;
-  };
-  return {
-    Platform: extract("Platform", "json"),
-    ProvisionsAllDevices: extract("ProvisionsAllDevices") === "true",
-    ExpirationDate: extract("ExpirationDate"),
-    Entitlements: {
-      "com.apple.application-identifier": extract(
-        "Entitlements.com\\.apple\\.application-identifier",
-      ),
-      "com.apple.developer.icloud-container-identifiers": extract(
-        "Entitlements.com\\.apple\\.developer\\.icloud-container-identifiers",
-        "json",
-      ),
-      "keychain-access-groups": extract(
-        "Entitlements.keychain-access-groups",
-        "json",
-      ),
-    },
-  };
+  // plistlib preserves arrays, booleans and UTC dates across macOS versions.
+  const parsed = spawnSync("python3", ["-c", `
+import sys, plistlib, json
+profile = plistlib.loads(sys.stdin.buffer.read())
+expires = profile.get("ExpirationDate")
+print(json.dumps({
+    "Platform": profile.get("Platform", []),
+    "ProvisionsAllDevices": profile.get("ProvisionsAllDevices", False),
+    "ExpirationDate": expires.isoformat() + "Z" if expires else "",
+    "Entitlements": profile.get("Entitlements", {})
+}))
+`], { input: decoded.stdout, encoding: "utf8" });
+  if (parsed.status !== 0) return undefined;
+  return JSON.parse(parsed.stdout);
 }
 
 function authorizes(values, expected) {
@@ -64,29 +35,34 @@ function authorizes(values, expected) {
     : false;
 }
 
-function validateProfile(profilePath) {
+function validateProfile(profilePath, { diagnostics = false } = {}) {
   const profile = decodeProfile(profilePath);
+  const invalid = (reason) => {
+    if (diagnostics) console.error(`Mac provisioning profile rejected: ${reason}`);
+    return undefined;
+  };
+  if (!profile) return invalid("CMS decoding failed");
   const entitlements = profile?.Entitlements ?? {};
   const platforms = profile?.Platform ?? [];
   const appIdentifier = entitlements["com.apple.application-identifier"];
   const expires = Date.parse(profile?.ExpirationDate ?? "");
-  if (!platforms.includes("OSX")) return undefined;
-  if (!profile.ProvisionsAllDevices) return undefined;
-  if (!(expires > Date.now())) return undefined;
+  if (!platforms.includes("OSX")) return invalid("macOS platform missing");
+  if (!profile.ProvisionsAllDevices) return invalid("Developer ID distribution missing");
+  if (!(expires > Date.now())) return invalid("expiration date invalid or expired");
   if (
     appIdentifier !== `${teamId}.${bundleId}` &&
     appIdentifier !== `${teamId}.*`
   ) {
-    return undefined;
+    return invalid("app identifier does not match");
   }
   if (
     !authorizes(entitlements["keychain-access-groups"], `${teamId}.${bundleId}`)
   ) {
-    return undefined;
+    return invalid("Keychain group missing");
   }
   const containers = entitlements["com.apple.developer.icloud-container-identifiers"];
   if (!Array.isArray(containers) || !containers.includes(`iCloud.${bundleId}`)) {
-    return undefined;
+    return invalid("CloudKit container missing");
   }
   return { path: profilePath, profile };
 }
@@ -119,7 +95,7 @@ function candidateProfiles() {
 export function macSigningConfig({ required = false } = {}) {
   if (process.platform !== "darwin") return undefined;
   const matches = candidateProfiles()
-    .map(validateProfile)
+    .map((profile) => validateProfile(profile, { diagnostics: required }))
     .filter(Boolean)
     .sort(
       (left, right) =>
