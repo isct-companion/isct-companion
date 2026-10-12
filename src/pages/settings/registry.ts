@@ -1,4 +1,5 @@
 import type { Platform, Section } from "../../app/shared";
+import { nativeOs } from "../../platform/desktop-bridge";
 
 /**
  * Settings follow the layered model of mature system settings: everyday
@@ -23,6 +24,7 @@ const SECTIONS: SectionDefinition[] = [
   { id: "backup", label: "Backup", tier: "basic" },
   { id: "sources", label: "Data updates", tier: "advanced" },
   { id: "automation", label: "Automation", tier: "advanced" },
+  { id: "wifi", label: "Campus Wi-Fi", tier: "advanced" },
   { id: "agent", label: "AI agent access", tier: "advanced" },
   { id: "developer", label: "Developer options", tier: "advanced" },
   { id: "extensions", label: "Site styles & scripts", tier: "developer" },
@@ -51,6 +53,8 @@ export function sectionSupported(id: Section, context: SectionContext) {
   const mobile = context.platform === "native-mobile";
   if (id === "files") return desktop;
   if (id === "extensions") return context.extensionsAvailable;
+  // ScienceTokyo Wi-Fi sign-in is compiled only into macOS builds.
+  if (id === "wifi") return nativeOs() === "macos";
   if (
     mobile &&
     (id === "calendar" ||
@@ -110,6 +114,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "tokyo-tech",
     title: "Tokyo Tech account",
     terms: "login sign in matrix portal ログイン マトリクス",
+  },
+  {
+    section: "wifi",
+    id: "campus-wifi",
+    title: "ScienceTokyo Wi-Fi",
+    terms: "wifi wi-fi wireless network internet campus 無線LAN ネットワーク",
   },
   {
     section: "study",

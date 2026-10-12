@@ -11,6 +11,7 @@ import type {
   CloudSyncVersion,
 } from "../../platform/desktop-bridge";
 import { UiButton, UiInput } from "../../components/mantine";
+import { confirmAction } from "../../components/confirm";
 import {
   Row,
   SettingsGroup,
@@ -98,14 +99,15 @@ export function BackupSettings({
   const restoreVersion = (version: Pick<CloudSyncVersion, "id" | "savedAt">) =>
     run("Could not restore.", async () => {
       if (
-        !confirm(
+        !(await confirmAction(
           t(
             "Restore the version from {{date}} on all connected devices? Unsynced work on older devices will be kept in recovery files.",
             {
               date: when(version.savedAt),
             },
           ),
-        )
+          t("Restore"),
+        ))
       )
         return;
       const next = await bridge?.restoreCloudVersion?.(version.id);
@@ -118,11 +120,12 @@ export function BackupSettings({
     saveExportFile("IsctCompanion.json", workspaceActions.exportData, notify);
   const importFile = async (file: File) => {
     if (
-      !confirm(
+      !(await confirmAction(
         t(
           "Restore this file on all connected devices? A recovery copy of current data will be kept.",
         ),
-      )
+        t("Restore"),
+      ))
     )
       return;
     try {
@@ -138,11 +141,12 @@ export function BackupSettings({
   };
   const erase = async () => {
     if (
-      !confirm(
+      !(await confirmAction(
         t(
           "Erase all data on this device and start over? This cannot be undone.",
         ),
-      )
+        t("Erase"),
+      ))
     )
       return;
     await workspaceActions.reset();
