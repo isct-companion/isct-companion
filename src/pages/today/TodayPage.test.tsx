@@ -95,6 +95,20 @@ describe("Today assignments", () => {
     return data;
   };
 
+  it("keeps a pinned assignment above earlier deadlines without duplicating it", async () => {
+    const data = workspace();
+    data.assignments.push({
+      ...assignment("pinned", "now", "2026-11-12T00:00:00Z"),
+      pinned: true,
+    });
+    const section = await render(data);
+    const titles = [...section.querySelectorAll(".dueRow b")].map(
+      (node) => node.textContent,
+    );
+    expect(titles[0]).toBe("Report pinned");
+    expect(titles.filter((title) => title === "Report pinned")).toHaveLength(1);
+  });
+
   it("shows only open work from now on under Today", async () => {
     const section = await render(workspace());
     const titles = [...section.querySelectorAll(".dueRow b")].map(

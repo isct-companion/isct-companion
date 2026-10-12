@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import {spawn} from 'node:child_process';
+import { transformWithOxc } from 'vite';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
 process.umask(0o077);
 if (!process.argv[2]) throw new Error('Pass the local private photo path.');
@@ -14,8 +15,8 @@ const scratch=fs.mkdtempSync('/private/tmp/isct-private-parity-');fs.chmodSync(s
 const write=(name,data)=>fs.writeFileSync(path.join(scratch,name),data,{mode:0o600});
 let failed=false;
 const production=fs.readFileSync('src/core/matrix-ocr.ts','utf8');
-const prepare=production.slice(production.indexOf('export async function prepareMatrixCanvases'),production.indexOf('export async function recognizeMatrixImage')).replace('file: File','file');
-const page=`<!doctype html><script>addEventListener('error',()=>fetch('/failed',{method:'POST',body:'module'}));addEventListener('unhandledrejection',()=>fetch('/failed',{method:'POST',body:'rejection'}));</script><script type="module">
+const prepare=(await transformWithOxc(production.slice(production.indexOf('export async function prepareMatrixCanvases'),production.indexOf('export async function recognizeMatrixImage')),'matrix-prepare.ts',{target:'es2022'})).code;
+const page=`<!doctype html><script type="importmap">{"imports":{"heic-to/csp":"/heic.mjs"}}</script><script>addEventListener('error',()=>fetch('/failed',{method:'POST',body:'module'}));addEventListener('unhandledrejection',()=>fetch('/failed',{method:'POST',body:'rejection'}));</script><script type="module">
 import * as ort from '/ort/ort.wasm.min.mjs';
 import * as legacy from '/legacy.mjs';
 import {prepareMatrixCanvases} from '/prepare.mjs';
@@ -63,6 +64,7 @@ const server=http.createServer(async(req,res)=>{
  else if(req.url==='/prepared'){data=fs.readFileSync(path.join(scratch,'prepared.json'));type='application/json';}
  else if(req.url==='/photo'){data=fs.readFileSync(photo);type='image/png';}
  else if(req.url==='/prepare.mjs')data=prepare;
+ else if(req.url==='/heic.mjs')data=fs.readFileSync(new URL(import.meta.resolve('heic-to/csp')));
  else if(req.url==='/legacy.mjs')data=fs.readFileSync('scripts/matrix-legacy-reference.mjs');
  else if(req.url==='/matrix-filter-reference.mjs')data=fs.readFileSync('scripts/matrix-filter-reference.mjs');
  else if(req.url==='/model'){data=fs.readFileSync('backend/models/paddle/en-ppocrv5.onnx');type='application/octet-stream';}

@@ -85,6 +85,8 @@ export function Settings({
   refreshReferences,
   matrixOcrAvailable = false,
   capabilitiesReady = true,
+  layout = "split",
+  back,
 }: {
   platform: Platform;
   data: Workspace;
@@ -101,6 +103,9 @@ export function Settings({
   refreshReferences?: () => Promise<string>;
   matrixOcrAvailable?: boolean;
   capabilitiesReady?: boolean;
+  /** Mobile shows the section list and one section as separate screens. */
+  layout?: "split" | "list" | "detail";
+  back?: () => void;
 }) {
   const [developer, setDeveloper] = useDeveloperMode();
   const [query, setQuery] = useState("");
@@ -250,8 +255,13 @@ export function Settings({
     ) : null;
 
   return (
-    <div className="page settings">
-      <nav className="settingsNav" aria-label={t("Settings sections")}>
+    <div className={`page settings ${layout}`}>
+      {layout === "list" && <h1 className="settingsTitle">{t("Settings")}</h1>}
+      <nav
+        className="settingsNav"
+        aria-label={t("Settings sections")}
+        hidden={layout === "detail"}
+      >
         <UiInput
           className="settingsSearch"
           type="search"
@@ -298,8 +308,16 @@ export function Settings({
                     )
                   ))}
                 <UiButton
-                  className={sectionParent(current) === item.id ? "active" : ""}
-                  aria-current={current === item.id ? "page" : undefined}
+                  className={
+                    layout !== "list" && sectionParent(current) === item.id
+                      ? "active"
+                      : ""
+                  }
+                  aria-current={
+                    layout !== "list" && current === item.id
+                      ? "page"
+                      : undefined
+                  }
                   onClick={() => open(item.id)}
                 >
                   {t(item.label)}
@@ -309,9 +327,16 @@ export function Settings({
           </div>
         )}
       </nav>
-      <section className="settingsPane" key={current}>
-        {page}
-      </section>
+      {layout !== "list" && (
+        <section className="settingsPane" key={current}>
+          {layout === "detail" && back && (
+            <UiButton className="textButton settingsBack" onClick={back}>
+              ‹ {t("Settings")}
+            </UiButton>
+          )}
+          {page}
+        </section>
+      )}
     </div>
   );
 }

@@ -130,11 +130,12 @@ function localExport(workspace: Workspace): ExportDocument {
           updatedBy: course.updatedBy,
         })),
       assignment_marks: workspace.assignments
-        .filter((assignment) => assignment.hidden || assignment.completedAt)
+        .filter((assignment) => assignment.hidden || assignment.pinned || assignment.completedAt)
         .map((assignment) => ({
           id: `assignment-mark:${assignment.id}`,
           sourceKey: assignment.sourceKey ?? assignment.id,
           hidden: Boolean(assignment.hidden),
+          pinned: Boolean(assignment.pinned),
           completedAt: assignment.completedAt,
           rev: assignment.rev,
           updatedAt: assignment.updatedAt,
@@ -399,6 +400,7 @@ export class SqliteRepository implements WorkspaceRepository {
       const old = oldAssignments.get(assignment.id);
       if (
         old?.hidden === assignment.hidden &&
+        old?.pinned === assignment.pinned &&
         old?.completedAt === assignment.completedAt
       )
         continue;
@@ -408,6 +410,7 @@ export class SqliteRepository implements WorkspaceRepository {
           sourceKey: assignment.sourceKey ?? assignment.id,
           assignmentId: assignment.id,
           hidden: Boolean(assignment.hidden),
+          pinned: Boolean(assignment.pinned),
           completedAt: assignment.completedAt,
           source: { provider: "manual" },
         },

@@ -1,137 +1,61 @@
-//! Mobile contract for the desktop-only embedded school browser.
-//!
-//! Tauri's child-webview positioning and visibility APIs are desktop-only.
-//! Keeping the command surface available lets the shared frontend query the
-//! capability and fail predictably, while mobile pages can use their own
-//! navigation implementation later.
-
+//! Mobile native-view adapter for the shared Rust school browser controller.
+//! iOS views live on UIKit's main thread; Android views live in the Kotlin plugin.
 use crate::lifecycle::SchoolSite;
-use crate::school_auth::{SchoolAuthProfile, SchoolCredentials};
-use serde::{Deserialize, Serialize};
+use crate::school_web_shared::ViewCallbacks;
+pub use crate::school_web_shared::{
+    IngestOutcome, SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds,
+};
 use tauri::AppHandle;
+use url::Url;
 
-const UNSUPPORTED: &str = "The embedded school browser is not available on mobile.";
+#[cfg(target_os = "ios")]
+#[path = "school_web_ios.rs"]
+mod platform;
+#[cfg(target_os = "android")]
+#[path = "school_web_android.rs"]
+mod platform;
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolWebPolicy {
-    pub restore_across_restarts: bool,
-    pub idle_minutes: u64,
+#[derive(Clone)]
+pub(crate) struct NativeWebview {
+    app: AppHandle,
+    site: SchoolSite,
 }
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct WebBounds {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
+impl NativeWebview {
+    pub(crate) fn label(&self) -> &'static str {
+        self.site.webview_label()
+    }
+    pub(crate) fn eval(&self, script: &str) -> Result<(), String> {
+        platform::operate(&self.app, self.site, "eval", Some(script))
+    }
+    pub(crate) fn navigate(&self, url: Url) -> Result<(), String> {
+        platform::operate(&self.app, self.site, "navigate", Some(url.as_str()))
+    }
+    pub(crate) fn reload(&self) -> Result<(), String> {
+        platform::operate(&self.app, self.site, "reload", None)
+    }
+    pub(crate) fn hide(&self) -> Result<(), String> {
+        platform::operate(&self.app, self.site, "hide", None)
+    }
+    pub(crate) fn show(&self) -> Result<(), String> {
+        platform::operate(&self.app, self.site, "show", None)
+    }
+    pub(crate) fn set_focus(&self) -> Result<(), String> {
+        platform::operate(&self.app, self.site, "focus", None)
+    }
+    pub(crate) fn set_zoom(&self, scale: f64) -> Result<(), String> {
+        platform::operate(&self.app, self.site, "zoom", Some(&scale.to_string()))
+    }
 }
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolWebResult {
-    pub site: SchoolSite,
-    pub url: String,
-    pub phase: &'static str,
+pub(crate) fn apply_bounds(view: &NativeWebview, bounds: WebBounds) -> Result<(), String> {
+    platform::set_bounds(&view.app, view.site, bounds.sanitized())
 }
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IngestOutcome {
-    pub site: SchoolSite,
-    pub kind: String,
-    pub state: &'static str,
-    pub changed: usize,
-    pub message: String,
-}
-
-#[derive(Clone, Default)]
-pub struct SchoolWebController;
-
-impl SchoolWebController {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn configure(&self, _app: &AppHandle, policy: SchoolWebPolicy) -> Result<bool, String> {
-        let _ = (policy.restore_across_restarts, policy.idle_minutes);
-        Ok(false)
-    }
-
-    pub fn set_bounds(&self, _app: &AppHandle, bounds: WebBounds) -> Result<bool, String> {
-        let _ = (bounds.x, bounds.y, bounds.width, bounds.height);
-        Ok(false)
-    }
-
-    pub fn hide_all(&self, _app: &AppHandle) -> Result<bool, String> {
-        Ok(false)
-    }
-
-    pub fn reload(&self, _app: &AppHandle, _site: SchoolSite) -> Result<bool, String> {
-        Err(UNSUPPORTED.into())
-    }
-
-    pub fn navigate(
-        &self,
-        _app: &AppHandle,
-        _site: SchoolSite,
-        _url: &str,
-    ) -> Result<bool, String> {
-        Err(UNSUPPORTED.into())
-    }
-
-    pub fn back(&self, _app: &AppHandle, _site: SchoolSite) -> Result<bool, String> {
-        Ok(false)
-    }
-
-    pub fn reveal_download(&self, _app: &AppHandle, _path: &str) -> Result<bool, String> {
-        Ok(false)
-    }
-
-    pub fn set_zoom(&self, _site: SchoolSite, _scale: f64) -> Result<bool, String> {
-        Ok(false)
-    }
-
-    pub fn open(
-        &self,
-        _app: &AppHandle,
-        _site: SchoolSite,
-        _css: String,
-        _javascript: String,
-        _bounds: Option<WebBounds>,
-        _target_url: Option<String>,
-    ) -> Result<SchoolWebResult, String> {
-        Err(UNSUPPORTED.into())
-    }
-
-    pub fn request_session(
-        &self,
-        _app: &AppHandle,
-        _profile: SchoolAuthProfile,
-    ) -> Result<bool, String> {
-        Ok(false)
-    }
-
-    pub fn request_login(
-        &self,
-        _app: &AppHandle,
-        _profile: SchoolAuthProfile,
-        _credentials: SchoolCredentials,
-    ) -> Result<SchoolWebResult, String> {
-        Err(UNSUPPORTED.into())
-    }
-
-    pub fn set_guide(&self, items: Vec<crate::kyomu_guide::GuideItem>) -> Result<bool, String> {
-        let _ = items;
-        Ok(false)
-    }
-
-    pub fn request_pull(
-        &self,
-        _app: &AppHandle,
-        _site: SchoolSite,
-        _lms_course_id: Option<u64>,
-    ) -> Result<Vec<IngestOutcome>, String> {
-        Err(UNSUPPORTED.into())
-    }
+pub(crate) fn create_webview(
+    app: &AppHandle,
+    site: SchoolSite,
+    target: &str,
+    bounds: WebBounds,
+    visible: bool,
+    callbacks: ViewCallbacks,
+) -> Result<NativeWebview, String> {
+    platform::create(app, site, target, bounds.sanitized(), visible, callbacks)
 }

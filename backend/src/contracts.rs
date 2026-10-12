@@ -126,6 +126,7 @@ contract!(Assignment {
     #[serde(default)] #[ts(optional, type = "\"unknown\" | \"open\" | \"submitted\" | \"graded\"")] pub submission: Option<String>,
     #[serde(default)] #[ts(optional, type = "\"unknown\" | \"draft\" | \"submitted\" | \"late\" | \"not-submitted\"")] pub submission_status: Option<String>,
     #[serde(default)] #[ts(optional)] pub hidden: Option<bool>,
+    #[serde(default)] #[ts(optional)] pub pinned: Option<bool>,
     #[serde(default)] #[ts(optional)] pub completed_at: Option<String>,
     pub source: SourceRef,
     #[serde(default)] #[ts(optional)] pub last_seen_at: Option<String>,
@@ -359,6 +360,7 @@ contract!(ScheduledTask {
 contract!(AssignmentMark {
     #[serde(flatten)] #[ts(flatten)] pub meta: SyncMeta,
     pub source_key: String, pub hidden: bool,
+    #[serde(default)] #[ts(optional)] pub pinned: Option<bool>,
     #[serde(default)] #[ts(optional)] pub completed_at: Option<String>,
 });
 contract!(CourseOverride {
@@ -378,7 +380,7 @@ contract!(Notifications {
     #[ts(type = "NotificationPermission")] pub local_permission: String,
 });
 contract!(CloudSettings {
-    #[ts(type = "\"none\" | \"google-drive\" | \"onedrive\"")] pub provider: String,
+    #[ts(type = "\"none\" | \"google-drive\" | \"onedrive\" | \"icloud\"")] pub provider: String,
     pub client_id: String,
     #[serde(default)] #[ts(optional)] pub redirect_uri: Option<String>,
     #[ts(type = "\"keep-current\" | \"use-latest\" | \"resolve-manually\"")] pub conflict: String,

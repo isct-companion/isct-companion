@@ -24,6 +24,8 @@ ref-demo/
 reference-demo/
 
 # Secrets and machine-local configuration
+.signing/
+.apple_key/
 .env
 .env.*
 !.env.example

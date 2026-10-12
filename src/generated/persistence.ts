@@ -113,6 +113,7 @@ export type Assignment = {
   submissionStatus?:
     "unknown" | "draft" | "submitted" | "late" | "not-submitted";
   hidden?: boolean;
+  pinned?: boolean;
   completedAt?: string;
   source: SourceRef;
   lastSeenAt?: string;
@@ -455,6 +456,7 @@ export type ScheduledTask = {
 export type AssignmentMark = {
   sourceKey: string;
   hidden: boolean;
+  pinned?: boolean;
   completedAt?: string;
   id: string;
   rev: number;
@@ -488,7 +490,7 @@ export type Notifications = {
 };
 
 export type CloudSettings = {
-  provider: "none" | "google-drive" | "onedrive";
+  provider: "none" | "google-drive" | "onedrive" | "icloud";
   clientId: string;
   redirectUri?: string;
   conflict: "keep-current" | "use-latest" | "resolve-manually";

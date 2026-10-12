@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { desktopBridge } from "../../../app/native";
+import { nativeOs } from "../../../platform/desktop-bridge";
 import { ExternalLink } from "../../../components/ExternalLink";
 import { t } from "../../../i18n";
 import { extension, fileFamily } from "./file-types";
@@ -27,7 +28,7 @@ const isLmsResource = (url: string) => {
   } catch { return false; }
 };
 const megabytes = (bytes: number) => `${Math.max(0.1, bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-const revealLabel = /Mac/i.test(navigator.platform) ? "Show in Finder" : "Show in folder";
+const revealLabel = nativeOs() === "macos" ? "Show in Finder" : "Show in folder";
 
 type View =
   | { state: "loading" }

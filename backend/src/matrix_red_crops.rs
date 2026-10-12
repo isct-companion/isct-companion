@@ -40,7 +40,7 @@ fn decode(crop: Crop) -> Result<(String, Vec<u8>), String> {
     Ok((crop.name, bytes))
 }
 
-pub fn save(files: Vec<Crop>) -> Result<(), String> {
+pub fn save(root: &Path, files: Vec<Crop>) -> Result<(), String> {
     if files.is_empty() || files.len() > 70 {
         return Err("Invalid crop count".into());
     }
@@ -48,11 +48,7 @@ pub fn save(files: Vec<Crop>) -> Result<(), String> {
         .into_iter()
         .map(decode)
         .collect::<Result<Vec<_>, _>>()?;
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or("Project directory unavailable")?
-        .join("tmp");
-    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
@@ -68,6 +64,29 @@ pub fn save(files: Vec<Crop>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exports_under_the_supplied_debug_directory() {
+        let root = std::env::temp_dir().join(format!("matrix-debug-test-{}", uuid::Uuid::new_v4()));
+        save(
+            &root,
+            vec![Crop::from_png(
+                "A1.png".into(),
+                b"\x89PNG\r\n\x1a\n".to_vec(),
+            )],
+        )
+        .unwrap();
+        let directories = fs::read_dir(&root)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(directories.len(), 1);
+        assert!(directories[0]
+            .file_name()
+            .to_string_lossy()
+            .starts_with("matrix-"));
+        assert!(directories[0].path().join("A1.png").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn only_accepts_cell_png_names() {
         for name in ["../a.png", "K1.png", "A8.png", "results.json"] {

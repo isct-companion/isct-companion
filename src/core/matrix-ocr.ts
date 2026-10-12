@@ -35,7 +35,25 @@ export function parseMatrixText(text: string): string[] {
 /** Keep the established WebView decoding/resampling; native code consumes these
  * exact PNG pixels without resizing again. Inference and filters remain Rust. */
 export async function prepareMatrixCanvases(file: File) {
-  const bitmap = await createImageBitmap(file);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    // WebViews differ in HEIC codec support; libheif supplies the same fallback
+    // on every target, loaded only when the built-in decoder cannot read a file.
+    const { isHeic, heicTo } = await import("heic-to/csp");
+    if (!(await isHeic(file)))
+      throw new Error(
+        "Cannot read this image. Choose a valid PNG, JPEG, WebP or HEIC photo.",
+      );
+    try {
+      bitmap = await heicTo({ blob: file, type: "bitmap" });
+    } catch {
+      throw new Error(
+        "Cannot decode this HEIC image. Try exporting it as PNG or JPEG.",
+      );
+    }
+  }
   const scale = Math.min(1, 2200 / Math.max(bitmap.width, bitmap.height));
   const source = document.createElement("canvas");
   source.width = Math.max(1, Math.round(bitmap.width * scale));

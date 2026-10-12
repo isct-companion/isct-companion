@@ -121,6 +121,7 @@ describe("Tauri bridge contract", () => {
       if (command === "navigate_school_web") return true;
       if (command === "set_school_web_zoom") return true;
       if (command === "school_web_back") return false;
+      if (command === "school_web_forward") return true;
       if (command === "open_school_site")
         return {
           site: "science-portal",
@@ -175,6 +176,10 @@ describe("Tauri bridge contract", () => {
     expect(invoke).toHaveBeenNthCalledWith(6, "school_web_back", {
       site: "kyomu",
     });
+    await expect(bridge.schoolWebForward?.("kyomu")).resolves.toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("school_web_forward", {
+      site: "kyomu",
+    });
   });
 
   it("copies the saved Matrix through its own native command", async () => {
@@ -221,6 +226,15 @@ describe("Tauri bridge contract", () => {
     ]);
     dispose?.();
     expect(unlisten).toHaveBeenCalledOnce();
+  });
+
+  it("saves exports through the native dialog, not a webview download", async () => {
+    const invoke = vi.fn(async () => false);
+    const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
+    const name = "campus-life-2026-2Q.ics";
+    const contents = "BEGIN:VCALENDAR\r\nEND:VCALENDAR";
+    await expect(bridge.saveFile(name, contents)).resolves.toBe(false);
+    expect(invoke).toHaveBeenCalledWith("save_file", { name, contents });
   });
 
   it("saves exports through the native dialog, not a webview download", async () => {

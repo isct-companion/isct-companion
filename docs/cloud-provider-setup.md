@@ -1,7 +1,8 @@
 # Cloud provider registration
 
 The registered OAuth clients live in `config/oauth-clients.yaml` (see Google
-Drive below). Only Google Drive is offered in the app for now.
+Drive below). Google Drive is available on desktop and iOS; iCloud is available
+on signed Apple builds. OneDrive remains a separately registered provider.
 
 The native app uses this exact loopback redirect:
 
@@ -37,7 +38,11 @@ requires the Desktop client's secret, even with PKCE; set it as
 `google-drive.desktop-secret` in the YAML (or `ISCT_GOOGLE_DESKTOP_CLIENT_SECRET`
 in the environment). `yarn tauri …` compiles it into the native backend, which
 sends it only with the registered desktop client ID. Google documents this
-secret as non-confidential for installed apps; it ships inside the binary.
+secret as non-confidential for installed apps; it ships only inside desktop
+binaries. Rust target conditions exclude the desktop OAuth flow and secret from
+iOS/Android, while the iOS Google Sign-In plugin is an iOS-only dependency.
+`scripts/verify-platform-bundle.mjs` fails release builds if another platform's
+OAuth configuration leaks into an artifact.
 
 The app requests only `https://www.googleapis.com/auth/drive.appdata`, the
 non-sensitive scope for the hidden application-data folder. It also requests
@@ -71,6 +76,13 @@ Registration: [Microsoft Entra app registrations](https://entra.microsoft.com/#v
 
 ## iCloud
 
-iCloud transport is not implemented and must not be shown as available. Native
-Keychain synchronization is separate from the Google Drive/OneDrive encrypted
-credential file described above.
+iCloud uses the private CloudKit database in `iCloud.app.isctcompanion`; it does
+not use OAuth or expose the user's files in iCloud Drive. Workspace data and
+user preferences travel in the same private backup document. Device-only state
+stays local. School credentials use the Apple Keychain with synchronizable
+items enabled, so Apple devices signed into the same iCloud Keychain can share
+them without placing credentials in the CloudKit document.
+
+The App ID, entitlements and provisioning profile must all contain the same
+iCloud container. The App Store profile must permit CloudKit production and
+have `beta-reports-active` for TestFlight.

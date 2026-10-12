@@ -87,6 +87,14 @@ pub struct LocalNoteBackup {
     pub text: String,
     #[serde(default)]
     pub deleted: bool,
+    #[serde(default)]
+    pub updated_at: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default)]
+    pub rev: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<String>,
 }
 pub(crate) fn component(value: &str) -> Result<&str, String> {
     if value.is_empty()
@@ -149,6 +157,10 @@ fn folder(app: &AppHandle, context: &CourseFolder, kind: &str) -> Result<PathBuf
 /// One folder per course for downloaded files, whichever section links them.
 fn materials_dir(app: &AppHandle, course: &CourseKey) -> Result<PathBuf, String> {
     storage_dir(app, &[&course.term, &course.course, "materials"])
+}
+#[cfg(debug_assertions)]
+pub(crate) fn debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    storage_dir(app, &["debug"])
 }
 fn storage_dir(app: &AppHandle, parts: &[&str]) -> Result<PathBuf, String> {
     let (root, _) = root(app)?;
@@ -300,8 +312,18 @@ pub fn export_notes(app: &AppHandle) -> Result<Vec<LocalNoteBackup>, String> {
                         if total > MAX_BACKUP_NOTE_BYTES || result.len() >= MAX_BACKUP_NOTES {
                             return Err("Notes exceed the local backup safety limit".into());
                         }
+                        let updated_at = chrono::DateTime::<chrono::Utc>::from(
+                            path.metadata()
+                                .and_then(|m| m.modified())
+                                .map_err(|e| e.to_string())?,
+                        )
+                        .to_rfc3339();
+                        let meta: serde_json::Value = fs::read(path.with_extension("sync.json"))
+                            .ok()
+                            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                            .unwrap_or_default();
                         let text =
-                            fs::read_to_string(path).map_err(|_| "A note is not UTF-8 text")?;
+                            fs::read_to_string(&path).map_err(|_| "A note is not UTF-8 text")?;
                         result.push(LocalNoteBackup {
                             id,
                             term: term_name.clone(),
@@ -309,6 +331,10 @@ pub fn export_notes(app: &AppHandle) -> Result<Vec<LocalNoteBackup>, String> {
                             section: section_name.clone(),
                             text,
                             deleted,
+                            deleted_at: deleted.then(|| updated_at.clone()),
+                            updated_at,
+                            updated_by: meta["updatedBy"].as_str().unwrap_or("legacy").to_string(),
+                            rev: meta["rev"].as_u64().unwrap_or(1),
                         });
                     }
                 }
@@ -319,6 +345,12 @@ pub fn export_notes(app: &AppHandle) -> Result<Vec<LocalNoteBackup>, String> {
 }
 
 pub fn restore_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), String> {
+    write_notes(app, notes, false)
+}
+pub fn merge_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), String> {
+    write_notes(app, notes, true)
+}
+pub(crate) fn validate_notes(notes: &[LocalNoteBackup]) -> Result<(), String> {
     if notes.len() > MAX_BACKUP_NOTES {
         return Err("Too many notes in backup".into());
     }
@@ -338,9 +370,56 @@ pub fn restore_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), S
             return Err("Notes exceed the local backup safety limit".into());
         }
     }
+    Ok(())
+}
+fn write_notes(app: &AppHandle, notes: &[LocalNoteBackup], merge: bool) -> Result<(), String> {
+    validate_notes(notes)?;
     let state = app.state::<FileStore>();
     let _guard = state.0.lock().map_err(|_| "Storage lock unavailable")?;
+    let current = export_notes(app)?;
+    if !merge {
+        for old in current
+            .iter()
+            .filter(|old| !notes.iter().any(|n| n.id == old.id))
+        {
+            let context = CourseFolder {
+                term: old.term.clone(),
+                course: old.course.clone(),
+                section: old.section.clone(),
+            };
+            let path = folder(
+                app,
+                &context,
+                if old.deleted {
+                    "deleted-notes"
+                } else {
+                    "notes"
+                },
+            )?
+            .join(format!("{}.md", old.id));
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+            let _ = fs::remove_file(path.with_extension("sync.json"));
+        }
+    }
     for note in notes {
+        if let Some(local) = current.iter().find(|local| local.id == note.id) {
+            if merge
+                && crate::cloud_merge::compare(
+                    &serde_json::to_value(note).map_err(|e| e.to_string())?,
+                    &serde_json::to_value(local).map_err(|e| e.to_string())?,
+                )
+                .is_lt()
+            {
+                continue;
+            }
+            if local.text == note.text
+                && local.deleted == note.deleted
+                && local.updated_at == note.updated_at
+                && local.updated_by == note.updated_by
+            {
+                continue;
+            }
+        }
         let context = CourseFolder {
             term: note.term.clone(),
             course: note.course.clone(),
@@ -357,6 +436,33 @@ pub fn restore_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), S
         let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
         fs::write(&temp, note.text.as_bytes()).map_err(|e| e.to_string())?;
         fs::rename(&temp, &path).map_err(|e| e.to_string())?;
+        if let Ok(at) = chrono::DateTime::parse_from_rfc3339(&note.updated_at) {
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .and_then(|f| f.set_times(fs::FileTimes::new().set_modified(at.into())))
+                .map_err(|e| e.to_string())?;
+        }
+        fs::write(
+            path.with_extension("sync.json"),
+            serde_json::to_vec(&serde_json::json!({"updatedBy":note.updated_by,"rev":note.rev}))
+                .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        let opposite = folder(
+            app,
+            &context,
+            if note.deleted {
+                "notes"
+            } else {
+                "deleted-notes"
+            },
+        )?
+        .join(format!("{}.md", note.id));
+        if opposite.exists() {
+            fs::remove_file(&opposite).map_err(|e| e.to_string())?;
+        }
+        let _ = fs::remove_file(opposite.with_extension("sync.json"));
     }
     Ok(())
 }
@@ -531,6 +637,22 @@ pub async fn choose_course_storage(
     .map_err(|e| e.to_string())??;
     course_storage_info(webview, app).await
 }
+fn stamp_note(app: &AppHandle, path: &Path) -> Result<(), String> {
+    let old: serde_json::Value = fs::read(path.with_extension("sync.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let device = app.state::<crate::data::DataStore>().load_workspace()?["deviceId"].clone();
+    fs::write(
+        path.with_extension("sync.json"),
+        serde_json::to_vec(
+            &serde_json::json!({"updatedBy":device,"rev":old["rev"].as_u64().unwrap_or(0)+1}),
+        )
+        .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn save_course_note(
     webview: tauri::Webview,
@@ -564,6 +686,7 @@ pub async fn save_course_note(
             file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
             file.sync_all().map_err(|e| e.to_string())?;
             fs::rename(&temp, &path).map_err(|e| e.to_string())?;
+            stamp_note(&handle, &path)?;
             describe(path, id, context.section, false, false)
         })();
         let _ = fs::remove_file(temp);
@@ -571,6 +694,7 @@ pub async fn save_course_note(
     })
     .await
     .map_err(|e| e.to_string())??;
+    crate::cloud_sync::CloudSync::changed(&app);
     Ok(file)
 }
 #[tauri::command]
@@ -604,7 +728,9 @@ pub async fn move_course_note(
     restore: bool,
 ) -> Result<bool, String> {
     crate::require_local_main(&webview)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        let app = handle;
         let state = app.state::<FileStore>();
         let _guard = state.0.lock().map_err(|_| "Storage lock unavailable")?;
         let note = note_path(&app, &context, &id)?;
@@ -620,11 +746,25 @@ pub async fn move_course_note(
         if target.exists() {
             return Err("A note already exists at the destination".into());
         }
-        fs::rename(source, target).map_err(|e| e.to_string())?;
+        fs::rename(&source, &target).map_err(|e| e.to_string())?;
+        let _ = fs::rename(
+            source.with_extension("sync.json"),
+            target.with_extension("sync.json"),
+        );
+        fs::File::options()
+            .write(true)
+            .open(&target)
+            .and_then(|f| {
+                f.set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::now()))
+            })
+            .map_err(|e| e.to_string())?;
+        stamp_note(&app, &target)?;
         Ok(true)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    crate::cloud_sync::CloudSync::changed(&app);
+    Ok(result)
 }
 #[tauri::command]
 pub async fn list_course_notes(

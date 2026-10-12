@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { desktopBridge } from "../../../app/native";
+import { nativeOs, type NativeOs } from "../../../platform/desktop-bridge";
 import { COURSE_FILE_POLICY } from "../../../core/course-file-policy";
 import type { Settings } from "../../../core/model";
 export type CourseFolder = { term: string; course: string; section: string };
@@ -22,12 +23,7 @@ export const folderComponent = (value: string) => {
   return !name || name === "." || name === ".." ? "course" : name;
 };
 export type LmsFileReason =
-  | "login"
-  | "unresolved"
-  | "tooLarge"
-  | "network"
-  | "invalid"
-  | "timeout";
+  "login" | "unresolved" | "tooLarge" | "network" | "invalid" | "timeout";
 
 export class LmsFileError extends Error {
   constructor(
@@ -45,15 +41,17 @@ export function lmsFileUrl(
     download?: boolean;
     foreground?: boolean;
     native?: boolean;
-    platform?: string;
+    os?: NativeOs;
   } = {},
 ) {
   const native = options.native ?? Boolean(desktopBridge);
   if (!native) return source;
-  const platform = options.platform ?? `${navigator.platform} ${navigator.userAgent}`;
-  const origin = /Windows|Android/i.test(platform)
-    ? "http://lmsfile.localhost"
-    : "lmsfile://localhost";
+  // WebView2 and Android WebView only serve custom schemes over http://<scheme>.localhost.
+  const os = options.os ?? nativeOs();
+  const origin =
+    os === "windows" || os === "android"
+      ? "http://lmsfile.localhost"
+      : "lmsfile://localhost";
   const query = new URLSearchParams({
     u: source,
     term: context.term,
@@ -178,7 +176,11 @@ export function saveNote(
       if (new TextEncoder().encode(text).length > 1_000_000)
         throw new Error("Notes are limited to 1 MB");
       if (desktopBridge)
-        return invoke<LocalFile>("save_course_note", { context, id: recordId, text });
+        return invoke<LocalFile>("save_course_note", {
+          context,
+          id: recordId,
+          text,
+        });
       const storageKey = key(context, recordId);
       localStorage.setItem(storageKey, text);
       return {
