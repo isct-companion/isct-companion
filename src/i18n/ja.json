@@ -750,5 +750,12 @@
   "Local recovery files": "ローカル復元ファイル",
   "Saved before cloud changes or a restore replace local content.": "クラウドの変更や復元によってローカルの内容が置き換わる前に保存されます。",
   "Restore this file on all connected devices? A recovery copy of current data will be kept.": "接続中のすべての端末をこのファイルから復元しますか？現在のデータは復元用に保存されます。",
-  "Queued": "待機中"
+  "Queued": "待機中",
+  "Remove this course from the local timetable? This does not withdraw your school registration.": "この授業をローカルの時間割から外しますか？学校での履修登録は取り消されません。",
+  "Erase": "消去",
+  "Copy the saved Matrix as plain text? Other apps may be able to read the clipboard until you replace it.": "保存した Matrix をプレーンテキストでコピーしますか？クリップボードを上書きするまで、他のアプリから読み取られる可能性があります。",
+  "Forget": "削除",
+  "Forget saved {{title}} credentials on this device?": "この端末に保存した {{title}} のログイン情報を削除しますか？",
+  "Delete {{title}}? This cannot be undone.": "{{title}} を削除しますか？元に戻せません。",
+  "Delete {{title}}?": "{{title}} を削除しますか？"
 }

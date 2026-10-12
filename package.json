@@ -28,6 +28,7 @@
     "@codemirror/view": "^6.0.0",
     "@mantine/core": "^9.6.3",
     "@mantine/hooks": "^9.6.3",
+    "@mantine/modals": "^9.6.3",
     "@mantine/notifications": "^9.6.3",
     "@milkdown/crepe": "^7.22.2",
     "@milkdown/kit": "^7.22.2",

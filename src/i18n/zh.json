@@ -750,5 +750,12 @@
   "Local recovery files": "本地恢复文件",
   "Saved before cloud changes or a restore replace local content.": "在云端改动或恢复操作替换本地内容前保存。",
   "Restore this file on all connected devices? A recovery copy of current data will be kept.": "在所有已连接设备恢复此文件？当前数据会保留为恢复副本。",
-  "Queued": "已排队"
+  "Queued": "已排队",
+  "Remove this course from the local timetable? This does not withdraw your school registration.": "从本地课表移除这门课？这不会撤销你在学校的选课登记。",
+  "Erase": "清除",
+  "Copy the saved Matrix as plain text? Other apps may be able to read the clipboard until you replace it.": "以纯文本复制已保存的 Matrix？在你替换剪贴板内容之前，其他应用可能读取到它。",
+  "Forget": "忘记",
+  "Forget saved {{title}} credentials on this device?": "忘记此设备上保存的 {{title}} 登录信息？",
+  "Delete {{title}}? This cannot be undone.": "删除 {{title}}？此操作无法撤销。",
+  "Delete {{title}}?": "删除 {{title}}？"
 }

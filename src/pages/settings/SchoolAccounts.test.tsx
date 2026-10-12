@@ -2,6 +2,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MantineProvider } from "@mantine/core";
+import { ModalsProvider } from "@mantine/modals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appTheme } from "../../app/theme";
 
@@ -85,16 +86,26 @@ function button(scope: ParentNode, name: string) {
   return match as HTMLButtonElement;
 }
 
+/** The newest in-app confirm dialog, once its open transition mounts it. */
+const dialog = () =>
+  vi.waitFor(() => {
+    const all = document.querySelectorAll('[role="dialog"]');
+    if (!all.length) throw new Error("No confirm dialog");
+    return all[all.length - 1];
+  });
+
 async function mount(matrixOcrAvailable = true) {
   root = createRoot(host);
   await act(async () => {
     root.render(
       <MantineProvider theme={appTheme} defaultColorScheme="light">
-        <SchoolAccounts
-          notify={notify}
-          showLoginPage={showLoginPage}
-          matrixOcrAvailable={matrixOcrAvailable}
-        />
+        <ModalsProvider>
+          <SchoolAccounts
+            notify={notify}
+            showLoginPage={showLoginPage}
+            matrixOcrAvailable={matrixOcrAvailable}
+          />
+        </ModalsProvider>
       </MantineProvider>,
     );
   });
@@ -192,13 +203,14 @@ describe("school account cards", () => {
   });
 
   it("Forget confirms, deletes the selected profile, and reports completion", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const science = host.querySelectorAll("section")[0];
     await act(async () => button(science, "Forget").click());
-    await flush();
-    expect(window.confirm).toHaveBeenCalledWith(
+    expect((await dialog()).textContent).toContain(
       "Forget saved Science Tokyo Portal credentials on this device?",
     );
+    expect(mocks.bridge.deleteSchoolCredentials).not.toHaveBeenCalled();
+    await act(async () => button(await dialog(), "Forget").click());
+    await flush();
     expect(mocks.bridge.deleteSchoolCredentials).toHaveBeenCalledWith(
       "science",
     );
@@ -417,12 +429,16 @@ describe("matrix files", () => {
     });
     await mount();
     const card = host.querySelectorAll("section")[1];
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
     await act(async () => button(card, "Copy").click());
+    await act(async () => button(await dialog(), "Cancel").click());
+    await flush();
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')).toBeNull(),
+    );
     expect(mocks.bridge.copySchoolMatrix).not.toHaveBeenCalled();
 
-    confirm.mockReturnValueOnce(true);
     await act(async () => button(card, "Copy").click());
+    await act(async () => button(await dialog(), "Copy").click());
     await flush();
     expect(mocks.bridge.copySchoolMatrix).toHaveBeenCalledOnce();
   });

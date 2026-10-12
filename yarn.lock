@@ -855,6 +855,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@mantine/modals@npm:9.6.3":
+  version: 9.6.3
+  resolution: "@mantine/modals@npm:9.6.3"
+  peerDependencies:
+    "@mantine/core": 9.6.3
+    "@mantine/hooks": 9.6.3
+    react: ^19.2.0
+    react-dom: ^19.2.0
+  checksum: 10c0/3b20dbd74eff02f825c1e73a49f43340a0c994455bd7ab875cfd74d9bd02995406948e5773d73fc95c4cd8124fe1afa8b6cbdc8bb6e1ba807cf3fbb1ad100c5d
+  languageName: node
+  linkType: hard
+
 "@mantine/notifications@npm:^9.6.3":
   version: 9.6.3
   resolution: "@mantine/notifications@npm:9.6.3"
@@ -2402,6 +2414,7 @@ __metadata:
     "@codemirror/view": "npm:^6.0.0"
     "@mantine/core": "npm:^9.6.3"
     "@mantine/hooks": "npm:^9.6.3"
+    "@mantine/modals": "npm:9.6.3"
     "@mantine/notifications": "npm:^9.6.3"
     "@milkdown/crepe": "npm:^7.22.2"
     "@milkdown/kit": "npm:^7.22.2"

@@ -13,6 +13,8 @@ import {
   TextInput,
 } from "@mantine/core";
 import { UiInput } from "../../components/mantine";
+import { confirmAction } from "../../components/confirm";
+import { t } from "../../i18n";
 
 import { desktopBridge } from "../../app/native";
 import {
@@ -506,9 +508,12 @@ function Account({
   const copyMatrix = async () => {
     if (
       !desktopBridge ||
-      !confirm(
-        "Copy the saved Matrix as plain text? Other apps may be able to read the clipboard until you replace it.",
-      )
+      !(await confirmAction(
+        t(
+          "Copy the saved Matrix as plain text? Other apps may be able to read the clipboard until you replace it.",
+        ),
+        t("Copy"),
+      ))
     )
       return;
     try {
@@ -522,7 +527,10 @@ function Account({
   const forget = async () => {
     if (
       !desktopBridge ||
-      !confirm(`Forget saved ${title} credentials on this device?`)
+      !(await confirmAction(
+        t("Forget saved {{title}} credentials on this device?", { title }),
+        t("Forget"),
+      ))
     )
       return;
     setBusy(true);
