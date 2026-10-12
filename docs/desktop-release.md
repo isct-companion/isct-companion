@@ -13,8 +13,8 @@ CI uses the Yarn version pinned in `package.json`, enabled through Corepack,
 and installs dependencies with `yarn install --immutable`.
 
 `.github/workflows/desktop-release.yml` builds Apple Silicon Mac, Intel Mac
-and Windows x64. Pushes to `main`, version tags, and manual dispatches trigger
-the build. Use **Desktop release → Run workflow**, with `publish` left
+and Windows x64. Only version tags and manual dispatches trigger the build;
+pushes to `main` or `dev` do not. Use **Desktop release → Run workflow**, with `publish` left
 unchecked, to download build artifacts. To publish an existing successful build without rebuilding, enable `publish`
 and enter its Actions run ID in `source_run_id`. The workflow checks that
 the source is a successful Desktop release run in this repository. During the
@@ -32,8 +32,7 @@ does not establish runtime compatibility on every supported OS.
 ## Publish releases
 
 Source-repository publication uses the workflow's `GITHUB_TOKEN`; no separate
-release token is needed. A `main` push builds all platforms without publishing
-a Release. A version tag publishes after the builds succeed, and manual
+release token is needed. A version tag publishes after the builds succeed, and manual
 dispatch can publish either a new build or an existing successful run.
 
 For the separate distribution repository:
