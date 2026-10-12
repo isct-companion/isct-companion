@@ -13,41 +13,20 @@ function decodeProfile(profilePath) {
     encoding: "buffer",
   });
   if (decoded.status !== 0) return undefined;
-  const extract = (keyPath, format = "raw") => {
-    const result = spawnSync(
-      "plutil",
-      ["-extract", keyPath, format, "-o", "-", "-"],
-      { input: decoded.stdout, encoding: "utf8" },
-    );
-    if (result.status !== 0) return undefined;
-    const value = result.stdout.trim();
-    if (format === "json") {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return undefined;
-      }
-    }
-    return value;
-  };
-  return {
-    Platform: extract("Platform", "json"),
-    ProvisionsAllDevices: extract("ProvisionsAllDevices") === "true",
-    ExpirationDate: extract("ExpirationDate"),
-    Entitlements: {
-      "com.apple.application-identifier": extract(
-        "Entitlements.com\\.apple\\.application-identifier",
-      ),
-      "com.apple.developer.icloud-container-identifiers": extract(
-        "Entitlements.com\\.apple\\.developer\\.icloud-container-identifiers",
-        "json",
-      ),
-      "keychain-access-groups": extract(
-        "Entitlements.keychain-access-groups",
-        "json",
-      ),
-    },
-  };
+  // plistlib preserves arrays, booleans and UTC dates across macOS versions.
+  const parsed = spawnSync("python3", ["-c", `
+import sys, plistlib, json
+profile = plistlib.loads(sys.stdin.buffer.read())
+expires = profile.get("ExpirationDate")
+print(json.dumps({
+    "Platform": profile.get("Platform", []),
+    "ProvisionsAllDevices": profile.get("ProvisionsAllDevices", False),
+    "ExpirationDate": expires.isoformat() + "Z" if expires else "",
+    "Entitlements": profile.get("Entitlements", {})
+}))
+`], { input: decoded.stdout, encoding: "utf8" });
+  if (parsed.status !== 0) return undefined;
+  return JSON.parse(parsed.stdout);
 }
 
 function authorizes(values, expected) {
