@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const project = fileURLToPath(
   new URL(
@@ -14,28 +15,30 @@ const entitlements = fileURLToPath(
   ),
 );
 
-function patchEntitlements({ required }) {
-  let source;
+export function patchIosEntitlements(file = entitlements, { required = true } = {}) {
   try {
-    source = readFileSync(entitlements, "utf8");
+    readFileSync(file);
   } catch (error) {
     if (!required && error?.code === "ENOENT") return false;
     throw error;
   }
-  if (source.includes("<key>keychain-access-groups</key>")) return false;
-  const insertion =
-    "\t<key>keychain-access-groups</key>\n" +
-    "\t<array>\n" +
-    "\t\t<string>$(AppIdentifierPrefix)app.isctcompanion</string>\n" +
-    "\t</array>\n";
-  const patched = source.replace("</dict>", `${insertion}</dict>`);
-  if (patched === source) throw new Error("Could not patch iOS entitlements.");
-  writeFileSync(entitlements, patched);
+  // plutil handles the empty and binary plists emitted by a fresh Tauri init.
+  const parsed = spawnSync("plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" });
+  if (parsed.status !== 0) throw new Error(`Could not read iOS entitlements: ${parsed.stderr}`);
+  const original = JSON.parse(parsed.stdout);
+  const patched = { ...original,
+    "com.apple.developer.icloud-container-identifiers": ["iCloud.app.isctcompanion"],
+    "com.apple.developer.icloud-services": ["CloudKit"],
+    "keychain-access-groups": ["$(AppIdentifierPrefix)app.isctcompanion"],
+  };
+  if (JSON.stringify(original) === JSON.stringify(patched)) return false;
+  const written = spawnSync("plutil", ["-convert", "xml1", "-o", file, "-"], { input: JSON.stringify(patched), encoding: "utf8" });
+  if (written.status !== 0) throw new Error(`Could not write iOS entitlements: ${written.stderr}`);
   return true;
 }
 
 export function patchIosProject({ required = true } = {}) {
-  let changed = patchEntitlements({ required });
+  let changed = patchIosEntitlements(entitlements, { required });
   let source;
   try {
     source = readFileSync(project, "utf8");

@@ -56,29 +56,34 @@ function authorizes(values, expected) {
     : false;
 }
 
-function validateProfile(profilePath) {
+function validateProfile(profilePath, { diagnostics = false } = {}) {
   const profile = decodeProfile(profilePath);
+  const invalid = (reason) => {
+    if (diagnostics) console.error(`Mac provisioning profile rejected: ${reason}`);
+    return undefined;
+  };
+  if (!profile) return invalid("CMS decoding failed");
   const entitlements = profile?.Entitlements ?? {};
   const platforms = profile?.Platform ?? [];
   const appIdentifier = entitlements["com.apple.application-identifier"];
   const expires = Date.parse(profile?.ExpirationDate ?? "");
-  if (!platforms.includes("OSX")) return undefined;
-  if (!profile.ProvisionsAllDevices) return undefined;
-  if (!(expires > Date.now())) return undefined;
+  if (!platforms.includes("OSX")) return invalid("macOS platform missing");
+  if (!profile.ProvisionsAllDevices) return invalid("Developer ID distribution missing");
+  if (!(expires > Date.now())) return invalid("expiration date invalid or expired");
   if (
     appIdentifier !== `${teamId}.${bundleId}` &&
     appIdentifier !== `${teamId}.*`
   ) {
-    return undefined;
+    return invalid("app identifier does not match");
   }
   if (
     !authorizes(entitlements["keychain-access-groups"], `${teamId}.${bundleId}`)
   ) {
-    return undefined;
+    return invalid("Keychain group missing");
   }
   const containers = entitlements["com.apple.developer.icloud-container-identifiers"];
   if (!Array.isArray(containers) || !containers.includes(`iCloud.${bundleId}`)) {
-    return undefined;
+    return invalid("CloudKit container missing");
   }
   return { path: profilePath, profile };
 }
@@ -111,7 +116,7 @@ function candidateProfiles() {
 export function macSigningConfig({ required = false } = {}) {
   if (process.platform !== "darwin") return undefined;
   const matches = candidateProfiles()
-    .map(validateProfile)
+    .map((profile) => validateProfile(profile, { diagnostics: required }))
     .filter(Boolean)
     .sort(
       (left, right) =>
