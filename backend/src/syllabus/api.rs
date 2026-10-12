@@ -1,46 +1,9 @@
 use super::model::*;
 use super::parser::{self, DetailPage, ParsedScheduleEntry, SearchPage, SearchRow};
 use super::transport::{self, ORIGIN};
-use scraper::Html;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use url::Url;
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyllabusCourse {
-    pub external_id: String,
-    pub year: u16,
-    pub quarter: String,
-    pub quarters: Vec<String>,
-    pub code: String,
-    pub title: String,
-    pub instructor: String,
-    pub credits: Option<f32>,
-    pub language: Option<String>,
-    pub meetings: Vec<SyllabusMeeting>,
-    pub url: String,
-    pub updated: Option<String>,
-    pub content: Option<SyllabusContent>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyllabusSearch {
-    pub items: Vec<SyllabusCourse>,
-    pub total: usize,
-    pub truncated: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyllabusMeeting {
-    pub days: Vec<u8>,
-    pub periods: Vec<u8>,
-    pub start_time: String,
-    pub end_time: String,
-    pub room: String,
-}
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -187,27 +150,6 @@ fn should_skip_search(query: &str, filters: &SyllabusFilters) -> bool {
         || (query.trim().chars().count() < 2 && !explicit)
 }
 
-pub async fn search(
-    query: &str,
-    year: u16,
-    limit: usize,
-    filters: Option<SyllabusFilters>,
-    language: Option<&str>,
-) -> Result<SyllabusSearch, String> {
-    let filters = filters.unwrap_or_default();
-    if should_skip_search(query, &filters) {
-        return Ok(SyllabusSearch {
-            items: Vec::new(),
-            total: 0,
-            truncated: false,
-        });
-    }
-    let language = language.unwrap_or("en");
-    let page = transport::get(public_search_url(query, year, &filters, language)?).await?;
-    let parsed = parser::parse_search(&page.html, year, limit)?;
-    Ok(legacy_search(parsed, language))
-}
-
 pub async fn search_bilingual(
     query: &str,
     year: u16,
@@ -272,49 +214,6 @@ pub async fn department_catalog(
         total: items.len(),
         items,
         truncated,
-    })
-}
-
-/// Fetches every detail page returned by `department_catalog`. Callers that
-/// need incremental UI progress should call `department_catalog` and then
-/// `sync_offering` themselves, upserting each completed pair transactionally.
-pub async fn sync_department(
-    year: u16,
-    scope_path: &str,
-    quarter: Option<&str>,
-) -> Result<DepartmentSyncResult, String> {
-    let catalog = department_catalog(year, scope_path, quarter).await?;
-    let listed = catalog.items.len();
-    let mut offerings = Vec::with_capacity(listed);
-    let mut warnings = Vec::new();
-    for pair in catalog.items.chunks(2) {
-        let mut handles = Vec::with_capacity(pair.len());
-        for item in pair {
-            let locator = item.syllabus_url.clone();
-            handles.push(tauri::async_runtime::spawn(async move {
-                sync_offering(&locator).await
-            }));
-        }
-        for (item, handle) in pair.iter().zip(handles) {
-            match handle.await {
-                Ok(Ok(offering)) => offerings.push(offering),
-                Ok(Err(error)) => warnings.push(format!("{}: {error}", item.id)),
-                Err(_) => {
-                    warnings.push(format!("{}: syllabus worker stopped unexpectedly", item.id))
-                }
-            }
-        }
-        if offerings.len() < listed {
-            std::thread::sleep(std::time::Duration::from_millis(400));
-        }
-    }
-    let synced = offerings.len();
-    Ok(DepartmentSyncResult {
-        offerings,
-        listed,
-        synced,
-        truncated: catalog.truncated,
-        warnings,
     })
 }
 
@@ -440,14 +339,13 @@ pub async fn sync_offering(locator: &str) -> Result<SyncOfferingResult, String> 
     merge_detail(ja, en)
 }
 
-pub async fn detail(url: &str) -> Result<SyllabusCourse, String> {
-    let requested = Url::parse(url).map_err(|_| "Syllabus URL is invalid.")?;
-    let language = requested
-        .query_pairs()
-        .find(|(key, _)| key == "hl")
-        .map_or("ja", |(_, value)| if value == "en" { "en" } else { "ja" });
-    let page = transport::get(localized_detail_url(&requested, language)).await?;
-    parse_detail_html_with_language(&page.url, &page.html, language)
+/// Course Finder only needs language-neutral list metadata. Fetch one detail
+/// page now; opening the syllabus later still performs the full bilingual sync.
+pub async fn sync_offering_summary(locator: &str) -> Result<SyncOfferingResult, String> {
+    let initial = offering_url(locator)?;
+    let page = transport::get(localized_detail_url(&initial, "en")).await?;
+    let parsed = parser::parse_detail(&page.url, &page.html, "en")?;
+    single_detail(parsed)
 }
 
 fn neutral_schedule(entry: &ParsedScheduleEntry) -> (&ScheduleKind, Option<u8>, Option<[u8; 2]>) {
@@ -498,7 +396,84 @@ fn class_code(code: &str, class_label: Option<&str>) -> Option<String> {
         })
 }
 
-fn merge_detail(ja: DetailPage, en: DetailPage) -> Result<SyncOfferingResult, String> {
+pub(super) fn single_detail(page: DetailPage) -> Result<SyncOfferingResult, String> {
+    let DetailPage {
+        id,
+        year,
+        title,
+        instructors,
+        academic_unit,
+        code,
+        quarters,
+        instruction_language,
+        format,
+        format_raw,
+        media,
+        class_label,
+        credits,
+        schedule,
+        schedule_raw,
+        source_updated,
+        unit_code,
+        syllabus_url,
+        fetched_at,
+        content,
+        warnings,
+        ..
+    } = page;
+    let schedule_missing = schedule.is_none();
+    let schedule = schedule
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| ScheduleEntry {
+            kind: entry.kind,
+            day: entry.day,
+            periods: entry.periods,
+            room: entry.room.map(|room| Localized::one("en", room)),
+        })
+        .collect::<Vec<_>>();
+    let format_missing = format.is_none();
+    let offering = Offering {
+        id: id.clone(),
+        year,
+        quarters,
+        code: code.clone(),
+        class_code: class_code(&code, class_label.as_deref()),
+        unit_code,
+        title: Localized::one("en", title),
+        instructors: instructors
+            .into_iter()
+            .map(|name| Localized::one("en", name))
+            .collect(),
+        instruction_language,
+        format: format.unwrap_or_default(),
+        media: Localized::one("en", media),
+        class_label,
+        credits,
+        intensive: schedule
+            .iter()
+            .any(|entry| entry.kind == ScheduleKind::Intensive),
+        schedule,
+        academic_unit: Localized::one("en", academic_unit),
+        syllabus_url,
+        source_updated,
+        fetched_at: Localized::one("en", fetched_at),
+        schedule_raw: schedule_missing.then(|| Localized::one("en", schedule_raw)),
+        format_raw: format_missing.then(|| Localized::one("en", format_raw)),
+        warnings: warnings.clone(),
+    };
+    Ok(SyncOfferingResult {
+        offering,
+        content: vec![OfferingContent {
+            offering_id: id,
+            lang: "en".into(),
+            content,
+        }],
+        warnings,
+    })
+}
+
+pub(super) fn merge_detail(ja: DetailPage, en: DetailPage) -> Result<SyncOfferingResult, String> {
     if ja.id != en.id {
         return Err("Japanese and English syllabus pages identified different offerings.".into());
     }
@@ -595,150 +570,46 @@ fn merge_detail(ja: DetailPage, en: DetailPage) -> Result<SyncOfferingResult, St
     })
 }
 
-fn legacy_search(parsed: SearchPage, language: &str) -> SyllabusSearch {
-    SyllabusSearch {
-        items: parsed
-            .rows
-            .into_iter()
-            .map(|row| SyllabusCourse {
-                external_id: row.id,
-                year: row.year,
-                quarter: row.quarters.first().cloned().unwrap_or_default(),
-                quarters: row.quarters,
-                code: row.code,
-                title: row.title,
-                instructor: row.instructors.join(" / "),
-                credits: None,
-                language: None,
-                meetings: Vec::new(),
-                url: if language == "en" {
-                    format!("{}?hl=en", row.syllabus_url)
-                } else {
-                    row.syllabus_url
-                },
-                updated: row.source_updated,
-                content: None,
-            })
-            .collect(),
-        total: parsed.total,
-        truncated: parsed.truncated,
-    }
-}
-
-pub(crate) fn parse_search_html(
-    html: &str,
-    year: u16,
-    limit: usize,
-) -> Result<SyllabusSearch, String> {
-    parser::parse_search_legacy(html, year, limit).map(|page| legacy_search(page, "en"))
-}
-
-fn period_times(periods: [u8; 2]) -> (&'static str, &'static str) {
-    match periods {
-        [1, 2] => ("08:50", "10:30"),
-        [3, 4] => ("10:45", "12:25"),
-        [5, 6] => ("13:30", "15:10"),
-        [7, 8] => ("15:25", "17:05"),
-        [9, 10] => ("17:15", "18:55"),
-        _ => ("", ""),
-    }
-}
-
-fn legacy_detail(detail: DetailPage) -> SyllabusCourse {
-    let meetings = detail
-        .schedule
-        .as_deref()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|entry| {
-            let day = entry.day?;
-            let periods = entry.periods?;
-            let (start, end) = period_times(periods);
-            Some(SyllabusMeeting {
-                days: vec![day],
-                periods: (periods[0]..=periods[1]).collect(),
-                start_time: start.into(),
-                end_time: end.into(),
-                room: entry.room.clone().unwrap_or_default(),
-            })
-        })
-        .collect();
-    SyllabusCourse {
-        external_id: detail.id,
-        year: detail.year,
-        quarter: detail.quarters.first().cloned().unwrap_or_default(),
-        quarters: detail.quarters,
-        code: detail.code,
-        title: detail.title,
-        instructor: detail.instructors.join(" / "),
-        credits: Some(detail.credits.total()),
-        language: Some(detail.instruction_language),
-        meetings,
-        url: detail.syllabus_url,
-        updated: detail.source_updated,
-        content: Some(detail.content),
-    }
-}
-
-fn language_from_url(url: &Url) -> &str {
-    if url
-        .query_pairs()
-        .any(|(key, value)| key == "hl" && value == "en")
-    {
-        "en"
-    } else {
-        "ja"
-    }
-}
-
-pub(crate) fn parse_detail_html(url: &Url, html: &str) -> Result<SyllabusCourse, String> {
-    let course = parse_detail_html_with_language(url, html, language_from_url(url))?;
-    if course
-        .content
-        .as_ref()
-        .is_some_and(|content| content.sections.is_empty())
-    {
-        return Err("Legacy syllabus detail was incomplete.".into());
-    }
-    Ok(course)
-}
-
-fn parse_detail_html_with_language(
-    url: &Url,
-    html: &str,
-    language: &str,
-) -> Result<SyllabusCourse, String> {
-    parser::parse_detail(url, html, language).map(legacy_detail)
-}
-
-pub(crate) fn parse_content(
-    url: &Url,
-    html: &str,
-    pairs: &[(String, String)],
-    updated: Option<String>,
-) -> Result<SyllabusContent, String> {
-    let document = Html::parse_document(html);
-    parser::parse_content(
-        url,
-        &document,
-        pairs,
-        updated,
-        language_from_url(url),
-        false,
-    )
-}
-
-pub(crate) fn quarters(value: &str) -> Vec<String> {
-    parser::quarters(value)
-}
-
 #[cfg(test)]
 mod offering_locator_tests {
     #[test]
     fn a_bare_offering_id_uses_the_canonical_detail_path() {
         let url = super::offering_url("202608712").unwrap();
-        assert_eq!(url.as_str(), "https://syllabus.s.isct.ac.jp/courses/-/-/-/202608712");
+        assert_eq!(
+            url.as_str(),
+            "https://syllabus.s.isct.ac.jp/courses/-/-/-/202608712"
+        );
         // Setting the language must keep the id.
-        assert!(super::localized_detail_url(&url, "en").as_str().ends_with("/202608712?hl=en"));
+        assert!(super::localized_detail_url(&url, "en")
+            .as_str()
+            .ends_with("/202608712?hl=en"));
+    }
+
+    #[test]
+    fn finder_summary_keeps_filter_metadata_without_claiming_bilingual_content() {
+        let url = url::Url::parse(
+            "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602440?hl=en",
+        )
+        .unwrap();
+        let page = super::parser::parse_detail(
+            &url,
+            include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
+            "en",
+        )
+        .unwrap();
+        let summary = super::single_detail(page).unwrap();
+        assert_eq!(summary.offering.id, "202602440");
+        assert_eq!(
+            summary.offering.credits,
+            super::Credits {
+                lecture: 1.0,
+                exercise: 1.0,
+                lab: 0.0
+            }
+        );
+        assert_eq!(summary.offering.schedule.len(), 2);
+        assert!(summary.offering.fetched_at.ja.is_none());
+        assert_eq!(summary.content.len(), 1);
+        assert_eq!(summary.content[0].lang, "en");
     }
 }

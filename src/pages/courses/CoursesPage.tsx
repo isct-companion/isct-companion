@@ -1,7 +1,18 @@
+import { intlLocale } from "../../i18n/locale";
 import { t } from "../../i18n";
 import { useState, type ReactNode } from "react";
 import { detectConflicts } from "../../core/academic";
-import { Badge, Button, Menu, Paper, Switch, Modal } from "@mantine/core";
+import {
+  ActionIcon,
+  Badge,
+  Button,
+  Group,
+  Menu,
+  Paper,
+  Switch,
+  Modal,
+  TextInput,
+} from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
 
 import {
@@ -22,6 +33,7 @@ import { UiButton } from "../../components/mantine";
 import { addDays, quarterRange, tokyoDate } from "../../core/schedule";
 import { YearQuarterPicker } from "./YearQuarterPicker";
 import { PullRing } from "../../components/PullRing";
+import { newUserRecordId } from "../../storage/ids";
 
 /** The term the unified Schedule workspace shows: the selected one when it exists, else the current one. */
 export function coursesTerm(data: Workspace, currentTerm: TermId): TermId {
@@ -59,6 +71,7 @@ export function Courses({
   onEditingChange,
   openPlan,
   newPlan,
+  compact = false,
 }: {
   editing?: boolean;
   onEditingChange?: (value: boolean) => void;
@@ -93,6 +106,8 @@ export function Courses({
   register?: (term: TermId) => void;
   /** GPA / credits summary opened from the top toolbar. */
   academic?: ReactNode;
+  /** Mobile: one header row, viewing only; extras move into a menu. */
+  compact?: boolean;
 }) {
   const terms = allTerms(data, currentTerm);
   const term = coursesTerm(data, currentTerm);
@@ -106,9 +121,9 @@ export function Courses({
   const anchorDate =
     weekAnchor?.term === term
       ? weekAnchor.date
-      : today >= range.from && today <= range.to
+      : range && today >= range.from && today <= range.to
         ? today
-        : range.from;
+        : (range?.from ?? today);
   const moveWeek = (days: number) =>
     setWeekAnchor({ term, date: addDays(anchorDate, days) });
   const courses = data.courses.filter((c) => c.termId === term && !c.deletedAt);
@@ -119,7 +134,7 @@ export function Courses({
   const conflictList = editing ? detectConflicts(scheduled, events) : [];
   const conflicts = new Set(conflictList.flatMap((c) => [c.leftId, c.rightId]));
   const [weekLength, setWeekLength] = useLocalStorage<"5" | "7">({
-    key: "stws-courses-week-length",
+    key: "isct-companion-courses-week-length",
     defaultValue: "5",
   });
   const allColumns = editing
@@ -133,14 +148,11 @@ export function Courses({
         undefined,
         term,
       );
-  const dateFormat = new Intl.DateTimeFormat(
-    data.settings.locale === "ja" ? "ja-JP" : "en-GB",
-    {
-      day: "numeric",
-      month: "short",
-      timeZone: "Asia/Tokyo",
-    },
-  );
+  const dateFormat = new Intl.DateTimeFormat(intlLocale(data.settings.locale), {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Tokyo",
+  });
   const weekLabel = editing
     ? ""
     : `${dateFormat.format(new Date(`${allColumns[0].date}T12:00:00+09:00`))} – ${dateFormat.format(new Date(`${allColumns[6].date}T12:00:00+09:00`))}`;
@@ -176,9 +188,46 @@ export function Courses({
       if (event) openEvent(event, term);
     }
   };
+  const exportMenu = (target: ReactNode) => (
+    <Menu position="bottom-end" withinPortal>
+      <Menu.Target>{target}</Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Item onClick={() => exportIcs(term, "courses")}>
+          {t("Courses only")}
+        </Menu.Item>
+        <Menu.Item onClick={() => exportIcs(term, "courses-and-plans")}>
+          {t("Courses + personal plans")}
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
+  const header = compact ? (
+    <header className="scheduleCompactBar">
+      <h1>{t("Schedule")}</h1>
+      <YearQuarterPicker
+        terms={terms}
+        selected={term}
+        current={currentTerm}
+        onSelect={(selectedTerm) => update((d) => ({ ...d, selectedTerm }))}
+      />
+      {exportMenu(
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size={36}
+          aria-label={t("Calendar export options")}
+        >
+          ⋯
+        </ActionIcon>,
+      )}
+    </header>
+  ) : null;
   return (
-    <div className={`page unifiedSchedule${editing ? " editing" : ""}`}>
-      <div className="scheduleTitleRow">
+    <div
+      className={`page unifiedSchedule${editing ? " editing" : ""}${compact ? " compact" : ""}`}
+    >
+      {header}
+      <div className="scheduleTitleRow" hidden={compact}>
         <div>
           <h1>{t("Schedule")}</h1>
           <span>
@@ -193,10 +242,14 @@ export function Courses({
           onChange={(event) => onEditingChange?.(event.currentTarget.checked)}
         />
       </div>
-      <header className="pageBar">
-        <YearQuarterPicker terms={terms} selected={term} current={currentTerm}
-          onSelect={selectedTerm => update(d => ({...d, selectedTerm}))}
-          onAdd={canEdit ? addTerm : undefined} />
+      <header className="pageBar" hidden={compact}>
+        <YearQuarterPicker
+          terms={terms}
+          selected={term}
+          current={currentTerm}
+          onSelect={(selectedTerm) => update((d) => ({ ...d, selectedTerm }))}
+          onAdd={canEdit ? addTerm : undefined}
+        />
         <div className="pageBarRight">
           {academic}
           {canEdit && pullLms && (
@@ -433,16 +486,146 @@ export function Courses({
       >
         {preview && (
           <div className="scheduleItemPreview">
+            {preview.kind === "exam" && (
+              <Badge color="red" variant="light">
+                EXAM · {preview.timeLabel}
+              </Badge>
+            )}
             <p>
               {preview.startTime}–{preview.endTime}
             </p>
             {preview.room && <p>{preview.room}</p>}
+            {preview.conflictWith?.length ? (
+              <p className="scheduleConflict">
+                Overlaps {preview.conflictWith.join(", ")}
+              </p>
+            ) : null}
+            {!readOnly &&
+              preview.kind === "exam" &&
+              (() => {
+                const existing = data.scheduleOverrides.find(
+                  (row) => !row.deletedAt && row.targetKey === preview.key,
+                );
+                return (
+                  <form
+                    key={`${preview.key}:${existing?.rev ?? 0}`}
+                    className="scheduleOverrideForm"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      const values = new FormData(event.currentTarget);
+                      const id = existing?.id ?? (await newUserRecordId());
+                      const now = new Date().toISOString();
+                      update((draft) => {
+                        let row = draft.scheduleOverrides.find(
+                          (item) => item.id === id,
+                        );
+                        if (!row) {
+                          row = {
+                            id,
+                            targetKey: preview.key,
+                            targetKind: "exam",
+                            courseId: preview.id,
+                            hidden: false,
+                            rev: 0,
+                            updatedAt: now,
+                            updatedBy: draft.deviceId,
+                          };
+                          draft.scheduleOverrides.push(row);
+                        }
+                        row.date = String(
+                          values.get("date") || preview.date || "",
+                        );
+                        row.startTime = String(
+                          values.get("startTime") || preview.startTime,
+                        );
+                        row.endTime = String(
+                          values.get("endTime") || preview.endTime,
+                        );
+                        row.room = String(values.get("room") ?? preview.room);
+                        row.hidden = false;
+                        row.rev += 1;
+                        row.updatedAt = now;
+                        row.updatedBy = draft.deviceId;
+                        return draft;
+                      });
+                      setPreview(null);
+                    }}
+                  >
+                    <TextInput
+                      label={t("Date")}
+                      name="date"
+                      type="date"
+                      defaultValue={existing?.date ?? preview.date}
+                    />
+                    <Group grow>
+                      <TextInput
+                        label={t("Start")}
+                        name="startTime"
+                        type="time"
+                        defaultValue={existing?.startTime ?? preview.startTime}
+                      />
+                      <TextInput
+                        label={t("End")}
+                        name="endTime"
+                        type="time"
+                        defaultValue={existing?.endTime ?? preview.endTime}
+                      />
+                    </Group>
+                    <TextInput
+                      label={t("Room")}
+                      name="room"
+                      defaultValue={existing?.room ?? preview.room}
+                    />
+                    <Group justify="space-between">
+                      <Button
+                        color="red"
+                        variant="subtle"
+                        type="button"
+                        onClick={async () => {
+                          const id = existing?.id ?? (await newUserRecordId());
+                          const now = new Date().toISOString();
+                          update((draft) => {
+                            let row = draft.scheduleOverrides.find(
+                              (item) => item.id === id,
+                            );
+                            if (!row) {
+                              row = {
+                                id,
+                                targetKey: preview.key,
+                                targetKind: "exam",
+                                courseId: preview.id,
+                                hidden: true,
+                                rev: 0,
+                                updatedAt: now,
+                                updatedBy: draft.deviceId,
+                              };
+                              draft.scheduleOverrides.push(row);
+                            }
+                            row.hidden = true;
+                            row.rev += 1;
+                            row.updatedAt = now;
+                            return draft;
+                          });
+                          setPreview(null);
+                        }}
+                      >
+                        {t("Hide exam")}
+                      </Button>
+                      <Button type="submit">{t("Save override")}</Button>
+                    </Group>
+                  </form>
+                );
+              })()}
             {!readOnly && (
               <Button
                 variant="default"
                 onClick={() => {
                   const block = preview;
                   setPreview(null);
+                  if (block.kind === "exam") {
+                    open(block.id);
+                    return;
+                  }
                   onEditingChange?.(true);
                   if (block.kind === "plan") {
                     const plan = data.plans.find((row) => row.id === block.id);

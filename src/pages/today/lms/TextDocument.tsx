@@ -17,6 +17,7 @@ export function textLanguage(url: string) {
 export function TextDocument({ value, url }: { value: string; url: string }) {
   const host = useRef<HTMLDivElement>(null);
   const language = textLanguage(url);
+  const position = useRef({ top: 0, left: 0 });
   useEffect(() => {
     const view = new EditorView({ parent: host.current!, state: EditorState.create({ doc: value, extensions: [
       EditorState.readOnly.of(true), EditorView.editable.of(false), lineNumbers(), highlightActiveLineGutter(),
@@ -29,7 +30,12 @@ export function TextDocument({ value, url }: { value: string; url: string }) {
         ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--accent-soft)" },
       }),
     ] }) });
-    return () => view.destroy();
+    view.scrollDOM.scrollTop = position.current.top;
+    view.scrollDOM.scrollLeft = position.current.left;
+    return () => {
+      position.current = { top: view.scrollDOM.scrollTop, left: view.scrollDOM.scrollLeft };
+      view.destroy();
+    };
   }, [value, url]);
   return <div className="lmsTextDocument"><div className="lmsTextMeta"><span>{language.name}</span><span>{value.split("\n").length} lines · UTF-8</span></div><div ref={host} /></div>;
 }

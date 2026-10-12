@@ -1,27 +1,63 @@
-//! Local course materials and notes. No file bytes or session cookies reach JS.
+//! Local course materials and notes. No file bytes or session cookies reach JS;
+//! materials are downloaded by `lms_downloader` straight into the course folder.
+use crate::data::DataStore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
 };
 use tauri::{AppHandle, Manager};
 use url::Url;
 
-pub struct FileStore(
-    pub Mutex<()>,
-    pub std::sync::Arc<tauri::async_runtime::Mutex<()>>,
-    pub PathBuf,
-);
-impl Drop for FileStore { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.2); } }
+const MAX_AUTO_DOWNLOAD_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_RETENTION_DAYS: u64 = 3650;
+const MAX_NOTE_BYTES: u64 = 1_000_000;
+const MAX_BACKUP_NOTES: usize = 1_000;
+const MAX_BACKUP_NOTE_BYTES: u64 = 32 * 1024 * 1024;
+
+/// Serializes note writes.
+pub struct FileStore(pub Mutex<()>);
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CourseFolder {
     pub term: String,
     pub course: String,
     pub section: String,
+}
+/// Materials are stored per course; a full `CourseFolder` also deserializes here.
+#[derive(Clone, Deserialize)]
+pub struct CourseKey {
+    pub term: String,
+    pub course: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LmsResourceKind {
+    File,
+    View { module: String, cmid: u64 },
+}
+#[derive(Serialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum Material {
+    Ready {
+        file: LocalFile,
+    },
+    Missing,
+    TooLarge {
+        bytes: u64,
+    },
+    Folder {
+        files: Vec<crate::school_parser::lms::ResolvedFile>,
+    },
+    External {
+        url: String,
+    },
+    Failed {
+        reason: &'static str,
+    },
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +77,26 @@ pub struct LocalFile {
     pub cached: bool,
     pub text: Option<String>,
 }
-fn component(value: &str) -> Result<&str, String> {
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalNoteBackup {
+    pub id: String,
+    pub term: String,
+    pub course: String,
+    pub section: String,
+    pub text: String,
+    #[serde(default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub updated_at: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default)]
+    pub rev: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<String>,
+}
+pub(crate) fn component(value: &str) -> Result<&str, String> {
     if value.is_empty()
         || value.len() > 120
         || value == "."
@@ -74,14 +129,41 @@ fn root(app: &AppHandle) -> Result<(PathBuf, bool), String> {
         .map_err(|e| e.to_string())?;
     #[cfg(mobile)]
     let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    Ok((base.join("Campus Life"), false))
+    Ok((base.join("IsctCompanion"), false))
+}
+
+/// Keep canonical/extended paths internally, but never expose Windows' `\\?\`
+/// prefix or locale-dependent backslashes in user-facing text.
+fn display_root(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        let value = value
+            .strip_prefix(r"\\?\UNC\")
+            .map(|rest| format!(r"\\{rest}"))
+            .or_else(|| value.strip_prefix(r"\\?\").map(str::to_string))
+            .unwrap_or_else(|| value.into_owned());
+        return value.replace('\u{5c}', "/");
+    }
+    #[cfg(not(windows))]
+    value.into_owned()
 }
 fn folder(app: &AppHandle, context: &CourseFolder, kind: &str) -> Result<PathBuf, String> {
+    storage_dir(
+        app,
+        &[&context.term, &context.course, &context.section, kind],
+    )
+}
+/// One folder per course for downloaded files, whichever section links them.
+fn materials_dir(app: &AppHandle, course: &CourseKey) -> Result<PathBuf, String> {
+    storage_dir(app, &[&course.term, &course.course, "materials"])
+}
+fn storage_dir(app: &AppHandle, parts: &[&str]) -> Result<PathBuf, String> {
     let (root, _) = root(app)?;
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     let mut path = root.clone();
-    for name in [&context.term, &context.course, &context.section, kind] {
+    for name in parts {
         path.push(component(name)?);
         if path.exists()
             && !path
@@ -104,7 +186,10 @@ fn describe(
 ) -> Result<LocalFile, String> {
     let bytes = path.metadata().map_err(|e| e.to_string())?.len();
     let text = if read_text && bytes <= 1_000_000 {
-        Some(fs::read_to_string(&path).map_err(|_| "File is not UTF-8 text")?)
+        // The caller may not know the final type until a Moodle resource page
+        // has resolved. Binary data is still a valid course file; it simply
+        // has no inline text representation.
+        fs::read_to_string(&path).ok()
     } else {
         None
     };
@@ -146,68 +231,345 @@ fn note_path(app: &AppHandle, context: &CourseFolder, id: &str) -> Result<PathBu
     }
     Ok(path)
 }
-fn material_path(app: &AppHandle, context: &CourseFolder, url: &str, persistent: bool) -> Result<PathBuf, String> {
-    let url = material_url(url)?;
-    let original = url
-        .path_segments()
-        .and_then(|mut s| s.next_back())
-        .unwrap_or("file");
-    // Keep the extension when bounding long encoded Japanese filenames so
-    // the asset responder still supplies the correct PDF/image media type.
-    let extension = original
-        .rsplit_once('.')
-        .map(|(_, ext)| ext)
-        .filter(|ext| ext.len() <= 12 && ext.chars().all(|c| c.is_ascii_alphanumeric()));
-    let stem = if extension.is_some() {
-        original.rsplit_once('.').unwrap().0
-    } else {
-        original
-    };
-    let name: String = stem
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || "-_.".contains(c) {
-                c
-            } else {
-                '_'
+
+/// Notes are user data, so local backup traverses only `notes` and
+/// `deleted-notes`; downloaded `materials` are deliberately excluded.
+pub fn export_notes(app: &AppHandle) -> Result<Vec<LocalNoteBackup>, String> {
+    let (base, _) = root(app)?;
+    if !base.is_dir() {
+        return Ok(Vec::new());
+    }
+    let canonical = base.canonicalize().map_err(|e| e.to_string())?;
+    let mut result = Vec::new();
+    let mut total = 0u64;
+    for term in fs::read_dir(&base).map_err(|e| e.to_string())?.take(100) {
+        let term = term.map_err(|e| e.to_string())?;
+        if term.path().is_symlink() || !term.path().is_dir() {
+            continue;
+        }
+        let term_name = term.file_name().to_string_lossy().into_owned();
+        component(&term_name)?;
+        for course in fs::read_dir(term.path())
+            .map_err(|e| e.to_string())?
+            .take(500)
+        {
+            let course = course.map_err(|e| e.to_string())?;
+            if course.path().is_symlink() || !course.path().is_dir() {
+                continue;
             }
-        })
-        .take(100)
-        .collect();
-    let name = extension.map(|ext| format!("{name}.{ext}")).unwrap_or(name);
-    let digest = format!("{:x}", Sha256::digest(url.as_str()));
-    let dir = if persistent { folder(app, context, "materials")? } else {
-        let state = app.state::<FileStore>();
-        let mut dir = state.2.clone();
-        for part in [&context.term, &context.course, &context.section] { dir.push(component(part)?); }
-        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        dir
-    };
-    let path = dir.join(format!("{}-{name}", &digest[..16]));
+            let course_name = course.file_name().to_string_lossy().into_owned();
+            component(&course_name)?;
+            for section in fs::read_dir(course.path())
+                .map_err(|e| e.to_string())?
+                .take(500)
+            {
+                let section = section.map_err(|e| e.to_string())?;
+                if section.path().is_symlink() || !section.path().is_dir() {
+                    continue;
+                }
+                let section_name = section.file_name().to_string_lossy().into_owned();
+                // A course-level materials directory is not a section.
+                if section_name == "materials" {
+                    continue;
+                }
+                component(&section_name)?;
+                for (kind, deleted) in [("notes", false), ("deleted-notes", true)] {
+                    let dir = section.path().join(kind);
+                    if !dir.is_dir() || dir.is_symlink() {
+                        continue;
+                    }
+                    if !dir
+                        .canonicalize()
+                        .map_err(|e| e.to_string())?
+                        .starts_with(&canonical)
+                    {
+                        return Err("Notes folder points outside storage root".into());
+                    }
+                    for entry in fs::read_dir(dir).map_err(|e| e.to_string())?.take(500) {
+                        let path = entry.map_err(|e| e.to_string())?.path();
+                        if path.is_symlink()
+                            || path.extension().and_then(|s| s.to_str()) != Some("md")
+                        {
+                            continue;
+                        }
+                        let id = path
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned();
+                        uuid::Uuid::parse_str(&id).map_err(|_| "Invalid note ID in storage")?;
+                        let bytes = path.metadata().map_err(|e| e.to_string())?.len();
+                        if bytes > MAX_NOTE_BYTES {
+                            return Err("A note exceeds the 1 MB backup limit".into());
+                        }
+                        total = total
+                            .checked_add(bytes)
+                            .ok_or("Note backup size overflow")?;
+                        if total > MAX_BACKUP_NOTE_BYTES || result.len() >= MAX_BACKUP_NOTES {
+                            return Err("Notes exceed the local backup safety limit".into());
+                        }
+                        let updated_at = chrono::DateTime::<chrono::Utc>::from(
+                            path.metadata()
+                                .and_then(|m| m.modified())
+                                .map_err(|e| e.to_string())?,
+                        )
+                        .to_rfc3339();
+                        let meta: serde_json::Value = fs::read(path.with_extension("sync.json"))
+                            .ok()
+                            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                            .unwrap_or_default();
+                        let text =
+                            fs::read_to_string(&path).map_err(|_| "A note is not UTF-8 text")?;
+                        result.push(LocalNoteBackup {
+                            id,
+                            term: term_name.clone(),
+                            course: course_name.clone(),
+                            section: section_name.clone(),
+                            text,
+                            deleted,
+                            deleted_at: deleted.then(|| updated_at.clone()),
+                            updated_at,
+                            updated_by: meta["updatedBy"].as_str().unwrap_or("legacy").to_string(),
+                            rev: meta["rev"].as_u64().unwrap_or(1),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(result)
+}
+
+pub fn restore_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), String> {
+    write_notes(app, notes, false)
+}
+pub fn merge_notes(app: &AppHandle, notes: &[LocalNoteBackup]) -> Result<(), String> {
+    write_notes(app, notes, true)
+}
+pub(crate) fn validate_notes(notes: &[LocalNoteBackup]) -> Result<(), String> {
+    if notes.len() > MAX_BACKUP_NOTES {
+        return Err("Too many notes in backup".into());
+    }
+    let mut total = 0usize;
+    for note in notes {
+        uuid::Uuid::parse_str(&note.id).map_err(|_| "Invalid note ID in backup")?;
+        component(&note.term)?;
+        component(&note.course)?;
+        component(&note.section)?;
+        if note.text.len() as u64 > MAX_NOTE_BYTES {
+            return Err("A note exceeds the 1 MB limit".into());
+        }
+        total = total
+            .checked_add(note.text.len())
+            .ok_or("Note backup size overflow")?;
+        if total as u64 > MAX_BACKUP_NOTE_BYTES {
+            return Err("Notes exceed the local backup safety limit".into());
+        }
+    }
+    Ok(())
+}
+fn write_notes(app: &AppHandle, notes: &[LocalNoteBackup], merge: bool) -> Result<(), String> {
+    validate_notes(notes)?;
+    let state = app.state::<FileStore>();
+    let _guard = state.0.lock().map_err(|_| "Storage lock unavailable")?;
+    let current = export_notes(app)?;
+    if !merge {
+        for old in current
+            .iter()
+            .filter(|old| !notes.iter().any(|n| n.id == old.id))
+        {
+            let context = CourseFolder {
+                term: old.term.clone(),
+                course: old.course.clone(),
+                section: old.section.clone(),
+            };
+            let path = folder(
+                app,
+                &context,
+                if old.deleted {
+                    "deleted-notes"
+                } else {
+                    "notes"
+                },
+            )?
+            .join(format!("{}.md", old.id));
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+            let _ = fs::remove_file(path.with_extension("sync.json"));
+        }
+    }
+    for note in notes {
+        if let Some(local) = current.iter().find(|local| local.id == note.id) {
+            if merge
+                && crate::cloud_merge::compare(
+                    &serde_json::to_value(note).map_err(|e| e.to_string())?,
+                    &serde_json::to_value(local).map_err(|e| e.to_string())?,
+                )
+                .is_lt()
+            {
+                continue;
+            }
+            if local.text == note.text
+                && local.deleted == note.deleted
+                && local.updated_at == note.updated_at
+                && local.updated_by == note.updated_by
+            {
+                continue;
+            }
+        }
+        let context = CourseFolder {
+            term: note.term.clone(),
+            course: note.course.clone(),
+            section: note.section.clone(),
+        };
+        let path = if note.deleted {
+            folder(app, &context, "deleted-notes")?.join(format!("{}.md", note.id))
+        } else {
+            note_path(app, &context, &note.id)?
+        };
+        if path.is_symlink() {
+            return Err("Cannot restore a note through a symbolic link".into());
+        }
+        let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+        fs::write(&temp, note.text.as_bytes()).map_err(|e| e.to_string())?;
+        fs::rename(&temp, &path).map_err(|e| e.to_string())?;
+        if let Ok(at) = chrono::DateTime::parse_from_rfc3339(&note.updated_at) {
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .and_then(|f| f.set_times(fs::FileTimes::new().set_modified(at.into())))
+                .map_err(|e| e.to_string())?;
+        }
+        fs::write(
+            path.with_extension("sync.json"),
+            serde_json::to_vec(&serde_json::json!({"updatedBy":note.updated_by,"rev":note.rev}))
+                .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        let opposite = folder(
+            app,
+            &context,
+            if note.deleted {
+                "notes"
+            } else {
+                "deleted-notes"
+            },
+        )?
+        .join(format!("{}.md", note.id));
+        if opposite.exists() {
+            fs::remove_file(&opposite).map_err(|e| e.to_string())?;
+        }
+        let _ = fs::remove_file(opposite.with_extension("sync.json"));
+    }
+    Ok(())
+}
+pub(crate) fn material_path(
+    app: &AppHandle,
+    course: &CourseKey,
+    url: &Url,
+) -> Result<PathBuf, String> {
+    let path = materials_dir(app, course)?.join(material_name(url));
     if path.is_symlink() {
         return Err("Cannot read symbolic link".into());
     }
     Ok(path)
 }
-fn material_url(raw: &str) -> Result<Url, String> {
+/// `<file name>-<digest>.<ext>`: readable in Finder, unique per URL, and the
+/// extension lets the asset responder send the right media type.
+pub(crate) fn material_name(url: &Url) -> String {
+    let segment = url
+        .path_segments()
+        .and_then(|mut s| s.next_back())
+        .unwrap_or("file");
+    let decoded = percent_encoding::percent_decode_str(segment).decode_utf8_lossy();
+    let (stem, extension) = match decoded.rsplit_once('.') {
+        Some((stem, ext))
+            if !stem.is_empty()
+                && ext.len() <= 12
+                && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
+        {
+            (stem, Some(ext))
+        }
+        _ => (decoded.as_ref(), None),
+    };
+    let stem: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_control() || "/\\:".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .take(80)
+        .collect();
+    let digest = format!("{:x}", Sha256::digest(url.as_str()));
+    match extension {
+        Some(ext) => format!(
+            "{}-{}.{}",
+            stem.trim(),
+            &digest[..8],
+            ext.to_ascii_lowercase()
+        ),
+        None => format!("{}-{}", stem.trim(), &digest[..8]),
+    }
+}
+pub(crate) fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), String> {
     let url = Url::parse(raw).map_err(|_| "Invalid material URL")?;
     if url.scheme() != "https"
         || url.host_str() != Some("lms.s.isct.ac.jp")
         || url.port().is_some()
         || !url.username().is_empty()
         || url.password().is_some()
-        || !url.path().contains("/pluginfile.php/")
     {
-        return Err("Only LMS attachment URLs can be cached".into());
+        return Err("Only allowlisted LMS resource URLs are accepted".into());
     }
-    Ok(url)
+    let segments = url
+        .path_segments()
+        .map(Iterator::collect::<Vec<_>>)
+        .unwrap_or_default();
+    if segments.iter().any(|segment| *segment == "pluginfile.php") {
+        return Ok((url, LmsResourceKind::File));
+    }
+    let [.., "mod", module @ ("resource" | "url" | "folder"), "view.php"] = segments.as_slice()
+    else {
+        return Err("Only allowlisted LMS resource URLs are accepted".into());
+    };
+    let cmid = url
+        .query_pairs()
+        .find(|(key, _)| key == "id")
+        .and_then(|(_, value)| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "LMS resource URL needs a numeric id".to_string())?;
+    let module = (*module).to_string();
+    Ok((url, LmsResourceKind::View { module, cmid }))
 }
-fn expose(app: &AppHandle, file: LocalFile) -> Result<LocalFile, String> {
-    app.asset_protocol_scope()
-        .allow_file(&file.path)
-        .map_err(|e| e.to_string())?;
-    Ok(file)
+
+/// The contract form of a resolved folder's files, as stored on its material.
+pub(crate) fn folder_contract(
+    files: &[crate::school_parser::lms::ResolvedFile],
+) -> Vec<crate::contracts::FolderFile> {
+    files
+        .iter()
+        .map(|file| crate::contracts::FolderFile {
+            name: file.name.clone(),
+            url: file.url.clone(),
+        })
+        .collect()
 }
+
+/// A folder's files kept from its last read, when every entry is still an LMS file.
+pub(crate) fn stored_folder_files(
+    row: Option<&serde_json::Value>,
+) -> Option<Vec<crate::school_parser::lms::ResolvedFile>> {
+    let files: Vec<crate::school_parser::lms::ResolvedFile> =
+        serde_json::from_value(row?.get("folderFiles")?.clone()).ok()?;
+    (!files.is_empty()
+        && files
+            .iter()
+            .all(|file| matches!(lms_resource_url(&file.url), Ok((_, LmsResourceKind::File)))))
+    .then_some(files)
+}
+
 #[tauri::command]
 pub async fn course_storage_info(
     webview: tauri::Webview,
@@ -216,7 +578,7 @@ pub async fn course_storage_info(
     crate::require_local_main(&webview)?;
     let (root, custom) = root(&app)?;
     Ok(StorageInfo {
-        root: root.to_string_lossy().into(),
+        root: display_root(&root),
         custom,
         can_choose: cfg!(desktop),
     })
@@ -271,6 +633,22 @@ pub async fn choose_course_storage(
     .map_err(|e| e.to_string())??;
     course_storage_info(webview, app).await
 }
+fn stamp_note(app: &AppHandle, path: &Path) -> Result<(), String> {
+    let old: serde_json::Value = fs::read(path.with_extension("sync.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let device = app.state::<crate::data::DataStore>().load_workspace()?["deviceId"].clone();
+    fs::write(
+        path.with_extension("sync.json"),
+        serde_json::to_vec(
+            &serde_json::json!({"updatedBy":device,"rev":old["rev"].as_u64().unwrap_or(0)+1}),
+        )
+        .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn save_course_note(
     webview: tauri::Webview,
@@ -280,9 +658,14 @@ pub async fn save_course_note(
     text: String,
 ) -> Result<LocalFile, String> {
     crate::require_local_main(&webview)?;
-    if text.len() > 1_000_000 {
+    if text.len() as u64 > MAX_NOTE_BYTES {
         return Err("Notes are limited to 1 MB".into());
     }
+    let id = if id.is_empty() {
+        uuid::Uuid::now_v7().to_string()
+    } else {
+        id
+    };
     let handle = app.clone();
     let file = tauri::async_runtime::spawn_blocking(move || {
         let state = handle.state::<FileStore>();
@@ -299,6 +682,7 @@ pub async fn save_course_note(
             file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
             file.sync_all().map_err(|e| e.to_string())?;
             fs::rename(&temp, &path).map_err(|e| e.to_string())?;
+            stamp_note(&handle, &path)?;
             describe(path, id, context.section, false, false)
         })();
         let _ = fs::remove_file(temp);
@@ -306,6 +690,7 @@ pub async fn save_course_note(
     })
     .await
     .map_err(|e| e.to_string())??;
+    crate::cloud_sync::CloudSync::changed(&app);
     Ok(file)
 }
 #[tauri::command]
@@ -331,19 +716,51 @@ pub async fn read_course_note(
     Ok(file)
 }
 #[tauri::command]
-pub async fn move_course_note(webview: tauri::Webview, app: AppHandle, context: CourseFolder, id: String, restore: bool) -> Result<bool, String> {
+pub async fn move_course_note(
+    webview: tauri::Webview,
+    app: AppHandle,
+    context: CourseFolder,
+    id: String,
+    restore: bool,
+) -> Result<bool, String> {
     crate::require_local_main(&webview)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        let app = handle;
         let state = app.state::<FileStore>();
         let _guard = state.0.lock().map_err(|_| "Storage lock unavailable")?;
         let note = note_path(&app, &context, &id)?;
         let trash = folder(&app, &context, "deleted-notes")?.join(format!("{id}.md"));
-        if trash.is_symlink() { return Err("Cannot move symbolic link".into()); }
-        let (source, target) = if restore { (trash, note) } else { (note, trash) };
-        if target.exists() { return Err("A note already exists at the destination".into()); }
-        fs::rename(source, target).map_err(|e| e.to_string())?;
+        if trash.is_symlink() {
+            return Err("Cannot move symbolic link".into());
+        }
+        let (source, target) = if restore {
+            (trash, note)
+        } else {
+            (note, trash)
+        };
+        if target.exists() {
+            return Err("A note already exists at the destination".into());
+        }
+        fs::rename(&source, &target).map_err(|e| e.to_string())?;
+        let _ = fs::rename(
+            source.with_extension("sync.json"),
+            target.with_extension("sync.json"),
+        );
+        fs::File::options()
+            .write(true)
+            .open(&target)
+            .and_then(|f| {
+                f.set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::now()))
+            })
+            .map_err(|e| e.to_string())?;
+        stamp_note(&app, &target)?;
         Ok(true)
-    }).await.map_err(|e| e.to_string())?
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    crate::cloud_sync::CloudSync::changed(&app);
+    Ok(result)
 }
 #[tauri::command]
 pub async fn list_course_notes(
@@ -398,149 +815,240 @@ pub async fn list_course_notes(
     .await
     .map_err(|e| e.to_string())?
 }
+/// A course file from disk, downloading it first when asked. Files over
+/// `limit` bytes are reported instead of downloaded.
 #[tauri::command]
 pub async fn open_course_material(
     webview: tauri::Webview,
     app: AppHandle,
-    context: CourseFolder,
+    context: CourseKey,
     url: String,
     download: bool,
     read_text: bool,
-    auto_save: Option<bool>,
-) -> Result<Option<LocalFile>, String> {
+    limit: Option<u64>,
+) -> Result<Material, String> {
     crate::require_local_main(&webview)?;
-    // Await asynchronously before occupying a blocking worker. At most one
-    // attachment client is alive; queued downloads do not allocate OS threads.
-    let permit = if download {
-        Some(app.state::<FileStore>().1.clone().lock_owned().await)
-    } else {
-        None
-    };
-    if download && !app.state::<crate::school_web::SchoolWebController>().attachment_view_ready() {
-        for _ in 0..150 {
-            app.state::<crate::school_web::SchoolWebController>().prepare_attachment_view(&app)?;
-            let ready = app.state::<crate::school_web::SchoolWebController>().attachment_view_ready();
-            if ready { break; }
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let source = url;
+    let (source_url, kind) = lms_resource_url(&source)?;
+    eprintln!("[lms-file] prepare requested: {kind:?}");
+    let url = match kind {
+        LmsResourceKind::File => source_url,
+        LmsResourceKind::View { module, cmid } => {
+            let store = app.state::<DataStore>();
+            let stored = store.lms_material_for_url(&source).ok().flatten();
+            if module == "folder" {
+                if let Some(files) = stored_folder_files(stored.as_ref()) {
+                    return Ok(Material::Folder { files });
+                }
+            }
+            let known = stored.as_ref().and_then(|row| {
+                row.get("resourceUrl")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
+            if let Some(known) = known {
+                eprintln!("[lms-file] using stored resolution");
+                if let Ok((url, LmsResourceKind::File)) = lms_resource_url(&known) {
+                    url
+                } else if safe_external_url(&known) {
+                    return Ok(Material::External { url: known });
+                } else {
+                    return Ok(Material::Failed { reason: "invalid" });
+                }
+            } else {
+                #[cfg(mobile)]
+                {
+                    let _ = cmid;
+                    return Err("Course files are resolved in the desktop app".into());
+                }
+                #[cfg(desktop)]
+                {
+                    let downloader = app.state::<crate::lms_downloader::Downloader>();
+                    match downloader.resolve(&app, &source_url, cmid, &module).await {
+                        Ok(crate::lms_downloader::ResolvedResource::File { url }) => {
+                            let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url)
+                            else {
+                                return Ok(Material::Failed { reason: "invalid" });
+                            };
+                            let _ = store.update_lms_resource_url(cmid, &source, &url);
+                            url_value
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::External { url }) => {
+                            if !safe_external_url(&url) {
+                                return Ok(Material::Failed { reason: "invalid" });
+                            }
+                            let _ = store.update_lms_resource_url(cmid, &source, &url);
+                            return Ok(Material::External { url });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
+                            let _ = store.update_lms_folder_files(
+                                cmid,
+                                &source,
+                                &folder_contract(&files),
+                            );
+                            return Ok(Material::Folder { files });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Login)
+                        | Err(crate::lms_downloader::FetchError::Login) => {
+                            return Ok(Material::Failed { reason: "login" });
+                        }
+                        Ok(crate::lms_downloader::ResolvedResource::Unresolved) => {
+                            return Ok(Material::Failed {
+                                reason: "unresolved",
+                            });
+                        }
+                        Err(crate::lms_downloader::FetchError::Invalid) => {
+                            return Ok(Material::Failed { reason: "invalid" });
+                        }
+                        Err(crate::lms_downloader::FetchError::Timeout) => {
+                            return Ok(Material::Failed { reason: "timeout" });
+                        }
+                        Err(crate::lms_downloader::FetchError::Network) => {
+                            return Ok(Material::Failed { reason: "network" });
+                        }
+                    }
+                }
+            }
         }
-        if !app.state::<crate::school_web::SchoolWebController>().attachment_view_ready() {
-            return Err("LMS sign-in required; open LMS and reconnect before downloading".into());
+    };
+    let path = material_path(&app, &context, &url)?;
+    if !path.is_file() {
+        if !download {
+            return Ok(Material::Missing);
+        }
+        #[cfg(desktop)]
+        {
+            let downloader = app.state::<crate::lms_downloader::Downloader>();
+            let limit = limit.map(|bytes| bytes.clamp(1, MAX_AUTO_DOWNLOAD_BYTES));
+            match downloader
+                .fetch(&app, &url, path.clone(), limit, true)
+                .await
+            {
+                Ok(crate::lms_downloader::Fetched::Saved) => {}
+                Ok(crate::lms_downloader::Fetched::TooLarge(bytes)) => {
+                    return Ok(Material::TooLarge { bytes });
+                }
+                Err(crate::lms_downloader::FetchError::Login) => {
+                    return Ok(Material::Failed { reason: "login" });
+                }
+                Err(crate::lms_downloader::FetchError::Invalid) => {
+                    return Ok(Material::Failed { reason: "invalid" });
+                }
+                Err(crate::lms_downloader::FetchError::Timeout) => {
+                    return Ok(Material::Failed { reason: "timeout" });
+                }
+                Err(error) => {
+                    eprintln!("[lms-file] prepare download failed: {error}");
+                    return Ok(Material::Failed { reason: "network" });
+                }
+            }
+        }
+        #[cfg(mobile)]
+        {
+            let _ = limit;
+            return Err("Course files are downloaded in the desktop app".into());
         }
     }
-    let handle = app.clone();
-    let file =
-        tauri::async_runtime::spawn_blocking(move || -> Result<Option<LocalFile>, String> {
-            let _permit = permit;
-            let path = material_path(&handle, &context, &url, auto_save.unwrap_or(false))?;
-            if !auto_save.unwrap_or(false) {
-                let (base, _) = root(&handle)?;
-                let mut saved = base.clone();
-                for part in [&context.term, &context.course, &context.section, "materials"] { saved.push(component(part)?); }
-                saved.push(path.file_name().ok_or("File name is unavailable")?);
-                if saved.is_file() {
-                    if saved.is_symlink() || !saved.canonicalize().map_err(|e| e.to_string())?.starts_with(base.canonicalize().map_err(|e| e.to_string())?) {
-                        return Err("Cached file points outside storage root".into());
-                    }
-                    return describe(saved, url, context.section, true, read_text).map(Some);
-                }
-            }
-            if path.is_file() {
-                return describe(path, url, context.section, true, read_text).map(Some);
-            }
-            if !download {
-                return Ok(None);
-            }
-            // Serialize downloads separately from note writes: bounded TLS/client
-            // memory without delaying autosave behind a large attachment.
-            if path.is_file() {
-                return describe(path, url, context.section, true, read_text).map(Some);
-            }
-            let lms = handle
-                .get_webview("school-web-science-lms")
-                .ok_or("Open LMS and sign in before downloading")?;
-            let target = material_url(&url)?;
-            let cookies = lms
-                .cookies_for_url(target.clone())
-                .map_err(|e| e.to_string())?;
-            if cookies.is_empty() {
-                return Err("LMS sign-in required".into());
-            }
-            let cookie = cookies
-                .iter()
-                .map(|c| format!("{}={}", c.name(), c.value()))
-                .collect::<Vec<_>>()
-                .join("; ");
-            let client = reqwest::blocking::Client::builder()
-                .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                    if attempt.previous().len() < 3 && material_url(attempt.url().as_str()).is_ok() { attempt.follow() } else { attempt.stop() }
-                }))
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .map_err(|e| e.to_string())?;
-            let response = client
-                .get(target)
-                .header(reqwest::header::COOKIE, cookie)
-                .send()
-                .map_err(|e| { use std::error::Error; format!("File download failed: {}", e.source().map(|cause| cause.to_string()).unwrap_or_else(|| e.to_string())) })?;
-            if !response.status().is_success()
-                || response
-                    .headers()
-                    .get(reqwest::header::CONTENT_TYPE)
-                    .and_then(|h| h.to_str().ok())
-                    .unwrap_or("")
-                    .contains("text/html")
-            {
-                return Err(format!("LMS did not return a file (HTTP {}); open LMS and reconnect before downloading", response.status().as_u16()));
-            }
-            const LIMIT: u64 = 128 * 1024 * 1024;
-            if response.content_length().is_some_and(|n| n > LIMIT) {
-                return Err("Material exceeds the 128 MB download limit".into());
-            }
-            let temp = path.with_extension(format!("{}.part", uuid::Uuid::new_v4()));
-            let result = (|| {
-                let mut output = fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&temp)
-                    .map_err(|e| e.to_string())?;
-                let bytes = std::io::copy(&mut response.take(LIMIT + 1), &mut output)
-                    .map_err(|e| e.to_string())?;
-                if bytes > LIMIT {
-                    return Err("Material exceeds the 128 MB download limit".into());
-                }
-                output.sync_all().map_err(|e| e.to_string())?;
-                fs::rename(&temp, &path).map_err(|e| e.to_string())?;
-                describe(path, url, context.section, false, read_text).map(Some)
-            })();
-            let _ = fs::remove_file(temp);
-            result
-        })
-        .await
-        .map_err(|e| e.to_string())??;
-    file.map(|file| expose(&app, file)).transpose()
+    // Opening counts as use: auto-clean removes files unused for a while.
+    let _ = fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.set_modified(std::time::SystemTime::now()));
+    let file = tauri::async_runtime::spawn_blocking(move || {
+        describe(path, url.to_string(), String::new(), true, read_text)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    app.asset_protocol_scope()
+        .allow_file(&file.path)
+        .map_err(|e| e.to_string())?;
+    eprintln!("[lms-file] prepare ready");
+    Ok(Material::Ready { file })
+}
+
+fn safe_external_url(raw: &str) -> bool {
+    Url::parse(raw).ok().is_some_and(|url| {
+        url.scheme() == "https"
+            && url.host_str().is_some()
+            && url.port().is_none()
+            && url.username().is_empty()
+            && url.password().is_none()
+    })
+}
+/// A path the app saved under the storage root; anything else is refused.
+fn stored_file(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
+    let (root, _) = root(app)?;
+    let path = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if !path.is_file() || !path.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
+        return Err("File is outside the course folder".into());
+    }
+    Ok(path)
 }
 #[tauri::command]
-pub async fn save_course_material(webview: tauri::Webview, app: AppHandle, context: CourseFolder, url: String) -> Result<Option<String>, String> {
+pub async fn open_course_file(
+    webview: tauri::Webview,
+    app: AppHandle,
+    path: String,
+    reveal: bool,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
     crate::require_local_main(&webview)?;
-    let cached = open_course_material(webview.clone(), app.clone(), context.clone(), url.clone(), false, false, Some(false)).await?;
-    let file = match cached { Some(file) => file, None => open_course_material(webview, app.clone(), context.clone(), url, true, false, Some(false)).await?.ok_or("File was not downloaded")? };
+    let path = stored_file(&app, &path)?;
+    if reveal {
+        app.opener()
+            .reveal_item_in_dir(&path)
+            .map_err(|e| e.to_string())
+    } else {
+        app.opener()
+            .open_path(path.to_string_lossy(), None::<&str>)
+            .map_err(|e| e.to_string())
+    }
+}
+/// Remove downloaded course files not opened for `days` days. Notes are kept.
+#[tauri::command]
+pub async fn clean_course_materials(
+    webview: tauri::Webview,
+    app: AppHandle,
+    days: u64,
+) -> Result<usize, String> {
+    crate::require_local_main(&webview)?;
+    let (root, _) = root(&app)?;
+    let days = days.clamp(1, MAX_RETENTION_DAYS);
+    let age = std::time::Duration::from_secs(days * 24 * 60 * 60);
     tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(desktop)] {
-            use tauri_plugin_dialog::DialogExt;
-            let name = file.name.get(17..).unwrap_or(&file.name);
-            let target = app.dialog().file().set_title("Save course file").set_directory(app.path().download_dir().map_err(|e| e.to_string())?).set_file_name(name).blocking_save_file();
-            let Some(target) = target else { return Ok(None); };
-            let target = target.into_path().map_err(|e| e.to_string())?;
-            if target != PathBuf::from(&file.path) { fs::copy(&file.path, &target).map_err(|e| e.to_string())?; }
-            Ok(Some(target.to_string_lossy().into_owned()))
+        let mut removed = 0;
+        // <term>/<course>/materials, and <term>/<course>/<section>/materials from earlier versions.
+        let mut pending = vec![(root, 0)];
+        while let Some((dir, depth)) = pending.pop() {
+            for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_symlink() {
+                    continue;
+                }
+                if path.is_dir() {
+                    if depth < 3 {
+                        pending.push((path, depth + 1));
+                    }
+                    continue;
+                }
+                let in_materials = dir.file_name().is_some_and(|name| name == "materials");
+                let stale = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|time| time.elapsed().ok())
+                    .is_some_and(|elapsed| elapsed > age);
+                if in_materials && stale && fs::remove_file(&path).is_ok() {
+                    removed += 1;
+                }
+            }
         }
-        #[cfg(mobile)] {
-            let path = folder(&app, &context, "materials")?.join(file.name);
-            fs::copy(file.path, &path).map_err(|e| e.to_string())?;
-            Ok(Some(path.to_string_lossy().into_owned()))
-        }
-    }).await.map_err(|e| e.to_string())?
+        removed
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 #[cfg(test)]
 mod tests {
@@ -565,6 +1073,24 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
+    fn binary_materials_do_not_fail_optional_text_preview() {
+        let dir = std::env::temp_dir().join(format!("course-file-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("image.png");
+        fs::write(&path, [0x89, b'P', b'N', b'G', 0xff]).unwrap();
+        let file = describe(
+            path,
+            "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/image.png".into(),
+            String::new(),
+            true,
+            true,
+        )
+        .unwrap();
+        assert_eq!(file.name, "image.png");
+        assert_eq!(file.text, None);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn rejects_traversal_and_external_downloads() {
         for value in ["..", ".", "x/y", "x\\y", "", "../../notes"] {
             assert!(component(value).is_err());
@@ -575,10 +1101,58 @@ mod tests {
             "https://evil.test/pluginfile.php/1/a.pdf",
             "https://lms.s.isct.ac.jp/login/index.php",
             "https://user:pass@lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf",
+            "https://lms.s.isct.ac.jp:8443/2025/pluginfile.php/1/a.pdf",
             "http://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf",
         ] {
-            assert!(material_url(url).is_err());
+            assert!(lms_resource_url(url).is_err());
         }
-        assert!(material_url("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf").is_ok());
+        assert!(lms_resource_url("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf").is_ok());
+        assert!(lms_resource_url("https://lms.s.isct.ac.jp/2024/pluginfile.php/1/a.pdf").is_ok());
+        assert!(matches!(
+            lms_resource_url("https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42"),
+            Ok((_, LmsResourceKind::View { cmid: 42, .. }))
+        ));
+        for url in [
+            "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=42",
+            "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=abc",
+        ] {
+            assert!(lms_resource_url(url).is_err(), "{url}");
+        }
+    }
+    #[test]
+    fn names_materials_readably_and_uniquely() {
+        let name = |raw: &str| material_name(&Url::parse(raw).unwrap());
+        let japanese = name("https://lms.s.isct.ac.jp/2025/pluginfile.php/224957/mod_resource/content/1/01%E5%9B%9E%E7%9B%AE%20SW-0%20v6.pdf");
+        assert!(
+            japanese.starts_with("01回目 SW-0 v6-") && japanese.ends_with(".pdf"),
+            "{japanese}"
+        );
+        assert!(
+            name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/Photo.PNG?forcedownload=1")
+                .ends_with(".png")
+        );
+        assert!(!name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/README").contains('.'));
+        // Same file name from two activities: two files.
+        assert_ne!(
+            name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf"),
+            name("https://lms.s.isct.ac.jp/2025/pluginfile.php/2/a.pdf")
+        );
+        // An encoded slash cannot escape the folder.
+        assert!(
+            !name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/..%2F..%2Fx.pdf").contains('/')
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hides_extended_windows_prefix_and_uses_unambiguous_separators() {
+        assert_eq!(
+            display_root(Path::new(r"\\?\E:\IsctCompanion")),
+            "E:/IsctCompanion"
+        );
+        assert_eq!(
+            display_root(Path::new(r"\\?\UNC\server\courses")),
+            "//server/courses"
+        );
     }
 }

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Campus Life",
-  "version": "0.1.0",
-  "identifier": "app.campuslife.sciencetokyo",
+  "productName": "IsctCompanion",
+  "version": "1.0.0-rc.1",
+  "identifier": "app.isctcompanion",
   "build": {
     "beforeBuildCommand": "yarn vite build",
     "beforeDevCommand": "yarn dev",
@@ -11,7 +11,10 @@
   },
   "app": {
     "security": {
-      "assetProtocol": {"enable": true, "scope": []},
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      },
       "capabilities": [
         "main"
       ]
@@ -20,22 +23,42 @@
   },
   "bundle": {
     "active": true,
-    "icon": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "targets": "all",
     "macOS": {
-      "minimumSystemVersion": "14.0"
+      "minimumSystemVersion": "14.0",
+      "entitlements": "Entitlements.plist",
+      "bundleVersion": "1.0.0"
     },
     "iOS": {
-      "minimumSystemVersion": "17.0"
+      "minimumSystemVersion": "17.0",
+      "developmentTeam": "FB7AL944GK",
+      "bundleVersion": "1.0"
     },
     "android": {
-      "minSdkVersion": 34
+      "minSdkVersion": 34,
+      "versionCode": 1000000
     },
     "resources": [
       "models/paddle/README.md",
       "models/paddle/PADDLE-LICENSE",
       "models/paddle/ONNX-RUNTIME-LICENSE",
-      "models/paddle/ONNX-THIRD-PARTY-NOTICES.txt"
-    ]
+      "models/paddle/ONNX-THIRD-PARTY-NOTICES.txt",
+      "../docs/legal/EULA.md",
+      "../docs/legal/EULA.ja.md"
+    ],
+    "licenseFile": "../docs/legal/EULA.md",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
   }
 }

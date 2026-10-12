@@ -1,9 +1,21 @@
 import { getDesktopBridge } from "../platform/desktop-bridge";
-import type { SchoolRecords, SchoolIngestOutcome } from "../platform/desktop-bridge";
+import type {
+  SchoolIngestOutcome,
+  SchoolPullOptions,
+  SchoolRecords,
+} from "../platform/desktop-bridge";
 import type { Workspace } from "../core/model";
 import { seedWorkspace } from "../core/model";
-import { repository, type WorkspaceRepository } from "../storage/repository";
+import {
+  USER_RECORD_COLLECTIONS,
+  repository,
+  type WorkspaceRepository,
+} from "../storage/repository";
 import { requireAction } from "../platform/actions";
+import {
+  recordSubscriptionPoll,
+  type PollResult,
+} from "../platform/subscription-polling";
 import { detectPlatform } from "../platform/capabilities";
 import { createStore } from "zustand/vanilla";
 import { publishSchoolImport } from "../connectors/school";
@@ -51,6 +63,9 @@ function validate(value: Workspace) {
     "gpaSummary",
     "departments",
     "recommendedCourses",
+    "importantDates",
+    "exams",
+    "scheduleOverrides",
     "subscriptions",
     "scheduledTasks",
   ] as const) {
@@ -76,9 +91,50 @@ function validate(value: Workspace) {
   });
 }
 
+/**
+ * Adopts the rows the repository stored (server rev/updatedAt/updatedBy and
+ * defaults) into the live workspace, skipping any record edited again while
+ * the save was in flight. Returns undefined when nothing changed.
+ */
+function adoptStoredRecords(
+  live: Workspace,
+  sent: Workspace,
+  stored: Workspace,
+): Workspace | undefined {
+  let next: Workspace | undefined;
+  for (const [field] of USER_RECORD_COLLECTIONS) {
+    if (JSON.stringify(sent[field]) === JSON.stringify(stored[field])) continue;
+    const sentById = new Map<string, object>(
+      sent[field].map((record) => [record.id, record]),
+    );
+    const storedById = new Map<string, object>(
+      stored[field].map((record) => [record.id, record]),
+    );
+    let records: object[] | undefined;
+    live[field].forEach((record: object & { id: string }, index) => {
+      const before = sentById.get(record.id);
+      const after = storedById.get(record.id);
+      if (!before || !after) return;
+      const json = JSON.stringify(record);
+      if (json !== JSON.stringify(before) || json === JSON.stringify(after))
+        return;
+      records ??= [...live[field]];
+      records[index] = after;
+    });
+    if (records) (next ??= { ...live })[field] = records as never;
+  }
+  return next && freeze(structuredClone(next));
+}
+
 export function createWorkspaceStore(
   storage: Pick<WorkspaceRepository, "load" | "save">,
-  school?: { read(): Promise<SchoolRecords>; pull?(site: "science-lms" | "kyomu"): Promise<SchoolIngestOutcome[]> },
+  school?: {
+    read(): Promise<SchoolRecords>;
+    pull?(
+      site: "science-lms" | "kyomu",
+      options?: SchoolPullOptions,
+    ): Promise<SchoolIngestOutcome[]>;
+  },
 ) {
   const state = createStore<WorkspaceSnapshot>(() =>
     Object.freeze({
@@ -98,9 +154,15 @@ export function createWorkspaceStore(
   const persist = (workspace: Workspace, revision: number) => {
     writes = writes.then(async () => {
       try {
-        await storage.save(structuredClone(workspace));
+        const stored = structuredClone(workspace);
+        await storage.save(stored);
+        const current = state.getState();
         publish({
-          ...state.getState(),
+          ...current,
+          workspace:
+            (current.workspace &&
+              adoptStoredRecords(current.workspace, workspace, stored)) ??
+            current.workspace,
           persistedRevision: revision,
           error: undefined,
         });
@@ -182,12 +244,17 @@ export function createWorkspaceStore(
       return loading;
     },
     reload,
-    pullSchool(site: "science-lms" | "kyomu") {
+    pullSchool(
+      site: "science-lms" | "kyomu",
+      options?: SchoolPullOptions,
+    ) {
       if (!school?.pull) return Promise.reject(new Error("School pull needs the desktop app."));
       const operation = pulls.catch(() => undefined).then(async () => {
         await writes;
         if (state.getState().error) throw new Error(state.getState().error);
-        const outcomes = await school.pull!(site);
+        const outcomes = options
+          ? await school.pull!(site, options)
+          : await school.pull!(site);
         await reload();
         return outcomes;
       });
@@ -220,7 +287,9 @@ export function createWorkspaceStore(
 const desktopBridge = typeof window === "undefined" ? undefined : getDesktopBridge();
 const internalWorkspaceStore = createWorkspaceStore(repository, desktopBridge?.schoolRecords ? {
   read: () => desktopBridge!.schoolRecords!(),
-  pull: desktopBridge.pullSchool ? site => desktopBridge!.pullSchool!(site) : undefined,
+  pull: desktopBridge.pullSchool
+    ? (site, options) => desktopBridge!.pullSchool!(site, options)
+    : undefined,
 } : undefined);
 
 /** Read/lifecycle surface. Mutations are available only through workspaceActions. */
@@ -265,6 +334,9 @@ export function createWorkspaceHooks(
               gpaSummary,
               departments,
               recommendedCourses,
+              importantDates,
+              exams,
+              scheduleOverrides,
               subscriptions,
               scheduledTasks,
               settings: _settings,
@@ -295,13 +367,17 @@ export function createWorkspaceHooks(
       },
       updatePreferences(
         preferences: Partial<
-          Pick<Workspace["settings"], "appearance" | "locale" | "textSize">
+          Pick<
+            Workspace["settings"],
+            "appearance" | "locale" | "contentLanguage" | "textSize"
+          >
         >,
       ) {
         requireAction("change-local-preference", platform());
         const choices = {
           appearance: ["system", "light", "dark"],
           locale: ["en", "ja", "zh"],
+          contentLanguage: ["auto", "ja", "en"],
           textSize: ["small", "medium", "large"],
         };
         if (
@@ -319,7 +395,12 @@ export function createWorkspaceHooks(
             throw new Error("Invalid preference value.");
         }
         store.update((draft) => {
-          for (const key of ["appearance", "locale", "textSize"] as const) {
+          for (const key of [
+            "appearance",
+            "locale",
+            "contentLanguage",
+            "textSize",
+          ] as const) {
             if (preferences[key] !== undefined)
               Object.assign(draft.settings, { [key]: preferences[key] });
           }
@@ -335,6 +416,8 @@ const protectedWorkspaceEnvelope = (workspace: Workspace) => {
     settings: _settings,
     syncStatus: _syncStatus,
     scheduledTasks: _scheduledTasks,
+    importantDates: _importantDates,
+    exams: _exams,
     ...protectedData
   } = workspace;
   return JSON.stringify(protectedData);
@@ -343,14 +426,32 @@ const protectedWorkspaceEnvelope = (workspace: Workspace) => {
 export const workspaceActions = {
   /** Refresh canonical workspace and parsed school records in one publication. */
   refreshSchool() { return internalWorkspaceStore.reload(); },
-  pullSchool(site: "science-lms" | "kyomu") {
+  pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
     requireAction("import-school", detectPlatform());
-    return internalWorkspaceStore.pullSchool(site);
+    return internalWorkspaceStore.pullSchool(site, options);
   },
   editAcademic: workspaceHooks.actions.editAcademic,
   editCalendar(edit: WorkspaceEdit) {
     requireAction("edit-calendar-advanced", detectPlatform());
     internalWorkspaceStore.update(edit);
+  },
+  /** Records an official-data check; device state, allowed on every platform. */
+  recordReferencePoll(results: PollResult[], checkedAt: string) {
+    requireAction("change-local-preference", detectPlatform());
+    internalWorkspaceStore.update((draft) =>
+      recordSubscriptionPoll(draft, results, checkedAt),
+    );
+  },
+  /** The study-guide cohort is a basic choice on every platform; the rest of
+   * the academic profile stays behind the advanced calendar editor. */
+  setAdmissionYear(year: number | undefined) {
+    requireAction("change-local-preference", detectPlatform());
+    if (year !== undefined && (!Number.isInteger(year) || year < 2000))
+      throw new Error("Invalid admission year.");
+    internalWorkspaceStore.update((draft) => {
+      draft.academicProfile = { ...draft.academicProfile, admissionYear: year };
+      return draft;
+    });
   },
   updateSettings(edit: WorkspaceEdit) {
     requireAction("change-local-preference", detectPlatform());

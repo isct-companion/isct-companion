@@ -1,14 +1,10 @@
-use crate::data::versioned::content_hash;
+use crate::data::{resolve_course_id, versioned::content_hash};
+use crate::school_parser::kyomu::KyomuPayload;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use url::Url;
 use uuid::Uuid;
-
-const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
-const MAX_RECORDS: usize = 5_000;
 
 /// App-owned, read-only reader for the four approved 教務 pages. It only
 /// inspects the current document and returns plain data through the relay.
@@ -138,93 +134,6 @@ pub const KYOMU_EXTRACT_SCRIPT: &str = r#"(() => {
   return {status:'ok',sourceUrl,kind,data:{categories,overall,terms}};
 })()"#;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KyomuPayload {
-    pub status: String,
-    pub source_url: String,
-    pub kind: String,
-    #[serde(default)]
-    pub data: Value,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum KyomuStage {
-    Ready,
-    ReconnectRequired,
-}
-
-fn expected_kind(path: &str) -> Option<&'static str> {
-    match path {
-        "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx" => Some("registrations"),
-        "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx" => Some("declared"),
-        "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx" => Some("grades"),
-        "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx" => Some("requirements"),
-        "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx" => Some("gpa"),
-        _ => None,
-    }
-}
-
-pub fn parse_kyomu_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), String> {
-    if raw.len() > MAX_PAYLOAD_BYTES {
-        return Err("kyomu payload exceeds the size limit".into());
-    }
-    let payload: KyomuPayload =
-        serde_json::from_str(raw).map_err(|_| "kyomu payload is not valid JSON")?;
-    let url = Url::parse(&payload.source_url).map_err(|_| "kyomu source URL is invalid")?;
-    if payload.status == "login" {
-        let known_login_host = matches!(
-            url.host_str(),
-            Some("kyomu0.gakumu.titech.ac.jp" | "portal.titech.ac.jp" | "rp.nap.gsic.titech.ac.jp")
-        );
-        if url.scheme() == "https" && known_login_host {
-            return Ok((KyomuStage::ReconnectRequired, None));
-        }
-    }
-    if url.scheme() != "https"
-        || url.host_str() != Some("kyomu0.gakumu.titech.ac.jp")
-        || expected_kind(url.path()) != Some(payload.kind.as_str())
-    {
-        return Err("kyomu source page is not approved".into());
-    }
-    if payload.status != "ok" || !payload.data.is_object() {
-        return Err("kyomu extraction was incomplete".into());
-    }
-    let count = match payload.kind.as_str() {
-        "registrations" | "declared" => payload
-            .data
-            .pointer("/courses")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len),
-        "grades" => payload
-            .data
-            .pointer("/groups")
-            .and_then(Value::as_array)
-            .map_or(0, |groups| {
-                groups
-                    .iter()
-                    .filter_map(|g| g.get("rows").and_then(Value::as_array))
-                    .map(Vec::len)
-                    .sum()
-            }),
-        "requirements" => payload
-            .data
-            .pointer("/tables")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len),
-        "gpa" => payload
-            .data
-            .pointer("/terms")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len),
-        _ => return Err("kyomu payload kind is invalid".into()),
-    };
-    if count > MAX_RECORDS {
-        return Err("kyomu payload exceeds the record limit".into());
-    }
-    Ok((KyomuStage::Ready, Some(payload)))
-}
-
 fn upsert(
     tx: &Transaction<'_>,
     table: &str,
@@ -233,16 +142,23 @@ fn upsert(
     extra: &[(&str, rusqlite::types::Value)],
 ) -> Result<bool, String> {
     let hash = content_hash(value)?;
-    let old: Option<(String, u64)> = tx
+    let old: Option<(String, u64, Option<String>)> = tx
         .query_row(
-            &format!("SELECT hash,rev FROM {table} WHERE id=?1"),
+            &format!("SELECT hash,rev,missing_since FROM {table} WHERE id=?1"),
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    if old.as_ref().is_some_and(|(h, _)| h == &hash) {
-        return Ok(false);
+    let timestamp = Utc::now().to_rfc3339();
+    if old.as_ref().is_some_and(|(h, _, _)| h == &hash) {
+        let changed = old
+            .as_ref()
+            .is_some_and(|(_, _, missing)| missing.is_some());
+        tx.execute(&format!("UPDATE {table} SET last_seen_at=?2,missing_since=NULL,deleted_at=NULL,
+            value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"), params![id,timestamp])
+            .map_err(|e|e.to_string())?;
+        return Ok(changed);
     }
     let mut names = vec![
         "id",
@@ -253,9 +169,10 @@ fn upsert(
         "rev",
         "source",
         "deleted_at",
+        "last_seen_at",
+        "missing_since",
     ];
     names.extend(extra.iter().map(|(n, _)| *n));
-    let timestamp = Utc::now().to_rfc3339();
     let rev = old.map_or(0, |x| x.1) + 1;
     let mut stored = value.clone();
     if let Some(object) = stored.as_object_mut() {
@@ -263,6 +180,13 @@ fn upsert(
         object.insert("updatedAt".into(), timestamp.clone().into());
         object.insert("updatedBy".into(), "kyomu".into());
         object.insert("source".into(), json!({"provider":"kyomu"}));
+        object.insert(
+            "sourceKey".into(),
+            format!("kyomu:default:{table}:{id}").into(),
+        );
+        object.insert("lastSeenAt".into(), timestamp.clone().into());
+        object.remove("missingSince");
+        object.remove("deletedAt");
     }
     let mut values = vec![
         id.to_string().into(),
@@ -270,10 +194,12 @@ fn upsert(
             .map_err(|e| e.to_string())?
             .into(),
         hash.into(),
-        timestamp.into(),
+        timestamp.clone().into(),
         String::from("kyomu").into(),
         (rev as i64).into(),
         String::from("kyomu").into(),
+        rusqlite::types::Value::Null,
+        timestamp.clone().into(),
         rusqlite::types::Value::Null,
     ];
     values.extend(extra.iter().map(|(_, v)| v.clone()));
@@ -296,6 +222,35 @@ fn upsert(
     )
     .map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+fn mark_missing(
+    tx: &Transaction<'_>,
+    table: &str,
+    prefix: &str,
+    live: &HashSet<String>,
+) -> Result<usize, String> {
+    let mut statement = tx
+        .prepare(&format!(
+            "SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"
+        ))
+        .map_err(|e| e.to_string())?;
+    let pattern = format!("{prefix}%");
+    let stale = statement
+        .query_map([pattern], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    drop(statement);
+    let missing = Utc::now().to_rfc3339();
+    let mut changed = 0;
+    for id in stale.into_iter().filter(|id| !live.contains(id)) {
+        changed += tx.execute(
+            &format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),
+            params![id, missing],
+        ).map_err(|e| e.to_string())?;
+    }
+    Ok(changed)
 }
 
 fn number(raw: &str) -> Option<f64> {
@@ -352,7 +307,9 @@ pub fn gpa_summaries(data: &Value) -> Vec<Value> {
             entry.insert("fetchedAt".into(), fetched.clone().into());
             current = Some(entry);
         }
-        let Some(entry) = current.as_mut() else { continue };
+        let Some(entry) = current.as_mut() else {
+            continue;
+        };
         let key = if label.eq_ignore_ascii_case("GPA") {
             "gpa"
         } else if label.eq_ignore_ascii_case("GPT") {
@@ -388,19 +345,29 @@ pub fn declared_credits(data: &Value) -> Vec<Value> {
     let raw = |course: &Value| {
         ["lecture", "exercise", "lab"]
             .iter()
-            .filter_map(|key| course.pointer(&format!("/credits/{key}")).and_then(Value::as_f64))
+            .filter_map(|key| {
+                course
+                    .pointer(&format!("/credits/{key}"))
+                    .and_then(Value::as_f64)
+            })
             .sum::<f64>()
     };
     let mut unit_sums: HashMap<String, f64> = HashMap::new();
     for course in &courses {
-        let unit = course.get("unit").and_then(Value::as_str).unwrap_or_default();
+        let unit = course
+            .get("unit")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         *unit_sums.entry(unit.to_string()).or_default() += raw(course);
     }
     courses
         .iter()
         .filter_map(|course| {
             let offering = course.get("offeringId")?.as_str()?;
-            let unit = course.get("unit").and_then(Value::as_str).unwrap_or_default();
+            let unit = course
+                .get("unit")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let listed = raw(course);
             let sum = unit_sums.get(unit).copied().unwrap_or(0.0);
             let effective = match course.get("unitTotal").and_then(Value::as_f64) {
@@ -412,7 +379,10 @@ pub fn declared_credits(data: &Value) -> Vec<Value> {
             object.insert("id".into(), format!("kyomu-declared:{offering}").into());
             object.insert("kind".into(), "declared".into());
             // Two decimals: halves and quarters stay exact, float noise does not.
-            object.insert("effectiveCredits".into(), ((effective * 100.0).round() / 100.0).into());
+            object.insert(
+                "effectiveCredits".into(),
+                ((effective * 100.0).round() / 100.0).into(),
+            );
             Some(row)
         })
         .collect()
@@ -428,8 +398,10 @@ pub fn apply_kyomu_payload(
     let mut changed = 0;
     match payload.kind.as_str() {
         "registrations" => {
+            let mut state_ids = HashSet::new();
             if let Some(state) = payload.data.get("state") {
                 let id = "kyomu-registration-state";
+                state_ids.insert(id.to_string());
                 let mut value = state.clone();
                 if let Some(o) = value.as_object_mut() {
                     o.insert("id".into(), id.into());
@@ -447,6 +419,9 @@ pub fn apply_kyomu_payload(
                 let Some(offering) = course.get("offeringId").and_then(Value::as_str) else {
                     continue;
                 };
+                if let Some(Ok(year)) = offering.get(..4).map(str::parse::<i32>) {
+                    resolve_course_id(&tx, "kyomu", offering, year, Some(offering))?;
+                }
                 let id = format!("kyomu-registration:{offering}");
                 ids.insert(id.clone());
                 let mut value = course.clone();
@@ -455,6 +430,13 @@ pub fn apply_kyomu_payload(
                 }
                 changed += usize::from(upsert(&tx, "registrations", &id, &value, &[])?);
             }
+            changed += mark_missing(&tx, "registrations", "kyomu-registration:", &ids)?;
+            changed += mark_missing(
+                &tx,
+                "registration_states",
+                "kyomu-registration-state",
+                &state_ids,
+            )?;
         }
         "declared" => {
             let rows = declared_credits(&payload.data);
@@ -468,7 +450,7 @@ pub fn apply_kyomu_payload(
             }
             // The page lists every declaration; withdrawn ones leave it.
             let mut statement = tx
-                .prepare("SELECT id FROM registrations WHERE id LIKE 'kyomu-declared:%' AND deleted_at IS NULL")
+                .prepare("SELECT id FROM registrations WHERE id LIKE 'kyomu-declared:%' AND missing_since IS NULL")
                 .map_err(|e| e.to_string())?;
             let stale = statement
                 .query_map([], |r| r.get::<_, String>(0))
@@ -477,16 +459,17 @@ pub fn apply_kyomu_payload(
                 .map_err(|e| e.to_string())?;
             drop(statement);
             for id in stale.into_iter().filter(|id| !live.contains(id)) {
-                let deleted = Utc::now().to_rfc3339();
+                let missing = Utc::now().to_rfc3339();
                 changed += tx
                     .execute(
-                        "UPDATE registrations SET deleted_at=?2,rev=rev+1,value=json_set(value,'$.deletedAt',?2) WHERE id=?1",
-                        params![id, deleted],
+                        "UPDATE registrations SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1",
+                        params![id, missing],
                     )
                     .map_err(|e| e.to_string())?;
             }
         }
         "grades" => {
+            let mut live = HashSet::new();
             for group in payload
                 .data
                 .get("groups")
@@ -505,6 +488,7 @@ pub fn apply_kyomu_payload(
                     let code = row.get("code").and_then(Value::as_str).unwrap_or("");
                     let completed = row.get("completed").and_then(Value::as_str).unwrap_or("");
                     let id = format!("kyomu-grade:{code}:{completed}:{index}");
+                    live.insert(id.clone());
                     let mut value = row.clone();
                     if let Some(o) = value.as_object_mut() {
                         o.insert("id".into(), id.clone().into());
@@ -513,8 +497,10 @@ pub fn apply_kyomu_payload(
                     changed += usize::from(upsert(&tx, "grades", &id, &value, &[])?);
                 }
             }
+            changed += mark_missing(&tx, "grades", "kyomu-grade:", &live)?;
         }
         "requirements" => {
+            let mut live = HashSet::new();
             for (table_index, table) in payload
                 .data
                 .get("tables")
@@ -547,6 +533,7 @@ pub fn apply_kyomu_payload(
                             .and_then(Value::as_str)
                             .unwrap_or("");
                         let id = format!("kyomu-requirement:{table_index}:{category}:{label}");
+                        live.insert(id.clone());
                         let record = json!({"id":id,"table":table_index,"category":category,"label":label,"value":value});
                         changed += usize::from(upsert(
                             &tx,
@@ -558,10 +545,13 @@ pub fn apply_kyomu_payload(
                     }
                 }
             }
+            changed += mark_missing(&tx, "requirement_progress", "kyomu-requirement:", &live)?;
         }
         "gpa" => {
+            let mut summary_ids = HashSet::new();
             for summary in gpa_summaries(&payload.data) {
                 let id = summary["id"].as_str().unwrap_or_default().to_string();
+                summary_ids.insert(id.clone());
                 let scope = summary["scope"].as_str().unwrap_or_default().to_string();
                 changed += usize::from(upsert(
                     &tx,
@@ -571,6 +561,7 @@ pub fn apply_kyomu_payload(
                     &[("scope", scope.into())],
                 )?);
             }
+            let mut term_ids = HashSet::new();
             for (index, row) in payload
                 .data
                 .get("terms")
@@ -580,9 +571,12 @@ pub fn apply_kyomu_payload(
                 .enumerate()
             {
                 let id = format!("kyomu-gpa-term:{index}");
+                term_ids.insert(id.clone());
                 let value = json!({"id":id,"cells":row});
                 changed += usize::from(upsert(&tx, "gpa_by_term", &id, &value, &[])?);
             }
+            changed += mark_missing(&tx, "gpa_summary", "kyomu-gpa:", &summary_ids)?;
+            changed += mark_missing(&tx, "gpa_by_term", "kyomu-gpa-term:", &term_ids)?;
         }
         _ => return Err("unsupported kyomu payload".into()),
     }

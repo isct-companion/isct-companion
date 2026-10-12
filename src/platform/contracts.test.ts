@@ -52,6 +52,7 @@ const runtime = (
     notifications: true,
     backgroundSchedule: true,
     cloudSync: true,
+    matrixOcr: true,
   },
   school: { status: "not-configured" },
   background: { scheduler: "off" },
@@ -101,12 +102,26 @@ describe("runtime capabilities", () => {
 });
 
 describe("Tauri bridge contract", () => {
+  it("passes an optional LMS course scope to the native pull", async () => {
+    const invoke = vi.fn(async () => []);
+    const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
+
+    await bridge.pullSchool?.("science-lms", { lmsCourseId: 42 });
+
+    expect(invoke).toHaveBeenCalledWith("pull_school", {
+      site: "science-lms",
+      lmsCourseId: 42,
+    });
+  });
+
   it("maps credential, session, and webview calls to narrow commands", async () => {
     const invoke = vi.fn(async (command: string) => {
       if (command === "save_school_credentials") return true;
       if (command === "ensure_school_session") return false;
       if (command === "navigate_school_web") return true;
       if (command === "set_school_web_zoom") return true;
+      if (command === "school_web_back") return false;
+      if (command === "school_web_forward") return true;
       if (command === "open_school_site")
         return {
           site: "science-portal",
@@ -135,6 +150,7 @@ describe("Tauri bridge contract", () => {
       "https://isct.ex-tic.com/idm/user/portal/",
     );
     await bridge.setSchoolWebZoom?.("science-portal", 1.2);
+    await expect(bridge.schoolWebBack?.("kyomu")).resolves.toBe(false);
     expect(invoke).toHaveBeenNthCalledWith(1, "save_school_credentials", {
       profile: "science",
       credentials,
@@ -157,6 +173,68 @@ describe("Tauri bridge contract", () => {
       site: "science-portal",
       scale: 1.2,
     });
+    expect(invoke).toHaveBeenNthCalledWith(6, "school_web_back", {
+      site: "kyomu",
+    });
+    await expect(bridge.schoolWebForward?.("kyomu")).resolves.toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("school_web_forward", {
+      site: "kyomu",
+    });
+  });
+
+  it("copies the saved Matrix through its own native command", async () => {
+    const invoke = vi.fn(async () => true);
+    const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
+    await expect(bridge.copySchoolMatrix()).resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith("copy_school_matrix", undefined);
+  });
+
+  it("reveals saved school downloads and filters download events", async () => {
+    const invoke = vi.fn(async () => true);
+    let handler: ((value: unknown) => void) | undefined;
+    const unlisten = vi.fn();
+    const listen = vi.fn(
+      async (_event: string, callback: (value: unknown) => void) => {
+        handler = callback;
+        return unlisten;
+      },
+    );
+    const bridge = createTauriDesktopBridge(invoke, listen, "native-desktop");
+    const path = "/Users/student/Downloads/LAIIAssignment1.pdf";
+    await expect(bridge.revealSchoolDownload?.(path)).resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith("reveal_school_download", { path });
+
+    const callback = vi.fn();
+    const dispose = bridge.onSchoolDownload?.(callback);
+    await Promise.resolve();
+    expect(listen).toHaveBeenCalledWith(
+      "school-download",
+      expect.any(Function),
+    );
+    const site = "science-lms";
+    handler?.({ site, state: "started", name: "a.docx", url: "https://x" });
+    handler?.({ site, state: "done", name: "a.docx", path });
+    handler?.({ site, state: "failed", name: "a.docx" });
+    handler?.({ site, state: "done", name: "a.docx" });
+    handler?.({ site, state: "paused", name: "a.docx" });
+    handler?.({ site, state: "done", name: 1, path });
+    handler?.(null);
+    expect(callback.mock.calls.map(([event]) => event)).toEqual([
+      { site, state: "started", name: "a.docx", path: undefined },
+      { site, state: "done", name: "a.docx", path },
+      { site, state: "failed", name: "a.docx", path: undefined },
+    ]);
+    dispose?.();
+    expect(unlisten).toHaveBeenCalledOnce();
+  });
+
+  it("saves exports through the native dialog, not a webview download", async () => {
+    const invoke = vi.fn(async () => false);
+    const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
+    const name = "campus-life-2026-2Q.ics";
+    const contents = "BEGIN:VCALENDAR\r\nEND:VCALENDAR";
+    await expect(bridge.saveFile(name, contents)).resolves.toBe(false);
+    expect(invoke).toHaveBeenCalledWith("save_file", { name, contents });
   });
 
   it("saves exports through the native dialog, not a webview download", async () => {

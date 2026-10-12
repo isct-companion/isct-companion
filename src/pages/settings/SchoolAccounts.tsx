@@ -1,3 +1,5 @@
+import { errorText } from "../../app/shared";
+import { notify as appNotify } from "../../app/notify";
 import { useEffect, useRef, useState } from "react";
 import {
   Badge,
@@ -5,7 +7,6 @@ import {
   FileButton,
   Group,
   Paper,
-  PasswordInput,
   Progress,
   Stack,
   Text,
@@ -20,6 +21,7 @@ import {
   MATRIX_SIZE,
   matrixConfidence,
   normalizeMatrixText,
+  parseMatrixText,
   recognizeMatrixImage,
 } from "../../core/matrix-ocr";
 import type {
@@ -34,8 +36,20 @@ import {
 } from "../../platform/school-session";
 
 const emptyStatus: SchoolCredentialStatus = {
-  science: { saved: false, username: "", hasOtp: false, hasMatrix: false },
-  tokyoTech: { saved: false, username: "", hasOtp: false, hasMatrix: false },
+  science: {
+    availability: "not-configured",
+    saved: false,
+    username: "",
+    hasOtp: false,
+    hasMatrix: false,
+  },
+  tokyoTech: {
+    availability: "not-configured",
+    saved: false,
+    username: "",
+    hasOtp: false,
+    hasMatrix: false,
+  },
 };
 
 type Draft = {
@@ -128,6 +142,8 @@ function MatrixEditor({
   notify,
   disabled,
   onScanState,
+  onCopy,
+  matrixOcrAvailable,
 }: {
   disabled: boolean;
   onScanState: (scanning: boolean) => void;
@@ -136,6 +152,8 @@ function MatrixEditor({
   onBeginEdit: () => void;
   onChange: (value: string[]) => void;
   notify: (message: string) => void;
+  onCopy: () => void;
+  matrixOcrAvailable: boolean;
 }) {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const [recognizing, setRecognizing] = useState(false);
@@ -165,6 +183,17 @@ function MatrixEditor({
     onChange(next);
     inputs.current[Math.min(MATRIX_SIZE - 1, start + letters.length)]?.focus();
   };
+  const load = (text: string) => {
+    try {
+      const cells = parseMatrixText(text);
+      onBeginEdit();
+      onChange(cells);
+      setConfidence([]);
+      notify("Matrix pasted. Verify it against your card, then Connect.");
+    } catch (error) {
+      appNotify.error(error);
+    }
+  };
   const recognize = async (file?: File) => {
     if (!file || recognizing || disabled) return;
     setRecognizing(true);
@@ -185,7 +214,7 @@ function MatrixEditor({
         "Scan complete. Verify all letters against your card; highlighted cells need review.",
       );
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Matrix OCR failed.");
+      appNotify.error(error);
     } finally {
       resetScanInput.current?.();
       setRecognizing(false);
@@ -197,24 +226,36 @@ function MatrixEditor({
       <div className="matrixTools">
         <b>Matrix</b>
         <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
-        <FileButton
-          resetRef={resetScanInput}
-          disabled={recognizing || disabled}
-          onChange={(file) => void recognize(file ?? undefined)}
-          accept="image/*"
-        >
-          {(props) => (
-            <Button
-              {...props}
-              variant="default"
-              size="compact-xs"
-              loading={recognizing}
-              disabled={disabled}
-            >
-              {recognizing ? `Reading ${scanProgress}/70…` : "Scan image"}
-            </Button>
-          )}
-        </FileButton>
+        {matrixOcrAvailable && (
+          <FileButton
+            resetRef={resetScanInput}
+            disabled={recognizing || disabled}
+            onChange={(file) => void recognize(file ?? undefined)}
+            accept="image/*"
+          >
+            {(props) => (
+              <Button
+                {...props}
+                variant="default"
+                size="compact-xs"
+                loading={recognizing}
+                disabled={disabled}
+              >
+                {recognizing ? `Reading ${scanProgress}/70…` : "Scan image"}
+              </Button>
+            )}
+          </FileButton>
+        )}
+        {masked && (
+          <Button
+            variant="default"
+            size="compact-xs"
+            disabled={recognizing || disabled}
+            onClick={onCopy}
+          >
+            Copy
+          </Button>
+        )}
       </div>
       {!masked && (
         <div
@@ -284,7 +325,12 @@ function MatrixEditor({
                   }}
                   onPaste={(event) => {
                     event.preventDefault();
-                    write(index, event.clipboardData.getData("text"));
+                    const text = event.clipboardData.getData("text");
+                    // A complete Matrix always replaces the grid from A1;
+                    // shorter snippets continue from the focused cell.
+                    if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
+                      load(text);
+                    else write(index, text);
                   }}
                   onKeyDown={(event) => {
                     if (
@@ -338,6 +384,7 @@ function Account({
   refresh,
   notify,
   showLoginPage,
+  matrixOcrAvailable,
 }: {
   profile: SchoolAuthProfile;
   title: string;
@@ -347,6 +394,7 @@ function Account({
   refresh: () => Promise<void>;
   notify: (message: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
+  matrixOcrAvailable: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [matrixReplacing, setMatrixReplacing] = useState(false);
@@ -400,7 +448,11 @@ function Account({
   }, [profile]);
   const stored = useSchoolSession(desktopBridge, profile);
   // Signed in, failed, or not set up; nothing while the first result is out.
-  const session = !summary.saved
+  const unavailable = summary.availability
+    ? summary.availability === "not-configured" ||
+      summary.availability === "missing"
+    : !summary.saved;
+  const session = unavailable
     ? "not-configured"
     : stored === "not-configured"
       ? undefined
@@ -445,9 +497,26 @@ function Account({
         state: "error",
         step: "",
         message:
-          error instanceof Error ? error.message : "Sign-in could not start.",
+          errorText(error) ?? "Sign-in could not start.",
       });
       setBusy(false);
+      await refresh().catch(() => undefined);
+    }
+  };
+  const copyMatrix = async () => {
+    if (
+      !desktopBridge ||
+      !confirm(
+        "Copy the saved Matrix as plain text? Other apps may be able to read the clipboard until you replace it.",
+      )
+    )
+      return;
+    try {
+      if (await desktopBridge.copySchoolMatrix())
+        notify("Matrix copied. Paste it soon, then replace your clipboard.");
+    } catch (error) {
+      // Native commands reject with their error string.
+      appNotify.error(error);
     }
   };
   const forget = async () => {
@@ -473,6 +542,7 @@ function Account({
     <Paper
       component="section"
       className="schoolAccount"
+      data-setting={profile === "science" ? "science" : "tokyo-tech"}
       p="md"
       radius="md"
       withBorder
@@ -513,6 +583,18 @@ function Account({
           )}
         </div>
       )}
+      {summary.availability === "missing" && (
+        <Text c="red" size="sm">
+          Saved credentials are missing from the system credential vault. Enter
+          them again.
+        </Text>
+      )}
+      {summary.availability === "access-denied" && (
+        <Text c="orange" size="sm">
+          The system credential vault is unavailable. Existing credentials were
+          not changed.
+        </Text>
+      )}
       <div className="credentialFields">
         <TextInput
           label="ID"
@@ -523,23 +605,26 @@ function Account({
             setDraft({ ...draft, username: event.target.value })
           }
         />
-        <PasswordInput
+        {/* A saved secret shows as fixed dots; typing replaces it, blank keeps it. */}
+        <TextInput
+          type="password"
           label="Password"
           value={draft.password}
-          placeholder={summary.saved ? "••••••••" : ""}
+          placeholder={summary.saved ? SAVED_SECRET : ""}
           autoComplete="current-password"
           onChange={(event) =>
             setDraft({ ...draft, password: event.target.value })
           }
         />
         {profile === "science" && (
-          <PasswordInput
+          <TextInput
+            type="password"
             className="wide"
             label="OTP setup link or secret"
             value={draft.otpSecret}
             autoCapitalize="none"
             autoComplete="off"
-            placeholder={summary.hasOtp ? "••••••••" : "otpauth://… or Base32"}
+            placeholder={summary.hasOtp ? SAVED_SECRET : "otpauth://… or Base32"}
             onChange={(event) =>
               setDraft({ ...draft, otpSecret: event.target.value })
             }
@@ -555,6 +640,8 @@ function Account({
           onBeginEdit={() => setMatrixReplacing(true)}
           onChange={(matrix) => setDraft({ ...draft, matrix })}
           notify={notify}
+          onCopy={() => void copyMatrix()}
+          matrixOcrAvailable={matrixOcrAvailable}
         />
       )}
       <div className="actions schoolAccountActions">
@@ -580,12 +667,17 @@ function Account({
   );
 }
 
+/** What a saved password or OTP setup shows in its empty field. */
+const SAVED_SECRET = "••••••••";
+
 export function SchoolAccounts({
   notify,
   showLoginPage,
+  matrixOcrAvailable,
 }: {
   notify: (message: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
+  matrixOcrAvailable: boolean;
 }) {
   const [status, setStatus] = useState(emptyStatus);
   const [science, setScience] = useState(emptyDraft);
@@ -605,21 +697,19 @@ export function SchoolAccounts({
   };
   useEffect(() => {
     void refresh().catch((error) =>
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Credential vault is unavailable.",
-      ),
+      appNotify.error(error),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!desktopBridge)
-    return <small>Native encrypted storage is unavailable.</small>;
+    return (
+      <p className="settingsNote">
+        School sign-in needs the installed app, which keeps passwords in the
+        system keychain.
+      </p>
+    );
   return (
     <div className="schoolAccounts">
-      {import.meta.env.DEV && (
-        <div className="loginCaptureBadge">Capture active · Science Portal</div>
-      )}
       <Account
         profile="science"
         title="Science Tokyo Portal"
@@ -629,6 +719,7 @@ export function SchoolAccounts({
         refresh={refresh}
         notify={notify}
         showLoginPage={showLoginPage}
+        matrixOcrAvailable={matrixOcrAvailable}
       />
       <Account
         profile="tokyo-tech"
@@ -639,6 +730,7 @@ export function SchoolAccounts({
         refresh={refresh}
         notify={notify}
         showLoginPage={showLoginPage}
+        matrixOcrAvailable={matrixOcrAvailable}
       />
     </div>
   );

@@ -1,13 +1,15 @@
+pub mod cloud_merge;
 pub mod migrations;
 pub mod versioned;
 
 use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
-use versioned::{content_hash, update, MergeMethod, VersionedValue};
+use versioned::{content_hash, VersionedValue};
 
 const COLLECTIONS: &[(&str, &str)] = &[
     ("courses", "timetable_courses"),
@@ -24,37 +26,119 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("gpaSummary", "gpa_summary"),
     ("departments", "departments"),
     ("recommendedCourses", "recommended_courses"),
+    ("importantDates", "important_dates"),
+    ("exams", "exams"),
+    ("scheduleOverrides", "schedule_overrides"),
     ("subscriptions", "subscriptions"),
     ("scheduledTasks", "scheduled_tasks"),
 ];
 
-const SCHOOL_OWNED_TABLES: &[&str] = &["assignments", "lms_items", "gpa_summary", "offerings"];
-
-const EXPORTED_TABLES: &[&str] = &[
+const SCHOOL_CACHE_TABLES: &[&str] = &[
     "timetable_courses",
-    "course_overrides",
-    "plan_items",
     "memberships",
-    "personal_events",
-    "calendar_exceptions",
-    "assignment_marks",
-    "intensive_schedules",
-    "plans",
-    "subscriptions",
-    "scheduled_tasks",
+    "assignments",
+    "offerings",
+    "lms_courses",
+    "lms_items",
     "registrations",
     "registration_states",
     "grades",
     "requirement_progress",
-    "lms_courses",
-    "lms_items",
-    "assignments",
     "gpa_summary",
     "gpa_by_term",
     "academic_calendar",
     "departments",
     "recommended_courses",
+    "important_dates",
+    "exams",
 ];
+
+/// Local backup payload. School/reference caches are intentionally absent:
+/// they can be fetched again and must never become user-owned by export.
+pub(crate) const USER_BACKUP_TABLES: &[&str] = &[
+    "manual_courses",
+    "manual_memberships",
+    "course_overrides",
+    "plan_items",
+    "personal_events",
+    "calendar_exceptions",
+    "assignment_marks",
+    "intensive_schedules",
+    "plans",
+    "schedule_overrides",
+    "subscriptions",
+];
+
+pub(crate) const USER_BACKUP_SETTINGS: &[&str] = &["userPreferences", "academicProfile", "terms"];
+const BACKUP_KIND: &str = "IsctCompanion.local-backup";
+const BACKUP_SCHEMA_VERSION: u64 = 6;
+
+fn merge_object(target: &mut Value, source: Value) {
+    let (Some(target), Value::Object(source)) = (target.as_object_mut(), source) else {
+        return;
+    };
+    for (key, value) in source {
+        if value.is_null() {
+            continue;
+        }
+        if value.is_object() && target.get(&key).is_some_and(Value::is_object) {
+            merge_object(target.get_mut(&key).expect("checked"), value);
+        } else {
+            target.insert(key, value);
+        }
+    }
+}
+
+/// Optional contract fields are omitted on the wire. The two model fields
+/// whose absence has domain meaning remain explicitly nullable.
+fn normalize_optional_nulls(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|key, child| {
+                if child.is_null() {
+                    return matches!(key.as_str(), "dueAt" | "periods");
+                }
+                normalize_optional_nulls(child);
+                true
+            });
+        }
+        Value::Array(values) => values.iter_mut().for_each(normalize_optional_nulls),
+        _ => {}
+    }
+}
+
+fn settings_parts(settings: &Value) -> (Value, Value, Value) {
+    let user = json!({
+        "departmentId": settings.get("departmentId"),
+        "notifications": {
+            "classes": settings.pointer("/notifications/classes"),
+            "assignments": settings.pointer("/notifications/assignments"),
+            "classLeadMinutes": settings.pointer("/notifications/classLeadMinutes")
+        },
+        "customization": settings.get("customization")
+    });
+    let device = json!({
+        "lmsBilingualFilter": settings.get("lmsBilingualFilter"),
+        "autoDownloadLimitMb": settings.get("autoDownloadLimitMb"),
+        "autoCleanDays": settings.get("autoCleanDays"),
+        "agentAccess": settings.get("agentAccess"),
+        "appearance": settings.get("appearance"),
+        "density": settings.get("density"),
+        "textSize": settings.get("textSize"),
+        "restoreSchoolPage": settings.get("restoreSchoolPage"),
+        "activeSchoolSite": settings.get("activeSchoolSite"),
+        "schoolServiceWidth": settings.get("schoolServiceWidth"),
+        "schoolWebZoom": settings.get("schoolWebZoom"),
+        "showGrades": settings.get("showGrades"),
+        "siteConsents": settings.get("siteConsents"),
+        "locale": settings.get("locale"),
+        "contentLanguage": settings.get("contentLanguage"),
+        "subscriptionRefresh": settings.get("subscriptionRefresh"),
+        "notifications": {"localPermission": settings.pointer("/notifications/localPermission")}
+    });
+    let cloud = settings.get("cloud").cloned().unwrap_or_else(|| json!({}));
+    (user, device, cloud)
+}
 
 #[derive(Clone)]
 pub struct DataStore {
@@ -67,22 +151,84 @@ fn now() -> String {
 
 fn quarter_for_month(month: u32) -> &'static str {
     match month {
-        12 | 1 => "4Q",
+        12 | 1..=3 => "4Q",
         10 | 11 => "3Q",
         6..=9 => "2Q",
         _ => "1Q",
     }
 }
 
+/// One authoritative resolver for every native consumer. User-configured
+/// starts intentionally override subscribed calendar boundaries. When no
+/// usable boundary exists, keep the user's selected term instead of guessing
+/// from hard-coded month ranges.
+fn current_term_for(workspace: &Value, date: chrono::NaiveDate) -> Option<String> {
+    let mut starts: Vec<(chrono::NaiveDate, String, u8)> = Vec::new();
+    let mut configured = HashSet::new();
+    if let Some(years) = workspace
+        .pointer("/academicProfile/years")
+        .and_then(Value::as_array)
+    {
+        for year in years {
+            let Some(academic_year) = year.get("academicYear").and_then(Value::as_i64) else {
+                continue;
+            };
+            for quarter in ["1Q", "2Q", "3Q", "4Q"] {
+                if let Some(start) = year
+                    .pointer(&format!("/quarterStarts/{quarter}"))
+                    .and_then(Value::as_str)
+                    .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+                {
+                    configured.insert((academic_year, quarter));
+                    starts.push((start, format!("{academic_year}-{quarter}"), 2));
+                }
+            }
+        }
+    }
+    if let Some(days) = workspace.get("academicCalendar").and_then(Value::as_array) {
+        for day in days {
+            if day.get("deletedAt").is_some() || day.get("missingSince").is_some() {
+                continue;
+            }
+            if day.get("type").and_then(Value::as_str) != Some("quarter-start") {
+                continue;
+            }
+            if let (Some(start), Some(year), Some(quarter)) = (
+                day.get("date")
+                    .and_then(Value::as_str)
+                    .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()),
+                day.get("academicYear").and_then(Value::as_i64),
+                day.get("quarter").and_then(Value::as_str),
+            ) {
+                if configured.contains(&(year, quarter)) {
+                    continue;
+                }
+                starts.push((start, format!("{year}-{quarter}"), 1));
+            }
+        }
+    }
+    starts
+        .into_iter()
+        .filter(|(start, _, _)| start <= &date)
+        .max_by_key(|(start, _, priority)| (*start, *priority))
+        .map(|(_, term, _)| term)
+        .or_else(|| {
+            workspace
+                .get("selectedTerm")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+}
+
 fn empty_workspace() -> Value {
     let date = Utc::now().date_naive();
-    let year = if date.month() == 1 {
+    let year = if date.month() < 4 {
         date.year() - 1
     } else {
         date.year()
     };
     let term = format!("{year}-{}", quarter_for_month(date.month()));
-    json!({
+    let mut workspace = json!({
         "schemaVersion": 3,
         "deviceId": Uuid::new_v4().to_string(),
         "selectedTerm": term,
@@ -101,6 +247,9 @@ fn empty_workspace() -> Value {
         "gpaSummary": [],
         "departments": [],
         "recommendedCourses": [],
+        "importantDates": [],
+        "exams": [],
+        "scheduleOverrides": [],
         "subscriptions": [],
         "scheduledTasks": [],
         "settings": {
@@ -117,7 +266,6 @@ fn empty_workspace() -> Value {
                 "provider": "none",
                 "clientId": "",
                 "redirectUri": "http://127.0.0.1:42813/oauth/callback",
-                "frequency": "launch",
                 "conflict": "resolve-manually"
             },
             "customization": {
@@ -135,8 +283,47 @@ fn empty_workspace() -> Value {
         "importStatus": {"school": "not-configured"},
         "syncStatus": {
             "state": "needs-configuration",
-            "message": "Choose a provider and add its OAuth client ID."
+            "message": "Cloud sync is off."
         }
+    });
+    workspace["currentTerm"] = Value::String(term);
+    merge_object(
+        &mut workspace["settings"],
+        json!({
+            "restoreSchoolPage": false,
+            "schoolServiceWidth": 168,
+            "schoolWebZoom": 1,
+            "showGrades": false,
+            "siteConsents": {"portal": false, "lms": false, "syllabus": false},
+            "subscriptionRefresh": {"frequency": "daily", "allowCellular": false}
+        }),
+    );
+    workspace
+}
+
+fn reference_refresh_task(device_id: &str) -> Value {
+    json!({
+        "id": "builtin:reference-subscriptions",
+        "rev": 1,
+        "updatedAt": now(),
+        "updatedBy": device_id,
+        "name": "Reference subscriptions",
+        "action": "reference-refresh",
+        "schedule": "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0",
+        "enabled": true
+    })
+}
+
+fn lms_background_refresh_task(device_id: &str) -> Value {
+    json!({
+        "id": "builtin:lms-background-refresh",
+        "rev": 1,
+        "updatedAt": now(),
+        "updatedBy": device_id,
+        "name": "LMS background refresh",
+        "action": "lms-refresh",
+        "schedule": "RRULE:FREQ=HOURLY;INTERVAL=4;BYMINUTE=0",
+        "enabled": false
     })
 }
 
@@ -156,6 +343,31 @@ fn string_field<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("record is missing {key}"))
+}
+
+fn validate_contract<T: DeserializeOwned>(table: &str, value: &Value) -> Result<(), String> {
+    serde_json::from_value::<T>(value.clone())
+        .map(|_| ())
+        .map_err(|error| format!("{table} validation failed: {error}"))
+}
+
+fn validate_user_record(table: &str, value: &Value) -> Result<(), String> {
+    use crate::contracts::*;
+    match table {
+        "manual_courses" => validate_contract::<Course>(table, value),
+        "manual_memberships" => validate_contract::<Membership>(table, value),
+        "plan_items" => validate_contract::<PlanItem>(table, value),
+        "personal_events" => validate_contract::<PersonalEvent>(table, value),
+        "calendar_exceptions" => validate_contract::<CalendarException>(table, value),
+        "assignment_marks" => validate_contract::<AssignmentMark>(table, value),
+        "course_overrides" => validate_contract::<CourseOverride>(table, value),
+        "intensive_schedules" => validate_contract::<IntensiveSchedule>(table, value),
+        "plans" => validate_contract::<Plan>(table, value),
+        "schedule_overrides" => validate_contract::<ScheduleOverride>(table, value),
+        "subscriptions" => validate_contract::<Subscription>(table, value),
+        "scheduled_tasks" => validate_contract::<ScheduledTask>(table, value),
+        _ => Err("table has no user-data contract".into()),
+    }
 }
 
 fn row_version(value: &Value) -> Result<VersionedValue, String> {
@@ -194,6 +406,106 @@ fn read_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, String>
         })
         .collect();
     rows
+}
+
+fn read_visible_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, String> {
+    if !SCHOOL_CACHE_TABLES.contains(&table) {
+        return read_rows(connection, table);
+    }
+    let sql = format!("SELECT value FROM {table} WHERE missing_since IS NULL ORDER BY id");
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?
+        .map(|row| {
+            let raw = row.map_err(|error| error.to_string())?;
+            serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))
+        })
+        .collect();
+    rows
+}
+
+fn fill_missing(value: &mut Value, fallback: &Value) {
+    match (value, fallback) {
+        (Value::Object(value), Value::Object(fallback)) => {
+            for (key, fallback) in fallback {
+                if let Some(current) = value.get_mut(key) {
+                    fill_missing(current, fallback);
+                } else {
+                    value.insert(key.clone(), fallback.clone());
+                }
+            }
+        }
+        (Value::Array(value), Value::Array(fallback)) if value.len() == fallback.len() => {
+            for (current, fallback) in value.iter_mut().zip(fallback) {
+                fill_missing(current, fallback);
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn canonical_course_id(academic_year: i32, offering_id: &str) -> Result<String, String> {
+    if !(1000..=9999).contains(&academic_year)
+        || offering_id.len() != 9
+        || !offering_id.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err("course identity requires an academic year and 9-digit offering id".into());
+    }
+    Ok(format!("{academic_year}-{offering_id}"))
+}
+
+/// Resolve every school-facing identifier through one internal course id.
+/// Offering ids are authoritative; source-only courses keep a deterministic
+/// provider-scoped id until an offering becomes known.
+pub(crate) fn resolve_course_id(
+    transaction: &Transaction<'_>,
+    provider: &str,
+    external_id: &str,
+    academic_year: i32,
+    offering_id: Option<&str>,
+) -> Result<String, String> {
+    if !matches!(provider, "lms" | "syllabus" | "kyomu" | "manual") || external_id.trim().is_empty()
+    {
+        return Err("invalid course identity source".into());
+    }
+    let stored: Option<String> = transaction
+        .query_row(
+            "SELECT course_id FROM course_identity_map
+             WHERE provider=?1 AND external_id=?2 AND academic_year=?3",
+            params![provider, external_id, academic_year],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let course_id = if let Some(offering_id) = offering_id {
+        canonical_course_id(academic_year, offering_id)?
+    } else if let Some(stored) = stored {
+        stored
+    } else {
+        format!("{academic_year}-{provider}-{external_id}")
+    };
+    transaction
+        .execute(
+            "INSERT INTO course_identity_map
+             (provider,external_id,academic_year,course_id,offering_id,updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6)
+             ON CONFLICT(provider,external_id,academic_year) DO UPDATE SET
+               course_id=excluded.course_id,offering_id=excluded.offering_id,
+               updated_at=excluded.updated_at",
+            params![
+                provider,
+                external_id,
+                academic_year,
+                course_id,
+                offering_id,
+                now()
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(course_id)
 }
 
 fn read_stored_row(
@@ -238,7 +550,7 @@ fn upsert_row(
         if !force && version.rev < stored_rev {
             return Ok(false);
         }
-        if stored_hash == version.hash && stored_deleted == version.deleted_at {
+        if !force && stored_hash == version.hash && stored_deleted == version.deleted_at {
             return Ok(false);
         }
     }
@@ -270,63 +582,13 @@ fn upsert_row(
     Ok(true)
 }
 
-fn save_collection(
-    transaction: &Transaction<'_>,
-    table: &str,
-    rows: &[Value],
-    updated_by: &str,
-) -> Result<usize, String> {
-    let mut changed = 0;
-    let mut incoming = HashSet::new();
-    for row in rows {
-        incoming.insert(string_field(row, "id")?.to_string());
-        changed += usize::from(upsert_row(transaction, table, row, false)?);
-    }
-    let active_ids = {
-        let sql = format!("SELECT id, value, rev FROM {table} WHERE deleted_at IS NULL");
-        let mut statement = transaction
-            .prepare(&sql)
-            .map_err(|error| error.to_string())?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            })
-            .map_err(|error| error.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?
-    };
-    // Rows imported from LMS/教務Web are owned by the importers; a workspace
-    // save that has not reloaded them yet must not tombstone them.
-    if SCHOOL_OWNED_TABLES.contains(&table) {
-        return Ok(changed);
-    }
-    for (id, raw, rev) in active_ids {
-        if incoming.contains(&id) {
-            continue;
-        }
-        let mut value: Value =
-            serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))?;
-        let timestamp = now();
-        if let Some(object) = value.as_object_mut() {
-            object.insert("rev".into(), Value::from(rev + 1));
-            object.insert("updatedAt".into(), Value::String(timestamp.clone()));
-            object.insert("updatedBy".into(), Value::String(updated_by.to_string()));
-            object.insert("deletedAt".into(), Value::String(timestamp));
-        }
-        changed += usize::from(upsert_row(transaction, table, &value, true)?);
-    }
-    Ok(changed)
-}
-
 fn read_setting(connection: &Connection, key: &str) -> Result<Option<Value>, String> {
     let raw: Option<String> = connection
-        .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT value FROM settings WHERE key=?1 AND deleted_at IS NULL",
+            [key],
+            |row| row.get(0),
+        )
         .optional()
         .map_err(|error| error.to_string())?;
     raw.map(|raw| {
@@ -387,57 +649,9 @@ fn setting_version(row: &Value) -> Result<VersionedValue, String> {
     })
 }
 
-fn import_setting(
-    transaction: &Transaction<'_>,
-    row: &Value,
-    method: MergeMethod,
-) -> Result<(), String> {
+fn import_setting(transaction: &Transaction<'_>, row: &Value) -> Result<(), String> {
     let key = string_field(row, "key")?;
     let incoming = setting_version(row)?;
-    let current: Option<(String, String, String, i64, Option<String>, Option<String>)> =
-        transaction
-            .query_row(
-                "SELECT value, hash, updated_at, rev, source, deleted_at
-                 FROM settings WHERE key=?1",
-                [key],
-                |stored| {
-                    Ok((
-                        stored.get(0)?,
-                        stored.get(1)?,
-                        stored.get(2)?,
-                        stored.get(3)?,
-                        stored.get(4)?,
-                        stored.get(5)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|error| error.to_string())?;
-    if let Some((raw, hash, updated_at, rev, source, deleted_at)) = current {
-        let current = VersionedValue {
-            value: serde_json::from_str(&raw)
-                .map_err(|_| "stored setting is invalid JSON".to_string())?,
-            hash,
-            updated_at,
-            updated_by: "local".into(),
-            rev: rev as u64,
-            source,
-            deleted_at,
-        };
-        let merged = update(&current, &incoming, method);
-        if method == MergeMethod::ResolveManually && !merged.conflict.is_empty() {
-            return Err(serde_json::to_string(&json!({
-                "kind": "merge-conflict",
-                "table": "settings",
-                "id": key,
-                "changes": merged.conflict
-            }))
-            .map_err(|error| error.to_string())?);
-        }
-        if !merged.changed {
-            return Ok(());
-        }
-    }
     transaction
         .execute(
             "INSERT INTO settings
@@ -476,7 +690,9 @@ fn save_setting(
         )
         .optional()
         .map_err(|error| error.to_string())?;
-    if existing.as_ref().is_some_and(|(stored, _)| stored == &hash) {
+    if existing.as_ref().is_some_and(|(stored, _)| stored == &hash)
+        && read_setting(transaction, key)?.is_some()
+    {
         return Ok(false);
     }
     let rev = existing.map_or(1, |(_, rev)| rev + 1);
@@ -501,6 +717,72 @@ fn save_setting(
     Ok(true)
 }
 
+/// Checks a local backup document before anything is restored from it. The
+/// kind and schema come first so an old or foreign file is reported as such
+/// rather than by whichever field it happens to fail on.
+pub fn parse_import(document: &str) -> Result<Value, String> {
+    let parsed: Value =
+        serde_json::from_str(document).map_err(|_| "the file is not valid JSON".to_string())?;
+    if parsed.get("kind").and_then(Value::as_str) != Some(BACKUP_KIND) {
+        return Err("the file is not an IsctCompanion backup".into());
+    }
+    match parsed.get("schemaVersion") {
+        Some(version) if version.as_u64() == Some(BACKUP_SCHEMA_VERSION) => {}
+        Some(version) => {
+            return Err(format!(
+                "the backup uses schema version {version}; this app reads version {BACKUP_SCHEMA_VERSION}"
+            ))
+        }
+        None => return Err("the backup has no schema version".into()),
+    }
+    let exported_at = string_field(&parsed, "exportedAt")?;
+    DateTime::parse_from_rfc3339(exported_at)
+        .map_err(|_| "import exportedAt must be RFC 3339".to_string())?;
+    let tables = parsed
+        .get("tables")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "import tables must be an object".to_string())?;
+    if !parsed.get("localNotes").is_some_and(Value::is_array) {
+        return Err("import localNotes must be an array".into());
+    }
+    let required: HashSet<_> = USER_BACKUP_TABLES
+        .iter()
+        .copied()
+        .chain(["settings"])
+        .collect();
+    for table in &required {
+        if !tables.get(*table).is_some_and(Value::is_array) {
+            return Err(format!("import table {table} must be an array"));
+        }
+    }
+    for (name, rows) in tables {
+        let rows = rows
+            .as_array()
+            .ok_or_else(|| format!("import table {name} must be an array"))?;
+        for row in rows {
+            if name == "settings" {
+                string_field(row, "key")?;
+                setting_version(row)?;
+            } else {
+                string_field(row, "id")?;
+                row_version(row)?;
+            }
+        }
+    }
+
+    Ok(parsed)
+}
+
+pub(crate) fn validate_sync_document(document: &Value) -> Result<(), String> {
+    parse_import(&document.to_string())?;
+    for table in USER_BACKUP_TABLES {
+        for row in document["tables"][table].as_array().into_iter().flatten() {
+            validate_user_record(table, row)?;
+        }
+    }
+    Ok(())
+}
+
 impl DataStore {
     pub fn initialize(path: PathBuf) -> Result<(Self, bool), String> {
         if let Some(parent) = path.parent() {
@@ -517,7 +799,9 @@ impl DataStore {
                 [],
             )
             .map_err(|error| error.to_string())?;
-        Ok((Self { path }, rebuilt))
+        let store = Self { path };
+        store.ensure_defaults()?;
+        Ok((store, rebuilt))
     }
 
     fn open(&self) -> Result<Connection, String> {
@@ -526,11 +810,421 @@ impl DataStore {
         Ok(connection)
     }
 
+    fn ensure_defaults(&self) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let existing_device_id = read_setting(&connection, "deviceId")?;
+        let workspace = empty_workspace();
+        let device_id = existing_device_id
+            .as_ref()
+            .and_then(Value::as_str)
+            .unwrap_or(string_field(&workspace, "deviceId")?);
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        if existing_device_id.is_none() {
+            for key in [
+                "deviceId",
+                "selectedTerm",
+                "terms",
+                "academicProfile",
+                "importStatus",
+                "syncStatus",
+                "logs",
+            ] {
+                if let Some(value) = workspace.get(key) {
+                    save_setting(&transaction, key, value, device_id)?;
+                }
+            }
+            let (user, device, cloud) = settings_parts(&workspace["settings"]);
+            save_setting(&transaction, "userPreferences", &user, device_id)?;
+            save_setting(&transaction, "devicePreferences", &device, device_id)?;
+            save_setting(&transaction, "cloud", &cloud, device_id)?;
+        }
+        upsert_row(
+            &transaction,
+            "scheduled_tasks",
+            &reference_refresh_task(device_id),
+            false,
+        )?;
+        upsert_row(
+            &transaction,
+            "scheduled_tasks",
+            &lms_background_refresh_task(device_id),
+            false,
+        )?;
+        transaction.commit().map_err(|error| error.to_string())
+    }
+
+    fn user_table(table: &str) -> bool {
+        matches!(
+            table,
+            "plan_items"
+                | "manual_courses"
+                | "manual_memberships"
+                | "personal_events"
+                | "calendar_exceptions"
+                | "assignment_marks"
+                | "course_overrides"
+                | "intensive_schedules"
+                | "plans"
+                | "schedule_overrides"
+                | "subscriptions"
+                | "scheduled_tasks"
+        )
+    }
+
+    /// User-owned records are changed one row at a time. The database owns
+    /// IDs and revisions; callers cannot accidentally roll them backwards.
+    pub fn put_user_record(&self, table: &str, value: Value, actor: &str) -> Result<Value, String> {
+        self.put_user_record_checked(table, value, actor, None)
+    }
+
+    pub fn put_user_record_checked(
+        &self,
+        table: &str,
+        mut value: Value,
+        actor: &str,
+        expected_rev: Option<u64>,
+    ) -> Result<Value, String> {
+        if !Self::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| "record must be an object".to_string())?;
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        if table == "manual_courses" {
+            let offering = object
+                .get("offeringId")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let year = object
+                .get("termId")
+                .and_then(Value::as_str)
+                .and_then(|term| term.get(..4))
+                .and_then(|year| year.parse::<i32>().ok());
+            if let (Some(offering), Some(year)) = (offering, year) {
+                let source_provider = object
+                    .get("source")
+                    .and_then(|source| source.get("provider"))
+                    .and_then(Value::as_str);
+                let provider = match source_provider {
+                    Some(provider @ ("lms" | "syllabus" | "kyomu")) => provider,
+                    _ => "manual",
+                };
+                let external = object
+                    .get("source")
+                    .and_then(|source| source.get("externalId"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(&offering)
+                    .to_string();
+                let course_id =
+                    resolve_course_id(&transaction, provider, &external, year, Some(&offering))?;
+                object.insert("id".into(), Value::String(course_id));
+            }
+        }
+        let requested_id = object
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string);
+        let source_key = object
+            .get("sourceKey")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let target_key = object
+            .get("targetKey")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let overlay_id = if matches!(table, "assignment_marks" | "course_overrides") {
+            source_key
+                .as_deref()
+                .map(|source_key| {
+                    transaction
+                        .query_row(
+                            &format!("SELECT id FROM {table} WHERE source_key=?1"),
+                            [source_key],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()
+                        .map_err(|error| error.to_string())
+                })
+                .transpose()?
+                .flatten()
+        } else if table == "schedule_overrides" {
+            target_key
+                .as_deref()
+                .map(|target_key| {
+                    transaction
+                        .query_row(
+                            "SELECT id FROM schedule_overrides WHERE target_key=?1",
+                            [target_key],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()
+                        .map_err(|error| error.to_string())
+                })
+                .transpose()?
+                .flatten()
+        } else {
+            None
+        };
+        let id = requested_id
+            .or(overlay_id)
+            .unwrap_or_else(|| Uuid::now_v7().to_string());
+        let previous: Option<(String, i64)> = transaction
+            .query_row(
+                &format!("SELECT value, rev FROM {table} WHERE id=?1"),
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if let Some(expected) = expected_rev {
+            let actual = previous.as_ref().map(|(_, rev)| *rev as u64).unwrap_or(0);
+            if expected != actual {
+                return Err(format!(
+                    "revision conflict: {table}/{id} expected {expected}, actual {actual}"
+                ));
+            }
+        }
+        let revision = previous.as_ref().map_or(1, |(_, rev)| rev + 1);
+        object.insert("id".into(), Value::String(id.clone()));
+        object.insert("rev".into(), Value::from(revision));
+        object.insert("updatedAt".into(), Value::String(now()));
+        object.insert(
+            "updatedBy".into(),
+            read_setting(&transaction, "deviceId")?
+                .unwrap_or_else(|| Value::String(actor.to_string())),
+        );
+        object
+            .entry("source")
+            .or_insert_with(|| json!({"provider":"manual"}));
+        object.remove("deletedAt");
+        if let Some(source_key) = source_key {
+            if matches!(table, "assignment_marks" | "course_overrides") {
+                object.insert("sourceKey".into(), Value::String(source_key));
+            }
+        }
+        normalize_optional_nulls(&mut value);
+        validate_user_record(table, &value)?;
+        let unchanged = previous
+            .as_ref()
+            .and_then(|(raw, _)| serde_json::from_str::<Value>(raw).ok())
+            .is_some_and(|old| {
+                content_value(&old) == content_value(&value)
+                    && old.get("deletedAt") == value.get("deletedAt")
+            });
+        if unchanged || !upsert_row(&transaction, table, &value, true)? {
+            // Unchanged content keeps the stored revision; returning the
+            // bumped copy would make the caller's next expected rev wrong.
+            let (raw, _) = previous.ok_or_else(|| "record vanished during save".to_string())?;
+            transaction.commit().map_err(|error| error.to_string())?;
+            return serde_json::from_str(&raw)
+                .map_err(|_| format!("{table} contains invalid JSON"));
+        }
+        match table {
+            "assignment_marks" => {
+                transaction.execute(
+                    "UPDATE assignment_marks SET source_key=?2,assignment_id=?3,hidden=?4,completed_at=?5 WHERE id=?1",
+                    params![
+                        id,
+                        value.get("sourceKey").and_then(Value::as_str),
+                        value.get("assignmentId").and_then(Value::as_str),
+                        value.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+                        value.get("completedAt").and_then(Value::as_str),
+                    ],
+                ).map_err(|error| error.to_string())?;
+            }
+            "course_overrides" => {
+                transaction.execute(
+                    "UPDATE course_overrides SET source_key=?2,course_id=?3,title=?4,instructor=?5,color=?6 WHERE id=?1",
+                    params![
+                        id,
+                        value.get("sourceKey").and_then(Value::as_str),
+                        value.get("courseId").and_then(Value::as_str),
+                        value.get("title").and_then(Value::as_str),
+                        value.get("instructor").and_then(Value::as_str),
+                        value.get("color").and_then(Value::as_str),
+                    ],
+                ).map_err(|error| error.to_string())?;
+            }
+            "schedule_overrides" => {
+                transaction
+                    .execute(
+                        "UPDATE schedule_overrides SET target_key=?2 WHERE id=?1",
+                        params![id, value.get("targetKey").and_then(Value::as_str)],
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
+            _ => {}
+        }
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(value)
+    }
+
+    pub fn delete_user_record(&self, table: &str, id: &str, actor: &str) -> Result<bool, String> {
+        self.delete_user_record_checked(table, id, actor, None)
+    }
+
+    pub fn delete_user_record_checked(
+        &self,
+        table: &str,
+        id: &str,
+        actor: &str,
+        expected_rev: Option<u64>,
+    ) -> Result<bool, String> {
+        if !Self::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let raw: Option<(String, i64)> = transaction
+            .query_row(
+                &format!("SELECT value, rev FROM {table} WHERE id=?1"),
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let Some((raw, revision)) = raw else {
+            if expected_rev.is_some_and(|expected| expected != 0) {
+                return Err(format!(
+                    "revision conflict: {table}/{id} expected {}, actual 0",
+                    expected_rev.unwrap()
+                ));
+            }
+            return Ok(false);
+        };
+        if expected_rev.is_some_and(|expected| expected != revision as u64) {
+            return Err(format!(
+                "revision conflict: {table}/{id} expected {}, actual {revision}",
+                expected_rev.unwrap()
+            ));
+        }
+        let mut value: Value =
+            serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))?;
+        let timestamp = now();
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| format!("{table} contains a non-object record"))?;
+        object.insert("rev".into(), Value::from(revision + 1));
+        object.insert("updatedAt".into(), Value::String(timestamp.clone()));
+        object.insert(
+            "updatedBy".into(),
+            read_setting(&transaction, "deviceId")?
+                .unwrap_or_else(|| Value::String(actor.to_string())),
+        );
+        object.insert("deletedAt".into(), Value::String(timestamp));
+        upsert_row(&transaction, table, &value, true)?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
+    pub fn user_rows(&self, table: &str) -> Result<Vec<Value>, String> {
+        if !Self::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        read_rows(&self.open()?, table)
+    }
+
+    pub fn agent_access_enabled(&self) -> Result<bool, String> {
+        let connection = self.open()?;
+        Ok(read_setting(&connection, "devicePreferences")?
+            .or(read_setting(&connection, "settings")?)
+            .and_then(|value| {
+                value
+                    .pointer("/agentAccess/enabled")
+                    .and_then(Value::as_bool)
+            })
+            .unwrap_or(false))
+    }
+
+    pub fn record_agent_write(&self, tool: &str) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let key = if read_setting(&transaction, "devicePreferences")?.is_some() {
+            "devicePreferences"
+        } else {
+            "settings"
+        };
+        let mut settings = read_setting(&transaction, key)?.unwrap_or_else(|| json!({}));
+        let object = settings
+            .as_object_mut()
+            .ok_or_else(|| "settings must be an object".to_string())?;
+        let access = object
+            .entry("agentAccess")
+            .or_insert_with(|| json!({"enabled":false,"lastWrites":[]}));
+        let writes = access
+            .as_object_mut()
+            .and_then(|access| {
+                access
+                    .entry("lastWrites")
+                    .or_insert_with(|| json!([]))
+                    .as_array_mut()
+            })
+            .ok_or_else(|| "agent access history must be an array".to_string())?;
+        writes.insert(0, json!({"at": now(), "tool": tool}));
+        writes.truncate(20);
+        save_setting(&transaction, key, &settings, "mcp")?;
+        transaction.commit().map_err(|error| error.to_string())
+    }
+
+    pub fn put_workspace_setting(
+        &self,
+        key: &str,
+        value: Value,
+        actor: &str,
+    ) -> Result<(), String> {
+        if !matches!(
+            key,
+            "selectedTerm"
+                | "terms"
+                | "academicProfile"
+                | "userPreferences"
+                | "devicePreferences"
+                | "cloud"
+                | "importStatus"
+                | "syncStatus"
+                | "logs"
+        ) {
+            return Err("setting key is not writable".into());
+        }
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let device = read_setting(&transaction, "deviceId")?;
+        save_setting(
+            &transaction,
+            key,
+            &value,
+            device.as_ref().and_then(Value::as_str).unwrap_or(actor),
+        )?;
+        transaction.commit().map_err(|error| error.to_string())
+    }
+
     pub fn load_workspace(&self) -> Result<Value, String> {
         let connection = self.open()?;
         let mut workspace = empty_workspace();
         for (field, table) in COLLECTIONS {
-            workspace[*field] = Value::Array(read_rows(&connection, table)?);
+            workspace[*field] = Value::Array(read_visible_rows(&connection, table)?);
+        }
+        if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
+            courses.extend(read_rows(&connection, "manual_courses")?);
+        }
+        if let Some(memberships) = workspace
+            .get_mut("memberships")
+            .and_then(Value::as_array_mut)
+        {
+            memberships.extend(read_rows(&connection, "manual_memberships")?);
         }
         let marks = read_rows(&connection, "assignment_marks")?;
         if let Some(assignments) = workspace
@@ -541,9 +1235,14 @@ impl DataStore {
                 let Some(id) = assignment.get("id").and_then(Value::as_str) else {
                     continue;
                 };
+                let source_key = assignment
+                    .get("sourceKey")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id);
                 let Some(mark) = marks.iter().find(|mark| {
-                    mark.get("assignmentId").and_then(Value::as_str) == Some(id)
-                        && mark.get("deletedAt").is_none()
+                    mark.get("deletedAt").is_none()
+                        && (mark.get("sourceKey").and_then(Value::as_str) == Some(source_key)
+                            || mark.get("assignmentId").and_then(Value::as_str) == Some(id))
                 }) else {
                     continue;
                 };
@@ -551,8 +1250,41 @@ impl DataStore {
                     if mark.get("hidden").and_then(Value::as_bool) == Some(true) {
                         object.insert("hidden".into(), Value::Bool(true));
                     }
+                    object.insert(
+                        "pinned".into(),
+                        json!(mark.get("pinned").and_then(Value::as_bool).unwrap_or(false)),
+                    );
                     if let Some(completed) = mark.get("completedAt").and_then(Value::as_str) {
                         object.insert("completedAt".into(), Value::String(completed.to_string()));
+                    }
+                }
+            }
+        }
+        let overrides = read_rows(&connection, "course_overrides")?;
+        if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
+            for course in courses {
+                let Some(id) = course.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let source_key = course
+                    .get("sourceKey")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id);
+                if let Some(overlay) = overrides.iter().find(|row| {
+                    row.get("deletedAt").is_none()
+                        && (row.get("sourceKey").and_then(Value::as_str) == Some(source_key)
+                            || row.get("courseId").and_then(Value::as_str) == Some(id))
+                }) {
+                    if let Some(object) = course.as_object_mut() {
+                        object.insert(
+                            "overrides".into(),
+                            json!({
+                                "title": overlay.get("title"),
+                                "instructor": overlay.get("instructor"),
+                                "color": overlay.get("color"),
+                                "lessonLog": overlay.get("lessonLog")
+                            }),
+                        );
                     }
                 }
             }
@@ -571,77 +1303,23 @@ impl DataStore {
                 workspace[key] = value;
             }
         }
+        for key in ["userPreferences", "devicePreferences"] {
+            if let Some(value) = read_setting(&connection, key)? {
+                merge_object(&mut workspace["settings"], value);
+            }
+        }
+        if let Some(value) = read_setting(&connection, "cloud")? {
+            workspace["settings"]["cloud"] = value;
+        }
+        let today_jst = (Utc::now() + chrono::Duration::hours(9)).date_naive();
+        workspace["currentTerm"] = Value::String(
+            current_term_for(&workspace, today_jst)
+                .ok_or_else(|| "current academic term is not configured".to_string())?,
+        );
+        normalize_optional_nulls(&mut workspace);
+        let _: crate::contracts::Workspace = serde_json::from_value(workspace.clone())
+            .map_err(|error| format!("workspace validation failed: {error}"))?;
         Ok(workspace)
-    }
-
-    pub fn save_workspace(&self, workspace: &Value) -> Result<usize, String> {
-        if workspace.get("schemaVersion").and_then(Value::as_u64) != Some(3) {
-            return Err("workspace schema must be version 3".into());
-        }
-        let device_id = string_field(workspace, "deviceId")?;
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
-        let mut changed = 0;
-        for (field, table) in COLLECTIONS {
-            let source_rows = workspace
-                .get(*field)
-                .and_then(Value::as_array)
-                .ok_or_else(|| format!("workspace {field} must be an array"))?;
-            if *field == "assignments" {
-                let assignments = source_rows
-                    .iter()
-                    .map(|row| {
-                        let mut row = row.clone();
-                        if let Some(object) = row.as_object_mut() {
-                            object.remove("hidden");
-                            object.remove("completedAt");
-                        }
-                        row
-                    })
-                    .collect::<Vec<_>>();
-                changed += save_collection(&transaction, table, &assignments, device_id)?;
-                let marks = source_rows
-                    .iter()
-                    .filter(|row| {
-                        row.get("hidden").and_then(Value::as_bool) == Some(true)
-                            || row.get("completedAt").is_some()
-                    })
-                    .map(|row| {
-                        json!({
-                            "id": format!("assignment-mark:{}", row.get("id").and_then(Value::as_str).unwrap_or_default()),
-                            "assignmentId": row.get("id"),
-                            "hidden": row.get("hidden").and_then(Value::as_bool).unwrap_or(false),
-                            "completedAt": row.get("completedAt"),
-                            "rev": row.get("rev"),
-                            "updatedAt": row.get("updatedAt"),
-                            "updatedBy": row.get("updatedBy"),
-                            "source": {"provider": "manual"}
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                changed += save_collection(&transaction, "assignment_marks", &marks, device_id)?;
-            } else {
-                changed += save_collection(&transaction, table, source_rows, device_id)?;
-            }
-        }
-        for key in [
-            "deviceId",
-            "selectedTerm",
-            "terms",
-            "settings",
-            "academicProfile",
-            "importStatus",
-            "syncStatus",
-            "logs",
-        ] {
-            if let Some(value) = workspace.get(key) {
-                changed += usize::from(save_setting(&transaction, key, value, device_id)?);
-            }
-        }
-        transaction.commit().map_err(|error| error.to_string())?;
-        Ok(changed)
     }
 
     pub fn reset_workspace(&self) -> Result<Value, String> {
@@ -652,8 +1330,18 @@ impl DataStore {
         let reset_tables = COLLECTIONS
             .iter()
             .map(|(_, table)| *table)
-            .chain(EXPORTED_TABLES.iter().copied())
-            .chain(["offering_content", "offerings_fts"])
+            .chain(SCHOOL_CACHE_TABLES.iter().copied())
+            .chain(USER_BACKUP_TABLES.iter().copied())
+            .chain([
+                "offering_content",
+                "offerings_fts",
+                "catalog_search_items",
+                "manual_courses",
+                "manual_memberships",
+                "course_overrides",
+                "assignment_marks",
+                "course_identity_map",
+            ])
             .collect::<HashSet<_>>();
         for table in reset_tables {
             transaction
@@ -664,113 +1352,119 @@ impl DataStore {
             .execute("DELETE FROM settings", [])
             .map_err(|error| error.to_string())?;
         transaction.commit().map_err(|error| error.to_string())?;
-        let workspace = empty_workspace();
-        self.save_workspace(&workspace)?;
-        Ok(workspace)
+        self.ensure_defaults()?;
+        self.load_workspace()
     }
 
-    pub fn export_data(&self) -> Result<String, String> {
+    pub fn export_data(&self, notes: Value) -> Result<String, String> {
         let connection = self.open()?;
-        let workspace = self.load_workspace()?;
         let mut tables = Map::new();
-        for table in EXPORTED_TABLES {
+        for table in USER_BACKUP_TABLES {
             tables.insert(
                 (*table).into(),
                 Value::Array(read_rows(&connection, table)?),
             );
         }
-        tables.insert(
-            "settings".into(),
-            Value::Array(read_settings_export(&connection)?),
-        );
-
-        let referenced: HashSet<String> = tables
-            .values()
-            .filter_map(Value::as_array)
-            .flatten()
-            .filter_map(|row| {
-                row.get("offeringId")
-                    .or_else(|| row.get("offering_id"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .collect();
-        let offerings = read_rows(&connection, "offerings")?
+        let settings = read_settings_export(&connection)?
             .into_iter()
             .filter(|row| {
-                row.get("id")
+                row.get("key")
                     .and_then(Value::as_str)
-                    .is_some_and(|id| referenced.contains(id))
+                    .is_some_and(|key| USER_BACKUP_SETTINGS.contains(&key))
             })
             .collect();
-        tables.insert("offerings".into(), Value::Array(offerings));
+        tables.insert("settings".into(), Value::Array(settings));
 
         serde_json::to_string_pretty(&json!({
-            "schemaVersion": 3,
+            "schemaVersion": BACKUP_SCHEMA_VERSION,
             "exportedAt": now(),
-            "deviceId": workspace["deviceId"],
-            "tables": tables
+            "kind": BACKUP_KIND,
+            "deviceId": "local-backup",
+            "sync": read_setting(&connection, "cloudSyncMetadata")?,
+            "tables": tables,
+            "localNotes": notes
         }))
         .map_err(|error| error.to_string())
     }
 
-    pub fn import_data(&self, document: &str) -> Result<Value, String> {
-        let parsed: Value =
-            serde_json::from_str(document).map_err(|_| "import is not valid JSON".to_string())?;
-        if parsed.get("schemaVersion").and_then(Value::as_u64) != Some(3) {
-            return Err("import schema must be version 3".into());
+    /// Merge under an IMMEDIATE transaction, including edits committed during
+    /// the network round trip. Never replace the device's settings or identity.
+    pub fn merge_cloud_data(&self, remote: &Value) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        let local_meta = json!({"sync":read_setting(&transaction, "cloudSyncMetadata")?});
+        if cloud_merge::generation(remote) < cloud_merge::generation(&local_meta) {
+            return Ok(());
         }
-        string_field(&parsed, "deviceId")?;
-        let exported_at = string_field(&parsed, "exportedAt")?;
-        DateTime::parse_from_rfc3339(exported_at)
-            .map_err(|_| "import exportedAt must be RFC 3339".to_string())?;
-        let tables = parsed
-            .get("tables")
-            .and_then(Value::as_object)
-            .ok_or_else(|| "import tables must be an object".to_string())?;
-        let required: HashSet<_> = EXPORTED_TABLES
-            .iter()
-            .copied()
-            .chain(["offerings", "settings"])
-            .collect();
-        for table in &required {
-            if !tables.get(*table).is_some_and(Value::is_array) {
-                return Err(format!("import table {table} must be an array"));
+        if cloud_merge::generation(remote) > cloud_merge::generation(&local_meta) {
+            for table in USER_BACKUP_TABLES {
+                transaction
+                    .execute(&format!("DELETE FROM {table}"), [])
+                    .map_err(|e| e.to_string())?;
+            }
+            for key in USER_BACKUP_SETTINGS {
+                transaction
+                    .execute("DELETE FROM settings WHERE key=?1", [key])
+                    .map_err(|e| e.to_string())?;
             }
         }
-        for (name, rows) in tables {
-            let rows = rows
-                .as_array()
-                .ok_or_else(|| format!("import table {name} must be an array"))?;
-            for row in rows {
-                if name == "settings" {
-                    string_field(row, "key")?;
-                    setting_version(row)?;
-                } else {
-                    string_field(row, "id")?;
-                    row_version(row)?;
+        for table in USER_BACKUP_TABLES {
+            let local = read_rows(&transaction, table)?;
+            for incoming in remote["tables"][table].as_array().into_iter().flatten() {
+                validate_user_record(table, incoming)?;
+                let old = local.iter().find(|row| row["id"] == incoming["id"]);
+                if old.is_none_or(|old| cloud_merge::compare(incoming, old).is_gt()) {
+                    upsert_row(&transaction, table, incoming, true)?;
                 }
             }
         }
-
-        let current = self.load_workspace()?;
-        let method = match current
-            .pointer("/settings/cloud/conflict")
-            .and_then(Value::as_str)
+        let local = read_settings_export(&transaction)?;
+        for incoming in remote["tables"]["settings"]
+            .as_array()
+            .into_iter()
+            .flatten()
         {
-            Some("keep-current") => MergeMethod::UseCurrent,
-            Some("use-latest") => MergeMethod::UseLatest,
-            _ => MergeMethod::ResolveManually,
-        };
+            let mut incoming = incoming.clone();
+            cloud_merge::sanitize_setting(&mut incoming);
+            let incoming = &incoming;
+            let key = string_field(incoming, "key")?;
+            if !USER_BACKUP_SETTINGS.contains(&key) {
+                continue;
+            }
+            if local
+                .iter()
+                .find(|row| row["key"] == key)
+                .is_none_or(|old| cloud_merge::compare(incoming, old).is_gt())
+            {
+                import_setting(&transaction, incoming)?;
+            }
+        }
+        if remote["sync"].is_object() {
+            transaction.execute("INSERT INTO settings(key,value,hash,updated_at,updated_by,rev) VALUES('cloudSyncMetadata',?1,?3,?2,'sync',1) ON CONFLICT(key) DO UPDATE SET value=excluded.value,hash=excluded.hash,updated_at=excluded.updated_at",
+                params![remote["sync"].to_string(), now(), content_hash(&remote["sync"])?]).map_err(|e|e.to_string())?;
+        }
+        transaction.commit().map_err(|e| e.to_string())
+    }
+
+    /// Restores a document that passed [`parse_import`].
+    pub fn import_data(&self, parsed: &Value) -> Result<Value, String> {
+        let tables = parsed
+            .get("tables")
+            .and_then(Value::as_object)
+            .expect("validated by parse_import");
         let mut connection = self.open()?;
         let transaction = connection
             .transaction()
             .map_err(|error| error.to_string())?;
-        let allowed: HashSet<_> = EXPORTED_TABLES
-            .iter()
-            .copied()
-            .chain(["offerings"])
-            .collect();
+        let allowed: HashSet<_> = USER_BACKUP_TABLES.iter().copied().collect();
+        // A local backup restore is an explicit replacement, not sync/merge.
+        for table in USER_BACKUP_TABLES {
+            transaction
+                .execute(&format!("DELETE FROM {table}"), [])
+                .map_err(|error| error.to_string())?;
+        }
         for (table, rows) in tables {
             if table == "settings" {
                 continue;
@@ -779,38 +1473,22 @@ impl DataStore {
                 return Err(format!("import contains unsupported table {table}"));
             }
             for incoming in rows.as_array().expect("validated") {
-                let id = string_field(incoming, "id")?;
-                let sql = format!("SELECT value FROM {table} WHERE id=?1");
-                let existing: Option<String> = transaction
-                    .query_row(&sql, [id], |row| row.get(0))
-                    .optional()
-                    .map_err(|error| error.to_string())?;
-                let Some(existing) = existing else {
-                    upsert_row(&transaction, table, incoming, true)?;
-                    continue;
-                };
-                let existing: Value = serde_json::from_str(&existing)
-                    .map_err(|_| format!("{table} contains invalid JSON"))?;
-                let current_version = row_version(&existing)?;
-                let incoming_version = row_version(incoming)?;
-                let merged = update(&current_version, &incoming_version, method);
-                if method == MergeMethod::ResolveManually && !merged.conflict.is_empty() {
-                    return Err(serde_json::to_string(&json!({
-                        "kind": "merge-conflict",
-                        "table": table,
-                        "id": id,
-                        "changes": merged.conflict
-                    }))
-                    .map_err(|error| error.to_string())?);
-                }
-                if merged.changed {
-                    upsert_row(&transaction, table, incoming, true)?;
-                }
+                validate_user_record(table, incoming)?;
+                upsert_row(&transaction, table, incoming, true)?;
             }
         }
         if let Some(settings) = tables.get("settings").and_then(Value::as_array) {
+            for key in USER_BACKUP_SETTINGS {
+                transaction
+                    .execute("DELETE FROM settings WHERE key=?1", [key])
+                    .map_err(|error| error.to_string())?;
+            }
             for row in settings {
-                import_setting(&transaction, row, method)?;
+                let key = string_field(row, "key")?;
+                if !USER_BACKUP_SETTINGS.contains(&key) {
+                    return Err(format!("import contains device or secret setting {key}"));
+                }
+                import_setting(&transaction, row)?;
             }
         }
         transaction.commit().map_err(|error| error.to_string())?;
@@ -828,7 +1506,38 @@ impl DataStore {
         let mut changed = 0;
         for offering in offerings {
             let mut offering = offering.clone();
+            let offering_id = string_field(&offering, "id")?.to_string();
+            let search_item: Option<String> = transaction
+                .query_row(
+                    "SELECT value FROM catalog_search_items WHERE id=?1",
+                    [&offering_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| error.to_string())?;
+            if let Some(search_item) =
+                search_item.and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            {
+                for field in ["title", "instructors", "academicUnit"] {
+                    if let (Some(current), Some(fallback)) =
+                        (offering.get_mut(field), search_item.get(field))
+                    {
+                        fill_missing(current, fallback);
+                    }
+                }
+            }
             let timestamp = now();
+            let source_key = format!(
+                "syllabus:{}:offering:{}",
+                offering
+                    .get("year")
+                    .and_then(Value::as_i64)
+                    .unwrap_or_default(),
+                offering
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+            );
             let object = offering
                 .as_object_mut()
                 .ok_or_else(|| "offering must be an object".to_string())?;
@@ -839,6 +1548,14 @@ impl DataStore {
             object
                 .entry("updatedBy")
                 .or_insert(Value::String("catalog".into()));
+            object
+                .entry("sourceKey")
+                .or_insert(Value::String(source_key));
+            object
+                .entry("lastSeenAt")
+                .or_insert(Value::String(timestamp.clone()));
+            serde_json::from_value::<crate::contracts::Offering>(offering.clone())
+                .map_err(|error| format!("offering validation failed: {error}"))?;
             changed += usize::from(upsert_row(&transaction, "offerings", &offering, true)?);
 
             let id = string_field(&offering, "id")?;
@@ -886,6 +1603,64 @@ impl DataStore {
         Ok(changed)
     }
 
+    /// Search rows are deliberately stored apart from complete offerings.
+    /// A partial result can therefore never masquerade as a persisted entity.
+    pub fn catalog_upsert_search_items(&self, items: &[Value]) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        for item in items {
+            validate_contract::<crate::contracts::CatalogSearchItem>("catalog_search_items", item)?;
+            let id = string_field(item, "id")?;
+            let code = item.get("code").and_then(Value::as_str).unwrap_or_default();
+            let title_ja = item
+                .pointer("/title/ja")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let title_en = item
+                .pointer("/title/en")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let instructors_ja = item
+                .get("instructors")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|name| name.get("ja").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let instructors_en = item
+                .get("instructors")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|name| name.get("en").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(" ");
+            transaction
+                .execute(
+                    "INSERT INTO catalog_search_items(id,value,updated_at) VALUES(?1,?2,?3)
+                 ON CONFLICT(id) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                    params![
+                        id,
+                        serde_json::to_string(item).map_err(|error| error.to_string())?,
+                        now()
+                    ],
+                )
+                .map_err(|error| error.to_string())?;
+            transaction
+                .execute("DELETE FROM offerings_fts WHERE offering_id=?1", [id])
+                .map_err(|error| error.to_string())?;
+            transaction.execute(
+                "INSERT INTO offerings_fts(offering_id,code,title_ja,title_en,instructors_ja,instructors_en)
+                 VALUES(?1,?2,?3,?4,?5,?6)",
+                params![id,code,title_ja,title_en,instructors_ja,instructors_en],
+            ).map_err(|error| error.to_string())?;
+        }
+        transaction.commit().map_err(|error| error.to_string())
+    }
+
     pub fn upsert_offering_content(&self, rows: &[Value]) -> Result<(), String> {
         let mut connection = self.open()?;
         let transaction = connection
@@ -925,7 +1700,27 @@ impl DataStore {
     pub fn catalog_search(&self, query: &str) -> Result<Vec<Value>, String> {
         let connection = self.open()?;
         if query.trim().is_empty() {
-            return read_rows(&connection, "offerings");
+            let mut statement = connection
+                .prepare(
+                    "SELECT value FROM offerings
+                     WHERE deleted_at IS NULL AND missing_since IS NULL
+                     UNION ALL
+                     SELECT s.value FROM catalog_search_items s
+                     WHERE NOT EXISTS (
+                       SELECT 1 FROM offerings o
+                       WHERE o.id=s.id AND o.deleted_at IS NULL AND o.missing_since IS NULL
+                     )
+                     ORDER BY 1",
+                )
+                .map_err(|error| error.to_string())?;
+            return statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|error| error.to_string())?
+                .map(|row| {
+                    serde_json::from_str(&row.map_err(|error| error.to_string())?)
+                        .map_err(|_| "catalog row contains invalid JSON".to_string())
+                })
+                .collect();
         }
         let expression = query
             .split_whitespace()
@@ -935,9 +1730,10 @@ impl DataStore {
             .join(" ");
         let mut statement = connection
             .prepare(
-                "SELECT o.value FROM offerings_fts f
-                 JOIN offerings o ON o.id=f.offering_id
-                 WHERE offerings_fts MATCH ?1 AND o.deleted_at IS NULL
+                "SELECT COALESCE(o.value,s.value) FROM offerings_fts f
+                 LEFT JOIN offerings o ON o.id=f.offering_id AND o.deleted_at IS NULL AND o.missing_since IS NULL
+                 LEFT JOIN catalog_search_items s ON s.id=f.offering_id
+                 WHERE offerings_fts MATCH ?1 AND (o.id IS NOT NULL OR s.id IS NOT NULL)
                  ORDER BY rank LIMIT 100",
             )
             .map_err(|error| error.to_string())?;
@@ -956,7 +1752,7 @@ impl DataStore {
         let connection = self.open()?;
         let raw: Option<String> = connection
             .query_row(
-                "SELECT value FROM offerings WHERE id=?1 AND deleted_at IS NULL",
+                "SELECT value FROM offerings WHERE id=?1 AND deleted_at IS NULL AND missing_since IS NULL",
                 [id],
                 |row| row.get(0),
             )
@@ -966,6 +1762,143 @@ impl DataStore {
             serde_json::from_str(&raw).map_err(|_| "offering contains invalid JSON".to_string())
         })
         .transpose()
+    }
+
+    /// A syllabus search row stored before its offering's details are read.
+    pub fn catalog_search_item(&self, id: &str) -> Result<Option<Value>, String> {
+        let connection = self.open()?;
+        let raw: Option<String> = connection
+            .query_row(
+                "SELECT value FROM catalog_search_items WHERE id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        raw.map(|raw| {
+            serde_json::from_str(&raw).map_err(|_| "search row contains invalid JSON".to_string())
+        })
+        .transpose()
+    }
+
+    pub fn lms_material_for_url(&self, url: &str) -> Result<Option<Value>, String> {
+        let connection = self.open()?;
+        let raw: Option<String> = connection
+            .query_row(
+                "SELECT value FROM lms_items
+                 WHERE missing_since IS NULL AND deleted_at IS NULL
+                   AND (json_extract(value,'$.url')=?1 OR json_extract(value,'$.resourceUrl')=?1)
+                 LIMIT 1",
+                [url],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        raw.map(|raw| {
+            serde_json::from_str(&raw).map_err(|_| "LMS material contains invalid JSON".to_string())
+        })
+        .transpose()
+    }
+
+    /// Store a lazy `view.php` resolution exactly like an LMS ingest update:
+    /// unchanged content keeps its revision, while a changed remote URL gets
+    /// one new version. Local cache paths never enter the database.
+    pub fn update_lms_resource_url(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        resource_url: &str,
+    ) -> Result<bool, String> {
+        self.update_lms_item_detail(
+            cmid,
+            source_url,
+            "resourceUrl",
+            Value::String(resource_url.into()),
+        )
+    }
+
+    /// Keeps a folder's resolved file list on its material, so reopening it
+    /// needs no LMS request. A later crawl keeps it until a new read replaces it.
+    pub(crate) fn update_lms_folder_files(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        files: &[crate::contracts::FolderFile],
+    ) -> Result<bool, String> {
+        let files = serde_json::to_value(files).map_err(|error| error.to_string())?;
+        self.update_lms_item_detail(cmid, source_url, "folderFiles", files)
+    }
+
+    /// Writes one resolved detail onto a live LMS material, as a versioned
+    /// change; an unchanged value is not rewritten.
+    fn update_lms_item_detail(
+        &self,
+        cmid: u64,
+        source_url: &str,
+        key: &str,
+        detail: Value,
+    ) -> Result<bool, String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        let stored: Option<(String, String, u64)> = transaction
+            .query_row(
+                "SELECT id,value,rev FROM lms_items WHERE cmid=?1 AND missing_since IS NULL LIMIT 1",
+                [cmid as i64],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as u64)),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let Some((id, raw, revision)) = stored else {
+            return Ok(false);
+        };
+        let mut value: Value = serde_json::from_str(&raw)
+            .map_err(|_| "LMS material contains invalid JSON".to_string())?;
+        if value.get("url").and_then(Value::as_str) != Some(source_url) {
+            return Ok(false);
+        }
+        if value.get(key) == Some(&detail) {
+            return Ok(false);
+        }
+        value[key] = detail;
+        let timestamp = now();
+        let next_revision = revision + 1;
+        value["rev"] = next_revision.into();
+        value["updatedAt"] = timestamp.clone().into();
+        value["updatedBy"] = "lms".into();
+        value["source"] = json!({"provider":"lms"});
+        value["lastSeenAt"] = timestamp.clone().into();
+        let mut content = value.clone();
+        if let Some(object) = content.as_object_mut() {
+            for key in [
+                "rev",
+                "updatedAt",
+                "updatedBy",
+                "source",
+                "lastSeenAt",
+                "missingSince",
+                "deletedAt",
+            ] {
+                object.remove(key);
+            }
+        }
+        let hash = content_hash(&content)?;
+        transaction
+            .execute(
+                "UPDATE lms_items SET value=?2,hash=?3,updated_at=?4,updated_by='lms',
+                 rev=?5,source='lms',last_seen_at=?4,missing_since=NULL,deleted_at=NULL WHERE id=?1",
+                params![
+                    id,
+                    serde_json::to_string(&value).map_err(|error| error.to_string())?,
+                    hash,
+                    timestamp,
+                    next_revision as i64
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(true)
     }
 
     pub fn table_rows(&self, table: &str) -> Result<Vec<Value>, String> {
@@ -1004,7 +1937,7 @@ impl DataStore {
                 .collect();
             return rows;
         }
-        read_rows(&connection, table)
+        read_visible_rows(&connection, table)
     }
 
     /// When each importer (`lms`, `kyomu` per page kind) last finished a
@@ -1045,145 +1978,508 @@ mod tests {
     use std::fs;
 
     fn store(name: &str) -> DataStore {
-        let path = std::env::temp_dir().join(format!("campus-life-{name}-{}.db", Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("isct-companion-{name}-{}.db", Uuid::new_v4()));
         DataStore::initialize(path).unwrap().0
     }
 
     #[test]
-    fn save_waits_for_an_import_writer_without_requiring_manual_retry() {
-        let store = store("concurrent-save");
-        let mut workspace = empty_workspace();
-        store.save_workspace(&workspace).unwrap();
-        let path = store.path().to_path_buf();
-        let (ready, receive) = std::sync::mpsc::channel();
-        let writer = std::thread::spawn(move || {
-            let mut connection = Connection::open(path).unwrap();
-            let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
-            tx.execute("UPDATE settings SET updated_at=updated_at", []).unwrap();
-            ready.send(()).unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            tx.commit().unwrap();
-        });
-        receive.recv().unwrap();
-        workspace["settings"]["locale"] = json!("ja");
-        let result = store.save_workspace(&workspace);
-        writer.join().unwrap();
-        assert!(result.is_ok(), "Concurrent save failed: {result:?}");
-        assert_eq!(store.load_workspace().unwrap()["settings"]["locale"], "ja");
-        let _ = fs::remove_file(store.path());
+    fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
+        let store = store("restore-generation");
+        store.put_user_record("plans",json!({"title":"Later","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),"test").unwrap();
+        let old: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        let mut restored = old.clone();
+        restored["tables"]["plans"] = json!([]);
+        restored["sync"] =
+            json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"restore-a"}});
+        store.merge_cloud_data(&restored).unwrap();
+        store.merge_cloud_data(&old).unwrap();
+        assert!(store.user_rows("plans").unwrap().is_empty());
+        let current: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        assert_eq!(current["sync"], restored["sync"]);
+        assert!(store.load_workspace().unwrap()["deviceId"].is_string());
     }
-
     #[test]
-    fn save_only_writes_changed_revisions_and_tombstones_removed_rows() {
-        let store = store("save");
-        let mut workspace = empty_workspace();
-        let timestamp = now();
-        workspace["courses"] = json!([{
-            "id": "course-1", "kind": "course", "rev": 1,
-            "updatedAt": timestamp, "updatedBy": "device", "termId": "2026-1Q",
-            "code": "TEST.1", "title": "Test", "instructor": "Teacher",
-            "credits": 1, "creditSplit": {"lecture": 1, "exercise": 0, "lab": 0},
-            "instructionLanguage": "en", "color": "#000", "meetings": [],
-            "source": {"provider": "manual"}
-        }]);
-        assert!(store.save_workspace(&workspace).unwrap() > 0);
-        assert_eq!(store.save_workspace(&workspace).unwrap(), 0);
-        workspace["courses"] = json!([]);
-        assert_eq!(store.save_workspace(&workspace).unwrap(), 1);
-        let loaded = store.load_workspace().unwrap();
-        assert!(loaded["courses"][0]["deletedAt"].is_string());
-        let _ = fs::remove_file(store.path());
-    }
-
-    #[test]
-    fn export_excludes_caches_and_unreferenced_offerings() {
-        let store = store("export");
-        let workspace = empty_workspace();
-        store.save_workspace(&workspace).unwrap();
-        store
-            .catalog_upsert_offerings(&[json!({
-                "id": "unreferenced", "code": "TEST.1", "title": {"ja": "試験", "en": "Test"}
-            })])
+    fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes() {
+        let a = store("cloud-a");
+        let b = store("cloud-b");
+        a.put_workspace_setting("devicePreferences", json!({"density":"compact"}), "test")
             .unwrap();
-        let export: Value = serde_json::from_str(&store.export_data().unwrap()).unwrap();
-        assert!(export.pointer("/tables/offering_content").is_none());
-        assert!(export.pointer("/tables/offerings_fts").is_none());
-        assert_eq!(export["tables"]["offerings"], json!([]));
-        let _ = fs::remove_file(store.path());
-    }
-
-    #[test]
-    fn fts_finds_both_titles() {
-        let store = store("fts");
-        store
-            .catalog_upsert_offerings(&[json!({
-                "id": "2026001", "code": "CSC.T001",
-                "title": {"ja": "並列プログラミング", "en": "Parallel Programming"}
-            })])
+        b.put_workspace_setting(
+            "devicePreferences",
+            json!({"density":"comfortable"}),
+            "test",
+        )
+        .unwrap();
+        let row_a = a
+            .put_user_record(
+                "plans",
+                json!({"title":"A","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+                "desktop",
+            )
             .unwrap();
-        assert_eq!(store.catalog_search("並列").unwrap().len(), 1);
-        assert_eq!(store.catalog_search("Parallel").unwrap().len(), 1);
-        let _ = fs::remove_file(store.path());
-    }
-
-    fn course(title: &str, rev: u64, updated_at: &str, deleted_at: Option<&str>) -> Value {
-        let mut value = json!({
-            "id": "course-1", "kind": "course", "rev": rev,
-            "updatedAt": updated_at, "updatedBy": "device", "termId": "2026-1Q",
-            "code": "TEST.1", "title": title, "instructor": "Teacher",
-            "credits": 1, "creditSplit": {"lecture": 1, "exercise": 0, "lab": 0},
-            "instructionLanguage": "en", "color": "#000", "meetings": [],
-            "source": {"provider": "manual"}
-        });
-        if let Some(deleted_at) = deleted_at {
-            value["deletedAt"] = Value::String(deleted_at.into());
-        }
-        value
-    }
-
-    #[test]
-    fn import_uses_latest_and_merges_tombstones() {
-        let store = store("import-latest");
-        let mut workspace = empty_workspace();
-        workspace["settings"]["cloud"]["conflict"] = Value::String("use-latest".into());
-        workspace["courses"] = json!([course("Old", 1, "2026-01-01T00:00:00.000Z", None)]);
-        store.save_workspace(&workspace).unwrap();
-
-        let mut imported: Value = serde_json::from_str(&store.export_data().unwrap()).unwrap();
-        imported["exportedAt"] = Value::String("2026-01-03T00:00:00.000Z".into());
-        imported["deviceId"] = Value::String("remote".into());
-        imported["tables"]["timetable_courses"] = json!([course(
-            "New",
-            2,
-            "2026-01-02T00:00:00.000Z",
-            Some("2026-01-02T00:00:00.000Z")
-        )]);
-        let loaded = store.import_data(&imported.to_string()).unwrap();
-        assert_eq!(loaded["courses"][0]["title"], "New");
+        b.put_user_record(
+            "plans",
+            json!({"title":"B","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+            "desktop",
+        )
+        .unwrap();
+        let exported_a: Value = serde_json::from_str(&a.export_data(json!([])).unwrap()).unwrap();
+        let exported_b: Value = serde_json::from_str(&b.export_data(json!([])).unwrap()).unwrap();
+        a.delete_user_record("plans", row_a["id"].as_str().unwrap(), "desktop")
+            .unwrap();
+        a.merge_cloud_data(&cloud_merge::merge(&exported_a, &exported_b))
+            .unwrap();
+        let latest: Value = serde_json::from_str(&a.export_data(json!([])).unwrap()).unwrap();
+        b.merge_cloud_data(&latest).unwrap();
         assert_eq!(
-            loaded["courses"][0]["deletedAt"],
-            "2026-01-02T00:00:00.000Z"
+            a.user_rows("plans")
+                .unwrap()
+                .iter()
+                .filter(|row| row.get("deletedAt").is_none())
+                .count(),
+            1
+        );
+        assert_eq!(a.user_rows("plans").unwrap(), b.user_rows("plans").unwrap());
+        assert_eq!(
+            a.load_workspace().unwrap()["settings"]["density"],
+            "compact"
+        );
+        assert_eq!(
+            b.load_workspace().unwrap()["settings"]["density"],
+            "comfortable"
+        );
+        assert_eq!(latest["tables"]["plans"].as_array().unwrap().len(), 2); // includes tombstone
+        let _ = fs::remove_file(a.path());
+        let _ = fs::remove_file(b.path());
+    }
+
+    #[test]
+    fn a_course_override_keeps_the_lessons_marked_for_its_classes() {
+        let store = store("lesson-log");
+        let course = json!({"id":"c1","rev":1,"updatedAt":"2026-10-01T00:00:00Z","updatedBy":"test",
+            "kind":"course","termId":"2026-3Q","code":"CSC.T273","title":"OOP","instructor":"","credits":2,
+            "creditSplit":{"lecture":2,"exercise":0,"lab":0},"instructionLanguage":"ja","color":"blue",
+            "meetings":[],"source":{"provider":"manual"}});
+        store
+            .open()
+            .unwrap()
+            .execute(
+                "INSERT INTO manual_courses (id,value,hash,updated_at,updated_by,rev,source)
+             VALUES ('c1',?1,'h','2026-10-01T00:00:00Z','test',1,'manual')",
+                [course.to_string()],
+            )
+            .unwrap();
+        store
+            .put_user_record(
+                "course_overrides",
+                json!({"sourceKey":"c1","courseId":"c1","source":{"provider":"manual"},
+                    "lessonLog":[{"occurrence":"2026-10-08T10:45:00+09:00","sectionId":12}]}),
+                "test",
+            )
+            .unwrap();
+        let workspace = store.load_workspace().unwrap();
+        let course = &workspace["courses"].as_array().unwrap()[0];
+        assert_eq!(course["overrides"]["lessonLog"][0]["sectionId"], 12);
+    }
+
+    #[test]
+    fn keeps_a_resolved_folder_listing_once_and_reads_it_back() {
+        let store = store("folder-files");
+        let url = "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9";
+        {
+            let connection = store.open().unwrap();
+            connection
+                .execute(
+                    "INSERT INTO lms_items (id,cmid,value,hash,updated_at,updated_by,rev,source)
+                     VALUES ('m9',9,?1,'h','2026-10-01T00:00:00Z','lms',1,'lms')",
+                    [json!({"id":"m9","cmid":9,"module":"folder","url":url}).to_string()],
+                )
+                .unwrap();
+        }
+        let files = vec![crate::contracts::FolderFile {
+            name: "20260928.zip".into(),
+            url: "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_folder/content/0/20260928.zip"
+                .into(),
+        }];
+        assert!(store.update_lms_folder_files(9, url, &files).unwrap());
+        // The same listing again is not a change.
+        assert!(!store.update_lms_folder_files(9, url, &files).unwrap());
+        let row = store.lms_material_for_url(url).unwrap().unwrap();
+        assert_eq!(row["rev"], 2);
+        assert_eq!(row["folderFiles"][0]["name"], "20260928.zip");
+        // A different source URL never takes another material's listing.
+        assert!(!store
+            .update_lms_folder_files(
+                9,
+                "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=10",
+                &files
+            )
+            .unwrap());
+    }
+
+    #[test]
+    fn summary_metadata_keeps_other_search_languages() {
+        let mut summary = json!({
+            "title": {"en": "Assembly Language"},
+            "instructors": [{"en": "Teacher"}]
+        });
+        let search = json!({
+            "title": {"ja": "アセンブリ言語", "en": "Old English"},
+            "instructors": [{"ja": "教員", "en": "Old Teacher"}]
+        });
+        fill_missing(&mut summary, &search);
+        assert_eq!(summary["title"]["en"], "Assembly Language");
+        assert_eq!(summary["title"]["ja"], "アセンブリ言語");
+        assert_eq!(summary["instructors"][0]["ja"], "教員");
+    }
+
+    #[test]
+    fn current_term_uses_profile_then_calendar_then_selected_term() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 6, 4).unwrap();
+        let profile = json!({
+            "academicProfile": {"years":[{"academicYear":2026,"quarterStarts":{
+                "1Q":"2026-04-01","2Q":"2026-06-05","3Q":"2026-10-01","4Q":"2026-12-01"
+            }}]},
+            "academicCalendar":[{"date":"2026-06-01","type":"quarter-start","academicYear":2026,"quarter":"2Q"}]
+        });
+        assert_eq!(current_term_for(&profile, date).as_deref(), Some("2026-1Q"));
+        let calendar = json!({
+            "academicProfile":{"years":[]},
+            "academicCalendar":[{"date":"2026-06-01","type":"quarter-start","academicYear":2026,"quarter":"2Q"}]
+        });
+        assert_eq!(
+            current_term_for(&calendar, date).as_deref(),
+            Some("2026-2Q")
+        );
+        assert_eq!(
+            current_term_for(
+                &json!({
+                    "selectedTerm":"2027-3Q",
+                    "academicProfile":{"years":[{"academicYear":2027,"quarterStarts":{
+                        "1Q":"","2Q":"","3Q":"","4Q":""
+                    }}]},
+                    "academicCalendar":[]
+                }),
+                chrono::NaiveDate::from_ymd_opt(2027, 2, 1).unwrap()
+            ),
+            Some("2027-3Q".to_string())
+        );
+    }
+
+    #[test]
+    fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
+        let store = store("reference-refresh-task");
+        let workspace = store.load_workspace().unwrap();
+        let tasks = workspace["scheduledTasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 2);
+        let reference = tasks
+            .iter()
+            .find(|task| task["id"] == "builtin:reference-subscriptions")
+            .unwrap();
+        assert_eq!(reference["action"], "reference-refresh");
+        assert_eq!(reference["enabled"], true);
+        let lms = tasks
+            .iter()
+            .find(|task| task["id"] == "builtin:lms-background-refresh")
+            .unwrap();
+        assert_eq!(lms["action"], "lms-refresh");
+        assert_eq!(lms["enabled"], false);
+
+        store
+            .delete_user_record("scheduled_tasks", "builtin:reference-subscriptions", "test")
+            .unwrap();
+        store.ensure_defaults().unwrap();
+        let workspace = store.load_workspace().unwrap();
+        let tasks = workspace["scheduledTasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks
+            .iter()
+            .find(|task| task["id"] == "builtin:reference-subscriptions")
+            .unwrap()["deletedAt"]
+            .is_string());
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn record_mutations_never_delete_absent_rows() {
+        let store = store("record-mutations");
+        let first = store.put_user_record("plans", json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}), "test").unwrap();
+        let second = store.put_user_record("plans", json!({"title":"Two","start":"2026-10-07T10:00:00+09:00","duration":60,"exdates":[]}), "test").unwrap();
+        let mut changed = first.clone();
+        changed["title"] = json!("Updated");
+        store.put_user_record("plans", changed, "test").unwrap();
+        let rows = store.user_rows("plans").unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().any(|row| row["id"] == second["id"]));
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn checked_record_mutations_reject_stale_writers() {
+        let store = store("record-conflict");
+        let row = store
+            .put_user_record(
+                "plans",
+                json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+                "test",
+            )
+            .unwrap();
+        let mut first = row.clone();
+        first["title"] = json!("First writer");
+        store
+            .put_user_record_checked("plans", first, "first", Some(1))
+            .unwrap();
+        let mut stale = row;
+        stale["title"] = json!("Stale writer");
+        let error = store
+            .put_user_record_checked("plans", stale, "stale", Some(1))
+            .unwrap_err();
+        assert!(error.contains("revision conflict"));
+        assert_eq!(
+            store.user_rows("plans").unwrap()[0]["title"],
+            "First writer"
         );
         let _ = fs::remove_file(store.path());
     }
 
     #[test]
-    fn manual_import_reports_field_conflicts_without_writing() {
-        let store = store("import-conflict");
-        let mut workspace = empty_workspace();
-        workspace["courses"] = json!([course("Current", 1, "2026-01-01T00:00:00.000Z", None)]);
-        store.save_workspace(&workspace).unwrap();
-        let mut imported: Value = serde_json::from_str(&store.export_data().unwrap()).unwrap();
-        imported["exportedAt"] = Value::String("2026-01-03T00:00:00.000Z".into());
-        imported["deviceId"] = Value::String("remote".into());
-        imported["tables"]["timetable_courses"] =
-            json!([course("Incoming", 2, "2026-01-02T00:00:00.000Z", None)]);
-        let error = store.import_data(&imported.to_string()).unwrap_err();
-        assert!(error.contains("merge-conflict"));
-        assert!(error.contains("title"));
+    fn unchanged_checked_put_returns_the_stored_revision() {
+        let store = store("record-unchanged");
+        let row = store
+            .put_user_record(
+                "plans",
+                json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+                "test",
+            )
+            .unwrap();
+        let mut edited = row.clone();
+        edited["title"] = json!("Edited");
+        let edited = store
+            .put_user_record_checked("plans", edited, "desktop", Some(1))
+            .unwrap();
+        assert_eq!(edited["rev"], 2);
+        let same = store
+            .put_user_record_checked("plans", edited.clone(), "desktop", Some(2))
+            .unwrap();
+        let stored = store.user_rows("plans").unwrap()[0].clone();
+        assert_eq!(same["rev"], stored["rev"]);
+        assert_eq!(same, stored);
+        assert_eq!(same["rev"], 2);
+        let mut next = same;
+        next["title"] = json!("Edited again");
+        let next = store
+            .put_user_record_checked("plans", next, "desktop", Some(2))
+            .unwrap();
+        assert_eq!(next["rev"], 3);
         assert_eq!(
-            store.load_workspace().unwrap()["courses"][0]["title"],
-            "Current"
+            store.user_rows("plans").unwrap()[0]["title"],
+            "Edited again"
+        );
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn explicit_delete_is_a_user_tombstone() {
+        let store = store("explicit-delete");
+        let row = store.put_user_record("plans", json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}), "test").unwrap();
+        assert!(store
+            .delete_user_record("plans", row["id"].as_str().unwrap(), "test")
+            .unwrap());
+        assert!(store.user_rows("plans").unwrap()[0]["deletedAt"].is_string());
+        let _ = fs::remove_file(store.path());
+    }
+
+    fn insert_school_assignment(store: &DataStore) {
+        let mut connection = store.open().unwrap();
+        let transaction = connection.transaction().unwrap();
+        upsert_row(
+            &transaction,
+            "assignments",
+            &json!({
+                "id":"assignment-1", "kind":"assignment", "courseId":"course-1",
+                "title":"Work", "details":"", "dueAt":null,
+                "sourceKey":"lms:default:assignment:42", "source":{"provider":"lms"},
+                "rev":1, "updatedAt":"2026-10-06T00:00:00Z", "updatedBy":"lms"
+            }),
+            true,
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+    }
+
+    #[test]
+    fn course_identity_is_shared_by_every_provider() {
+        let store = store("course-identity");
+        let mut connection = store.open().unwrap();
+        let transaction = connection.transaction().unwrap();
+        let lms = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
+        let syllabus = resolve_course_id(
+            &transaction,
+            "syllabus",
+            "202602440",
+            2026,
+            Some("202602440"),
+        )
+        .unwrap();
+        let kyomu =
+            resolve_course_id(&transaction, "kyomu", "202602440", 2026, Some("202602440")).unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(lms, "2026-202602440");
+        assert_eq!(syllabus, lms);
+        assert_eq!(kyomu, lms);
+        let rows: i64 = store
+            .open()
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM course_identity_map WHERE course_id='2026-202602440'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 3);
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn catalog_list_includes_search_rows_until_details_replace_them() {
+        let store = store("catalog-search-fallback");
+        store.catalog_upsert_search_items(&[json!({
+            "id":"202602427", "year":2026, "code":"CSC.T263",
+            "title":{"en":"Assembly Language"}, "instructors":[],
+            "quarters":["3Q"], "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/CSC.T263/202602427"
+        })]).unwrap();
+        let rows = store.catalog_search("").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "202602427");
+        assert_eq!(rows[0]["detailed"], Value::Null);
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn assignment_pin_round_trips_as_a_syncable_overlay() {
+        let store = store("pinned-assignment");
+        insert_school_assignment(&store);
+        store
+            .put_user_record(
+                "assignment_marks",
+                json!({"sourceKey":"lms:default:assignment:42","hidden":false,"pinned":true}),
+                "test",
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"][0]["pinned"],
+            true
+        );
+        let exported: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        assert_eq!(exported["tables"]["assignment_marks"][0]["pinned"], true);
+        store
+            .put_user_record(
+                "assignment_marks",
+                json!({"sourceKey":"lms:default:assignment:42","hidden":false,"pinned":false}),
+                "test",
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"][0]["pinned"],
+            false
+        );
+    }
+
+    #[test]
+    fn overlay_survives_school_disappearance_and_reappearance() {
+        let store = store("overlay-lifetime");
+        insert_school_assignment(&store);
+        store
+            .put_user_record(
+                "assignment_marks",
+                json!({
+                    "sourceKey":"lms:default:assignment:42", "hidden":true
+                }),
+                "test",
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"][0]["hidden"],
+            true
+        );
+
+        let connection = store.open().unwrap();
+        connection.execute(
+            "UPDATE assignments SET missing_since='2026-10-07T00:00:00Z',value=json_set(value,'$.missingSince','2026-10-07T00:00:00Z') WHERE id='assignment-1'",
+            [],
+        ).unwrap();
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(store.user_rows("assignment_marks").unwrap().len(), 1);
+
+        connection.execute(
+            "UPDATE assignments SET missing_since=NULL,value=json_remove(value,'$.missingSince') WHERE id='assignment-1'",
+            [],
+        ).unwrap();
+        assert_eq!(
+            store.load_workspace().unwrap()["assignments"][0]["hidden"],
+            true
+        );
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
+        let store = store("backup-boundary");
+        insert_school_assignment(&store);
+        store.put_user_record("plans", json!({
+            "title":"Study", "start":"2026-10-06T10:00:00+09:00", "duration":60, "exdates":[]
+        }), "test").unwrap();
+        store
+            .put_user_record(
+                "assignment_marks",
+                json!({
+                    "sourceKey":"lms:default:assignment:42", "hidden":true
+                }),
+                "test",
+            )
+            .unwrap();
+        let document: Value = serde_json::from_str(
+            &store
+                .export_data(json!([{
+                    "id":"018f0000-0000-7000-8000-000000000001", "term":"2026-3Q",
+                    "course":"TEST", "section":"section-1", "text":"# local", "deleted":false
+                }]))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(document["schemaVersion"], 6);
+        assert_eq!(document["localNotes"][0]["text"], "# local");
+        assert!(document.pointer("/tables/assignments").is_none());
+        assert!(document.pointer("/tables/lms_items").is_none());
+        assert_eq!(document["tables"]["plans"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            document["tables"]["assignment_marks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn backup_from_another_schema_is_rejected_by_its_version() {
+        let store = store("backup-schema");
+        let mut document: Value =
+            serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        document["schemaVersion"] = json!(5);
+        // Older backups also carried localNotes in a different shape.
+        document["localNotes"] = json!({ "notes": [] });
+        assert_eq!(
+            parse_import(&document.to_string()).unwrap_err(),
+            "the backup uses schema version 5; this app reads version 6"
         );
         let _ = fs::remove_file(store.path());
     }

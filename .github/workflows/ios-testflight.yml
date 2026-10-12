@@ -1,0 +1,120 @@
+name: iOS and iPadOS build
+
+on:
+  workflow_call:
+    inputs:
+      upload_testflight:
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      upload_testflight:
+        description: Sign and upload to TestFlight (requires Apple secrets)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-upload:
+    runs-on: macos-15
+    env:
+      UPLOAD_TESTFLIGHT: ${{ inputs.upload_testflight || vars.IOS_TESTFLIGHT_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+      - run: corepack enable
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+          key: ios-aarch64
+      - run: yarn install --immutable
+      - name: Validate frontend and release version
+        run: |
+          yarn build
+          node scripts/desktop-release.mjs validate
+      - name: Generate platform-isolated iOS project
+        run: yarn tauri ios init --ci
+      - name: Validate signing and App Store Connect secrets
+        if: env.UPLOAD_TESTFLIGHT == 'true'
+        shell: bash
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          for name in IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY; do
+            test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
+          done
+      - name: Build signed IPA
+        if: env.UPLOAD_TESTFLIGHT == 'true'
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: yarn tauri ios build --ci --export-method app-store-connect --build-number "${{ github.run_number }}"
+      - name: Build unsigned iPhone and iPad archive
+        if: env.UPLOAD_TESTFLIGHT != 'true'
+        run: yarn tauri ios build --ci --no-sign --archive-only --build-number "${{ github.run_number }}"
+      - name: Verify platform isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ios
+          if [[ "$UPLOAD_TESTFLIGHT" == true ]]; then
+            ipa=$(find backend/gen/apple/build -type f -name '*.ipa' -print -quit)
+            test -n "$ipa"
+            work="$RUNNER_TEMP/ios-bundle"
+            mkdir "$work"
+            ditto -x -k "$ipa" "$work"
+            app=$(find "$work/Payload" -maxdepth 1 -type d -name '*.app' -print -quit)
+            test -n "$app"
+            codesign --verify --deep --strict "$app"
+            cp "$ipa" artifacts/ios/
+            echo "IPA_PATH=$ipa" >> "$GITHUB_ENV"
+          else
+            archive=$(find backend/gen/apple -type d -name '*.xcarchive' -print -quit)
+            test -n "$archive"
+            app=$(find "$archive/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)
+            ditto -c -k --keepParent "$archive" artifacts/ios/IsctCompanion-ios-ipados-unsigned.xcarchive.zip
+          fi
+          test -n "$app"
+          node scripts/verify-platform-bundle.mjs ios "$app"
+          /usr/libexec/PlistBuddy -c 'Print UIDeviceFamily' "$app/Info.plist" | grep -q '1'
+          /usr/libexec/PlistBuddy -c 'Print UIDeviceFamily' "$app/Info.plist" | grep -q '2'
+      - name: Upload to TestFlight
+        if: env.UPLOAD_TESTFLIGHT == 'true'
+        shell: bash
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          key_dir="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$key_dir"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+          chmod 600 "$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+          xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mobile-ios-ipados
+          path: artifacts/ios/
+          if-no-files-found: warn
+          retention-days: 14

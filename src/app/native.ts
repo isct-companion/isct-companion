@@ -1,5 +1,7 @@
 import { getDesktopBridge, type SchoolSite } from "../platform/desktop-bridge";
 import { createSchoolWebExit } from "../platform/school-web-exit";
+import { t } from "../i18n";
+import { errorText } from "./shared";
 export type CustomizationSite = "portal" | "lms" | "syllabus";
 export const official: Record<
   SchoolSite,
@@ -53,22 +55,26 @@ export const customizationNames: Record<CustomizationSite, string> = {
 };
 export const desktopBridge = getDesktopBridge();
 /**
- * Saves an exported file: a Save dialog in the app (its webview cancels
- * `<a download>`), a download in a browser. False when the person cancels.
+ * Saves an export through the system Save dialog (the webview cancels
+ * `<a download>`) and reports the outcome. Cancelling the dialog stays quiet.
  */
 export async function saveExportFile(
   name: string,
-  contents: string,
-  type: string,
+  contents: () => string | Promise<string>,
+  notify: (message: string) => void,
 ) {
-  if (desktopBridge) return desktopBridge.saveFile(name, contents);
-  const url = URL.createObjectURL(new Blob([contents], { type }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return true;
+  try {
+    if (!desktopBridge)
+      throw new Error(t("Saving files needs the desktop app."));
+    if (await desktopBridge.saveFile(name, await contents()))
+      notify(t("Saved {{name}}", { name }));
+  } catch (error) {
+    notify(
+      t("Export failed: {{reason}}", {
+        reason: errorText(error) ?? t("unknown error"),
+      }),
+    );
+  }
 }
 export const schoolWebExit = createSchoolWebExit(desktopBridge);
 export const hideNativeSchoolWeb = () => schoolWebExit.close();

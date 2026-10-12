@@ -4,21 +4,26 @@ What to build: [docs/product-definition.md](../product-definition.md). Data cont
 
 ## Order
 
-| # | Task | Depends on | Area |
-|---|---|---|---|
-| 1 | [SQLite store, versioned data, export/import](01-sqlite-store.md) | — | Data |
-| 2 | [Syllabus catalog, both languages, department sync](02-syllabus-catalog.md) | 1 | Data |
-| 3 | [LMS sync through Moodle AJAX](03-lms-sync.md) | 1 | Data |
-| 4 | [教務Web registration, grades, GPA, requirements](04-kyomu-import.md) | 1 | Data |
-| 5 | [Subscriptions: academic calendar, departments](05-subscriptions.md) | 1 | Data |
-| 6 | [Today (with tasks)](06-today.md) | 1, 3, 4, 5 | UI |
-| 7 | [Courses: list, detail, intensive dates, ICS](07-courses.md) | 1–4 | UI |
-| 8 | [Course planner](08-course-planner.md) | 1, 2, 4, 5 | UI |
-| 9 | [Plans (one-off and repeating)](09-plans.md) | 1 | UI |
-| 10 | [Settings](10-settings.md) | 1, 5, 6 | UI |
-| 11 | [Agent access (MCP server)](11-mcp-server.md) | 1–5, 9 | Integration |
+| #   | Task                                                                        | Depends on  | Area        |
+| --- | --------------------------------------------------------------------------- | ----------- | ----------- |
+| 1   | [SQLite store, versioned data, export/import](01-sqlite-store.md)           | —           | Data        |
+| 2   | [Syllabus catalog, both languages, department sync](02-syllabus-catalog.md) | 1           | Data        |
+| 3   | [LMS sync through Moodle AJAX](03-lms-sync.md)                              | 1           | Data        |
+| 4   | [教務Web registration, grades, GPA, requirements](04-kyomu-import.md)       | 1           | Data        |
+| 5   | [Subscriptions: academic calendar, departments](05-subscriptions.md)        | 1           | Data        |
+| 6   | [Today (with tasks)](06-today.md)                                           | 1, 3, 4, 5  | UI          |
+| 7   | [Courses: list, detail, intensive dates, ICS](07-courses.md)                | 1–4         | UI          |
+| 8   | [Course planner](08-course-planner.md)                                      | 1, 2, 4, 5  | UI          |
+| 9   | [Plans (one-off and repeating)](09-plans.md)                                | 1           | UI          |
+| 10  | [Settings](10-settings.md)                                                  | 1, 5, 6     | UI          |
+| 11  | [Agent access (MCP server)](11-mcp-server.md)                               | 1–5, 9      | Integration |
+| 12  | [Reminders and auto refresh](12-reminders.md)                               | 1, 4, 6, 10 | Feature     |
+| 13  | [Web toolbar: forward, CSS/JS extensions](13-web-extensions.md)             | 10          | Feature     |
+| 14  | [Subscriptions: important dates, exams](14-important-dates-exams.md)        | 5           | Data        |
+| 15  | [Native cloud workspace and credential sync](15-cloud-sync.md)              | 1, 10       | Integration |
+| 16  | [LMS files through an app URI scheme](16-lms-file-scheme.md)                | 3           | Data        |
 
-Task 1 first. Then 2–5 in parallel. Then 6–10 (7 and 9 share ICS export: do 9 before finishing 7's export). 11 last.
+Task 1 first. Then 2–5 in parallel. Then 6–10 (7 and 9 share ICS export: do 9 before finishing 7's export). 11 and 15 build on those foundations.
 
 ## Rules for every task
 

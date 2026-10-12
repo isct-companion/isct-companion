@@ -1,0 +1,12 @@
+[package]
+name = "tauri-plugin-google-drive-auth"
+version = "0.1.0"
+edition = "2021"
+links = "tauri-plugin-google-drive-auth"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.12" }
+
+[build-dependencies]
+tauri-plugin = { version = "2.7", features = ["build"] }

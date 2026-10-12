@@ -1,17 +1,27 @@
-export type Page = "today" | "schedule" | "web" | "settings";
+export type Page = "home" | "lectures" | "web" | "settings";
 export type Section =
-  | "general"
   | "accounts"
-  | "sync"
+  | "study"
   | "notifications"
   | "calendar"
-  | "subscriptions"
-  | "hidden"
-  | "scheduled"
+  | "appearance"
+  | "files"
+  | "backup"
+  | "sources"
+  | "automation"
+  | "developer"
   | "agent"
-  | "data"
-  | "advanced";
+  | "extensions"
+  | "diagnostics"
+  | "about";
 export type Platform = "native-desktop" | "native-mobile" | "browser-preview";
 
 export { tokyoDate as jstDate } from "../core/schedule";
 export const stamp = () => new Date().toISOString();
+/** Tauri commands reject with plain strings, not Errors. */
+export const errorText = (error: unknown) =>
+  error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : undefined;

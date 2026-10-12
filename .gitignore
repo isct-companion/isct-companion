@@ -1,8 +1,10 @@
 # Dependencies and build output
 node_modules/
+.yarn/
 dist/
 backend/target/
 backend/gen/
+backend/Info.ios.plist
 *.tsbuildinfo
 coverage/
 
@@ -22,6 +24,8 @@ ref-demo/
 reference-demo/
 
 # Secrets and machine-local configuration
+.signing/
+.apple_key/
 .env
 .env.*
 !.env.example

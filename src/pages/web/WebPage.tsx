@@ -1,4 +1,3 @@
-import { useLocalStorage } from "@mantine/hooks";
 import {
   useEffect,
   useRef,
@@ -7,29 +6,22 @@ import {
   type FormEvent,
   type PointerEvent,
 } from "react";
+import { Drawer } from "@mantine/core";
 import { UiButton, UiInput } from "../../components/mantine";
+import { MobileWebList } from "../mobile/MobileWeb";
+import { t } from "../../i18n";
 import { type SchoolSite } from "../../platform/desktop-bridge";
+import { serviceTiers } from "./services";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
 import type { Workspace } from "../../core/model";
 import {
   claimSchoolView,
   desktopBridge,
+  hideNativeSchoolWeb,
   schoolWebExit,
   official,
 } from "../../app/native";
-import { type Platform } from "../../app/shared";
-
-const serviceTiers: Array<{
-  frequency: "high" | "medium" | "low";
-  sites: SchoolSite[];
-}> = [
-  { frequency: "high", sites: ["science-lms", "kyomu"] },
-  {
-    frequency: "medium",
-    sites: ["science-portal", "tokyo-portal", "tokyo-mail", "syllabus"],
-  },
-  { frequency: "low", sites: ["library", "tsubame"] },
-];
+import { errorText, type Platform } from "../../app/shared";
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -45,71 +37,90 @@ const normalizeAddress = (raw: string) => {
   return url.toString();
 };
 
-const siteForAddress = (raw: string): SchoolSite | undefined => {
-  const host = new URL(raw).hostname;
-  if (host === "lms.s.isct.ac.jp" || host === "t2schola.titech.ac.jp")
-    return "science-lms";
-  if (host === "isct.ex-tic.com" || host === "portal.isct.ac.jp")
-    return "science-portal";
-  if (host === "portal.titech.ac.jp" || host === "portal.nap.gsic.titech.ac.jp")
-    return "tokyo-portal";
-  if (host === "mailv4.m.titech.ac.jp") return "tokyo-mail";
-  if (host === "kyomu0.gakumu.titech.ac.jp") return "kyomu";
-  if (host === "request.libra.titech.ac.jp") return "library";
-  if (host === "portal.t4.gsic.titech.ac.jp") return "tsubame";
-  if (host === "syllabus.s.isct.ac.jp") return "syllabus";
-  return undefined;
-};
-
 export function Web({
   platform,
   data,
+  update,
   notify,
   schoolWebAvailable,
   requestedUrl,
+  request,
   returnLabel,
   onReturn,
   active = true,
+  layout = "workstation",
+  mobileSite = null,
+  openMobileSite,
+  sitesRequest = 0,
 }: {
   /** False while another page is shown; the page stays mounted (keep alive). */
   active?: boolean;
   platform: Platform;
   data: Workspace;
+  update: (f: (d: Workspace) => Workspace) => void;
   notify: (s: string) => void;
   schoolWebAvailable: boolean;
   requestedUrl?: string;
+  request?: number;
   returnLabel?: string;
   onReturn?: () => void;
+  /** Phones list the services, then browse one full screen. */
+  layout?: "workstation" | "mobile";
+  /** The service browsed on a phone (from the route); null shows the list. */
+  mobileSite?: SchoolSite | null;
+  openMobileSite?: (site: SchoolSite | null, replace?: boolean) => void;
+  /** Bumped when the Web tab is tapped again while browsing: open services. */
+  sitesRequest?: number;
 }) {
+  const mobile = layout === "mobile";
+  const browsing = !mobile || Boolean(mobileSite);
+  const [sitesOpen, setSitesOpen] = useState(false);
+  const shownRequest = useRef(sitesRequest);
+  useEffect(() => {
+    if (sitesRequest === shownRequest.current) return;
+    shownRequest.current = sitesRequest;
+    if (mobile && browsing) setSitesOpen(true);
+  }, [sitesRequest, mobile, browsing]);
   const [site, setSite] = useState<SchoolSite>(() => {
-    if (requestedUrl) return siteForAddress(requestedUrl) ?? "science-lms";
-    const active = sessionStorage.getItem("stws-active-school-site");
+    if (mobileSite) return mobileSite;
+    if (requestedUrl) return "science-lms";
+    const active = sessionStorage.getItem("isct-companion-active-school-site");
     if (active && active in official) return active as SchoolSite;
-    if (localStorage.getItem("stws-restore-school-page") !== "true")
-      return "science-portal";
-    const saved = localStorage.getItem("stws-active-school-site");
+    const saved = data.settings.activeSchoolSite;
     return saved && saved in official
       ? (saved as SchoolSite)
       : "science-portal";
   });
   const initialUrl = requestedUrl ?? official[site].url;
   const [status, setStatus] = useState("");
+  /** The last file a school page saved, offered for Reveal for a while. */
+  const [savedFile, setSavedFile] = useState<{ name: string; path: string }>();
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [address, setAddress] = useState(initialUrl);
-  const [serviceWidth, setServiceWidth] = useLocalStorage<number>({
-    key: "stws-school-service-width",
-    defaultValue: 168,
-  });
-  const [zoom, setZoom] = useLocalStorage<number>({
-    key: "stws-school-web-zoom",
-    defaultValue: 1,
-  });
+  const serviceWidth = data.settings.schoolServiceWidth ?? 168;
+  const zoom = data.settings.schoolWebZoom ?? 1;
+  const setServiceWidth = (value: number) =>
+    update((draft) => {
+      draft.settings.schoolServiceWidth = value;
+      return draft;
+    });
+  const setZoom = (value: number) =>
+    update((draft) => {
+      draft.settings.schoolWebZoom = value;
+      return draft;
+    });
   const resolvedServiceWidth = clamp(serviceWidth, 132, 360);
   const resolvedZoom = clamp(zoom, 0.5, 2);
   const host = useRef<HTMLDivElement>(null);
   const owner = useRef(Symbol("web-page"));
   const addressInput = useRef<HTMLInputElement>(null);
   const editingAddress = useRef(false);
+  const openedRequest = useRef<string | undefined>(undefined);
+  const requestKey = requestedUrl
+    ? JSON.stringify([requestedUrl, request])
+    : undefined;
   const embedded =
     Boolean(desktopBridge?.setSchoolWebBounds) && schoolWebAvailable;
   const bounds = () => {
@@ -119,22 +130,21 @@ export function Web({
 
   useEffect(() => {
     if (!desktopBridge || !schoolWebAvailable) return;
-    if (localStorage.getItem("stws-restore-school-page") !== "true")
-      localStorage.removeItem("stws-active-school-site");
     void desktopBridge.configureSchoolWebPolicy({
-      restoreAcrossRestarts:
-        localStorage.getItem("stws-restore-school-page") === "true",
+      restoreAcrossRestarts: true,
       idleMinutes: 10,
     });
   }, [schoolWebAvailable]);
 
   useEffect(
     () =>
-      desktopBridge?.onSchoolWebUrl?.((url) => {
+      desktopBridge?.onSchoolWebUrl?.((request) => {
+        if (request.site !== site) return;
+        const { url } = request;
         setCurrentUrl(url);
         if (!editingAddress.current) setAddress(url);
       }),
-    [],
+    [site],
   );
 
   useEffect(() => {
@@ -159,16 +169,50 @@ export function Web({
   }, []);
 
   useEffect(() => {
-    if (!embedded || !desktopBridge || !active) return;
+    let hide: number | undefined;
+    const dispose = desktopBridge?.onSchoolDownload?.((event) => {
+      window.clearTimeout(hide);
+      setSavedFile(undefined);
+      if (event.state === "started") setStatus(`Downloading ${event.name}…`);
+      else if (event.state === "done") {
+        setStatus("");
+        notifyRef.current(`Saved ${event.name}`);
+        if (event.path) {
+          setSavedFile({ name: event.name, path: event.path });
+          hide = window.setTimeout(() => setSavedFile(undefined), 30_000);
+        }
+      } else setStatus(`Download failed: ${event.name}`);
+    });
+    return () => {
+      dispose?.();
+      window.clearTimeout(hide);
+    };
+  }, []);
+
+  const revealSaved = async (path: string) => {
+    try {
+      const shown = await desktopBridge?.revealSchoolDownload?.(path);
+      if (!shown) setStatus("That file can no longer be shown.");
+    } catch (error) {
+      setStatus(errorText(error) ?? "Unavailable");
+    }
+  };
+
+  // A sheet over the page must hide the native view, which sits above the DOM.
+  const viewActive = active && browsing && !sitesOpen;
+  useEffect(() => {
+    if (!embedded || !desktopBridge || !viewActive) return;
+    const target =
+      requestedUrl && openedRequest.current !== requestKey
+        ? requestedUrl
+        : undefined;
     // Settings → "Show page" asks for a site while this page is kept alive.
-    const requested = sessionStorage.getItem("stws-active-school-site");
-    if (
-      !requestedUrl &&
-      requested &&
-      requested in official &&
-      requested !== site
-    ) {
+    const requested = sessionStorage.getItem(
+      "isct-companion-active-school-site",
+    );
+    if (!target && requested && requested in official && requested !== site) {
       setSite(requested as SchoolSite);
+      if (mobile) openMobileSite?.(requested as SchoolSite, true);
       return;
     }
     let cancelled = false;
@@ -176,35 +220,42 @@ export function Web({
     const custom = data.settings.customization?.sites[customizationSite];
     const permitted =
       platform === "native-desktop" &&
-      localStorage.getItem(`stws-site-consent-${customizationSite}`) === "true";
+      (data.settings.siteConsents?.[customizationSite] ?? false);
     setStatus("Opening…");
     void schoolWebExit
       .settled()
       .then(() => {
         if (cancelled) return undefined;
         claimSchoolView(owner.current);
-        return desktopBridge!.openSchoolSite(
-          site,
-          permitted ? (custom?.css ?? "") : "",
-          permitted ? (custom?.js ?? "") : "",
-          bounds(),
-          requestedUrl && siteForAddress(requestedUrl) === site
-            ? requestedUrl
-            : undefined,
-        );
+        return (
+          target
+            ? desktopBridge!.resolveSchoolUrl(target)
+            : Promise.resolve({ site, url: undefined })
+        ).then((resolved) => {
+          if (resolved.site !== site) {
+            setSite(resolved.site);
+            if (mobile) openMobileSite?.(resolved.site, true);
+            return undefined;
+          }
+          return desktopBridge!.openSchoolSite(
+            resolved.site,
+            permitted ? (custom?.css ?? "") : "",
+            permitted ? (custom?.js ?? "") : "",
+            bounds(),
+            resolved.url,
+          );
+        });
       })
       .then(async (state) => {
         if (cancelled || !state) return;
+        openedRequest.current = requestKey;
         setCurrentUrl(state.url);
         if (!editingAddress.current) setAddress(state.url);
-        setStatus(
-          state.phase === "reconnectRequired" ? "Sign-in required" : "",
-        );
+        setStatus("");
         await desktopBridge?.setSchoolWebZoom?.(site, resolvedZoom);
       })
       .catch((error) => {
-        if (!cancelled)
-          setStatus(error instanceof Error ? error.message : "Unavailable");
+        if (!cancelled) setStatus(errorText(error) ?? "Unavailable");
       });
     const observer = new ResizeObserver(() => {
       const next = bounds();
@@ -227,13 +278,15 @@ export function Web({
     };
     // Site changes intentionally reuse the resident view and its shared session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site, embedded, active]);
+  }, [site, embedded, viewActive, requestKey]);
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
-    sessionStorage.setItem("stws-active-school-site", next);
-    if (localStorage.getItem("stws-restore-school-page") === "true")
-      localStorage.setItem("stws-active-school-site", next);
+    sessionStorage.setItem("isct-companion-active-school-site", next);
+    update((draft) => {
+      draft.settings.activeSchoolSite = next;
+      return draft;
+    });
     const nextUrl = official[next].url;
     setCurrentUrl(nextUrl);
     setAddress(nextUrl);
@@ -244,43 +297,104 @@ export function Web({
     event.preventDefault();
     try {
       const target = normalizeAddress(address);
-      const destination = siteForAddress(target);
-      if (!destination)
-        throw new Error("Use an official Science Tokyo school URL.");
-      setAddress(target);
-      setStatus("Opening…");
-      if (embedded && desktopBridge?.navigateSchoolWeb) {
-        const navigated = await desktopBridge.navigateSchoolWeb(
+      if (!desktopBridge)
+        throw new Error("School navigation needs the installed app.");
+      const resolved = await desktopBridge.resolveSchoolUrl(target);
+      await openTarget(resolved.url, resolved.site);
+    } catch (error) {
+      setStatus(errorText(error) ?? "Invalid address");
+    }
+  };
+
+  /** Shows `target` in its service's view and switches the picker to it. */
+  const openTarget = async (target: string, destination: SchoolSite) => {
+    setAddress(target);
+    setStatus("Opening…");
+    if (embedded && desktopBridge?.navigateSchoolWeb) {
+      const navigated = await desktopBridge.navigateSchoolWeb(
+        destination,
+        target,
+      );
+      if (!navigated) {
+        const customizationSite = official[destination].customization;
+        const custom = data.settings.customization?.sites[customizationSite];
+        const permitted =
+          platform === "native-desktop" &&
+          (data.settings.siteConsents?.[customizationSite] ?? false);
+        await desktopBridge.openSchoolSite(
           destination,
+          permitted ? (custom?.css ?? "") : "",
+          permitted ? (custom?.js ?? "") : "",
+          bounds(),
           target,
         );
-        if (!navigated) {
-          const customizationSite = official[destination].customization;
-          const custom = data.settings.customization?.sites[customizationSite];
-          const permitted =
-            platform === "native-desktop" &&
-            localStorage.getItem(`stws-site-consent-${customizationSite}`) ===
-              "true";
-          await desktopBridge.openSchoolSite(
-            destination,
-            permitted ? (custom?.css ?? "") : "",
-            permitted ? (custom?.js ?? "") : "",
-            bounds(),
-            target,
-          );
-        }
       }
-      if (destination !== site) {
-        sessionStorage.setItem("stws-active-school-site", destination);
-        if (localStorage.getItem("stws-restore-school-page") === "true")
-          localStorage.setItem("stws-active-school-site", destination);
-        setSite(destination);
-      }
-      setCurrentUrl(target);
-      setStatus("");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Invalid address");
     }
+    if (destination !== site) {
+      sessionStorage.setItem("isct-companion-active-school-site", destination);
+      update((draft) => {
+        draft.settings.activeSchoolSite = destination;
+        return draft;
+      });
+      setSite(destination);
+      if (mobile) openMobileSite?.(destination, true);
+    }
+    setCurrentUrl(target);
+    setStatus("");
+  };
+  const openTargetRef = useRef(openTarget);
+  openTargetRef.current = openTarget;
+
+  // `target="_blank"` links to another service (e.g. 教務Web → LMS) switch
+  // the picker, like a browser opening a new tab.
+  useEffect(
+    () =>
+      desktopBridge?.onSchoolWebOpen?.(({ site: destination, url }) => {
+        if (schoolWebExit.pending || !(destination in official)) return;
+        openTargetRef
+          .current(url, destination)
+          .catch((error) => setStatus(errorText(error) ?? "Unavailable"));
+      }),
+    [],
+  );
+
+  const goBack = async () => {
+    try {
+      const moved = await desktopBridge?.schoolWebBack?.(site);
+      setStatus(moved ? "" : "No previous page.");
+    } catch (error) {
+      setStatus(errorText(error) ?? "Unavailable");
+    }
+  };
+  const goForward = async () => {
+    try {
+      const moved = await desktopBridge?.schoolWebForward?.(site);
+      setStatus(moved ? "" : "No next page.");
+    } catch (error) {
+      setStatus(errorText(error) ?? "Unavailable");
+    }
+  };
+
+  // Phones: the route picks the service; leaving it for the list hides the view.
+  useEffect(() => {
+    if (mobile && mobileSite && mobileSite !== site) choose(mobileSite);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileSite]);
+  useEffect(() => {
+    if (mobile && (!mobileSite || sitesOpen) && embedded && active)
+      void hideNativeSchoolWeb().catch(() => undefined);
+  }, [mobile, mobileSite, sitesOpen, embedded, active]);
+  const mobileBack = async () => {
+    const moved = await desktopBridge?.schoolWebBack?.(site).catch(() => false);
+    if (!moved) openMobileSite?.(null);
+  };
+  const openSiteOutside = (target: SchoolSite) => {
+    const url = official[target].url;
+    if (desktopBridge && platform !== "browser-preview")
+      void desktopBridge
+        .openExternal(url)
+        .catch(() => notify("Could not open the system browser."));
+    else window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const setPageZoom = (next: number) => {
@@ -312,8 +426,7 @@ export function Web({
       const customizationSite = official[site].customization;
       const custom = data.settings.customization?.sites[customizationSite];
       const permitted =
-        localStorage.getItem(`stws-site-consent-${customizationSite}`) ===
-        "true";
+        data.settings.siteConsents?.[customizationSite] ?? false;
       void desktopBridge
         .openSchoolSite(
           site,
@@ -331,6 +444,96 @@ export function Web({
   };
 
   const frameable = site !== "science-lms";
+  if (mobile && !browsing)
+    return (
+      <MobileWebList
+        current={site}
+        open={(target) =>
+          embedded ? openMobileSite?.(target) : openSiteOutside(target)
+        }
+      />
+    );
+  if (mobile)
+    return (
+      <div className="page web mobileBrowser">
+        <div className="mobileBrowserBar">
+          <UiButton
+            className="iconButton"
+            aria-label={t("Back")}
+            onClick={() => void mobileBack()}
+          >
+            ‹
+          </UiButton>
+          {embedded && desktopBridge?.schoolWebForward && (
+            <UiButton
+              className="iconButton"
+              aria-label={t("Forward")}
+              onClick={() => void goForward()}
+            >
+              ›
+            </UiButton>
+          )}
+          <b className="mobileBrowserTitle">{official[site].name}</b>
+          {embedded && desktopBridge?.reloadSchoolWeb && (
+            <UiButton
+              className="iconButton"
+              aria-label={t("Reload")}
+              onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
+            >
+              ↻
+            </UiButton>
+          )}
+          <UiButton
+            className="iconButton"
+            aria-label={t("Open in browser")}
+            onClick={openOutside}
+          >
+            ↗
+          </UiButton>
+        </div>
+        {status && (
+          <p className="mobileBrowserStatus" role="status">
+            {status}
+          </p>
+        )}
+        <div className="webHost" ref={host}>
+          {!embedded && (
+            <div className="webFallback">
+              <b>{official[site].name}</b>
+              <UiButton className="button primary" onClick={openOutside}>
+                {t("Open in browser")} ↗
+              </UiButton>
+            </div>
+          )}
+        </div>
+        <Drawer
+          opened={sitesOpen}
+          onClose={() => setSitesOpen(false)}
+          position="bottom"
+          size="auto"
+          title={t("School services")}
+          classNames={{ content: "mobileSheet" }}
+        >
+          <ul className="mobileSiteSheet">
+            {serviceTiers
+              .flatMap((tier) => tier.sites)
+              .map((key) => (
+                <li key={key}>
+                  <UiButton
+                    className={site === key ? "active" : ""}
+                    onClick={() => {
+                      setSitesOpen(false);
+                      openMobileSite?.(key, true);
+                    }}
+                  >
+                    {official[key].name}
+                  </UiButton>
+                </li>
+              ))}
+          </ul>
+        </Drawer>
+      </div>
+    );
   return (
     <div className="page web servicesPage">
       <form className="webToolbar" onSubmit={(event) => void navigate(event)}>
@@ -368,6 +571,37 @@ export function Web({
           <span className="webStatus" role="status">
             {status}
           </span>
+          {savedFile && desktopBridge?.revealSchoolDownload && (
+            <UiButton
+              type="button"
+              title={`Show ${savedFile.name} in Finder`}
+              onClick={() => void revealSaved(savedFile.path)}
+            >
+              Reveal
+            </UiButton>
+          )}
+          {embedded && desktopBridge?.schoolWebBack && (
+            <UiButton
+              type="button"
+              className="iconButton"
+              title="Previous page"
+              aria-label="Previous page"
+              onClick={() => void goBack()}
+            >
+              ←
+            </UiButton>
+          )}
+          {embedded && desktopBridge?.schoolWebForward && (
+            <UiButton
+              type="button"
+              className="iconButton"
+              title="Next page"
+              aria-label="Next page"
+              onClick={() => void goForward()}
+            >
+              →
+            </UiButton>
+          )}
           {embedded && desktopBridge?.reloadSchoolWeb && (
             <UiButton
               type="button"
@@ -377,6 +611,19 @@ export function Web({
               onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
             >
               ↻
+            </UiButton>
+          )}
+          {embedded && site === "kyomu" && (
+            <UiButton
+              type="button"
+              title="教務Web top page"
+              onClick={() =>
+                void openTarget(official.kyomu.url, "kyomu").catch((error) =>
+                  setStatus(errorText(error) ?? "Unavailable"),
+                )
+              }
+            >
+              Top
             </UiButton>
           )}
         </div>

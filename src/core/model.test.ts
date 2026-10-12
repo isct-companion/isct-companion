@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { pickLocalized, seedWorkspace } from "./model";
+import {
+  LMS_BACKGROUND_REFRESH_TASK_ID,
+  REFERENCE_REFRESH_TASK_ID,
+  contentLanguage,
+  pickLocalized,
+  seedWorkspace,
+} from "./model";
 
 describe("v3 model helpers", () => {
   it("starts real workspaces empty", () => {
@@ -8,14 +14,40 @@ describe("v3 model helpers", () => {
     expect(workspace.courses).toEqual([]);
     expect(workspace.assignments).toEqual([]);
     expect(workspace.planItems).toEqual([]);
+    expect(workspace.scheduledTasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: REFERENCE_REFRESH_TASK_ID,
+          action: "reference-refresh",
+          enabled: true,
+        }),
+        expect.objectContaining({
+          id: LMS_BACKGROUND_REFRESH_TASK_ID,
+          action: "lms-refresh",
+          enabled: false,
+        }),
+      ]),
+    );
   });
 
-  it("picks the locale, falls back, and treats zh as English-first", () => {
+  it("picks the locale, falls back, and treats zh as Japanese-first", () => {
     const both = { ja: "日本語", en: "English" };
     expect(pickLocalized(both, "ja")).toBe("日本語");
     expect(pickLocalized(both, "en")).toBe("English");
-    expect(pickLocalized(both, "zh")).toBe("English");
+    expect(pickLocalized(both, "zh")).toBe("日本語");
     expect(pickLocalized({ ja: "日本語" }, "en")).toBe("日本語");
+    expect(pickLocalized({ en: "English" }, "zh")).toBe("English");
     expect(pickLocalized({}, "en", "Fallback")).toBe("Fallback");
+  });
+
+  it("keeps school content language independent of the UI language", () => {
+    expect(contentLanguage({ locale: "ja" })).toBe("ja");
+    expect(contentLanguage({ locale: "zh", contentLanguage: "auto" })).toBe(
+      "ja",
+    );
+    expect(contentLanguage({ locale: "zh", contentLanguage: "en" })).toBe("en");
+    expect(contentLanguage({ locale: "zh", contentLanguage: "ja" })).toBe("ja");
+    expect(contentLanguage({ locale: "en", contentLanguage: "ja" })).toBe("ja");
+    expect(contentLanguage({ locale: "ja", contentLanguage: "en" })).toBe("en");
   });
 });

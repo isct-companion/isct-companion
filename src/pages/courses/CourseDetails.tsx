@@ -4,14 +4,22 @@ import { openExternalUrl } from "../../components/ExternalLink";
 import { PullRing } from "../../components/PullRing";
 import { dayNames } from "../../components/timetable/timetable";
 import { deadlineState } from "../../core/academic";
-import { pickLocalized, type Course, type Workspace } from "../../core/model";
+import {
+  contentLanguage,
+  pickLocalized,
+  type Course,
+  type Workspace,
+} from "../../core/model";
 import { t } from "../../i18n";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
 import { SyllabusDetails } from "./syllabus-details";
 
 /** The course's official syllabus page: its own URL when that is one, else by offering id. */
-export function syllabusUrl(course: Pick<Course, "url" | "offeringId">): string | undefined {
-  if (course.url?.startsWith("https://syllabus.s.isct.ac.jp/")) return course.url;
+export function syllabusUrl(
+  course: Pick<Course, "url" | "offeringId">,
+): string | undefined {
+  if (course.url?.startsWith("https://syllabus.s.isct.ac.jp/"))
+    return course.url;
   return /^\d{9}$/.test(course.offeringId ?? "")
     ? `https://syllabus.s.isct.ac.jp/courses/-/-/-/${course.offeringId}`
     : undefined;
@@ -72,6 +80,7 @@ export function CourseDetails({
   course,
   data,
   initialTab = "overview",
+  onTabChange,
   lmsUrl,
   openWeb,
   fetchLms,
@@ -80,6 +89,7 @@ export function CourseDetails({
   course: Course;
   data: Workspace;
   initialTab?: CourseTab;
+  onTabChange?: (tab: CourseTab) => void;
   /** The course's LMS page, when it is linked to one. */
   lmsUrl?: string;
   openWeb: (url: string) => void;
@@ -88,35 +98,57 @@ export function CourseDetails({
   /** 0–100 while an LMS pull runs, else null. */
   progress?: number | null;
 }) {
-  const [tab, setTab] = useState<CourseTab>(initialTab);
+  const [localTab, setTab] = useState<CourseTab>(initialTab);
+  const tab = onTabChange ? initialTab : localTab;
   const bridge = getDesktopBridge();
-  const locale = data.settings.locale;
+  const language = contentLanguage(data.settings);
   const materials = (data.materials as LmsItem[])
     .filter(
       (item) =>
         item.courseId === course.id &&
         !item.deletedAt &&
+        item.visible !== false &&
         item.module !== "assign" &&
         item.module !== "quiz",
     )
     .sort(
       (left, right) =>
-        (left.sectionNumber ?? left.session) - (right.sectionNumber ?? right.session),
+        (left.sectionNumber ?? left.session) -
+        (right.sectionNumber ?? right.session),
     );
-  const sections = [...new Set(materials.map((item) => item.sectionNumber ?? item.session))];
+  const sections = [
+    ...new Set(materials.map((item) => item.sectionNumber ?? item.session)),
+  ];
   const assignments = data.assignments
-    .filter((item) => item.courseId === course.id && !item.deletedAt && !item.hidden)
-    .sort((left, right) => (left.dueAt ?? "~").localeCompare(right.dueAt ?? "~"));
+    .filter(
+      (item) => item.courseId === course.id && !item.deletedAt && !item.hidden,
+    )
+    .sort((left, right) =>
+      (left.dueAt ?? "~").localeCompare(right.dueAt ?? "~"),
+    );
   const offering = data.offerings.find(
     (item) => item.id === course.offeringId && !item.deletedAt,
   );
-  const count = (value: number) => (value > 0 ? <Badge size="xs">{value}</Badge> : null);
+  const exams = data.exams
+    .filter(
+      (item) =>
+        !item.deletedAt &&
+        !item.missingSince &&
+        item.status === "scheduled" &&
+        item.courseCode.trim().toUpperCase() ===
+          course.code.trim().toUpperCase(),
+    )
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const count = (value: number) =>
+    value > 0 ? <Badge size="xs">{value}</Badge> : null;
   const refresh = fetchLms && (
     <Button
       size="compact-xs"
       variant="subtle"
       disabled={progress !== null}
-      leftSection={progress !== null ? <PullRing value={progress} size={14} /> : undefined}
+      leftSection={
+        progress !== null ? <PullRing value={progress} size={14} /> : undefined
+      }
       onClick={fetchLms}
     >
       {progress !== null ? `${Math.round(progress)}%` : t("Fetch")}
@@ -125,13 +157,21 @@ export function CourseDetails({
 
   return (
     <div className="courseDetails">
-      <Tabs value={tab} onChange={(value) => setTab((value ?? "overview") as CourseTab)}>
+      <Tabs
+        value={tab}
+        onChange={(value) =>
+          (onTabChange ?? setTab)((value ?? "overview") as CourseTab)
+        }
+      >
         <Tabs.List grow>
           <Tabs.Tab value="overview">{t("Overview")}</Tabs.Tab>
           <Tabs.Tab value="materials" rightSection={count(materials.length)}>
             {t("Materials")}
           </Tabs.Tab>
-          <Tabs.Tab value="assignments" rightSection={count(assignments.length)}>
+          <Tabs.Tab
+            value="assignments"
+            rightSection={count(assignments.length)}
+          >
             {t("Assignments")}
           </Tabs.Tab>
           <Tabs.Tab value="syllabus">{t("Syllabus")}</Tabs.Tab>
@@ -146,7 +186,9 @@ export function CourseDetails({
                 {course.meetings.length
                   ? course.meetings.map((meeting, index) => (
                       <div key={index}>
-                        {meeting.days.map((day) => t(dayNames[day - 1].slice(0, 3))).join(" / ")}{" "}
+                        {meeting.days
+                          .map((day) => t(dayNames[day - 1].slice(0, 3)))
+                          .join(" / ")}{" "}
                         {meeting.startTime}–{meeting.endTime}
                         {meeting.room ? ` · ${meeting.room}` : ""}
                       </div>
@@ -157,23 +199,53 @@ export function CourseDetails({
               <dd>{course.instructor || "—"}</dd>
               <dt>{t("Credits")}</dt>
               <dd>
-                {course.creditSplit.lecture}-{course.creditSplit.exercise}-{course.creditSplit.lab} (
-                {course.credits})
+                {course.creditSplit.lecture}-{course.creditSplit.exercise}-
+                {course.creditSplit.lab} ({course.credits})
               </dd>
               {offering && (
                 <>
                   <dt>{t("Format")}</dt>
                   <dd>
                     {offering.format.kinds.join(" / ") || "—"}
-                    {offering.format.delivery ? ` · ${offering.format.delivery}` : ""}
+                    {offering.format.delivery
+                      ? ` · ${offering.format.delivery}`
+                      : ""}
                   </dd>
                   <dt>{t("Academic unit")}</dt>
-                  <dd>{pickLocalized(offering.academicUnit, locale, "—")}</dd>
+                  <dd>{pickLocalized(offering.academicUnit, language, "—")}</dd>
+                </>
+              )}
+              {exams.length > 0 && (
+                <>
+                  <dt>{t("Exams")}</dt>
+                  <dd className="courseExamList">
+                    {exams.map((exam) => {
+                      const override = data.scheduleOverrides.find(
+                        (item) =>
+                          !item.deletedAt &&
+                          item.targetKey === (exam.sourceKey ?? exam.id),
+                      );
+                      const periods = override?.periods ?? exam.periods;
+                      return (
+                        <div key={exam.id}>
+                          <b>{override?.date ?? exam.date}</b>
+                          {periods ? ` · ${periods[0]}–${periods[1]}限` : ""}
+                          {(override?.room ??
+                          pickLocalized(exam.room ?? undefined, language))
+                            ? ` · ${override?.room ?? pickLocalized(exam.room ?? undefined, language)}`
+                            : ""}
+                          {override && <small> · {t("Edited")}</small>}
+                        </div>
+                      );
+                    })}
+                  </dd>
                 </>
               )}
             </dl>
             <div className="courseDetailsLinks">
-              {lmsUrl && <OfficialLink url={lmsUrl} label="LMS" openWeb={openWeb} />}
+              {lmsUrl && (
+                <OfficialLink url={lmsUrl} label="LMS" openWeb={openWeb} />
+              )}
             </div>
           </>
         )}
@@ -184,24 +256,36 @@ export function CourseDetails({
               {refresh}
             </header>
             {sections.map((section) => {
-              const items = materials.filter((item) => (item.sectionNumber ?? item.session) === section);
+              const items = materials.filter(
+                (item) => (item.sectionNumber ?? item.session) === section,
+              );
               return (
                 <section key={section}>
-                  <h4>{items[0]?.sectionTitle || `${t("Section")} ${section}`}</h4>
+                  <h4>
+                    {items[0]?.sectionTitle || `${t("Section")} ${section}`}
+                  </h4>
                   {items.map((item) => (
                     <div className="detailsRow" key={item.id}>
                       {item.url ? (
-                        <OfficialLink url={item.url} label={item.title} openWeb={openWeb} />
+                        <OfficialLink
+                          url={item.url}
+                          label={item.title}
+                          openWeb={openWeb}
+                        />
                       ) : (
                         <b>{item.title}</b>
                       )}
-                      <small>{t(MODULE_LABELS[item.module ?? ""] ?? item.type)}</small>
+                      <small>
+                        {t(MODULE_LABELS[item.module ?? ""] ?? item.type)}
+                      </small>
                     </div>
                   ))}
                 </section>
               );
             })}
-            {!materials.length && <div className="empty small">{t("No materials")}</div>}
+            {!materials.length && (
+              <div className="empty small">{t("No materials")}</div>
+            )}
           </div>
         )}
         {tab === "assignments" && (
@@ -215,17 +299,30 @@ export function CourseDetails({
               return (
                 <div className="detailsRow" key={assignment.id}>
                   {assignment.sourceUrl ? (
-                    <OfficialLink url={assignment.sourceUrl} label={assignment.title} openWeb={openWeb} />
+                    <OfficialLink
+                      url={assignment.sourceUrl}
+                      label={assignment.title}
+                      openWeb={openWeb}
+                    />
                   ) : (
                     <b>{assignment.title}</b>
                   )}
-                  <small className={due.ms < 0 && assignment.submission === "open" ? "overdue" : due.tone}>
-                    {assignment.dueAt ? due.label : "—"} · {t(assignment.submission ?? "unknown")}
+                  <small
+                    className={
+                      due.ms < 0 && assignment.submission === "open"
+                        ? "overdue"
+                        : due.tone
+                    }
+                  >
+                    {assignment.dueAt ? due.label : "—"} ·{" "}
+                    {t(assignment.submission ?? "unknown")}
                   </small>
                 </div>
               );
             })}
-            {!assignments.length && <div className="empty small">{t("No assignments")}</div>}
+            {!assignments.length && (
+              <div className="empty small">{t("No assignments")}</div>
+            )}
           </div>
         )}
         {tab === "syllabus" &&
@@ -234,12 +331,14 @@ export function CourseDetails({
               url={syllabusUrl(course)!}
               fetchCourse={
                 bridge
-                  ? (url) => bridge.syllabusCourse(url, locale === "ja" ? "ja" : "en")
+                  ? (url) => bridge.syllabusCourse(url, language)
                   : undefined
               }
             />
           ) : (
-            <div className="empty small">{t("No syllabus is linked to this course.")}</div>
+            <div className="empty small">
+              {t("No syllabus is linked to this course.")}
+            </div>
           ))}
       </ScrollArea>
     </div>

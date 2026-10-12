@@ -70,29 +70,31 @@ pub struct StagedSchoolData {
     pub message: &'static str,
 }
 
+/// Shared allowlist passed to Android's synchronous navigation delegate.
+pub(crate) const SCHOOL_HOSTS: &[&str] = &[
+    "isct.ex-tic.com",
+    "portal.isct.ac.jp",
+    "portal.titech.ac.jp",
+    "lms.s.isct.ac.jp",
+    "t2schola.titech.ac.jp",
+    "syllabus.s.isct.ac.jp",
+    "portal.nap.gsic.titech.ac.jp",
+    "rp.nap.gsic.titech.ac.jp",
+    "mailv4.m.titech.ac.jp",
+    "kyomu0.gakumu.titech.ac.jp",
+    "request.libra.titech.ac.jp",
+    "portal.t4.gsic.titech.ac.jp",
+];
+
 pub fn sanitize_school_url(raw: &str) -> Option<String> {
     let mut url = Url::parse(raw).ok()?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
         return None;
     }
-    if !matches!(
-        url.host_str(),
-        Some(
-            "isct.ex-tic.com"
-                | "portal.isct.ac.jp"
-                | "portal.titech.ac.jp"
-                | "lms.s.isct.ac.jp"
-                | "t2schola.titech.ac.jp"
-                | "syllabus.s.isct.ac.jp"
-                | "portal.nap.gsic.titech.ac.jp"
-                // GetAccess routes signed-in sessions through its RP router.
-                | "rp.nap.gsic.titech.ac.jp"
-                | "mailv4.m.titech.ac.jp"
-                | "kyomu0.gakumu.titech.ac.jp"
-                | "request.libra.titech.ac.jp"
-                | "portal.t4.gsic.titech.ac.jp"
-        )
-    ) {
+    if !url
+        .host_str()
+        .is_some_and(|host| SCHOOL_HOSTS.contains(&host))
+    {
         return None;
     }
     url.set_fragment(None);
@@ -381,7 +383,8 @@ mod tests {
     #[test]
     fn syllabus_course_links_keep_their_offering_id() {
         assert_eq!(
-            sanitize_school_url("https://syllabus.s.isct.ac.jp/courses?jwc=202602431&x=1").as_deref(),
+            sanitize_school_url("https://syllabus.s.isct.ac.jp/courses?jwc=202602431&x=1")
+                .as_deref(),
             Some("https://syllabus.s.isct.ac.jp/courses?jwc=202602431")
         );
         assert_eq!(

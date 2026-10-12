@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { act } from "react";
+import React, { Activity, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { saveNote, readNote, moveNote } = vi.hoisted(() => ({
@@ -74,7 +74,7 @@ it("preserves a failed save and clears recovery after a successful retry", async
       .find((button) => button.textContent === "Save")!
       .click(),
   );
-  expect(localStorage.getItem("lms-note-recovery:n1")).toBe("keep me");
+  expect(JSON.parse(localStorage.getItem("lms-note-recovery:n1") ?? "null").text).toBe("keep me");
   expect(host.textContent).toContain("Disk unavailable");
   await act(async () =>
     [...host.querySelectorAll("button")]
@@ -96,4 +96,39 @@ it("preserves the final draft in deleted storage and does not resurrect it on un
   expect(deleted).toHaveBeenCalledOnce();
   await act(async()=>root.unmount());
   expect(saveNote).toHaveBeenCalledTimes(1);
+});
+
+it("retains the live draft across Activity hiding while the disk save is pending", async () => {
+  readNote.mockClear();
+  let finishSave!: (value: { id: string }) => void;
+  saveNote.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishSave = resolve;
+      }),
+  );
+  const renderActivity = async (mode: "visible" | "hidden") => {
+    await act(async () => {
+      root.render(
+        <Activity mode={mode}>
+          <NoteEditor context={context} id="n1" onSaved={() => {}} />
+        </Activity>,
+      );
+      await vi.dynamicImportSettled();
+    });
+  };
+  await renderActivity("visible");
+  edit("last keystroke before hiding");
+  await renderActivity("hidden");
+  expect(saveNote).toHaveBeenCalledWith(
+    context,
+    "n1",
+    "last keystroke before hiding",
+  );
+  await renderActivity("visible");
+  expect(host.querySelector("textarea")?.value).toBe(
+    "last keystroke before hiding",
+  );
+  expect(readNote).toHaveBeenCalledTimes(1);
+  await act(async () => finishSave({ id: "n1" }));
 });

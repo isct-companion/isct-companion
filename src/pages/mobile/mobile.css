@@ -1,0 +1,588 @@
+/* ---------- Mobile shell: phones and upright tablets ----------
+   One page at a time, tabs at the bottom, safe areas respected. Page
+   components keep their own markup; the rules below fold their desktop
+   columns into one and turn side previews into dialogs. */
+.mobileShell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+}
+.mobileMain {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 10px) 14px 0;
+}
+.mobileShell[data-page="web"] .mobileMain:has(.mobileBrowser) {
+  padding: env(safe-area-inset-top) 0 0;
+}
+/* Upright tablets: a readable column, not a stretched phone. */
+.mobileMain > :not(.mobileStatusDot, .mobileAttention) {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+}
+.mobileMain > .mobileBrowser {
+  max-width: none;
+}
+
+.mobileTabs {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+}
+.mobileTabs button {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  min-height: 48px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: calc(10.5px * var(--text));
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobileTabs button.active {
+  color: var(--accent);
+}
+.mobileTabIcon {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.mobileTabs svg.mobileTabMenuMark {
+  position: absolute;
+  right: -6px;
+  bottom: -3px;
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  stroke-width: 1.4;
+}
+.mobileTabs svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- Connection: a dot on Home, a banner only for problems ---------- */
+.mobileStatusDot {
+  position: absolute;
+  z-index: 5;
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: max(14px, calc((100% - 760px) / 2));
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+.mobileStatusDot > i,
+.mobileStatusList i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.mobileStatusDot[data-state="active"] > i,
+.mobileStatusList [data-state="active"] i {
+  background: var(--ok, #2f9e62);
+}
+.mobileStatusDot[data-state="failed"] > i,
+.mobileStatusList [data-state="failed"] i {
+  background: var(--danger);
+}
+.mobileStatusList [data-state="pulling"] i,
+.mobileStatusList [data-state="checking"] i {
+  background: var(--accent);
+}
+.mobileAttention {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 10px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: calc(12.5px * var(--text));
+  font-weight: 600;
+}
+/* Bottom sheets hug their content (Mantine has no "auto" drawer size). */
+.mobileSheet {
+  height: auto !important;
+  max-height: 85dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: 16px 16px 0 0;
+}
+.mobileStatusList {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mobileStatusList li {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.mobileStatusList small {
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+  text-align: right;
+}
+.mobileSheetActions {
+  display: flex;
+  gap: 8px;
+  padding: 14px 0 6px;
+}
+.mobileSheetActions > * {
+  flex: 1;
+}
+
+/* ---------- Home: the day, or the week pushed over it ---------- */
+.mobileShell .homePage {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.mobileShell .homeDay {
+  padding-right: 0;
+  border-right: 0;
+}
+.mobileShell .homeDay .weekStrip,
+.mobileShell .homeDay [data-today-section="classes"] > header > .textButton {
+  display: flex;
+}
+.mobileShell .homePage.day:not(.planning) .homeWeek,
+.mobileShell .homePage.week .homeDay {
+  display: none;
+}
+.mobileShell .homePage.week:not(.planning) .homeBack {
+  display: inline-flex;
+  align-self: flex-start;
+  margin-bottom: 4px;
+  color: var(--accent);
+}
+/* Leave room for the status dot beside the date. */
+.mobileShell .homeDay .todayHeader {
+  padding-right: 40px;
+}
+
+/* ---------- Lectures: the list, and the open lecture as a dialog ---------- */
+.mobileShell .page.lectureDesk {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.mobileShell .lectureList {
+  flex: 1;
+  padding-right: 0;
+  border-right: 0;
+  overflow: auto;
+}
+.mobileShell .lectureDesk.open .lectureList {
+  display: flex;
+}
+.mobileShell .lectureList > header {
+  padding: 4px 0 10px;
+}
+.mobileShell .lectureList > header h1 {
+  font-size: calc(20px * var(--text));
+  font-weight: 700;
+}
+.mobileShell .lectureRow {
+  padding-block: 11px;
+}
+.mobileShell .lectureContent {
+  display: none;
+}
+.mobileShell .lectureDesk.open .lectureContent {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  padding: calc(env(safe-area-inset-top) + 6px) 12px env(safe-area-inset-bottom);
+  background: var(--bg);
+  animation: mobileSheetUp 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mobileShell .lectureDesk.open .lectureContent > .lectureSlot:not([hidden]) {
+  flex: 1;
+  min-height: 0;
+}
+.mobileShell .lectureBack {
+  display: inline-flex;
+  align-self: flex-start;
+  margin: 0 0 4px;
+  padding: 8px 2px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: calc(14px * var(--text));
+  font-weight: 560;
+}
+/* The reading pane inside the lecture opens as a dialog of its own. */
+.mobileShell .lmsWorkspace.viewing .lmsViewer {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  padding: calc(env(safe-area-inset-top) + 6px) 0 env(safe-area-inset-bottom);
+  background: var(--bg);
+  animation: mobileSheetUp 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mobileShell .lmsWorkspace.viewing .lmsOutline {
+  display: flex;
+}
+.mobileShell .lmsWorkspaceHeader {
+  gap: 8px;
+}
+.mobileShell .lmsOutlineTools,
+.mobileShell .lmsOutlineScroll {
+  padding-left: 0;
+  padding-right: 0;
+}
+.mobileShell .lmsDocument {
+  padding: 16px 14px;
+}
+
+/* ---------- Settings: list, then one section ---------- */
+.mobileShell .page.settings {
+  flex-direction: column;
+  gap: 0;
+}
+.mobileShell .settings.list .settingsNav {
+  width: auto;
+  flex: 1;
+  grid-auto-flow: row;
+  overflow: auto;
+}
+.mobileShell .settings.list .settingsNav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: calc(15px * var(--text));
+  font-weight: 500;
+  white-space: normal;
+}
+.mobileShell .settings.list .settingsNavList button::after {
+  content: "›";
+  color: var(--muted);
+  font-size: 18px;
+}
+.settings.detail .settingsNav {
+  display: none;
+}
+.mobileShell .settings.detail .settingsPane {
+  max-width: none;
+  padding: 0 0 24px;
+}
+.settingsBack {
+  margin: 0 0 6px -6px;
+}
+.mobileShell .settingsPane .row {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.mobileShell .settingsPane .row > :not(:first-child) {
+  justify-self: start;
+}
+
+/* ---------- Web ---------- */
+.page.mobileWeb {
+  overflow: auto;
+  gap: 6px;
+}
+.mobileWeb h1 {
+  margin: 4px 0 8px;
+  font-size: calc(20px * var(--text));
+  font-weight: 700;
+}
+.mobileWeb h2 {
+  margin: 18px 0 4px;
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mobileWebRequested {
+  margin-bottom: 8px;
+}
+.mobileWebList {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  list-style: none;
+  overflow: hidden;
+}
+.mobileWebList li + li {
+  border-top: 1px solid var(--line);
+}
+.mobileWebRow {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 14px;
+  text-align: left;
+}
+.mobileWebRow > i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 700;
+}
+.mobileWebRow > span {
+  display: grid;
+  min-width: 0;
+}
+.mobileWebRow b {
+  overflow: hidden;
+  font-size: calc(14.5px * var(--text));
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobileWebRow small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobileWebRow em {
+  color: var(--muted);
+  font-style: normal;
+}
+/* With an embedded school view (narrow desktop windows): services as chips. */
+.mobileShell .servicesBody {
+  display: flex;
+  flex-direction: column;
+}
+.mobileShell .servicePicker {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  overflow-x: auto;
+}
+.mobileShell .serviceTier {
+  display: contents;
+}
+.mobileShell .serviceDivider,
+.mobileShell .serviceResizeHandle,
+.mobileShell .webZoom {
+  display: none;
+}
+.mobileShell .servicePicker button {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* ---------- Touch ---------- */
+.mobileShell input,
+.mobileShell select,
+.mobileShell textarea {
+  /* iOS zooms into anything smaller when it gains focus. */
+  font-size: max(16px, 1em);
+}
+
+@keyframes mobileSheetUp {
+  from {
+    transform: translateY(24px);
+    opacity: 0.6;
+  }
+}
+
+/* Upright tablets: dialogs float instead of covering the whole screen. */
+@media (min-width: 700px) {
+  .mobileShell .lectureDesk.open .lectureContent {
+    inset: calc(env(safe-area-inset-top) + 24px) 24px 24px;
+    max-width: 880px;
+    margin-inline: auto;
+    padding: 10px 16px 0;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: 0 24px 64px color-mix(in srgb, var(--ink) 22%, transparent);
+  }
+  .mobileShell .lectureDesk.open::after {
+    content: "";
+    position: fixed;
+    z-index: 199;
+    inset: 0;
+    background: color-mix(in srgb, var(--ink) 28%, transparent);
+  }
+  .mobileShell .lmsWorkspace.viewing .lmsViewer {
+    padding-top: 6px;
+    border-radius: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobileShell .lectureDesk.open .lectureContent,
+  .mobileShell .lmsWorkspace.viewing .lmsViewer {
+    animation: none;
+  }
+}
+
+/* ---------- Week: one header row, the agenda below ---------- */
+.unifiedSchedule.compact > .scheduleTitleRow,
+.unifiedSchedule.compact > .pageBar {
+  display: none;
+}
+.scheduleCompactBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+.scheduleCompactBar h1 {
+  flex: 1;
+  margin: 0;
+  font-size: calc(20px * var(--text));
+  font-weight: 700;
+}
+/* The status dot belongs to the day; the week has its own header. */
+.mobileShell:has(.homePage.week) .mobileStatusDot,
+.mobileShell:has(.homePage.week) .mobileAttention {
+  display: none;
+}
+.mobileShell .unifiedSchedule .ttCard {
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+/* ---------- Small fixes ---------- */
+.mobileShell .lectureMode {
+  align-self: stretch;
+  width: 100%;
+}
+.settingsTitle {
+  margin: 4px 0 10px;
+  font-size: calc(20px * var(--text));
+  font-weight: 700;
+}
+
+/* ---------- Dialogs (portalled outside the shell) ---------- */
+@media (max-width: 600px) {
+  html[data-shell="mobile"] .mantine-Modal-inner {
+    padding: 0;
+  }
+  html[data-shell="mobile"] .mantine-Modal-content {
+    flex: 1 0 100%;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  html[data-shell="mobile"] .mantine-Drawer-content:not(.mobileSheet) {
+    flex-basis: 100%;
+    max-width: 100%;
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* ---------- Web: browsing one service full screen ---------- */
+.page.mobileBrowser {
+  gap: 0;
+}
+.mobileBrowserBar {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+.mobileBrowserBar .iconButton {
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+}
+.mobileBrowserTitle {
+  min-width: 0;
+  overflow: hidden;
+  font-size: calc(15px * var(--text));
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobileBrowserStatus {
+  margin: 0;
+  padding: 4px 12px;
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+  text-align: center;
+}
+.mobileBrowser .webHost {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+}
+.mobileBrowser .webFallback {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  height: 100%;
+}
+.mobileSiteSheet {
+  display: grid;
+  margin: 0;
+  padding: 0 0 8px;
+  list-style: none;
+}
+.mobileSiteSheet button {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: calc(15px * var(--text));
+  text-align: left;
+}
+.mobileSiteSheet button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.mobileWebRow[aria-current="true"] em {
+  color: var(--accent);
+}

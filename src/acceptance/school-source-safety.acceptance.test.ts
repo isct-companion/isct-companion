@@ -12,11 +12,17 @@ function rustRawString(source: string, constant: string): string {
   );
   if (match) return match[1];
   const start = source.indexOf(`pub const ${constant}: &str = concat!(`);
-  const end = source.indexOf('})()"#);', start);
-  if (start < 0 || end < 0) throw new Error(`Rust script ${constant} was not found.`);
-  const expression = source.slice(start, end + '})()"#);'.length);
+  const ending =
+    start < 0 ? undefined : source.slice(start).match(/\}\)\(\)"#\s*\);/);
+  if (start < 0 || !ending || ending.index === undefined)
+    throw new Error(`Rust script ${constant} was not found.`);
+  const expression = source.slice(
+    start,
+    start + ending.index + ending[0].length,
+  );
   return [...expression.matchAll(/r#"([\s\S]*?)"#|include_str!\("([^"]+)"\)/g)]
-    .map((part) => part[1] ?? read(`backend/src/${part[2]}`)).join("");
+    .map((part) => part[1] ?? read(`backend/src/${part[2]}`))
+    .join("");
 }
 
 describe("public syllabus fixture provenance", () => {
@@ -38,11 +44,16 @@ describe("public syllabus fixture provenance", () => {
       expect(url.hostname).toBe("syllabus.s.isct.ac.jp");
       const path = join(dirname(provenancePath), fixture.file);
       expect(existsSync(path), basename(path)).toBe(true);
-      const bytes = readFileSync(path);
-      expect(bytes.byteLength, fixture.file).toBe(fixture.bytes);
-      expect(createHash("sha256").update(bytes).digest("hex"), fixture.file).toBe(
-        fixture.sha256,
+      // Git may check text fixtures out with CRLF on Windows. Provenance pins
+      // the repository's canonical LF bytes, not a platform-specific checkout.
+      const bytes = Buffer.from(
+        readFileSync(path, "utf8").replaceAll("\r\n", "\n"),
       );
+      expect(bytes.byteLength, fixture.file).toBe(fixture.bytes);
+      expect(
+        createHash("sha256").update(bytes).digest("hex"),
+        fixture.file,
+      ).toBe(fixture.sha256);
     }
   });
 });
@@ -102,13 +113,13 @@ describe("bundled public subscription data", () => {
       }[];
     };
     expect(data.source.length).toBeGreaterThan(0);
-    expect(data.source.every((source) => source.url.startsWith("https://"))).toBe(
-      true,
-    );
+    expect(
+      data.source.every((source) => source.url.startsWith("https://")),
+    ).toBe(true);
     expect(data.departments).toHaveLength(17);
-    expect(new Set(data.departments.map((department) => department.id)).size).toBe(
-      17,
-    );
+    expect(
+      new Set(data.departments.map((department) => department.id)).size,
+    ).toBe(17);
     expect(
       data.departments.every(
         (department) =>

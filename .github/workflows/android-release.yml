@@ -1,0 +1,89 @@
+name: Android build
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Android APK (arm64)
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 27.2.12479018
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK and NDK
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+          key: android-release-aarch64
+      - run: yarn install --immutable
+      - name: Validate frontend and release version
+        run: |
+          yarn build
+          node scripts/desktop-release.mjs validate
+      - name: Generate Android project
+        run: yarn tauri android init --ci
+      - name: Build unsigned release APK
+        run: yarn tauri android build --ci --target aarch64 --apk
+      - name: Verify platform isolation and sign APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_PASSWORD ANDROID_KEY_ALIAS; do
+            test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
+          done
+          apk=$(find backend/gen/android/app/build/outputs/apk -type f -name '*-unsigned.apk' -print -quit)
+          test -n "$apk"
+          work="$RUNNER_TEMP/android-bundle"
+          mkdir "$work"
+          unzip -q "$apk" -d "$work"
+          node scripts/verify-platform-bundle.mjs android "$work"
+          version=$(node -p "require('./package.json').version")
+          mkdir -p artifacts/android
+          keystore="$RUNNER_TEMP/android-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/zipalign" -f -p 4 "$apk" "$RUNNER_TEMP/aligned.apk"
+          signed="artifacts/android/IsctCompanion_${version}_aarch64-android.apk"
+          "$tools/apksigner" sign --ks "$keystore" --ks-key-alias "$ANDROID_KEY_ALIAS" --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD --out "$signed" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --verbose "$signed"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mobile-android-aarch64
+          path: artifacts/android/
+          if-no-files-found: error
+          retention-days: 14

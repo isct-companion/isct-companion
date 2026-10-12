@@ -1,4 +1,4 @@
-# Campus Life for Science Tokyo
+# IsctCompanion for Science Tokyo
 
 Unofficial student companion for Institute of Science Tokyo.
 
@@ -6,7 +6,7 @@ Unofficial student companion for Institute of Science Tokyo.
 
 Open the app and know today's classes, the next room, and what is due. Reach course materials and official school actions without repeating the portal maze.
 
-Campus Life combines MyStudyLife's academic-day priority with TitechApp's school-system access. It organizes official information but does not submit assignments, register courses, or impersonate an official school service.
+IsctCompanion combines MyStudyLife's academic-day priority with TitechApp's school-system access. It organizes official information but does not submit assignments, register courses, or impersonate an official school service.
 
 ## Primary jobs
 
@@ -28,12 +28,11 @@ Campus Life combines MyStudyLife's academic-day priority with TitechApp's school
 
 Desktop primary rail:
 
-1. Today
-2. Schedule
-3. Courses
-4. Web
+1. Home (ホーム / 首页): orient. Today's day and assignments beside the week timetable; quarter planning is the week's Edit mode.
+2. Lectures (講義 / 讲义), titled Lecture Desk: study. This quarter's lectures in class order beside the open lecture's workspace.
+3. Web
 
-Settings is a utility action at the bottom. Tasks is part of Today, not a separate destination. Mobile uses the same destinations in compact bottom navigation; Web is full-screen.
+Settings is a utility action at the bottom. Tasks is part of Home, not a separate destination. Opening a class or assignment anywhere opens it on Lecture Desk, which keeps the lecture open while other pages are used. Narrow windows show Home's day and week one at a time. Mobile uses the same destinations in compact bottom navigation; Web is full-screen.
 
 ### Today
 
@@ -48,7 +47,7 @@ Order:
 Assignments:
 
 - Official LMS state only: open, submitted, graded, late, or unknown. No local `Mark complete` that can contradict LMS.
-- `Hide` removes an assignment from Today on this device and its backups only; it never changes school state. Hidden items are listed in Settings → Hidden items, where they can be restored or cleared.
+- `Hide` removes an assignment from Today on this device and its backups only; it never changes school state. Hidden items are listed in Settings → Hidden assignments, where they can be restored.
 - Open the parent course or the exact official assignment page. Returning triggers a bounded refresh that shows `Checking…`, then the LMS state and `Last checked`. A failed refresh keeps the last state with its timestamp.
 
 Do not place a full weekly timetable or dashboard-card mosaic on Today.
@@ -95,18 +94,22 @@ The main course-editing surface, designed to minimise steps. One page:
 
 ### Settings
 
-Primary sections:
+Settings are layered like mature system settings: everyday pages first, rarely changed pages under **Advanced**, and tools for people who write code behind one **Developer options** switch. A search field at the top of the sidebar reaches every row in every layer (English and Japanese terms) and jumps to it, unfolding `More options` when needed. Each page opens with one plain sentence about what it is for; every control has a short hint; destructive actions sit in a separate Reset group.
 
-- General (language, department, admission year)
-- Accounts
-- Notifications
-- Storage & sync (export / import, cloud)
-- Subscriptions (academic calendar, recommended courses)
-- Hidden items
-- Scheduled tasks
-- Downloads
-- Data
-- Advanced (per-site CSS/JS, hooks)
+Everyday:
+
+- School accounts (sign-in, refresh school records, reopen the last school page)
+- Study profile (department, year you started; shows the study-guide status)
+- Notifications (permission, class reminders with lead time, assignment reminders)
+- Academic calendar (official calendar merged with your own changes, quarter dates, important dates)
+- Appearance & language (language, school content language, theme, text size; density and background under More options)
+- Course files (desktop: folder, automatic download size, cleanup, bilingual LMS)
+- Backup & sync (cloud backup, backup file, erase this device)
+- Hidden assignments
+
+Advanced: Data updates (official data sets, mobile-data switch), Automation (scheduled tasks), Developer options.
+
+Developer (after the switch): AI agent access, Site styles & scripts (desktop), Diagnostics. Developer options itself also holds the academic profile editor, data source URLs and the cloud OAuth client ID override.
 
 Diagnostics and raw provider details stay out of ordinary settings.
 
@@ -123,7 +126,7 @@ Diagnostics and raw provider details stay out of ordinary settings.
 
 Use a short setup with labels and actions, not explanatory pages:
 
-1. `Campus Life` / `for Science Tokyo · Unofficial` / `Continue`
+1. `IsctCompanion` / `for Science Tokyo · Unofficial` / `Continue`
 2. `Accounts` with `Science Tokyo` and `Tokyo Tech` connect actions / `Continue` / `Skip`
 3. `Sync` and `Notifications` optional actions / `Open Today`
 
@@ -159,9 +162,9 @@ School data remains primary. Users may quickly add a plan, task, exam or event w
 
 - All data lives in one local SQLite database owned by the native app.
 - Every stored record is versioned: content hash, timestamp, source and revision. The same mechanism detects changed school data, reconciles imports and updates subscriptions, with `use latest` / `use current` (or manual resolution) when both sides changed.
-- Cloud sync is export/import of one document, client-side encrypted, to Google Drive, OneDrive or later providers. The application has no account or sync server.
+- Rust synchronizes one readable workspace JSON document through the provider's private app folder. It is a convenience feature, not an application-provided confidentiality guarantee; provider account security is the workspace boundary. The application has no account or sync server.
 - The export includes the person's own data and their school records (courses, registration, grades, requirement progress, assignments); rebuildable caches (full syllabus text, search index) are excluded.
-- Credentials, Matrix/OTP data, cookies, files, raw HTML, WebView state and diagnostic payloads never sync.
+- School credentials and Matrix/OTP data sync only when explicitly enabled, in a separate authenticated encrypted file whose password remains device-local. Cookies, OAuth tokens, downloaded files, raw HTML, WebView state and diagnostics never sync.
 - macOS, Windows and iOS may independently sign in to school systems and reconcile through the same export.
 
 ## Subscriptions
@@ -186,6 +189,7 @@ Other AI agents can use the app's data through a local MCP server:
 - UI locales are English (`en`) and Japanese (`ja`). Japanese system locale defaults to Japanese; other locales default to English.
 - Fetch both language variants when an official source supports them and retain them side by side with provenance.
 - Switching app language changes cached content immediately without changing the WebView site's own language.
+- School content language (`auto | ja | en`, device setting) picks the language of school text — course names, instructors, rooms, calendar labels, syllabus body and the LMS bilingual filter — independently of the UI language. `auto` follows the UI language (`zh` reads `en`). The app never changes the LMS's own language; Moodle's interface language stays whatever the person set on the LMS.
 - When only one source language exists, show the original. Do not synthesize an authoritative translation.
 
 ## Advanced

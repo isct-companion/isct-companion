@@ -1,46 +1,74 @@
 [package]
-name = "science-tokyo-workstation"
-version = "0.1.0"
-description = "Science Tokyo Workstation desktop shell"
-authors = ["Science Tokyo Workstation contributors"]
+name = "isct-companion"
+version = "1.0.0-rc.1"
+description = "IsctCompanion desktop shell"
+authors = ["IsctCompanion contributors"]
 edition = "2021"
 rust-version = "1.90"
-default-run = "science-tokyo-workstation"
+default-run = "isct-companion"
 
 [lib]
-name = "science_tokyo_workstation_lib"
+name = "isct_companion_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "sync", "fs", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+ts-rs = { version = "11", features = ["serde-compat"] }
 tauri = { version = "2.12", features = ["unstable", "protocol-asset"] }
 tauri-plugin-notification = "2.4"
 tauri-plugin-opener = "2.5"
 tauri-plugin-dialog = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 rrule = "0.14"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"] }
 keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native"] }
 rand = "0.9"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 sha2 = "0.10"
 url = "2.5"
+percent-encoding = "2"
 regex = "1"
 scraper = "0.24"
 ring = "0.17"
 tauri-plugin-secure-storage = "1.5.0"
+tauri-plugin-clipboard-manager = "2"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+wry = "0.57"
+security-framework = "3.7"
+objc2 = "0.6.4"
+block2 = "0.6"
+objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSError", "NSString", "NSURL"] }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "UIView", "UIWindow", "UIScreen"] }
+tauri-plugin-google-drive-auth = { path = "plugins/google-drive-auth" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-google-drive-auth = { path = "plugins/google-drive-auth" }
+tauri-plugin-school-web = { path = "plugins/school-web" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3.7", features = ["OSX_10_15"] }
+block2 = "0.6"
+objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSResponder", "NSView"] }
+# School view PDF save hook (school_pdf_save.rs). Same versions wry already uses.
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSURL"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKUIDelegate", "WKWebView"] }
+
+# Matrix OCR: ort ships no prebuilt ONNX Runtime for Intel macOS, so the scanner
+# is compiled out there. Keep this condition in sync with build.rs (`matrix_ocr`).
+[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"] }
 
 [profile.release]
 panic = "abort"

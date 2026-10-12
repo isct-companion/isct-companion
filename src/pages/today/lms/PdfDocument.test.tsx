@@ -16,8 +16,9 @@ it("releases the document worker and cancels its active page when the viewer lea
   render.mockReturnValue({promise: new Promise(() => {}), cancel});
   load.mockReturnValue({promise: Promise.resolve({ numPages: 20, getPage: vi.fn().mockResolvedValue(sheet) }), destroy});
   await act(async () => root.render(<PdfDocument src="asset://localhost/a.pdf" title="Lecture" />));
-  expect(host.querySelectorAll("canvas")).toHaveLength(1);
+  // Only the first page renders, off-screen until it is complete.
   expect(render).toHaveBeenCalledTimes(1);
+  expect(host.querySelectorAll("canvas")).toHaveLength(0);
   await act(async () => root.unmount());
   expect(cancel).toHaveBeenCalledOnce();
   expect(destroy).toHaveBeenCalledOnce();
@@ -56,4 +57,20 @@ it("finds text in later pages and changes zoom without mounting every canvas", a
   expect((host.querySelector(".lmsPdfPages") as HTMLElement).style.transform).toBe("");
   vi.useRealTimers();
   await act(async()=>root.unmount());host.remove();vi.unstubAllGlobals();
+});
+it("sizes every page from its own dimensions in mixed portrait/landscape decks", async () => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+  render.mockClear(); render.mockReturnValue({promise: Promise.resolve(), cancel});
+  const sizes = [[600, 800], [800, 450], [600, 800]];
+  load.mockReturnValue({promise: Promise.resolve({ numPages: 3, getPage: vi.fn(async (number: number) => ({
+    getViewport: ({scale}:{scale:number}) => ({width: sizes[number - 1][0] * scale, height: sizes[number - 1][1] * scale}),
+    render, cleanup: vi.fn(), streamTextContent: () => ({}),
+  })) }), destroy});
+  await act(async()=>root.render(<PdfDocument src="asset://localhost/c.pdf" title="Slides"/>));
+  const pages = [...host.querySelectorAll("[data-pdf-page]")].map(page => Number(page.getAttribute("style")!.match(/aspect-ratio:\s*([\d.]+)/)![1]).toFixed(3));
+  expect(pages).toEqual(["0.750", "1.778", "0.750"]);
+  // The rendered first page has been swapped in.
+  expect(host.querySelectorAll("canvas")).toHaveLength(1);
+  await act(async()=>root.unmount()); host.remove(); vi.unstubAllGlobals();
 });

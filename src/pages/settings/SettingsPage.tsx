@@ -1,53 +1,75 @@
-import { Switch } from "@mantine/core";
+import { notify as appNotify } from "../../app/notify";
+import { settingsSection } from "../../app/routes";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
-import { SYLLABUS_DEPARTMENTS, departmentById } from "../../core/departments";
-import { UiButton, UiInput, UiSelect } from "../../components/mantine";
-import { ReferenceSubscriptions } from "./ReferenceSubscriptions";
-import { AdvancedSettings } from "./AdvancedSettings";
-import { SchoolAccounts } from "./SchoolAccounts";
-
-import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-
-import { workspaceActions, workspaceStore } from "../../store/workspace";
-import {
-  detectPlatform,
-  resolveCapabilities,
-  type CapabilityId,
-} from "../../platform/capabilities";
-import {
-  CloudTransportError,
-  createCloudAdapter,
-  type CloudAdapter,
-} from "../../connectors/cloud";
-import { createRecoveryCipher, type RecoveryKey } from "../../sync/crypto";
-
-import { performAction } from "../../platform/actions";
-
-import { CalendarManager } from "./calendar";
-
-import type {
-  Course,
-  PersonalEvent,
-  ScheduledTask,
-  TermId,
-  Workspace,
-} from "../../core/model";
-
-import { desktopBridge, saveExportFile } from "../../app/native";
+import type { ScheduledTask, Workspace } from "../../core/model";
+import type { Platform, Section } from "../../app/shared";
 import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
-import { type Section, type Platform } from "../../app/shared";
+import { performAction } from "../../platform/actions";
+import { resolveCapabilities } from "../../platform/capabilities";
+import { workspaceActions } from "../../store/workspace";
+import { UiButton, UiInput } from "../../components/mantine";
+import { SettingsHeader } from "../../components/forms";
+import { AcademicCalendarSettings } from "./AcademicCalendarSettings";
+import { AboutSettings } from "./AboutSettings";
+import { AgentSettings } from "./AgentSettings";
+import { AppearanceSettings } from "./AppearanceSettings";
+import { AutomationSettings } from "./AutomationSettings";
+import { BackupSettings } from "./BackupSettings";
+import { DataUpdatesSettings } from "./DataUpdatesSettings";
+import { DeveloperSettings, useDeveloperMode } from "./DeveloperSettings";
+import { DiagnosticsSettings } from "./DiagnosticsSettings";
+import { ExtensionsSettings } from "./ExtensionsSettings";
+import { FilesSettings } from "./FilesSettings";
+import { NotificationSettings } from "./NotificationSettings";
+import { SchoolAccounts } from "./SchoolAccounts";
+import { StudyProfileSettings } from "./StudyProfileSettings";
+import {
+  SETTING_ENTRIES,
+  sectionLabel,
+  sectionParent,
+  sectionSupported,
+  sectionTier,
+  visibleSections,
+  type SectionContext,
+} from "./registry";
+import "./settings.css";
 
-import { Row, Toggle, Capability } from "../../components/forms";
+type Update = (f: (d: Workspace) => Workspace) => void;
 
-const labels: Record<CapabilityId, string> = {
-  "local-notifications": "Local reminders",
-  "remote-push": "Remote push",
-  "school-web-session": "School web session",
-  "cloud-sync": "Cloud sync",
-  "background-sync": "Background refresh",
-  "site-customization": "School-site customization",
+type SearchResult = {
+  section: Section;
+  id?: string;
+  title: string;
 };
+
+function searchSettings(
+  query: string,
+  context: SectionContext,
+): SearchResult[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const matches = (text: string) => {
+    const haystack = text.toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  };
+  const supported = (section: Section) => sectionSupported(section, context);
+  const pages: SearchResult[] = visibleSections({ ...context, developer: true })
+    .filter((section) => matches(`${section.label} ${t(section.label)}`))
+    .map((section) => ({ section: section.id, title: section.label }));
+  const settings: SearchResult[] = SETTING_ENTRIES.filter(
+    (entry) =>
+      supported(entry.section) &&
+      matches(
+        `${entry.title} ${t(entry.title)} ${sectionLabel(entry.section)} ${t(sectionLabel(entry.section))} ${entry.terms ?? ""}`,
+      ),
+  ).map((entry) => ({
+    section: entry.section,
+    id: entry.id,
+    title: entry.title,
+  }));
+  return [...pages, ...settings].slice(0, 12);
+}
 
 export function Settings({
   platform,
@@ -60,797 +82,261 @@ export function Settings({
   notify,
   showLoginPage,
   runScheduledTask,
+  refreshReferences,
+  matrixOcrAvailable = false,
+  capabilitiesReady = true,
+  layout = "split",
+  back,
 }: {
   platform: Platform;
   data: Workspace;
-  update: (f: (d: Workspace) => Workspace) => void;
-  advancedCalendarUpdate: (f: (d: Workspace) => Workspace) => void;
+  /** Preferences and device state. */
+  update: Update;
+  /** Calendar overrides, academic profile and subscription rows. */
+  advancedCalendarUpdate: Update;
   caps: ReturnType<typeof resolveCapabilities>;
   section: Section;
   setSection: (s: Section) => void;
   notify: (s: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
+  refreshReferences?: () => Promise<string>;
+  matrixOcrAvailable?: boolean;
+  capabilitiesReady?: boolean;
+  /** Mobile shows the section list and one section as separate screens. */
+  layout?: "split" | "list" | "detail";
+  back?: () => void;
 }) {
-  const [recoveryPhrase, setRecoveryPhrase] = useState("");
-  const [cloudConflict, setCloudConflict] = useState<string | null>(null);
-  const [agentCommand, setAgentCommand] = useState(
-    "campus-mcp --db /absolute/path/to/school.db",
+  const [developer, setDeveloper] = useDeveloperMode();
+  const [query, setQuery] = useState("");
+  const [focus, setFocus] = useState<{ id: string; at: number }>();
+  const desktop = platform === "native-desktop";
+  const context: SectionContext = {
+    platform,
+    developer,
+    extensionsAvailable:
+      desktop &&
+      (!capabilitiesReady ||
+        caps["site-customization"].support === "supported"),
+  };
+  const sections = visibleSections(context);
+  const results = useMemo(
+    () => searchSettings(query, context),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [query, platform, context.extensionsAvailable, data.settings.locale],
   );
+  const current = settingsSection(section, context);
   useEffect(() => {
-    if (!desktopBridge) return;
-    void invoke<string>("agent_command")
-      .then(setAgentCommand)
-      .catch(() => undefined);
-  }, []);
-  const pendingCloud = useRef<CloudAdapter | null>(null);
-  const cloudAvailable =
-    platform === "browser-preview" ||
-    caps["cloud-sync"].support === "supported";
-  const advancedAvailable =
-    platform === "native-desktop" &&
-    caps["site-customization"].support === "supported";
-  const sections: { id: Section; label: string }[] = [
-    { id: "accounts", label: "Accounts" },
-    { id: "general", label: "General" },
-    { id: "sync", label: "Sync" },
-    { id: "notifications", label: "Notifications" },
-    { id: "calendar", label: "Academic calendar" },
-    { id: "subscriptions", label: "Subscriptions" },
-    { id: "hidden", label: "Hidden items" },
-    { id: "scheduled", label: "Scheduled tasks" },
-    { id: "data", label: "Data" },
-    { id: "agent", label: "Agent access" },
-    ...(advancedAvailable
-      ? [{ id: "advanced" as const, label: "Advanced" }]
-      : []),
-  ];
-  const cloudAdapter = async () => {
-    if (
-      detectPlatform() !== "browser-preview" &&
-      caps["cloud-sync"].support !== "supported"
-    )
-      throw new Error(caps["cloud-sync"].reason);
-    if (data.settings.cloud.provider === "none")
-      throw new Error("Choose Google Drive or OneDrive first.");
-    if (!recoveryPhrase)
-      throw new Error("Enter your recovery phrase for this session.");
-    const stored = localStorage.getItem("stws-cloud-recovery");
-    const prior = stored ? (JSON.parse(stored) as RecoveryKey) : undefined;
-    const { cipher, recovery } = await createRecoveryCipher(
-      recoveryPhrase,
-      prior,
-    );
-    if (!prior)
-      localStorage.setItem("stws-cloud-recovery", JSON.stringify(recovery));
-    const bridge = desktopBridge;
-    const desktopOAuth = bridge
-      ? {
-          oauth: {
-            connect: () =>
-              bridge
-                .connectCloud(
-                  data.settings.cloud.provider as "google-drive" | "onedrive",
-                  data.settings.cloud.clientId,
-                  data.settings.cloud.redirectUri!,
-                )
-                .then(() => undefined),
-            requireAccessToken: async () => "protected-main-process-token",
-          },
-          fetch: async (url: string | URL | Request, init?: RequestInit) => {
-            const body = init?.body;
-            const binary =
-              body instanceof Blob
-                ? new Uint8Array(await body.arrayBuffer())
-                : body instanceof ArrayBuffer
-                  ? new Uint8Array(body)
-                  : body instanceof Uint8Array
-                    ? body
-                    : undefined;
-            if (body && typeof body !== "string" && !binary)
-              throw new Error("Unsupported cloud request body.");
-            const request = await desktopBridge!.cloudRequest(
-              data.settings.cloud.provider as "google-drive" | "onedrive",
-              url instanceof Request ? url.url : String(url),
-              {
-                method: init?.method,
-                headers: Object.fromEntries(new Headers(init?.headers)),
-                bodyText: typeof body === "string" ? body : undefined,
-                bodyBase64: binary
-                  ? btoa(String.fromCharCode(...binary))
-                  : undefined,
-              },
-            );
-            return new Response(
-              Uint8Array.from(atob(request.body), (c) => c.charCodeAt(0)),
-              {
-                status: request.status,
-                statusText: request.statusText,
-                headers: request.headers,
-              },
-            );
-          },
-        }
-      : {};
-    return createCloudAdapter(
-      data.settings.cloud.provider,
-      data.settings.cloud.clientId,
-      {
-        redirectUri: desktopBridge
-          ? data.settings.cloud.redirectUri
-          : `${location.origin}${location.pathname}`,
-        cipher,
-        readOnly: !desktopBridge,
-        deviceId: data.deviceId,
-        ...desktopOAuth,
-      },
-    );
-  };
-  const saveCloud = async () => {
-    try {
-      const a = await cloudAdapter();
-      await a.connect();
-      notify("Cloud authorized. Nothing uploaded yet.");
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Cloud setup failed");
-    }
-  };
-  const pullCloud = async () => {
-    try {
-      const adapter = await cloudAdapter();
-      const remote = await adapter.pull();
-      const choice = confirm(
-        "Replace this device's workspace with the latest cloud backup?",
-      );
-      if (!choice) return notify("Kept the current workspace.");
-      await workspaceActions.importData(remote);
-      notify("Using the latest cloud backup.");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Cloud restore failed");
-    }
-  };
-  const pushCloud = async () => {
-    try {
-      const adapter = await cloudAdapter();
-      try {
-        const remote = await adapter.pull();
-        const current = await workspaceActions.exportData();
-        const remoteTables = JSON.stringify(JSON.parse(remote).tables);
-        const currentTables = JSON.stringify(JSON.parse(current).tables);
-        if (remoteTables !== currentTables) {
-          pendingCloud.current = adapter;
-          setCloudConflict(remote);
-          return;
-        }
-      } catch (error) {
-        if (!(error instanceof CloudTransportError) || error.status !== 404)
-          throw error;
-      }
-      await performAction("push-cloud", detectPlatform(), () =>
-        workspaceActions
-          .exportData()
-          .then((document) => adapter.push(document)),
-      );
-      notify("Encrypted backup uploaded.");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Cloud backup failed");
-    }
-  };
-  const requestNotifications = async () => {
-    let p: NotificationPermission;
-    if (detectPlatform() === "browser-preview") {
-      if (!("Notification" in window)) return;
-      p = await Notification.requestPermission();
+    if (section === "extensions" && !capabilitiesReady) return;
+    if (current !== section) setSection(current);
+  }, [current, section, setSection, capabilitiesReady]);
+
+  const open = (target: Section, id?: string) => {
+    const locked =
+      !developer &&
+      (sectionTier(target) === "developer" ||
+        (target === "developer" &&
+          id !== undefined &&
+          id !== "developer-mode"));
+    if (locked) {
+      notify(t("Turn on Developer options to open this page."));
+      setSection("developer");
+      setFocus({ id: "developer-mode", at: Date.now() });
     } else {
-      if (!desktopBridge || caps["local-notifications"].support !== "supported")
-        return notify(caps["local-notifications"].reason);
-      p = await desktopBridge.requestNotificationPermission();
+      setSection(target);
+      if (id) setFocus({ id, at: Date.now() });
     }
-    update((d) => {
-      d.settings.notifications.localPermission = p;
-      return d;
-    });
-    if (p === "granted" && desktopBridge)
-      await desktopBridge.notify(
-        "Science Tokyo Workstation",
-        "Local reminders are enabled.",
+    setQuery("");
+  };
+
+  // Search lands on the exact row: unfold it, scroll to it, flash it.
+  useEffect(() => {
+    if (!focus) return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLElement>(
+        `.settingsPane [data-setting="${focus.id}"]`,
       );
-  };
-  const refreshSchool = async () => {
-    if (!desktopBridge || caps["school-web-session"].support !== "supported")
-      return notify(caps["school-web-session"].reason);
-    if (!desktopBridge.reloadSchoolWeb)
-      return notify("Open LMS or 教務 Web once before refreshing records.");
-    const [lms, kyomu] = await Promise.all([
-      desktopBridge.reloadSchoolWeb("science-lms"),
-      desktopBridge.reloadSchoolWeb("kyomu"),
-    ]);
-    if (!lms && !kyomu)
-      return notify("Open LMS or 教務 Web once before refreshing records.");
-    notify("Refreshing signed-in LMS and 教務 records.");
-    window.setTimeout(() => void workspaceStore.reload(), 2_000);
-  };
-  const exportData = async () => {
-    await saveExportFile(
-      "science-tokyo-workspace.json",
-      await workspaceActions.exportData(),
-      "application/json",
-    );
-  };
-  const resetData = async () => {
-    if (
-      !confirm(
-        "Reset to an empty workspace? Everything on this device is replaced.",
-      )
-    )
-      return;
-    await workspaceActions.reset();
-    notify("Workspace reset");
-  };
-  const importData = async (file: File) => {
+      if (!target) return;
+      const folded = target.closest("details");
+      if (folded) folded.open = true;
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      target.classList.add("settingFlash");
+      window.setTimeout(() => target.classList.remove("settingFlash"), 1600);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focus, current]);
+
+  const setAdmissionYear = (year: number | undefined) => {
     try {
-      await workspaceActions.importData(await file.text());
-      notify("Import completed.");
+      workspaceActions.setAdmissionYear(year);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Import failed.");
+      appNotify.error(error);
     }
   };
+  const customizeSite = (fn: (d: Workspace) => Workspace) => {
+    void performAction("customize-school-site", platform, () =>
+      update(fn),
+    ).catch((error) => appNotify.error(error));
+  };
+
+  const page =
+    current === "accounts" ? (
+      <>
+        <SettingsHeader title="School accounts" />
+        <SchoolAccounts
+          notify={notify}
+          showLoginPage={showLoginPage}
+          matrixOcrAvailable={matrixOcrAvailable}
+        />
+      </>
+    ) : current === "study" ? (
+      <StudyProfileSettings
+        data={data}
+        update={update}
+        setAdmissionYear={setAdmissionYear}
+        refreshReferences={refreshReferences}
+        openSection={sectionSupported("calendar", context) ? open : undefined}
+      />
+    ) : current === "notifications" ? (
+      <NotificationSettings
+        data={data}
+        update={update}
+        caps={caps}
+        notify={notify}
+      />
+    ) : current === "calendar" ? (
+      <AcademicCalendarSettings
+        data={data}
+        update={advancedCalendarUpdate}
+        notify={notify}
+        readOnly={!desktop}
+        refreshReferences={refreshReferences}
+        back={() => open("study")}
+      />
+    ) : current === "appearance" ? (
+      <AppearanceSettings data={data} update={update} />
+    ) : current === "files" ? (
+      <FilesSettings data={data} update={update} />
+    ) : current === "backup" ? (
+      <BackupSettings data={data} update={update} caps={caps} notify={notify} />
+    ) : current === "sources" ? (
+      <DataUpdatesSettings
+        data={data}
+        update={update}
+        updateSubscriptions={advancedCalendarUpdate}
+        platform={platform}
+        refreshReferences={refreshReferences}
+        notify={notify}
+      />
+    ) : current === "automation" ? (
+      <AutomationSettings
+        data={data}
+        update={update}
+        runScheduledTask={runScheduledTask}
+      />
+    ) : current === "developer" ? (
+      <DeveloperSettings
+        data={data}
+        update={update}
+        calendarUpdate={advancedCalendarUpdate}
+        developer={developer}
+        setDeveloper={setDeveloper}
+        notify={notify}
+        desktop={desktop}
+      />
+    ) : current === "agent" ? (
+      <AgentSettings data={data} update={update} notify={notify} />
+    ) : current === "extensions" ? (
+      <ExtensionsSettings data={data} update={customizeSite} />
+    ) : current === "diagnostics" ? (
+      <DiagnosticsSettings data={data} caps={caps} />
+    ) : current === "about" ? (
+      <AboutSettings />
+    ) : null;
+
   return (
-    <div className="page settings">
-      <nav className="settingsNav" aria-label="Settings sections">
-        {sections.map((s) => (
-          <UiButton
-            className={section === s.id ? "active" : ""}
-            onClick={() => setSection(s.id)}
-            key={s.id}
-          >
-            {t(s.label)}
-          </UiButton>
-        ))}
-      </nav>
-      <section className="settingsPane">
-        {section === "general" ? (
-          <>
-            <h2>{t("General")}</h2>
-            <Row title={t("Theme")}>
-              <UiSelect
-                value={data.settings.appearance}
-                onChange={(e) =>
-                  update((d) => {
-                    d.settings.appearance = e.target
-                      .value as Workspace["settings"]["appearance"];
-                    return d;
-                  })
-                }
-              >
-                <option value="system">{t("System")}</option>
-                <option value="light">{t("Light")}</option>
-                <option value="dark">{t("Dark")}</option>
-              </UiSelect>
-            </Row>
-            <Row title={t("Density")}>
-              <UiSelect
-                value={data.settings.density}
-                onChange={(e) =>
-                  update((d) => {
-                    d.settings.density = e.target
-                      .value as Workspace["settings"]["density"];
-                    return d;
-                  })
-                }
-              >
-                <option value="comfortable">{t("Comfortable")}</option>
-                <option value="compact">{t("Compact")}</option>
-              </UiSelect>
-            </Row>
-            <Row title={t("Text size")}>
-              <UiSelect
-                value={data.settings.textSize ?? "medium"}
-                onChange={(e) =>
-                  update((d) => {
-                    d.settings.textSize = e.target.value as
-                      "small" | "medium" | "large";
-                    return d;
-                  })
-                }
-              >
-                <option value="small">{t("Small")}</option>
-                <option value="medium">{t("Medium")}</option>
-                <option value="large">{t("Large")}</option>
-              </UiSelect>
-            </Row>
-            <Row
-              title={t("Language")}
-              hint={t("Interface and official syllabus language")}
-            >
-              <UiSelect
-                value={data.settings.locale === "ja" ? "ja" : "en"}
-                onChange={(event) =>
-                  update((d) => {
-                    d.settings.locale = event.target.value as
-                      "en" | "ja" | "zh";
-                    return d;
-                  })
-                }
-              >
-                <option value="en">{t("English")}</option>
-                <option value="ja">日本語</option>
-              </UiSelect>
-            </Row>
-            <Row title={t("Automatically save course files")} hint={t("Keep opened files in your course folder for offline use. Otherwise previews use temporary storage.")}>
-              <Switch checked={data.settings.autoSaveCourseFiles ?? false} aria-label={t("Automatically save course files")} onChange={event => { const checked = event.currentTarget.checked; update(d => { d.settings.autoSaveCourseFiles = checked; return d; }); }} />
-            </Row>
-            <Row title="Department">
-              <UiSelect
-                value={departmentById(data.settings.departmentId)?.id ?? ""}
-                onChange={(event) =>
-                  update((draft) => {
-                    draft.settings.departmentId =
-                      event.target.value || undefined;
-                    return draft;
-                  })
-                }
-              >
-                <option value="">Not selected</option>
-                {SYLLABUS_DEPARTMENTS.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name[
-                      data.settings.locale === "ja" ? "ja" : "en"
-                    ] ?? department.id}
-                  </option>
-                ))}
-              </UiSelect>
-            </Row>
-            <Row
-              title="Admission year"
-              hint="Selects the matching official guide_{year}; it does not follow the current year."
-            >
-              <UiInput
-                type="number"
-                min="2000"
-                max="2200"
-                value={data.academicProfile.admissionYear ?? ""}
-                placeholder="2025"
-                onChange={(event) =>
-                  advancedCalendarUpdate((draft) => {
-                    draft.academicProfile.admissionYear = event.target.value
-                      ? Number(event.target.value)
-                      : undefined;
-                    return draft;
-                  })
-                }
-              />
-            </Row>
-            <Row
-              title={t("Shortcuts")}
-              hint={t("⌘1–⌘4 switch pages · Esc closes panels")}
-            >
-              <span />
-            </Row>
-          </>
-        ) : section === "accounts" ? (
-          <>
-            <h2>{t("Accounts")}</h2>
-            <p className="settingsIntro">
-              Connect once. School services reuse the same signed-in session.
-            </p>
-            <SchoolAccounts notify={notify} showLoginPage={showLoginPage} />
-            {desktopBridge &&
-              caps["school-web-session"].support === "supported" && (
-                <div className="actions end">
-                  <UiButton className="button" onClick={refreshSchool}>
-                    {t("Refresh records")}
-                  </UiButton>
-                </div>
-              )}
-          </>
-        ) : section === "sync" ? (
-          <>
-            <h2>{t("Sync")}</h2>
-            <p className="settingsIntro">
-              Encrypted workspace sync is separate from school accounts.
-            </p>
-            <Row
-              title={t("Cloud provider")}
-              hint={t("Private app folder, encrypted")}
-            >
-              <UiSelect
-                value={data.settings.cloud.provider}
-                onChange={(e) =>
-                  update((d) => {
-                    d.settings.cloud.provider = e.target
-                      .value as Workspace["settings"]["cloud"]["provider"];
-                    d.syncStatus.state = "needs-configuration";
-                    return d;
-                  })
-                }
-              >
-                <option value="none">{t("None")}</option>
-                <option value="google-drive">Google Drive</option>
-                <option value="onedrive">OneDrive</option>
-              </UiSelect>
-            </Row>
-            <Row title={t("OAuth client ID")}>
-              <UiInput
-                value={data.settings.cloud.clientId}
-                placeholder={t("Public client ID")}
-                onChange={(e) =>
-                  update((d) => {
-                    d.settings.cloud.clientId = e.target.value;
-                    return d;
-                  })
-                }
-              />
-            </Row>
-            <Row title={t("When the cloud copy differs")}>
-              <UiSelect
-                value={data.settings.cloud.conflict}
-                onChange={(event) =>
-                  update((d) => {
-                    d.settings.cloud.conflict = event.target.value as
-                      "keep-current" | "use-latest" | "resolve-manually";
-                    return d;
-                  })
-                }
-              >
-                <option value="keep-current">{t("Keep this device")}</option>
-                <option value="use-latest">{t("Use latest")}</option>
-                {platform === "native-desktop" && (
-                  <option value="resolve-manually">{t("Ask me")}</option>
-                )}
-              </UiSelect>
-            </Row>
-            <Row title={t("Recovery phrase")} hint={t("Kept in memory only")}>
-              <UiInput
-                type="password"
-                value={recoveryPhrase}
-                placeholder={t("At least 12 characters")}
-                onChange={(event) => setRecoveryPhrase(event.target.value)}
-              />
-            </Row>
-            <div className="actions end">
-              <UiButton
-                className="button"
-                disabled={!cloudAvailable}
-                onClick={saveCloud}
-              >
-                {t("Authorize")}
-              </UiButton>
-              <UiButton
-                className="button"
-                disabled={!cloudAvailable}
-                onClick={pullCloud}
-              >
-                {t("Restore latest")}
-              </UiButton>
-              {desktopBridge && cloudAvailable && (
-                <UiButton className="button primary" onClick={pushCloud}>
-                  {t("Back up now")}
-                </UiButton>
-              )}
-            </div>
-            {cloudConflict && (
-              <div className="alert" role="alert">
-                <b>{t("The cloud backup changed")}</b>
-                <div className="actions">
-                  <UiButton
-                    className="button"
-                    onClick={async () => {
-                      const document = await workspaceActions.exportData();
-                      await pendingCloud.current?.push(document);
-                      setCloudConflict(null);
-                      notify("Kept this device and uploaded it.");
-                    }}
-                  >
-                    {t("Keep this device")}
-                  </UiButton>
-                  <UiButton
-                    className="button"
-                    onClick={async () => {
-                      await workspaceActions.importData(cloudConflict);
-                      setCloudConflict(null);
-                      notify("Using the latest cloud backup.");
-                    }}
-                  >
-                    {t("Use latest")}
-                  </UiButton>
-                  {platform === "native-desktop" && (
-                    <UiButton
-                      className="button"
-                      onClick={() => {
-                        setSection("data");
-                        notify("Export this device's data, then choose.");
-                      }}
-                    >
-                      {t("Export first")}
-                    </UiButton>
-                  )}
-                </div>
-              </div>
+    <div className={`page settings ${layout}`}>
+      {layout === "list" && <h1 className="settingsTitle">{t("Settings")}</h1>}
+      <nav
+        className="settingsNav"
+        aria-label={t("Settings sections")}
+        hidden={layout === "detail"}
+      >
+        <UiInput
+          className="settingsSearch"
+          type="search"
+          value={query}
+          placeholder={t("Search settings")}
+          aria-label={t("Search settings")}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && results[0])
+              open(results[0].section, results[0].id);
+            if (event.key === "Escape") setQuery("");
+          }}
+        />
+        {query.trim() ? (
+          <div className="settingsResults" role="list">
+            {results.length === 0 && (
+              <span className="settingsNoResults">
+                {t("No matching settings")}
+              </span>
             )}
-          </>
-        ) : section === "notifications" ? (
-          <>
-            <h2>{t("Notifications")}</h2>
-            <Capability
-              name="Local reminders"
-              value={caps["local-notifications"]}
-            >
-              {caps["local-notifications"].readiness !== "ready" && (
-                <UiButton
-                  className="button small"
-                  onClick={requestNotifications}
-                >
-                  {t("Allow")}
-                </UiButton>
-              )}
-            </Capability>
-            <Row title={t("Class reminders")}>
-              <Toggle
-                checked={data.settings.notifications.classes}
-                onChange={(v) =>
-                  update((d) => {
-                    d.settings.notifications.classes = v;
-                    return d;
-                  })
-                }
-              />
-            </Row>
-            <Row title={t("Assignment reminders")}>
-              <Toggle
-                checked={data.settings.notifications.assignments}
-                onChange={(v) =>
-                  update((d) => {
-                    d.settings.notifications.assignments = v;
-                    return d;
-                  })
-                }
-              />
-            </Row>
-            <Capability name="Remote push" value={caps["remote-push"]} />
-            <Capability
-              name="Background refresh"
-              value={caps["background-sync"]}
-            />
-          </>
-        ) : section === "calendar" ? (
-          <CalendarManager
-            data={data}
-            update={advancedCalendarUpdate}
-            notify={notify}
-            readOnly={platform !== "native-desktop"}
-          />
-        ) : section === "subscriptions" ? (
-          <ReferenceSubscriptions
-            data={data}
-            update={advancedCalendarUpdate}
-            available={platform === "native-desktop" && !!desktopBridge}
-            notify={notify}
-          />
-        ) : section === "hidden" ? (
-          <>
-            <h2>Hidden items</h2>
-            {data.assignments
-              .filter(
-                (assignment) => assignment.hidden && !assignment.deletedAt,
-              )
-              .map((assignment) => (
-                <Row
-                  key={assignment.id}
-                  title={assignment.title}
-                  hint={new Date(assignment.dueAt).toLocaleString()}
-                >
-                  <UiButton
-                    className="button"
-                    onClick={() =>
-                      update((draft) => {
-                        const target = draft.assignments.find(
-                          (item) => item.id === assignment.id,
-                        );
-                        if (target) {
-                          target.hidden = false;
-                          target.rev += 1;
-                          target.updatedAt = new Date().toISOString();
-                        }
-                        return draft;
-                      })
-                    }
-                  >
-                    Restore
-                  </UiButton>
-                </Row>
-              ))}
-            <UiButton
-              className="button"
-              onClick={() =>
-                update((draft) => {
-                  for (const assignment of draft.assignments) {
-                    if (assignment.hidden) {
-                      assignment.hidden = false;
-                      assignment.rev += 1;
-                      assignment.updatedAt = new Date().toISOString();
-                    }
-                  }
-                  return draft;
-                })
-              }
-            >
-              Clear all
-            </UiButton>
-          </>
-        ) : section === "scheduled" ? (
-          <>
-            <h2>Scheduled tasks</h2>
-            {data.scheduledTasks.map((task) => (
-              <Row
-                key={task.id}
-                title={task.name}
-                hint={
-                  task.lastRunAt
-                    ? `Last run ${task.lastRunAt.slice(0, 10)} · ${task.lastResult ?? task.schedule}`
-                    : (task.lastResult ?? task.schedule)
-                }
+            {results.map((result) => (
+              <UiButton
+                key={`${result.section}:${result.id ?? ""}`}
+                role="listitem"
+                onClick={() => open(result.section, result.id)}
               >
-                <div className="actions">
-                  <Toggle
-                    checked={task.enabled}
-                    onChange={(enabled) =>
-                      update((draft) => {
-                        const target = draft.scheduledTasks.find(
-                          (item) => item.id === task.id,
-                        );
-                        if (target) {
-                          target.enabled = enabled;
-                          target.rev += 1;
-                          target.updatedAt = new Date().toISOString();
-                        }
-                        return draft;
-                      })
-                    }
-                  />
-                  <UiButton
-                    className="button small"
-                    onClick={async () => {
-                      let result = "Completed";
-                      try {
-                        if (runScheduledTask)
-                          result = await runScheduledTask(task);
-                        else if (task.action === "school-refresh")
-                          await refreshSchool();
-                        else if (task.action === "export") {
-                          await exportData();
-                          result = "Export completed";
-                        } else result = "Hook queued";
-                      } catch (error) {
-                        result =
-                          error instanceof Error ? error.message : "Run failed";
-                      }
-                      update((draft) => {
-                        const target = draft.scheduledTasks.find(
-                          (item) => item.id === task.id,
-                        );
-                        if (target) {
-                          target.lastRunAt = new Date().toISOString();
-                          target.lastResult = result;
-                          target.rev += 1;
-                          target.updatedAt = target.lastRunAt;
-                        }
-                        return draft;
-                      });
-                    }}
-                  >
-                    Run now
-                  </UiButton>
-                </div>
-              </Row>
+                <b>{t(result.title)}</b>
+                {result.id && <small>{t(sectionLabel(result.section))}</small>}
+              </UiButton>
             ))}
-          </>
-        ) : section === "data" ? (
-          <>
-            <h2>{t("Data")}</h2>
-            <Row
-              title={
-                platform === "browser-preview"
-                  ? "Browser preview"
-                  : platform === "native-mobile"
-                    ? "Native mobile"
-                    : "Desktop"
-              }
-              hint={t("Everything is stored on this device.")}
-            >
-              <div className="actions">
-                <UiButton className="button" onClick={exportData}>
-                  {t("Export JSON")}
-                </UiButton>
-                <label className="button">
-                  Import JSON
-                  <input
-                    hidden
-                    type="file"
-                    accept="application/json,.json"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void importData(file);
-                    }}
-                  />
-                </label>
-                <UiButton className="button danger" onClick={resetData}>
-                  {t("Reset")}
-                </UiButton>
-              </div>
-            </Row>
-            <details className="diagnostics">
-              <summary>{t("Diagnostics")}</summary>
-              {Object.entries(caps).map(([k, v]) => (
-                <Capability
-                  key={k}
-                  name={t(labels[k as CapabilityId])}
-                  value={v}
-                />
-              ))}
-              <h3>{t("Recent activity")}</h3>
-              <div className="logList">
-                {(data.logs ?? []).length ? (
-                  (data.logs ?? []).slice(0, 12).map((log, index) => (
-                    <div key={`${log.at}-${index}`}>
-                      <b>
-                        {log.source} · {log.phase} · {log.state}
-                      </b>
-                      <span>
-                        {new Date(log.at).toLocaleString()} · {log.message}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <span className="muted">
-                    {t("No import or cloud activity yet.")}
-                  </span>
-                )}
-              </div>
-            </details>
-          </>
-        ) : section === "agent" ? (
-          <>
-            <h2>Agent access</h2>
-            <Row
-              title="Local MCP server"
-              hint="Read school data and write only personal plans or hidden-item state."
-            >
-              <Toggle
-                checked={data.settings.agentAccess?.enabled === true}
-                onChange={(enabled) =>
-                  update((draft) => {
-                    draft.settings.agentAccess ??= {
-                      enabled: false,
-                      lastWrites: [],
-                    };
-                    draft.settings.agentAccess.enabled = enabled;
-                    return draft;
-                  })
-                }
-              />
-            </Row>
-            <code>{agentCommand}</code>
-          </>
-        ) : advancedAvailable ? (
-          <AdvancedSettings
-            data={data}
-            update={(fn) => {
-              void performAction("customize-school-site", platform, () =>
-                update(fn),
-              ).catch((error) =>
-                notify(
-                  error instanceof Error ? error.message : "Action denied",
-                ),
-              );
-            }}
-          />
+          </div>
         ) : (
-          <p className="muted">
-            Customization is available in the desktop app.
-          </p>
+          <div className="settingsNavList">
+            {sections.map((item, index) => (
+              <Fragment key={item.id}>
+                {item.tier !== sections[index - 1]?.tier &&
+                  (item.tier === "about" ? (
+                    <hr className="settingsNavDivider" />
+                  ) : (
+                    item.tier !== "basic" && (
+                      <span className="settingsNavGroup">
+                        {t(item.tier === "advanced" ? "Advanced" : "Developer")}
+                      </span>
+                    )
+                  ))}
+                <UiButton
+                  className={
+                    layout !== "list" && sectionParent(current) === item.id
+                      ? "active"
+                      : ""
+                  }
+                  aria-current={
+                    layout !== "list" && current === item.id
+                      ? "page"
+                      : undefined
+                  }
+                  onClick={() => open(item.id)}
+                >
+                  {t(item.label)}
+                </UiButton>
+              </Fragment>
+            ))}
+          </div>
         )}
-      </section>
+      </nav>
+      {layout !== "list" && (
+        <section className="settingsPane" key={current}>
+          {layout === "detail" && back && (
+            <UiButton className="textButton settingsBack" onClick={back}>
+              ‹ {t("Settings")}
+            </UiButton>
+          )}
+          {page}
+        </section>
+      )}
     </div>
   );
 }

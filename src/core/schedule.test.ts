@@ -5,7 +5,7 @@ import {
   type Plan,
   type AcademicCalendarDay,
 } from "./model";
-import { occurrencesOnDate, quarterRange, tokyoDate } from "./schedule";
+import { occurrencesOnDate, quarterRange, resolveDayAgenda, tokyoDate } from "./schedule";
 import { exportQuarterIcs } from "./calendar-ics";
 import {
   nextPlanOccurrences,
@@ -102,6 +102,12 @@ function day(
 }
 
 describe("shared actual-date scheduling", () => {
+  it("does not invent quarter dates when settings and subscriptions are empty", () => {
+    const data = seedWorkspace();
+    data.academicProfile.years = [];
+    data.academicCalendar = [];
+    expect(quarterRange(data, "2026-1Q")).toBeUndefined();
+  });
   it("keeps all Japan date arithmetic independent of machine timezone", () => {
     expect(tokyoDate(new Date("2026-04-12T15:01:00Z"))).toBe("2026-04-13");
   });
@@ -162,6 +168,18 @@ describe("shared actual-date scheduling", () => {
       [],
     );
   });
+  it("ignores a published day that the feed no longer lists", () => {
+    const data = fixture();
+    data.academicCalendar.push({
+      ...day("2026-04-13", "holiday"),
+      missingSince: "2026-04-01T00:00:00Z",
+    });
+    expect(
+      occurrencesOnDate(data, data.selectedTerm, "2026-04-13").map(
+        (r) => r.kind,
+      ),
+    ).toEqual(["course"]);
+  });
   it("never restores deleted intensive dates or infers unselected days", () => {
     const data = fixture();
     data.courses[0].meetings = [];
@@ -200,6 +218,96 @@ describe("shared actual-date scheduling", () => {
     expect(
       occurrencesOnDate(data, data.selectedTerm, "2026-04-20")[0].title,
     ).toBe("My title");
+  });
+});
+describe("exam-aware scheduling", () => {
+  it("replaces the matching registered course occurrence", () => {
+    const data = fixture();
+    data.memberships[0].evidence = { provider: "school" };
+    data.exams = [
+      {
+        ...meta,
+        id: "exam",
+        sourceKey: "exam:2026:undergraduate:1Q:one",
+        academicYear: 2026,
+        level: "undergraduate",
+        quarter: "1Q",
+        courseCode: "CSC.T241",
+        date: "2026-04-13",
+        label: { ja: "授業 A 試験" },
+        periods: [3, 4],
+        room: { ja: "W9-101" },
+        rooms: [],
+        status: "scheduled",
+        sourceIds: ["notice"],
+        sourcePages: [1],
+      },
+    ];
+    const rows = resolveDayAgenda(data, data.selectedTerm, "2026-04-13");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "exam",
+      courseId: "course",
+      startTime: "10:45",
+      room: "W9-101",
+    });
+  });
+
+  it("keeps a different overlap and reports it on the exam", () => {
+    const data = fixture();
+    data.memberships[0].evidence = { provider: "school" };
+    data.events.push({
+      ...meta,
+      id: "event",
+      kind: "event",
+      termId: data.selectedTerm,
+      title: "Interview",
+      date: "2026-04-13",
+      room: "Online",
+      startTime: "08:50",
+      endTime: "10:30",
+      blocking: true,
+    });
+    data.exams = [{
+      ...meta,
+      id: "exam",
+      academicYear: 2026,
+      level: "undergraduate",
+      quarter: "1Q",
+      courseCode: "CSC.T241",
+      date: "2026-04-13",
+      label: { ja: "試験" },
+      periods: [1, 2],
+      room: null,
+      rooms: [],
+      status: "scheduled",
+      sourceIds: ["notice"],
+      sourcePages: [],
+    }];
+    const rows = resolveDayAgenda(data, data.selectedTerm, "2026-04-13");
+    expect(rows.map((row) => row.kind).sort()).toEqual(["event", "exam"]);
+    expect(rows.find((row) => row.kind === "exam")?.conflictWith).toEqual(["Interview"]);
+  });
+
+  it("uses the same override model for a single course occurrence", () => {
+    const data = fixture();
+    data.scheduleOverrides = [{
+      ...meta,
+      id: "override",
+      targetKey: "course-weekly-0-2026-04-13",
+      targetKind: "course",
+      date: "2026-04-14",
+      periods: [5, 6],
+      room: "Moved",
+      hidden: false,
+    }];
+    expect(resolveDayAgenda(data, data.selectedTerm, "2026-04-13")).toEqual([]);
+    expect(resolveDayAgenda(data, data.selectedTerm, "2026-04-14")[0]).toMatchObject({
+      kind: "course",
+      room: "Moved",
+      startTime: "13:30",
+      overridden: true,
+    });
   });
 });
 describe("personal recurrence", () => {
@@ -299,7 +407,11 @@ it("shows the same course template while explaining a festival closure in the da
   const {templateWeekColumns,weekColumnsAt,timetableCourses}=await import("../components/timetable/workspace");
   const data=fixture();data.selectedTerm="2026-3Q";data.courses[0].termId=data.selectedTerm;data.memberships[0].termId=data.selectedTerm;
   data.courses[0].meetings[0].days=[2,5];
-  data.academicCalendar=[{...meta,id:"festival",academicYear:2026,date:"2026-10-09",type:"no-class",label:{en:"No classes due to Campus Festival",ja:"工大祭のため授業休み"}}];
+  data.academicCalendar=[
+    {...meta,id:"calendar:2026:quarter-start:3Q",academicYear:2026,quarter:"3Q",date:"2026-09-28",type:"quarter-start",label:{en:"3Q starts"}},
+    {...meta,id:"calendar:2026:quarter-end:3Q",academicYear:2026,quarter:"3Q",date:"2026-12-02",type:"quarter-end",label:{en:"3Q ends"}},
+    {...meta,id:"festival",academicYear:2026,date:"2026-10-09",type:"no-class",label:{en:"No classes due to Campus Festival",ja:"工大祭のため授業休み"}}
+  ];
   const courses=timetableCourses(data,data.selectedTerm);
   const template=templateWeekColumns(courses,[]);
   const dated=weekColumnsAt(data,courses,[],new Date("2026-10-05T12:00:00+09:00"));

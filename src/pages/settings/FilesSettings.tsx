@@ -1,0 +1,78 @@
+import { useState } from "react";
+import { UiInput } from "../../components/mantine";
+import { COURSE_FILE_POLICY } from "../../core/course-file-policy";
+import type { Workspace } from "../../core/model";
+import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
+import { CourseStorage } from "./CourseStorage";
+
+export function FilesSettings({
+  data,
+  update,
+}: {
+  data: Workspace;
+  update: (f: (d: Workspace) => Workspace) => void;
+}) {
+  return (
+    <>
+      <SettingsHeader title="Course files" />
+      <SettingsGroup>
+        <CourseStorage />
+        <Row id="auto-download" title="Download new files automatically">
+          <NumberSetting
+            value={
+              data.settings.autoDownloadLimitMb ??
+              COURSE_FILE_POLICY.autoDownloadLimitMb.default
+            }
+            min={COURSE_FILE_POLICY.autoDownloadLimitMb.min}
+            max={COURSE_FILE_POLICY.autoDownloadLimitMb.max}
+            unit="MB"
+            onChange={(value) =>
+              update((d) => {
+                d.settings.autoDownloadLimitMb = value;
+                return d;
+              })
+            }
+          />
+        </Row>
+      </SettingsGroup>
+    </>
+  );
+}
+
+/** Whole-number setting; out-of-range input is clamped on blur. */
+function NumberSetting({
+  value,
+  min,
+  max,
+  unit,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  unit: string;
+  onChange: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const commit = () => {
+    const next = Math.min(max, Math.max(min, Math.round(Number(draft)) || min));
+    setDraft(String(next));
+    if (next !== value) onChange(next);
+  };
+  return (
+    <span className="numberSetting">
+      <UiInput
+        type="number"
+        min={min}
+        max={max}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
+        }}
+      />
+      <span>{unit}</span>
+    </span>
+  );
+}

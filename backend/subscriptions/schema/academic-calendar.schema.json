@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://campus-life.example/schema/academic-calendar.schema.json",
+  "$id": "https://isct-companion.example/schema/academic-calendar.schema.json",
   "type": "object",
   "additionalProperties": false,
   "required": [

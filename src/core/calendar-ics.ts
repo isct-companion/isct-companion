@@ -35,13 +35,16 @@ export function exportQuarterIcs(
   scope: CalendarExportScope = "courses",
   now = new Date(),
 ) {
-  const { from, to } = quarterRange(data, term);
+  const range = quarterRange(data, term);
+  if (!range)
+    throw new Error("Configure this quarter's dates before exporting it.");
+  const { from, to } = range;
   if (to < from || Date.parse(to) - Date.parse(from) > 366 * 86400000)
     throw new Error("Invalid quarter date range.");
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Campus Life//Science Tokyo//EN",
+    "PRODID:-//IsctCompanion//EN",
     "CALSCALE:GREGORIAN",
     "BEGIN:VTIMEZONE",
     "TZID:Asia/Tokyo",
@@ -64,7 +67,7 @@ export function exportQuarterIcs(
         continue;
       lines.push(
         "BEGIN:VEVENT",
-        `UID:${encodeURIComponent(block.key)}@campus-life.local`,
+        `UID:${encodeURIComponent(block.key)}@isctcompanion.local`,
         `DTSTAMP:${now
           .toISOString()
           .replace(/[-:]/g, "")

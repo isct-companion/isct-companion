@@ -1,23 +1,27 @@
-use crate::data::versioned::content_hash;
+use crate::data::{resolve_course_id, versioned::content_hash};
+use crate::school_parser::lms::{id_of, lms_url, LmsPayload};
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use url::Url;
 use uuid::Uuid;
-
-const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
-const MAX_COURSES: usize = 500;
-const MAX_STRUCTURES: usize = 500;
-const MAX_ITEMS: usize = 5_000;
-const MAX_EVENTS: usize = 5_000;
 
 /// Read-only Moodle transport. Every request passes through `call`, whose
 /// closed allowlist is also checked before the request is constructed.
-pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
-  const enrichCourseContent = "#, include_str!("lms_course_content.js"), r#";
-  const forumContent = "#, include_str!("lms_forum_content.js"), r#";
+pub const LMS_EXTRACT_SCRIPT: &str = concat!(
+    r#"(async () => {
+  const enrichCourseContent = "#,
+    include_str!("lms_course_content.js"),
+    r#";
+  const forumContent = "#,
+    include_str!("lms_forum_content.js"),
+    r#";
+  const resolveLmsResource = "#,
+    include_str!("lms_resource_resolve.js"),
+    r#";
+  const submissionStatus = "#,
+    include_str!("lms_submission_status.js"),
+    r#";
   const methods = new Set([
     'core_course_get_enrolled_courses_by_timeline_classification',
     'core_courseformat_get_state',
@@ -28,6 +32,11 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
     'core_course_get_recent_courses'
   ]);
   const sourceUrl = location.href;
+  const explicitCourseId = Number(globalThis.__ISCT_COMPANION_LMS_COURSE_ID__) || 0;
+  const fullScan = globalThis.__ISCT_COMPANION_LMS_FULL__ === true;
+  const reportProgress = value => {
+    try { globalThis.__ISCT_COMPANION_LMS_PROGRESS__?.(value); } catch {}
+  };
   const login = /\/(login|auth)(\/|$)/i.test(location.pathname)
     || Boolean(document.querySelector('input[type=password], form[action*="login" i]'));
   if (login) return {status:'login', sourceUrl, language:'', coursesComplete:false,
@@ -39,6 +48,11 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
   if (!cfg || typeof cfg.sesskey !== 'string' || !cfg.sesskey)
     return {status:'login', sourceUrl, language:'', coursesComplete:false,
       courses:[], structures:[], actionEvents:[], datedEvents:[]};
+  const pageHasCourse = /^\/2025\/(course\/view\.php|mod\/[^/]+\/view\.php)$/.test(location.pathname);
+  const pageCourseId = pageHasCourse && Number(cfg.courseId) > 1 ? Number(cfg.courseId) : 0;
+  // Explicit refreshes win. Normal browsing is scoped to the course represented
+  // by the loaded Moodle page; the dashboard remains summary-only.
+  const requestedCourseId = explicitCourseId || (!fullScan ? pageCourseId : 0);
   const call = async (methodname, args) => {
     if (!methods.has(methodname)) throw new Error('method-not-allowed');
     const endpoint = '/2025/lib/ajax/service.php?sesskey=' + encodeURIComponent(cfg.sesskey)
@@ -86,6 +100,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
     const courses = [];
     let offset = 0;
     let coursesComplete = false;
+    reportProgress({phase:'catalog', completed:0, total:1});
     for (let page = 0; page < 20; page += 1) {
       const data = await call('core_course_get_enrolled_courses_by_timeline_classification',
         {classification:'all', limit:0, offset, sort:'fullname'});
@@ -100,12 +115,16 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
       offset = next;
       if (courses.length >= 500) throw new Error('course-limit');
     }
+    reportProgress({phase:'catalog', completed:1, total:1});
     const actionEvents = [];
     let aftereventid;
     for (let page = 0; page < 100; page += 1) {
       const args = {timesortfrom:0, limitnum:50};
       if (aftereventid !== undefined) args.aftereventid = aftereventid;
-      const data = await call('core_calendar_get_action_events_by_timesort', args);
+      if (requestedCourseId) args.courseid = requestedCourseId;
+      const data = await call(requestedCourseId
+        ? 'core_calendar_get_action_events_by_course'
+        : 'core_calendar_get_action_events_by_timesort', args);
       const batch = Array.isArray(data?.events) ? data.events : [];
       actionEvents.push(...batch.slice(0, 5000 - actionEvents.length).map(event => ({
         ...pick(event, ['id','instance','modulename','name','activityname','timesort','overdue','eventtype','url']),
@@ -116,10 +135,15 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
       aftereventid = next;
       if (actionEvents.length >= 5000) throw new Error('event-limit');
     }
-    const upcoming = await call('core_calendar_get_calendar_upcoming_view',
-      {courseid:1, categoryid:0});
-    const datedEvents = (Array.isArray(upcoming?.events) ? upcoming.events.slice(0, 5000) : []).map(event => ({
-      ...pick(event, ['id','instance','modulename','name','timesort','eventtype','url']), course:{id:event.course?.id}}));
+    // Course pages already provide their own action events. The dashboard/full
+    // modes also keep non-action calendar entries used by Today.
+    let datedEvents = [];
+    if (!requestedCourseId) {
+      const upcoming = await call('core_calendar_get_calendar_upcoming_view',
+        {courseid:1, categoryid:0});
+      datedEvents = (Array.isArray(upcoming?.events) ? upcoming.events.slice(0, 5000) : []).map(event => ({
+        ...pick(event, ['id','instance','modulename','name','timesort','eventtype','url']), course:{id:event.course?.id}}));
+    }
     const now = new Date();
     const academicYear = now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear();
     const category = now.getMonth() < 2 ? 4 : now.getMonth() < 5 ? 1
@@ -129,13 +153,22 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
     const structures = [];
     let contentBudget = 3000000;
     const boundedBody = text => { const body = text.slice(0, Math.min(100000, contentBudget)); contentBudget -= body.length; return body; };
-    for (const course of courses) {
+    const courseContext = course => {
       const year = Number(String(course.shortname || '').match(/\[(\d{4})\]\s*$/)?.[1]);
       const quarter = Number(course.coursecategory);
+      return {year, quarter, term:Number.isInteger(year) && quarter >= 1 && quarter <= 4 ? year + '-' + quarter + 'Q' : ''};
+    };
+    const selectedCourses = courses.filter(course => {
+      const {year, quarter} = courseContext(course);
       const nextYear = category === 4 ? academicYear + 1 : academicYear;
-      const shouldLoad = (year === academicYear && wanted.has(quarter))
-        || (category === 4 && year === nextYear && quarter === 1);
-      if (!shouldLoad) continue;
+      return requestedCourseId
+        ? Number(course.id) === requestedCourseId
+        : fullScan && ((year === academicYear && wanted.has(quarter))
+          || (category === 4 && year === nextYear && quarter === 1));
+    });
+    let structuresDone = 0;
+    const loadStructure = async course => {
+      const context = courseContext(course);
       try {
         const raw = await call('core_courseformat_get_state', {courseid:Number(course.id)});
         const full = JSON.parse(typeof raw === 'string' ? raw : raw?.data);
@@ -154,13 +187,37 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
       } catch (error) {
         structures.push({courseId:Number(course.id), complete:false, state:null,
           error:String(error?.message || error)});
+      } finally {
+        structuresDone += 1;
+        reportProgress({phase:'course', completed:structuresDone, total:selectedCourses.length,
+          courseId:Number(course.id), courseTitle:String(course.fullname || course.shortname || course.id), term:context.term});
       }
-    }
+    };
+    reportProgress({phase:'course', completed:0, total:selectedCourses.length,
+      courseId:Number(selectedCourses[0]?.id) || 0,
+      courseTitle:String(selectedCourses[0]?.fullname || selectedCourses[0]?.shortname || ''),
+      term:selectedCourses[0] ? courseContext(selectedCourses[0]).term : ''});
+    for (let index = 0; index < selectedCourses.length; index += 4)
+      await Promise.all(selectedCourses.slice(index, index + 4).map(loadStructure));
     // Bounded read-only module details, using the same signed-in session.
-    const detailCms = structures.flatMap(item => item.state?.cm || [])
-      .filter(cm => cm.uservisible !== false && ['resource','folder','url','page','forum','assign'].includes(cm.module)).slice(0, 60);
-    let forumBudget = 16;
-    const readDetail = async cm => {
+    const courseById = new Map(courses.map(course => [Number(course.id), course]));
+    // Two layers. A pull across courses reads only what Today needs: the
+    // structure, section text and assignment states. Material details
+    // (files, folders, links, pages, announcements) are read for one course
+    // at a time, when it is opened in the app or refreshed there; files also
+    // resolve on demand. Cached details stay meanwhile.
+    // Details are written onto the returned state's own module objects. Each
+    // course gets its own share, newest modules first, so a large or
+    // fast-loading course cannot starve the rest; cached details fill gaps.
+    const detailModules = requestedCourseId
+      ? ['resource','folder','url','page','forum','assign']
+      : ['assign'];
+    const detailCms = structures.flatMap(item => (item.state?.cm || [])
+      .filter(cm => cm.uservisible !== false && detailModules.includes(cm.module))
+      .reverse().slice(0, 40).map(cm => ({cm, courseId:item.courseId}))).slice(0, 320);
+    const forumBudget = new Map();
+    const assignStatus = [];
+    const readDetail = async (cm, courseId) => {
       try {
         const target = new URL(cm.url, sourceUrl);
         if (target.origin !== location.origin || !/^\/2025\/mod\/(resource|folder|url|page|forum|assign)\/view\.php$/.test(target.pathname)) return;
@@ -175,6 +232,10 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
         if (text.length > 1000000) return;
         const page = new DOMParser().parseFromString(text, 'text/html');
         if (page.querySelector('input[type=password]') || !page.body.classList.contains('cmid-' + cm.id)) return;
+        if (cm.module === 'assign') {
+          const status = submissionStatus({page, cmid:Number(cm.id), module:'assign'});
+          if (status) assignStatus.push(status);
+        }
         const nodes = cm.module === 'forum' ? page.querySelectorAll('#intro, .forumheaderlist')
           : cm.module === 'folder' ? page.querySelectorAll('#intro, .foldertree')
           : cm.module === 'page' ? page.querySelectorAll('#intro, .generalbox')
@@ -185,8 +246,8 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
               if (u.origin !== location.origin || u.pathname !== '/2025/mod/forum/discuss.php' || !/^\d+$/.test(u.searchParams.get('d') || '')) return null;
               const id = u.searchParams.get('d'); u.hash = ''; u.search = '?d=' + id; return u.href;
             } catch { return null; }
-          }).filter(Boolean))].slice(0, Math.min(8, forumBudget));
-          forumBudget -= discussions.length;
+          }).filter(Boolean))].slice(0, Math.min(8, forumBudget.get(courseId) ?? 16));
+          forumBudget.set(courseId, (forumBudget.get(courseId) ?? 16) - discussions.length);
           const bodies = [];
           for (const url of discussions) {
             try {
@@ -200,33 +261,46 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
           const intro = page.getElementById('intro')?.innerHTML || '';
           if (contentBudget > 0) cm.bodyHtml = boundedBody(intro + bodies.join('\n'));
         } else if (contentBudget > 0) cm.bodyHtml = boundedBody([...nodes].map(node => node.innerHTML).join('\n'));
-        if (cm.module === 'url') {
-          const link = page.querySelector('#region-main a[href^="https://"]');
-          if (link) cm.resourceUrl = link.href;
-        }
+        const resolved = resolveLmsResource({page, responseUrl:response.url,
+          cmid:Number(cm.id), module:String(cm.module || '')});
+        if (resolved.kind === 'file' || resolved.kind === 'external')
+          cm.resourceUrl = resolved.url;
       } catch { /* Keep cached detail on a later incomplete read. */ }
     };
+    let detailsDone = 0;
+    const readDetailWithProgress = async ({cm, courseId}) => {
+      await readDetail(cm, courseId);
+      detailsDone += 1;
+      const course = courseById.get(Number(courseId));
+      reportProgress({phase:'material', completed:detailsDone, total:detailCms.length,
+        courseId:Number(courseId) || 0, courseTitle:String(course?.fullname || course?.shortname || ''),
+        term:course ? courseContext(course).term : '', itemTitle:String(cm.name || '')});
+    };
     for (let index = 0; index < detailCms.length; index += 4)
-      await Promise.all(detailCms.slice(index, index + 4).map(readDetail));
-    // Submission state as the assignment page shows it (a plain GET, read
-    // through the classes Moodle puts on the status table), for the
-    // assignments of the loaded quarters.
+      await Promise.all(detailCms.slice(index, index + 4).map(readDetailWithProgress));
+    // Submission state as the assignment or quiz page shows it (a plain GET),
+    // for the work of the loaded quarters.
+    const statusRead = new Set(assignStatus.map(item => item.cmid));
     const assignIds = structures.flatMap(item => (item.state?.cm || [])
-      .filter(cm => cm.module === 'assign').map(cm => Number(cm.id))).filter(id => id > 0).slice(0, 60);
-    const assignStatus = [];
-    const readStatus = async cmid => {
+      .filter(cm => cm.module === 'assign' || cm.module === 'quiz')
+      .map(cm => ({id:Number(cm.id), module:cm.module, courseId:item.courseId, name:String(cm.name || '')})))
+      .filter(item => item.id > 0 && !statusRead.has(item.id)).slice(0, 60);
+    let statusesDone = 0;
+    const readStatus = async item => {
+      const cmid = item.id;
       try {
-        const response = await fetch('/2025/mod/assign/view.php?id=' + cmid, {credentials:'same-origin'});
+        const response = await fetch('/2025/mod/' + item.module + '/view.php?id=' + cmid, {credentials:'same-origin'});
         if (!response.ok) return;
         const page = new DOMParser().parseFromString(await response.text(), 'text/html');
-        if (!page.body.classList.contains('cmid-' + cmid)) return;
-        const table = page.querySelector('.submissionstatustable');
-        if (!table) return;
-        const has = name => Boolean(table.querySelector('td.' + name));
-        const submission = has('submissiongraded') ? 'graded'
-          : has('submissionstatussubmitted') ? 'submitted' : 'open';
-        assignStatus.push({cmid, submission, late:has('latesubmission') || has('overdue')});
-      } catch {}
+        const status = submissionStatus({page, cmid, module:item.module});
+        if (status) assignStatus.push(status);
+      } catch {} finally {
+        statusesDone += 1;
+        const course = courseById.get(Number(item.courseId));
+        reportProgress({phase:'assignment', completed:statusesDone, total:assignIds.length,
+          courseId:Number(item.courseId) || 0, courseTitle:String(course?.fullname || course?.shortname || ''),
+          term:course ? courseContext(course).term : '', itemTitle:item.name});
+      }
     };
     for (let index = 0; index < assignIds.length; index += 4)
       await Promise.all(assignIds.slice(index, index + 4).map(readStatus));
@@ -238,425 +312,8 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(r#"(async () => {
       courses:[], structures:[], actionEvents:[], datedEvents:[],
       error:String(error?.message || error)};
   }
-})()"#);
-
-/// Moodle sends ids as numbers in some functions and numeric strings in
-/// others (`core_courseformat_get_state`).
-fn id_of(value: Option<&Value>) -> Option<u64> {
-    match value? {
-        Value::Number(number) => number.as_u64(),
-        Value::String(text) => text.trim().parse().ok(),
-        _ => None,
-    }
-}
-
-fn category_number<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-    Ok(match Value::deserialize(deserializer)? {
-        Value::Number(number) => number.as_u64().unwrap_or(0),
-        Value::String(text) => text.trim().parse().unwrap_or(0),
-        _ => 0,
-    })
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsCourse {
-    pub id: u64,
-    #[serde(default)]
-    pub fullname: String,
-    #[serde(default)]
-    pub shortname: String,
-    #[serde(default)]
-    pub idnumber: String,
-    /// The category *name*, which Science Tokyo LMS sets to the quarter
-    /// (`"1"`…`"4"`; `"他"` for others). Moodle sends it as a string.
-    #[serde(default, deserialize_with = "category_number")]
-    pub coursecategory: u64,
-    #[serde(default)]
-    pub startdate: i64,
-    #[serde(default)]
-    pub enddate: i64,
-    #[serde(default)]
-    pub viewurl: String,
-    #[serde(default)]
-    pub hidden: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsStructure {
-    pub course_id: u64,
-    pub complete: bool,
-    pub state: Option<Value>,
-    #[serde(default)]
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsPayload {
-    pub status: String,
-    pub source_url: String,
-    #[serde(default)]
-    pub language: String,
-    #[serde(default)]
-    pub courses_complete: bool,
-    #[serde(default)]
-    pub courses: Vec<LmsCourse>,
-    #[serde(default)]
-    pub structures: Vec<LmsStructure>,
-    #[serde(default)]
-    pub action_events: Vec<Value>,
-    #[serde(default)]
-    pub dated_events: Vec<Value>,
-    /// Submission state read from each assignment page (`cmid` → state).
-    #[serde(default)]
-    pub assign_status: HashMap<u64, String>,
-    /// The dashboard timetable grid, aggregated per course.
-    #[serde(default)]
-    pub timetable: Option<LmsTimetable>,
-    /// Records dropped by validation; the rest of the payload is still used.
-    #[serde(default, skip_deserializing)]
-    pub skipped: usize,
-}
-
-/// The payload as sent, before each record is checked on its own.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawLmsPayload {
-    status: String,
-    source_url: String,
-    #[serde(default)]
-    language: String,
-    #[serde(default)]
-    courses_complete: bool,
-    #[serde(default)]
-    courses: Vec<Value>,
-    #[serde(default)]
-    structures: Vec<Value>,
-    #[serde(default)]
-    action_events: Vec<Value>,
-    #[serde(default)]
-    dated_events: Vec<Value>,
-    #[serde(default)]
-    timetable: Option<Value>,
-    #[serde(default)]
-    assign_status: Vec<Value>,
-}
-
-/// What the dashboard timetable says for one term: weekly meetings per LMS
-/// course, and the courses it lists without a slot (集中講義など).
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsTimetable {
-    pub term: String,
-    pub meetings: HashMap<u64, Vec<Value>>,
-    pub unscheduled: Vec<u64>,
-}
-
-/// Turns grid cells (course, day, period) into weekly meetings with
-/// contiguous period ranges, e.g. 月3 + 月4 → `{day:1, periods:[3,4]}`.
-pub fn aggregate_slots(cells: &[(u64, u8, u8)]) -> HashMap<u64, Vec<Value>> {
-    let mut by_course: HashMap<u64, std::collections::BTreeMap<u8, Vec<u8>>> = HashMap::new();
-    for &(course, day, period) in cells {
-        by_course.entry(course).or_default().entry(day).or_default().push(period);
-    }
-    by_course
-        .into_iter()
-        .map(|(course, days)| {
-            let mut meetings = Vec::new();
-            for (day, mut periods) in days {
-                periods.sort_unstable();
-                periods.dedup();
-                let mut start = periods[0];
-                let mut end = start;
-                for &period in &periods[1..] {
-                    if period == end + 1 {
-                        end = period;
-                    } else {
-                        meetings.push(json!({"day": day, "periods": [start, end]}));
-                        start = period;
-                        end = period;
-                    }
-                }
-                meetings.push(json!({"day": day, "periods": [start, end]}));
-            }
-            (course, meetings)
-        })
-        .collect()
-}
-
-/// Validates the grid read from the page; anything off drops the whole grid
-/// (it is a cross-check, never required).
-fn parse_timetable(raw: &Value, courses: &HashSet<u64>) -> Option<LmsTimetable> {
-    let year = raw.get("year")?.as_u64().filter(|year| (2000..2100).contains(year))?;
-    let quarter = raw.get("quarter")?.as_str()?.trim().parse::<u8>().ok().filter(|q| (1..=4).contains(q))?;
-    let slots = raw.get("slots")?.as_array()?;
-    if slots.len() > 500 {
-        return None;
-    }
-    let mut cells = Vec::new();
-    for slot in slots {
-        let course = id_of(slot.get("courseId"))?;
-        let day = slot.get("day")?.as_u64().filter(|day| (1..=7).contains(day))? as u8;
-        let period = slot.get("period")?.as_u64().filter(|p| (1..=12).contains(p))? as u8;
-        if courses.contains(&course) {
-            cells.push((course, day, period));
-        }
-    }
-    let unscheduled = raw
-        .get("unscheduled")
-        .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(|id| id_of(Some(id))).filter(|id| courses.contains(id)).take(200).collect())
-        .unwrap_or_default();
-    Some(LmsTimetable {
-        term: format!("{year}-{quarter}Q"),
-        meetings: aggregate_slots(&cells),
-        unscheduled,
-    })
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LmsStage {
-    Ready,
-    ReconnectRequired,
-}
-
-fn lms_url(raw: &str) -> bool {
-    Url::parse(raw).is_ok_and(|url| {
-        url.scheme() == "https"
-            && url.host_str() == Some("lms.s.isct.ac.jp")
-            && url.username().is_empty()
-            && url.password().is_none()
-    })
-}
-
-/// Moodle sends names HTML-escaped (`A &amp; B`). Decodes the named
-/// entities it uses and numeric references; anything else stays as written.
-pub fn decode_entities(text: &str) -> String {
-    if !text.contains('&') {
-        return text.to_string();
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(start) = rest.find('&') {
-        out.push_str(&rest[..start]);
-        rest = &rest[start..];
-        let decoded = rest.find(';').filter(|end| *end <= 10).and_then(|end| {
-            let entity = &rest[1..end];
-            let character = match entity {
-                "amp" => Some('&'),
-                "lt" => Some('<'),
-                "gt" => Some('>'),
-                "quot" => Some('"'),
-                "apos" | "#39" => Some('\''),
-                "nbsp" => Some(' '),
-                _ => entity
-                    .strip_prefix("#x")
-                    .or_else(|| entity.strip_prefix("#X"))
-                    .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-                    .or_else(|| entity.strip_prefix('#').and_then(|dec| dec.parse().ok()))
-                    .and_then(char::from_u32),
-            }?;
-            Some((character, end))
-        });
-        match decoded {
-            Some((character, end)) => {
-                out.push(character);
-                rest = &rest[end + 1..];
-            }
-            None => {
-                out.push('&');
-                rest = &rest[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// Decodes the named string fields of a JSON record in place.
-fn decode_fields(value: &mut Value, keys: &[&str]) {
-    for key in keys {
-        if let Some(Value::String(text)) = value.get_mut(*key) {
-            *text = decode_entities(text);
-        }
-    }
-}
-
-fn valid_cm(cm: &Value) -> bool {
-    id_of(cm.get("id")).is_some()
-        && id_of(cm.get("sectionid")).is_some()
-        && cm.get("module").and_then(Value::as_str).is_some()
-        && cm.get("name").and_then(Value::as_str).is_some()
-        && !cm
-            .get("url")
-            .and_then(Value::as_str)
-            .is_some_and(|url| !url.is_empty() && !lms_url(url))
-}
-
-fn valid_event(event: &Value) -> bool {
-    id_of(event.get("instance")).is_some()
-        && id_of(event.get("course").and_then(|course| course.get("id"))).is_some()
-        && event.get("timesort").and_then(Value::as_i64).is_some()
-}
-
-/// Checks the envelope strictly and every record on its own: a record Moodle
-/// shapes unexpectedly is dropped (and counted) instead of failing the whole
-/// pull. A dropped course makes the course list incomplete, so nothing is
-/// tombstoned from it.
-pub fn parse_lms_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), String> {
-    if raw.len() > MAX_PAYLOAD_BYTES {
-        return Err("LMS payload exceeds the size limit".into());
-    }
-    let raw: RawLmsPayload =
-        serde_json::from_str(raw).map_err(|_| "LMS payload is not valid JSON")?;
-    if !lms_url(&raw.source_url) {
-        return Err("LMS payload has an invalid source URL".into());
-    }
-    if raw.status == "login" {
-        return Ok((LmsStage::ReconnectRequired, None));
-    }
-    if raw.status != "ok" {
-        return Err("LMS extraction was incomplete".into());
-    }
-    if raw.courses.len() > MAX_COURSES
-        || raw.structures.len() > MAX_STRUCTURES
-        || raw.action_events.len() > MAX_EVENTS
-        || raw.dated_events.len() > MAX_EVENTS
-    {
-        return Err("LMS payload exceeds a collection limit".into());
-    }
-    let mut skipped = 0;
-    let mut skipped_courses = false;
-    let mut course_ids = HashSet::new();
-    let mut courses = Vec::new();
-    for value in raw.courses {
-        let course = serde_json::from_value::<LmsCourse>(value).ok().filter(|course| {
-            course.id != 0
-                && !course_ids.contains(&course.id)
-                && !course.fullname.trim().is_empty()
-                && course.fullname.len() <= 1_000
-                && course.shortname.len() <= 255
-                && lms_url(&course.viewurl)
-        });
-        match course {
-            Some(mut course) => {
-                course.fullname = decode_entities(&course.fullname);
-                course_ids.insert(course.id);
-                courses.push(course);
-            }
-            None => {
-                skipped += 1;
-                skipped_courses = true;
-            }
-        }
-    }
-    let mut item_count = 0;
-    let mut structures = Vec::new();
-    for value in raw.structures {
-        let Ok(mut structure) = serde_json::from_value::<LmsStructure>(value) else {
-            skipped += 1;
-            continue;
-        };
-        if !course_ids.contains(&structure.course_id) {
-            skipped += 1;
-            continue;
-        }
-        if structure.complete {
-            let cms = structure
-                .state
-                .as_ref()
-                .and_then(|state| state.get("cm"))
-                .and_then(Value::as_array)
-                .cloned();
-            let Some(cms) = cms else {
-                // Without a module list the structure is unusable, but the
-                // course's existing items must not be tombstoned either.
-                structure.complete = false;
-                structure.state = None;
-                skipped += 1;
-                structures.push(structure);
-                continue;
-            };
-            let kept: Vec<Value> = cms
-                .into_iter()
-                .filter(valid_cm)
-                .map(|mut cm| {
-                    decode_fields(&mut cm, &["name"]);
-                    cm
-                })
-                .collect();
-            let total = structure.state.as_ref().and_then(|s| s.get("cm")).and_then(Value::as_array).map_or(0, Vec::len);
-            if kept.len() < total {
-                // A partial module list would tombstone the dropped items.
-                skipped += total - kept.len();
-                structure.complete = false;
-            }
-            item_count += kept.len();
-            if let Some(state) = structure.state.as_mut().and_then(Value::as_object_mut) {
-                state.insert("cm".into(), Value::Array(kept));
-                if let Some(Value::Array(sections)) = state.get_mut("section") {
-                    for section in sections {
-                        decode_fields(section, &["title"]);
-                        // Moodle serializes these IDs as strings, unlike material sectionId.
-                        if let Some(id) = id_of(section.get("id")) {
-                            section["id"] = json!(id);
-                        }
-                    }
-                }
-            }
-        }
-        structures.push(structure);
-    }
-    if item_count > MAX_ITEMS {
-        return Err("LMS structure exceeds the item limit".into());
-    }
-    let mut events = |list: Vec<Value>| {
-        let total = list.len();
-        let kept: Vec<Value> = list
-            .into_iter()
-            .filter(valid_event)
-            .map(|mut event| {
-                decode_fields(&mut event, &["name", "activityname"]);
-                event
-            })
-            .collect();
-        skipped += total - kept.len();
-        kept
-    };
-    let action_events = events(raw.action_events);
-    let dated_events = events(raw.dated_events);
-    let timetable = raw.timetable.as_ref().and_then(|grid| parse_timetable(grid, &course_ids));
-    let assign_status = raw
-        .assign_status
-        .iter()
-        .take(200)
-        .filter_map(|row| {
-            let state = row.get("submission")?.as_str()?;
-            if !matches!(state, "open" | "submitted" | "graded") {
-                return None;
-            }
-            Some((id_of(row.get("cmid"))?, state.to_string()))
-        })
-        .collect();
-    Ok((
-        LmsStage::Ready,
-        Some(LmsPayload {
-            status: raw.status,
-            source_url: raw.source_url,
-            language: raw.language,
-            courses_complete: raw.courses_complete && !skipped_courses,
-            courses,
-            structures,
-            action_events,
-            dated_events,
-            timetable,
-            assign_status,
-            skipped,
-        }),
-    ))
-}
+})()"#
+);
 
 fn split_title(fullname: &str, language: &str) -> Value {
     if let Some((ja, en)) = fullname.split_once(" / ") {
@@ -694,18 +351,26 @@ fn upsert_versioned(
     columns: &[(&str, rusqlite::types::Value)],
 ) -> Result<bool, String> {
     let hash = content_hash(value)?;
-    let existing: Option<String> = tx
+    let existing: Option<(String, Option<String>)> = tx
         .query_row(
-            &format!("SELECT hash FROM {table} WHERE id=?1"),
+            &format!("SELECT hash, missing_since FROM {table} WHERE id=?1"),
             [id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    if existing.as_deref() == Some(&hash) {
-        return Ok(false);
-    }
     let timestamp = Utc::now().to_rfc3339();
+    if existing.as_ref().is_some_and(|(stored, _)| stored == &hash) {
+        let changed = existing
+            .as_ref()
+            .is_some_and(|(_, missing)| missing.is_some());
+        tx.execute(
+            &format!("UPDATE {table} SET last_seen_at=?2, missing_since=NULL, deleted_at=NULL,
+                value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"),
+            params![id, timestamp],
+        ).map_err(|e| e.to_string())?;
+        return Ok(changed);
+    }
     let mut names = vec![
         "id",
         "value",
@@ -715,6 +380,8 @@ fn upsert_versioned(
         "rev",
         "source",
         "deleted_at",
+        "last_seen_at",
+        "missing_since",
     ];
     names.extend(columns.iter().map(|(name, _)| *name));
     let marks = (1..=names.len())
@@ -741,16 +408,21 @@ fn upsert_versioned(
         object.insert("updatedAt".into(), timestamp.clone().into());
         object.insert("updatedBy".into(), "lms".into());
         object.insert("source".into(), json!({"provider":"lms"}));
+        object.insert("lastSeenAt".into(), timestamp.clone().into());
+        object.remove("missingSince");
+        object.remove("deletedAt");
     }
     let json = serde_json::to_string(&stored).map_err(|e| e.to_string())?;
     let mut values = vec![
         id.to_string().into(),
         json.into(),
         hash.into(),
-        timestamp.into(),
+        timestamp.clone().into(),
         String::from("lms").into(),
         (rev as i64).into(),
         String::from("lms").into(),
+        rusqlite::types::Value::Null,
+        timestamp.clone().into(),
         rusqlite::types::Value::Null,
     ];
     values.extend(columns.iter().map(|(_, value)| value.clone()));
@@ -783,26 +455,43 @@ fn write_assignment(
     page_state: Option<&str>,
 ) -> Result<bool, String> {
     let cmid = source.cmid;
-    let prior: Option<String> = tx
+    let prior: Option<(String, Option<String>)> = tx
         .query_row(
-            "SELECT submission FROM assignments WHERE lms_cmid=?1 AND deleted_at IS NULL",
+            "SELECT submission, due_at FROM assignments WHERE lms_cmid=?1 AND missing_since IS NULL",
             [cmid],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
+    let effective_due = due.or_else(|| {
+        prior
+            .as_ref()
+            .and_then(|value| value.1.as_deref())
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.timestamp())
+    });
     // The assignment page is authoritative; the event list is only a hint.
+    // Keep the last known due date when Moodle temporarily omits its event.
     let submission = if let Some(state) = page_state {
         state
     } else if listed_open {
         "open"
-    } else if prior.as_deref() == Some("open") && due.is_some_and(|d| d > Utc::now().timestamp()) {
+    } else if prior.as_ref().map(|value| value.0.as_str()) == Some("open")
+        && effective_due.is_some_and(|d| d > Utc::now().timestamp())
+    {
         "submitted"
     } else {
-        prior.as_deref().filter(|p| *p == "submitted").unwrap_or("unknown")
+        prior
+            .as_ref()
+            .map(|value| value.0.as_str())
+            .filter(|p| *p == "submitted")
+            .unwrap_or("unknown")
     };
-    let due_at = due.and_then(|d| chrono::DateTime::from_timestamp(d, 0)).map(|d| d.to_rfc3339());
-    let assignment = json!({"id":format!("lms-assignment:{cmid}"),"kind":"assignment","courseId":source.course,
+    let due_at = due
+        .and_then(|d| chrono::DateTime::from_timestamp(d, 0))
+        .map(|d| d.to_rfc3339())
+        .or_else(|| prior.as_ref().and_then(|value| value.1.clone()));
+    let assignment = json!({"id":format!("lms-assignment:{cmid}"),"sourceKey":format!("lms:default:assignment:{cmid}"),"kind":"assignment","courseId":source.course,
         "lmsCmid":cmid,"lmsCourseId":source.lms_course,"title":source.title,"details":"","sourceUrl":source.url,
         "dueAt":due_at,"submission":submission});
     upsert_versioned(
@@ -814,7 +503,9 @@ fn write_assignment(
             ("title", source.title.to_string().into()),
             (
                 "due_at",
-                due_at.map(Into::into).unwrap_or(rusqlite::types::Value::Null),
+                due_at
+                    .map(Into::into)
+                    .unwrap_or(rusqlite::types::Value::Null),
             ),
             ("source_url", source.url.to_string().into()),
             ("lms_cmid", (cmid as i64).into()),
@@ -828,7 +519,9 @@ pub fn apply_lms_payload(
     connection: &mut Connection,
     payload: &LmsPayload,
 ) -> Result<usize, String> {
-    let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+    let tx = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|e| e.to_string())?;
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
@@ -841,7 +534,12 @@ pub fn apply_lms_payload(
     let dated: HashMap<u64, i64> = payload
         .dated_events
         .iter()
-        .filter(|v| v.get("eventtype").and_then(Value::as_str) == Some("due"))
+        .filter(|v| {
+            matches!(
+                v.get("eventtype").and_then(Value::as_str),
+                Some("due" | "close")
+            )
+        })
         .filter_map(|v| Some((id_of(v.get("instance"))?, v.get("timesort")?.as_i64()?)))
         .collect();
     // Due dates: the calendar's due event, else the open-work event's time.
@@ -862,7 +560,11 @@ pub fn apply_lms_payload(
         // Weekly meetings by term from the dashboard grid; terms this pull did
         // not show keep what an earlier pull saw.
         let mut timetables = tx
-            .query_row("SELECT value FROM lms_courses WHERE id=?1", [&lms_course_id], |row| row.get::<_, String>(0))
+            .query_row(
+                "SELECT value FROM lms_courses WHERE id=?1",
+                [&lms_course_id],
+                |row| row.get::<_, String>(0),
+            )
             .optional()
             .map_err(|e| e.to_string())?
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
@@ -870,33 +572,55 @@ pub fn apply_lms_payload(
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
         if let Some(grid) = &payload.timetable {
-            let shown = grid.meetings.get(&course.id).cloned().or_else(|| {
-                grid.unscheduled.contains(&course.id).then(Vec::new)
-            });
+            let shown = grid
+                .meetings
+                .get(&course.id)
+                .cloned()
+                .or_else(|| grid.unscheduled.contains(&course.id).then(Vec::new));
             if let (Some(meetings), Some(map)) = (shown, timetables.as_object_mut()) {
                 map.insert(grid.term.clone(), Value::Array(meetings));
             }
         }
-        let prior_sections: Option<Value> = tx.query_row(
-            "SELECT value FROM lms_courses WHERE id=?1", [&lms_course_id], |row| row.get::<_, String>(0)
-        ).optional().map_err(|e| e.to_string())?
-          .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-          .and_then(|stored| stored.get("sections").cloned());
-        let mut sections = payload.structures.iter().find(|s| s.course_id == course.id && s.complete)
-            .and_then(|s| s.state.as_ref()).and_then(|s| s.get("section")).cloned()
-            .or_else(|| prior_sections.clone()).unwrap_or_else(|| json!([]));
+        let prior_sections: Option<Value> = tx
+            .query_row(
+                "SELECT value FROM lms_courses WHERE id=?1",
+                [&lms_course_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|stored| stored.get("sections").cloned());
+        let mut sections = payload
+            .structures
+            .iter()
+            .find(|s| s.course_id == course.id && s.complete)
+            .and_then(|s| s.state.as_ref())
+            .and_then(|s| s.get("section"))
+            .cloned()
+            .or_else(|| prior_sections.clone())
+            .unwrap_or_else(|| json!([]));
         if let Some(current) = sections.as_array_mut() {
             for section in current {
                 if section.get("bodyHtml").is_none() {
-                    if let Some(body) = prior_sections.as_ref().and_then(Value::as_array)
-                        .and_then(|old| old.iter().find(|s| id_of(s.get("id")) == id_of(section.get("id"))))
-                        .and_then(|s| s.get("bodyHtml")) {
-                        section.as_object_mut().unwrap().insert("bodyHtml".into(), body.clone());
+                    if let Some(body) = prior_sections
+                        .as_ref()
+                        .and_then(Value::as_array)
+                        .and_then(|old| {
+                            old.iter()
+                                .find(|s| id_of(s.get("id")) == id_of(section.get("id")))
+                        })
+                        .and_then(|s| s.get("bodyHtml"))
+                    {
+                        section
+                            .as_object_mut()
+                            .unwrap()
+                            .insert("bodyHtml".into(), body.clone());
                     }
                 }
             }
         }
-        let value = json!({"id":lms_course_id,"lmsId":course.id,"offeringId":offering,
+        let value = json!({"id":lms_course_id,"sourceKey":format!("lms:default:course:{}",course.id),"lmsId":course.id,"offeringId":offering,
             "shortname":course.shortname,"title":split_title(&course.fullname,&payload.language),"year":year,
             "quarters":quarter_of(year,course.coursecategory),"url":course.viewurl,"hidden":course.hidden,
             "timetables":timetables,"sections":sections});
@@ -907,27 +631,19 @@ pub fn apply_lms_payload(
             &value,
             &[("lms_id", (course.id as i64).into())],
         )?);
-        // The timetable itself changes only through the app's Pull review;
-        // materials and assignments attach to a local course already linked
-        // to the same syllabus offering, else to a stable LMS course id.
         let offering_id = value.get("offeringId").and_then(Value::as_str);
-        let linked = offering_id.and_then(|id| {
-            tx.query_row(
-                "SELECT id FROM timetable_courses WHERE deleted_at IS NULL
-                 AND json_extract(value,'$.offeringId')=?1 ORDER BY updated_at DESC LIMIT 1",
-                [id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .ok()
-            .flatten()
-        });
-        let academic_year = year.unwrap_or_else(|| Utc::now().year() as u32);
-        let course_id = linked.unwrap_or_else(|| {
-            offering_id
-                .map(|id| format!("course:{academic_year}:{id}"))
-                .unwrap_or_else(|| format!("course:lms:{}", course.id))
-        });
+        let lms_id = course.id.to_string();
+        let academic_year = year.unwrap_or_else(|| Utc::now().year() as u32) as i32;
+        let course_id = resolve_course_id(&tx, "lms", &lms_id, academic_year, offering_id)?;
+        if let Some(offering_id) = offering_id {
+            resolve_course_id(
+                &tx,
+                "syllabus",
+                offering_id,
+                academic_year,
+                Some(offering_id),
+            )?;
+        }
         course_ids.insert(course.id, course_id);
     }
     if payload.courses_complete {
@@ -937,7 +653,7 @@ pub fn apply_lms_payload(
             .map(|c| format!("lms-course:{}", c.id))
             .collect();
         let mut statement = tx
-            .prepare("SELECT id FROM lms_courses WHERE deleted_at IS NULL")
+            .prepare("SELECT id FROM lms_courses WHERE missing_since IS NULL")
             .map_err(|e| e.to_string())?;
         let old = statement
             .query_map([], |r| r.get::<_, String>(0))
@@ -946,11 +662,12 @@ pub fn apply_lms_payload(
             .map_err(|e| e.to_string())?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live.contains(id)) {
-            let deleted = Utc::now().to_rfc3339();
-            changed += tx.execute("UPDATE lms_courses SET deleted_at=?2,rev=rev+1,value=json_set(value,'$.deletedAt',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND deleted_at IS NULL",params![id,deleted]).map_err(|e|e.to_string())?;
+            let missing = Utc::now().to_rfc3339();
+            changed += tx.execute("UPDATE lms_courses SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
         }
     }
     for structure in payload.structures.iter().filter(|s| s.complete) {
+        let mut live_assignments = HashSet::new();
         let state = structure
             .state
             .as_ref()
@@ -993,14 +710,25 @@ pub fn apply_lms_payload(
             let linked_course = course_ids
                 .get(&structure.course_id)
                 .cloned()
-                .unwrap_or_else(|| format!("course:lms:{}", structure.course_id));
+                .ok_or_else(|| "LMS structure referenced an unknown course".to_string())?;
             let name = cm.get("name").and_then(Value::as_str).unwrap_or("");
-            let previous: Option<Value> = tx.query_row("SELECT value FROM lms_items WHERE id=?1", [&item_id], |r| r.get::<_, String>(0))
-                .optional().map_err(|e| e.to_string())?.and_then(|raw| serde_json::from_str(&raw).ok());
-            let body = cm.get("bodyHtml").or_else(|| previous.as_ref().and_then(|v| v.get("bodyHtml")));
-            let resource_url = cm.get("resourceUrl").or_else(|| previous.as_ref().and_then(|v| v.get("resourceUrl")));
-            let item = json!({"id":item_id,"kind":"material","courseId":linked_course,"cmid":cmid,"lmsCourseId":structure.course_id,"sectionNumber":section.1,
-                "sectionId":id_of(cm.get("sectionid")),"bodyHtml":body,"resourceUrl":resource_url,"sectionTitle":section.0,"module":module,"name":cm.get("name").and_then(Value::as_str).unwrap_or(""),
+            let previous: Option<Value> = tx
+                .query_row("SELECT value FROM lms_items WHERE id=?1", [&item_id], |r| {
+                    r.get::<_, String>(0)
+                })
+                .optional()
+                .map_err(|e| e.to_string())?
+                .and_then(|raw| serde_json::from_str(&raw).ok());
+            let body = cm
+                .get("bodyHtml")
+                .or_else(|| previous.as_ref().and_then(|v| v.get("bodyHtml")));
+            let resource_url = cm
+                .get("resourceUrl")
+                .or_else(|| previous.as_ref().and_then(|v| v.get("resourceUrl")));
+            // A folder's files come from opening it, not from the crawl; keep them.
+            let folder_files = previous.as_ref().and_then(|v| v.get("folderFiles"));
+            let item = json!({"id":item_id,"sourceKey":format!("lms:default:material:{cmid}"),"kind":"material","courseId":linked_course,"cmid":cmid,"lmsCourseId":structure.course_id,"sectionNumber":section.1,
+                "sectionId":id_of(cm.get("sectionid")),"bodyHtml":body,"resourceUrl":resource_url,"folderFiles":folder_files,"sectionTitle":section.0,"module":module,"name":cm.get("name").and_then(Value::as_str).unwrap_or(""),
                 "session":section.1,"title":name,"type":"link","url":url,"visible":cm.get("visible").and_then(Value::as_bool).unwrap_or(false) && cm.get("uservisible").and_then(Value::as_bool).unwrap_or(false)});
             changed += usize::from(upsert_versioned(
                 &tx,
@@ -1013,15 +741,22 @@ pub fn apply_lms_payload(
                 let title = cm.get("name").and_then(Value::as_str).unwrap_or("");
                 changed += usize::from(write_assignment(
                     &tx,
-                    &AssignmentSource { cmid, lms_course: structure.course_id, course: &linked_course, title, url },
+                    &AssignmentSource {
+                        cmid,
+                        lms_course: structure.course_id,
+                        course: &linked_course,
+                        title,
+                        url,
+                    },
                     due_of(cmid),
                     action_ids.contains(&cmid),
                     payload.assign_status.get(&cmid).map(String::as_str),
                 )?);
                 written.insert(cmid);
+                live_assignments.insert(format!("lms-assignment:{cmid}"));
             }
         }
-        let mut statement = tx.prepare("SELECT id FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1 AND deleted_at IS NULL").map_err(|e|e.to_string())?;
+        let mut statement = tx.prepare("SELECT id FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1 AND missing_since IS NULL").map_err(|e|e.to_string())?;
         let old = statement
             .query_map([structure.course_id], |r| r.get::<_, String>(0))
             .map_err(|e| e.to_string())?
@@ -1029,23 +764,46 @@ pub fn apply_lms_payload(
             .map_err(|e| e.to_string())?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live.contains(id)) {
-            let deleted = Utc::now().to_rfc3339();
-            changed += tx.execute("UPDATE lms_items SET deleted_at=?2,rev=rev+1,value=json_set(value,'$.deletedAt',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND deleted_at IS NULL",params![id,deleted]).map_err(|e|e.to_string())?;
+            let missing = Utc::now().to_rfc3339();
+            changed += tx.execute("UPDATE lms_items SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
+        }
+        let mut statement = tx
+            .prepare("SELECT id FROM assignments WHERE lms_course_id=?1 AND missing_since IS NULL")
+            .map_err(|e| e.to_string())?;
+        let old = statement
+            .query_map([structure.course_id], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(statement);
+        for id in old.into_iter().filter(|id| !live_assignments.contains(id)) {
+            let missing = Utc::now().to_rfc3339();
+            changed += tx.execute("UPDATE assignments SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
         }
     }
     // Open work in courses whose structure was not loaded (other quarters).
     for event in &payload.action_events {
-        let Some(cmid) = id_of(event.get("instance")) else { continue };
-        let module = event.get("modulename").and_then(Value::as_str).unwrap_or("");
+        let Some(cmid) = id_of(event.get("instance")) else {
+            continue;
+        };
+        let module = event
+            .get("modulename")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let url = event.get("url").and_then(Value::as_str).unwrap_or("");
-        if written.contains(&cmid) || !matches!(module, "assign" | "quiz") || (!url.is_empty() && !lms_url(url)) {
+        if written.contains(&cmid)
+            || !matches!(module, "assign" | "quiz")
+            || (!url.is_empty() && !lms_url(url))
+        {
             continue;
         }
-        let Some(lms_course) = id_of(event.get("course").and_then(|course| course.get("id"))) else { continue };
-        let course = course_ids
-            .get(&lms_course)
-            .cloned()
-            .unwrap_or_else(|| format!("course:lms:{lms_course}"));
+        let Some(lms_course) = id_of(event.get("course").and_then(|course| course.get("id")))
+        else {
+            continue;
+        };
+        let Some(course) = course_ids.get(&lms_course).cloned() else {
+            continue;
+        };
         let title = event
             .get("activityname")
             .or_else(|| event.get("name"))
@@ -1053,7 +811,13 @@ pub fn apply_lms_payload(
             .unwrap_or("");
         changed += usize::from(write_assignment(
             &tx,
-            &AssignmentSource { cmid, lms_course, course: &course, title, url },
+            &AssignmentSource {
+                cmid,
+                lms_course,
+                course: &course,
+                title,
+                url,
+            },
             due_of(cmid),
             true,
             payload.assign_status.get(&cmid).map(String::as_str),
@@ -1071,4 +835,20 @@ pub fn apply_lms_payload(
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LMS_EXTRACT_SCRIPT;
+
+    #[test]
+    fn extractor_routes_work_by_loaded_page_and_explicit_scope() {
+        assert!(LMS_EXTRACT_SCRIPT
+            .contains("const fullScan = globalThis.__ISCT_COMPANION_LMS_FULL__ === true"));
+        assert!(LMS_EXTRACT_SCRIPT.contains(
+            "const requestedCourseId = explicitCourseId || (!fullScan ? pageCourseId : 0)"
+        ));
+        assert!(LMS_EXTRACT_SCRIPT.contains("'core_calendar_get_action_events_by_course'"));
+        assert!(LMS_EXTRACT_SCRIPT.contains("fullScan && ((year === academicYear"));
+    }
 }

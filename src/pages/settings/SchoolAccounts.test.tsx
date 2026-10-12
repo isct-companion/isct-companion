@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
         };
       }),
       deleteSchoolCredentials: vi.fn(async () => true),
+      copySchoolMatrix: vi.fn(async () => true),
       onSchoolLoginStatus: vi.fn((callback: (event: unknown) => void) => {
         mocks.loginListeners.push(callback);
         return vi.fn();
@@ -84,6 +85,22 @@ function button(scope: ParentNode, name: string) {
   return match as HTMLButtonElement;
 }
 
+async function mount(matrixOcrAvailable = true) {
+  root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <MantineProvider theme={appTheme} defaultColorScheme="light">
+        <SchoolAccounts
+          notify={notify}
+          showLoginPage={showLoginPage}
+          matrixOcrAvailable={matrixOcrAvailable}
+        />
+      </MantineProvider>,
+    );
+  });
+  await flush();
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
   mocks.order.length = 0;
@@ -92,15 +109,7 @@ beforeEach(async () => {
   schoolSessions.reset();
   host = document.createElement("div");
   document.body.append(host);
-  root = createRoot(host);
-  await act(async () => {
-    root.render(
-      <MantineProvider theme={appTheme} defaultColorScheme="light">
-        <SchoolAccounts notify={notify} showLoginPage={showLoginPage} />
-      </MantineProvider>,
-    );
-  });
-  await flush();
+  await mount();
 });
 
 afterEach(() => {
@@ -228,6 +237,16 @@ async function scanMatrix(results: { text: string; confidence: number }[]) {
 }
 
 describe("matrix review and save", () => {
+  it("hides image scanning when OCR is unavailable on this target", async () => {
+    act(() => root.unmount());
+    await mount(false);
+    expect(
+      [...host.querySelectorAll("button")].map((item) =>
+        item.textContent?.trim(),
+      ),
+    ).not.toContain("Scan image");
+  });
+
   it("shows three confidence bands in plaintext, then clears and masks after Connect saves", async () => {
     const result = Array.from({ length: 70 }, (_, i) => ({
       text: "A",
@@ -354,4 +373,57 @@ describe("repeat matrix scans", () => {
       ).toBe("B");
     },
   );
+});
+
+// Cell i follows the grid's visual row order: A1…J1, A2…J2, …
+const matrixLetters = Array.from({ length: 70 }, (_, i) =>
+  String.fromCharCode(65 + (i % 26)),
+);
+
+const matrixInputs = () => [
+  ...host
+    .querySelectorAll("section")[1]
+    .querySelectorAll<HTMLInputElement>(".matrixGrid input"),
+];
+
+async function pasteMatrix(text: string) {
+  const paste = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { getData: () => text },
+  });
+  // Pasting into a middle cell must not spread the letters from there.
+  await act(async () => matrixInputs()[5].dispatchEvent(paste));
+}
+
+describe("matrix files", () => {
+  it("pastes whitespace-formatted text into the right grid cells", async () => {
+    const text = Array.from({ length: 7 }, (_, row) =>
+      matrixLetters.slice(row * 10, row * 10 + 10).join(" "),
+    ).join("\n");
+    await pasteMatrix(text);
+    expect(matrixInputs().map((input) => input.value)).toEqual(matrixLetters);
+  });
+
+  it("asks before copying the plaintext Matrix", async () => {
+    act(() => root.unmount());
+    mocks.bridge.schoolCredentialStatus.mockResolvedValueOnce({
+      science: { saved: false, username: "", hasOtp: false, hasMatrix: false },
+      tokyoTech: {
+        saved: true,
+        username: "id",
+        hasOtp: false,
+        hasMatrix: true,
+      },
+    });
+    await mount();
+    const card = host.querySelectorAll("section")[1];
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    await act(async () => button(card, "Copy").click());
+    expect(mocks.bridge.copySchoolMatrix).not.toHaveBeenCalled();
+
+    confirm.mockReturnValueOnce(true);
+    await act(async () => button(card, "Copy").click());
+    await flush();
+    expect(mocks.bridge.copySchoolMatrix).toHaveBeenCalledOnce();
+  });
 });

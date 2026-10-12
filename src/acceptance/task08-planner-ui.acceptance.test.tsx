@@ -86,7 +86,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.useRealTimers();
-  localStorage.removeItem("stws-show-grades");
+  localStorage.removeItem("isct-companion-show-grades");
   vi.restoreAllMocks();
 });
 
@@ -105,6 +105,15 @@ function realPlannerWorkspace(): Workspace {
   workspace.selectedTerm = "2026-2Q";
   workspace.terms = ["2026-2Q"];
   workspace.academicProfile.admissionYear = 2026;
+  workspace.academicProfile.years = [{
+    academicYear: 2026,
+    quarterStarts: {
+      "1Q": "2026-04-01",
+      "2Q": "2026-06-01",
+      "3Q": "2026-10-01",
+      "4Q": "2026-12-01",
+    },
+  }];
   workspace.settings.departmentId = "cs";
   workspace.courses = [
     {
@@ -386,7 +395,7 @@ describe("Unified schedule view and editing", () => {
   });
 
   it("renders grades only after Details is clicked, ignoring the old visibility preference", async () => {
-    localStorage.setItem("stws-show-grades", "true");
+    localStorage.setItem("isct-companion-show-grades", "true");
     const renderSummary = async () =>
       await act(async () =>
         root.render(

@@ -1,13 +1,27 @@
+#[path = "../src/contracts.rs"]
+mod contracts;
 #[path = "../src/data/mod.rs"]
 mod data;
 #[path = "../src/kyomu_ingest.rs"]
 mod kyomu_ingest;
 #[path = "../src/lms_ingest.rs"]
 mod lms_ingest;
+mod school_parser {
+    pub(crate) mod kyomu {
+        include!("../src/school_parser/kyomu.rs");
+    }
+    pub(crate) mod lms {
+        include!("../src/school_parser/lms.rs");
+    }
+}
 
-use kyomu_ingest::{declared_credits, gpa_summaries, parse_kyomu_payload, KyomuStage};
-use lms_ingest::{aggregate_slots, apply_lms_payload, decode_entities, parse_lms_payload, LmsStage};
+use kyomu_ingest::{declared_credits, gpa_summaries};
+use lms_ingest::apply_lms_payload;
 use rusqlite::Connection;
+use school_parser::{
+    kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
+    lms::{aggregate_slots, decode_entities, parse_payload as parse_lms_payload, LmsStage},
+};
 use serde_json::{json, Value};
 
 #[test]
@@ -25,22 +39,43 @@ fn lms_preserves_independent_sections_and_cached_bodies_on_an_outline_only_refre
     let (_, first) = parse_lms_payload(&base.to_string()).unwrap();
     apply_lms_payload(&mut connection, &first.unwrap()).unwrap();
     let mut refresh = base.clone();
-    refresh["structures"][0]["state"]["section"][0].as_object_mut().unwrap().remove("bodyHtml");
-    let cm = refresh["structures"][0]["state"]["cm"][0].as_object_mut().unwrap();
-    cm.remove("bodyHtml"); cm.remove("resourceUrl");
+    refresh["structures"][0]["state"]["section"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("bodyHtml");
+    let cm = refresh["structures"][0]["state"]["cm"][0]
+        .as_object_mut()
+        .unwrap();
+    cm.remove("bodyHtml");
+    cm.remove("resourceUrl");
     let (_, second) = parse_lms_payload(&refresh.to_string()).unwrap();
     apply_lms_payload(&mut connection, &second.unwrap()).unwrap();
-    let course: String = connection.query_row("SELECT value FROM lms_courses WHERE id='lms-course:42'", [], |r| r.get(0)).unwrap();
+    let course: String = connection
+        .query_row(
+            "SELECT value FROM lms_courses WHERE id='lms-course:42'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     let course: Value = serde_json::from_str(&course).unwrap();
     assert_eq!(course["sections"].as_array().unwrap().len(), 2);
     assert_eq!(course["sections"][0]["number"], 9);
     assert_eq!(course["sections"][0]["id"], 9);
     assert_eq!(course["sections"][1]["number"], 8);
     assert_eq!(course["sections"][0]["bodyHtml"], "<p>Text only</p>");
-    let item: String = connection.query_row("SELECT value FROM lms_items WHERE id='lms-item:100'", [], |r| r.get(0)).unwrap();
+    let item: String = connection
+        .query_row(
+            "SELECT value FROM lms_items WHERE id='lms-item:100'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     let item: Value = serde_json::from_str(&item).unwrap();
     assert_eq!(item["bodyHtml"], "<p>File description</p>");
-    assert!(item["resourceUrl"].as_str().unwrap().contains("/content/3/"));
+    assert!(item["resourceUrl"]
+        .as_str()
+        .unwrap()
+        .contains("/content/3/"));
 }
 
 #[test]
@@ -134,6 +169,20 @@ fn validated_lms_payload_projects_to_workspace_course_material_assignment_and_me
 
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     data::migrations::migrate(&mut connection).expect("schema v3");
+    let owned_id = "2026-202602440";
+    let owned = json!({
+        "id": owned_id,
+        "offeringId": "202602440",
+        "source": {"provider": "lms", "externalId": "42"}
+    });
+    connection
+        .execute(
+            "INSERT INTO manual_courses
+         (id,value,hash,updated_at,updated_by,rev,source,deleted_at)
+         VALUES(?1,?2,'test','2026-10-06T00:00:00Z','test',1,'lms',NULL)",
+            rusqlite::params![owned_id, owned.to_string()],
+        )
+        .unwrap();
     apply_lms_payload(&mut connection, &payload.unwrap()).expect("atomic LMS projection");
 
     let row = |table: &str, id: &str| -> Value {
@@ -155,7 +204,7 @@ fn validated_lms_payload_projects_to_workspace_course_material_assignment_and_me
         .query_row("SELECT COUNT(*) FROM memberships", [], |r| r.get(0))
         .unwrap();
     assert_eq!(memberships, 0);
-    let course = json!({"id": "course:2026:202602440"});
+    let course = json!({"id": owned_id});
     let lms_course = row("lms_courses", "lms-course:42");
     assert_eq!(lms_course["offeringId"], "202602440");
     // The LMS category name is the quarter.
@@ -237,7 +286,15 @@ fn gpa_summary_maps_the_totals_table_by_column_labels() {
 
 #[test]
 fn dashboard_grid_cells_aggregate_into_contiguous_meetings() {
-    let meetings = aggregate_slots(&[(7, 1, 3), (7, 1, 4), (7, 4, 4), (7, 4, 3), (7, 2, 1), (7, 2, 5), (9, 3, 1)]);
+    let meetings = aggregate_slots(&[
+        (7, 1, 3),
+        (7, 1, 4),
+        (7, 4, 4),
+        (7, 4, 3),
+        (7, 2, 1),
+        (7, 2, 5),
+        (9, 3, 1),
+    ]);
     assert_eq!(
         meetings[&7],
         vec![
@@ -288,7 +345,8 @@ fn moodle_payload() -> Value {
 
 #[test]
 fn real_moodle_shapes_keep_good_records_and_aggregate_everything() {
-    let (stage, payload) = parse_lms_payload(&moodle_payload().to_string()).expect("tolerant parse");
+    let (stage, payload) =
+        parse_lms_payload(&moodle_payload().to_string()).expect("tolerant parse");
     assert_eq!(stage, LmsStage::Ready);
     let payload = payload.unwrap();
     assert_eq!(payload.courses.len(), 2);
@@ -303,7 +361,11 @@ fn real_moodle_shapes_keep_good_records_and_aggregate_everything() {
     apply_lms_payload(&mut connection, &payload).expect("apply");
     let value = |table: &str, id: &str| -> Value {
         let raw: String = connection
-            .query_row(&format!("SELECT value FROM {table} WHERE id=?1"), [id], |r| r.get(0))
+            .query_row(
+                &format!("SELECT value FROM {table} WHERE id=?1"),
+                [id],
+                |r| r.get(0),
+            )
             .unwrap_or_else(|error| panic!("missing {table}/{id}: {error}"));
         serde_json::from_str(&raw).unwrap()
     };
@@ -316,7 +378,10 @@ fn real_moodle_shapes_keep_good_records_and_aggregate_everything() {
     // The assignment page wins over the open-work list.
     let current = value("assignments", "lms-assignment:135414");
     assert_eq!(current["submission"], "submitted");
-    assert!(current["dueAt"].as_str().is_some(), "due from the open-work event");
+    assert!(
+        current["dueAt"].as_str().is_some(),
+        "due from the open-work event"
+    );
     // Open work from a course whose structure was not loaded still arrives.
     let old = value("assignments", "lms-assignment:49871");
     assert_eq!(old["title"], "Old report");
@@ -349,7 +414,11 @@ fn declared_credits_follow_each_category_total() {
          "credits": {"lecture": 0, "exercise": 2, "lab": 0}}
     ]});
     let rows = declared_credits(&data);
-    let credit = |id: &str| rows.iter().find(|r| r["offeringId"] == id).unwrap()["effectiveCredits"].as_f64().unwrap();
+    let credit = |id: &str| {
+        rows.iter().find(|r| r["offeringId"] == id).unwrap()["effectiveCredits"]
+            .as_f64()
+            .unwrap()
+    };
     // Two 0-0-1 PE rows in a category that totals 1.0 count half each.
     assert_eq!(credit("202600702"), 0.5);
     assert_eq!(credit("202600722"), 0.5);

@@ -46,7 +46,7 @@ let saved = (() => {
   addSyllabusDraft(workspace, {
     ...catalogCourse(placed, "en"),
     quarter: "3Q",
-  });
+  }, { course: "018f0000-0000-7000-8000-000000000001", planItem: "018f0000-0000-7000-8000-000000000002" });
   return workspace;
 })();
 (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
@@ -56,8 +56,11 @@ let saved = (() => {
     switch (command) {
       case "load_workspace":
         return structuredClone(saved);
-      case "save_workspace":
-        saved = structuredClone((args.workspace ?? saved) as typeof saved);
+      case "new_user_record_id":
+        return crypto.randomUUID();
+      case "put_user_record":
+      case "delete_user_record":
+      case "put_workspace_setting":
         return 1;
       case "catalog_offerings":
         return [placed, clashing];
@@ -112,7 +115,7 @@ it("adds a clashing course as a replacement, and Undo brings the old one back", 
   await act(async () => root.render(<App />));
   const nav = await vi.waitFor(() => {
     const button = [...host.querySelectorAll("button")].find((b) =>
-      /^Schedule/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""),
+      /^Home/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""),
     );
     if (!button) throw new Error("app not ready");
     return button;
