@@ -1,11 +1,11 @@
 # Desktop distribution
 
-The source repository builds the app. The public repository
-`isct-companion/Isct-Companion-App` holds only README and license documents;
-Releases contain the three desktop installers, signed Android APK and signed
-iOS/iPadOS IPA. Third-party notices and
+The public source repository builds the app and hosts preview Releases with
+three desktop installers, a signed Android APK and a signed iOS/iPadOS IPA.
+`isct-companion/Isct-Companion-App` remains available as the separate distribution
+destination for stable releases, holding only README and license documents.
+The two repositories have independent Git histories. Third-party notices and
 licenses are bundled in the app.
-The two repositories have independent Git histories.
 
 ## Preview builds
 
@@ -15,7 +15,7 @@ and installs dependencies with `yarn install --immutable`.
 `.github/workflows/desktop-release.yml` builds Apple Silicon Mac, Intel Mac
 and Windows x64. Pushes to `main`, version tags, and manual dispatches trigger
 the build. Use **Desktop release → Run workflow**, with `publish` left
-unchecked, to download private build artifacts. To publish an existing successful build without rebuilding, enable `publish`
+unchecked, to download build artifacts. To publish an existing successful build without rebuilding, enable `publish`
 and enter its Actions run ID in `source_run_id`. The workflow checks that
 the source is a successful Desktop release run in this repository. During the
 public preview, `publish_target=source` publishes in the source repository.
@@ -25,22 +25,30 @@ Select `publish_target=distribution` to use `Isct-Companion-App` and its
 macOS requires 14 or later. Windows installers target Windows 10/11 and install
 WebView2 through its bootstrapper if needed. Intel Mac currently excludes
 campus-card OCR because ONNX Runtime has no prebuilt Intel macOS library.
-These are unsigned, unnotarized previews; build success does not establish
-runtime compatibility on every supported OS.
+Mac signing and notarization are controlled by `sign_macos` or
+`MACOS_SIGNING_ENABLED`. Windows signing remains unconfigured. Build success
+does not establish runtime compatibility on every supported OS.
 
-## Enable automatic public releases
+## Publish releases
+
+Source-repository publication uses the workflow's `GITHUB_TOKEN`; no separate
+release token is needed. A `main` push builds all platforms without publishing
+a Release. A version tag publishes after the builds succeed, and manual
+dispatch can publish either a new build or an existing successful run.
+
+For the separate distribution repository:
 
 1. Create a fine-grained GitHub personal access token for resource owner
    `isct-companion`, selecting **only** `Isct-Companion-App`, with **Contents:
    read and write**. Approve it in the organization if required.
-2. Save it as `PUBLIC_RELEASE_TOKEN` in the **private** repository's Actions
+2. Save it as `PUBLIC_RELEASE_TOKEN` in the source repository's Actions
    secrets. Do not paste it into source files or chat. Set an expiration and
    rotate the secret before it expires.
 3. Merge the release workflow into the branch used for releases. Update the
    matching versions in `package.json`, `backend/Cargo.toml` and
    `backend/tauri.conf.json`.
-4. Push a version tag such as `v0.1.1`. Alternatively, dispatch the workflow
-   with `publish` enabled. The version guard rejects mismatched tags.
+4. Dispatch the workflow with `publish` enabled and
+   `publish_target=distribution`. The version guard rejects mismatched tags.
 
 All desktop and mobile builds, including the TestFlight upload, must succeed
 before publication. Only `.dmg`/`.exe` installers, `.apk` and `.ipa` packages
@@ -75,7 +83,7 @@ an exportable **Developer ID Application** certificate with its private key.
 Export the identity from Keychain Access as a password-protected `.p12`.
 Encode it using `openssl base64 -A -in certificate.p12 -out certificate-base64.txt`.
 
-Add these Actions secrets to the **private** repository:
+Add these Actions secrets to the source repository:
 
 | Secret                       | Value                                                   |
 | ---------------------------- | ------------------------------------------------------- |
