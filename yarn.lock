@@ -855,7 +855,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mantine/modals@npm:9.6.3":
+"@mantine/modals@npm:^9.6.3":
   version: 9.6.3
   resolution: "@mantine/modals@npm:9.6.3"
   peerDependencies:
@@ -2421,7 +2421,7 @@ __metadata:
     "@codemirror/view": "npm:^6.0.0"
     "@mantine/core": "npm:^9.6.3"
     "@mantine/hooks": "npm:^9.6.3"
-    "@mantine/modals": "npm:9.6.3"
+    "@mantine/modals": "npm:^9.6.3"
     "@mantine/notifications": "npm:^9.6.3"
     "@milkdown/crepe": "npm:^7.22.2"
     "@milkdown/kit": "npm:^7.22.2"
