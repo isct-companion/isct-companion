@@ -322,6 +322,16 @@ fn emit_session(
     if let Some(changed) = changed {
         changed.notify_waiters();
     }
+    if state == "active" {
+        if let Some(refresh) = app.try_state::<crate::school_refresh::SchoolRefresh>() {
+            refresh.event(crate::school_refresh::RefreshEvent {
+                kind: "account-active".into(),
+                profile: Some(profile),
+                course_id: None,
+                network: None,
+            });
+        }
+    }
     eprintln!("[school-session] {profile:?} {state}");
     let _ = app.emit_to(
         MAIN_WINDOW,
@@ -388,6 +398,7 @@ struct ControllerState {
     /// including scheduled work, enters this queue before touching a WebView.
     active_job: Option<ActiveSchoolJob>,
     jobs: VecDeque<SchoolJob>,
+    preempted: bool,
     /// Pulls waiting for a page whose URL starts with the prefix to finish loading.
     load_waiters: Vec<(SchoolSite, String, mpsc::Sender<String>)>,
     /// Registration queue shown on 教務Web pages while set.
@@ -406,6 +417,44 @@ struct ControllerState {
     /// The PDF save shim per view (`WKWebView.UIDelegate` is weak).
     #[cfg(target_os = "macos")]
     ui_delegates: HashMap<SchoolSite, pdf_save::DelegateHandle>,
+}
+
+// Drop the extractor channels to wake the worker immediately. Its original
+// completion sender is requeued, so callers never receive a preemption error.
+fn preempt_for_visible(state: &mut ControllerState) {
+    if matches!(state.active_job, Some(ActiveSchoolJob::Pull { .. })) {
+        state.preempted = true;
+        state.ingest_waiters.clear();
+        state.load_waiters.clear();
+        state.pending_ingestion.clear();
+        state.pending_lms_course = None;
+        state.pending_lms_full = false;
+    } else if let Some(ActiveSchoolJob::Session(profile) | ActiveSchoolJob::Login(profile)) =
+        state.active_job
+    {
+        state.jobs.push_front(SchoolJob::Session(profile));
+        state.active_job = None;
+        state.heartbeat = None;
+    }
+}
+
+fn settle_pull(
+    state: &mut ControllerState,
+    site: SchoolSite,
+    lms_course_id: Option<u64>,
+    finished: mpsc::Sender<Result<Vec<IngestOutcome>, String>>,
+    result: Result<Vec<IngestOutcome>, String>,
+) {
+    if state.preempted {
+        state.jobs.push_back(SchoolJob::Pull {
+            site,
+            lms_course_id,
+            finished,
+        });
+    } else {
+        let _ = finished.send(result);
+    }
+    state.active_job = None;
 }
 
 impl Default for ControllerState {
@@ -433,6 +482,7 @@ impl Default for ControllerState {
             pulling: None,
             active_job: None,
             jobs: VecDeque::new(),
+            preempted: false,
             load_waiters: Vec::new(),
             guide: Vec::new(),
             history: HashMap::new(),
@@ -1108,6 +1158,39 @@ fn save_viewer_data(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn visible_navigation_preempts_a_pull_and_keeps_its_completion_for_retry() {
+        let mut state = ControllerState::default();
+        let site = SchoolSite::ScienceLms;
+        state.active_job = Some(ActiveSchoolJob::Pull {
+            site,
+            lms_course_id: Some(42),
+        });
+        state.pulling = Some(site);
+        let (ingest_tx, ingest_rx) = mpsc::channel();
+        state.ingest_waiters.insert(site, vec![ingest_tx]);
+        preempt_for_visible(&mut state);
+        state.active = Some(site);
+        assert!(state.preempted);
+        assert!(ingest_rx.recv().is_err()); // worker wakes without a 150s timeout
+        let (finished, receiver) = mpsc::channel();
+        settle_pull(
+            &mut state,
+            site,
+            Some(42),
+            finished,
+            Err("interrupted".into()),
+        );
+        assert!(receiver.try_recv().is_err());
+        assert!(state.active.is_some()); // queued work cannot advance while visible
+        state.active = None;
+        let SchoolJob::Pull { finished, .. } = state.jobs.pop_front().unwrap() else {
+            panic!("retry lost")
+        };
+        finished.send(Ok(Vec::new())).unwrap();
+        assert!(receiver.recv().unwrap().is_ok());
+    }
+
+    #[test]
     fn syncs_from_lms_pages_but_not_from_files_shown_in_the_view() {
         assert!(ingestion_script("https://lms.s.isct.ac.jp/2025/my/").is_some());
         assert!(ingestion_script("https://lms.s.isct.ac.jp/2025/pluginfile.php/223879/mod_label/intro/oop2026-schedule.png").is_none());
@@ -1650,6 +1733,13 @@ mod tests {
 }
 
 impl SchoolWebController {
+    pub fn is_visible(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.active.is_some())
+            .unwrap_or(true)
+    }
+
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(ControllerState::default())),
@@ -1667,6 +1757,7 @@ impl SchoolWebController {
             let Some(job) = state.jobs.pop_front() else {
                 return;
             };
+            state.preempted = false;
             state.active_job = Some(match &job {
                 SchoolJob::Session(profile) => ActiveSchoolJob::Session(*profile),
                 SchoolJob::Login { profile, .. } => ActiveSchoolJob::Login(*profile),
@@ -1715,8 +1806,10 @@ impl SchoolWebController {
                 let handle = app.clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     let result = controller.pull_now(&handle, site, lms_course_id);
-                    let _ = finished.send(result);
-                    controller.complete_pull_job(&handle, site, lms_course_id);
+                    if let Ok(mut state) = controller.state.lock() {
+                        settle_pull(&mut state, site, lms_course_id, finished, result);
+                    }
+                    controller.advance_jobs(&handle);
                 });
             }
         }
@@ -1737,26 +1830,6 @@ impl SchoolWebController {
         });
         if completed {
             eprintln!("[school-queue] session {profile:?} finished");
-            self.advance_jobs(app);
-        }
-    }
-
-    fn complete_pull_job(&self, app: &AppHandle, site: SchoolSite, lms_course_id: Option<u64>) {
-        let completed = self.state.lock().ok().is_some_and(|mut state| {
-            if state.active_job
-                == Some(ActiveSchoolJob::Pull {
-                    site,
-                    lms_course_id,
-                })
-            {
-                state.active_job = None;
-                true
-            } else {
-                false
-            }
-        });
-        if completed {
-            eprintln!("[school-queue] pull {site:?} finished");
             self.advance_jobs(app);
         }
     }
@@ -1868,34 +1941,61 @@ impl SchoolWebController {
         site: SchoolSite,
         lms_course_id: Option<u64>,
     ) -> Result<Vec<IngestOutcome>, String> {
+        self.request_pull_priority(app, site, lms_course_id, true)
+    }
+
+    pub fn request_pull_background(
+        &self,
+        app: &AppHandle,
+        site: SchoolSite,
+        lms_course_id: Option<u64>,
+    ) -> Result<Vec<IngestOutcome>, String> {
+        self.request_pull_priority(app, site, lms_course_id, false)
+    }
+
+    fn request_pull_priority(
+        &self,
+        app: &AppHandle,
+        site: SchoolSite,
+        lms_course_id: Option<u64>,
+        manual: bool,
+    ) -> Result<Vec<IngestOutcome>, String> {
         let (sender, receiver) = mpsc::channel();
         {
             let mut state = self
                 .state
                 .lock()
-                .map_err(|_| "School web state is unavailable.".to_string())?;
+                .map_err(|_| "School web state is unavailable.")?;
             // A full LMS pull is authoritative. Later refresh clicks and
             // scheduled refreshes are discarded rather than replayed.
-            if matches!(
-                state.active_job,
-                Some(ActiveSchoolJob::Pull {
-                    site: SchoolSite::ScienceLms,
-                    lms_course_id: None
-                })
-            ) {
+            if lms_course_id.is_none()
+                && site == SchoolSite::ScienceLms
+                && matches!(
+                    state.active_job,
+                    Some(ActiveSchoolJob::Pull {
+                        site: SchoolSite::ScienceLms,
+                        lms_course_id: None
+                    })
+                )
+            {
                 eprintln!("[school-queue] refresh discarded during full LMS pull");
                 return Ok(Vec::new());
             }
-            state.jobs.push_back(SchoolJob::Pull {
+            let job = SchoolJob::Pull {
                 site,
                 lms_course_id,
                 finished: sender,
-            });
+            };
+            if manual {
+                state.jobs.push_front(job);
+            } else {
+                state.jobs.push_back(job);
+            }
             eprintln!("[school-queue] queued {site:?} pull");
         }
         self.advance_jobs(app);
         receiver
-            .recv_timeout(Duration::from_secs(600))
+            .recv()
             .map_err(|_| "The queued school pull did not finish in time.".to_string())?
     }
 
@@ -2068,7 +2168,10 @@ impl SchoolWebController {
         let Some(target) = target else {
             return Ok(false);
         };
-        eprintln!("[school-web] {site:?} {}", if forward { "forward" } else { "back" });
+        eprintln!(
+            "[school-web] {site:?} {}",
+            if forward { "forward" } else { "back" }
+        );
         let navigated = self.navigate(app, site, &target);
         if !matches!(navigated, Ok(true)) {
             if let Ok(mut state) = self.state.lock() {
@@ -2266,7 +2369,13 @@ impl SchoolWebController {
         };
         // Navigating the visible view would cancel whatever the person just
         // clicked (a TTL refresh can start while they browse).
-        if active == Some(site) {
+        if active.is_some()
+            || self
+                .state
+                .lock()
+                .map_err(|_| "School state unavailable")?
+                .preempted
+        {
             return Err("Leave the Web page, then pull again.".into());
         }
         if let Some(webview) = webview {
@@ -2296,6 +2405,9 @@ impl SchoolWebController {
             .state
             .lock()
             .map_err(|_| "School web state is unavailable.")?;
+        if state.preempted || state.active.is_some() {
+            return Err("School job paused for visible navigation.".into());
+        }
         state.pending_ingestion.insert(site);
         state.ingest_waiters.entry(site).or_default().push(sender);
         Ok(receiver)
@@ -2323,6 +2435,9 @@ impl SchoolWebController {
                 .state
                 .lock()
                 .map_err(|_| "School web state is unavailable.".to_string())?;
+            if state.preempted || state.active.is_some() {
+                return Err("School job paused for visible navigation.".into());
+            }
             if state.login.is_some() {
                 return Err(
                     "Wait for the current school sign-in to finish, then pull again.".into(),
@@ -2343,6 +2458,9 @@ impl SchoolWebController {
                         .state
                         .lock()
                         .map_err(|_| "School web state is unavailable.".to_string())?;
+                    if state.preempted || state.active.is_some() {
+                        return Err("School job paused for visible navigation.".into());
+                    }
                     state.pending_lms_course = lms_course_id;
                     state.pending_lms_full = lms_course_id.is_none();
                 }
@@ -2353,11 +2471,18 @@ impl SchoolWebController {
             SchoolSite::Kyomu => {
                 // Sub-pages bounce to the portal until Default.aspx opens the session.
                 let (sender, loaded) = mpsc::channel();
-                self.state
-                    .lock()
-                    .map_err(|_| "School web state is unavailable.")?
-                    .load_waiters
-                    .push((site, format!("{KYOMU_ROOT}Student/"), sender));
+                {
+                    let mut state = self
+                        .state
+                        .lock()
+                        .map_err(|_| "School web state is unavailable.")?;
+                    if state.preempted || state.active.is_some() {
+                        return Err("School job paused for visible navigation.".into());
+                    }
+                    state
+                        .load_waiters
+                        .push((site, format!("{KYOMU_ROOT}Student/"), sender));
+                }
                 self.load_hidden(app, site, &format!("{KYOMU_ROOT}Default.aspx"))?;
                 loaded.recv_timeout(Duration::from_secs(150)).map_err(|_| {
                     "教務Web did not open. Check the Tokyo Tech account in Settings.".to_string()
@@ -2381,7 +2506,7 @@ impl SchoolWebController {
             if state.pulling == Some(site) {
                 state.pulling = None;
             }
-            if result.is_err() {
+            if result.is_err() && !state.preempted {
                 state.pending_ingestion.remove(&site);
                 state.ingest_waiters.remove(&site);
                 state
@@ -2420,8 +2545,10 @@ impl SchoolWebController {
                 .state
                 .lock()
                 .map_err(|_| "School web state is unavailable.")?;
-            if visible && state.active_job.is_some() {
-                return Err("Wait for the school pull to finish before opening this page.".into());
+            if visible {
+                preempt_for_visible(&mut state);
+            } else if state.active.is_some() || state.preempted {
+                return Err("School job paused for visible navigation.".into());
             }
             if let Some(bounds) = bounds {
                 state.bounds = bounds.sanitized();

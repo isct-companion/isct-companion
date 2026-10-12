@@ -14,6 +14,7 @@ struct GoogleDriveAuth<R: Runtime>(PluginHandle<R>);
 #[serde(rename_all = "camelCase")]
 struct SignInRequest<'a> {
     client_id: &'a str,
+    interactive: bool,
 }
 
 #[derive(Serialize)]
@@ -33,6 +34,10 @@ pub struct NativeGoogleToken {
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("google-drive-auth")
         .setup(|app, api| {
+            #[cfg(target_os = "android")]
+            let handle = api
+                .register_android_plugin("app.isctcompanion.googleauth", "GoogleDriveAuthPlugin")?;
+            #[cfg(target_os = "ios")]
             let handle = api.register_ios_plugin(init_plugin_google_drive_auth)?;
             app.manage(GoogleDriveAuth(handle));
             Ok(())
@@ -46,7 +51,13 @@ pub fn sign_in<R: Runtime>(
 ) -> Result<NativeGoogleToken, String> {
     app.state::<GoogleDriveAuth<R>>()
         .0
-        .run_mobile_plugin("signIn", SignInRequest { client_id })
+        .run_mobile_plugin(
+            "signIn",
+            SignInRequest {
+                client_id,
+                interactive: true,
+            },
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -61,5 +72,22 @@ pub fn handle_url<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<bool, Str
     app.state::<GoogleDriveAuth<R>>()
         .0
         .run_mobile_plugin("handleUrl", HandleUrlRequest { url })
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn refresh<R: Runtime>(
+    app: &AppHandle<R>,
+    client_id: &str,
+) -> Result<NativeGoogleToken, String> {
+    app.state::<GoogleDriveAuth<R>>()
+        .0
+        .run_mobile_plugin(
+            "signIn",
+            SignInRequest {
+                client_id,
+                interactive: false,
+            },
+        )
         .map_err(|error| error.to_string())
 }

@@ -49,6 +49,8 @@ describe("build-time OAuth config", () => {
       "google-drive": { ...clients["google-drive"], "desktop-secret": "s" },
     };
     expect(nativeOAuthEnv(withSecret, {})).toEqual({
+      ISCT_GOOGLE_IOS_CLIENT_ID: "1-ios.apps.googleusercontent.com",
+      ISCT_GOOGLE_ANDROID_CLIENT_ID: "",
       ISCT_GOOGLE_DESKTOP_CLIENT_ID: "1-desk.apps.googleusercontent.com",
       ISCT_GOOGLE_DESKTOP_CLIENT_SECRET: "s",
     });

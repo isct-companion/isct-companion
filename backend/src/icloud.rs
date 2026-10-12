@@ -42,9 +42,8 @@ unsafe fn is_missing(error: *mut NSError) -> bool {
 }
 
 fn account_request() -> oneshot::Receiver<Result<(), String>> {
-    let container = unsafe {
-        CKContainer::containerWithIdentifier(&NSString::from_str(CONTAINER_ID))
-    };
+    let container =
+        unsafe { CKContainer::containerWithIdentifier(&NSString::from_str(CONTAINER_ID)) };
     let (tx, rx) = oneshot::channel();
     let sender = Arc::new(Mutex::new(Some(tx)));
     let callback = RcBlock::new(move |status: CKAccountStatus, error: *mut NSError| {
@@ -96,9 +95,9 @@ fn read_request(name: &str) -> oneshot::Receiver<Result<Option<Vec<u8>>, String>
                 .and_then(|value| value.downcast::<CKAsset>().ok());
             match asset.and_then(|asset| unsafe { asset.fileURL() }) {
                 Some(url) => match url.path() {
-                    Some(path) => std::fs::read(path.to_string()).map(Some).map_err(|_| {
-                        "iCloud returned an unreadable backup asset.".to_string()
-                    }),
+                    Some(path) => std::fs::read(path.to_string())
+                        .map(Some)
+                        .map_err(|_| "iCloud returned an unreadable backup asset.".to_string()),
                     None => Err("iCloud returned an invalid backup asset.".to_string()),
                 },
                 None => Err("iCloud backup record has no payload.".to_string()),
@@ -122,7 +121,11 @@ pub async fn read(name: &str) -> Result<Option<Vec<u8>>, String> {
         .map_err(|_| "iCloud backup read did not complete.".to_string())?
 }
 
-fn write_request(name: String, temp_path: PathBuf) -> oneshot::Receiver<Result<(), String>> {
+fn write_request(
+    name: String,
+    temp_path: PathBuf,
+    expected: Option<Option<u64>>,
+) -> oneshot::Receiver<Result<(), String>> {
     let database = cloud_database();
     let id = record_id(&name);
     let (tx, rx) = oneshot::channel();
@@ -151,6 +154,22 @@ fn write_request(name: String, temp_path: PathBuf) -> oneshot::Receiver<Result<(
         } else {
             unsafe { Retained::retain(record).expect("CloudKit returned a live record") }
         };
+        if let Some(expected) = expected {
+            let current = unsafe { record.objectForKey(&NSString::from_str(ASSET_KEY)) }
+                .and_then(|value| value.downcast::<CKAsset>().ok())
+                .and_then(|asset| unsafe { asset.fileURL() })
+                .and_then(|url| url.path())
+                .and_then(|path| std::fs::read(path.to_string()).ok())
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|value| value["revision"].as_u64());
+            if current != expected {
+                if let Some(sender) = sender.lock().ok().and_then(|mut s| s.take()) {
+                    let _ = sender.send(Err("Cloud copy changed; retrying sync.".into()));
+                }
+                let _ = std::fs::remove_file(&temp_for_fetch);
+                return;
+            }
+        }
         let url = NSURL::fileURLWithPath(&NSString::from_str(&temp_for_fetch.to_string_lossy()));
         let asset = unsafe { CKAsset::initWithFileURL(CKAsset::alloc(), &url) };
         let value: &ProtocolObject<dyn CKRecordValue> = ProtocolObject::from_ref(&*asset);
@@ -161,6 +180,8 @@ fn write_request(name: String, temp_path: PathBuf) -> oneshot::Receiver<Result<(
         let save_callback = RcBlock::new(move |_record: *mut CKRecord, error: *mut NSError| {
             let result = if error.is_null() {
                 Ok(())
+            } else if unsafe { error.as_ref().is_some_and(|e| e.code() == 14) } {
+                Err("Cloud copy changed; retrying sync.".into())
             } else {
                 Err(unsafe { error_text(error, "iCloud backup write failed.") })
             };
@@ -187,11 +208,24 @@ pub async fn write(name: &str, bytes: Vec<u8>) -> Result<(), String> {
     let temp_path = temp_asset_path();
     std::fs::write(&temp_path, bytes)
         .map_err(|_| "iCloud backup asset could not be prepared.".to_string())?;
-    write_request(name.to_string(), temp_path)
+    write_request(name.to_string(), temp_path, None)
         .await
         .map_err(|_| "iCloud backup write did not complete.".to_string())?
 }
 
 fn temp_asset_path() -> PathBuf {
     std::env::temp_dir().join(format!("isct-companion-{}.json", uuid::Uuid::new_v4()))
+}
+
+pub async fn write_checked(
+    name: &str,
+    bytes: Vec<u8>,
+    expected: Option<u64>,
+) -> Result<(), String> {
+    account_available().await?;
+    let temp = temp_asset_path();
+    std::fs::write(&temp, bytes).map_err(|e| e.to_string())?;
+    write_request(name.to_string(), temp, Some(expected))
+        .await
+        .map_err(|_| "iCloud write did not complete".to_string())?
 }

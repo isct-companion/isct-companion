@@ -30,16 +30,13 @@ const tauriCommand = [...process.argv.slice(2)];
 if (macConfig) tauriCommand.push("--config", JSON.stringify(macConfig));
 const child = spawn(
   process.execPath,
-  [
-    path.join(root, "node_modules/@tauri-apps/cli/tauri.js"),
-    ...tauriCommand,
-  ],
+  [path.join(root, "node_modules/@tauri-apps/cli/tauri.js"), ...tauriCommand],
   {
     cwd: root,
     stdio: "inherit",
     env: {
       ...process.env,
-      ...(buildTarget === "desktop" ? nativeOAuthEnv() : {}),
+      ...nativeOAuthEnv(),
       ISCT_BUILD_TARGET: buildTarget,
       TAURI_APP_PATH: path.join(root, "backend"),
       TAURI_FRONTEND_PATH: root,

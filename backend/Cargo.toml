@@ -52,6 +52,7 @@ objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std",
 tauri-plugin-google-drive-auth = { path = "plugins/google-drive-auth" }
 
 [target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-google-drive-auth = { path = "plugins/google-drive-auth" }
 tauri-plugin-school-web = { path = "plugins/school-web" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

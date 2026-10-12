@@ -41,6 +41,10 @@ export function nativeOAuthEnv(
 ) {
   const google = clients["google-drive"] ?? {};
   return {
+    ISCT_GOOGLE_IOS_CLIENT_ID:
+      env.ISCT_GOOGLE_IOS_CLIENT_ID ?? google.ios?.trim() ?? "",
+    ISCT_GOOGLE_ANDROID_CLIENT_ID:
+      env.ISCT_GOOGLE_ANDROID_CLIENT_ID ?? google.android?.trim() ?? "",
     ISCT_GOOGLE_DESKTOP_CLIENT_ID:
       env.ISCT_GOOGLE_DESKTOP_CLIENT_ID ?? google.desktop?.trim() ?? "",
     ISCT_GOOGLE_DESKTOP_CLIENT_SECRET:

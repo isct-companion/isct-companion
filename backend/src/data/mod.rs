@@ -1,3 +1,4 @@
+pub mod cloud_merge;
 pub mod migrations;
 pub mod versioned;
 
@@ -54,7 +55,7 @@ const SCHOOL_CACHE_TABLES: &[&str] = &[
 
 /// Local backup payload. School/reference caches are intentionally absent:
 /// they can be fetched again and must never become user-owned by export.
-const USER_BACKUP_TABLES: &[&str] = &[
+pub(crate) const USER_BACKUP_TABLES: &[&str] = &[
     "manual_courses",
     "manual_memberships",
     "course_overrides",
@@ -68,7 +69,7 @@ const USER_BACKUP_TABLES: &[&str] = &[
     "subscriptions",
 ];
 
-const USER_BACKUP_SETTINGS: &[&str] = &["userPreferences", "academicProfile"];
+pub(crate) const USER_BACKUP_SETTINGS: &[&str] = &["userPreferences", "academicProfile", "terms"];
 const BACKUP_KIND: &str = "IsctCompanion.local-backup";
 const BACKUP_SCHEMA_VERSION: u64 = 6;
 
@@ -549,7 +550,7 @@ fn upsert_row(
         if !force && version.rev < stored_rev {
             return Ok(false);
         }
-        if stored_hash == version.hash && stored_deleted == version.deleted_at {
+        if !force && stored_hash == version.hash && stored_deleted == version.deleted_at {
             return Ok(false);
         }
     }
@@ -583,9 +584,11 @@ fn upsert_row(
 
 fn read_setting(connection: &Connection, key: &str) -> Result<Option<Value>, String> {
     let raw: Option<String> = connection
-        .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT value FROM settings WHERE key=?1 AND deleted_at IS NULL",
+            [key],
+            |row| row.get(0),
+        )
         .optional()
         .map_err(|error| error.to_string())?;
     raw.map(|raw| {
@@ -687,7 +690,9 @@ fn save_setting(
         )
         .optional()
         .map_err(|error| error.to_string())?;
-    if existing.as_ref().is_some_and(|(stored, _)| stored == &hash) {
+    if existing.as_ref().is_some_and(|(stored, _)| stored == &hash)
+        && read_setting(transaction, key)?.is_some()
+    {
         return Ok(false);
     }
     let rev = existing.map_or(1, |(_, rev)| rev + 1);
@@ -731,39 +736,39 @@ pub fn parse_import(document: &str) -> Result<Value, String> {
         None => return Err("the backup has no schema version".into()),
     }
     let exported_at = string_field(&parsed, "exportedAt")?;
-        DateTime::parse_from_rfc3339(exported_at)
-            .map_err(|_| "import exportedAt must be RFC 3339".to_string())?;
-        let tables = parsed
-            .get("tables")
-            .and_then(Value::as_object)
-            .ok_or_else(|| "import tables must be an object".to_string())?;
-        if !parsed.get("localNotes").is_some_and(Value::is_array) {
-            return Err("import localNotes must be an array".into());
+    DateTime::parse_from_rfc3339(exported_at)
+        .map_err(|_| "import exportedAt must be RFC 3339".to_string())?;
+    let tables = parsed
+        .get("tables")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "import tables must be an object".to_string())?;
+    if !parsed.get("localNotes").is_some_and(Value::is_array) {
+        return Err("import localNotes must be an array".into());
+    }
+    let required: HashSet<_> = USER_BACKUP_TABLES
+        .iter()
+        .copied()
+        .chain(["settings"])
+        .collect();
+    for table in &required {
+        if !tables.get(*table).is_some_and(Value::is_array) {
+            return Err(format!("import table {table} must be an array"));
         }
-        let required: HashSet<_> = USER_BACKUP_TABLES
-            .iter()
-            .copied()
-            .chain(["settings"])
-            .collect();
-        for table in &required {
-            if !tables.get(*table).is_some_and(Value::is_array) {
-                return Err(format!("import table {table} must be an array"));
+    }
+    for (name, rows) in tables {
+        let rows = rows
+            .as_array()
+            .ok_or_else(|| format!("import table {name} must be an array"))?;
+        for row in rows {
+            if name == "settings" {
+                string_field(row, "key")?;
+                setting_version(row)?;
+            } else {
+                string_field(row, "id")?;
+                row_version(row)?;
             }
         }
-        for (name, rows) in tables {
-            let rows = rows
-                .as_array()
-                .ok_or_else(|| format!("import table {name} must be an array"))?;
-            for row in rows {
-                if name == "settings" {
-                    string_field(row, "key")?;
-                    setting_version(row)?;
-                } else {
-                    string_field(row, "id")?;
-                    row_version(row)?;
-                }
-            }
-        }
+    }
 
     Ok(parsed)
 }
@@ -980,7 +985,11 @@ impl DataStore {
         object.insert("id".into(), Value::String(id.clone()));
         object.insert("rev".into(), Value::from(revision));
         object.insert("updatedAt".into(), Value::String(now()));
-        object.insert("updatedBy".into(), Value::String(actor.to_string()));
+        object.insert(
+            "updatedBy".into(),
+            read_setting(&transaction, "deviceId")?
+                .unwrap_or_else(|| Value::String(actor.to_string())),
+        );
         object
             .entry("source")
             .or_insert_with(|| json!({"provider":"manual"}));
@@ -992,7 +1001,14 @@ impl DataStore {
         }
         normalize_optional_nulls(&mut value);
         validate_user_record(table, &value)?;
-        if !upsert_row(&transaction, table, &value, true)? {
+        let unchanged = previous
+            .as_ref()
+            .and_then(|(raw, _)| serde_json::from_str::<Value>(raw).ok())
+            .is_some_and(|old| {
+                content_value(&old) == content_value(&value)
+                    && old.get("deletedAt") == value.get("deletedAt")
+            });
+        if unchanged || !upsert_row(&transaction, table, &value, true)? {
             // Unchanged content keeps the stored revision; returning the
             // bumped copy would make the caller's next expected rev wrong.
             let (raw, _) = previous.ok_or_else(|| "record vanished during save".to_string())?;
@@ -1089,7 +1105,11 @@ impl DataStore {
             .ok_or_else(|| format!("{table} contains a non-object record"))?;
         object.insert("rev".into(), Value::from(revision + 1));
         object.insert("updatedAt".into(), Value::String(timestamp.clone()));
-        object.insert("updatedBy".into(), Value::String(actor.to_string()));
+        object.insert(
+            "updatedBy".into(),
+            read_setting(&transaction, "deviceId")?
+                .unwrap_or_else(|| Value::String(actor.to_string())),
+        );
         object.insert("deletedAt".into(), Value::String(timestamp));
         upsert_row(&transaction, table, &value, true)?;
         transaction.commit().map_err(|error| error.to_string())?;
@@ -1171,7 +1191,13 @@ impl DataStore {
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|error| error.to_string())?;
-        save_setting(&transaction, key, &value, actor)?;
+        let device = read_setting(&transaction, "deviceId")?;
+        save_setting(
+            &transaction,
+            key,
+            &value,
+            device.as_ref().and_then(Value::as_str).unwrap_or(actor),
+        )?;
         transaction.commit().map_err(|error| error.to_string())
     }
 
@@ -1344,6 +1370,47 @@ impl DataStore {
             "localNotes": notes
         }))
         .map_err(|error| error.to_string())
+    }
+
+    /// Merge under an IMMEDIATE transaction, including edits committed during
+    /// the network round trip. Never replace the device's settings or identity.
+    pub fn merge_cloud_data(&self, remote: &Value) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        for table in USER_BACKUP_TABLES {
+            let local = read_rows(&transaction, table)?;
+            for incoming in remote["tables"][table].as_array().into_iter().flatten() {
+                validate_user_record(table, incoming)?;
+                let old = local.iter().find(|row| row["id"] == incoming["id"]);
+                if old.is_none_or(|old| cloud_merge::compare(incoming, old).is_gt()) {
+                    upsert_row(&transaction, table, incoming, true)?;
+                }
+            }
+        }
+        let local = read_settings_export(&transaction)?;
+        for incoming in remote["tables"]["settings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let mut incoming = incoming.clone();
+            cloud_merge::sanitize_setting(&mut incoming);
+            let incoming = &incoming;
+            let key = string_field(incoming, "key")?;
+            if !USER_BACKUP_SETTINGS.contains(&key) {
+                continue;
+            }
+            if local
+                .iter()
+                .find(|row| row["key"] == key)
+                .is_none_or(|old| cloud_merge::compare(incoming, old).is_gt())
+            {
+                import_setting(&transaction, incoming)?;
+            }
+        }
+        transaction.commit().map_err(|e| e.to_string())
     }
 
     /// Restores a document that passed [`parse_import`].
@@ -1882,6 +1949,61 @@ mod tests {
     }
 
     #[test]
+    fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes() {
+        let a = store("cloud-a");
+        let b = store("cloud-b");
+        a.put_workspace_setting("devicePreferences", json!({"density":"compact"}), "test")
+            .unwrap();
+        b.put_workspace_setting(
+            "devicePreferences",
+            json!({"density":"comfortable"}),
+            "test",
+        )
+        .unwrap();
+        let row_a = a
+            .put_user_record(
+                "plans",
+                json!({"title":"A","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+                "desktop",
+            )
+            .unwrap();
+        b.put_user_record(
+            "plans",
+            json!({"title":"B","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+            "desktop",
+        )
+        .unwrap();
+        let exported_a: Value = serde_json::from_str(&a.export_data(json!([])).unwrap()).unwrap();
+        let exported_b: Value = serde_json::from_str(&b.export_data(json!([])).unwrap()).unwrap();
+        a.delete_user_record("plans", row_a["id"].as_str().unwrap(), "desktop")
+            .unwrap();
+        a.merge_cloud_data(&cloud_merge::merge(&exported_a, &exported_b))
+            .unwrap();
+        let latest: Value = serde_json::from_str(&a.export_data(json!([])).unwrap()).unwrap();
+        b.merge_cloud_data(&latest).unwrap();
+        assert_eq!(
+            a.user_rows("plans")
+                .unwrap()
+                .iter()
+                .filter(|row| row.get("deletedAt").is_none())
+                .count(),
+            1
+        );
+        assert_eq!(a.user_rows("plans").unwrap(), b.user_rows("plans").unwrap());
+        assert_eq!(
+            a.load_workspace().unwrap()["settings"]["density"],
+            "compact"
+        );
+        assert_eq!(
+            b.load_workspace().unwrap()["settings"]["density"],
+            "comfortable"
+        );
+        assert_eq!(latest["tables"]["plans"].as_array().unwrap().len(), 2); // includes tombstone
+        let _ = fs::remove_file(a.path());
+        let _ = fs::remove_file(b.path());
+    }
+
+    #[test]
     fn a_course_override_keeps_the_lessons_marked_for_its_classes() {
         let store = store("lesson-log");
         let course = json!({"id":"c1","rev":1,"updatedAt":"2026-10-01T00:00:00Z","updatedBy":"test",
@@ -2099,7 +2221,10 @@ mod tests {
             .put_user_record_checked("plans", next, "desktop", Some(2))
             .unwrap();
         assert_eq!(next["rev"], 3);
-        assert_eq!(store.user_rows("plans").unwrap()[0]["title"], "Edited again");
+        assert_eq!(
+            store.user_rows("plans").unwrap()[0]["title"],
+            "Edited again"
+        );
         let _ = fs::remove_file(store.path());
     }
 

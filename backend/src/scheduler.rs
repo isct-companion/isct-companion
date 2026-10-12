@@ -14,7 +14,7 @@ const PUBLIC_INDEX: &str =
 
 pub struct Scheduler {
     started_at: DateTime<Utc>,
-    running: Mutex<bool>,
+    running: tokio::sync::Mutex<()>,
     seen_agent_write: Mutex<Option<String>>,
 }
 
@@ -22,7 +22,7 @@ impl Default for Scheduler {
     fn default() -> Self {
         Self {
             started_at: Utc::now(),
-            running: Mutex::new(false),
+            running: tokio::sync::Mutex::new(()),
             seen_agent_write: Mutex::new(None),
         }
     }
@@ -87,7 +87,12 @@ fn task_result_problem(outcomes: &[crate::school_web::IngestOutcome]) -> Result<
     Ok(())
 }
 
-fn pull_site(app: &tauri::AppHandle, site: SchoolSite) -> Result<(), String> {
+fn pull_site(app: &tauri::AppHandle, site: SchoolSite, force: bool) -> Result<(), String> {
+    if !force {
+        app.state::<crate::school_refresh::SchoolRefresh>()
+            .enqueue_scheduled(site);
+        return Ok(());
+    }
     let profile = match site {
         SchoolSite::ScienceLms => SchoolAuthProfile::Science,
         SchoolSite::Kyomu => SchoolAuthProfile::TokyoTech,
@@ -246,7 +251,7 @@ async fn execute(app: &tauri::AppHandle, action: &str, force: bool) -> Result<St
             }
             tauri::async_runtime::spawn_blocking({
                 let app = app.clone();
-                move || pull_site(&app, SchoolSite::ScienceLms)
+                move || pull_site(&app, SchoolSite::ScienceLms, force)
             })
             .await
             .map_err(|_| "LMS refresh stopped unexpectedly".to_string())??;
@@ -256,7 +261,7 @@ async fn execute(app: &tauri::AppHandle, action: &str, force: bool) -> Result<St
             for site in [SchoolSite::ScienceLms, SchoolSite::Kyomu] {
                 tauri::async_runtime::spawn_blocking({
                     let app = app.clone();
-                    move || pull_site(&app, site)
+                    move || pull_site(&app, site, force)
                 })
                 .await
                 .map_err(|_| "School refresh stopped unexpectedly".to_string())??;
@@ -325,16 +330,14 @@ impl Scheduler {
         occurrence: Option<String>,
         force: bool,
     ) -> Result<String, String> {
-        {
-            let mut running = self
-                .running
-                .lock()
-                .map_err(|_| "scheduler is unavailable")?;
-            if *running {
-                return Ok("Skipped: scheduler queue is busy".into());
+        let _guard = if force {
+            self.running.lock().await
+        } else {
+            match self.running.try_lock() {
+                Ok(guard) => guard,
+                Err(_) => return Ok("Deferred: scheduler queue is busy".into()),
             }
-            *running = true;
-        }
+        };
         let result = async {
             let store = app.state::<DataStore>().inner().clone();
             let mut task = store
@@ -371,9 +374,6 @@ impl Scheduler {
             Ok(message)
         }
         .await;
-        if let Ok(mut running) = self.running.lock() {
-            *running = false;
-        }
         result
     }
 }

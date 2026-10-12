@@ -37,13 +37,27 @@ pub enum CloudProvider {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CloudWorkspaceFile {
+pub(crate) struct CloudWorkspaceFile {
     format: String,
     format_version: u64,
     revision: u64,
     updated_at: String,
     updated_by: String,
-    document: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    device_name: Option<String>,
+    #[serde(skip)]
+    siblings: Vec<Value>,
+    pub(crate) document: Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    previous: Vec<CloudWorkspaceFile>,
+}
+
+impl CloudWorkspaceFile {
+    pub(crate) fn merged_document(&self) -> Value {
+        self.siblings.iter().fold(self.document.clone(), |a, b| {
+            crate::cloud_merge::merge(&a, b)
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -141,8 +155,7 @@ struct TokenResponse {
 #[cfg(desktop)]
 const GOOGLE_DESKTOP_CLIENT_ID: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID");
 #[cfg(desktop)]
-const GOOGLE_DESKTOP_CLIENT_SECRET: Option<&str> =
-    option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET");
+const GOOGLE_DESKTOP_CLIENT_SECRET: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET");
 
 #[cfg(desktop)]
 fn client_secret_for(provider: CloudProvider, client_id: &str) -> Option<&'static str> {
@@ -170,7 +183,12 @@ async fn rejection(prefix: &str, response: reqwest::Response) -> String {
             (Some(code), None) => Some(code),
             (None, text) => text,
         })
-        .map(|text| text.chars().filter(|c| !c.is_control()).take(200).collect::<String>());
+        .map(|text| {
+            text.chars()
+                .filter(|c| !c.is_control())
+                .take(200)
+                .collect::<String>()
+        });
     match detail {
         Some(text) => format!("{prefix} ({status} {text})"),
         None => format!("{prefix} ({status})"),
@@ -269,6 +287,51 @@ fn sync_result(state: CloudSyncState, file: &CloudWorkspaceFile) -> CloudSyncRes
         updated_at: file.updated_at.clone(),
         updated_by: file.updated_by.clone(),
     }
+}
+
+fn make_workspace_file(
+    document: Value,
+    device: &str,
+    remote: Option<&CloudWorkspaceFile>,
+) -> CloudWorkspaceFile {
+    CloudWorkspaceFile {
+        format: CLOUD_FORMAT.into(),
+        format_version: CLOUD_FORMAT_VERSION,
+        revision: remote.map_or(1, |r| r.revision + 1),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+        updated_by: device.into(),
+        device_name: Some(
+            std::env::var("COMPUTERNAME")
+                .or_else(|_| std::env::var("HOSTNAME"))
+                .unwrap_or_else(|_| {
+                    format!(
+                        "{} · {}",
+                        std::env::consts::OS,
+                        device.chars().take(8).collect::<String>()
+                    )
+                }),
+        ),
+        siblings: Vec::new(),
+        document,
+        previous: rotate_versions(remote),
+    }
+}
+
+// History lives in the same cloud object as current, so a failed upload
+// cannot rotate history without updating current (or vice versa).
+fn rotate_versions(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFile> {
+    let Some(current) = current else {
+        return Vec::new();
+    };
+    std::iter::once(current)
+        .chain(current.previous.iter())
+        .take(2)
+        .map(|old| {
+            let mut old = old.clone();
+            old.previous.clear();
+            old
+        })
+        .collect()
 }
 
 fn workspace_contents_equal(left: &Value, right: &Value) -> bool {
@@ -550,12 +613,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
             provider_account(provider),
             &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
         )?;
-        for other in providers().into_iter().filter(|other| *other != provider) {
-            if let Err(error) = self.vault.delete(provider_account(other)) {
-                let _ = self.vault.delete(provider_account(provider));
-                return Err(error);
-            }
-        }
         Ok(true)
     }
 
@@ -581,7 +638,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
 
     /// Saves credentials issued by a provider's native mobile SDK.
     #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-    #[cfg(target_os = "ios")]
+    #[cfg(mobile)]
     pub fn connect_with_native_token(
         &self,
         provider: CloudProvider,
@@ -610,13 +667,33 @@ impl<V: SecretVault> DesktopCloudService<V> {
             provider_account(provider),
             &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
         )?;
-        for other in providers().into_iter().filter(|other| *other != provider) {
-            if let Err(error) = self.vault.delete(provider_account(other)) {
-                let _ = self.vault.delete(provider_account(provider));
-                return Err(error);
-            }
-        }
         Ok(true)
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn refresh_android(&self, app: &tauri::AppHandle) -> Result<(), String> {
+        let raw = self
+            .vault
+            .load("google-drive")?
+            .ok_or("Google Drive is not connected")?;
+        let stored: StoredToken =
+            serde_json::from_str(&raw).map_err(|_| "Invalid Google Drive token")?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if stored.expires_at > now + 60 {
+            return Ok(());
+        }
+        let token = tauri_plugin_google_drive_auth::refresh(app, &stored.client_id)?;
+        self.connect_with_native_token(
+            CloudProvider::GoogleDrive,
+            &token.client_id,
+            token.access_token,
+            token.refresh_token,
+            token.expires_in,
+        )?;
+        Ok(())
     }
 
     pub fn disconnect(&self, provider: CloudProvider) -> Result<(), String> {
@@ -628,15 +705,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
         crate::icloud::account_available().await?;
         self.vault
             .store(provider_account(CloudProvider::Icloud), "connected")?;
-        for other in providers()
-            .into_iter()
-            .filter(|provider| *provider != CloudProvider::Icloud)
-        {
-            if let Err(error) = self.vault.delete(provider_account(other)) {
-                let _ = self.vault.delete(provider_account(CloudProvider::Icloud));
-                return Err(error);
-            }
-        }
         Ok(true)
     }
 
@@ -682,7 +750,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 .await
                 .map_err(|_| "Cloud token refresh failed.".to_string())?;
             if response.status().is_redirection() || !response.status().is_success() {
-                return Err(rejection("Cloud token refresh was rejected.", response).await);
+                return Err(format!("{} Saved authorization belongs to OAuth client {}. Reconnect if that client is no longer configured.", rejection("Cloud token refresh was rejected.", response).await, token.client_id));
             }
             let refreshed_bytes = read_limited(response, 1024 * 1024).await?;
             let refreshed: TokenResponse = serde_json::from_slice(&refreshed_bytes)
@@ -711,10 +779,26 @@ impl<V: SecretVault> DesktopCloudService<V> {
         content_type: Option<&str>,
         body: Option<Vec<u8>>,
     ) -> Result<reqwest::Response, String> {
+        self.send_matching(provider, method, url, content_type, body, None)
+            .await
+    }
+
+    async fn send_matching(
+        &self,
+        provider: CloudProvider,
+        method: reqwest::Method,
+        url: Url,
+        content_type: Option<&str>,
+        body: Option<Vec<u8>>,
+        etag: Option<&str>,
+    ) -> Result<reqwest::Response, String> {
         let mut request = self
             .client
             .request(method, url)
             .bearer_auth(self.access_token(provider).await?);
+        if let Some(etag) = etag {
+            request = request.header(reqwest::header::IF_MATCH, etag);
+        }
         if let Some(content_type) = content_type {
             request = request.header(reqwest::header::CONTENT_TYPE, content_type);
         }
@@ -738,13 +822,16 @@ impl<V: SecretVault> DesktopCloudService<V> {
     }
 
     async fn google_file_id(&self, name: &str) -> Result<Option<String>, String> {
+        Ok(self.google_file_ids(name).await?.into_iter().next())
+    }
+    async fn google_file_ids(&self, name: &str) -> Result<Vec<String>, String> {
         let mut url = Url::parse("https://www.googleapis.com/drive/v3/files")
             .map_err(|_| "Google Drive endpoint is invalid.".to_string())?;
         url.query_pairs_mut()
             .append_pair("spaces", "appDataFolder")
             .append_pair("q", &format!("name = '{}' and trashed = false", name))
             .append_pair("fields", "files(id)")
-            .append_pair("pageSize", "2");
+            .append_pair("pageSize", "100");
         let response = self
             .send(
                 CloudProvider::GoogleDrive,
@@ -763,10 +850,14 @@ impl<V: SecretVault> DesktopCloudService<V> {
         let bytes = read_limited(response, 1024 * 1024).await?;
         let files: GoogleDriveFiles = serde_json::from_slice(&bytes)
             .map_err(|_| "Google Drive lookup response was invalid.".to_string())?;
-        Ok(files
+        let mut ids: Vec<_> = files
             .files
-            .and_then(|files| files.into_iter().next())
-            .map(|file| file.id))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|file| file.id)
+            .collect();
+        ids.sort();
+        Ok(ids)
     }
 
     async fn read_file(
@@ -898,14 +989,201 @@ impl<V: SecretVault> DesktopCloudService<V> {
         Ok(())
     }
 
-    async fn read_workspace(
+    pub(crate) async fn read_workspace(
         &self,
         provider: CloudProvider,
     ) -> Result<Option<CloudWorkspaceFile>, String> {
-        self.read_file(provider, CLOUD_FILE_NAME)
+        if provider == CloudProvider::GoogleDrive {
+            // Drive names are not unique. Two first-time offline devices can
+            // create siblings; choose a stable canonical id and retain both
+            // documents until their union has been committed there.
+            let mut current: Option<CloudWorkspaceFile> = None;
+            for id in self.google_file_ids(CLOUD_FILE_NAME).await? {
+                let response = self
+                    .send(
+                        provider,
+                        reqwest::Method::GET,
+                        Url::parse(&format!(
+                            "https://www.googleapis.com/drive/v3/files/{id}?alt=media"
+                        ))
+                        .map_err(|e| e.to_string())?,
+                        None,
+                        None,
+                    )
+                    .await?;
+                if !response.status().is_success() {
+                    return Err("Google Drive workspace read failed.".into());
+                }
+                let file = parse_cloud_workspace(&read_limited(response, MAX_BODY_BYTES).await?)?;
+                if let Some(current) = current.as_mut() {
+                    current.siblings.push(file.document);
+                } else {
+                    current = Some(file);
+                }
+            }
+            Ok(current)
+        } else {
+            self.read_file(provider, CLOUD_FILE_NAME)
+                .await?
+                .map(|bytes| parse_cloud_workspace(&bytes))
+                .transpose()
+        }
+    }
+
+    pub(crate) async fn versions(
+        &self,
+        provider: CloudProvider,
+    ) -> Result<Vec<crate::cloud_sync::CloudVersion>, String> {
+        Ok(self
+            .read_workspace(provider)
             .await?
-            .map(|bytes| parse_cloud_workspace(&bytes))
-            .transpose()
+            .map(|file| {
+                file.previous
+                    .into_iter()
+                    .take(2)
+                    .map(|old| crate::cloud_sync::CloudVersion {
+                        id: format!("{}:{}", provider_account(provider), old.revision),
+                        provider,
+                        saved_at: old.updated_at,
+                        device: old.device_name.unwrap_or(old.updated_by),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    pub(crate) async fn version_document(
+        &self,
+        provider: CloudProvider,
+        revision: u64,
+    ) -> Result<Value, String> {
+        self.read_workspace(provider)
+            .await?
+            .and_then(|file| {
+                file.previous
+                    .into_iter()
+                    .find(|old| old.revision == revision)
+            })
+            .map(|file| file.document)
+            .ok_or("Cloud version no longer exists.".into())
+    }
+
+    /// Re-read before committing: another device may have written since the
+    /// multi-provider pull phase. Conditional writes retain that guarantee.
+    pub(crate) async fn merge_and_push(
+        &self,
+        provider: CloudProvider,
+        document: &Value,
+        device: &str,
+    ) -> Result<Value, String> {
+        for _ in 0..3 {
+            let remote = self.read_workspace(provider).await?;
+            let merged = remote
+                .as_ref()
+                .map(|r| crate::cloud_merge::merge(document, &r.merged_document()))
+                .unwrap_or_else(|| document.clone());
+            let file = make_workspace_file(merged.clone(), device, remote.as_ref());
+            if remote
+                .as_ref()
+                .is_some_and(|r| workspace_contents_equal(&r.document, &merged))
+            {
+                return Ok(merged);
+            }
+            match self
+                .write_workspace_file(provider, &file, remote.as_ref().map(|r| r.revision))
+                .await
+            {
+                Ok(()) => return Ok(merged),
+                Err(error) if error == "Cloud copy changed; retrying sync." => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err("Cloud copy keeps changing; sync will retry automatically.".into())
+    }
+
+    async fn write_workspace_file(
+        &self,
+        provider: CloudProvider,
+        file: &CloudWorkspaceFile,
+        expected: Option<u64>,
+    ) -> Result<(), String> {
+        let bytes = serde_json::to_vec(file).map_err(|e| e.to_string())?;
+        if bytes.len() > MAX_BODY_BYTES {
+            return Err("Cloud workspace exceeds the size limit.".into());
+        }
+        match provider {
+            CloudProvider::GoogleDrive => {
+                if let Some(id) = self.google_file_id(CLOUD_FILE_NAME).await? {
+                    // v2 exposes the file ETag explicitly; it is honored by
+                    // conditional media reads and writes of the same resource.
+                    let meta = self
+                        .send(
+                            provider,
+                            reqwest::Method::GET,
+                            Url::parse(&format!(
+                                "https://www.googleapis.com/drive/v2/files/{id}?fields=etag"
+                            ))
+                            .map_err(|e| e.to_string())?,
+                            None,
+                            None,
+                        )
+                        .await?;
+                    if !meta.status().is_success() {
+                        return Err("Google Drive metadata read failed.".into());
+                    }
+                    let meta: Value = serde_json::from_slice(&read_limited(meta, 65536).await?)
+                        .map_err(|e| e.to_string())?;
+                    let etag = meta["etag"]
+                        .as_str()
+                        .ok_or("Google Drive did not return a version tag.")?;
+                    let current = self
+                        .send_matching(
+                            provider,
+                            reqwest::Method::GET,
+                            Url::parse(&format!(
+                                "https://www.googleapis.com/drive/v2/files/{id}?alt=media"
+                            ))
+                            .map_err(|e| e.to_string())?,
+                            None,
+                            None,
+                            Some(etag),
+                        )
+                        .await?;
+                    if current.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+                        return Err("Cloud copy changed; retrying sync.".into());
+                    }
+                    if !current.status().is_success() {
+                        return Err("Google Drive workspace read failed.".into());
+                    }
+                    let current =
+                        parse_cloud_workspace(&read_limited(current, MAX_BODY_BYTES).await?)?;
+                    if Some(current.revision) != expected
+                        || file.previous.first().is_some_and(|previous| {
+                            !workspace_contents_equal(&current.document, &previous.document)
+                        })
+                    {
+                        return Err("Cloud copy changed; retrying sync.".into());
+                    }
+                    let response = self.send_matching(provider,reqwest::Method::PUT,Url::parse(&format!("https://www.googleapis.com/upload/drive/v2/files/{id}?uploadType=media")).map_err(|e|e.to_string())?,Some("application/json"),Some(bytes),Some(etag)).await?;
+                    if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+                        return Err("Cloud copy changed; retrying sync.".into());
+                    }
+                    if !response.status().is_success() {
+                        return Err(format!("Cloud file write failed ({}).", response.status()));
+                    }
+                    Ok(())
+                } else if expected.is_none() {
+                    self.write_file(provider, CLOUD_FILE_NAME, bytes).await
+                } else {
+                    Err("Cloud copy changed; retrying sync.".into())
+                }
+            }
+            #[cfg(target_vendor = "apple")]
+            CloudProvider::Icloud => {
+                crate::icloud::write_checked(CLOUD_FILE_NAME, bytes, expected).await
+            }
+            _ => self.write_file(provider, CLOUD_FILE_NAME, bytes).await,
+        }
     }
 
     pub async fn back_up_workspace(
@@ -930,17 +1208,9 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 return Ok(sync_result(CloudSyncState::Conflict, remote));
             }
         }
-        let file = CloudWorkspaceFile {
-            format: CLOUD_FORMAT.into(),
-            format_version: CLOUD_FORMAT_VERSION,
-            revision: remote.as_ref().map_or(1, |file| file.revision + 1),
-            updated_at: chrono::Utc::now().to_rfc3339(),
-            updated_by: updated_by.to_string(),
-            document,
-        };
-        let bytes = serde_json::to_vec_pretty(&file)
-            .map_err(|_| "Cloud workspace serialization failed.".to_string())?;
-        self.write_file(provider, CLOUD_FILE_NAME, bytes).await?;
+        let file = make_workspace_file(document, updated_by, remote.as_ref());
+        self.write_workspace_file(provider, &file, remote.as_ref().map(|r| r.revision))
+            .await?;
         Ok(sync_result(CloudSyncState::BackedUp, &file))
     }
 
@@ -970,10 +1240,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
         self.vault.delete(CREDENTIAL_PASSWORD_ACCOUNT)
     }
 
-    pub async fn credential_backup_exists(
-        &self,
-        provider: CloudProvider,
-    ) -> Result<bool, String> {
+    pub async fn credential_backup_exists(&self, provider: CloudProvider) -> Result<bool, String> {
         if provider == CloudProvider::Icloud {
             return Ok(false);
         }
@@ -1045,6 +1312,44 @@ mod tests {
                 .remove(account);
             Ok(())
         }
+    }
+
+    #[test]
+    fn rotations_keep_two_flat_versions_and_restore_rotates_current() {
+        let mut file = make_workspace_file(serde_json::json!({"value":1}), "Laptop", None);
+        for value in 2..=6 {
+            file = make_workspace_file(serde_json::json!({"value":value}), "Phone", Some(&file));
+            assert!(file.previous.len() <= 2);
+            assert!(file.previous.iter().all(|old| old.previous.is_empty()));
+        }
+        assert_eq!(file.previous[0].document["value"], 5);
+        assert_eq!(file.previous[1].document["value"], 4);
+        let restored =
+            make_workspace_file(file.previous[1].document.clone(), "Laptop", Some(&file));
+        assert_eq!(restored.document["value"], 4);
+        assert_eq!(restored.previous[0].document["value"], 6);
+        assert_eq!(restored.previous.len(), 2);
+    }
+
+    #[test]
+    fn disconnect_only_removes_its_own_authorization() {
+        let vault = MemoryVault::default();
+        for provider in providers() {
+            vault
+                .store(provider_account(provider), "connected")
+                .unwrap();
+        }
+        let service = DesktopCloudService::new(vault).unwrap();
+        service.disconnect(CloudProvider::Icloud).unwrap();
+        assert_eq!(
+            service.vault.load("google-drive").unwrap().as_deref(),
+            Some("connected")
+        );
+        service.disconnect(CloudProvider::GoogleDrive).unwrap();
+        assert_eq!(
+            service.vault.load("onedrive").unwrap().as_deref(),
+            Some("connected")
+        );
     }
 
     #[test]
