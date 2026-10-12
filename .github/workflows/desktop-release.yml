@@ -7,7 +7,16 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish all installers to the public distribution repository
+        description: Publish all installers to the selected release repository
+        type: boolean
+        default: false
+      publish_target:
+        description: Release destination (source now, distribution repository for stable releases)
+        type: choice
+        options: [source, distribution]
+        default: source
+      replace_existing:
+        description: Replace assets for an already published version
         type: boolean
         default: false
       sign_macos:
@@ -165,13 +174,19 @@ jobs:
        (needs.build.result == 'skipped' && needs.ios.result == 'skipped' && needs.android.result == 'skipped' && inputs.source_run_id != '')) &&
       (startsWith(github.ref, 'refs/tags/v') || inputs.publish == true)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     env:
-      GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
-      GH_REPO: isct-companion/Isct-Companion-App
+      GH_TOKEN: ${{ inputs.publish_target == 'distribution' && secrets.PUBLIC_RELEASE_TOKEN || github.token }}
+      GH_REPO: ${{ inputs.publish_target == 'distribution' && 'isct-companion/Isct-Companion-App' || github.repository }}
+      BUILD_REPO: ${{ github.repository }}
+      SOURCE_SHA: ${{ github.sha }}
+      REPLACE_EXISTING: ${{ inputs.replace_existing == true }}
     steps:
       - name: Check cross-repository credentials
         run: |
-          test -n "$GH_TOKEN" || { echo 'Set PUBLIC_RELEASE_TOKEN with Contents: write on the public repository.'; exit 1; }
+          test -n "$GH_TOKEN" || { echo 'A token with release write access is required.'; exit 1; }
       - name: Verify source build
         if: inputs.source_run_id != ''
         env:
@@ -183,6 +198,7 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid source run ID'; exit 1; }
           gh api "repos/$PRIVATE_REPO/actions/runs/$SOURCE_RUN_ID" > source-run.json
           jq -e '.name == "Desktop release" and .status == "completed" and .conclusion == "success"' source-run.json > /dev/null
+          echo "SOURCE_SHA=$(jq -r .head_sha source-run.json)" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
@@ -231,6 +247,7 @@ jobs:
           cp "$ipa" "release-assets/IsctCompanion_${version}_ios-ipados.ipa"
           cp "$apk" release-assets/
       - name: Check out only the public repository
+        if: inputs.publish_target == 'distribution'
         uses: actions/checkout@v5
         with:
           repository: isct-companion/Isct-Companion-App
@@ -238,6 +255,7 @@ jobs:
           path: public-repo
           ref: main
       - name: Update public README and licenses
+        if: inputs.publish_target == 'distribution'
         working-directory: public-repo
         run: |
           set -euo pipefail
@@ -249,15 +267,20 @@ jobs:
             git commit -m "Update distribution documents for $RELEASE_TAG"
             git push origin HEAD:main
           fi
-      - name: Verify public write access and create distribution tag
+      - name: Verify release destination and source tag
         shell: bash
         run: |
           set -euo pipefail
-          gh api user --jq '{login}'
           gh api "repos/$GH_REPO" --jq '{full_name,permissions}'
-          if ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > draft-state.txt 2>/dev/null; then
+            if [[ "$(cat draft-state.txt)" != true && "$REPLACE_EXISTING" != true ]]; then
+              echo 'A published release exists; explicitly enable replace_existing to refresh it.'
+              exit 1
+            fi
+          fi
+          if [[ "$GH_REPO" != "$BUILD_REPO" ]] && ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
             public_sha=$(git -C public-repo rev-parse HEAD)
-            gh api --include --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$public_sha"
+            gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$public_sha"
           fi
       - name: Upload complete release as a draft
         shell: bash
@@ -266,10 +289,13 @@ jobs:
           cat > release-notes.md <<'NOTES'
           Desktop preview for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
 
+          This rc1 refresh adds HEIC/HEIF image decoding and matrix detection for arbitrary rotation, stretching and perspective. Debug crop exports use the configured download folder and are excluded from release builds.
+
           Download the installer for your architecture. Intel Mac builds currently do not include campus-card OCR. Build success does not replace testing on each supported operating system.
 
-          Read [LICENSE](https://github.com/isct-companion/Isct-Companion-App/blob/main/LICENSE) and [LICENSE.ja.md](https://github.com/isct-companion/Isct-Companion-App/blob/main/LICENSE.ja.md) before installing. Third-party notices are bundled in the app.
+          Read the license documents bundled with the app before installing. Third-party notices are included in the app.
           NOTES
+          echo "Source build: https://github.com/$BUILD_REPO/commit/$SOURCE_SHA" >> release-notes.md
           echo 'Android 14+ arm64 APK and iOS/iPadOS 17+ IPA are included. Install iOS/iPadOS through TestFlight; its availability is listed in the README. The App Store-signed IPA is provided as a build artifact and cannot be installed directly on arbitrary devices.' >> release-notes.md
           if [[ "$MACOS_SIGNING_STATUS" == signed-notarized ]]; then
             echo 'Mac installers are signed with Developer ID and notarized by Apple. The Windows installer is unsigned.' >> release-notes.md
@@ -277,9 +303,15 @@ jobs:
             echo 'These preview installers are unsigned; Mac installers are not notarized. Operating-system security prompts may appear.' >> release-notes.md
           fi
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > draft-state.txt 2>/dev/null; then
-            test "$(cat draft-state.txt)" = true || { echo 'A published release already exists; use a new version.'; exit 1; }
+            [[ "$(cat draft-state.txt)" == true || "$REPLACE_EXISTING" == true ]] || { echo 'A published release exists; enable replace_existing or use a new version.'; exit 1; }
           else
-            gh release create "$RELEASE_TAG" --verify-tag --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
+            # An existing tag needs no target_commitish; older workflow commits
+            # without a branch ref otherwise require workflows:write permission.
+            tag_args=(--verify-tag)
+            if ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+              tag_args=(--target "$SOURCE_SHA")
+            fi
+            gh release create "$RELEASE_TAG" "${tag_args[@]}" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
           fi
           gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe release-assets/*.apk release-assets/*.ipa --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
