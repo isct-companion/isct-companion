@@ -16,6 +16,7 @@ import { AgentSettings } from "./AgentSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { AutomationSettings } from "./AutomationSettings";
 import { BackupSettings } from "./BackupSettings";
+import { CampusWifiSettings } from "./CampusWifiSettings";
 import { DataUpdatesSettings } from "./DataUpdatesSettings";
 import { DeveloperSettings, useDeveloperMode } from "./DeveloperSettings";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
@@ -244,6 +245,8 @@ export function Settings({
         notify={notify}
         desktop={desktop}
       />
+    ) : current === "wifi" ? (
+      <CampusWifiSettings notify={notify} />
     ) : current === "agent" ? (
       <AgentSettings data={data} update={update} notify={notify} />
     ) : current === "extensions" ? (

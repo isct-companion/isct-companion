@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MantineProvider } from "@mantine/core";
+import { ModalsProvider } from "@mantine/modals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appTheme } from "../../app/theme";
 import { seedWorkspace } from "../../core/model";
@@ -73,8 +74,8 @@ const flush = () =>
     await Promise.resolve();
     await Promise.resolve();
   });
-const button = (name: string) =>
-  [...host.querySelectorAll("button")].find(
+const button = (name: string, scope: ParentNode = host) =>
+  [...scope.querySelectorAll("button")].find(
     (item) => item.textContent?.trim() === name,
   ) as HTMLButtonElement;
 
@@ -87,12 +88,14 @@ beforeEach(async () => {
   await act(async () => {
     root.render(
       <MantineProvider theme={appTheme} defaultColorScheme="light">
-        <BackupSettings
-          data={seedWorkspace()}
-          update={vi.fn()}
-          caps={caps}
-          notify={notify}
-        />
+        <ModalsProvider>
+          <BackupSettings
+            data={seedWorkspace()}
+            update={vi.fn()}
+            caps={caps}
+            notify={notify}
+          />
+        </ModalsProvider>
       </MantineProvider>,
     );
   });
@@ -152,8 +155,15 @@ describe("BackupSettings", () => {
     expect(mocks.bridge.syncCloudNow).toHaveBeenCalledWith("upload");
     await act(async () => button("Pull").click());
     expect(mocks.bridge.syncCloudNow).toHaveBeenLastCalledWith("pull");
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     await act(async () => button("Restore").click());
+    expect(mocks.bridge.restoreCloudVersion).not.toHaveBeenCalled();
+    const dialog = await vi.waitFor(() => {
+      const open = document.querySelector('[role="dialog"]');
+      if (!open) throw new Error("No confirm dialog");
+      return open;
+    });
+    expect(dialog.textContent).toContain("Restore the version from");
+    await act(async () => button("Restore", dialog).click());
     await flush();
     expect(mocks.bridge.restoreCloudVersion).toHaveBeenCalledWith("v1");
     expect(notify).toHaveBeenCalledWith("Restored the earlier version.");

@@ -28,13 +28,13 @@ fn tools() -> Vec<Value> {
     vec![
         tool(
             "today",
-            "Teaching state, classes, assignments and academic summary for today.",
+            "Today in Japan time: the calendar state (holiday, replacement day), classes actually held, personal plans, open assignments not yet due, open assignments overdue in the last 14 days, and the GPA summary.",
             json!({}),
             &[],
         ),
         tool(
             "schedule",
-            "Classes, intensive dates and personal plans intersecting an inclusive ISO date range (maximum 366 days).",
+            "Registered or planned courses of the quarters in an inclusive ISO date range (maximum 366 days), intensive dates and personal plans with their occurrences.",
             json!({
                 "from": {"type": "string", "format": "date"},
                 "to": {"type": "string", "format": "date"}
@@ -43,7 +43,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "courses",
-            "Timetable courses for one academic quarter.",
+            "Registered or planned courses for one academic quarter.",
             json!({
                 "year": {"type": "integer"}, "quarter": {"enum": ["1Q", "2Q", "3Q", "4Q"]}
             }),
@@ -59,7 +59,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "search_catalog",
-            "Search the local bilingual course catalog.",
+            "Search the local bilingual course catalog. Only rows with plannable: true can be passed to plan_add; the others need their syllabus opened once in IsctCompanion first.",
             json!({
                 "query": {"type": "string"}
             }),
@@ -88,7 +88,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "recommended",
-            "Recommended courses for a department.",
+            "Recommended courses for the person's admission year. departmentId defaults to the department chosen in Settings.",
             json!({
                 "departmentId": {"type": "string"}
             }),
@@ -96,7 +96,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "plan_add",
-            "Add a catalog offering to the person's local plan.",
+            "Add a catalog offering (plannable: true in search_catalog) to the person's local plan. term is YYYY-nQ and must be one of the offering's quarters.",
             json!({
                 "offeringId": {"type": "string"}, "term": {"type": "string"}
             }),
@@ -112,7 +112,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "plan_event_create",
-            "Create a personal one-off or repeating plan. start is RFC 3339; duration is minutes.",
+            "Create a personal one-off or repeating plan and return its id. start is RFC 3339; duration is minutes.",
             json!({
                 "title": {"type": "string"}, "start": {"type": "string", "format": "date-time"},
                 "duration": {"type": "integer", "minimum": 1, "maximum": 10080, "description": "Duration in minutes."}, "rrule": {"type": "string"},
@@ -185,6 +185,217 @@ fn date_range(args: &Value) -> Result<(chrono::NaiveDate, chrono::NaiveDate), St
         return Err("date range must be ordered and no longer than 366 days".into());
     }
     Ok((from, to))
+}
+
+/// `YYYY-nQ` → (year, quarter).
+fn parse_term(term: &str) -> Result<(i64, &str), String> {
+    let invalid = || format!("term must look like 2026-3Q, got {term}");
+    let (year, quarter) = term.split_once('-').ok_or_else(invalid)?;
+    let year = year
+        .parse::<i64>()
+        .ok()
+        .filter(|year| (1000..=9999).contains(year))
+        .ok_or_else(invalid)?;
+    if !matches!(quarter, "1Q" | "2Q" | "3Q" | "4Q") {
+        return Err(invalid());
+    }
+    Ok((year, quarter))
+}
+
+fn now_jst() -> chrono::DateTime<chrono::FixedOffset> {
+    chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap())
+}
+
+fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
+    row.get(key).and_then(Value::as_str)
+}
+
+/// Courses on the timetable of `term`: registered at school or planned.
+/// Mirrors `scheduledCourses` in src/core/schedule.ts.
+fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
+    let ids = ["memberships", "planItems"]
+        .into_iter()
+        .flat_map(|key| visible_rows(workspace, key))
+        .filter(|row| text(row, "termId") == Some(term))
+        .filter_map(|row| text(&row, "courseId").map(str::to_string))
+        .collect::<std::collections::HashSet<_>>();
+    visible_rows(workspace, "courses")
+        .into_iter()
+        .filter(|row| {
+            text(row, "termId") == Some(term) && text(row, "id").is_some_and(|id| ids.contains(id))
+        })
+        .collect()
+}
+
+/// The school-calendar row for a date: a personal exception first, then a
+/// holiday, no-class, break or replacement day. Mirrors `calendarState`.
+fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
+    visible_rows(workspace, "exceptions")
+        .into_iter()
+        .find(|row| text(row, "date") == Some(date))
+        .or_else(|| {
+            visible_rows(workspace, "academicCalendar")
+                .into_iter()
+                .find(|row| {
+                    text(row, "date") == Some(date)
+                        && matches!(
+                            text(row, "type"),
+                            Some("holiday" | "no-class" | "break" | "replacement")
+                        )
+                })
+        })
+}
+
+/// Classes actually held on `date`, after holidays, replacement days and the
+/// quarter's teaching ranges. Mirrors `occurrencesOnDate` (courses only); the
+/// TypeScript version runs in the webview, which this binary cannot reach.
+fn classes_on(workspace: &Value, term: &str, date: chrono::NaiveDate) -> Vec<Value> {
+    use chrono::Datelike;
+    let iso = date.to_string();
+    let state = calendar_state(workspace, &iso);
+    let kind = state.as_ref().and_then(|row| text(row, "type"));
+    let civil = u64::from(date.weekday().number_from_monday());
+    let teaching_day = match kind {
+        Some("replacement") => state
+            .as_ref()
+            .and_then(|row| row.get("replacementDay"))
+            .and_then(Value::as_u64)
+            .unwrap_or(civil),
+        Some("holiday" | "no-class" | "break") => 0,
+        _ => civil,
+    };
+    let outside_teaching = parse_term(term).ok().is_some_and(|(year, quarter)| {
+        let start = format!("calendar:{year}:quarter-start:{quarter}");
+        kind != Some("replacement")
+            && visible_rows(workspace, "academicCalendar")
+                .into_iter()
+                .find(|row| text(row, "id") == Some(start.as_str()))
+                .and_then(|row| row.get("teachingRanges").and_then(Value::as_array).cloned())
+                .is_some_and(|ranges| {
+                    !ranges.iter().any(|range| {
+                        text(range, "start").is_some_and(|start| start <= iso.as_str())
+                            && text(range, "end").is_some_and(|end| iso.as_str() <= end)
+                    })
+                })
+    });
+    let intensive = visible_rows(workspace, "intensiveSchedules");
+    let mut classes = Vec::new();
+    for course in scheduled_courses(workspace, term) {
+        let title = course
+            .pointer("/overrides/title")
+            .and_then(Value::as_str)
+            .filter(|title| !title.is_empty())
+            .or_else(|| text(&course, "title"))
+            .unwrap_or_default();
+        let class = |start: &str, end: &str, room: Option<&Value>| {
+            json!({
+                "courseId": course.get("id"), "code": course.get("code"), "title": title,
+                "startTime": start, "endTime": end, "room": room
+            })
+        };
+        if teaching_day != 0 && !outside_teaching {
+            for meeting in course
+                .get("meetings")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let held = meeting
+                    .get("days")
+                    .and_then(Value::as_array)
+                    .is_some_and(|days| days.iter().any(|day| day.as_u64() == Some(teaching_day)))
+                    && text(meeting, "validFrom").is_none_or(|from| from <= iso.as_str())
+                    && text(meeting, "validTo").is_none_or(|to| iso.as_str() <= to);
+                if let (true, Some(start), Some(end)) =
+                    (held, text(meeting, "startTime"), text(meeting, "endTime"))
+                {
+                    classes.push(class(start, end, meeting.get("room")));
+                }
+            }
+        }
+        for row in intensive.iter().filter(|row| {
+            row.get("courseId") == course.get("id")
+                && text(row, "from").is_some_and(|from| from <= iso.as_str())
+                && text(row, "to").is_some_and(|to| iso.as_str() <= to)
+        }) {
+            let periods = row
+                .get("days")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .find(|day| text(day, "date") == Some(iso.as_str()))
+                .and_then(|day| day.get("periods").and_then(Value::as_array).cloned());
+            let clocks = periods.as_ref().and_then(|periods| {
+                Some((
+                    clock(periods.first()?.as_u64()?, false)?,
+                    clock(periods.get(1)?.as_u64()?, true)?,
+                ))
+            });
+            if let Some((start, end)) = clocks {
+                classes.push(class(start, end, row.get("room")));
+            }
+        }
+    }
+    classes.sort_by(|a, b| text(a, "startTime").cmp(&text(b, "startTime")));
+    classes
+}
+
+/// Personal plans with at least one occurrence in the inclusive range.
+fn plans_between(workspace: &Value, from: chrono::NaiveDate, to: chrono::NaiveDate) -> Vec<Value> {
+    visible_rows(workspace, "plans")
+        .into_iter()
+        .filter_map(|mut row| {
+            let start = text(&row, "start")?.to_string();
+            if let Some(rule) = text(&row, "rrule") {
+                let exdates = row
+                    .get("exdates")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                let occurrences = isct_companion_lib::plans::occurrences_between(
+                    &start, rule, &exdates, from, to,
+                )
+                .ok()?;
+                if occurrences.is_empty() {
+                    return None;
+                }
+                row["occurrences"] = json!(occurrences);
+                Some(row)
+            } else {
+                chrono::DateTime::parse_from_rfc3339(&start)
+                    .ok()
+                    .filter(|value| value.date_naive() >= from && value.date_naive() <= to)
+                    .map(|_| row)
+            }
+        })
+        .collect()
+}
+
+/// Sync bookkeeping an agent never needs; dropping it keeps answers small.
+fn slim(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            for key in [
+                "rev",
+                "updatedAt",
+                "updatedBy",
+                "lastSeenAt",
+                "sourceKey",
+                "provenance",
+                "hash",
+                "fetchedAt",
+                "missingSince",
+            ] {
+                object.remove(key);
+            }
+            object.values_mut().for_each(slim);
+        }
+        Value::Array(rows) => rows.iter_mut().for_each(slim),
+        _ => {}
+    }
 }
 
 fn fallback_term(date: chrono::NaiveDate) -> String {
@@ -278,9 +489,22 @@ fn course_from_offering(offering: &Value, term: &str) -> Result<Value, String> {
     }))
 }
 
-fn write_result(store: &DataStore, tool_name: &str) -> Result<Value, String> {
+fn write_result(store: &DataStore, tool_name: &str, details: Value) -> Result<Value, String> {
     store.record_agent_write(tool_name)?;
-    Ok(json!({"ok": true}))
+    let mut result = json!({"ok": true});
+    if let (Some(result), Value::Object(details)) = (result.as_object_mut(), details) {
+        result.extend(details);
+    }
+    Ok(result)
+}
+
+/// A personal plan that has not been deleted.
+fn live_plan(store: &DataStore, id: &str) -> Result<Value, String> {
+    store
+        .user_rows("plans")?
+        .into_iter()
+        .find(|row| text(row, "id") == Some(id) && row.get("deletedAt").is_none())
+        .ok_or_else(|| "plan was not found".to_string())
 }
 
 fn valid_plan_time(value: &str) -> Result<(), String> {
@@ -306,80 +530,68 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
     }
     let workspace = store.load_workspace()?;
     match name {
-        "today" => Ok(json!({
-            "courses": visible_rows(&workspace, "courses"),
-            "assignments": visible_rows(&workspace, "assignments")
-                .into_iter().filter(|row| row.get("hidden") != Some(&Value::Bool(true))).collect::<Vec<_>>(),
-            "plans": visible_rows(&workspace, "plans"),
-            "academicCalendar": visible_rows(&workspace, "academicCalendar"),
-            "academicSummary": visible_rows(&workspace, "gpaSummary")
-        })),
+        "today" => {
+            let now = now_jst();
+            let date = now.date_naive();
+            let iso = date.to_string();
+            let term = text(&workspace, "currentTerm")
+                .map(str::to_string)
+                .unwrap_or_else(|| fallback_term(date));
+            let due = |row: &Value| {
+                text(row, "dueAt").and_then(|due| chrono::DateTime::parse_from_rfc3339(due).ok())
+            };
+            let mut open = visible_rows(&workspace, "assignments")
+                .into_iter()
+                .filter(|row| {
+                    row.get("hidden") != Some(&Value::Bool(true))
+                        && text(row, "submission") != Some("submitted")
+                })
+                .collect::<Vec<_>>();
+            open.sort_by_key(|row| due(row));
+            let (upcoming, overdue): (Vec<_>, Vec<_>) = open
+                .into_iter()
+                .partition(|row| due(row).is_none_or(|due| due >= now));
+            let recent = now - chrono::Duration::days(14);
+            Ok(json!({
+                "now": now.to_rfc3339(), "date": iso, "term": term,
+                "calendar": calendar_state(&workspace, &iso),
+                "classes": classes_on(&workspace, &term, date),
+                "plans": plans_between(&workspace, date, date),
+                "assignments": upcoming,
+                "overdue": overdue.into_iter()
+                    .filter(|row| due(row).is_some_and(|due| due >= recent)).collect::<Vec<_>>(),
+                "academicSummary": visible_rows(&workspace, "gpaSummary")
+            }))
+        }
         "schedule" => {
             let (from, to) = date_range(args)?;
-            let mut terms = std::collections::HashSet::new();
+            let mut terms = std::collections::BTreeSet::new();
             let mut cursor = from;
             while cursor <= to {
                 terms.insert(fallback_term(cursor));
                 cursor += chrono::Duration::days(1);
             }
-            let plans = visible_rows(&workspace, "plans")
-                .into_iter()
-                .filter_map(|mut row| {
-                    let start = row.get("start").and_then(Value::as_str)?.to_string();
-                    if let Some(rule) = row.get("rrule").and_then(Value::as_str) {
-                        let exdates = row
-                            .get("exdates")
-                            .and_then(Value::as_array)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string)
-                            .collect::<Vec<_>>();
-                        let occurrences = isct_companion_lib::plans::occurrences_between(
-                            &start, rule, &exdates, from, to,
-                        )
-                        .ok()?;
-                        if occurrences.is_empty() {
-                            return None;
-                        }
-                        row["occurrences"] = json!(occurrences);
-                        Some(row)
-                    } else {
-                        chrono::DateTime::parse_from_rfc3339(&start)
-                            .ok()
-                            .filter(|value| value.date_naive() >= from && value.date_naive() <= to)
-                            .map(|_| row)
-                    }
-                })
-                .collect::<Vec<_>>();
             Ok(json!({
                 "from": from.to_string(), "to": to.to_string(),
-                "courses": visible_rows(&workspace, "courses").into_iter()
-                    .filter(|row| row.get("termId").and_then(Value::as_str).is_some_and(|term| terms.contains(term)))
-                    .collect::<Vec<_>>(),
+                "courses": terms.iter()
+                    .flat_map(|term| scheduled_courses(&workspace, term)).collect::<Vec<_>>(),
                 "intensiveSchedules": visible_rows(&workspace, "intensiveSchedules").into_iter()
                     .filter(|row| {
                         let start = row.get("from").and_then(Value::as_str).and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok());
                         let end = row.get("to").and_then(Value::as_str).and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok());
                         matches!((start,end),(Some(start),Some(end)) if start <= to && end >= from)
                     }).collect::<Vec<_>>(),
-                "plans": plans
+                "plans": plans_between(&workspace, from, to)
             }))
         }
         "courses" => {
-            let term = format!(
-                "{}-{}",
-                args.get("year")
-                    .and_then(Value::as_i64)
-                    .ok_or("year is required")?,
-                required(args, "quarter")?
-            );
-            Ok(Value::Array(
-                visible_rows(&workspace, "courses")
-                    .into_iter()
-                    .filter(|row| row.get("termId").and_then(Value::as_str) == Some(&term))
-                    .collect(),
-            ))
+            let year = args
+                .get("year")
+                .and_then(Value::as_i64)
+                .ok_or("year is required")?;
+            let term = format!("{year}-{}", required(args, "quarter")?);
+            parse_term(&term)?;
+            Ok(Value::Array(scheduled_courses(&workspace, &term)))
         }
         "course" => {
             let id = required(args, "id")?;
@@ -400,9 +612,19 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                         == course.get("offeringId").and_then(Value::as_str)).collect::<Vec<_>>()
             }))
         }
-        "search_catalog" => Ok(Value::Array(
-            store.catalog_search(required(args, "query")?)?,
-        )),
+        "search_catalog" => {
+            // Search-only rows lack the schedule and credits plan_add needs;
+            // the app reads them from the syllabus site, which this server never contacts.
+            let mut rows = store.catalog_search(required(args, "query")?)?;
+            for row in &mut rows {
+                let plannable = match text(row, "id") {
+                    Some(id) => store.catalog_offering(id)?.is_some(),
+                    None => false,
+                };
+                row["plannable"] = Value::Bool(plannable);
+            }
+            Ok(Value::Array(rows))
+        }
         "registration" => {
             let year = args.get("year").and_then(Value::as_i64);
             let term = args.get("term").and_then(Value::as_str);
@@ -444,13 +666,28 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
         })),
         "requirements" => Ok(Value::Array(store.table_rows("requirement_progress")?)),
         "recommended" => {
-            let department = args.get("departmentId").and_then(Value::as_str);
+            let department = args
+                .get("departmentId")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    workspace
+                        .pointer("/settings/departmentId")
+                        .and_then(Value::as_str)
+                })
+                .ok_or("departmentId is required: no department is chosen in Settings")?;
+            let admission = workspace
+                .pointer("/academicProfile/admissionYear")
+                .and_then(Value::as_i64);
             Ok(Value::Array(
                 visible_rows(&workspace, "recommendedCourses")
                     .into_iter()
                     .filter(|row| {
-                        department.is_none()
-                            || row.get("departmentId").and_then(Value::as_str) == department
+                        // Settings may hold a scoped id such as "school:ee".
+                        text(row, "departmentId").is_some_and(|id| {
+                            id == department || department.ends_with(&format!(":{id}"))
+                        }) && admission.is_none_or(|year| {
+                            row.get("admissionYear").and_then(Value::as_i64) == Some(year)
+                        })
                     })
                     .collect(),
             ))
@@ -458,35 +695,70 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
         "plan_add" => {
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
-            let offering = store
-                .catalog_offering(offering_id)?
-                .ok_or_else(|| "offering was not found in the local catalog".to_string())?;
-            let expected_year = term.get(..4).and_then(|value| value.parse::<i64>().ok());
-            if offering.get("year").and_then(Value::as_i64) != expected_year {
+            let (year, quarter) = parse_term(term)?;
+            let Some(offering) = store.catalog_offering(offering_id)? else {
+                return Err(if store.catalog_search_item(offering_id)?.is_some() {
+                    "this course's schedule is not synced yet (plannable: false). Open it once in IsctCompanion, then try again."
+                } else {
+                    "offering was not found in the local catalog"
+                }
+                .into());
+            };
+            if offering.get("year").and_then(Value::as_i64) != Some(year) {
                 return Err("offering does not belong to the requested academic year".into());
             }
-            let mut course_id = visible_rows(&workspace, "courses")
+            let quarters = offering
+                .get("quarters")
+                .and_then(Value::as_array)
                 .into_iter()
-                .find(|row| {
-                    row.get("offeringId").and_then(Value::as_str) == Some(offering_id)
-                        && row.get("termId").and_then(Value::as_str) == Some(term)
-                })
-                .and_then(|row| row.get("id").and_then(Value::as_str).map(str::to_string));
-            if course_id.is_none() {
-                let course = store.put_user_record(
-                    "manual_courses",
-                    course_from_offering(&offering, term)?,
-                    "mcp",
-                )?;
-                course_id = course.get("id").and_then(Value::as_str).map(str::to_string);
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>();
+            if !quarters.is_empty() && !quarters.contains(&quarter) {
+                return Err(format!(
+                    "offering is taught in {}, not {quarter}",
+                    quarters.join(", ")
+                ));
             }
-            let course_id = course_id.ok_or("course identity could not be created")?;
-            if !store.user_rows("plan_items")?.iter().any(|row| {
-                row.get("courseId").and_then(Value::as_str) == Some(course_id.as_str())
-                    && row.get("termId").and_then(Value::as_str) == Some(term)
+            // One course per offering and year, whatever quarter it sits in
+            // (like addSyllabusDraft): writing a new one would replace it.
+            let canonical = format!("{year}-{offering_id}");
+            let existing = visible_rows(&workspace, "courses").into_iter().find(|row| {
+                text(row, "id") == Some(canonical.as_str())
+                    || text(row, "offeringId") == Some(offering_id)
+            });
+            // The timetable lists a course only under its own quarter, so a
+            // plan for another quarter would never show up.
+            if let Some(other) = existing
+                .as_ref()
+                .and_then(|row| text(row, "termId"))
+                .filter(|other| *other != term)
+            {
+                return Err(format!(
+                    "this offering is already on the {other} timetable; plan it for {other}"
+                ));
+            }
+            let course_id = match existing.as_ref().and_then(|row| text(row, "id")) {
+                Some(id) => id.to_string(),
+                None => {
+                    let course = store.put_user_record(
+                        "manual_courses",
+                        course_from_offering(&offering, term)?,
+                        "mcp",
+                    )?;
+                    text(&course, "id")
+                        .ok_or("course identity could not be created")?
+                        .to_string()
+                }
+            };
+            let planned = store.user_rows("plan_items")?.into_iter().find(|row| {
+                text(row, "courseId") == Some(course_id.as_str())
+                    && text(row, "termId") == Some(term)
                     && row.get("deletedAt").is_none()
-            }) {
-                store.put_user_record(
+            });
+            let plan_item = match planned {
+                Some(row) => row,
+                None => store.put_user_record(
                     "plan_items",
                     json!({
                         "kind": "plan-item",
@@ -494,29 +766,39 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                         "source": {"provider":"mcp"}
                     }),
                     "mcp",
-                )?;
-            }
-            write_result(store, name)
+                )?,
+            };
+            write_result(
+                store,
+                name,
+                json!({"courseId": course_id, "planItemId": plan_item.get("id")}),
+            )
         }
         "plan_remove" => {
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
+            parse_term(term)?;
+            let mut removed = 0;
             for row in store.user_rows("plan_items")? {
-                if row.get("offeringId").and_then(Value::as_str) == Some(offering_id)
-                    && row.get("termId").and_then(Value::as_str) == Some(term)
+                if text(&row, "offeringId") == Some(offering_id)
+                    && text(&row, "termId") == Some(term)
                     && row.get("deletedAt").is_none()
                 {
-                    if let Some(id) = row.get("id").and_then(Value::as_str) {
+                    if let Some(id) = text(&row, "id") {
                         store.delete_user_record_checked(
                             "plan_items",
                             id,
                             "mcp",
                             row.get("rev").and_then(Value::as_u64),
                         )?;
+                        removed += 1;
                     }
                 }
             }
-            write_result(store, name)
+            if removed == 0 {
+                return Err(format!("offering {offering_id} is not planned for {term}"));
+            }
+            write_result(store, name, json!({"removed": removed}))
         }
         "plan_event_create" => {
             let start = required(args, "start")?;
@@ -526,7 +808,7 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             if let Some(rule) = rule {
                 isct_companion_lib::plans::validate_rrule(rule)?;
             }
-            store.put_user_record(
+            let plan = store.put_user_record(
                 "plans",
                 json!({
                     "title": required(args, "title")?,
@@ -536,15 +818,11 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 }),
                 "mcp",
             )?;
-            write_result(store, name)
+            write_result(store, name, json!({"id": plan.get("id")}))
         }
         "plan_event_update" => {
             let id = required(args, "id")?;
-            let mut row = store
-                .user_rows("plans")?
-                .into_iter()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                .ok_or_else(|| "plan was not found".to_string())?;
+            let mut row = live_plan(store, id)?;
             if let Some(start) = args.get("start").and_then(Value::as_str) {
                 valid_plan_time(start)?;
             }
@@ -559,19 +837,15 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             }
             let expected = row.get("rev").and_then(Value::as_u64);
             store.put_user_record_checked("plans", row, "mcp", expected)?;
-            write_result(store, name)
+            write_result(store, name, json!({"id": id}))
         }
         "plan_event_delete" => {
             let id = required(args, "id")?;
-            let expected = store
-                .user_rows("plans")?
-                .into_iter()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                .and_then(|row| row.get("rev").and_then(Value::as_u64));
+            let expected = live_plan(store, id)?.get("rev").and_then(Value::as_u64);
             if !store.delete_user_record_checked("plans", id, "mcp", expected)? {
                 return Err("plan was not found".into());
             }
-            write_result(store, name)
+            write_result(store, name, json!({"id": id}))
         }
         "hide_assignment" | "restore_assignment" => {
             let id = required(args, "id")?;
@@ -594,7 +868,7 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let expected = mark.get("rev").and_then(Value::as_u64).unwrap_or(0);
             mark["hidden"] = Value::Bool(name == "hide_assignment");
             store.put_user_record_checked("assignment_marks", mark, "mcp", Some(expected))?;
-            write_result(store, name)
+            write_result(store, name, json!({"id": id}))
         }
         _ => Err("unknown tool".into()),
     }
@@ -659,7 +933,10 @@ fn main() {
                     .get("arguments")
                     .cloned()
                     .unwrap_or_else(|| json!({}));
-                match call(&store, name, &args) {
+                match call(&store, name, &args).map(|mut value| {
+                    slim(&mut value);
+                    value
+                }) {
                     Ok(value) => response(
                         id,
                         json!({
@@ -680,5 +957,63 @@ fn main() {
         };
         let _ = writeln!(stdout, "{}", answer);
         let _ = stdout.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn workspace() -> Value {
+        let monday = json!([{"days": [1], "periods": [1, 2], "startTime": "08:50", "endTime": "10:30", "room": "M-102"}]);
+        json!({
+            "courses": [
+                {"id": "c1", "termId": "2026-3Q", "code": "A", "title": "Registered", "meetings": monday},
+                {"id": "c2", "termId": "2026-3Q", "code": "B", "title": "Not on the timetable", "meetings": monday},
+                {"id": "c3", "termId": "2026-3Q", "code": "C", "title": "Intensive", "meetings": []}
+            ],
+            "memberships": [
+                {"courseId": "c1", "termId": "2026-3Q"},
+                {"courseId": "c3", "termId": "2026-3Q"}
+            ],
+            "planItems": [],
+            "exceptions": [{"date": "2026-10-19", "type": "no-class"}],
+            "academicCalendar": [
+                {"id": "calendar:2026:quarter-start:3Q", "type": "quarter-start",
+                 "teachingRanges": [{"start": "2026-10-01", "end": "2026-11-30"}]},
+                {"date": "2026-10-12", "type": "holiday"},
+                {"date": "2026-10-15", "type": "replacement", "replacementDay": 1}
+            ],
+            "intensiveSchedules": [{"courseId": "c3", "from": "2026-10-20", "to": "2026-10-22",
+                "days": [{"date": "2026-10-21", "periods": [1, 2]}]}]
+        })
+    }
+
+    fn titles(date: &str) -> Vec<String> {
+        let date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+        classes_on(&workspace(), "2026-3Q", date)
+            .iter()
+            .map(|class| class["title"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn classes_follow_the_school_calendar() {
+        assert_eq!(titles("2026-10-05"), ["Registered"]); // ordinary Monday
+        assert!(titles("2026-10-06").is_empty()); // Tuesday
+        assert!(titles("2026-10-12").is_empty()); // holiday
+        assert_eq!(titles("2026-10-15"), ["Registered"]); // Thursday teaching Monday classes
+        assert!(titles("2026-10-19").is_empty()); // personal no-class exception
+        assert_eq!(titles("2026-10-21"), ["Intensive"]); // chosen intensive day only
+        assert!(titles("2026-10-20").is_empty());
+        assert!(titles("2026-12-07").is_empty()); // Monday outside the teaching range
+    }
+
+    #[test]
+    fn terms_are_validated() {
+        assert_eq!(parse_term("2026-3Q"), Ok((2026, "3Q")));
+        for bad in ["2026-banana", "2026-5Q", "spring", "26-1Q"] {
+            assert!(parse_term(bad).is_err(), "{bad}");
+        }
     }
 }
