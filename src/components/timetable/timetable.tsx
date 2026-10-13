@@ -52,6 +52,7 @@ export type DayColumn = {
 export function jstMinutes(now = new Date()): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Tokyo",
+    numberingSystem: "latn",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",

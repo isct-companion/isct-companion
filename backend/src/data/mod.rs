@@ -221,7 +221,7 @@ fn current_term_for(workspace: &Value, date: chrono::NaiveDate) -> Option<String
 }
 
 fn empty_workspace() -> Value {
-    let date = Utc::now().date_naive();
+    let date = (Utc::now() + chrono::Duration::hours(9)).date_naive();
     let year = if date.month() < 4 {
         date.year() - 1
     } else {

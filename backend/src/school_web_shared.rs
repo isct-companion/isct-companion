@@ -159,6 +159,12 @@ enum ActiveSchoolJob {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionStart {
+    Started,
+    Deferred,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SchoolPullProgressRelay {
@@ -436,6 +442,23 @@ fn preempt_for_visible(state: &mut ControllerState) {
         state.active_job = None;
         state.heartbeat = None;
     }
+}
+
+/// Releases a session job that could not start yet and keeps exactly one copy
+/// queued. The identity check prevents a late result from clearing newer work.
+fn defer_session_start(state: &mut ControllerState, profile: SchoolAuthProfile) -> bool {
+    if state.active_job != Some(ActiveSchoolJob::Session(profile)) {
+        return false;
+    }
+    state.active_job = None;
+    if !state
+        .jobs
+        .iter()
+        .any(|job| matches!(job, SchoolJob::Session(queued) if *queued == profile))
+    {
+        state.jobs.push_front(SchoolJob::Session(profile));
+    }
+    true
 }
 
 fn settle_pull(
@@ -1157,6 +1180,46 @@ fn save_viewer_data(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    fn queued_sessions(state: &ControllerState, profile: SchoolAuthProfile) -> usize {
+        state
+            .jobs
+            .iter()
+            .filter(|job| matches!(job, SchoolJob::Session(queued) if *queued == profile))
+            .count()
+    }
+
+    #[test]
+    fn deferred_session_is_released_and_queued_once() {
+        let mut state = ControllerState::default();
+        state.active_job = Some(ActiveSchoolJob::Session(SchoolAuthProfile::Science));
+        assert!(defer_session_start(&mut state, SchoolAuthProfile::Science));
+        assert_eq!(state.active_job, None);
+        assert_eq!(queued_sessions(&state, SchoolAuthProfile::Science), 1);
+
+        state.active_job = Some(ActiveSchoolJob::Session(SchoolAuthProfile::Science));
+        assert!(defer_session_start(&mut state, SchoolAuthProfile::Science));
+        assert_eq!(queued_sessions(&state, SchoolAuthProfile::Science), 1);
+    }
+
+    #[test]
+    fn visible_preemption_and_stale_defer_do_not_duplicate_or_clear_new_work() {
+        let mut state = ControllerState::default();
+        state.active_job = Some(ActiveSchoolJob::Session(SchoolAuthProfile::Science));
+        preempt_for_visible(&mut state);
+        assert!(!defer_session_start(&mut state, SchoolAuthProfile::Science));
+        assert_eq!(queued_sessions(&state, SchoolAuthProfile::Science), 1);
+
+        state.active_job = Some(ActiveSchoolJob::Session(SchoolAuthProfile::TokyoTech));
+        assert!(!defer_session_start(&mut state, SchoolAuthProfile::Science));
+        assert_eq!(
+            state.active_job,
+            Some(ActiveSchoolJob::Session(SchoolAuthProfile::TokyoTech))
+        );
+        assert_eq!(queued_sessions(&state, SchoolAuthProfile::Science), 1);
+    }
+
     #[test]
     fn visible_navigation_preempts_a_pull_and_keeps_its_completion_for_retry() {
         let mut state = ControllerState::default();
@@ -1195,9 +1258,6 @@ mod tests {
         assert!(ingestion_script("https://lms.s.isct.ac.jp/2025/my/").is_some());
         assert!(ingestion_script("https://lms.s.isct.ac.jp/2025/pluginfile.php/223879/mod_label/intro/oop2026-schedule.png").is_none());
     }
-
-    use super::*;
-
     #[test]
     fn new_window_links_are_routed_instead_of_dropped() {
         assert_eq!(
@@ -1778,13 +1838,29 @@ impl SchoolWebController {
             job
         };
         match job {
-            SchoolJob::Session(profile) => {
-                if let Err(error) = self.ensure_session_now(app, profile) {
+            SchoolJob::Session(profile) => match self.ensure_session_now(app, profile) {
+                Ok(SessionStart::Started) => {}
+                Ok(SessionStart::Deferred) => {
+                    let deferred = self
+                        .state
+                        .lock()
+                        .ok()
+                        .is_some_and(|mut state| defer_session_start(&mut state, profile));
+                    if deferred {
+                        let controller = self.clone();
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(250)).await;
+                            controller.advance_jobs(&handle);
+                        });
+                    }
+                }
+                Err(error) => {
                     emit_session(&self.state, app, profile, "failed");
                     eprintln!("[school-queue] session failed to start: {error}");
                     self.complete_session_job(app, profile);
                 }
-            }
+            },
             SchoolJob::Login {
                 profile,
                 credentials,
@@ -2291,7 +2367,7 @@ impl SchoolWebController {
         &self,
         app: &AppHandle,
         profile: SchoolAuthProfile,
-    ) -> Result<bool, String> {
+    ) -> Result<SessionStart, String> {
         {
             let mut state = self
                 .state
@@ -2310,7 +2386,7 @@ impl SchoolWebController {
             };
             if let Some(reason) = busy {
                 eprintln!("[school-session] {profile:?} check deferred: {reason}");
-                return Ok(false);
+                return Ok(SessionStart::Deferred);
             }
             state.heartbeat = Some(profile);
         }
@@ -2324,7 +2400,7 @@ impl SchoolWebController {
             Some(site.start_url().to_string()),
             false,
         )
-        .map(|_| true)
+        .map(|_| SessionStart::Started)
     }
 
     fn login_now(

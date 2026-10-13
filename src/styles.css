@@ -3887,6 +3887,13 @@ p {
   font-size: 12px;
   white-space: nowrap;
 }
+.cleanWorkspaces {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .numberSetting input {
   width: 72px;
   text-align: right;

@@ -713,6 +713,9 @@ export function WorkspaceApp() {
       const dispose = desktopBridge.onWorkspaceChanged(() => {
         void workspaceStore.reload().catch(() => undefined);
       });
+      // Native startup refresh may finish between initialization and this
+      // subscription. Read once after listening so its result cannot be lost.
+      void workspaceStore.reload().catch(() => undefined);
       return () => {
         dispose();
         unsubscribe();

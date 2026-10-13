@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { Plan } from "../../core/model";
 import { useEffect } from "react";
 import { nextPlanOccurrences, planCivilStart } from "../../core/user-schedule";
+import { tokyoDate } from "../../core/civil-date";
 
 const presets = {
   once: "",
@@ -41,9 +42,7 @@ export function PlanEditor({
   const [start, setStart] = useState(
     plan
       ? `${planCivilStart(plan).date}T${planCivilStart(plan).time}`
-      : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(
-          new Date(),
-        ) + "T09:00",
+      : tokyoDate(new Date()) + "T09:00",
   );
   const [duration, setDuration] = useState(plan?.duration ?? 60);
   const [room, setRoom] = useState(plan?.room ?? "");

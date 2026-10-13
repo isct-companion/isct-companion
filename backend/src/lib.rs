@@ -53,6 +53,8 @@ mod school_web_shared;
 mod secrets;
 mod subscriptions;
 mod syllabus;
+#[cfg(desktop)]
+mod workspaces;
 
 /// The frontend's build-time identity: shell kind and operating system, both
 /// fixed when this binary is compiled, so the UI never sniffs user agents.
@@ -1618,6 +1620,20 @@ pub fn run() {
             lms_files::open_course_material,
             lms_files::open_course_file,
             lms_files::clean_course_materials,
+            #[cfg(desktop)]
+            workspaces::assignment_workspace,
+            #[cfg(desktop)]
+            workspaces::create_assignment_workspace,
+            #[cfg(desktop)]
+            workspaces::open_workspace,
+            #[cfg(desktop)]
+            workspaces::set_workspace_submission,
+            #[cfg(desktop)]
+            workspaces::prepare_workspace_submission,
+            #[cfg(desktop)]
+            workspaces::delete_workspace,
+            #[cfg(desktop)]
+            workspaces::clean_workspaces,
             recognize_matrix_image,
             open_external,
             resolve_school_url,
