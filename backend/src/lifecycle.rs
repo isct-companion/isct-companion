@@ -19,6 +19,8 @@ pub enum SchoolSite {
     Tsubame,
     #[serde(rename = "syllabus")]
     Syllabus,
+    #[serde(rename = "study-guide")]
+    StudyGuide,
 }
 
 impl SchoolSite {
@@ -34,6 +36,7 @@ impl SchoolSite {
             "kyomu0.gakumu.titech.ac.jp" => Some(Self::Kyomu),
             "request.libra.titech.ac.jp" => Some(Self::Library),
             "portal.t4.gsic.titech.ac.jp" => Some(Self::Tsubame),
+            "www.titech.ac.jp" => Some(Self::StudyGuide),
             _ => None,
         }
     }
@@ -48,6 +51,7 @@ impl SchoolSite {
             Self::Library => "school-web-library",
             Self::Tsubame => "school-web-tsubame",
             Self::Syllabus => "school-web-syllabus",
+            Self::StudyGuide => "school-web-study-guide",
         }
     }
 
@@ -65,6 +69,9 @@ impl SchoolSite {
             // GetAccess login as 教務Web instead of a mailed one-time code.
             Self::Tsubame => "https://portal.t4.gsic.titech.ac.jp/ptl/ga/sso/",
             Self::Syllabus => "https://syllabus.s.isct.ac.jp/",
+            // 学修案内等一覧, where the student site's 学修案内 (理工学系) links;
+            // the guide PDFs live under www.titech.ac.jp/guide/.
+            Self::StudyGuide => "https://www.titech.ac.jp/student/students/life/resources",
         }
     }
 }

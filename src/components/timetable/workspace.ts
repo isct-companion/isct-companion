@@ -37,14 +37,12 @@ export function setTimetable(
   membershipId?: string,
 ) {
   const now = stamp();
-  const membership = d.memberships.find(
-    (m) => m.courseId === course.id && !m.deletedAt,
-  );
-  const draft = d.planItems.find(
-    (x) => x.courseId === course.id && !x.deletedAt,
+  // Off takes the course out of every quarter it runs in (3Q–4Q alike).
+  const placed = [...d.memberships, ...d.planItems].filter(
+    (row) => row.courseId === course.id && !row.deletedAt,
   );
   if (on) {
-    if (membership || draft) return;
+    if (placed.length) return;
     if (!membershipId)
       throw new Error("A backend-generated membership ID is required");
     d.memberships.push({
@@ -60,12 +58,11 @@ export function setTimetable(
     });
     return;
   }
-  for (const item of [membership, draft])
-    if (item) {
-      item.deletedAt = now;
-      item.rev += 1;
-      item.updatedAt = now;
-    }
+  for (const item of placed) {
+    item.deletedAt = now;
+    item.rev += 1;
+    item.updatedAt = now;
+  }
 }
 export function timetableCourses(data: Workspace, term: TermId) {
   return scheduledCourses(data, term);
@@ -74,6 +71,9 @@ export function allTerms(data: Workspace, currentTerm: TermId): TermId[] {
   return [
     ...new Set<TermId>([
       ...data.courses.filter((c) => !c.deletedAt).map((c) => c.termId),
+      ...[...data.memberships, ...data.planItems]
+        .filter((row) => !row.deletedAt)
+        .map((row) => row.termId),
       ...(data.terms ?? []),
       currentTerm,
     ]),

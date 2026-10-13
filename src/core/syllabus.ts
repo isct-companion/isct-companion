@@ -2,6 +2,8 @@ import type {
   Course,
   InstructionLanguage,
   Meeting,
+  PlanItem,
+  Quarter,
   TermId,
   Workspace,
 } from "./model";
@@ -44,12 +46,27 @@ const instructionLanguage = (value?: string): InstructionLanguage => {
   return "other";
 };
 
+/**
+ * Quarters an offering is planned into when added in `quarter`: a 3Q–4Q
+ * offering added in one of its quarters goes into all of them; one added
+ * outside its quarters stays in the quarter on screen.
+ */
+const plannedTerms = (
+  year: number,
+  quarter: Quarter,
+  quarters: readonly Quarter[] = [],
+): TermId[] =>
+  (quarters.includes(quarter) ? quarters : [quarter]).map(
+    (item) => `${year}-${item}` as TermId,
+  );
+
 export function addSyllabusDraft(
   workspace: Workspace,
   item: SyllabusCourse,
   ids: { course: string; planItem: string },
 ) {
   const termId = `${item.year}-${item.quarter}` as TermId;
+  const termIds = plannedTerms(item.year, item.quarter, item.quarters);
   const courseId = canonicalCourseId(item.year, item.externalId);
   const now = new Date().toISOString();
   let course = workspace.courses.find(
@@ -99,30 +116,38 @@ export function addSyllabusDraft(
       },
     });
   }
-  let draft = workspace.planItems.find(
-    (candidate) =>
-      candidate.termId === termId && candidate.courseId === course!.id,
-  );
-  if (draft) {
-    draft.deletedAt = undefined;
-    draft.rev += 1;
-    draft.updatedAt = now;
-    draft.updatedBy = workspace.deviceId;
-  } else {
-    draft = {
-      id: ids.planItem,
-      kind: "plan-item",
-      rev: 1,
-      updatedAt: now,
-      updatedBy: workspace.deviceId,
-      termId,
-      courseId: course.id,
-      offeringId: item.externalId,
-      state: "planned",
-    };
-    workspace.planItems.push(draft);
-  }
-  return { course, draft, sourceKey: key(item) };
+  /** Plan items this add put on the timetable (new or brought back). */
+  const placed: PlanItem[] = [];
+  const drafts = termIds.map((planTerm) => {
+    let draft = workspace.planItems.find(
+      (candidate) =>
+        candidate.termId === planTerm && candidate.courseId === course!.id,
+    );
+    const active = Boolean(draft && !draft.deletedAt);
+    if (draft) {
+      draft.deletedAt = undefined;
+      draft.rev += 1;
+      draft.updatedAt = now;
+      draft.updatedBy = workspace.deviceId;
+    } else {
+      draft = {
+        // The quarter on screen takes the given ID; the others derive from it.
+        id: planTerm === termId ? ids.planItem : `${ids.planItem}:${planTerm}`,
+        kind: "plan-item",
+        rev: 1,
+        updatedAt: now,
+        updatedBy: workspace.deviceId,
+        termId: planTerm,
+        courseId: course!.id,
+        offeringId: item.externalId,
+        state: "planned",
+      };
+      workspace.planItems.push(draft);
+    }
+    if (!active) placed.push(draft);
+    return draft;
+  });
+  return { course, drafts, placed, sourceKey: key(item) };
 }
 
 export function removeSyllabusDraft(

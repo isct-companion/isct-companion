@@ -30,7 +30,12 @@ import {
 } from "../../components/timetable/workspace";
 import type { CalendarExportScope } from "../../core/calendar-ics";
 import { UiButton } from "../../components/mantine";
-import { addDays, quarterRange, tokyoDate } from "../../core/schedule";
+import {
+  addDays,
+  courseTerms,
+  quarterRange,
+  tokyoDate,
+} from "../../core/schedule";
 import { YearQuarterPicker } from "./YearQuarterPicker";
 import { PullRing } from "../../components/PullRing";
 import { newUserRecordId } from "../../storage/ids";
@@ -126,7 +131,9 @@ export function Courses({
         : (range?.from ?? today);
   const moveWeek = (days: number) =>
     setWeekAnchor({ term, date: addDays(anchorDate, days) });
-  const courses = data.courses.filter((c) => c.termId === term && !c.deletedAt);
+  const courses = data.courses.filter(
+    (c) => !c.deletedAt && courseTerms(data, c).includes(term),
+  );
   const events = data.events.filter((e) => e.termId === term && !e.deletedAt);
   const scheduled = timetableCourses(data, term);
   // Intensive or unpublished times have no grid cell; they get their own lane.
