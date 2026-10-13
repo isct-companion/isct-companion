@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ open: vi.fn(), stored: vi.fn() }));
-vi.mock("../../../app/native", () => ({ desktopBridge: {} }));
+vi.mock("../../app/native", () => ({ desktopBridge: {} }));
 vi.mock("./files", async () => {
   class LmsFileError extends Error {
     constructor(public reason: string, public bytes?: number) { super(reason); }
@@ -17,7 +17,7 @@ vi.mock("./files", async () => {
     previewKind: (url: string) => url.endsWith(".txt") ? "text" : undefined,
   };
 });
-vi.mock("../../../components/ExternalLink", () => ({ ExternalLink: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }));
+vi.mock("../../components/ExternalLink", () => ({ ExternalLink: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }));
 vi.mock("./TextDocument", () => ({ TextDocument: ({ value }: { value: string }) => <pre>{value}</pre> }));
 import { FilePreview } from "./FilePreview";
 

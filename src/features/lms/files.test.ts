@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("../../../app/native", () => ({ desktopBridge: {} }));
+vi.mock("../../app/native", () => ({ desktopBridge: {} }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke,
   convertFileSrc: (path: string) => `asset://localhost${path}`,

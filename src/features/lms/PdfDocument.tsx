@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
-import { t } from "../../../i18n";
+import { t } from "../../i18n";
 GlobalWorkerOptions.workerSrc = workerUrl;
 // Canvas budget per page: sharp on Retina without unbounded memory.
 const MAX_DPR = 2;

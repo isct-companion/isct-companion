@@ -27,7 +27,6 @@ tauri-plugin-dialog = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1", features = ["v4", "v7"] }
-rrule = "0.14"
 base64 = "0.22"
 keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native"] }
 rand = "0.9"

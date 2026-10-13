@@ -1424,7 +1424,13 @@ impl DataStore {
     }
 
     pub fn export_data(&self, notes: Value) -> Result<String, DataError> {
-        let connection = self.open()?;
+        serde_json::to_string_pretty(&self.export_document(notes)?).map_err(DataError::from)
+    }
+
+    /// Read every backup table from one SQLite snapshot.
+    pub fn export_document(&self, notes: Value) -> Result<Value, DataError> {
+        let mut database = self.open()?;
+        let connection = database.transaction()?;
         let mut tables = Map::new();
         for table in USER_BACKUP_TABLES {
             tables.insert(
@@ -1442,7 +1448,7 @@ impl DataStore {
             .collect();
         tables.insert("settings".into(), Value::Array(settings));
 
-        serde_json::to_string_pretty(&json!({
+        Ok(json!({
             "schemaVersion": BACKUP_SCHEMA_VERSION,
             "exportedAt": now(),
             "kind": BACKUP_KIND,
@@ -1451,7 +1457,6 @@ impl DataStore {
             "tables": tables,
             "localNotes": notes
         }))
-        .map_err(DataError::from)
     }
 
     /// Merge under an IMMEDIATE transaction, including edits committed during

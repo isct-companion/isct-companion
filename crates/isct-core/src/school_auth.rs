@@ -4,7 +4,7 @@ use ring::hmac;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 use url::Url;
@@ -171,27 +171,27 @@ struct SchoolCredentialBundle {
     accounts: HashMap<SchoolAuthProfile, SchoolCredentials>,
 }
 
-pub struct SchoolAuthService<V: SecretVault> {
-    vault: V,
+pub struct SchoolAuthService {
+    vault: Arc<dyn SecretVault>,
     // Only this native process holds unlocked credentials; never persisted here.
     // Missing accounts are cached too, avoiding repeated legacy-keychain probes.
     unlocked: Mutex<HashMap<SchoolAuthProfile, Option<SchoolCredentials>>>,
     status_path: Option<std::path::PathBuf>,
 }
 
-impl<V: SecretVault> SchoolAuthService<V> {
+impl SchoolAuthService {
     #[cfg(test)]
-    pub fn new(vault: V) -> Self {
+    pub fn new(vault: impl SecretVault + 'static) -> Self {
         Self {
-            vault,
+            vault: Arc::new(vault),
             unlocked: Mutex::new(HashMap::new()),
             status_path: None,
         }
     }
 
-    pub fn with_status_cache(vault: V, path: std::path::PathBuf) -> Self {
+    pub fn with_status_cache(vault: impl SecretVault + 'static, path: std::path::PathBuf) -> Self {
         Self {
-            vault,
+            vault: Arc::new(vault),
             unlocked: Mutex::new(HashMap::new()),
             status_path: Some(path),
         }
@@ -749,8 +749,8 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Mutex;
 
-    #[derive(Default)]
-    struct MemoryVault(Mutex<HashMap<String, String>>);
+    #[derive(Clone, Default)]
+    struct MemoryVault(Arc<Mutex<HashMap<String, String>>>);
 
     impl SecretVault for MemoryVault {
         fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
@@ -862,7 +862,9 @@ mod tests {
 
     #[test]
     fn stores_both_school_profiles_in_one_item() {
-        let service = SchoolAuthService::new(MemoryVault::default());
+        let vault = MemoryVault::default();
+        let inspect = vault.clone();
+        let service = SchoolAuthService::new(vault);
         service
             .save(
                 SchoolAuthProfile::Science,
@@ -890,12 +892,8 @@ mod tests {
         assert_eq!(status.science.username, "science");
         assert!(status.tokyo_tech.has_matrix);
         assert!(!status.tokyo_tech.has_otp);
-        assert_eq!(service.vault.0.lock().unwrap().len(), 1);
-        assert!(service
-            .vault
-            .load(SCHOOL_CREDENTIAL_ACCOUNT)
-            .unwrap()
-            .is_some());
+        assert_eq!(inspect.0.lock().unwrap().len(), 1);
+        assert!(inspect.load(SCHOOL_CREDENTIAL_ACCOUNT).unwrap().is_some());
         service.delete(SchoolAuthProfile::Science).unwrap();
         assert!(service.load(SchoolAuthProfile::Science).unwrap().is_none());
         assert_eq!(
@@ -959,6 +957,7 @@ mod tests {
         assert!(!metadata.contains("otpSecret"));
         let locked = CountingVault::default();
         locked.fail_read.store(true, SeqCst);
+        let inspect = locked.clone();
         let restarted = SchoolAuthService::with_status_cache(locked, path.clone());
         let status = restarted.status().unwrap();
         assert!(status.science.saved);
@@ -966,7 +965,7 @@ mod tests {
             status.science.availability,
             CredentialAvailability::SavedLocked
         );
-        assert_eq!(restarted.vault.reads.load(SeqCst), 0);
+        assert_eq!(inspect.reads.load(SeqCst), 0);
         // Display metadata cannot authorize an actual login or bypass the vault.
         assert!(restarted.load(SchoolAuthProfile::Science).is_err());
         assert!(restarted.delete(SchoolAuthProfile::Science).is_err());
@@ -1005,13 +1004,13 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    #[derive(Default)]
+    #[derive(Clone, Default)]
     struct CountingVault {
         inner: MemoryVault,
-        reads: std::sync::atomic::AtomicUsize,
-        writes: std::sync::atomic::AtomicUsize,
-        fail_read: std::sync::atomic::AtomicBool,
-        fail_write: std::sync::atomic::AtomicBool,
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+        writes: Arc<std::sync::atomic::AtomicUsize>,
+        fail_read: Arc<std::sync::atomic::AtomicBool>,
+        fail_write: Arc<std::sync::atomic::AtomicBool>,
     }
     use std::sync::atomic::Ordering::SeqCst;
     impl SecretVault for CountingVault {
@@ -1051,6 +1050,7 @@ mod tests {
                 &serde_json::to_string(&test_credentials()).unwrap(),
             )
             .unwrap();
+        let inspect = vault.clone();
         let service = SchoolAuthService::new(vault);
         for _ in 0..3 {
             let saved = service.load(SchoolAuthProfile::Science).unwrap().unwrap();
@@ -1060,8 +1060,8 @@ mod tests {
             service.status().unwrap();
             service.resolve(SchoolAuthProfile::Science, saved).unwrap();
         }
-        assert_eq!(service.vault.reads.load(SeqCst), 4); // bundle, two legacy items, verified replacement
-        assert_eq!(service.vault.writes.load(SeqCst), 1); // migration only
+        assert_eq!(inspect.reads.load(SeqCst), 4); // bundle, two legacy items, verified replacement
+        assert_eq!(inspect.writes.load(SeqCst), 1); // migration only
     }
     #[test]
     fn failed_migration_keeps_legacy_credentials_and_can_retry() {
@@ -1074,36 +1074,33 @@ mod tests {
             )
             .unwrap();
         vault.fail_write.store(true, SeqCst);
+        let inspect = vault.clone();
         let service = SchoolAuthService::new(vault);
         assert!(matches!(
             service.load(SchoolAuthProfile::Science),
             Err(SchoolAuthError::Vault(SecretError::Access(_)))
         ));
-        assert!(service
-            .vault
+        assert!(inspect
             .inner
             .load(SchoolAuthProfile::Science.account())
             .unwrap()
             .is_some());
-        assert!(service
-            .vault
+        assert!(inspect
             .inner
             .load(SCHOOL_CREDENTIAL_ACCOUNT)
             .unwrap()
             .is_none());
-        service.vault.fail_write.store(false, SeqCst);
+        inspect.fail_write.store(false, SeqCst);
         assert_eq!(
             service.load(SchoolAuthProfile::Science).unwrap(),
             Some(test_credentials())
         );
-        assert!(service
-            .vault
+        assert!(inspect
             .inner
             .load(SchoolAuthProfile::Science.account())
             .unwrap()
             .is_none());
-        assert!(service
-            .vault
+        assert!(inspect
             .inner
             .load(SCHOOL_CREDENTIAL_ACCOUNT)
             .unwrap()
@@ -1112,18 +1109,20 @@ mod tests {
 
     #[test]
     fn changed_credentials_update_cache_only_after_a_successful_write() {
-        let service = SchoolAuthService::new(CountingVault::default());
+        let vault = CountingVault::default();
+        let inspect = vault.clone();
+        let service = SchoolAuthService::new(vault);
         service
             .save(SchoolAuthProfile::Science, test_credentials())
             .unwrap();
         let mut changed = test_credentials();
         changed.password = "new-test-password".into();
-        service.vault.fail_write.store(true, SeqCst);
+        inspect.fail_write.store(true, SeqCst);
         assert!(service
             .save(SchoolAuthProfile::Science, changed.clone())
             .is_err());
         assert!(service.load(SchoolAuthProfile::Science).unwrap().unwrap() == test_credentials());
-        service.vault.fail_write.store(false, SeqCst);
+        inspect.fail_write.store(false, SeqCst);
         service
             .save(SchoolAuthProfile::Science, changed.clone())
             .unwrap();
@@ -1139,20 +1138,21 @@ mod tests {
                 &serde_json::to_string(&test_credentials()).unwrap(),
             )
             .unwrap();
+        let inspect = vault.clone();
         let service = SchoolAuthService::new(vault);
-        service.vault.fail_read.store(true, SeqCst);
+        inspect.fail_read.store(true, SeqCst);
         assert!(service.load(SchoolAuthProfile::Science).is_err());
-        service.vault.fail_read.store(false, SeqCst);
+        inspect.fail_read.store(false, SeqCst);
         assert!(service.load(SchoolAuthProfile::Science).unwrap().is_some());
         service.delete(SchoolAuthProfile::Science).unwrap();
         assert!(service.load(SchoolAuthProfile::Science).unwrap().is_none());
-        assert_eq!(service.vault.reads.load(SeqCst), 5);
+        assert_eq!(inspect.reads.load(SeqCst), 5);
         // A new application/service instance performs its own unlock.
-        let relaunched = SchoolAuthService::new(service.vault);
+        let relaunched = SchoolAuthService::new(inspect.clone());
         assert!(relaunched
             .load(SchoolAuthProfile::Science)
             .unwrap()
             .is_none());
-        assert_eq!(relaunched.vault.reads.load(SeqCst), 6);
+        assert_eq!(inspect.reads.load(SeqCst), 6);
     }
 }

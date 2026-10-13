@@ -11,7 +11,6 @@
 //! system DNS, so requests are bound to the Wi-Fi interface and names are
 //! resolved by hickory against the lease's DNS server, from the Wi-Fi address.
 
-use crate::secrets::OsSecretVault;
 use hickory_resolver::{
     config::{NameServerConfig, ResolverConfig},
     name_server::TokioConnectionProvider,
@@ -173,7 +172,7 @@ async fn connect(
     let handle = app.clone();
     let credentials = tauri::async_runtime::spawn_blocking(move || {
         handle
-            .state::<SchoolAuthService<OsSecretVault>>()
+            .state::<std::sync::Arc<SchoolAuthService>>()
             .load(SchoolAuthProfile::TokyoTech)
     })
     .await

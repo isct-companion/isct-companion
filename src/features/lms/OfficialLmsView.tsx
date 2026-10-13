@@ -5,8 +5,8 @@ import {
   hideNativeSchoolWeb,
   releaseSchoolView,
   schoolWebExit,
-} from "../../../app/native";
-import { schoolWebBounds } from "../../../platform/school-web-bounds";
+} from "../../app/native";
+import { schoolWebBounds } from "../../platform/school-web-bounds";
 
 /** Same resident LMS WebView and login flow, bounded to this viewer only. */
 export function OfficialLmsView({

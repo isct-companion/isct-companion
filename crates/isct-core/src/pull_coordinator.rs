@@ -3,7 +3,7 @@
 //! The coordinator owns business-level admission, coalescing and cancellation.
 //! School login and WebView navigation remain a separate executor state machine.
 
-use crate::lifecycle::SchoolSite;
+use crate::{lifecycle::SchoolSite, runtime_tasks::RuntimeTasks};
 use serde::Serialize;
 use serde_json::Value;
 use std::{
@@ -425,7 +425,7 @@ struct PullJob {
     ready: bool,
     last_error: Option<String>,
     cancel: Arc<AtomicBool>,
-    work: PullWork,
+    work: Option<PullWork>,
     wait_for: Option<String>,
     waiters: Vec<oneshot::Sender<Result<Value, PullError>>>,
 }
@@ -467,12 +467,15 @@ struct CoordinatorState {
     http_running: usize,
     conditions: PullConditions,
     driving: bool,
+    closed: bool,
+    suspended: bool,
 }
 
 struct PullShared {
     state: Mutex<CoordinatorState>,
     next_id: AtomicU64,
     snapshots: watch::Sender<Vec<PullSnapshot>>,
+    tasks: RuntimeTasks,
 }
 
 #[derive(Clone)]
@@ -492,14 +495,65 @@ impl Default for PullCoordinator {
                 http_running: 0,
                 conditions: PullConditions::default(),
                 driving: false,
+                closed: false,
+                suspended: false,
             }),
             next_id: AtomicU64::new(1),
             snapshots,
+            tasks: RuntimeTasks::default(),
         }))
     }
 }
 
 impl PullCoordinator {
+    /// OS suspension stops new execution in either lane. Foreground/focus is
+    /// a separate school policy fact and does not suspend manual HTTP work.
+    pub async fn suspend(&self) {
+        let mut state = self.0.state.lock().await;
+        state.suspended = true;
+        publish_locked(&self.0, &state);
+    }
+
+    pub async fn resume(&self) {
+        {
+            let mut state = self.0.state.lock().await;
+            state.suspended = false;
+        }
+        self.kick();
+    }
+
+    /// Stop admission and retries, cancel work before Applying, and drain the
+    /// executors. Applying retains its write gate until the commit completes.
+    pub async fn shutdown(&self) {
+        let mut waiters = Vec::new();
+        {
+            let mut state = self.0.state.lock().await;
+            state.closed = true;
+            for job in state.jobs.values_mut() {
+                match job.state {
+                    PullState::Applying => (),
+                    PullState::Running | PullState::Cancelling => {
+                        job.cancel.store(true, Ordering::Release);
+                        job.state = PullState::Cancelling;
+                    }
+                    _ if job.live() => {
+                        job.cancel.store(true, Ordering::Release);
+                        job.state = reduce(job.state, PullEvent::Cancel).state;
+                        job.work = None;
+                        waiters.append(&mut job.waiters);
+                    }
+                    _ => (),
+                }
+            }
+            state.queue.clear();
+            state.keys.clear();
+            publish_locked(&self.0, &state);
+            self.0.tasks.close();
+        }
+        settle_waiters(waiters, Err(PullError::Cancelled));
+        self.0.tasks.wait().await;
+    }
+
     pub fn subscribe(&self) -> watch::Receiver<Vec<PullSnapshot>> {
         self.0.snapshots.subscribe()
     }
@@ -537,6 +591,9 @@ impl PullCoordinator {
         let mut wake_after = None;
         {
             let mut state = self.0.state.lock().await;
+            if state.closed {
+                return Err(PullError::CoordinatorStopped);
+            }
             if let Some(existing) = covering_job(&state, &target) {
                 let requeue = {
                     let job = state
@@ -594,7 +651,7 @@ impl PullCoordinator {
                         ready: !delayed,
                         last_error: None,
                         cancel: Arc::new(AtomicBool::new(false)),
-                        work,
+                        work: Some(work),
                         wait_for,
                         waiters: vec![sender],
                     },
@@ -629,6 +686,7 @@ impl PullCoordinator {
                     job.state = reduce(job.state, PullEvent::Cancel).state;
                     job.cancel.store(true, Ordering::Release);
                     settle = Some(std::mem::take(&mut job.waiters));
+                    job.work = None;
                     let target = job.target.clone();
                     remove_key_if_current(&mut state, &target, id);
                     state.queue.retain(|queued| queued != id);
@@ -658,15 +716,21 @@ impl PullCoordinator {
 
     fn kick(&self) {
         let coordinator = self.clone();
-        tokio::spawn(async move { coordinator.drive().await });
+        self.0.tasks.spawn(async move { coordinator.drive().await });
     }
 
     fn wake_later(&self, id: String, delay: Duration, retry: bool) {
         let coordinator = self.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
+        self.0.tasks.spawn(async move {
+            tokio::select! {
+                _ = coordinator.0.tasks.closed() => return,
+                _ = tokio::time::sleep(delay) => {}
+            }
             {
                 let mut state = coordinator.0.state.lock().await;
+                if state.closed {
+                    return;
+                }
                 let requeue = {
                     let Some(job) = state.jobs.get_mut(&id) else {
                         return;
@@ -692,13 +756,13 @@ impl PullCoordinator {
     async fn drive(&self) {
         {
             let mut state = self.0.state.lock().await;
-            if state.driving {
+            if state.driving || state.closed {
                 return;
             }
             state.driving = true;
         }
         loop {
-            let start = {
+            {
                 let mut state = self.0.state.lock().await;
                 let selected = select_next(&mut state);
                 let Some(id) = selected else {
@@ -722,7 +786,9 @@ impl PullCoordinator {
                     job.last_error = None;
                     job.cancel.store(false, Ordering::Release);
                     let lane = job.target.lane();
-                    let work = job.work.clone();
+                    let Some(work) = job.work.clone() else {
+                        continue;
+                    };
                     let context = PullContext {
                         coordinator: self.clone(),
                         id: id.clone(),
@@ -734,21 +800,21 @@ impl PullCoordinator {
                 };
                 occupy_lane(&mut state, lane);
                 publish_locked(&self.0, &state);
-                (id, run_id, lane, work, context)
-            };
-            let coordinator = self.clone();
-            let (id, run_id, lane, work, context) = start;
-            let worker = tokio::spawn(async move { work(context).await });
-            tokio::spawn(async move {
-                let result = worker.await.unwrap_or_else(|error| {
-                    Err(if error.is_panic() {
-                        PullError::ExecutorPanicked
-                    } else {
-                        PullError::ExecutorStopped
-                    })
+                // Register the supervisor while holding the admission lock:
+                // shutdown cannot close task tracking between selection and spawn.
+                let coordinator = self.clone();
+                self.0.tasks.spawn(async move {
+                    let worker = tokio::spawn(async move { work(context).await });
+                    let result = worker.await.unwrap_or_else(|error| {
+                        Err(if error.is_panic() {
+                            PullError::ExecutorPanicked
+                        } else {
+                            PullError::ExecutorStopped
+                        })
+                    });
+                    coordinator.finish(id, run_id, lane, result).await;
                 });
-                coordinator.finish(id, run_id, lane, result).await;
-            });
+            };
         }
     }
 
@@ -811,6 +877,7 @@ impl PullCoordinator {
                 return;
             }
             release_lane(&mut state, lane);
+            let closed = state.closed;
             {
                 let Some(job) = state.jobs.get_mut(&id) else {
                     // Run identity was checked under this same lock above.
@@ -837,7 +904,7 @@ impl PullCoordinator {
                             let target = job.target.clone();
                             remove_key_if_current(&mut state, &target, &id);
                         }
-                        Err(error) if job.attempt <= job.retry_limit => {
+                        Err(error) if !closed && job.attempt <= job.retry_limit => {
                             let transition = reduce(job.state, PullEvent::WaitRetry);
                             job.state = transition.state;
                             job.phase = Some("retryWaiting".into());
@@ -855,6 +922,11 @@ impl PullCoordinator {
                             remove_key_if_current(&mut state, &target, &id);
                         }
                     }
+                }
+            }
+            if let Some(job) = state.jobs.get_mut(&id) {
+                if !job.live() {
+                    job.work = None;
                 }
             }
             prune_terminal(&mut state);
@@ -906,6 +978,9 @@ fn blocker(job: &PullJob, conditions: PullConditions) -> Option<&'static str> {
 }
 
 fn select_next(state: &mut CoordinatorState) -> Option<String> {
+    if state.closed {
+        return None;
+    }
     let candidates = state.queue.iter().cloned().collect::<Vec<_>>();
     let mut selected: Option<(u8, u64, String)> = None;
     for id in candidates {
@@ -929,7 +1004,11 @@ fn select_next(state: &mut CoordinatorState) -> Option<String> {
             continue;
         }
         job.state = reduce(job.state, PullEvent::Check).state;
-        if let Some(reason) = blocker(job, state.conditions) {
+        if let Some(reason) = if state.suspended {
+            Some("suspended")
+        } else {
+            blocker(job, state.conditions)
+        } {
             job.state = reduce(job.state, PullEvent::Block).state;
             job.blocked_by = Some(reason.into());
             continue;
@@ -1816,6 +1895,149 @@ mod tests {
         let context = saved_context.lock().await.clone().unwrap();
         assert!(!context.phase("late").await);
         assert_eq!(coordinator.snapshots().await[0].state, PullState::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn shutdown_drains_applying_cancels_running_and_releases_captures() {
+        let coordinator = PullCoordinator::default();
+        let capture = Arc::new(());
+        let weak = Arc::downgrade(&capture);
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let applying = {
+            let coordinator = coordinator.clone();
+            let entered = entered.clone();
+            let finish = finish.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(
+                        reference("committing"),
+                        PullOptions::manual(),
+                        move |context| {
+                            let capture = capture.clone();
+                            let entered = entered.clone();
+                            let finish = finish.clone();
+                            async move {
+                                assert!(context.applying().await);
+                                entered.notify_one();
+                                finish.notified().await;
+                                assert!(!context.is_cancelled());
+                                drop(capture);
+                                Ok(json!("committed"))
+                            }
+                        },
+                    )
+                    .await
+            })
+        };
+        entered.notified().await;
+        let (sent, received) = oneshot::channel();
+        let sent = Arc::new(Mutex::new(Some(sent)));
+        let running = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(
+                        reference("fetching"),
+                        PullOptions::manual(),
+                        move |context| {
+                            let sent = sent.clone();
+                            async move {
+                                sent.lock().await.take().unwrap().send(context.clone()).ok();
+                                while !context.is_cancelled() {
+                                    tokio::task::yield_now().await;
+                                }
+                                assert!(!context.applying().await);
+                                Ok(json!("discarded"))
+                            }
+                        },
+                    )
+                    .await
+            })
+        };
+        let late = received.await.unwrap();
+        let shutdown = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move { coordinator.shutdown().await })
+        };
+        assert_eq!(running.await.unwrap(), Err(PullError::Cancelled));
+        assert!(!shutdown.is_finished());
+        assert_eq!(
+            coordinator
+                .run(reference("late"), PullOptions::manual(), |_| async {
+                    Ok(Value::Null)
+                })
+                .await,
+            Err(PullError::CoordinatorStopped)
+        );
+        finish.notify_one();
+        assert_eq!(applying.await.unwrap().unwrap(), json!("committed"));
+        shutdown.await.unwrap();
+        assert!(!late.phase("late").await);
+        assert!(
+            weak.upgrade().is_none(),
+            "history must not retain executor captures"
+        );
+        assert!(coordinator.0.tasks.is_closed());
+        assert_eq!(coordinator.0.state.lock().await.http_running, 0);
+    }
+
+    #[tokio::test]
+    async fn suspend_resume_and_shutdown_of_delayed_work_are_finite() {
+        let coordinator = PullCoordinator::default();
+        coordinator.suspend().await;
+        let mut states = coordinator.subscribe();
+        let task = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(reference("paused"), PullOptions::manual(), |_| async {
+                        Ok(json!(42))
+                    })
+                    .await
+            })
+        };
+        loop {
+            states.changed().await.unwrap();
+            if states
+                .borrow()
+                .iter()
+                .any(|row| row.blocked_by.as_deref() == Some("suspended"))
+            {
+                break;
+            }
+        }
+        assert!(!task.is_finished());
+        coordinator.resume().await;
+        assert_eq!(task.await.unwrap().unwrap(), json!(42));
+        let task = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move {
+                let mut options = PullOptions::manual();
+                options.delay = Duration::from_secs(3600);
+                coordinator
+                    .run(reference("delayed"), options, |_| async {
+                        panic!("cancelled delay executed")
+                    })
+                    .await
+            })
+        };
+        loop {
+            states.changed().await.unwrap();
+            if states
+                .borrow()
+                .iter()
+                .any(|row| row.state == PullState::Queued)
+            {
+                break;
+            }
+        }
+        tokio::time::timeout(Duration::from_secs(1), coordinator.shutdown())
+            .await
+            .unwrap();
+        assert_eq!(task.await.unwrap(), Err(PullError::Cancelled));
+        coordinator.resume().await;
+        coordinator.shutdown().await;
     }
 
     #[tokio::test]

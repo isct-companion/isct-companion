@@ -10,7 +10,7 @@ if (
   import.meta.env.DEV &&
   new URLSearchParams(location.search).get("preview") === "lms"
 ) {
-  void import("./pages/today/lms/LmsPreview").then(({ LmsPreview }) =>
+  void import("./features/lms/LmsPreview").then(({ LmsPreview }) =>
     root.render(<LmsPreview />),
   );
 } else

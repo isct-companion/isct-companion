@@ -11,7 +11,7 @@ import { UiInput, UiSelect } from "../../components/mantine";
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
 import { t } from "../../i18n";
-import type { CourseEntry } from "../today/lms/LmsWorkspace";
+import type { CourseEntry } from "../../features/lms/LmsWorkspace";
 import { useFormFactor } from "../../app/form-factor";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

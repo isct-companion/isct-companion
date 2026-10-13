@@ -1,4 +1,4 @@
-import { intlLocale } from "../../../i18n/locale";
+import { intlLocale } from "../../i18n/locale";
 import { extension, fileFamily, previewKind } from "./file-types";
 /** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
 export function safeContent(html: string, language?: "ja" | "en"): string {
