@@ -2,6 +2,7 @@ import type {
   Course,
   InstructionLanguage,
   Meeting,
+  PlanItem,
   Quarter,
   TermId,
   Workspace,
@@ -50,7 +51,7 @@ const instructionLanguage = (value?: string): InstructionLanguage => {
  * offering added in one of its quarters goes into all of them; one added
  * outside its quarters stays in the quarter on screen.
  */
-export const plannedTerms = (
+const plannedTerms = (
   year: number,
   quarter: Quarter,
   quarters: readonly Quarter[] = [],
@@ -115,11 +116,14 @@ export function addSyllabusDraft(
       },
     });
   }
+  /** Plan items this add put on the timetable (new or brought back). */
+  const placed: PlanItem[] = [];
   const drafts = termIds.map((planTerm) => {
     let draft = workspace.planItems.find(
       (candidate) =>
         candidate.termId === planTerm && candidate.courseId === course!.id,
     );
+    const active = Boolean(draft && !draft.deletedAt);
     if (draft) {
       draft.deletedAt = undefined;
       draft.rev += 1;
@@ -140,9 +144,10 @@ export function addSyllabusDraft(
       };
       workspace.planItems.push(draft);
     }
+    if (!active) placed.push(draft);
     return draft;
   });
-  return { course, drafts, sourceKey: key(item) };
+  return { course, drafts, placed, sourceKey: key(item) };
 }
 
 export function removeSyllabusDraft(

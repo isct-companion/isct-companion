@@ -130,7 +130,6 @@ import {
 import {
   addSyllabusDraft,
   isSyllabusCourse,
-  plannedTerms,
   removeSyllabusDraft,
 } from "../core/syllabus";
 import { newUserRecordId } from "../storage/ids";
@@ -543,6 +542,8 @@ export function WorkspaceApp() {
   const [offeringPanel, setOfferingPanel] = useState<FinderCourse | null>(null);
   // Courses the last finder add pushed off the timetable, so Undo can bring them back.
   const replacedByAdd = useRef<string[]>([]);
+  // Plan items the last finder add placed, so Undo leaves earlier ones be.
+  const placedByAdd = useRef<{ courseId: string; termId: TermId }[]>([]);
   // Pull progress, 0–100 while running (null when idle).
   const [lmsProgress, setLmsProgress] = useState<number | null>(null);
   const [lmsPhase, setLmsPhase] = useState("Ready");
@@ -1020,6 +1021,7 @@ export function WorkspaceApp() {
     academicUpdate((draft) => {
       const quarter = courseTerm.slice(5) as Quarter;
       const replaced: string[] = [];
+      const placed: { courseId: string; termId: TermId }[] = [];
       for (const [index, row] of rows.entries()) {
         // Add replaces: a planned course in the same periods leaves the timetable.
         // Courses registered at school stay; only local drafts are replaced.
@@ -1031,7 +1033,7 @@ export function WorkspaceApp() {
             replaced.push(victim.id);
         const course = catalogCourse(row, contentLanguage(data.settings));
         // Always into the quarter on screen, so it shows up on this timetable.
-        addSyllabusDraft(
+        const added = addSyllabusDraft(
           draft,
           {
             ...course,
@@ -1040,8 +1042,11 @@ export function WorkspaceApp() {
           },
           ids[index],
         );
+        for (const item of added.placed)
+          placed.push({ courseId: added.course.id, termId: item.termId });
       }
       replacedByAdd.current = replaced;
+      placedByAdd.current = placed;
       return draft;
     });
   };
@@ -1753,23 +1758,11 @@ export function WorkspaceApp() {
               }
               readOnly={readOnly}
               add={addFinderCourses}
-              undo={(rows) =>
+              undo={() =>
                 academicUpdate((draft) => {
-                  for (const row of rows) {
-                    const course = draft.courses.find(
-                      (item) =>
-                        isSyllabusCourse(item) &&
-                        item.source.externalId === row.id &&
-                        !item.deletedAt,
-                    );
-                    if (course)
-                      for (const term of plannedTerms(
-                        Number(courseTerm.slice(0, 4)),
-                        courseTerm.slice(5) as Quarter,
-                        row.quarters,
-                      ))
-                        removeSyllabusDraft(draft, course.id, term);
-                  }
+                  for (const item of placedByAdd.current)
+                    removeSyllabusDraft(draft, item.courseId, item.termId);
+                  placedByAdd.current = [];
                   // Bring back what the add replaced.
                   const now = stamp();
                   for (const courseId of replacedByAdd.current) {
