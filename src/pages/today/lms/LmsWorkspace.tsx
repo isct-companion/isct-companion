@@ -33,7 +33,12 @@ import { FileTile, LmsIcon } from "./LmsIcon";
 import { dueCountdown } from "../../../core/academic";
 import { springScroll, type SpringScroll } from "./spring-scroll";
 import { courseLessons, frontierLesson, gravityTarget, lessonSummary, markedLesson, markSchedule, railLabels } from "./lessons";
-import { addDays, resolveDayAgenda, tokyoDate } from "../../../core/schedule";
+import {
+  addDays,
+  courseTerms,
+  resolveDayAgenda,
+  tokyoDate,
+} from "../../../core/schedule";
 import { jstMinutes } from "../../../components/timetable/timetable";
 /** The rail's entry for course activities outside any section. */
 const ACTIVITIES = -1;
@@ -435,9 +440,11 @@ export function LmsWorkspace({
     const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
     let started: string | undefined;
     let next: string | undefined;
+    const terms = courseTerms(data, course);
     for (let offset = -14; offset <= 14 && !next; offset++) {
       const date = addDays(today, offset);
-      for (const block of resolveDayAgenda(data, course.termId, date)) {
+      const blocks = terms.flatMap((term) => resolveDayAgenda(data, term, date));
+      for (const block of blocks) {
         if (block.kind !== "course" || block.id !== course.id) continue;
         const start = `${date}T${block.startTime}:00+09:00`;
         if (offset < 0 || (offset === 0 && block.startTime <= clock)) started = start;
@@ -448,7 +455,7 @@ export function LmsWorkspace({
       lastStarted: started,
       classAt: started?.startsWith(today) ? started : (next ?? started),
     };
-  }, [data, course.id, course.termId]);
+  }, [data, course]);
   // Where the course is: the person's mark when there is one, else the LMS.
   const at = markedLesson(lessons, course.overrides?.lessonLog, lastStarted) ?? frontier;
   const atIndex = lessons.findIndex((l) => l.id === at?.id);

@@ -120,15 +120,30 @@ export function quarterRange(data: Workspace, term: TermId) {
     to,
   };
 }
+/**
+ * Courses on the timetable of `term`: those with a membership or plan item
+ * there. A course running 3Q–4Q is one course (its `termId` is where it was
+ * added) with a row in each quarter.
+ */
 export function scheduledCourses(data: Workspace, term: TermId) {
   const ids = new Set(
     [...data.memberships, ...data.planItems]
       .filter((row) => !row.deletedAt && row.termId === term)
       .map((row) => row.courseId),
   );
-  return data.courses.filter(
-    (row) => !row.deletedAt && row.termId === term && ids.has(row.id),
-  );
+  return data.courses.filter((row) => !row.deletedAt && ids.has(row.id));
+}
+
+/** Every quarter a course belongs to: its own and each one it is placed in. */
+export function courseTerms(data: Workspace, course: Course): TermId[] {
+  return [
+    ...new Set([
+      course.termId,
+      ...[...data.memberships, ...data.planItems]
+        .filter((row) => !row.deletedAt && row.courseId === course.id)
+        .map((row) => row.termId),
+    ]),
+  ].sort();
 }
 
 /** Single actual-date resolver for Today, Next, Schedule, and calendar export.

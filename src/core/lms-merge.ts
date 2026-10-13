@@ -261,18 +261,29 @@ export function applyLmsMerge(
     } else if (course.deletedAt) {
       Object.assign(course, { deletedAt: undefined, rev: course.rev + 1, updatedAt: now, updatedBy: draft.deviceId });
     }
-    if (!draft.memberships.some((item) => item.courseId === id && item.termId === entry.termId && !item.deletedAt))
+    // A 3Q–4Q course pulled in 3Q also joins 4Q; quarters inside the pulled
+    // scope are left to their own entry, which the person may have unchecked.
+    const terms = [entry.termId, ...lmsTerms(entry.lms, entry.offering).filter((term) => !diff.terms.includes(term))];
+    for (const termId of terms) {
+      if (draft.memberships.some((item) => item.courseId === id && item.termId === termId && !item.deletedAt)) continue;
+      const membershipId = `lms-membership:${entry.lms.lmsId}:${termId}`;
+      const removed = draft.memberships.find((item) => item.id === membershipId);
+      if (removed) {
+        Object.assign(removed, { deletedAt: undefined, rev: removed.rev + 1, updatedAt: now, updatedBy: draft.deviceId });
+        continue;
+      }
       draft.memberships.push({
-        id: `lms-membership:${entry.lms.lmsId}:${entry.termId}`,
+        id: membershipId,
         kind: "membership",
         rev: 1,
         updatedAt: now,
         updatedBy: draft.deviceId,
-        termId: entry.termId,
+        termId,
         courseId: id,
         status: "lms-member",
         evidence: { provider: "lms", externalId: String(entry.lms.lmsId), fetchedAt: now },
       });
+    }
     if (!linked.has(entry.lms.lmsId)) linked.set(entry.lms.lmsId, id);
   }
 

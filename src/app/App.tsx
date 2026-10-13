@@ -130,9 +130,11 @@ import {
 import {
   addSyllabusDraft,
   isSyllabusCourse,
+  plannedTerms,
   removeSyllabusDraft,
 } from "../core/syllabus";
 import { newUserRecordId } from "../storage/ids";
+import { courseTerms } from "../core/schedule";
 
 import {
   CourseEditor,
@@ -683,7 +685,7 @@ export function WorkspaceApp() {
     for (const course of sourceData.courses.filter(
       (course) =>
         !course.deletedAt &&
-        course.termId === sourceData.selectedTerm &&
+        courseTerms(sourceData, course).includes(sourceData.selectedTerm) &&
         isSyllabusCourse(course) &&
         course.url,
     ))
@@ -896,7 +898,7 @@ export function WorkspaceApp() {
   const currentTerm = data.currentTerm;
   // Today and Lecture Desk follow the current quarter once it has courses.
   const todayTerm = data.courses.some(
-    (c) => c.termId === currentTerm && !c.deletedAt,
+    (c) => !c.deletedAt && courseTerms(data, c).includes(currentTerm),
   )
     ? currentTerm
     : data.selectedTerm;
@@ -1064,7 +1066,8 @@ export function WorkspaceApp() {
       const target = d.courses.find((c) => c.id === course.id && !c.deletedAt);
       if (!target) return d;
       if (isSyllabusCourse(target) && !school)
-        removeSyllabusDraft(d, target.id, target.termId);
+        for (const term of courseTerms(d, target))
+          removeSyllabusDraft(d, target.id, term);
       else setTimetable(d, target, false);
       return d;
     });
@@ -1757,11 +1760,15 @@ export function WorkspaceApp() {
                       (item) =>
                         isSyllabusCourse(item) &&
                         item.source.externalId === row.id &&
-                        item.termId === courseTerm &&
                         !item.deletedAt,
                     );
                     if (course)
-                      removeSyllabusDraft(draft, course.id, course.termId);
+                      for (const term of plannedTerms(
+                        Number(courseTerm.slice(0, 4)),
+                        courseTerm.slice(5) as Quarter,
+                        row.quarters,
+                      ))
+                        removeSyllabusDraft(draft, course.id, term);
                   }
                   // Bring back what the add replaced.
                   const now = stamp();

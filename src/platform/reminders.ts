@@ -6,6 +6,7 @@ import {
   type Workspace,
 } from "../core/model";
 import {
+  courseTerms,
   resolveDayAgenda,
   scheduledCourses,
   tokyoDate,
@@ -23,7 +24,9 @@ export type Reminder = { key: string; at: number; title: string; body: string };
 /** The term whose timetable Today shows for this moment. */
 export function reminderTerm(data: Workspace, _now: Date): TermId {
   const current = data.currentTerm;
-  return data.courses.some((row) => row.termId === current && !row.deletedAt)
+  return data.courses.some(
+    (row) => !row.deletedAt && courseTerms(data, row).includes(current),
+  )
     ? current
     : data.selectedTerm;
 }

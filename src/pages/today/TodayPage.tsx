@@ -21,6 +21,7 @@ import {
   addDays,
   calendarState,
   civilWeekday,
+  courseTerms,
   importantDatesOnDate,
   resolveDayAgenda,
 } from "../../core/schedule";
@@ -139,7 +140,7 @@ export function Today({
       (item) => item.id === assignment.courseId && !item.deletedAt,
     );
     return course
-      ? course.termId === term
+      ? courseTerms(data, course).includes(term)
       : assignment.dueAt !== null &&
           new Date(assignment.dueAt).getTime() >= now.getTime();
   };
