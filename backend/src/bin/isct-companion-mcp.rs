@@ -96,7 +96,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "plan_add",
-            "Add a catalog offering (plannable: true in search_catalog) to the person's local plan. term is YYYY-nQ and must be one of the offering's quarters.",
+            "Add a catalog offering (plannable: true in search_catalog) to the person's local plan. term is YYYY-nQ and must be one of the offering's quarters; an offering running over several quarters (e.g. 3Q–4Q) is planned into all of them.",
             json!({
                 "offeringId": {"type": "string"}, "term": {"type": "string"}
             }),
@@ -210,7 +210,8 @@ fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
     row.get(key).and_then(Value::as_str)
 }
 
-/// Courses on the timetable of `term`: registered at school or planned.
+/// Courses on the timetable of `term`: registered at school or planned
+/// there, whatever quarter the course was added in (3Q–4Q courses).
 /// Mirrors `scheduledCourses` in src/core/schedule.ts.
 fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
     let ids = ["memberships", "planItems"]
@@ -221,9 +222,7 @@ fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
         .collect::<std::collections::HashSet<_>>();
     visible_rows(workspace, "courses")
         .into_iter()
-        .filter(|row| {
-            text(row, "termId") == Some(term) && text(row, "id").is_some_and(|id| ids.contains(id))
-        })
+        .filter(|row| text(row, "id").is_some_and(|id| ids.contains(id)))
         .collect()
 }
 
@@ -727,17 +726,6 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 text(row, "id") == Some(canonical.as_str())
                     || text(row, "offeringId") == Some(offering_id)
             });
-            // The timetable lists a course only under its own quarter, so a
-            // plan for another quarter would never show up.
-            if let Some(other) = existing
-                .as_ref()
-                .and_then(|row| text(row, "termId"))
-                .filter(|other| *other != term)
-            {
-                return Err(format!(
-                    "this offering is already on the {other} timetable; plan it for {other}"
-                ));
-            }
             let course_id = match existing.as_ref().and_then(|row| text(row, "id")) {
                 Some(id) => id.to_string(),
                 None => {
@@ -751,27 +739,41 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                         .to_string()
                 }
             };
-            let planned = store.user_rows("plan_items")?.into_iter().find(|row| {
-                text(row, "courseId") == Some(course_id.as_str())
-                    && text(row, "termId") == Some(term)
-                    && row.get("deletedAt").is_none()
-            });
-            let plan_item = match planned {
-                Some(row) => row,
-                None => store.put_user_record(
-                    "plan_items",
-                    json!({
-                        "kind": "plan-item",
-                        "termId": term, "offeringId": offering_id, "courseId": course_id, "state": "planned",
-                        "source": {"provider":"mcp"}
-                    }),
-                    "mcp",
-                )?,
+            // A 3Q–4Q offering is planned into each of its quarters, like
+            // addSyllabusDraft (plannedTerms) in src/core/syllabus.ts.
+            let terms = if quarters.is_empty() {
+                vec![term.to_string()]
+            } else {
+                quarters.iter().map(|q| format!("{year}-{q}")).collect()
             };
+            let rows = store.user_rows("plan_items")?;
+            let mut plan_item = Value::Null;
+            for plan_term in &terms {
+                let planned = rows.iter().find(|row| {
+                    text(row, "courseId") == Some(course_id.as_str())
+                        && text(row, "termId") == Some(plan_term.as_str())
+                        && row.get("deletedAt").is_none()
+                });
+                let row = match planned {
+                    Some(row) => row.clone(),
+                    None => store.put_user_record(
+                        "plan_items",
+                        json!({
+                            "kind": "plan-item",
+                            "termId": plan_term, "offeringId": offering_id, "courseId": course_id, "state": "planned",
+                            "source": {"provider":"mcp"}
+                        }),
+                        "mcp",
+                    )?,
+                };
+                if plan_term == term {
+                    plan_item = row;
+                }
+            }
             write_result(
                 store,
                 name,
-                json!({"courseId": course_id, "planItemId": plan_item.get("id")}),
+                json!({"courseId": course_id, "planItemId": plan_item.get("id"), "terms": terms}),
             )
         }
         "plan_remove" => {
