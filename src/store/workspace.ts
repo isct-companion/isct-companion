@@ -147,7 +147,6 @@ export function createWorkspaceStore(
   let writes = Promise.resolve();
   let refreshing: Promise<SchoolRecords | undefined> | undefined;
   let refreshRequest = 0;
-  let pulls: Promise<unknown> = Promise.resolve();
   const publish = (next: WorkspaceSnapshot) => {
     state.setState(Object.freeze(next), true);
   };
@@ -170,8 +169,7 @@ export function createWorkspaceStore(
         const cause = reason instanceof Error ? reason.message : String(reason);
         publish({
           ...state.getState(),
-          error:
-            `Workspace could not be saved. Your changes remain in memory; retry saving. ${cause}`,
+          error: `Workspace could not be saved. Your changes remain in memory; retry saving. ${cause}`,
         });
       }
     });
@@ -198,17 +196,34 @@ export function createWorkspaceStore(
         const before = state.getState();
         if (before.error && before.workspace) throw new Error(before.error);
         const request = refreshRequest;
-        const [data, records] = await Promise.all([storage.load(), school?.read()]);
+        const [data, records] = await Promise.all([
+          storage.load(),
+          school?.read(),
+        ]);
         validate(data);
         // An edit or another import arrived while IPC was pending. Read the
         // persisted latest state rather than replacing a newer in-memory draft.
-        if (state.getState().revision !== before.revision || request !== refreshRequest) continue;
+        if (
+          state.getState().revision !== before.revision ||
+          request !== refreshRequest
+        )
+          continue;
         const revision = before.revision + 1;
-        publish({ workspace: freeze(structuredClone(data)), schoolRecords: records ? freeze(structuredClone(records)) : before.schoolRecords,
-          status: "ready", revision, persistedRevision: revision, error: undefined });
+        publish({
+          workspace: freeze(structuredClone(data)),
+          schoolRecords: records
+            ? freeze(structuredClone(records))
+            : before.schoolRecords,
+          status: "ready",
+          revision,
+          persistedRevision: revision,
+          error: undefined,
+        });
         return records;
       }
-    })().finally(() => { refreshing = undefined; });
+    })().finally(() => {
+      refreshing = undefined;
+    });
     return refreshing;
   };
   return {
@@ -224,7 +239,9 @@ export function createWorkspaceStore(
           validate(data);
           publish({
             workspace: freeze(structuredClone(data)),
-            schoolRecords: records ? freeze(structuredClone(records)) : undefined,
+            schoolRecords: records
+              ? freeze(structuredClone(records))
+              : undefined,
             status: "ready",
             revision: 0,
             persistedRevision: 0,
@@ -244,12 +261,11 @@ export function createWorkspaceStore(
       return loading;
     },
     reload,
-    pullSchool(
-      site: "science-lms" | "kyomu",
-      options?: SchoolPullOptions,
-    ) {
-      if (!school?.pull) return Promise.reject(new Error("School pull needs the desktop app."));
-      const operation = pulls.catch(() => undefined).then(async () => {
+    pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
+      if (!school?.pull)
+        return Promise.reject(new Error("School pull needs the desktop app."));
+      // Native PullCoordinator owns admission and request coalescing.
+      return (async () => {
         await writes;
         if (state.getState().error) throw new Error(state.getState().error);
         const outcomes = options
@@ -257,9 +273,7 @@ export function createWorkspaceStore(
           : await school.pull!(site);
         await reload();
         return outcomes;
-      });
-      pulls = operation;
-      return operation;
+      })();
     },
     // Application services use this transaction after their own command capability checks.
     update,
@@ -284,13 +298,19 @@ export function createWorkspaceStore(
   };
 }
 
-const desktopBridge = typeof window === "undefined" ? undefined : getDesktopBridge();
-const internalWorkspaceStore = createWorkspaceStore(repository, desktopBridge?.schoolRecords ? {
-  read: () => desktopBridge!.schoolRecords!(),
-  pull: desktopBridge.pullSchool
-    ? (site, options) => desktopBridge!.pullSchool!(site, options)
+const desktopBridge =
+  typeof window === "undefined" ? undefined : getDesktopBridge();
+const internalWorkspaceStore = createWorkspaceStore(
+  repository,
+  desktopBridge?.schoolRecords
+    ? {
+        read: () => desktopBridge!.schoolRecords!(),
+        pull: desktopBridge.pullSchool
+          ? (site, options) => desktopBridge!.pullSchool!(site, options)
+          : undefined,
+      }
     : undefined,
-} : undefined);
+);
 
 /** Read/lifecycle surface. Mutations are available only through workspaceActions. */
 export const workspaceStore = {
@@ -425,7 +445,9 @@ const protectedWorkspaceEnvelope = (workspace: Workspace) => {
 
 export const workspaceActions = {
   /** Refresh canonical workspace and parsed school records in one publication. */
-  refreshSchool() { return internalWorkspaceStore.reload(); },
+  refreshSchool() {
+    return internalWorkspaceStore.reload();
+  },
   pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
     requireAction("import-school", detectPlatform());
     return internalWorkspaceStore.pullSchool(site, options);

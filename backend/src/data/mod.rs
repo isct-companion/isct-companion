@@ -221,7 +221,7 @@ fn current_term_for(workspace: &Value, date: chrono::NaiveDate) -> Option<String
 }
 
 fn empty_workspace() -> Value {
-    let date = Utc::now().date_naive();
+    let date = (Utc::now() + chrono::Duration::hours(9)).date_naive();
     let year = if date.month() < 4 {
         date.year() - 1
     } else {
@@ -1145,6 +1145,56 @@ impl DataStore {
             .unwrap_or(false))
     }
 
+    // Local reference markers are excluded from user backups and cloud exports.
+    // Empty feeds need this local evidence too: metadata may survive a restore.
+    pub fn reference_cache_marker(&self, kind: &str, year: i32) -> Result<Option<Value>, String> {
+        read_setting(&self.open()?, &format!("referenceCache:{kind}:{year}"))
+    }
+
+    pub fn record_reference_cache(
+        &self,
+        kind: &str,
+        year: i32,
+        marker: Value,
+    ) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        save_setting(
+            &transaction,
+            &format!("referenceCache:{kind}:{year}"),
+            &marker,
+            "reference-pull",
+        )?;
+        transaction.commit().map_err(|error| error.to_string())
+    }
+
+    /// Patch only the poll clock under the same SQL lock as local preferences.
+    pub fn record_reference_poll(&self) -> Result<(), String> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let key = if read_setting(&transaction, "devicePreferences")?.is_some() {
+            "devicePreferences"
+        } else {
+            "settings"
+        };
+        let mut settings = read_setting(&transaction, key)?.unwrap_or_else(|| json!({}));
+        let refresh = settings
+            .as_object_mut()
+            .ok_or("settings must be an object")?
+            .entry("subscriptionRefresh")
+            .or_insert_with(|| json!({"frequency":"daily","allowCellular":false}));
+        refresh
+            .as_object_mut()
+            .ok_or("subscription refresh must be an object")?
+            .insert("lastCheckedAt".into(), json!(now()));
+        save_setting(&transaction, key, &settings, "pull-coordinator")?;
+        transaction.commit().map_err(|error| error.to_string())
+    }
+
     pub fn record_agent_write(&self, tool: &str) -> Result<(), String> {
         let mut connection = self.open()?;
         let transaction = connection
@@ -1981,6 +2031,36 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("isct-companion-{name}-{}.db", Uuid::new_v4()));
         DataStore::initialize(path).unwrap().0
+    }
+
+    #[test]
+    fn reference_poll_clock_preserves_other_device_preferences() {
+        let store = store("reference-poll");
+        store
+            .put_workspace_setting(
+                "devicePreferences",
+                json!({
+                    "appearance":"dark", "locale":"ja", "subscriptionRefresh":{
+                        "frequency":"daily", "allowCellular":true
+                    }
+                }),
+                "test",
+            )
+            .unwrap();
+        store.record_reference_poll().unwrap();
+        let workspace = store.load_workspace().unwrap();
+        assert_eq!(workspace["settings"]["appearance"], "dark");
+        assert_eq!(workspace["settings"]["locale"], "ja");
+        assert_eq!(
+            workspace["settings"]["subscriptionRefresh"]["allowCellular"],
+            true
+        );
+        assert!(DateTime::parse_from_rfc3339(
+            workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"]
+                .as_str()
+                .unwrap()
+        )
+        .is_ok());
     }
 
     #[test]

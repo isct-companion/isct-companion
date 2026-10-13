@@ -167,7 +167,7 @@ export function FilePreview({
   );
 }
 
-/** Secondary actions: Show in Finder (once on disk), Open in app, Open in browser. */
+/** Secondary actions: Show in Finder (once on disk), Open in LMS, Open in browser. */
 function FileActions({ course, openInApp }: { course: CourseFile; openInApp?: () => void }) {
   const { url, context, view } = course;
   const reveal = async (open = false) => {
@@ -176,7 +176,7 @@ function FileActions({ course, openInApp }: { course: CourseFile; openInApp?: ()
   };
   return <>
     {view.state === "ready" && course.managed && <button type="button" onClick={() => void reveal()}><LmsIcon name="folder" size={14} />{t(revealLabel)}</button>}
-    {openInApp && <button type="button" onClick={openInApp}><LmsIcon name="page" size={14} />{t("Open in app")}</button>}
+    {openInApp && <button type="button" onClick={openInApp}><LmsIcon name="page" size={14} />{t("Open in LMS")}</button>}
     <ExternalLink href={url}><LmsIcon name="external" size={14} />{t("Open in browser")}</ExternalLink>
   </>;
 }

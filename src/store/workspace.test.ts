@@ -226,25 +226,88 @@ describe("workspace action boundary", () => {
 });
 
 describe("shared school snapshot", () => {
-  const records = (title: string) => ({lastRuns:{},lmsCourses:[{lmsId:42,title,url:"https://lms.s.isct.ac.jp/2025/course/view.php?id=42"}],registrations:[],registrationStates:[],grades:[],gpaByTerm:[],requirements:[]}) as import("../platform/desktop-bridge").SchoolRecords;
+  const records = (title: string) =>
+    ({
+      lastRuns: {},
+      lmsCourses: [
+        {
+          lmsId: 42,
+          title,
+          url: "https://lms.s.isct.ac.jp/2025/course/view.php?id=42",
+        },
+      ],
+      registrations: [],
+      registrationStates: [],
+      grades: [],
+      gpaByTerm: [],
+      requirements: [],
+    }) as import("../platform/desktop-bridge").SchoolRecords;
   it("publishes native course records and workspace together through the global action", async () => {
-    const storage = memoryRepository(); let schoolRows = records("Old section");
-    const school = {read:vi.fn(async()=>schoolRows),pull:vi.fn(async()=>{schoolRows=records("New section");return [];})};
-    const store = createWorkspaceStore(storage, school); await store.initialize();
-    const observed: string[]=[];const off=store.subscribe(snapshot=>observed.push(snapshot.schoolRecords!.lmsCourses[0].title));
+    const storage = memoryRepository();
+    let schoolRows = records("Old section");
+    const school = {
+      read: vi.fn(async () => schoolRows),
+      pull: vi.fn(async () => {
+        schoolRows = records("New section");
+        return [];
+      }),
+    };
+    const store = createWorkspaceStore(storage, school);
+    await store.initialize();
+    const observed: string[] = [];
+    const off = store.subscribe((snapshot) =>
+      observed.push(snapshot.schoolRecords!.lmsCourses[0].title),
+    );
     await store.pullSchool("science-lms");
     expect(school.pull).toHaveBeenCalledWith("science-lms");
     expect(observed).toEqual(["New section"]);
-    expect(Object.isFrozen(store.getState().schoolRecords?.lmsCourses)).toBe(true);off();
+    expect(Object.isFrozen(store.getState().schoolRecords?.lmsCourses)).toBe(
+      true,
+    );
+    off();
+  });
+  it("passes concurrent pulls to native admission and reloads committed results", async () => {
+    const storage = memoryRepository();
+    const release: Array<() => void> = [];
+    const school = {
+      read: vi.fn(async () => records("Section")),
+      pull: vi.fn(
+        () => new Promise<[]>((resolve) => release.push(() => resolve([]))),
+      ),
+    };
+    const store = createWorkspaceStore(storage, school);
+    await store.initialize();
+    const first = store.pullSchool("science-lms");
+    const second = store.pullSchool("kyomu");
+    await vi.waitFor(() => expect(school.pull).toHaveBeenCalledTimes(2));
+    store.update((draft) => {
+      draft.settings.appearance = "dark";
+    });
+    release.forEach((done) => done());
+    await Promise.all([first, second]);
+    expect(store.getState().workspace?.settings.appearance).toBe("dark");
+    expect(store.getState().schoolRecords?.lmsCourses[0].title).toBe("Section");
   });
   it("does not overwrite edits made while a native refresh was pending", async () => {
-    const storage = memoryRepository();const store=createWorkspaceStore(storage);await store.initialize();
-    let release!:(value:Workspace)=>void;
-    storage.load.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
-    const refresh=store.reload();await Promise.resolve();await Promise.resolve();
-    const stale=storage.read();
-    store.update(draft=>{draft.settings.appearance="dark";});
-    release(stale);await refresh;
+    const storage = memoryRepository();
+    const store = createWorkspaceStore(storage);
+    await store.initialize();
+    let release!: (value: Workspace) => void;
+    storage.load.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const refresh = store.reload();
+    await Promise.resolve();
+    await Promise.resolve();
+    const stale = storage.read();
+    store.update((draft) => {
+      draft.settings.appearance = "dark";
+    });
+    release(stale);
+    await refresh;
     expect(store.getState().workspace?.settings.appearance).toBe("dark");
     expect(storage.load).toHaveBeenCalledTimes(3);
   });

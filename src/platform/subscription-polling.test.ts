@@ -2,14 +2,50 @@ import { describe, expect, it, vi } from "vitest";
 import { seedWorkspace } from "../core/model";
 import {
   pollReferenceSubscriptions,
+  referenceCachePresent,
   recordSubscriptionPoll,
   SUBSCRIPTION_POLL_MS,
   subscriptionPollDue,
 } from "./subscription-polling";
 
 describe("reference subscription polling", () => {
+  it("requires valid dates on every quarter boundary", () => {
+    const data = seedWorkspace();
+    for (const quarter of ["1Q", "2Q", "3Q", "4Q"] as const)
+      for (const type of ["quarter-start", "quarter-end"] as const)
+        data.academicCalendar.push({
+          id: `calendar:2026:${type}:${quarter}`,
+          academicYear: 2026,
+          date: "2026-04-01",
+          type,
+          quarter,
+          label: { ja: quarter },
+          rev: 1,
+          updatedAt: "2026-10-01T00:00:00Z",
+          updatedBy: data.deviceId,
+        });
+    expect(referenceCachePresent(data, "calendar", 2026)).toBe(true);
+    data.academicCalendar[0].date = "2026-02-30";
+    expect(referenceCachePresent(data, "calendar", 2026)).toBe(false);
+  });
+
   it("is due once per day", () => {
     const data = seedWorkspace();
+    for (const kind of [
+      "calendar",
+      "departments",
+      "important-dates",
+      "exams",
+    ] as const)
+      data.subscriptions.push({
+        id: `subscription:${kind}`,
+        kind,
+        url: "https://example.com/index.json",
+        enabled: false,
+        rev: 1,
+        updatedAt: "2026-10-01T00:00:00Z",
+        updatedBy: data.deviceId,
+      });
     const now = Date.parse("2026-10-06T12:00:00Z");
     expect(subscriptionPollDue(data, now)).toBe(true);
     data.settings.subscriptionRefresh.lastCheckedAt = new Date(
@@ -20,6 +56,58 @@ describe("reference subscription polling", () => {
       now - SUBSCRIPTION_POLL_MS,
     ).toISOString();
     expect(subscriptionPollDue(data, now)).toBe(true);
+  });
+
+  it("is immediately due when calendar metadata outlives its quarter cache", () => {
+    const data = seedWorkspace();
+    data.selectedTerm = "2026-3Q";
+    data.subscriptions.push({
+      id: "subscription:calendar",
+      kind: "calendar",
+      url: "https://example.com/index.json",
+      enabled: true,
+      year: 2026,
+      indexHash: "same-commit",
+      fetchedAt: "2026-10-06T11:00:00Z",
+      rev: 1,
+      updatedAt: "2026-10-06T11:00:00Z",
+      updatedBy: data.deviceId,
+    });
+    data.settings.subscriptionRefresh.lastCheckedAt = "2026-10-06T11:00:00Z";
+    expect(subscriptionPollDue(data, Date.parse("2026-10-06T12:00:00Z"))).toBe(
+      true,
+    );
+  });
+
+  it("does not let a localized fetchedAt value suppress a retry", () => {
+    const data = seedWorkspace();
+    data.academicProfile.admissionYear = 2026;
+    data.subscriptions.push({
+      id: "subscription:departments",
+      kind: "departments",
+      url: "https://example.com/index.json",
+      enabled: true,
+      year: 2026,
+      indexHash: "same-commit",
+      fetchedAt: "10/06/2026 12:00",
+      rev: 1,
+      updatedAt: "2026-10-06T11:00:00Z",
+      updatedBy: data.deviceId,
+    });
+    for (const kind of ["calendar", "important-dates", "exams"] as const)
+      data.subscriptions.push({
+        id: `subscription:${kind}`,
+        kind,
+        url: "https://example.com/index.json",
+        enabled: false,
+        rev: 1,
+        updatedAt: "2026-10-06T11:00:00Z",
+        updatedBy: data.deviceId,
+      });
+    data.settings.subscriptionRefresh.lastCheckedAt = "2026-10-06T11:00:00Z";
+    expect(subscriptionPollDue(data, Date.parse("2026-10-06T12:00:00Z"))).toBe(
+      true,
+    );
   });
 
   it("polls enabled GitHub datasets and carries their known hashes", async () => {
@@ -74,7 +162,12 @@ describe("reference subscription polling", () => {
     const data = seedWorkspace();
     data.selectedTerm = "2026-3Q";
     data.academicProfile.admissionYear = 2025;
-    for (const kind of ["calendar", "departments", "important-dates", "exams"] as const) {
+    for (const kind of [
+      "calendar",
+      "departments",
+      "important-dates",
+      "exams",
+    ] as const) {
       data.subscriptions.push({
         id: `subscription:${kind}`,
         kind,
@@ -82,11 +175,25 @@ describe("reference subscription polling", () => {
         enabled: true,
         indexHash: "same-commit",
         year: kind === "departments" ? 2025 : 2026,
+        fetchedAt: "2026-10-01T00:00:00Z",
         rev: 1,
         updatedAt: "2026-10-01T00:00:00Z",
         updatedBy: data.deviceId,
       });
     }
+    for (const quarter of ["1Q", "2Q", "3Q", "4Q"] as const)
+      for (const type of ["quarter-start", "quarter-end"] as const)
+        data.academicCalendar.push({
+          id: `calendar:2026:${type}:${quarter}`,
+          academicYear: 2026,
+          date: "2026-04-01",
+          type,
+          quarter,
+          label: { ja: quarter },
+          rev: 1,
+          updatedAt: "2026-10-01T00:00:00Z",
+          updatedBy: data.deviceId,
+        });
     const probe = vi.fn(async () => ({ indexHash: "same-commit" }));
     const refresh = vi.fn();
     const results = await pollReferenceSubscriptions(data, probe, refresh);
@@ -94,6 +201,50 @@ describe("reference subscription polling", () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(results).toHaveLength(4);
     expect(results.every((item) => item.skipped)).toBe(true);
+  });
+
+  it("repairs missing quarter rows even when the index and source hashes match", async () => {
+    const data = seedWorkspace();
+    data.selectedTerm = "2026-3Q";
+    data.subscriptions.push({
+      id: "subscription:calendar",
+      kind: "calendar",
+      url: "https://example.com/index.json",
+      enabled: true,
+      year: 2026,
+      indexHash: "same-commit",
+      remoteHash: "known-calendar-hash",
+      fetchedAt: "2026-10-01T00:00:00Z",
+      rev: 1,
+      updatedAt: "2026-10-01T00:00:00Z",
+      updatedBy: data.deviceId,
+    });
+    for (const kind of ["departments", "important-dates", "exams"] as const)
+      data.subscriptions.push({
+        id: `subscription:${kind}`,
+        kind,
+        url: "https://example.com/index.json",
+        enabled: false,
+        rev: 1,
+        updatedAt: "2026-10-01T00:00:00Z",
+        updatedBy: data.deviceId,
+      });
+    const probe = vi.fn(async () => ({ indexHash: "same-commit" }));
+    const refresh = vi.fn(async () => ({
+      changed: 8,
+      dataUrl: "https://example.com/calendar.json",
+      remoteHash: "known-calendar-hash",
+      sourceTs: "2026-10-01T00:00:00Z",
+      notModified: false,
+    }));
+    await pollReferenceSubscriptions(data, probe, refresh);
+    expect(refresh).toHaveBeenCalledWith(
+      "calendar",
+      "https://example.com/index.json",
+      2026,
+      "same-commit",
+      undefined,
+    );
   });
 
   it("fetches the newly selected year even when the repository hash is unchanged", async () => {
@@ -149,19 +300,21 @@ describe("reference subscription polling", () => {
     const data = seedWorkspace();
     recordSubscriptionPoll(
       data,
-      [{
-        kind: "calendar",
-        url: "https://example.com/index.json",
-        year: 2026,
-        indexHash: "commit123",
-        result: {
-          changed: 0,
-          dataUrl: "https://example.com/calendar.json",
-          remoteHash: "abc123",
-          sourceTs: "2026-10-06T00:00:00Z",
-          notModified: true,
+      [
+        {
+          kind: "calendar",
+          url: "https://example.com/index.json",
+          year: 2026,
+          indexHash: "commit123",
+          result: {
+            changed: 0,
+            dataUrl: "https://example.com/calendar.json",
+            remoteHash: "abc123",
+            sourceTs: "2026-10-06T00:00:00Z",
+            notModified: true,
+          },
         },
-      }],
+      ],
       "2026-10-06T12:00:00Z",
     );
     expect(data.settings.subscriptionRefresh.lastCheckedAt).toBe(
@@ -191,13 +344,15 @@ describe("reference subscription polling", () => {
     });
     recordSubscriptionPoll(
       data,
-      [{
-        kind: "calendar",
-        url: "https://example.com/index.json",
-        year: 2026,
-        indexHash: "new-commit",
-        error: "download failed",
-      }],
+      [
+        {
+          kind: "calendar",
+          url: "https://example.com/index.json",
+          year: 2026,
+          indexHash: "new-commit",
+          error: "download failed",
+        },
+      ],
       "2026-10-06T12:00:00Z",
     );
     expect(data.settings.subscriptionRefresh.lastCheckedAt).toBeUndefined();

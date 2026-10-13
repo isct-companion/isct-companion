@@ -1,18 +1,7 @@
 import type { AcademicProfile, Quarter, TermId } from "./model";
+import { isCivilDate as isDate, tokyoDate } from "./civil-date";
 
 const quarters: Quarter[] = ["1Q", "2Q", "3Q", "4Q"];
-
-function isDate(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
-    return false;
-  const [year, month, day] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return (
-    parsed.getUTCFullYear() === year &&
-    parsed.getUTCMonth() === month - 1 &&
-    parsed.getUTCDate() === day
-  );
-}
 
 export function validateAcademicProfile(value: unknown): AcademicProfile {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -106,12 +95,7 @@ export function academicTermForDate(
   profile: AcademicProfile,
 ): TermId | undefined {
   if (Number.isNaN(date.getTime())) return undefined;
-  const iso = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+  const iso = tokyoDate(date);
   const starts = profile.years.flatMap((year) =>
     quarters.map((quarter) => ({
       date: year.quarterStarts[quarter],

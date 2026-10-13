@@ -242,6 +242,52 @@ export type CloudSyncState = {
   versions: CloudSyncVersion[];
 };
 
+/** Native business pull state; login/navigation remain executor details. */
+export type PullSnapshot = {
+  id: string;
+  target:
+    | { type: "school"; site: "science-lms" | "kyomu"; courseId: number | null }
+    | { type: "reference"; kind: string; indexUrl: string; year: number };
+  priority: "automatic" | "manual";
+  state:
+    | "queued"
+    | "checking"
+    | "blocked"
+    | "running"
+    | "applying"
+    | "retryWaiting"
+    | "succeeded"
+    | "failed"
+    | "cancelling"
+    | "cancelled"
+    | "yielding";
+  phase: string | null;
+  blockedBy: string | null;
+  attempt: number;
+  waiterCount: number;
+  lastError: string | null;
+};
+
+/** Prefer executing work when an older automatic request is blocked. */
+export function schoolPullForDisplay(
+  states: PullSnapshot[],
+  site: "science-lms" | "kyomu",
+) {
+  const active = states.filter(
+    (pull) =>
+      pull.target.type === "school" &&
+      pull.target.site === site &&
+      !["succeeded", "failed", "cancelled"].includes(pull.state),
+  );
+  return (
+    active.find((pull) =>
+      ["running", "applying", "cancelling"].includes(pull.state),
+    ) ??
+    active.find((pull) => pull.state !== "blocked") ??
+    active[0]
+  );
+}
+
 export type InvokeNative = (
   command: string,
   payload?: Record<string, unknown>,
@@ -346,6 +392,10 @@ export interface DesktopBridge {
     site: "science-lms" | "kyomu",
     options?: SchoolPullOptions,
   ): Promise<SchoolIngestOutcome[]>;
+  getPullState?(): Promise<PullSnapshot[]>;
+  onPullState?(callback: (states: PullSnapshot[]) => void): () => void;
+  cancelPull?(id: string): Promise<boolean>;
+  refreshReferenceSubscriptions?(force: boolean): Promise<string>;
   schoolRecords?(): Promise<SchoolRecords>;
   /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
   setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
@@ -744,6 +794,53 @@ export function createTauriDesktopBridge(
       if (!Array.isArray(value))
         throw new Error("pull_school returned an invalid result.");
       return value as SchoolIngestOutcome[];
+    },
+    getPullState: async () => {
+      const value = await invokeCommand("pull_state");
+      if (!Array.isArray(value))
+        throw new Error("pull_state returned an invalid result.");
+      return value as PullSnapshot[];
+    },
+    onPullState: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      let version = 0;
+      void listen<PullSnapshot[]>("pull-state-changed", (payload) => {
+        if (!disposed && Array.isArray(payload)) {
+          version++;
+          callback(payload);
+        }
+      })
+        .then(async (fn) => {
+          if (disposed) {
+            fn();
+            return;
+          }
+          unlisten = fn;
+          // Listen first, then read: fast startup jobs may finish before mount.
+          const currentVersion = version;
+          const value = await invokeCommand("pull_state");
+          if (!disposed && currentVersion === version && Array.isArray(value))
+            callback(value as PullSnapshot[]);
+        })
+        .catch(() => undefined);
+      return () => {
+        disposed = true;
+        try {
+          void Promise.resolve(unlisten?.()).catch(() => undefined);
+        } catch {
+          /* Closing runtime. */
+        }
+      };
+    },
+    cancelPull: (id) => booleanCommand("cancel_pull", { id }),
+    refreshReferenceSubscriptions: async (force) => {
+      const value = await invokeCommand("refresh_reference_subscriptions", {
+        force,
+      });
+      if (typeof value !== "string")
+        throw new Error("Reference refresh returned an invalid result.");
+      return value;
     },
     schoolRecords: async () => {
       const value = requireObject<Partial<SchoolRecords>>(

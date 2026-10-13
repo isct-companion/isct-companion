@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   seedWorkspace,
   type Course,
   type Plan,
   type AcademicCalendarDay,
 } from "./model";
-import { occurrencesOnDate, quarterRange, resolveDayAgenda, tokyoDate } from "./schedule";
+import { addDays, occurrencesOnDate, quarterRange, resolveDayAgenda, tokyoDate } from "./schedule";
 import { exportQuarterIcs } from "./calendar-ics";
 import {
   nextPlanOccurrences,
@@ -110,6 +110,17 @@ describe("shared actual-date scheduling", () => {
   });
   it("keeps all Japan date arithmetic independent of machine timezone", () => {
     expect(tokyoDate(new Date("2026-04-12T15:01:00Z"))).toBe("2026-04-13");
+  });
+  it("keeps machine dates in ISO order when Intl displays a localized date", () => {
+    const format = vi.spyOn(Intl.DateTimeFormat.prototype, "format", "get")
+      .mockReturnValue(() => "04/13/2026");
+    try {
+      const date = tokyoDate(new Date("2026-04-12T15:01:00Z"));
+      expect(date).toBe("2026-04-13");
+      expect(addDays(date, 1)).toBe("2026-04-14");
+    } finally {
+      format.mockRestore();
+    }
   });
   it("uses teaching intervals, not the exam and preparation intervals", () => {
     const data = fixture();

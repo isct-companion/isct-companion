@@ -24,6 +24,8 @@ const fixture = vi.hoisted(() => ({
   retry: vi.fn(),
   pull: vi.fn(),
   refreshEvent: vi.fn().mockResolvedValue(undefined),
+  nativeScheduler: false,
+  workspaceChanged: vi.fn((_callback: () => void) => () => {}),
   platform: "native-desktop",
 }));
 vi.mock("../store/workspace", () => ({
@@ -56,7 +58,10 @@ vi.mock("./native", async (importOriginal) => ({
   desktopBridge: {
     getRuntimeCapabilities: fixture.capabilities,
     schoolRefreshEvent: fixture.refreshEvent,
-    onWorkspaceChanged: () => () => {},
+    onWorkspaceChanged: fixture.workspaceChanged,
+    get runScheduledTask() {
+      return fixture.nativeScheduler ? async () => "Updated" : undefined;
+    },
     onSchoolIngest: (callback: (event: SchoolIngestOutcome) => void) => {
       fixture.ingest.add(callback);
       return () => fixture.ingest.delete(callback);
@@ -158,6 +163,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   fixture.platform = "native-desktop";
+  fixture.nativeScheduler = false;
   const data = seedWorkspace();
   data.currentTerm = data.selectedTerm = "2026-3Q";
   data.terms = ["2026-3Q", "2026-2Q"];
@@ -231,6 +237,27 @@ async function mount(target = paths.home(), strict = false) {
 }
 
 describe("hash-driven desktop navigation", () => {
+  it("loads reference data that finished refreshing before the native listener mounted", async () => {
+    fixture.nativeScheduler = true;
+    fixture.reload.mockImplementationOnce(async () => {
+      fixture.state = {
+        ...fixture.state,
+        workspace: {
+          ...fixture.state.workspace!,
+          academicCalendar: [{
+            id: "calendar:2026:quarter-start:3Q", academicYear: 2026,
+            quarter: "3Q", type: "quarter-start", date: "2026-09-28",
+            label: { en: "3Q starts" }, rev: 1,
+            updatedAt: "2026-10-13T03:00:00Z", updatedBy: "subscription",
+          }],
+        },
+      };
+      fixture.listeners.forEach((listener) => listener());
+    });
+    await mount();
+    expect(fixture.workspaceChanged).toHaveBeenCalledOnce();
+    expect(fixture.state.workspace!.academicCalendar[0].quarter).toBe("3Q");
+  });
   it.each([
     [paths.home("week"), "homeMain"],
     [paths.settings("appearance"), "settingsMain"],

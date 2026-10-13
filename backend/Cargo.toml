@@ -41,6 +41,10 @@ ring = "0.17"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"
 
+# Assignment workspaces (desktop only): unpack attachments, pack submissions.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
 [target.'cfg(target_os = "ios")'.dependencies]
 wry = "0.57"
 security-framework = "3.7"

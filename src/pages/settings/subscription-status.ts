@@ -1,6 +1,7 @@
 import { intlLocale } from "../../i18n/locale";
 import type { Subscription, Workspace } from "../../core/model";
 import { subscriptionYear } from "../../platform/subscription-polling";
+import { isCivilDate, parseIsoTimestamp } from "../../core/civil-date";
 
 export const subscriptionRow = (data: Workspace, kind: Subscription["kind"]) =>
   data.subscriptions.find((row) => row.kind === kind && !row.deletedAt);
@@ -13,9 +14,10 @@ export function formatDay(
   locale: Workspace["settings"]["locale"],
   options: Intl.DateTimeFormatOptions = {},
 ) {
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+  const date = isCivilDate(value)
     ? new Date(`${value}T12:00:00+09:00`)
-    : new Date(value);
+    : parseIsoTimestamp(value);
+  if (!date) return value;
   return new Intl.DateTimeFormat(languageTag(locale), {
     month: "short",
     day: "numeric",
@@ -41,7 +43,7 @@ export function subscriptionState(
   if (row?.enabled === false) return { state: "off" };
   if (!year) return { state: "no-year" };
   if (row?.lastError) return { state: "error", message: row.lastError };
-  if (row?.fetchedAt && row.year === year)
+  if (row?.fetchedAt && parseIsoTimestamp(row.fetchedAt) && row.year === year)
     return { state: "current", fetchedAt: row.fetchedAt };
   return { state: "pending" };
 }

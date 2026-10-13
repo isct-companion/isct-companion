@@ -7,6 +7,7 @@ import {
   type Workspace,
 } from "./model";
 import { clockForPeriods, planOccursOn, planCivilStart } from "./user-schedule";
+import { isCivilDate as validCivilDate } from "./civil-date";
 
 export type Occurrence = {
   key: string;
@@ -28,21 +29,12 @@ export type Occurrence = {
   conflictWith?: string[];
   overridden?: boolean;
 };
-export const tokyoDate = (date: Date) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(date);
+export { tokyoDate } from "./civil-date";
 export const dateAtNoon = (date: string) => new Date(`${date}T12:00:00Z`);
 export function addDays(date: string, days: number) {
   const value = dateAtNoon(date);
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
-}
-function validCivilDate(value: string | undefined): value is string {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = dateAtNoon(value);
-  return (
-    !Number.isNaN(parsed.getTime()) &&
-    parsed.toISOString().slice(0, 10) === value
-  );
 }
 export function civilWeekday(date: string) {
   return dateAtNoon(date).getUTCDay() || 7;
@@ -106,12 +98,14 @@ export function quarterRange(data: Workspace, term: TermId) {
   const configuredStart =
     profile?.quarterStarts[quarter as "1Q" | "2Q" | "3Q" | "4Q"];
   const configuredNextStart = nextProfile?.quarterStarts[nextQuarter];
+  const startBoundary = boundary("quarter-start");
+  const endBoundary = boundary("quarter-end");
   const from = validCivilDate(configuredStart)
     ? configuredStart
-    : boundary("quarter-start");
+    : validCivilDate(startBoundary) ? startBoundary : undefined;
   const to = validCivilDate(configuredNextStart)
     ? addDays(configuredNextStart, -1)
-    : boundary("quarter-end") ||
+    : (validCivilDate(endBoundary) ? endBoundary : undefined) ||
       (validCivilDate(nextBoundary) ? addDays(nextBoundary, -1) : undefined);
   if (!from || !to) return undefined;
   return {

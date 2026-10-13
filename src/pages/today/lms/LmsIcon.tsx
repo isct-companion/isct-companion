@@ -1,7 +1,7 @@
 import type { FileFamily } from "./file-types";
 
 const sheet = "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5";
-const paths: Record<FileFamily | "chevron" | "plus" | "close" | "search" | "refresh" | "back" | "download" | "external", string> = {
+const paths: Record<FileFamily | "chevron" | "plus" | "close" | "search" | "refresh" | "back" | "download" | "external" | "trash" | "code", string> = {
   pdf: `${sheet} M9 13h6 M9 17h4`,
   doc: `${sheet} M9 12h6 M9 15h6 M9 18h3`,
   page: `${sheet} M9 12h6 M9 15h6 M9 18h3`,
@@ -25,6 +25,8 @@ const paths: Record<FileFamily | "chevron" | "plus" | "close" | "search" | "refr
   refresh: "M20 11a8 8 0 0 0-14.9-3 M4 4v4h4 M4 13a8 8 0 0 0 14.9 3 M20 20v-4h-4",
   back: "M19 12H5 m6-6-6 6 6 6",
   download: "M12 4v11 m-5-5 5 5 5-5 M5 20h14",
+  trash: "M4 7h16 M10 11v6 M14 11v6 M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12 M9 7V4h6v3",
+  code: "m8 8-4 4 4 4 M16 8l4 4-4 4 M13.5 5l-3 14",
   external: "M14 4h6v6 M20 4l-9 9 M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4",
 };
 export type IconName = keyof typeof paths;

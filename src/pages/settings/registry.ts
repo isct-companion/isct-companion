@@ -224,6 +224,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     terms: "cache size 自動 ダウンロード",
   },
   {
+    section: "files",
+    id: "workspaces",
+    title: "Assignment workspaces",
+    terms: "workspace clean delete vscode submit 課題 作業 フォルダ 削除",
+  },
+  {
     section: "appearance",
     id: "bilingual",
     title: "Show one language in bilingual LMS",

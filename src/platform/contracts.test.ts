@@ -2,7 +2,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { can, performAction, requireAction } from "./actions";
 import { resolveCapabilities, type CapabilityRuntime } from "./capabilities";
-import { createTauriDesktopBridge } from "./desktop-bridge";
+import {
+  createTauriDesktopBridge,
+  schoolPullForDisplay,
+  type PullSnapshot,
+  type ListenNative,
+} from "./desktop-bridge";
 
 describe("public action policy", () => {
   it.each(["view", "change-local-preference", "export-data"] as const)(
@@ -102,6 +107,25 @@ describe("runtime capabilities", () => {
 });
 
 describe("Tauri bridge contract", () => {
+  it("shows an executing manual detail ahead of an older blocked full pull", () => {
+    const jobs = [
+      {
+        id: "full",
+        target: { type: "school", site: "science-lms", courseId: null },
+        state: "blocked",
+      },
+      {
+        id: "detail",
+        target: { type: "school", site: "science-lms", courseId: 42 },
+        state: "running",
+      },
+    ] as PullSnapshot[];
+    expect(schoolPullForDisplay(jobs, "science-lms")?.id).toBe("detail");
+    jobs[1].state = "succeeded";
+    expect(schoolPullForDisplay(jobs, "science-lms")?.id).toBe("full");
+    expect(schoolPullForDisplay(jobs, "kyomu")).toBeUndefined();
+  });
+
   it("passes an optional LMS course scope to the native pull", async () => {
     const invoke = vi.fn(async () => []);
     const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
@@ -112,6 +136,52 @@ describe("Tauri bridge contract", () => {
       site: "science-lms",
       lmsCourseId: 42,
     });
+  });
+
+  it("listens before reading pull state and ignores a late stale read", async () => {
+    let resolveRead!: (value: unknown) => void;
+    let emit!: (value: unknown) => void;
+    const off = vi.fn();
+    const invoke = vi.fn(
+      () =>
+        new Promise<unknown>((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+    const listen: ListenNative = vi.fn(async (_name, callback) => {
+      emit = callback as (value: unknown) => void;
+      return off;
+    });
+    const callback = vi.fn();
+    const bridge = createTauriDesktopBridge(invoke, listen, "native-desktop");
+    const dispose = bridge.onPullState!(callback);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("pull_state", undefined),
+    );
+    const current = [{ id: "pull-1", state: "succeeded" }];
+    emit(current);
+    resolveRead([{ id: "pull-1", state: "running" }]);
+    await Promise.resolve();
+    expect(callback.mock.calls).toEqual([[current]]);
+    dispose();
+    emit([]);
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(off).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes cancellation and reference refresh to the shared native facade", async () => {
+    const invoke = vi.fn(async (command: string) =>
+      command === "cancel_pull" ? true : "Updated",
+    );
+    const bridge = createTauriDesktopBridge(invoke, vi.fn(), "native-desktop");
+    await expect(bridge.cancelPull!("pull-1")).resolves.toBe(true);
+    await expect(bridge.refreshReferenceSubscriptions!(true)).resolves.toBe(
+      "Updated",
+    );
+    expect(invoke.mock.calls).toEqual([
+      ["cancel_pull", { id: "pull-1" }],
+      ["refresh_reference_subscriptions", { force: true }],
+    ]);
   });
 
   it("maps credential, session, and webview calls to narrow commands", async () => {
