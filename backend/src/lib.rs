@@ -1568,7 +1568,7 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.manage(campus_wifi::CampusWifi::default());
     #[cfg(desktop)]
-    let builder = builder.manage(lms_downloader::Downloader::default());
+    let builder = builder.manage(lms_downloader::SessionView::default());
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_school_web::init());
     #[cfg(mobile)]

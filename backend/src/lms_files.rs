@@ -1,19 +1,15 @@
 //! Local course materials and notes. No file bytes or session cookies reach JS;
-//! materials are downloaded by `lms_downloader` straight into the course folder.
+//! CourseMaterials in Core owns material downloads and cache policy.
 use crate::data::DataStore;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 use tauri::{AppHandle, Manager};
-use url::Url;
 
-const MAX_AUTO_DOWNLOAD_BYTES: u64 = 1024 * 1024 * 1024;
-const MAX_RETENTION_DAYS: u64 = 3650;
 const MAX_NOTE_BYTES: u64 = 1_000_000;
 const MAX_BACKUP_NOTES: usize = 1_000;
 const MAX_BACKUP_NOTE_BYTES: u64 = 32 * 1024 * 1024;
@@ -27,55 +23,14 @@ pub struct CourseFolder {
     pub course: String,
     pub section: String,
 }
-/// Materials are stored per course; a full `CourseFolder` also deserializes here.
-#[derive(Clone, Deserialize)]
-pub struct CourseKey {
-    pub term: String,
-    pub course: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LmsResourceKind {
-    File,
-    View { module: String, cmid: u64 },
-}
-#[derive(Serialize)]
-#[serde(tag = "state", rename_all = "camelCase")]
-pub enum Material {
-    Ready {
-        file: LocalFile,
-    },
-    Missing,
-    TooLarge {
-        bytes: u64,
-    },
-    Folder {
-        files: Vec<crate::school_parser::lms::ResolvedFile>,
-    },
-    External {
-        url: String,
-    },
-    Failed {
-        reason: &'static str,
-    },
-}
+use isct_core::course_materials::{self, CourseMaterials};
+pub use isct_core::course_materials::{CourseKey, LocalFile, Material};
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageInfo {
     root: String,
     custom: bool,
     can_choose: bool,
-}
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalFile {
-    pub id: String,
-    pub name: String,
-    pub section: String,
-    pub path: String,
-    pub bytes: u64,
-    pub cached: bool,
-    pub text: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,17 +52,7 @@ pub struct LocalNoteBackup {
     pub deleted_at: Option<String>,
 }
 pub(crate) fn component(value: &str) -> Result<&str, String> {
-    if value.is_empty()
-        || value.len() > 120
-        || value == "."
-        || value == ".."
-        || !value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-    {
-        return Err("Invalid course folder component".into());
-    }
-    Ok(value)
+    course_materials::component(value).map_err(|error| error.to_string())
 }
 fn config(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
@@ -154,32 +99,12 @@ fn folder(app: &AppHandle, context: &CourseFolder, kind: &str) -> Result<PathBuf
         &[&context.term, &context.course, &context.section, kind],
     )
 }
-/// One folder per course for downloaded files, whichever section links them.
-fn materials_dir(app: &AppHandle, course: &CourseKey) -> Result<PathBuf, String> {
-    storage_dir(app, &[&course.term, &course.course, "materials"])
-}
 #[cfg(debug_assertions)]
 pub(crate) fn debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
     storage_dir(app, &["debug"])
 }
 pub(crate) fn storage_dir(app: &AppHandle, parts: &[&str]) -> Result<PathBuf, String> {
-    let (root, _) = root(app)?;
-    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
-    let mut path = root.clone();
-    for name in parts {
-        path.push(component(name)?);
-        if path.exists()
-            && !path
-                .canonicalize()
-                .map_err(|e| e.to_string())?
-                .starts_with(&root)
-        {
-            return Err("Course folder points outside storage root".into());
-        }
-        fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    }
-    Ok(path)
+    course_materials::storage_dir(&root(app)?.0, parts).map_err(|error| error.to_string())
 }
 fn describe(
     path: PathBuf,
@@ -188,44 +113,20 @@ fn describe(
     cached: bool,
     read_text: bool,
 ) -> Result<LocalFile, String> {
-    let bytes = path.metadata().map_err(|e| e.to_string())?.len();
-    let text = if read_text && bytes <= 1_000_000 {
-        // The caller may not know the final type until a Moodle resource page
-        // has resolved. Binary data is still a valid course file; it simply
-        // has no inline text representation.
-        fs::read_to_string(&path).ok()
-    } else {
-        None
-    };
-    let name = if uuid::Uuid::parse_str(&id).is_ok() {
-        let mut prefix = [0u8; 512];
-        let size = fs::File::open(&path)
-            .and_then(|mut file| file.read(&mut prefix))
-            .unwrap_or(0);
-        String::from_utf8_lossy(&prefix[..size])
-            .lines()
-            .next()
-            .unwrap_or("Note")
-            .trim_start_matches('#')
-            .trim()
-            .chars()
-            .take(100)
-            .collect()
-    } else {
-        path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
-    };
-    Ok(LocalFile {
-        id,
-        name,
-        section,
-        path: path.to_string_lossy().into(),
-        bytes,
-        cached,
-        text,
-    })
+    course_materials::describe(path, id, section, cached, read_text)
+        .map_err(|error| error.to_string())
+}
+pub(crate) fn materials(app: &AppHandle) -> Result<CourseMaterials, String> {
+    #[cfg(desktop)]
+    let session = Some(crate::lms_downloader::session(app));
+    #[cfg(mobile)]
+    let session = None;
+    Ok(CourseMaterials::new(
+        app.state::<DataStore>().inner().clone(),
+        root(app)?.0,
+        crate::core_ports::runtime(app).downloads.clone(),
+        session,
+    ))
 }
 fn note_path(app: &AppHandle, context: &CourseFolder, id: &str) -> Result<PathBuf, String> {
     uuid::Uuid::parse_str(id).map_err(|_| "Invalid note ID")?;
@@ -466,114 +367,6 @@ fn write_notes(app: &AppHandle, notes: &[LocalNoteBackup], merge: bool) -> Resul
     }
     Ok(())
 }
-pub(crate) fn material_path(
-    app: &AppHandle,
-    course: &CourseKey,
-    url: &Url,
-) -> Result<PathBuf, String> {
-    let path = materials_dir(app, course)?.join(material_name(url));
-    if path.is_symlink() {
-        return Err("Cannot read symbolic link".into());
-    }
-    Ok(path)
-}
-/// `<file name>-<digest>.<ext>`: readable in Finder, unique per URL, and the
-/// extension lets the asset responder send the right media type.
-pub(crate) fn material_name(url: &Url) -> String {
-    let segment = url
-        .path_segments()
-        .and_then(|mut s| s.next_back())
-        .unwrap_or("file");
-    let decoded = percent_encoding::percent_decode_str(segment).decode_utf8_lossy();
-    let (stem, extension) = match decoded.rsplit_once('.') {
-        Some((stem, ext))
-            if !stem.is_empty()
-                && ext.len() <= 12
-                && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
-        {
-            (stem, Some(ext))
-        }
-        _ => (decoded.as_ref(), None),
-    };
-    let stem: String = stem
-        .chars()
-        .map(|c| {
-            if c.is_control() || "/\\:".contains(c) {
-                '_'
-            } else {
-                c
-            }
-        })
-        .take(80)
-        .collect();
-    let digest = format!("{:x}", Sha256::digest(url.as_str()));
-    match extension {
-        Some(ext) => format!(
-            "{}-{}.{}",
-            stem.trim(),
-            &digest[..8],
-            ext.to_ascii_lowercase()
-        ),
-        None => format!("{}-{}", stem.trim(), &digest[..8]),
-    }
-}
-pub(crate) fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), String> {
-    let url = Url::parse(raw).map_err(|_| "Invalid material URL")?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("lms.s.isct.ac.jp")
-        || url.port().is_some()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return Err("Only allowlisted LMS resource URLs are accepted".into());
-    }
-    let segments = url
-        .path_segments()
-        .map(Iterator::collect::<Vec<_>>)
-        .unwrap_or_default();
-    if segments.contains(&"pluginfile.php") {
-        return Ok((url, LmsResourceKind::File));
-    }
-    let [.., "mod", module @ ("resource" | "url" | "folder"), "view.php"] = segments.as_slice()
-    else {
-        return Err("Only allowlisted LMS resource URLs are accepted".into());
-    };
-    let cmid = url
-        .query_pairs()
-        .find(|(key, _)| key == "id")
-        .and_then(|(_, value)| value.parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .ok_or_else(|| "LMS resource URL needs a numeric id".to_string())?;
-    let module = (*module).to_string();
-    Ok((url, LmsResourceKind::View { module, cmid }))
-}
-
-/// The contract form of a resolved folder's files, as stored on its material.
-pub(crate) fn folder_contract(
-    files: &[crate::school_parser::lms::ResolvedFile],
-) -> Vec<crate::contracts::FolderFile> {
-    files
-        .iter()
-        .map(|file| crate::contracts::FolderFile {
-            name: file.name.clone(),
-            url: file.url.clone(),
-        })
-        .collect()
-}
-
-/// A folder's files kept from its last read, when every entry is still an LMS file.
-pub(crate) fn stored_folder_files(
-    row: Option<&serde_json::Value>,
-) -> Option<Vec<crate::school_parser::lms::ResolvedFile>> {
-    let files: Vec<crate::school_parser::lms::ResolvedFile> =
-        serde_json::from_value(row?.get("folderFiles")?.clone()).ok()?;
-    (!files.is_empty()
-        && files
-            .iter()
-            .all(|file| matches!(lms_resource_url(&file.url), Ok((_, LmsResourceKind::File)))))
-    .then_some(files)
-}
-
 #[tauri::command]
 pub async fn course_storage_info(
     webview: tauri::Webview,
@@ -836,163 +629,27 @@ pub async fn open_course_material(
     limit: Option<u64>,
 ) -> Result<Material, String> {
     crate::require_local_main(&webview)?;
-    let source = url;
-    let (source_url, kind) = lms_resource_url(&source)?;
-    eprintln!("[lms-file] prepare requested: {kind:?}");
-    let url = match kind {
-        LmsResourceKind::File => source_url,
-        LmsResourceKind::View { module, cmid } => {
-            let store = app.state::<DataStore>();
-            let stored = store.lms_material_for_url(&source).ok().flatten();
-            if module == "folder" {
-                if let Some(files) = stored_folder_files(stored.as_ref()) {
-                    return Ok(Material::Folder { files });
-                }
-            }
-            let known = stored.as_ref().and_then(|row| {
-                row.get("resourceUrl")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-            });
-            if let Some(known) = known {
-                eprintln!("[lms-file] using stored resolution");
-                if let Ok((url, LmsResourceKind::File)) = lms_resource_url(&known) {
-                    url
-                } else if safe_external_url(&known) {
-                    return Ok(Material::External { url: known });
-                } else {
-                    return Ok(Material::Failed { reason: "invalid" });
-                }
-            } else {
-                #[cfg(mobile)]
-                {
-                    let _ = cmid;
-                    return Err("Course files are resolved in the desktop app".into());
-                }
-                #[cfg(desktop)]
-                {
-                    let downloader = app.state::<crate::lms_downloader::Downloader>();
-                    match downloader.resolve(&app, &source_url, cmid, &module).await {
-                        Ok(crate::lms_downloader::ResolvedResource::File { url }) => {
-                            let Ok((url_value, LmsResourceKind::File)) = lms_resource_url(&url)
-                            else {
-                                return Ok(Material::Failed { reason: "invalid" });
-                            };
-                            let _ = store.update_lms_resource_url(cmid, &source, &url);
-                            url_value
-                        }
-                        Ok(crate::lms_downloader::ResolvedResource::External { url }) => {
-                            if !safe_external_url(&url) {
-                                return Ok(Material::Failed { reason: "invalid" });
-                            }
-                            let _ = store.update_lms_resource_url(cmid, &source, &url);
-                            return Ok(Material::External { url });
-                        }
-                        Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
-                            let _ = store.update_lms_folder_files(
-                                cmid,
-                                &source,
-                                &folder_contract(&files),
-                            );
-                            return Ok(Material::Folder { files });
-                        }
-                        Ok(crate::lms_downloader::ResolvedResource::Login)
-                        | Err(crate::lms_downloader::FetchError::Login) => {
-                            return Ok(Material::Failed { reason: "login" });
-                        }
-                        Ok(crate::lms_downloader::ResolvedResource::Unresolved) => {
-                            return Ok(Material::Failed {
-                                reason: "unresolved",
-                            });
-                        }
-                        Err(crate::lms_downloader::FetchError::Invalid) => {
-                            return Ok(Material::Failed { reason: "invalid" });
-                        }
-                        Err(crate::lms_downloader::FetchError::Timeout) => {
-                            return Ok(Material::Failed { reason: "timeout" });
-                        }
-                        Err(crate::lms_downloader::FetchError::Network) => {
-                            return Ok(Material::Failed { reason: "network" });
-                        }
-                    }
-                }
-            }
-        }
-    };
-    let path = material_path(&app, &context, &url)?;
-    if !path.is_file() {
-        if !download {
-            return Ok(Material::Missing);
-        }
-        #[cfg(desktop)]
-        {
-            let downloader = app.state::<crate::lms_downloader::Downloader>();
-            let limit = limit.map(|bytes| bytes.clamp(1, MAX_AUTO_DOWNLOAD_BYTES));
-            match downloader
-                .fetch(&app, &url, path.clone(), limit, true)
+    let materials = materials(&app)?;
+    let result = crate::core_ports::runtime(&app)
+        .run(async move {
+            materials
+                .open(context, url, download, read_text, limit)
                 .await
-            {
-                Ok(crate::lms_downloader::Fetched::Saved) => {}
-                Ok(crate::lms_downloader::Fetched::TooLarge(bytes)) => {
-                    return Ok(Material::TooLarge { bytes });
-                }
-                Err(crate::lms_downloader::FetchError::Login) => {
-                    return Ok(Material::Failed { reason: "login" });
-                }
-                Err(crate::lms_downloader::FetchError::Invalid) => {
-                    return Ok(Material::Failed { reason: "invalid" });
-                }
-                Err(crate::lms_downloader::FetchError::Timeout) => {
-                    return Ok(Material::Failed { reason: "timeout" });
-                }
-                Err(error) => {
-                    eprintln!("[lms-file] prepare download failed: {error}");
-                    return Ok(Material::Failed { reason: "network" });
-                }
-            }
-        }
-        #[cfg(mobile)]
-        {
-            let _ = limit;
-            return Err("Course files are downloaded in the desktop app".into());
-        }
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+    if let Material::Ready { file } = &result {
+        app.asset_protocol_scope()
+            .allow_file(&file.path)
+            .map_err(|error| error.to_string())?;
     }
-    // Opening counts as use: auto-clean removes files unused for a while.
-    let _ = fs::File::options()
-        .write(true)
-        .open(&path)
-        .and_then(|file| file.set_modified(std::time::SystemTime::now()));
-    let file = tauri::async_runtime::spawn_blocking(move || {
-        describe(path, url.to_string(), String::new(), true, read_text)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    app.asset_protocol_scope()
-        .allow_file(&file.path)
-        .map_err(|e| e.to_string())?;
-    eprintln!("[lms-file] prepare ready");
-    Ok(Material::Ready { file })
+    Ok(result)
 }
 
-fn safe_external_url(raw: &str) -> bool {
-    Url::parse(raw).ok().is_some_and(|url| {
-        url.scheme() == "https"
-            && url.host_str().is_some()
-            && url.port().is_none()
-            && url.username().is_empty()
-            && url.password().is_none()
-    })
-}
 /// A path the app saved under the storage root; anything else is refused.
 pub(crate) fn stored_file(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
-    let (root, _) = root(app)?;
-    let path = PathBuf::from(path)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    if !path.is_file() || !path.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
-        return Err("File is outside the course folder".into());
-    }
-    Ok(path)
+    course_materials::stored_file(&root(app)?.0, path).map_err(|error| error.to_string())
 }
 #[tauri::command]
 pub async fn open_course_file(
@@ -1022,41 +679,12 @@ pub async fn clean_course_materials(
     days: u64,
 ) -> Result<usize, String> {
     crate::require_local_main(&webview)?;
-    let (root, _) = root(&app)?;
-    let days = days.clamp(1, MAX_RETENTION_DAYS);
-    let age = std::time::Duration::from_secs(days * 24 * 60 * 60);
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut removed = 0;
-        // <term>/<course>/materials, and <term>/<course>/<section>/materials from earlier versions.
-        let mut pending = vec![(root, 0)];
-        while let Some((dir, depth)) = pending.pop() {
-            for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
-                let path = entry.path();
-                if path.is_symlink() {
-                    continue;
-                }
-                if path.is_dir() {
-                    if depth < 3 {
-                        pending.push((path, depth + 1));
-                    }
-                    continue;
-                }
-                let in_materials = dir.file_name().is_some_and(|name| name == "materials");
-                let stale = entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|time| time.elapsed().ok())
-                    .is_some_and(|elapsed| elapsed > age);
-                if in_materials && stale && fs::remove_file(&path).is_ok() {
-                    removed += 1;
-                }
-            }
-        }
-        removed
-    })
-    .await
-    .map_err(|e| e.to_string())
+    let materials = materials(&app)?;
+    crate::core_ports::runtime(&app)
+        .run(async move { materials.clean(days).await })
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 #[cfg(test)]
 mod tests {
@@ -1098,59 +726,6 @@ mod tests {
         assert_eq!(file.text, None);
         fs::remove_dir_all(dir).unwrap();
     }
-    #[test]
-    fn rejects_traversal_and_external_downloads() {
-        for value in ["..", ".", "x/y", "x\\y", "", "../../notes"] {
-            assert!(component(value).is_err());
-        }
-        assert!(component("2026-3Q").is_ok());
-        assert!(component("CSC.T251").is_ok());
-        for url in [
-            "https://evil.test/pluginfile.php/1/a.pdf",
-            "https://lms.s.isct.ac.jp/login/index.php",
-            "https://user:pass@lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf",
-            "https://lms.s.isct.ac.jp:8443/2025/pluginfile.php/1/a.pdf",
-            "http://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf",
-        ] {
-            assert!(lms_resource_url(url).is_err());
-        }
-        assert!(lms_resource_url("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf").is_ok());
-        assert!(lms_resource_url("https://lms.s.isct.ac.jp/2024/pluginfile.php/1/a.pdf").is_ok());
-        assert!(matches!(
-            lms_resource_url("https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42"),
-            Ok((_, LmsResourceKind::View { cmid: 42, .. }))
-        ));
-        for url in [
-            "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=42",
-            "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=abc",
-        ] {
-            assert!(lms_resource_url(url).is_err(), "{url}");
-        }
-    }
-    #[test]
-    fn names_materials_readably_and_uniquely() {
-        let name = |raw: &str| material_name(&Url::parse(raw).unwrap());
-        let japanese = name("https://lms.s.isct.ac.jp/2025/pluginfile.php/224957/mod_resource/content/1/01%E5%9B%9E%E7%9B%AE%20SW-0%20v6.pdf");
-        assert!(
-            japanese.starts_with("01回目 SW-0 v6-") && japanese.ends_with(".pdf"),
-            "{japanese}"
-        );
-        assert!(
-            name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/Photo.PNG?forcedownload=1")
-                .ends_with(".png")
-        );
-        assert!(!name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/README").contains('.'));
-        // Same file name from two activities: two files.
-        assert_ne!(
-            name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.pdf"),
-            name("https://lms.s.isct.ac.jp/2025/pluginfile.php/2/a.pdf")
-        );
-        // An encoded slash cannot escape the folder.
-        assert!(
-            !name("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/..%2F..%2Fx.pdf").contains('/')
-        );
-    }
-
     #[cfg(windows)]
     #[test]
     fn hides_extended_windows_prefix_and_uses_unambiguous_separators() {

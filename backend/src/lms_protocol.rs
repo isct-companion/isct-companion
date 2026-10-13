@@ -1,11 +1,14 @@
-use crate::{
-    data::DataStore,
-    lms_files::{self, CourseKey, LmsResourceKind},
-};
+use crate::lms_files::{self, CourseKey, Material};
+use isct_core::course_materials::{MaterialError, MaterialFailure};
 use serde_json::json;
-use std::{fs, ops::RangeInclusive, path::Path, time::UNIX_EPOCH};
+use std::{
+    fs,
+    io::{Read, Seek, SeekFrom},
+    ops::RangeInclusive,
+    path::Path,
+    time::UNIX_EPOCH,
+};
 use tauri::{http, AppHandle, Manager};
-use url::Url;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reason {
@@ -94,16 +97,6 @@ fn json_response(value: serde_json::Value) -> http::Response<Vec<u8>> {
         .unwrap_or_else(|_| http::Response::new(Vec::new()))
 }
 
-fn external_url(raw: &str) -> Option<Url> {
-    Url::parse(raw).ok().filter(|url| {
-        url.scheme() == "https"
-            && url.host_str().is_some()
-            && url.port().is_none()
-            && url.username().is_empty()
-            && url.password().is_none()
-    })
-}
-
 fn mime(path: &Path) -> &'static str {
     match path
         .extension()
@@ -167,7 +160,10 @@ fn parse_range(
 }
 
 fn serve(path: &Path, range: Option<&http::HeaderValue>, digest: &str) -> http::Response<Vec<u8>> {
-    let Ok(metadata) = path.metadata() else {
+    let Ok(mut file) = fs::File::open(path) else {
+        return error(Reason::Network, None);
+    };
+    let Ok(metadata) = file.metadata() else {
         return error(Reason::Network, None);
     };
     let size = metadata.len();
@@ -178,9 +174,26 @@ fn serve(path: &Path, range: Option<&http::HeaderValue>, digest: &str) -> http::
             .body(Vec::new())
             .unwrap_or_else(|_| http::Response::new(Vec::new()));
     };
-    let Ok(bytes) = fs::read(path) else {
+    // Reading from the same handle as metadata also avoids a replacement race.
+    // PDF/media range requests must not allocate/read the whole cached file.
+    let (offset, length) = requested.as_ref().map_or((0, size), |range| {
+        (*range.start(), range.end() - range.start() + 1)
+    });
+    let Ok(length) = usize::try_from(length) else {
         return error(Reason::Network, None);
     };
+    let mut bytes = Vec::new();
+    if bytes.try_reserve_exact(length).is_err() {
+        return error(Reason::Network, None);
+    }
+    bytes.resize(length, 0);
+    if file
+        .seek(SeekFrom::Start(offset))
+        .and_then(|_| file.read_exact(&mut bytes))
+        .is_err()
+    {
+        return error(Reason::Network, None);
+    }
     let modified = metadata
         .modified()
         .ok()
@@ -193,7 +206,7 @@ fn serve(path: &Path, range: Option<&http::HeaderValue>, digest: &str) -> http::
             let end = *range.end();
             (
                 http::StatusCode::PARTIAL_CONTENT,
-                bytes[start as usize..=end as usize].to_vec(),
+                bytes,
                 Some(format!("bytes {start}-{end}/{size}")),
             )
         }
@@ -278,155 +291,47 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
     let Ok((source, course, explicit, foreground)) = request_input(&request) else {
         return error(Reason::Invalid, None);
     };
-    let Ok((source_url, kind)) = lms_files::lms_resource_url(&source) else {
-        return error(Reason::Invalid, None);
+    let materials = match lms_files::materials(&app) {
+        Ok(service) => service,
+        Err(_) => return error(Reason::Network, None),
     };
-    let store = app.state::<DataStore>();
-    let stored = store.lms_material_for_url(&source).ok().flatten();
-    let known = stored
-        .as_ref()
-        .and_then(|row| row.get("resourceUrl"))
-        .and_then(serde_json::Value::as_str);
-    let mut resolved = known.map(str::to_string);
-    let folder_listing = |files: Vec<crate::school_parser::lms::ResolvedFile>| {
-        files
-            .into_iter()
-            .filter_map(|file| {
-                lms_files::lms_resource_url(&file.url).ok().map(|_| {
-                    json!({"name":file.name,"url":app_url(&request,&file.url,&course,explicit,true)})
-                })
-            })
-            .collect::<Vec<_>>()
-    };
-    if let LmsResourceKind::View { module, .. } = &kind {
-        if module == "folder" {
-            if let Some(files) = lms_files::stored_folder_files(stored.as_ref()) {
-                return json_response(json!({"kind":"folder","files":folder_listing(files)}));
-            }
+    let key = course.clone();
+    let result = crate::core_ports::runtime(&app)
+        .run(async move { materials.preview(key, source, explicit, foreground).await })
+        .await;
+    match result {
+        Ok(Ok(Material::Ready { file })) => {
+            let path = Path::new(&file.path);
+            let stem = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("file");
+            let digest = stem.rsplit_once('-').map_or("file", |(_, digest)| digest);
+            serve(path, request.headers().get(http::header::RANGE), digest)
         }
-    }
-
-    #[cfg(desktop)]
-    if resolved.is_none() {
-        if let LmsResourceKind::View { module, cmid } = &kind {
-            let downloader = app.state::<crate::lms_downloader::Downloader>();
-            match downloader.resolve(&app, &source_url, *cmid, module).await {
-                Ok(crate::lms_downloader::ResolvedResource::File { url }) => {
-                    if lms_files::lms_resource_url(&url).is_err() {
-                        return error(Reason::Invalid, None);
-                    }
-                    let _ = store.update_lms_resource_url(*cmid, &source, &url);
-                    resolved = Some(url);
-                }
-                Ok(crate::lms_downloader::ResolvedResource::External { url }) => {
-                    return if external_url(&url).is_some() {
-                        let _ = store.update_lms_resource_url(*cmid, &source, &url);
-                        json_response(json!({"kind":"external","url":url}))
-                    } else {
-                        error(Reason::Invalid, None)
-                    };
-                }
-                Ok(crate::lms_downloader::ResolvedResource::Folder { files }) => {
-                    let _ = store.update_lms_folder_files(
-                        *cmid,
-                        &source,
-                        &lms_files::folder_contract(&files),
-                    );
-                    let files = folder_listing(files);
-                    return if files.is_empty() {
-                        error(Reason::Unresolved, None)
-                    } else {
-                        json_response(json!({"kind":"folder","files":files}))
-                    };
-                }
-                Ok(crate::lms_downloader::ResolvedResource::Login)
-                | Err(crate::lms_downloader::FetchError::Login) => return login_error(&app),
-                Ok(crate::lms_downloader::ResolvedResource::Unresolved) => {
-                    return error(Reason::Unresolved, None)
-                }
-                Err(crate::lms_downloader::FetchError::Invalid) => {
-                    eprintln!("[lms-file] resolve rejected by allowlist");
-                    return error(Reason::Invalid, None);
-                }
-                Err(crate::lms_downloader::FetchError::Timeout) => {
-                    eprintln!("[lms-file] resolve timed out");
-                    return error(Reason::Timeout, None);
-                }
-                Err(crate::lms_downloader::FetchError::Network) => {
-                    eprintln!("[lms-file] resolve network failure");
-                    return error(Reason::Network, None);
-                }
-            }
-        }
-    }
-    if matches!(kind, LmsResourceKind::File) {
-        resolved = Some(source.clone());
-    }
-    let Some(resolved) = resolved else {
-        return error(Reason::Unresolved, None);
-    };
-    let Ok((url, LmsResourceKind::File)) = lms_files::lms_resource_url(&resolved) else {
-        return external_url(&resolved).map_or_else(
-            || error(Reason::Invalid, None),
-            |url| json_response(json!({"kind":"external","url":url})),
-        );
-    };
-    let Ok(path) = lms_files::material_path(&app, &course, &url) else {
-        return error(Reason::Invalid, None);
-    };
-    if !path.is_file() {
-        #[cfg(desktop)]
-        {
-            let limit = if explicit {
-                None
+        Ok(Ok(Material::Folder { files })) => {
+            let files = files.into_iter().map(|file| {
+                json!({"name":file.name,"url":app_url(&request,&file.url,&course,explicit,true)})
+            }).collect::<Vec<_>>();
+            if files.is_empty() {
+                error(Reason::Unresolved, None)
             } else {
-                store
-                    .load_workspace()
-                    .ok()
-                    .and_then(|workspace| {
-                        workspace
-                            .pointer("/settings/autoDownloadLimitMb")
-                            .and_then(serde_json::Value::as_u64)
-                    })
-                    .map(|mb| mb.clamp(1, 1024) * 1024 * 1024)
-                    .or(Some(20 * 1024 * 1024))
-            };
-            match app
-                .state::<crate::lms_downloader::Downloader>()
-                .fetch(&app, &url, path.clone(), limit, foreground || explicit)
-                .await
-            {
-                Ok(crate::lms_downloader::Fetched::Saved) => {}
-                Ok(crate::lms_downloader::Fetched::TooLarge(bytes)) => {
-                    return error(Reason::TooLarge, Some(bytes))
-                }
-                Err(crate::lms_downloader::FetchError::Login) => return login_error(&app),
-                Err(crate::lms_downloader::FetchError::Invalid) => {
-                    return error(Reason::Invalid, None)
-                }
-                Err(crate::lms_downloader::FetchError::Timeout) => {
-                    return error(Reason::Timeout, None)
-                }
-                Err(fetch_error) => {
-                    eprintln!("[lms-file] fetch failed: {fetch_error}");
-                    return error(Reason::Network, None);
-                }
+                json_response(json!({"kind":"folder","files":files}))
             }
         }
-        #[cfg(mobile)]
-        return error(Reason::Network, None);
+        Ok(Ok(Material::External { url })) => json_response(json!({"kind":"external","url":url})),
+        Ok(Ok(Material::TooLarge { bytes })) => error(Reason::TooLarge, Some(bytes)),
+        Ok(Ok(Material::Missing)) => error(Reason::Unresolved, None),
+        Ok(Ok(Material::Failed { reason })) => match reason {
+            MaterialFailure::Login => login_error(&app),
+            MaterialFailure::Invalid => error(Reason::Invalid, None),
+            MaterialFailure::Timeout => error(Reason::Timeout, None),
+            MaterialFailure::Unresolved => error(Reason::Unresolved, None),
+            MaterialFailure::Network | MaterialFailure::Cancelled => error(Reason::Network, None),
+        },
+        Ok(Err(MaterialError::Input(_))) => error(Reason::Invalid, None),
+        _ => error(Reason::Network, None),
     }
-    let _ = fs::File::options()
-        .write(true)
-        .open(&path)
-        .and_then(|file| file.set_modified(std::time::SystemTime::now()));
-    let material_name = lms_files::material_name(&url);
-    let stem = Path::new(&material_name)
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or(&material_name);
-    let digest = stem.rsplit_once('-').map_or("file", |(_, digest)| digest);
-    serve(&path, request.headers().get(http::header::RANGE), digest)
 }
 
 #[cfg(test)]
@@ -467,11 +372,20 @@ mod tests {
     }
 
     #[test]
-    fn external_links_require_plain_https_origins() {
-        assert!(external_url("https://example.edu/page").is_some());
-        assert!(external_url("http://example.edu/page").is_none());
-        assert!(external_url("https://user@example.edu/page").is_none());
-        assert!(external_url("https://example.edu:8443/page").is_none());
+    fn reads_a_small_range_from_a_large_sparse_file() {
+        let path =
+            std::env::temp_dir().join(format!("lms-large-range-{}.pdf", uuid::Uuid::new_v4()));
+        let mut file = fs::File::create(&path).unwrap();
+        let offset = 3_u64 * 1024 * 1024 * 1024;
+        file.set_len(offset + 4).unwrap();
+        file.seek(SeekFrom::Start(offset)).unwrap();
+        std::io::Write::write_all(&mut file, b"tail").unwrap();
+        drop(file);
+        let range = http::HeaderValue::from_str(&format!("bytes={offset}-")).unwrap();
+        let response = serve(&path, Some(&range), "digest");
+        assert_eq!(response.status(), http::StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.body(), b"tail");
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

@@ -30,6 +30,8 @@ mod tests;
 
 pub struct CoreRuntime {
     pub coordinator: PullCoordinator,
+    pub downloads: crate::downloads::Downloader,
+    pub lms_session: crate::lms_session::LmsSession,
     pub refresh: SchoolRefresh,
     scheduler: Scheduler,
     tasks: RuntimeTasks,
@@ -43,6 +45,8 @@ impl CoreRuntime {
     pub fn new(initial_network: PullNetwork) -> Self {
         Self {
             coordinator: PullCoordinator::default(),
+            downloads: crate::downloads::Downloader::default(),
+            lms_session: crate::lms_session::LmsSession::default(),
             refresh: SchoolRefresh::new(initial_network),
             scheduler: Scheduler::default(),
             tasks: RuntimeTasks::default(),
@@ -143,7 +147,7 @@ impl CoreRuntime {
             let _lifecycle = self.lifecycle.lock().await;
             self.tasks.close();
         }
-        self.coordinator.shutdown().await;
+        tokio::join!(self.coordinator.shutdown(), self.downloads.shutdown());
         self.tasks.wait().await;
     }
 }

@@ -28,7 +28,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::webview::DownloadEvent;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
-use tokio::sync::Notify;
 use url::Url;
 
 #[cfg(target_os = "macos")]
@@ -314,12 +313,8 @@ fn emit_session(
     profile: SchoolAuthProfile,
     state: &'static str,
 ) {
-    let changed = controller.lock().ok().map(|mut controller| {
+    if let Ok(mut controller) = controller.lock() {
         controller.sessions.insert(profile, state);
-        controller.session_changed.clone()
-    });
-    if let Some(changed) = changed {
-        changed.notify_waiters();
     }
     if state == "active" {
         if let Some(runtime) = app.try_state::<Arc<isct_core::runtime::CoreRuntime>>() {
@@ -379,7 +374,6 @@ struct ControllerState {
     heartbeat: Option<SchoolAuthProfile>,
     /// Authoritative result of the latest completed session check/login.
     sessions: HashMap<SchoolAuthProfile, &'static str>,
-    session_changed: Arc<Notify>,
     creating: HashSet<SchoolSite>,
     ingestion_relays: HashMap<SchoolSite, String>,
     /// One-shot identity of the latest extractor evaluation per WebView.
@@ -534,7 +528,6 @@ impl Default for ControllerState {
             auto_blocked: HashSet::new(),
             heartbeat: None,
             sessions: HashMap::new(),
-            session_changed: Arc::new(Notify::new()),
             creating: HashSet::new(),
             ingestion_relays: HashMap::new(),
             extraction_runs: HashMap::new(),
@@ -2037,46 +2030,21 @@ impl SchoolWebController {
         Ok(accepted)
     }
 
-    /// Waits for the Rust-owned school queue to prove that a profile is
-    /// signed in. Downloaders call this instead of inferring authentication
-    /// from a public LMS URL such as robots.txt.
-    pub async fn wait_for_session(
+    /// Native school queue facts; Core owns download readiness and wait policy.
+    pub fn session_state(
         &self,
-        app: &AppHandle,
         profile: SchoolAuthProfile,
-    ) -> Result<(), String> {
-        if self
+    ) -> Result<isct_core::lms_session::SessionState, String> {
+        use isct_core::lms_session::SessionState;
+        let state = self
             .state
             .lock()
-            .ok()
-            .and_then(|state| state.sessions.get(&profile).copied())
-            == Some("active")
-        {
-            return Ok(());
-        }
-        self.request_session(app, profile)?;
-        let wait = async {
-            loop {
-                let (status, changed) = {
-                    let state = self
-                        .state
-                        .lock()
-                        .map_err(|_| "School web state is unavailable.".to_string())?;
-                    (
-                        state.sessions.get(&profile).copied(),
-                        state.session_changed.clone(),
-                    )
-                };
-                match status {
-                    Some("active") => return Ok(()),
-                    Some("failed") => return Err("School sign-in failed.".to_string()),
-                    _ => changed.notified().await,
-                }
-            }
-        };
-        tokio::time::timeout(Duration::from_secs(180), wait)
-            .await
-            .map_err(|_| "School sign-in did not finish in time.".to_string())?
+            .map_err(|_| "School web state is unavailable.".to_string())?;
+        Ok(match state.sessions.get(&profile).copied() {
+            Some("active") => SessionState::Active,
+            Some("failed") => SessionState::Failed,
+            _ => SessionState::Pending,
+        })
     }
 
     pub fn request_login(
