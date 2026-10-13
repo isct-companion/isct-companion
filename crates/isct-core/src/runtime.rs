@@ -10,7 +10,7 @@ use std::{
     future::Future,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     time::{Duration, Instant},
 };
@@ -23,6 +23,8 @@ pub enum RuntimeError {
     School(#[from] SchoolError),
     #[error("Refresh clock is unavailable.")]
     Clock,
+    #[error("Cloud sync is already attached to this runtime.")]
+    CloudAlreadyAttached,
 }
 
 #[cfg(test)]
@@ -30,6 +32,8 @@ mod tests;
 
 pub struct CoreRuntime {
     pub coordinator: PullCoordinator,
+    pub notes: crate::notes::NoteStore,
+    cloud: OnceLock<crate::cloud_sync::CloudSync>,
     pub downloads: crate::downloads::Downloader,
     pub lms_session: crate::lms_session::LmsSession,
     pub refresh: SchoolRefresh,
@@ -45,6 +49,8 @@ impl CoreRuntime {
     pub fn new(initial_network: PullNetwork) -> Self {
         Self {
             coordinator: PullCoordinator::default(),
+            notes: crate::notes::NoteStore::default(),
+            cloud: OnceLock::new(),
             downloads: crate::downloads::Downloader::default(),
             lms_session: crate::lms_session::LmsSession::default(),
             refresh: SchoolRefresh::new(initial_network),
@@ -55,6 +61,12 @@ impl CoreRuntime {
             lifecycle: tokio::sync::Mutex::new(()),
             suspended: AtomicBool::new(false),
         }
+    }
+
+    pub fn attach_cloud(&self, cloud: crate::cloud_sync::CloudSync) -> Result<(), RuntimeError> {
+        self.cloud
+            .set(cloud)
+            .map_err(|_| RuntimeError::CloudAlreadyAttached)
     }
 
     pub async fn wake(
@@ -147,7 +159,16 @@ impl CoreRuntime {
             let _lifecycle = self.lifecycle.lock().await;
             self.tasks.close();
         }
-        tokio::join!(self.coordinator.shutdown(), self.downloads.shutdown());
+        let cloud = async {
+            if let Some(cloud) = self.cloud.get() {
+                cloud.shutdown().await;
+            }
+        };
+        tokio::join!(
+            self.coordinator.shutdown(),
+            self.downloads.shutdown(),
+            cloud
+        );
         self.tasks.wait().await;
     }
 }

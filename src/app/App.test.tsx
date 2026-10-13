@@ -104,7 +104,7 @@ vi.mock("../pages/courses/CoursesPage", () => ({
 vi.mock("../pages/today/TodayPage", () => ({
   Today: () => <div className="todayPage">Today</div>,
 }));
-vi.mock("../pages/today/lms/LmsWorkspace", () => ({
+vi.mock("../features/lms/LmsWorkspace", () => ({
   LmsWorkspace: ({
     entry,
   }: {

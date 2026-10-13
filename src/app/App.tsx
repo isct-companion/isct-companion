@@ -34,7 +34,7 @@ import {
   official,
   saveExportFile,
 } from "./native";
-import { cleanMaterials, retentionDays } from "../pages/today/lms/files";
+import { cleanMaterials, retentionDays } from "../features/lms/files";
 import { errorText, jstDate, stamp, type Page, type Section } from "./shared";
 import {
   onTimetable,
@@ -44,7 +44,7 @@ import {
 } from "../components/timetable/workspace";
 
 import { Today } from "../pages/today/TodayPage";
-import type { CourseEntry } from "../pages/today/lms/LmsWorkspace";
+import type { CourseEntry } from "../features/lms/LmsWorkspace";
 import { LectureDesk } from "../pages/lectures/LectureDesk";
 import { Courses } from "../pages/courses/CoursesPage";
 import { CourseDrawer } from "../pages/courses/CourseDrawer";
@@ -65,7 +65,7 @@ import {
 } from "react";
 
 const LmsWorkspace = lazy(() =>
-  import("../pages/today/lms/LmsWorkspace").then((module) => ({
+  import("../features/lms/LmsWorkspace").then((module) => ({
     default: module.LmsWorkspace,
   })),
 );

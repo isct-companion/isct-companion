@@ -64,7 +64,7 @@ impl SchoolExecutor for DesktopSchool {
 struct DesktopExport(AppHandle);
 impl ScheduledExporter for DesktopExport {
     fn export(&self) -> Result<(), ExportError> {
-        crate::write_scheduled_export_inner(&self.0, &self.0.state::<DataStore>())
+        crate::commands::backup::write_scheduled_export_inner(&self.0)
             .map(|_| ())
             .map_err(ExportError::Failed)
     }
@@ -144,6 +144,7 @@ impl DesktopRuntime {
                         _ = wake_tasks.closed() => break,
                         _ = interval.tick() => {}
                     }
+                    crate::cloud_sync::CloudSync::tick(&wake_app);
                     let visible = wake_app.state::<SchoolWebController>().is_visible();
                     let _ = runtime(&wake_app).wake(services(&wake_app), visible).await;
                 }

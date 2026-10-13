@@ -1,5 +1,5 @@
 import { lmsFileUrl, type CourseFolder } from "./files";
-import { schoolSessions } from "../../../platform/school-session";
+import { schoolSessions } from "../../platform/school-session";
 
 /**
  * Images use the same app URI as documents. The backend owns caching,

@@ -1,8 +1,22 @@
-// Run: node --experimental-strip-types scripts/performance/lms-content.mjs
+// Run: node scripts/performance/lms-content.mjs
 // Parser microbenchmark only: does not measure native WebView or PDF memory.
 import { JSDOM } from "jsdom";
 import { performance } from "node:perf_hooks";
-import { safeContent, textPreview } from "../../src/pages/today/lms/content.ts";
+import { createServer } from "vite";
+// Use the app's module resolver for its extensionless TypeScript imports.
+const loader = await createServer({
+  configFile: false,
+  optimizeDeps: { noDiscovery: true, include: [] },
+  server: { middlewareMode: true, hmr: false, ws: false, watch: null },
+});
+let safeContent, textPreview;
+try {
+  ({ safeContent, textPreview } = await loader.ssrLoadModule(
+    "/src/features/lms/content.ts",
+  ));
+} finally {
+  await loader.close();
+}
 const dom = new JSDOM("");
 for (const name of ["document", "DOMParser", "Node", "Element"])
   globalThis[name] = dom.window[name];

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { t } from "../../../i18n";
-import { errorText } from "../../../app/shared";
-import { UiInput } from "../../../components/mantine";
+import { t } from "../../i18n";
+import { errorText } from "../../app/shared";
+import { UiInput } from "../../components/mantine";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import type { CourseFolder } from "./files";
 import {

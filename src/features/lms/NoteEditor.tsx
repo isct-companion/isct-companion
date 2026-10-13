@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { t } from "../../../i18n";
+import { t } from "../../i18n";
 import { readNote, saveNote, moveNote, type CourseFolder } from "./files";
 const MarkdownDocument = lazy(() =>
   import("./MarkdownDocument").then((m) => ({ default: m.MarkdownDocument })),

@@ -221,6 +221,8 @@ struct ActiveLogin {
     run: String,
 }
 
+type LoadedContinuation = Arc<dyn Fn(Webview, Arc<str>, String, Option<ActiveLogin>) + Send + Sync>;
+
 fn outcome(site: SchoolSite, kind: &str, result: Result<usize, String>) -> IngestOutcome {
     match result {
         Ok(changed) => IngestOutcome {
@@ -351,6 +353,26 @@ fn session_outcome(
     (SchoolAuthProfile::for_auth_host(&host) == Some(profile) && !signing_in).then_some("failed")
 }
 
+/// Installs credentials only for the page load that requested them. A manual
+/// sign-in which started while the vault was opening always wins.
+fn arm_loaded_credentials(
+    state: &mut ControllerState,
+    site: SchoolSite,
+    load_run: &str,
+    armed: Option<ActiveLogin>,
+) -> bool {
+    if state.load_runs.get(&site).map(String::as_str) != Some(load_run) {
+        return false;
+    }
+    state.load_runs.remove(&site);
+    if state.login.is_none() {
+        if let Some(armed) = armed.filter(|login| !state.auto_blocked.contains(&login.profile)) {
+            state.login = Some(armed);
+        }
+    }
+    true
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct RestoreRecord {
     site: SchoolSite,
@@ -363,6 +385,9 @@ struct ControllerState {
     current_site: SchoolSite,
     urls: HashMap<SchoolSite, String>,
     loaded_urls: HashMap<SchoolSite, String>,
+    /// Identifies the latest completed load for each resident view. Async
+    /// credential reads may only resume the load that created their token.
+    load_runs: HashMap<SchoolSite, String>,
     restore: bool,
     bounds: WebBounds,
     customizations: HashMap<SchoolSite, (String, String)>,
@@ -521,6 +546,7 @@ impl Default for ControllerState {
             current_site: SchoolSite::SciencePortal,
             urls: HashMap::new(),
             loaded_urls: HashMap::new(),
+            load_runs: HashMap::new(),
             restore: false,
             bounds: WebBounds::default(),
             customizations: HashMap::new(),
@@ -1596,6 +1622,77 @@ mod tests {
             credentials,
             run: "run".into(),
         }
+    }
+
+    fn science_login(run: &str) -> ActiveLogin {
+        ActiveLogin {
+            profile: SchoolAuthProfile::Science,
+            credentials: SchoolCredentials {
+                username: "student".into(),
+                password: "password".into(),
+                otp_secret: "JBSWY3DPEHPK3PXP".into(),
+                matrix: String::new(),
+            },
+            run: run.into(),
+        }
+    }
+
+    #[test]
+    fn late_vault_result_cannot_arm_a_stale_page_load() {
+        let mut state = ControllerState::default();
+        state
+            .load_runs
+            .insert(SchoolSite::SciencePortal, "new".into());
+        assert!(!arm_loaded_credentials(
+            &mut state,
+            SchoolSite::SciencePortal,
+            "old",
+            Some(science_login("old-login")),
+        ));
+        assert!(state.login.is_none());
+    }
+
+    #[test]
+    fn duplicate_or_late_vault_result_does_not_replace_an_active_login() {
+        let mut state = ControllerState::default();
+        state
+            .load_runs
+            .insert(SchoolSite::SciencePortal, "load".into());
+        assert!(arm_loaded_credentials(
+            &mut state,
+            SchoolSite::SciencePortal,
+            "load",
+            Some(science_login("first")),
+        ));
+        assert!(!arm_loaded_credentials(
+            &mut state,
+            SchoolSite::SciencePortal,
+            "load",
+            Some(science_login("duplicate")),
+        ));
+        assert_eq!(
+            state.login.as_ref().map(|login| login.run.as_str()),
+            Some("first")
+        );
+    }
+
+    #[test]
+    fn manual_login_started_during_vault_read_wins() {
+        let mut state = ControllerState::default();
+        state
+            .load_runs
+            .insert(SchoolSite::SciencePortal, "load".into());
+        state.login = Some(science_login("manual"));
+        assert!(arm_loaded_credentials(
+            &mut state,
+            SchoolSite::SciencePortal,
+            "load",
+            Some(science_login("automatic")),
+        ));
+        assert_eq!(
+            state.login.as_ref().map(|login| login.run.as_str()),
+            Some("manual")
+        );
     }
 
     #[test]
@@ -2850,51 +2947,21 @@ impl SchoolWebController {
         let app_for_download = app.clone();
         #[cfg(desktop)]
         let state_for_download = self.state.clone();
-        let callbacks = ViewCallbacks {
-            loaded: Arc::new(move |webview, raw_url| {
-                if let Ok(mut state) = state_for_load.lock() {
-                    state.loaded_urls.insert(site, raw_url.to_string());
-                }
-                if let Ok(url) = Url::parse(raw_url) {
-                    eprintln!(
-                        "[school-web] {} loaded {}{}",
-                        webview.label(),
-                        url.host_str().unwrap_or_default(),
-                        url.path()
-                    );
-                }
-                let auth_profile = Url::parse(raw_url)
-                    .ok()
-                    .filter(|url| url.scheme() == "https")
-                    .and_then(|url| url.host_str().and_then(SchoolAuthProfile::for_auth_host));
-                // Landing on a sign-in page with saved credentials starts an
-                // automatic sign-in, unless that profile's last attempt failed.
-                let should_arm = auth_profile.is_some_and(|profile| {
-                    state_for_load.lock().ok().is_some_and(|state| {
-                        state.login.is_none() && !state.auto_blocked.contains(&profile)
-                    })
+        let finish_loaded: LoadedContinuation = Arc::new(
+            move |webview, raw_url, load_run, armed| {
+                let accepted = state_for_load.lock().ok().is_some_and(|mut state| {
+                    arm_loaded_credentials(&mut state, site, &load_run, armed)
                 });
-                let armed = if should_arm {
-                    auth_profile.and_then(|profile| {
-                        let service = app_for_load.try_state::<Arc<SchoolAuthService>>()?;
-                        let credentials = service.load(profile).ok().flatten()?;
-                        Some(ActiveLogin {
-                            profile,
-                            credentials,
-                            run: new_run_id(),
-                        })
-                    })
-                } else {
-                    None
-                };
+                if !accepted {
+                    return;
+                }
+                let webview = &webview;
+                let raw_url = raw_url.as_ref();
                 let (site, css, javascript, restore, login, completed, heartbeat) =
                     match state_for_load.lock() {
                         Ok(mut state) => {
                             if let Some(safe_url) = sanitize_school_url(raw_url) {
                                 state.urls.insert(site, safe_url);
-                            }
-                            if state.login.is_none() {
-                                state.login = armed;
                             }
                             let login = state.login.clone();
                             let (login, completed) = match login {
@@ -3046,6 +3113,70 @@ impl SchoolWebController {
                     let extraction = extraction_relay_script(&setup, script, &relay_for_load, &run);
                     let _ = webview.eval(&extraction);
                 }
+            },
+        );
+        let finish_loaded_for_callback = finish_loaded.clone();
+        let state_for_loaded_callback = self.state.clone();
+        let app_for_loaded_callback = app.clone();
+        let callbacks = ViewCallbacks {
+            loaded: Arc::new(move |webview, raw_url| {
+                let load_run = {
+                    let Ok(mut state) = state_for_loaded_callback.lock() else {
+                        return;
+                    };
+                    let run = new_run_id();
+                    state.loaded_urls.insert(site, raw_url.to_string());
+                    state.load_runs.insert(site, run.clone());
+                    run
+                };
+                if let Ok(url) = Url::parse(raw_url) {
+                    eprintln!(
+                        "[school-web] {} loaded {}{}",
+                        webview.label(),
+                        url.host_str().unwrap_or_default(),
+                        url.path()
+                    );
+                }
+                let auth_profile = Url::parse(raw_url)
+                    .ok()
+                    .filter(|url| url.scheme() == "https")
+                    .and_then(|url| url.host_str().and_then(SchoolAuthProfile::for_auth_host));
+                // Landing on a sign-in page with saved credentials starts an
+                // automatic sign-in, unless that profile's last attempt failed.
+                let should_arm = auth_profile.is_some_and(|profile| {
+                    state_for_loaded_callback.lock().ok().is_some_and(|state| {
+                        state.login.is_none() && !state.auto_blocked.contains(&profile)
+                    })
+                });
+                let raw_url: Arc<str> = Arc::from(raw_url);
+                if should_arm {
+                    if let (Some(profile), Some(service)) = (
+                        auth_profile,
+                        app_for_loaded_callback
+                            .try_state::<Arc<SchoolAuthService>>()
+                            .map(|service| service.inner().clone()),
+                    ) {
+                        let app = app_for_loaded_callback.clone();
+                        let finish = finish_loaded_for_callback.clone();
+                        let webview = webview.clone();
+                        let raw_url = raw_url.clone();
+                        let load_run = load_run.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            let armed = service.load(profile).ok().flatten().map(|credentials| {
+                                ActiveLogin {
+                                    profile,
+                                    credentials,
+                                    run: new_run_id(),
+                                }
+                            });
+                            let _ = app.run_on_main_thread(move || {
+                                finish(webview, raw_url, load_run, armed);
+                            });
+                        });
+                        return;
+                    }
+                }
+                finish_loaded_for_callback(webview.clone(), raw_url, load_run, None);
             }),
             title: Arc::new(move |title| {
                 if let Some(encoded) = title.strip_prefix(&auth_relay_for_title) {
@@ -3239,6 +3370,11 @@ impl SchoolWebController {
                     return false;
                 }
                 let allowed = sanitize_school_url(url.as_str()).is_some();
+                if allowed {
+                    if let Ok(mut state) = state_for_navigation.lock() {
+                        state.load_runs.remove(&site);
+                    }
+                }
                 if !allowed && cfg!(debug_assertions) {
                     eprintln!(
                         "[school-web] blocked {}://{}{}",

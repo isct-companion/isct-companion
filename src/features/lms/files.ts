@@ -1,8 +1,8 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { desktopBridge } from "../../../app/native";
-import { nativeOs, type NativeOs } from "../../../platform/desktop-bridge";
-import { COURSE_FILE_POLICY } from "../../../core/course-file-policy";
-import type { Settings } from "../../../core/model";
+import { desktopBridge } from "../../app/native";
+import { nativeOs, type NativeOs } from "../../platform/desktop-bridge";
+import { COURSE_FILE_POLICY } from "../../core/course-file-policy";
+import type { Settings } from "../../core/model";
 export type CourseFolder = { term: string; course: string; section: string };
 export type LocalFile = {
   id: string;

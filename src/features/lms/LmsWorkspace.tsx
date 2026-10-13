@@ -1,5 +1,5 @@
 import "./lms.css";
-import { STACKED_QUERY } from "../../../app/form-factor";
+import { STACKED_QUERY } from "../../app/form-factor";
 import {
   createContext,
   lazy,
@@ -14,30 +14,30 @@ import {
   useState,
   type WheelEvent,
 } from "react";
-import { contentLanguage } from "../../../core/model";
+import { contentLanguage } from "../../core/model";
 import type {
   Assignment,
   Course,
   Material,
   Workspace,
-} from "../../../core/model";
+} from "../../core/model";
 import type {
   LmsCourseRecord,
   LmsSection,
-} from "../../../platform/desktop-bridge";
-import { t } from "../../../i18n";
-import { desktopBridge } from "../../../app/native";
-import { detectPlatform } from "../../../platform/capabilities";
+} from "../../platform/desktop-bridge";
+import { t } from "../../i18n";
+import { desktopBridge } from "../../app/native";
+import { detectPlatform } from "../../platform/capabilities";
 import { AssignmentWorkspaceFooter } from "./AssignmentWorkspaceCard";
 import { assignmentBrief } from "./assignment-workspace";
 import { announcements, formatLmsDate, contentText, imageOnly, safeContent, safeUrl } from "./content";
 import { OfficialLmsView } from "./OfficialLmsView";
 import { FileTile, LmsIcon } from "./LmsIcon";
-import { dueCountdown } from "../../../core/academic";
+import { dueCountdown } from "../../core/academic";
 import { springScroll, type SpringScroll } from "./spring-scroll";
 import { courseLessons, frontierLesson, gravityTarget, lessonSummary, markedLesson, markSchedule, railLabels } from "./lessons";
-import { addDays, resolveDayAgenda, tokyoDate } from "../../../core/schedule";
-import { jstMinutes } from "../../../components/timetable/timetable";
+import { addDays, resolveDayAgenda, tokyoDate } from "../../core/schedule";
+import { jstMinutes } from "../../components/timetable/timetable";
 /** The rail's entry for course activities outside any section. */
 const ACTIVITIES = -1;
 /** The lesson the course is at, for marking rows of schedule tables. */
@@ -74,7 +74,11 @@ export type CourseEntry = {
   endTime?: string;
   assignmentId?: string;
 };
-const SyllabusDetails = lazy(() => import("../../courses/syllabus-details").then(m => ({ default: m.SyllabusDetails })));
+const SyllabusDetails = lazy(() =>
+  import("../../pages/courses/syllabus-details").then((module) => ({
+    default: module.SyllabusDetails,
+  })),
+);
 const isSyllabus = (m: Material) => /^(シラバス|syllabus)$/i.test(m.title.trim()) || Boolean(m.resourceUrl?.startsWith("https://syllabus.s.isct.ac.jp/"));
 type ViewTab = {
   id: string;

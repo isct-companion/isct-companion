@@ -1,9 +1,9 @@
 import { MantineProvider } from "@mantine/core";
 import { useState } from "react";
-import { appTheme, cssVariablesResolver } from "../../../app/theme";
-import { seedWorkspace, type Course, type Material } from "../../../core/model";
-import type { LmsCourseRecord } from "../../../platform/desktop-bridge";
-import { Today } from "../TodayPage";
+import { appTheme, cssVariablesResolver } from "../../app/theme";
+import { seedWorkspace, type Course, type Material } from "../../core/model";
+import type { LmsCourseRecord } from "../../platform/desktop-bridge";
+import { Today } from "../../pages/today/TodayPage";
 import { LmsWorkspace, type CourseEntry } from "./LmsWorkspace";
 import { TodayWorkbench } from "./TodayWorkbench";
 

@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { desktopBridge } from "../../../app/native";
-import { nativeOs } from "../../../platform/desktop-bridge";
-import { ExternalLink } from "../../../components/ExternalLink";
-import { t } from "../../../i18n";
+import { desktopBridge } from "../../app/native";
+import { nativeOs } from "../../platform/desktop-bridge";
+import { ExternalLink } from "../../components/ExternalLink";
+import { t } from "../../i18n";
 import { extension, fileFamily } from "./file-types";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import {

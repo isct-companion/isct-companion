@@ -2,8 +2,8 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { seedWorkspace, type Course } from "../../../core/model";
-import type { LmsCourseRecord } from "../../../platform/desktop-bridge";
+import { seedWorkspace, type Course } from "../../core/model";
+import type { LmsCourseRecord } from "../../platform/desktop-bridge";
 import { LmsWorkspace } from "./LmsWorkspace";
 import { safeContent } from "./content";
 import { TodayWorkbench } from "./TodayWorkbench";
