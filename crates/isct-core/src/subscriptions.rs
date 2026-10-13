@@ -53,15 +53,6 @@ impl From<reqwest::Error> for SubscriptionError {
     }
 }
 
-pub const BUNDLED_INDEX: &str = include_str!("../subscriptions/index.json");
-pub const BUNDLED_INDEX_HASH: &str = include_str!("../subscriptions/index.sha256");
-pub const BUNDLED_ACADEMIC_CALENDAR_2026: &str =
-    include_str!("../subscriptions/data/2026/academic-calendar.json");
-pub const BUNDLED_DEPARTMENTS_2025: &str =
-    include_str!("../subscriptions/data/2025/departments.json");
-pub const BUNDLED_DEPARTMENTS_2026: &str =
-    include_str!("../subscriptions/data/2026/departments.json");
-
 const MAX_INDEX_BYTES: usize = 128 * 1024;
 const MAX_DATA_BYTES: usize = 4 * 1024 * 1024;
 
@@ -1023,14 +1014,6 @@ fn apply_row(
     Ok(true)
 }
 
-pub fn apply_subscription(
-    connection: &mut Connection,
-    calendar: &AcademicCalendar,
-    departments: &Departments,
-) -> Result<usize, SubscriptionError> {
-    apply_reference(connection, Some(calendar), Some(departments))
-}
-
 pub fn apply_reference(
     connection: &mut Connection,
     selected_calendar: Option<&AcademicCalendar>,
@@ -1386,28 +1369,19 @@ pub fn apply_exam_feed(
     Ok(changed)
 }
 
-/// Selects the two independent bundled datasets. A calendar year must never
-/// be used as a fallback for a student's admission cohort.
-pub fn bundled_selection(
-    academic_year: i32,
-    admission_year: i32,
-) -> Result<(AcademicCalendar, Departments), SubscriptionError> {
-    if academic_year != 2026 {
-        return Err(format!("no bundled academic calendar for {academic_year}").into());
-    }
-    let calendar = validate_academic_calendar(BUNDLED_ACADEMIC_CALENDAR_2026)?;
-    let departments = match admission_year {
-        2025 => validate_departments(BUNDLED_DEPARTMENTS_2025)?,
-        2026 => validate_departments(BUNDLED_DEPARTMENTS_2026)?,
-        _ => return Err(format!("no bundled guide for admission year {admission_year}").into()),
-    };
-    Ok((calendar, departments))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data::migrations;
+
+    const FIXTURE_INDEX: &str = include_str!("../tests/fixtures/subscriptions/index.json");
+    const FIXTURE_INDEX_HASH: &str = include_str!("../tests/fixtures/subscriptions/index.sha256");
+    const FIXTURE_ACADEMIC_CALENDAR_2026: &str =
+        include_str!("../tests/fixtures/subscriptions/data/2026/academic-calendar.json");
+    const FIXTURE_DEPARTMENTS_2025: &str =
+        include_str!("../tests/fixtures/subscriptions/data/2025/departments.json");
+    const FIXTURE_DEPARTMENTS_2026: &str =
+        include_str!("../tests/fixtures/subscriptions/data/2026/departments.json");
 
     fn source() -> Value {
         json!([{
@@ -1418,19 +1392,19 @@ mod tests {
     }
 
     #[test]
-    fn bundled_manifest_hashes_match_every_bundled_source() {
+    fn frozen_fixture_manifest_hashes_match_every_source() {
         assert_eq!(
-            format!("{:x}", Sha256::digest(BUNDLED_INDEX.as_bytes())),
-            BUNDLED_INDEX_HASH.trim()
+            format!("{:x}", Sha256::digest(FIXTURE_INDEX.as_bytes())),
+            FIXTURE_INDEX_HASH.trim()
         );
-        let index: SubscriptionIndex = serde_json::from_str(BUNDLED_INDEX).unwrap();
+        let index: SubscriptionIndex = serde_json::from_str(FIXTURE_INDEX).unwrap();
         let year = index.academic_years.get("2026").unwrap();
         let cohort_2025 = index.admission_years.get("2025").unwrap();
         let cohort_2026 = index.admission_years.get("2026").unwrap();
         let actual = [
-            content_hash(&serde_json::from_str(BUNDLED_ACADEMIC_CALENDAR_2026).unwrap()).unwrap(),
-            content_hash(&serde_json::from_str(BUNDLED_DEPARTMENTS_2025).unwrap()).unwrap(),
-            content_hash(&serde_json::from_str(BUNDLED_DEPARTMENTS_2026).unwrap()).unwrap(),
+            content_hash(&serde_json::from_str(FIXTURE_ACADEMIC_CALENDAR_2026).unwrap()).unwrap(),
+            content_hash(&serde_json::from_str(FIXTURE_DEPARTMENTS_2025).unwrap()).unwrap(),
+            content_hash(&serde_json::from_str(FIXTURE_DEPARTMENTS_2026).unwrap()).unwrap(),
         ];
         let expected = [
             year.academic_calendar.hash.as_str(),

@@ -1,4 +1,15 @@
+use crate::events::CoreEvent;
 use thiserror::Error;
+
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum EventError {
+    #[error("{0}")]
+    Delivery(String),
+}
+
+pub trait EventSink: Send + Sync {
+    fn emit(&self, event: CoreEvent) -> Result<(), EventError>;
+}
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum SecretError {

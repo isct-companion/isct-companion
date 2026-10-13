@@ -36,8 +36,8 @@ pub use isct_core::plans;
 use isct_core::pull_coordinator;
 #[cfg(matrix_ocr)]
 use isct_ocr as matrix_ocr;
+mod core_ports;
 mod pull_service;
-mod reference_refresh;
 mod scheduler;
 pub(crate) use isct_core::school_auth;
 mod school_extract;
@@ -50,7 +50,6 @@ mod school_web;
 mod school_web;
 mod school_web_shared;
 mod secrets;
-pub(crate) use isct_core::subscriptions;
 pub(crate) use isct_core::syllabus;
 #[cfg(desktop)]
 mod workspaces;
@@ -412,7 +411,10 @@ async fn refresh_reference_subscriptions(
     force: bool,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    reference_refresh::refresh_all(&app, force, true).await
+    core_ports::references(&app)
+        .refresh_all(force, true)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// School-owned records the workspace does not carry (LMS courses,
@@ -1483,201 +1485,6 @@ fn agent_command(
     ))
 }
 
-#[tauri::command]
-async fn apply_bundled_subscriptions(
-    webview: tauri::Webview,
-    store: tauri::State<'_, data::DataStore>,
-    academic_year: i32,
-    admission_year: i32,
-) -> Result<usize, String> {
-    require_local_main(&webview)?;
-    let store = store.inner().clone();
-    run_data_command(move || {
-        let (calendar, departments) =
-            subscriptions::bundled_selection(academic_year, admission_year)
-                .map_err(|error| error.to_string())?;
-        let mut connection =
-            rusqlite::Connection::open(store.path()).map_err(|error| error.to_string())?;
-        subscriptions::apply_subscription(&mut connection, &calendar, &departments)
-            .map_err(|error| error.to_string())
-    })
-    .await
-}
-
-#[tauri::command]
-async fn probe_reference_source(
-    webview: tauri::Webview,
-    index_url: String,
-) -> Result<serde_json::Value, String> {
-    require_local_main(&webview)?;
-    let hash = probe_reference_source_inner(&index_url).await?;
-    Ok(serde_json::json!({"indexHash":hash}))
-}
-
-async fn probe_reference_source_inner(index_url: &str) -> Result<String, String> {
-    subscriptions::SubscriptionClient::new()
-        .map_err(|error| error.to_string())?
-        .probe_index_source(index_url)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-async fn refresh_reference_source(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    kind: String,
-    index_url: String,
-    year: i32,
-    expected_index_hash: Option<String>,
-    known_hash: Option<String>,
-) -> Result<serde_json::Value, String> {
-    require_local_main(&webview)?;
-    let _ = known_hash; // Cache completeness and hashes are read natively.
-    reference_refresh::refresh_one(
-        &app,
-        reference_refresh::ReferenceRequest {
-            kind,
-            index_url,
-            year,
-            force: true,
-            expected_index_hash,
-        },
-        pull_coordinator::PullPriority::Manual,
-        reference_refresh::probes(),
-    )
-    .await
-}
-
-async fn refresh_reference_source_inner(
-    store: &data::DataStore,
-    kind: &str,
-    index_url: &str,
-    year: i32,
-    expected_index_hash: Option<String>,
-    known_hash: Option<String>,
-    context: &pull_coordinator::PullContext,
-) -> Result<serde_json::Value, String> {
-    let client = subscriptions::SubscriptionClient::new().map_err(|error| error.to_string())?;
-    let mut connection = rusqlite::Connection::open(store.path()).map_err(|e| e.to_string())?;
-    match kind {
-        "calendar" => {
-            let fetched = client
-                .fetch_calendar(
-                    index_url,
-                    year,
-                    expected_index_hash.as_deref(),
-                    known_hash.as_deref(),
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-            let Some(value) = fetched.value else {
-                return Ok(
-                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
-                );
-            };
-            if context.is_cancelled() {
-                return Err("Pull cancelled.".into());
-            }
-            if !context.applying().await {
-                return Err("Pull cancelled.".into());
-            }
-            let changed = subscriptions::apply_reference(&mut connection, Some(&value), None)
-                .map_err(|error| error.to_string())?;
-            Ok(
-                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
-            )
-        }
-        "departments" => {
-            let fetched = client
-                .fetch_departments(
-                    index_url,
-                    year,
-                    expected_index_hash.as_deref(),
-                    known_hash.as_deref(),
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-            let Some(value) = fetched.value else {
-                return Ok(
-                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
-                );
-            };
-            if context.is_cancelled() {
-                return Err("Pull cancelled.".into());
-            }
-            if !context.applying().await {
-                return Err("Pull cancelled.".into());
-            }
-            let changed = subscriptions::apply_reference(&mut connection, None, Some(&value))
-                .map_err(|error| error.to_string())?;
-            Ok(
-                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
-            )
-        }
-        "important-dates" => {
-            let fetched = client
-                .fetch_important_dates(
-                    index_url,
-                    year,
-                    expected_index_hash.as_deref(),
-                    known_hash.as_deref(),
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-            let Some(value) = fetched.value else {
-                return Ok(
-                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
-                );
-            };
-            if context.is_cancelled() {
-                return Err("Pull cancelled.".into());
-            }
-            if !context.applying().await {
-                return Err("Pull cancelled.".into());
-            }
-            let changed = subscriptions::apply_important_dates(&mut connection, &value)
-                .map_err(|error| error.to_string())?;
-            Ok(
-                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
-            )
-        }
-        "exams" => {
-            let fetched = client
-                .fetch_exams(
-                    index_url,
-                    year,
-                    expected_index_hash.as_deref(),
-                    known_hash.as_deref(),
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-            let Some(feeds) = fetched.value else {
-                return Ok(
-                    serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
-                );
-            };
-            if context.is_cancelled() {
-                return Err("Pull cancelled.".into());
-            }
-            if !context.applying().await {
-                return Err("Pull cancelled.".into());
-            }
-            let mut changed = 0;
-            let mut files = Vec::new();
-            for feed in feeds {
-                changed += subscriptions::apply_exam_feed(&mut connection, &feed)
-                    .map_err(|error| error.to_string())?;
-                files.push(serde_json::json!({"level":feed.level,"quarter":feed.quarter.to_ascii_uppercase(),"dataUrl":feed.url}));
-            }
-            Ok(
-                serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"files":files,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
-            )
-        }
-        _ => Err("unsupported subscription type".into()),
-    }
-}
-
 /// Keeps a plugin's Rust API but drops its JavaScript side. The notification
 /// plugin's init script replaces `window.Notification` in every webview and
 /// calls `is_permission_granted`, which no capability grants; the app
@@ -1846,9 +1653,6 @@ pub fn run() {
             catalog_sync_offerings,
             preview_plan_recurrence,
             agent_command,
-            apply_bundled_subscriptions,
-            probe_reference_source,
-            refresh_reference_source,
             #[cfg(target_os = "macos")]
             campus_wifi::campus_wifi_connect,
             #[cfg(target_os = "macos")]

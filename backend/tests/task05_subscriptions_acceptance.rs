@@ -3,17 +3,42 @@ use isct_core::subscriptions;
 
 use rusqlite::Connection;
 use serde_json::Value;
-use subscriptions::{
-    apply_subscription, bundled_selection, validate_academic_calendar, validate_departments,
-    BUNDLED_ACADEMIC_CALENDAR_2026, BUNDLED_DEPARTMENTS_2025, BUNDLED_DEPARTMENTS_2026,
-    BUNDLED_INDEX,
-};
+use subscriptions::{validate_academic_calendar, validate_departments};
 use url::Url;
 
+const FIXTURE_INDEX: &str =
+    include_str!("../../crates/isct-core/tests/fixtures/subscriptions/index.json");
+const FIXTURE_ACADEMIC_CALENDAR_2026: &str = include_str!(
+    "../../crates/isct-core/tests/fixtures/subscriptions/data/2026/academic-calendar.json"
+);
+const FIXTURE_DEPARTMENTS_2025: &str =
+    include_str!("../../crates/isct-core/tests/fixtures/subscriptions/data/2025/departments.json");
+const FIXTURE_DEPARTMENTS_2026: &str =
+    include_str!("../../crates/isct-core/tests/fixtures/subscriptions/data/2026/departments.json");
+
+fn fixture_selection(
+    academic_year: i32,
+    admission_year: i32,
+) -> Result<
+    (subscriptions::AcademicCalendar, subscriptions::Departments),
+    subscriptions::SubscriptionError,
+> {
+    if academic_year != 2026 {
+        return Err(format!("no fixture academic calendar for {academic_year}").into());
+    }
+    let calendar = validate_academic_calendar(FIXTURE_ACADEMIC_CALENDAR_2026)?;
+    let departments = match admission_year {
+        2025 => validate_departments(FIXTURE_DEPARTMENTS_2025)?,
+        2026 => validate_departments(FIXTURE_DEPARTMENTS_2026)?,
+        _ => return Err(format!("no fixture guide for admission year {admission_year}").into()),
+    };
+    Ok((calendar, departments))
+}
+
 #[test]
-fn official_bundled_files_validate_and_include_the_documented_cs_course() {
+fn frozen_subscription_fixtures_validate_and_include_the_documented_cs_course() {
     let (calendar, departments) =
-        bundled_selection(2026, 2026).expect("official bundled data must validate");
+        fixture_selection(2026, 2026).expect("frozen official data must validate");
     assert_eq!(calendar.academic_year, 2026);
     assert_eq!(departments.departments.len(), 17);
     let cs = departments
@@ -30,7 +55,7 @@ fn official_bundled_files_validate_and_include_the_documented_cs_course() {
 #[test]
 fn calendar_validation_rejects_missing_fields_bad_dates_and_unknown_types() {
     let official: Value =
-        serde_json::from_str(BUNDLED_ACADEMIC_CALENDAR_2026).expect("bundled JSON");
+        serde_json::from_str(FIXTURE_ACADEMIC_CALENDAR_2026).expect("fixture JSON");
 
     let mut missing = official.clone();
     missing.as_object_mut().unwrap().remove("quarters");
@@ -47,7 +72,7 @@ fn calendar_validation_rejects_missing_fields_bad_dates_and_unknown_types() {
 
 #[test]
 fn department_validation_rejects_a_missing_required_field() {
-    let mut official: Value = serde_json::from_str(BUNDLED_DEPARTMENTS_2026).expect("bundled JSON");
+    let mut official: Value = serde_json::from_str(FIXTURE_DEPARTMENTS_2026).expect("fixture JSON");
     official["departments"][0]
         .as_object_mut()
         .unwrap()
@@ -58,7 +83,7 @@ fn department_validation_rejects_a_missing_required_field() {
 #[test]
 fn department_guide_must_match_its_declared_admission_cohort() {
     let mut official: Value =
-        serde_json::from_str(BUNDLED_DEPARTMENTS_2026).expect("official 2026 guide data");
+        serde_json::from_str(FIXTURE_DEPARTMENTS_2026).expect("official 2026 guide data");
     assert_eq!(official["admissionYear"], 2026);
     assert!(official["source"][0]["url"]
         .as_str()
@@ -77,7 +102,7 @@ fn department_guide_must_match_its_declared_admission_cohort() {
 
 #[test]
 fn admission_year_2025_selects_only_the_real_guide_2025_dataset() {
-    let index: Value = serde_json::from_str(BUNDLED_INDEX).unwrap();
+    let index: Value = serde_json::from_str(FIXTURE_INDEX).unwrap();
     assert_eq!(
         index["admissionYears"]["2025"]["departments"]["source"],
         "data/2025/departments.json"
@@ -87,7 +112,7 @@ fn admission_year_2025_selects_only_the_real_guide_2025_dataset() {
         index["admissionYears"]["2026"]["departments"]["source"]
     );
 
-    let (calendar, departments) = bundled_selection(2026, 2025).unwrap();
+    let (calendar, departments) = fixture_selection(2026, 2025).unwrap();
     assert_eq!(calendar.academic_year, 2026);
     assert_eq!(departments.admission_year, 2025);
     assert_eq!(departments.departments.len(), 17);
@@ -122,19 +147,21 @@ fn admission_year_2025_selects_only_the_real_guide_2025_dataset() {
             && serde_json::to_value(&course.mark).unwrap() == "required"
     }));
 
-    // The bundled bytes themselves must carry the same audited cohort.
-    let raw: Value = serde_json::from_str(BUNDLED_DEPARTMENTS_2025).unwrap();
+    // The frozen fixture bytes themselves must carry the same audited cohort.
+    let raw: Value = serde_json::from_str(FIXTURE_DEPARTMENTS_2025).unwrap();
     assert_eq!(raw["admissionYear"], 2025);
 }
 
 #[test]
 fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
-    let (calendar, departments_2025) = bundled_selection(2026, 2025).unwrap();
-    let (_, departments_2026) = bundled_selection(2026, 2026).unwrap();
+    let (calendar, departments_2025) = fixture_selection(2026, 2025).unwrap();
+    let (_, departments_2026) = fixture_selection(2026, 2026).unwrap();
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     data::migrations::migrate(&mut connection).expect("schema v3");
-    apply_subscription(&mut connection, &calendar, &departments_2025).unwrap();
-    apply_subscription(&mut connection, &calendar, &departments_2026).unwrap();
+    subscriptions::apply_reference(&mut connection, Some(&calendar), Some(&departments_2025))
+        .unwrap();
+    subscriptions::apply_reference(&mut connection, Some(&calendar), Some(&departments_2026))
+        .unwrap();
 
     let mut statement = connection
         .prepare(
@@ -164,13 +191,18 @@ fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
 
 #[test]
 fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
-    let (calendar, departments) = bundled_selection(2026, 2026).expect("official bundled data");
+    let (calendar, departments) = fixture_selection(2026, 2026).expect("official fixture data");
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     data::migrations::migrate(&mut connection).expect("schema v3");
 
-    assert!(apply_subscription(&mut connection, &calendar, &departments).unwrap() > 0);
+    assert!(
+        subscriptions::apply_reference(&mut connection, Some(&calendar), Some(&departments))
+            .unwrap()
+            > 0
+    );
     assert_eq!(
-        apply_subscription(&mut connection, &calendar, &departments).unwrap(),
+        subscriptions::apply_reference(&mut connection, Some(&calendar), Some(&departments))
+            .unwrap(),
         0,
         "the same source hash must not rewrite rows"
     );
@@ -178,7 +210,8 @@ fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
     let mut changed = calendar.clone();
     changed.days[0].label.en = Some("Updated official label".into());
     assert_eq!(
-        apply_subscription(&mut connection, &changed, &departments).unwrap(),
+        subscriptions::apply_reference(&mut connection, Some(&changed), Some(&departments))
+            .unwrap(),
         1,
         "one changed calendar day must produce one changed row"
     );
@@ -186,7 +219,7 @@ fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
 
 #[test]
 fn calendar_v2_preserves_disjoint_teaching_ranges_and_rejects_exam_overlap() {
-    let mut raw: Value = serde_json::from_str(BUNDLED_ACADEMIC_CALENDAR_2026).unwrap();
+    let mut raw: Value = serde_json::from_str(FIXTURE_ACADEMIC_CALENDAR_2026).unwrap();
     raw["schemaVersion"] = 2.into();
     raw["teachingRanges"] = serde_json::json!({});
     for q in ["1Q", "2Q", "3Q", "4Q"] {
@@ -205,10 +238,10 @@ fn calendar_v2_preserves_disjoint_teaching_ranges_and_rejects_exam_overlap() {
 
 #[test]
 fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
-    let (calendar, departments) = bundled_selection(2026, 2026).unwrap();
+    let (calendar, departments) = fixture_selection(2026, 2026).unwrap();
     let mut connection = Connection::open_in_memory().unwrap();
     data::migrations::migrate(&mut connection).unwrap();
-    apply_subscription(&mut connection, &calendar, &departments).unwrap();
+    subscriptions::apply_reference(&mut connection, Some(&calendar), Some(&departments)).unwrap();
     let count = |db: &Connection| {
         db.query_row(
             "SELECT COUNT(*) FROM recommended_courses WHERE deleted_at IS NULL",
@@ -229,7 +262,7 @@ fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
 
 #[test]
 fn curriculum_map_courses_do_not_require_invented_groups_or_credits() {
-    let mut raw: Value = serde_json::from_str(BUNDLED_DEPARTMENTS_2026).unwrap();
+    let mut raw: Value = serde_json::from_str(FIXTURE_DEPARTMENTS_2026).unwrap();
     raw["departments"][0]["recommended"] = serde_json::json!([{
         "category":{"ja":"科目体系図"}, "level":200, "code":"EXAMPLE.C201",
         "title":{"ja":"体系図掲載科目"}, "sourcePages":[3], "sourceKind":"curriculum-map"

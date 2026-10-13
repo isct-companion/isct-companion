@@ -106,7 +106,9 @@ describe("authenticated school extractor safety", () => {
 describe("bundled public subscription data", () => {
   it("ships the 17 documented departments and the cited CS recommendation", () => {
     const data = JSON.parse(
-      read("crates/isct-core/subscriptions/data/2026/departments.json"),
+      read(
+        "crates/isct-core/tests/fixtures/subscriptions/data/2026/departments.json",
+      ),
     ) as {
       source: { url: string }[];
       departments: {
@@ -143,7 +145,9 @@ describe("bundled public subscription data", () => {
 
   it("cites an official source for every non-empty academic-calendar day list", () => {
     const calendar = JSON.parse(
-      read("crates/isct-core/subscriptions/data/2026/academic-calendar.json"),
+      read(
+        "crates/isct-core/tests/fixtures/subscriptions/data/2026/academic-calendar.json",
+      ),
     ) as {
       source: { title: string; url: string }[];
       days: unknown[];
