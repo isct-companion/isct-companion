@@ -1,4 +1,5 @@
 use base64::Engine;
+use isct_core::cloud_credentials;
 use isct_core::cloud_sync::document::{
     self, CloudWorkspaceFile, DocumentError, WorkspaceTransport,
 };
@@ -7,7 +8,6 @@ pub use isct_core::cloud_sync::CloudProvider;
 use isct_core::ports::SecretError;
 use isct_core::ports::SecretVault;
 use rand::RngCore;
-use ring::{aead, pbkdf2};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(desktop)]
@@ -19,17 +19,11 @@ use std::io::Read;
 use std::io::Write;
 #[cfg(desktop)]
 use std::net::TcpListener;
-use std::num::NonZeroU32;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 const MAX_BODY_BYTES: usize = 25 * 1024 * 1024;
 const CLOUD_FILE_NAME: &str = "IsctCompanion.json";
-const CREDENTIAL_FILE_NAME: &str = "IsctCompanion.credentials.json";
-const CREDENTIAL_FORMAT: &str = "IsctCompanion.credentials";
-const CREDENTIAL_PASSWORD_ACCOUNT: &str = "cloud-credential-sync";
-const CREDENTIAL_KDF_ITERATIONS: u32 = 600_000;
-const CREDENTIAL_AAD: &[u8] = b"IsctCompanion.credentials.v1";
 
 #[derive(Debug, Deserialize)]
 struct GoogleDriveFile {
@@ -39,19 +33,6 @@ struct GoogleDriveFile {
 #[derive(Debug, Deserialize)]
 struct GoogleDriveFiles {
     files: Option<Vec<GoogleDriveFile>>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct EncryptedCredentialFile {
-    format: String,
-    format_version: u64,
-    kdf: String,
-    iterations: u32,
-    salt: String,
-    cipher: String,
-    nonce: String,
-    ciphertext: String,
 }
 
 #[cfg(desktop)]
@@ -205,104 +186,6 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
-}
-
-fn validate_credential_password(password: &str) -> Result<(), String> {
-    let length = password.chars().count();
-    if !(8..=12).contains(&length) || password.chars().any(char::is_control) {
-        return Err("Encryption password must be 8–12 characters.".into());
-    }
-    Ok(())
-}
-
-fn derive_credential_key(password: &str, salt: &[u8], iterations: u32) -> Result<[u8; 32], String> {
-    let iterations = NonZeroU32::new(iterations)
-        .ok_or_else(|| "Encrypted credential KDF is invalid.".to_string())?;
-    let mut key = [0u8; 32];
-    pbkdf2::derive(
-        pbkdf2::PBKDF2_HMAC_SHA256,
-        iterations,
-        salt,
-        password.as_bytes(),
-        &mut key,
-    );
-    Ok(key)
-}
-
-fn encrypt_credentials(payload: &str, password: &str) -> Result<Vec<u8>, String> {
-    validate_credential_password(password)?;
-    let mut salt = [0u8; 16];
-    let mut nonce_bytes = [0u8; 12];
-    rand::rng().fill_bytes(&mut salt);
-    rand::rng().fill_bytes(&mut nonce_bytes);
-    let key = derive_credential_key(password, &salt, CREDENTIAL_KDF_ITERATIONS)?;
-    let key = aead::UnboundKey::new(&aead::AES_256_GCM, &key)
-        .map_err(|_| "Credential encryption setup failed.".to_string())?;
-    let key = aead::LessSafeKey::new(key);
-    let mut ciphertext = payload.as_bytes().to_vec();
-    key.seal_in_place_append_tag(
-        aead::Nonce::assume_unique_for_key(nonce_bytes),
-        aead::Aad::from(CREDENTIAL_AAD),
-        &mut ciphertext,
-    )
-    .map_err(|_| "Credential encryption failed.".to_string())?;
-    let encode = base64::engine::general_purpose::STANDARD;
-    serde_json::to_vec_pretty(&EncryptedCredentialFile {
-        format: CREDENTIAL_FORMAT.into(),
-        format_version: 1,
-        kdf: "pbkdf2-sha256".into(),
-        iterations: CREDENTIAL_KDF_ITERATIONS,
-        salt: encode.encode(salt),
-        cipher: "aes-256-gcm".into(),
-        nonce: encode.encode(nonce_bytes),
-        ciphertext: encode.encode(ciphertext),
-    })
-    .map_err(|_| "Encrypted credentials could not be encoded.".to_string())
-}
-
-fn decrypt_credentials(bytes: &[u8], password: &str) -> Result<String, String> {
-    validate_credential_password(password)?;
-    let file: EncryptedCredentialFile = serde_json::from_slice(bytes)
-        .map_err(|_| "Encrypted credential file is invalid.".to_string())?;
-    if file.format != CREDENTIAL_FORMAT
-        || file.format_version != 1
-        || file.kdf != "pbkdf2-sha256"
-        || file.iterations != CREDENTIAL_KDF_ITERATIONS
-        || file.cipher != "aes-256-gcm"
-    {
-        return Err("Encrypted credential file version is unsupported.".into());
-    }
-    let decode = base64::engine::general_purpose::STANDARD;
-    let salt = decode
-        .decode(file.salt)
-        .map_err(|_| "Encrypted credential salt is invalid.".to_string())?;
-    if salt.len() != 16 {
-        return Err("Encrypted credential salt is invalid.".into());
-    }
-    let nonce: [u8; 12] = decode
-        .decode(file.nonce)
-        .map_err(|_| "Encrypted credential nonce is invalid.".to_string())?
-        .try_into()
-        .map_err(|_| "Encrypted credential nonce is invalid.".to_string())?;
-    let mut ciphertext = decode
-        .decode(file.ciphertext)
-        .map_err(|_| "Encrypted credential payload is invalid.".to_string())?;
-    if !(16..=(64 * 1024 + 16)).contains(&ciphertext.len()) {
-        return Err("Encrypted credential payload is invalid.".into());
-    }
-    let key = derive_credential_key(password, &salt, file.iterations)?;
-    let key = aead::UnboundKey::new(&aead::AES_256_GCM, &key)
-        .map_err(|_| "Credential decryption setup failed.".to_string())?;
-    let key = aead::LessSafeKey::new(key);
-    let plaintext = key
-        .open_in_place(
-            aead::Nonce::assume_unique_for_key(nonce),
-            aead::Aad::from(CREDENTIAL_AAD),
-            &mut ciphertext,
-        )
-        .map_err(|_| "Credential decryption failed. Check the encryption password.".to_string())?;
-    String::from_utf8(plaintext.to_vec())
-        .map_err(|_| "Decrypted credential payload is invalid.".to_string())
 }
 
 fn valid_client_id(value: &str) -> bool {
@@ -1066,30 +949,30 @@ impl<V: SecretVault> DesktopCloudService<V> {
     pub fn credential_sync_configured(&self) -> Result<bool, String> {
         Ok(self
             .vault
-            .load(CREDENTIAL_PASSWORD_ACCOUNT)
+            .load(cloud_credentials::PASSWORD_ACCOUNT)
             .map_err(|error| error.to_string())?
             .is_some())
     }
 
     pub fn set_credential_sync_password(&self, password: &str) -> Result<(), String> {
-        validate_credential_password(password)?;
+        cloud_credentials::validate_password(password).map_err(|error| error.to_string())?;
         self.vault
-            .store(CREDENTIAL_PASSWORD_ACCOUNT, password)
+            .store(cloud_credentials::PASSWORD_ACCOUNT, password)
             .map_err(|error| error.to_string())
     }
 
     pub fn clear_credential_sync_password(&self) -> Result<(), String> {
         self.vault
-            .delete(CREDENTIAL_PASSWORD_ACCOUNT)
+            .delete(cloud_credentials::PASSWORD_ACCOUNT)
             .map_err(|error| error.to_string())
     }
 
     pub async fn credential_backup_exists(&self, provider: CloudProvider) -> Result<bool, String> {
-        if provider == CloudProvider::Icloud {
+        if !cloud_credentials::supports_provider(provider) {
             return Ok(false);
         }
         Ok(self
-            .read_file(provider, CREDENTIAL_FILE_NAME)
+            .read_file(provider, cloud_credentials::FILE_NAME)
             .await?
             .is_some())
     }
@@ -1101,11 +984,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
     ) -> Result<(), String> {
         let password = self
             .vault
-            .load(CREDENTIAL_PASSWORD_ACCOUNT)
+            .load(cloud_credentials::PASSWORD_ACCOUNT)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| "Credential sync is not configured on this device.".to_string())?;
-        let encrypted = encrypt_credentials(payload, &password)?;
-        self.write_file(provider, CREDENTIAL_FILE_NAME, encrypted)
+        let encrypted =
+            cloud_credentials::encrypt(payload, &password).map_err(|error| error.to_string())?;
+        self.write_file(provider, cloud_credentials::FILE_NAME, encrypted)
             .await
     }
 
@@ -1115,15 +999,20 @@ impl<V: SecretVault> DesktopCloudService<V> {
     ) -> Result<Option<String>, String> {
         let Some(password) = self
             .vault
-            .load(CREDENTIAL_PASSWORD_ACCOUNT)
+            .load(cloud_credentials::PASSWORD_ACCOUNT)
             .map_err(|error| error.to_string())?
         else {
             return Ok(None);
         };
-        let Some(encrypted) = self.read_file(provider, CREDENTIAL_FILE_NAME).await? else {
+        let Some(encrypted) = self
+            .read_file(provider, cloud_credentials::FILE_NAME)
+            .await?
+        else {
             return Ok(None);
         };
-        decrypt_credentials(&encrypted, &password).map(Some)
+        cloud_credentials::decrypt(&encrypted, &password)
+            .map(Some)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -1214,17 +1103,6 @@ mod tests {
             service.vault.load("onedrive").unwrap().as_deref(),
             Some("connected")
         );
-    }
-
-    #[test]
-    fn credential_encryption_round_trips_and_rejects_wrong_password() {
-        let encrypted = encrypt_credentials("{\"version\":1}", "eight888").unwrap();
-        assert_eq!(
-            decrypt_credentials(&encrypted, "eight888").unwrap(),
-            "{\"version\":1}"
-        );
-        assert!(decrypt_credentials(&encrypted, "wrong999").is_err());
-        assert!(encrypt_credentials("{}", "short").is_err());
     }
 
     #[test]

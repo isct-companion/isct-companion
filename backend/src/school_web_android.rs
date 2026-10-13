@@ -1,7 +1,9 @@
 //! Kotlin owns Android school views; the Rust callback channel owns all relays.
 use super::NativeWebview;
 use crate::lifecycle::SchoolSite;
-use crate::school_web_shared::{ViewCallbacks, WebBounds, KYOMU_POPUP_SCRIPT, SCHOOL_LINKS_SCRIPT};
+use crate::school_browser_native::{
+    ViewCallbacks, WebBounds, KYOMU_POPUP_SCRIPT, SCHOOL_LINKS_SCRIPT,
+};
 use serde::Serialize;
 use tauri::{
     ipc::{Channel, InvokeResponseBody},
@@ -21,35 +23,28 @@ pub(super) fn create(
         app: app.clone(),
         site,
     };
-    let event_view = view.clone();
-    let (tx, rx) = std::sync::mpsc::channel();
     let events = Channel::<serde_json::Value>::new(move |body| {
-        let _ = tx.send(body);
-        Ok(())
-    });
-    std::thread::spawn(move || {
-        for body in rx {
-            if let InvokeResponseBody::Json(raw) = body {
-                if let Ok(event) = serde_json::from_str::<serde_json::Value>(&raw) {
-                    let value = event["value"].as_str().unwrap_or_default();
-                    match event["kind"].as_str() {
-                        Some("loaded") => (callbacks.loaded)(&event_view, value),
-                        Some("title") => (callbacks.title)(value),
-                        Some("navigation") => {
-                            if let Ok(url) = Url::parse(value) {
-                                (callbacks.navigation)(&url);
-                            }
+        if let InvokeResponseBody::Json(raw) = body {
+            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&raw) {
+                let value = event["value"].as_str().unwrap_or_default();
+                match event["kind"].as_str() {
+                    Some("loaded") => (callbacks.loaded)(value),
+                    Some("title") => (callbacks.title)(value),
+                    Some("navigation") => {
+                        if let Ok(url) = Url::parse(value) {
+                            (callbacks.navigation)(&url);
                         }
-                        Some("newWindow") => {
-                            if let Ok(url) = Url::parse(value) {
-                                (callbacks.new_window)(url);
-                            }
-                        }
-                        _ => {}
                     }
+                    Some("newWindow") => {
+                        if let Ok(url) = Url::parse(value) {
+                            (callbacks.new_window)(url);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
+        Ok(())
     });
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -71,15 +66,13 @@ pub(super) fn create(
             url: target,
             bounds,
             visible,
-            scripts: [
-                include_str!("../scripts/android-school-support.js").replace(
-                    "__ISCT_SUPPORT_SCRIPTS__",
-                    &serde_json::to_string(&[KYOMU_POPUP_SCRIPT, SCHOOL_LINKS_SCRIPT])
-                        .map_err(|error| error.to_string())?,
-                ),
-            ],
+            scripts: [isct_core::school_browser::ANDROID_SUPPORT.replace(
+                "__ISCT_SUPPORT_SCRIPTS__",
+                &serde_json::to_string(&[KYOMU_POPUP_SCRIPT, SCHOOL_LINKS_SCRIPT])
+                    .map_err(|error| error.to_string())?,
+            )],
             events,
-            allowed_hosts: crate::school_extract::SCHOOL_HOSTS,
+            allowed_hosts: isct_core::school_browser::SCHOOL_HOSTS,
         },
     )?;
     Ok(view)

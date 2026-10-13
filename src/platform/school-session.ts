@@ -4,163 +4,136 @@ import type {
   DesktopBridge,
   SchoolAuthProfile,
   SchoolSessionEvent,
+  SchoolSessionSnapshot,
+  SchoolSessionState as NativeSchoolSessionState,
 } from "./desktop-bridge";
-
-/**
- * A school sign-in is only ever working, failed, or not set up. There is no
- * polling: the app signs in once at launch and checks again when its window
- * regains focus; in between, any school page that gets redirected to sign-in
- * is renewed natively with the saved credentials. All of it reports here
- * through the same session events.
- */
-export type SchoolSessionState = "active" | "failed" | "not-configured";
 
 type SessionBridge = Pick<
   DesktopBridge,
-  "schoolCredentialStatus" | "ensureSchoolSession" | "onSchoolSession"
+  "schoolSessionSnapshot" | "schoolSessionLifecycle" | "onSchoolSession"
 >;
 
-// How long one launch sign-in may take before the next account starts.
-export const LAUNCH_SIGN_IN_TIMEOUT_MS = 90_000;
-// Returning to the window re-checks at most this often.
-export const FOCUS_CHECK_INTERVAL_MS = 2 * 60_000;
+export type SchoolSessionState = Exclude<NativeSchoolSessionState, "pending">;
 
 const states = new Map<SchoolAuthProfile, SchoolSessionState>();
+const revisions = new Map<SchoolAuthProfile, number>();
 const listeners = new Set<() => void>();
-// Every native report, even one that repeats the current state.
-const reports = new Set<(profile: SchoolAuthProfile) => void>();
-let attached: SessionBridge | undefined;
-let launchSignIn: Promise<void> | undefined;
+
+type Attachment = {
+  bridge: SessionBridge;
+  users: number;
+  disposed: boolean;
+  disposeNative?: () => void;
+  disposeLifecycle?: () => void;
+};
+
+let attached: Attachment | undefined;
+let lastBridge: SessionBridge | undefined;
+
+const visible = () => document.visibilityState !== "hidden";
+
+const apply = (
+  profile: SchoolAuthProfile,
+  state: NativeSchoolSessionState,
+  revision: number,
+) => {
+  if (revision <= (revisions.get(profile) ?? -1)) return;
+  revisions.set(profile, revision);
+  const previous = states.get(profile);
+  if (state === "pending") states.delete(profile);
+  else states.set(profile, state);
+  if (previous !== states.get(profile))
+    listeners.forEach((listener) => listener());
+};
+
+const applyEvent = (event: SchoolSessionEvent) =>
+  apply(event.profile, event.state, event.revision);
+
+const applySnapshot = (snapshot: SchoolSessionSnapshot) => {
+  apply("science", snapshot.states.science, snapshot.revision);
+  apply("tokyo-tech", snapshot.states.tokyoTech, snapshot.revision);
+};
+
+const stop = (attachment: Attachment) => {
+  attachment.disposed = true;
+  attachment.disposeNative?.();
+  attachment.disposeLifecycle?.();
+  if (attached === attachment) attached = undefined;
+};
+
+const start = (attachment: Attachment) => {
+  void (async () => {
+    const disposeNative = await attachment.bridge.onSchoolSession((event) => {
+      if (!attachment.disposed && attached === attachment) applyEvent(event);
+    });
+    if (attachment.disposed || attached !== attachment) {
+      disposeNative();
+      return;
+    }
+    attachment.disposeNative = disposeNative;
+
+    const focus = () => {
+      void attachment.bridge
+        .schoolSessionLifecycle({ kind: "focus", visible: visible() })
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", focus);
+    document.addEventListener("visibilitychange", focus);
+    attachment.disposeLifecycle = () => {
+      window.removeEventListener("focus", focus);
+      document.removeEventListener("visibilitychange", focus);
+    };
+
+    const snapshot = await attachment.bridge
+      .schoolSessionSnapshot()
+      .catch(() => undefined);
+    if (attachment.disposed || attached !== attachment) return;
+    if (snapshot) applySnapshot(snapshot);
+    await attachment.bridge
+      .schoolSessionLifecycle({ kind: "launch", visible: visible() })
+      .catch(() => undefined);
+  })().catch(() => undefined);
+};
 
 export const schoolSessions = {
   get: (profile: SchoolAuthProfile) => states.get(profile),
-  set(profile: SchoolAuthProfile, state: SchoolSessionState | undefined) {
-    if (states.get(profile) === state) return;
-    if (state) states.set(profile, state);
-    else states.delete(profile);
-    listeners.forEach((listener) => listener());
-  },
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => void listeners.delete(listener);
   },
-  /** Forwards native session events into the store; safe to call repeatedly. */
   attach(bridge: SessionBridge | undefined) {
-    if (!bridge?.onSchoolSession || attached === bridge) return;
-    attached = bridge;
-    bridge.onSchoolSession((event: SchoolSessionEvent) => {
-      schoolSessions.set(event.profile, event.state);
-      reports.forEach((report) => report(event.profile));
-    });
+    if (!bridge) return () => undefined;
+    if (attached?.bridge === bridge && !attached.disposed) attached.users += 1;
+    else {
+      if (attached) stop(attached);
+      if (lastBridge && lastBridge !== bridge) {
+        const changed = states.size > 0;
+        states.clear();
+        revisions.clear();
+        if (changed) listeners.forEach((listener) => listener());
+      }
+      lastBridge = bridge;
+      attached = { bridge, users: 1, disposed: false };
+      start(attached);
+    }
+    const attachment = attached;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      attachment.users -= 1;
+      if (attachment.users === 0) stop(attachment);
+    };
   },
   /** Test hook. */
   reset() {
+    if (attached) stop(attached);
     states.clear();
-    attached = undefined;
-    launchSignIn = undefined;
+    revisions.clear();
+    lastBridge = undefined;
     listeners.forEach((listener) => listener());
   },
 };
-
-// Resolves on the profile's next report (an unchanged "active" counts) or the timeout.
-const settled = (profile: SchoolAuthProfile, timeoutMs: number) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(done, timeoutMs);
-    const report = (from: SchoolAuthProfile) => {
-      if (from === profile) done();
-    };
-    reports.add(report);
-    function done() {
-      clearTimeout(timer);
-      reports.delete(report);
-      resolve();
-    }
-  });
-
-/**
- * Submits every saved account once. Rust serializes the shared school views,
- * while this layer only reflects the resulting session events.
- */
-export function signInAtLaunch(
-  bridge: SessionBridge | undefined,
-  timeoutMs = LAUNCH_SIGN_IN_TIMEOUT_MS,
-  quiet = false,
-) {
-  if (!bridge?.ensureSchoolSession) return Promise.resolve();
-  if (launchSignIn) return launchSignIn;
-  const sessionBridge = bridge;
-  const run = async () => {
-    schoolSessions.attach(sessionBridge);
-    const status = await sessionBridge
-      .schoolCredentialStatus()
-      .catch(() => undefined);
-    if (!status) return;
-    // "access-denied" is the last attempt's result, cached across launches.
-    // Retry it, or one denied read would disable automatic sign-in for good.
-    const configured = (summary: typeof status.science) =>
-      summary.availability
-        ? ["saved-locked", "available", "access-denied"].includes(
-            summary.availability,
-          )
-        : summary.saved; // compatibility with status files/tests from before the typed state
-    const saved: [SchoolAuthProfile, boolean][] = [
-      ["science", configured(status.science)],
-      ["tokyo-tech", configured(status.tokyoTech)],
-    ];
-    await Promise.all(
-      saved.map(async ([profile, isSaved]) => {
-        if (!isSaved) {
-          schoolSessions.set(profile, "not-configured");
-          return;
-        }
-        const previous = schoolSessions.get(profile);
-        // Rust owns ordering. Submit both checks immediately so later data
-        // pulls cannot slip between the two launch sign-ins.
-        if (!quiet) schoolSessions.set(profile, undefined);
-        const result = settled(profile, timeoutMs);
-        const accepted = await sessionBridge.ensureSchoolSession!(
-          profile,
-        ).catch(() => false);
-        if (accepted) await result;
-        else if (!quiet) schoolSessions.set(profile, previous);
-      }),
-    );
-  };
-  const current = run().finally(() => {
-    if (launchSignIn === current) launchSignIn = undefined;
-  });
-  launchSignIn = current;
-  return current;
-}
-
-/**
- * Re-checks saved sessions when the window comes back to the front, so an
- * expired sign-in is renewed before the person opens a school page.
- */
-export function checkSessionsOnFocus(
-  bridge: SessionBridge | undefined,
-  intervalMs = FOCUS_CHECK_INTERVAL_MS,
-  now = () => Date.now(),
-) {
-  if (!bridge?.ensureSchoolSession) return () => undefined;
-  let last = now();
-  let running = false;
-  const check = () => {
-    if (running || document.visibilityState === "hidden") return;
-    if (now() - last < intervalMs) return;
-    last = now();
-    running = true;
-    void signInAtLaunch(bridge, LAUNCH_SIGN_IN_TIMEOUT_MS, true).finally(() => {
-      running = false;
-    });
-  };
-  window.addEventListener("focus", check);
-  document.addEventListener("visibilitychange", check);
-  return () => {
-    window.removeEventListener("focus", check);
-    document.removeEventListener("visibilitychange", check);
-  };
-}
 
 export function useSchoolSession(
   bridge: SessionBridge | undefined,

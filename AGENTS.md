@@ -14,7 +14,7 @@ no suitable library exists, and say why in a short comment.
 
 When two places (desktop and mobile, iOS and Android, two pages) need the same
 behaviour, put it in one module with one interface and let each side call it.
-Do not copy the logic. Examples: `backend/src/school_web_shared.rs` holds the
+Do not copy the logic. Examples: `crates/isct-core/src/school_browser` holds the
 login scripts and relays used by every school-web adapter; the route table in
 `src/app/routes.ts` serves both the workstation and the mobile shell.
 

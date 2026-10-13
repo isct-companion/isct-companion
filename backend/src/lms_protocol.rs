@@ -8,7 +8,7 @@ use std::{
     path::Path,
     time::UNIX_EPOCH,
 };
-use tauri::{http, AppHandle, Manager};
+use tauri::{http, AppHandle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reason {
@@ -55,11 +55,10 @@ fn error(reason: Reason, bytes: Option<u64>) -> http::Response<Vec<u8>> {
 }
 
 fn login_error(app: &AppHandle) -> http::Response<Vec<u8>> {
-    // SchoolWebController is the sole owner of school-session ordering. A
-    // burst of failed images/files is safe: its queue discards duplicate
-    // Science session jobs and orders the accepted request behind active work.
-    let controller = app.state::<crate::school_web::SchoolWebController>();
-    let _ = controller.request_session(app, isct_core::school_auth::SchoolAuthProfile::Science);
+    // Core coalesces session checks from concurrent failed images/files.
+    if let Ok(engine) = crate::core_ports::core(app).school_browser() {
+        let _ = engine.request_session(isct_core::school_auth::SchoolAuthProfile::Science);
+    }
     error(Reason::Login, None)
 }
 

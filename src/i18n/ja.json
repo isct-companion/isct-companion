@@ -372,7 +372,6 @@
   "AI agent access": "AIエージェント連携",
   "AY {{year}}": "{{year}}年度",
   "Add a day": "日を追加",
-  "Add this command as a stdio MCP server in your agent. The isct-companion-mcp binary must be on your PATH.": "このコマンドをエージェントにstdio形式のMCPサーバーとして登録してください。isct-companion-mcp がPATH上に必要です。",
   "Added by you": "自分で追加",
   "Adds AI agent access, site styles and scripts, and diagnostics.": "AIエージェント連携、サイトのスタイルとスクリプト、診断が使えるようになります。",
   "After this many days without opening them. Your notes are kept.": "この日数開かなかったファイルを削除します。ノートは残ります。",
@@ -793,5 +792,10 @@
   "Kept until you delete them. Old ones can be removed here.": "自動では削除されません。古いものはここで削除できます。",
   "Delete every workspace unchanged for over a month?": "1か月以上変更のないワークスペースをすべて削除しますか？",
   "Removed {{count}} workspaces": "{{count}} 件のワークスペースを削除しました",
-  "Remove month-old workspaces": "1か月以上前のものを削除"
+  "Remove month-old workspaces": "1か月以上前のものを削除",
+  "Add this URL as a Streamable HTTP MCP server. Use the access token for Bearer authentication and keep IsctCompanion open.": "このURLをStreamable HTTP形式のMCPサーバーとして登録してください。アクセストークンをBearer認証に使い、IsctCompanionを起動したままにしてください。",
+  "Copy URL": "URLをコピー",
+  "Access token": "アクセストークン",
+  "Copy token": "トークンをコピー",
+  "MCP server is unavailable.": "MCPサーバーを利用できません。"
 }

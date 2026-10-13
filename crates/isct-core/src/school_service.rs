@@ -22,7 +22,7 @@ pub struct IngestOutcome {
     pub message: String,
 }
 
-/// Everything a native school adapter needs for one blocking extraction.
+/// One coordinated request consumed by the Core school browser engine.
 pub struct SchoolExecution {
     pub site: SchoolSite,
     pub course_id: Option<u64>,

@@ -793,6 +793,316 @@ pub fn validate_sync_document(document: &Value) -> Result<(), DataError> {
     Ok(())
 }
 
+fn put_user_record_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    table: &str,
+    mut value: Value,
+    actor: &str,
+    expected_rev: Option<u64>,
+) -> Result<Value, DataError> {
+    if !DataStore::user_table(table) {
+        return Err("table is not user-owned".into());
+    }
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "record must be an object".to_string())?;
+    if table == "manual_courses" {
+        let offering = object
+            .get("offeringId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let year = object
+            .get("termId")
+            .and_then(Value::as_str)
+            .and_then(|term| term.get(..4))
+            .and_then(|year| year.parse::<i32>().ok());
+        if let (Some(offering), Some(year)) = (offering, year) {
+            let source_provider = object
+                .get("source")
+                .and_then(|source| source.get("provider"))
+                .and_then(Value::as_str);
+            let provider = source_provider
+                .filter(|provider| matches!(*provider, "lms" | "syllabus" | "kyomu"))
+                .unwrap_or("manual");
+            let external = object
+                .get("source")
+                .and_then(|source| source.get("externalId"))
+                .and_then(Value::as_str)
+                .unwrap_or(&offering)
+                .to_string();
+            let course_id =
+                resolve_course_id(transaction, provider, &external, year, Some(&offering))?;
+            object.insert("id".into(), Value::String(course_id));
+        }
+    }
+    let requested_id = object
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    let source_key = object
+        .get("sourceKey")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let target_key = object
+        .get("targetKey")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let overlay_id = if matches!(table, "assignment_marks" | "course_overrides") {
+        source_key
+            .as_deref()
+            .map(|source_key| {
+                transaction
+                    .query_row(
+                        &format!("SELECT id FROM {table} WHERE source_key=?1"),
+                        [source_key],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()
+                    .map_err(DataError::from)
+            })
+            .transpose()?
+            .flatten()
+    } else if table == "schedule_overrides" {
+        target_key
+            .as_deref()
+            .map(|target_key| {
+                transaction
+                    .query_row(
+                        "SELECT id FROM schedule_overrides WHERE target_key=?1",
+                        [target_key],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()
+                    .map_err(DataError::from)
+            })
+            .transpose()?
+            .flatten()
+    } else {
+        None
+    };
+    let id = requested_id
+        .or(overlay_id)
+        .unwrap_or_else(|| Uuid::now_v7().to_string());
+    let previous: Option<(String, i64)> = transaction
+        .query_row(
+            &format!("SELECT value, rev FROM {table} WHERE id=?1"),
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(DataError::from)?;
+    if let Some(expected) = expected_rev {
+        let actual = previous.as_ref().map(|(_, rev)| *rev as u64).unwrap_or(0);
+        if expected != actual {
+            return Err(DataError::conflict(format!(
+                "revision conflict: {table}/{id} expected {expected}, actual {actual}"
+            )));
+        }
+    }
+    let revision = previous.as_ref().map_or(1, |(_, rev)| rev + 1);
+    object.insert("id".into(), Value::String(id.clone()));
+    object.insert("rev".into(), Value::from(revision));
+    object.insert("updatedAt".into(), Value::String(now()));
+    object.insert(
+        "updatedBy".into(),
+        read_setting(transaction, "deviceId")?.unwrap_or_else(|| Value::String(actor.to_string())),
+    );
+    object
+        .entry("source")
+        .or_insert_with(|| json!({"provider":"manual"}));
+    object.remove("deletedAt");
+    if let Some(source_key) = source_key {
+        if matches!(table, "assignment_marks" | "course_overrides") {
+            object.insert("sourceKey".into(), Value::String(source_key));
+        }
+    }
+    normalize_optional_nulls(&mut value);
+    validate_user_record(table, &value)?;
+    let unchanged = previous
+        .as_ref()
+        .and_then(|(raw, _)| serde_json::from_str::<Value>(raw).ok())
+        .is_some_and(|old| {
+            content_value(&old) == content_value(&value)
+                && old.get("deletedAt") == value.get("deletedAt")
+        });
+    if unchanged || !upsert_row(transaction, table, &value, true)? {
+        // Unchanged content keeps the stored revision; returning the
+        // bumped copy would make the caller's next expected rev wrong.
+        let (raw, _) = previous.ok_or_else(|| "record vanished during save".to_string())?;
+        return serde_json::from_str(&raw)
+            .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")));
+    }
+    match table {
+        "assignment_marks" => {
+            transaction.execute(
+                    "UPDATE assignment_marks SET source_key=?2,assignment_id=?3,hidden=?4,completed_at=?5 WHERE id=?1",
+                    params![
+                        id,
+                        value.get("sourceKey").and_then(Value::as_str),
+                        value.get("assignmentId").and_then(Value::as_str),
+                        value.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+                        value.get("completedAt").and_then(Value::as_str),
+                    ],
+                ).map_err(DataError::from)?;
+        }
+        "course_overrides" => {
+            transaction.execute(
+                    "UPDATE course_overrides SET source_key=?2,course_id=?3,title=?4,instructor=?5,color=?6 WHERE id=?1",
+                    params![
+                        id,
+                        value.get("sourceKey").and_then(Value::as_str),
+                        value.get("courseId").and_then(Value::as_str),
+                        value.get("title").and_then(Value::as_str),
+                        value.get("instructor").and_then(Value::as_str),
+                        value.get("color").and_then(Value::as_str),
+                    ],
+                ).map_err(DataError::from)?;
+        }
+        "schedule_overrides" => {
+            transaction
+                .execute(
+                    "UPDATE schedule_overrides SET target_key=?2 WHERE id=?1",
+                    params![id, value.get("targetKey").and_then(Value::as_str)],
+                )
+                .map_err(DataError::from)?;
+        }
+        _ => {}
+    }
+    Ok(value)
+}
+
+fn delete_user_record_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    table: &str,
+    id: &str,
+    actor: &str,
+    expected_rev: Option<u64>,
+) -> Result<bool, DataError> {
+    if !DataStore::user_table(table) {
+        return Err("table is not user-owned".into());
+    }
+    let raw: Option<(String, i64)> = transaction
+        .query_row(
+            &format!("SELECT value, rev FROM {table} WHERE id=?1"),
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(DataError::from)?;
+    let Some((raw, revision)) = raw else {
+        if let Some(expected) = expected_rev.filter(|expected| *expected != 0) {
+            return Err(DataError::conflict(format!(
+                "revision conflict: {table}/{id} expected {expected}, actual 0"
+            )));
+        }
+        return Ok(false);
+    };
+    if let Some(expected) = expected_rev.filter(|expected| *expected != revision as u64) {
+        return Err(DataError::conflict(format!(
+            "revision conflict: {table}/{id} expected {expected}, actual {revision}"
+        )));
+    }
+    let mut value: Value = serde_json::from_str(&raw)
+        .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")))?;
+    let timestamp = now();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| DataError::storage(format!("{table} contains a non-object record")))?;
+    object.insert("rev".into(), Value::from(revision + 1));
+    object.insert("updatedAt".into(), Value::String(timestamp.clone()));
+    object.insert(
+        "updatedBy".into(),
+        read_setting(transaction, "deviceId")?.unwrap_or_else(|| Value::String(actor.to_string())),
+    );
+    object.insert("deletedAt".into(), Value::String(timestamp));
+    upsert_row(transaction, table, &value, true)?;
+    Ok(true)
+}
+
+pub(crate) enum AgentWriteError {
+    Disabled,
+    Data(DataError),
+}
+
+impl From<DataError> for AgentWriteError {
+    fn from(error: DataError) -> Self {
+        Self::Data(error)
+    }
+}
+
+pub(crate) struct AgentWriteTransaction<'transaction, 'connection> {
+    transaction: &'transaction rusqlite::Transaction<'connection>,
+}
+
+impl AgentWriteTransaction<'_, '_> {
+    pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
+        if !DataStore::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        read_rows(self.transaction, table)
+    }
+
+    pub(crate) fn put(
+        &self,
+        table: &str,
+        value: Value,
+        expected_rev: Option<u64>,
+    ) -> Result<Value, DataError> {
+        put_user_record_in_transaction(self.transaction, table, value, "mcp", expected_rev)
+    }
+
+    pub(crate) fn delete(
+        &self,
+        table: &str,
+        id: &str,
+        expected_rev: Option<u64>,
+    ) -> Result<bool, DataError> {
+        delete_user_record_in_transaction(self.transaction, table, id, "mcp", expected_rev)
+    }
+}
+
+fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
+    Ok(read_setting(connection, "devicePreferences")?
+        .or(read_setting(connection, "settings")?)
+        .and_then(|value| {
+            value
+                .pointer("/agentAccess/enabled")
+                .and_then(Value::as_bool)
+        })
+        .unwrap_or(false))
+}
+
+fn record_agent_write_in(
+    transaction: &rusqlite::Transaction<'_>,
+    tool: &str,
+) -> Result<(), DataError> {
+    let key = if read_setting(transaction, "devicePreferences")?.is_some() {
+        "devicePreferences"
+    } else {
+        "settings"
+    };
+    let mut settings = read_setting(transaction, key)?.unwrap_or_else(|| json!({}));
+    let object = settings
+        .as_object_mut()
+        .ok_or_else(|| "settings must be an object".to_string())?;
+    let access = object
+        .entry("agentAccess")
+        .or_insert_with(|| json!({"enabled":false,"lastWrites":[]}));
+    let writes = access
+        .as_object_mut()
+        .and_then(|access| {
+            access
+                .entry("lastWrites")
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+        })
+        .ok_or_else(|| "agent access history must be an array".to_string())?;
+    writes.insert(0, json!({"at": now(), "tool": tool}));
+    writes.truncate(20);
+    save_setting(transaction, key, &settings, "mcp").map(|_| ())
+}
+
 impl DataStore {
     pub fn initialize(path: PathBuf) -> Result<(Self, bool), DataError> {
         if let Some(parent) = path.parent() {
@@ -895,185 +1205,16 @@ impl DataStore {
     pub fn put_user_record_checked(
         &self,
         table: &str,
-        mut value: Value,
+        value: Value,
         actor: &str,
         expected_rev: Option<u64>,
     ) -> Result<Value, DataError> {
-        if !Self::user_table(table) {
-            return Err("table is not user-owned".into());
-        }
-        let object = value
-            .as_object_mut()
-            .ok_or_else(|| "record must be an object".to_string())?;
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DataError::from)?;
-        if table == "manual_courses" {
-            let offering = object
-                .get("offeringId")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let year = object
-                .get("termId")
-                .and_then(Value::as_str)
-                .and_then(|term| term.get(..4))
-                .and_then(|year| year.parse::<i32>().ok());
-            if let (Some(offering), Some(year)) = (offering, year) {
-                let source_provider = object
-                    .get("source")
-                    .and_then(|source| source.get("provider"))
-                    .and_then(Value::as_str);
-                let provider = source_provider
-                    .filter(|provider| matches!(*provider, "lms" | "syllabus" | "kyomu"))
-                    .unwrap_or("manual");
-                let external = object
-                    .get("source")
-                    .and_then(|source| source.get("externalId"))
-                    .and_then(Value::as_str)
-                    .unwrap_or(&offering)
-                    .to_string();
-                let course_id =
-                    resolve_course_id(&transaction, provider, &external, year, Some(&offering))?;
-                object.insert("id".into(), Value::String(course_id));
-            }
-        }
-        let requested_id = object
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|id| !id.is_empty())
-            .map(str::to_string);
-        let source_key = object
-            .get("sourceKey")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let target_key = object
-            .get("targetKey")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let overlay_id = if matches!(table, "assignment_marks" | "course_overrides") {
-            source_key
-                .as_deref()
-                .map(|source_key| {
-                    transaction
-                        .query_row(
-                            &format!("SELECT id FROM {table} WHERE source_key=?1"),
-                            [source_key],
-                            |row| row.get::<_, String>(0),
-                        )
-                        .optional()
-                        .map_err(DataError::from)
-                })
-                .transpose()?
-                .flatten()
-        } else if table == "schedule_overrides" {
-            target_key
-                .as_deref()
-                .map(|target_key| {
-                    transaction
-                        .query_row(
-                            "SELECT id FROM schedule_overrides WHERE target_key=?1",
-                            [target_key],
-                            |row| row.get::<_, String>(0),
-                        )
-                        .optional()
-                        .map_err(DataError::from)
-                })
-                .transpose()?
-                .flatten()
-        } else {
-            None
-        };
-        let id = requested_id
-            .or(overlay_id)
-            .unwrap_or_else(|| Uuid::now_v7().to_string());
-        let previous: Option<(String, i64)> = transaction
-            .query_row(
-                &format!("SELECT value, rev FROM {table} WHERE id=?1"),
-                [&id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .map_err(DataError::from)?;
-        if let Some(expected) = expected_rev {
-            let actual = previous.as_ref().map(|(_, rev)| *rev as u64).unwrap_or(0);
-            if expected != actual {
-                return Err(DataError::conflict(format!(
-                    "revision conflict: {table}/{id} expected {expected}, actual {actual}"
-                )));
-            }
-        }
-        let revision = previous.as_ref().map_or(1, |(_, rev)| rev + 1);
-        object.insert("id".into(), Value::String(id.clone()));
-        object.insert("rev".into(), Value::from(revision));
-        object.insert("updatedAt".into(), Value::String(now()));
-        object.insert(
-            "updatedBy".into(),
-            read_setting(&transaction, "deviceId")?
-                .unwrap_or_else(|| Value::String(actor.to_string())),
-        );
-        object
-            .entry("source")
-            .or_insert_with(|| json!({"provider":"manual"}));
-        object.remove("deletedAt");
-        if let Some(source_key) = source_key {
-            if matches!(table, "assignment_marks" | "course_overrides") {
-                object.insert("sourceKey".into(), Value::String(source_key));
-            }
-        }
-        normalize_optional_nulls(&mut value);
-        validate_user_record(table, &value)?;
-        let unchanged = previous
-            .as_ref()
-            .and_then(|(raw, _)| serde_json::from_str::<Value>(raw).ok())
-            .is_some_and(|old| {
-                content_value(&old) == content_value(&value)
-                    && old.get("deletedAt") == value.get("deletedAt")
-            });
-        if unchanged || !upsert_row(&transaction, table, &value, true)? {
-            // Unchanged content keeps the stored revision; returning the
-            // bumped copy would make the caller's next expected rev wrong.
-            let (raw, _) = previous.ok_or_else(|| "record vanished during save".to_string())?;
-            transaction.commit().map_err(DataError::from)?;
-            return serde_json::from_str(&raw)
-                .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")));
-        }
-        match table {
-            "assignment_marks" => {
-                transaction.execute(
-                    "UPDATE assignment_marks SET source_key=?2,assignment_id=?3,hidden=?4,completed_at=?5 WHERE id=?1",
-                    params![
-                        id,
-                        value.get("sourceKey").and_then(Value::as_str),
-                        value.get("assignmentId").and_then(Value::as_str),
-                        value.get("hidden").and_then(Value::as_bool).unwrap_or(false),
-                        value.get("completedAt").and_then(Value::as_str),
-                    ],
-                ).map_err(DataError::from)?;
-            }
-            "course_overrides" => {
-                transaction.execute(
-                    "UPDATE course_overrides SET source_key=?2,course_id=?3,title=?4,instructor=?5,color=?6 WHERE id=?1",
-                    params![
-                        id,
-                        value.get("sourceKey").and_then(Value::as_str),
-                        value.get("courseId").and_then(Value::as_str),
-                        value.get("title").and_then(Value::as_str),
-                        value.get("instructor").and_then(Value::as_str),
-                        value.get("color").and_then(Value::as_str),
-                    ],
-                ).map_err(DataError::from)?;
-            }
-            "schedule_overrides" => {
-                transaction
-                    .execute(
-                        "UPDATE schedule_overrides SET target_key=?2 WHERE id=?1",
-                        params![id, value.get("targetKey").and_then(Value::as_str)],
-                    )
-                    .map_err(DataError::from)?;
-            }
-            _ => {}
-        }
+        let value =
+            put_user_record_in_transaction(&transaction, table, value, actor, expected_rev)?;
         transaction.commit().map_err(DataError::from)?;
         Ok(value)
     }
@@ -1094,51 +1235,14 @@ impl DataStore {
         actor: &str,
         expected_rev: Option<u64>,
     ) -> Result<bool, DataError> {
-        if !Self::user_table(table) {
-            return Err("table is not user-owned".into());
-        }
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DataError::from)?;
-        let raw: Option<(String, i64)> = transaction
-            .query_row(
-                &format!("SELECT value, rev FROM {table} WHERE id=?1"),
-                [id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .map_err(DataError::from)?;
-        let Some((raw, revision)) = raw else {
-            if let Some(expected) = expected_rev.filter(|expected| *expected != 0) {
-                return Err(DataError::conflict(format!(
-                    "revision conflict: {table}/{id} expected {expected}, actual 0"
-                )));
-            }
-            return Ok(false);
-        };
-        if let Some(expected) = expected_rev.filter(|expected| *expected != revision as u64) {
-            return Err(DataError::conflict(format!(
-                "revision conflict: {table}/{id} expected {expected}, actual {revision}"
-            )));
-        }
-        let mut value: Value = serde_json::from_str(&raw)
-            .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")))?;
-        let timestamp = now();
-        let object = value
-            .as_object_mut()
-            .ok_or_else(|| DataError::storage(format!("{table} contains a non-object record")))?;
-        object.insert("rev".into(), Value::from(revision + 1));
-        object.insert("updatedAt".into(), Value::String(timestamp.clone()));
-        object.insert(
-            "updatedBy".into(),
-            read_setting(&transaction, "deviceId")?
-                .unwrap_or_else(|| Value::String(actor.to_string())),
-        );
-        object.insert("deletedAt".into(), Value::String(timestamp));
-        upsert_row(&transaction, table, &value, true)?;
+        let deleted =
+            delete_user_record_in_transaction(&transaction, table, id, actor, expected_rev)?;
         transaction.commit().map_err(DataError::from)?;
-        Ok(true)
+        Ok(deleted)
     }
 
     pub fn user_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
@@ -1150,14 +1254,32 @@ impl DataStore {
 
     pub fn agent_access_enabled(&self) -> Result<bool, DataError> {
         let connection = self.open()?;
-        Ok(read_setting(&connection, "devicePreferences")?
-            .or(read_setting(&connection, "settings")?)
-            .and_then(|value| {
-                value
-                    .pointer("/agentAccess/enabled")
-                    .and_then(Value::as_bool)
-            })
-            .unwrap_or(false))
+        agent_access_enabled_in(&connection)
+    }
+
+    pub(crate) fn agent_write<T>(
+        &self,
+        tool: &str,
+        action: impl FnOnce(&AgentWriteTransaction<'_, '_>) -> Result<T, DataError>,
+    ) -> Result<T, AgentWriteError> {
+        let mut connection = self.open().map_err(AgentWriteError::Data)?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(DataError::from)
+            .map_err(AgentWriteError::Data)?;
+        if !agent_access_enabled_in(&transaction).map_err(AgentWriteError::Data)? {
+            return Err(AgentWriteError::Disabled);
+        }
+        let result = action(&AgentWriteTransaction {
+            transaction: &transaction,
+        })
+        .map_err(AgentWriteError::Data)?;
+        record_agent_write_in(&transaction, tool).map_err(AgentWriteError::Data)?;
+        transaction
+            .commit()
+            .map_err(DataError::from)
+            .map_err(AgentWriteError::Data)?;
+        Ok(result)
     }
 
     // Local reference markers are excluded from user backups and cloud exports.
@@ -1214,35 +1336,13 @@ impl DataStore {
         transaction.commit().map_err(DataError::from)
     }
 
+    #[cfg(test)]
     pub fn record_agent_write(&self, tool: &str) -> Result<(), DataError> {
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DataError::from)?;
-        let key = if read_setting(&transaction, "devicePreferences")?.is_some() {
-            "devicePreferences"
-        } else {
-            "settings"
-        };
-        let mut settings = read_setting(&transaction, key)?.unwrap_or_else(|| json!({}));
-        let object = settings
-            .as_object_mut()
-            .ok_or_else(|| "settings must be an object".to_string())?;
-        let access = object
-            .entry("agentAccess")
-            .or_insert_with(|| json!({"enabled":false,"lastWrites":[]}));
-        let writes = access
-            .as_object_mut()
-            .and_then(|access| {
-                access
-                    .entry("lastWrites")
-                    .or_insert_with(|| json!([]))
-                    .as_array_mut()
-            })
-            .ok_or_else(|| "agent access history must be an array".to_string())?;
-        writes.insert(0, json!({"at": now(), "tool": tool}));
-        writes.truncate(20);
-        save_setting(&transaction, key, &settings, "mcp")?;
+        record_agent_write_in(&transaction, tool)?;
         transaction.commit().map_err(DataError::from)
     }
 

@@ -56,17 +56,26 @@ fn has_lms_session(view: &Webview) -> bool {
 
 impl LmsSessionPort for NativeSession {
     fn school_state(&self) -> Result<SessionState, FetchError> {
-        self.0
-            .state::<crate::school_web::SchoolWebController>()
-            .session_state(isct_core::school_auth::SchoolAuthProfile::Science)
-            .map_err(|_| FetchError::Network)
+        let snapshot = crate::core_ports::core(&self.0)
+            .school_browser()
+            .and_then(|engine| engine.session_snapshot())
+            .map_err(|_| FetchError::Network)?;
+        use isct_core::school_browser::SchoolSessionState;
+        Ok(match snapshot.states.science {
+            SchoolSessionState::Active => SessionState::Active,
+            SchoolSessionState::Pending => SessionState::Pending,
+            SchoolSessionState::Failed | SchoolSessionState::NotConfigured => SessionState::Failed,
+        })
     }
     fn request_school_session(&self) -> Result<(), FetchError> {
-        self.0
-            .state::<crate::school_web::SchoolWebController>()
-            .request_session(&self.0, isct_core::school_auth::SchoolAuthProfile::Science)
+        let engine = crate::core_ports::core(&self.0)
+            .school_browser()
+            .map_err(|_| FetchError::Network)?
+            .clone();
+        engine
+            .request_session(isct_core::school_auth::SchoolAuthProfile::Science)
             .map(|_| ())
-            .map_err(|_| FetchError::Login)
+            .map_err(|_| FetchError::Network)
     }
     fn ensure_lms_view(&self) -> Result<(), FetchError> {
         if self.0.get_webview(LABEL).is_none() {

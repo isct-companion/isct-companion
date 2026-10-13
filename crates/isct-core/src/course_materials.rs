@@ -502,9 +502,16 @@ pub fn safe_external_url(raw: &str) -> bool {
 
 /// Validate a file selected from a material result before the shell opens it.
 pub fn stored_file(root: &Path, raw_path: &str) -> Result<PathBuf, MaterialError> {
-    let root = root.canonicalize().map_err(storage_error)?;
+    let supplied_root = root;
+    let root = supplied_root.canonicalize().map_err(storage_error)?;
     let raw = PathBuf::from(raw_path);
-    let relative = raw.strip_prefix(&root).map_err(|_| outside_storage())?;
+    // macOS commonly reports the same temporary path as both `/tmp/...` and
+    // `/private/tmp/...`. Derive components from either spelling, then walk
+    // them below the canonical root so symlinks are still rejected.
+    let relative = raw
+        .strip_prefix(supplied_root)
+        .or_else(|_| raw.strip_prefix(&root))
+        .map_err(|_| outside_storage())?;
     let mut checked = root.clone();
     for component in relative.components() {
         let std::path::Component::Normal(component) = component else {
@@ -793,6 +800,33 @@ mod tests {
         assert!(!is_material_cache_name(Path::new(
             "README-12345678.part-10-2"
         )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stored_file_accepts_an_alias_for_the_same_root_without_following_children() {
+        use std::os::unix::fs::symlink;
+
+        let actual = root("stored-alias");
+        fs::create_dir_all(&actual).unwrap();
+        let alias = actual.with_extension("alias");
+        symlink(&actual, &alias).unwrap();
+        let file = alias.join("handout.txt");
+        fs::write(&file, "safe").unwrap();
+        assert_eq!(
+            stored_file(&alias, &file.to_string_lossy()).unwrap(),
+            actual.join("handout.txt").canonicalize().unwrap()
+        );
+
+        let outside = actual.with_extension("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), "secret").unwrap();
+        symlink(&outside, actual.join("linked")).unwrap();
+        assert!(stored_file(&alias, &alias.join("linked/secret.txt").to_string_lossy()).is_err());
+
+        fs::remove_file(alias).unwrap();
+        fs::remove_dir_all(actual).unwrap();
+        fs::remove_dir_all(outside).unwrap();
     }
 
     #[test]

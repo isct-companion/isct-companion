@@ -3,15 +3,9 @@ use crate::{data::DataStore, school_web::SchoolWebController};
 use isct_core::{
     events::CoreEvent,
     ports::{EventError, EventSink},
-    pull_coordinator::{PullContext, PullPriority},
-    reference_refresh::ReferenceService,
     runtime::CoreRuntime,
     runtime_tasks::RuntimeTasks,
     scheduler::{ExportError, ScheduledExporter, SchedulerServices},
-    school_auth::SchoolAuthService,
-    school_service::{
-        IngestOutcome, SchoolExecution, SchoolExecutor, SchoolExecutorError, SchoolService,
-    },
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -19,45 +13,12 @@ use std::sync::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-struct DesktopEvents(AppHandle);
+pub(crate) struct DesktopEvents(pub(crate) AppHandle);
 impl EventSink for DesktopEvents {
     fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
         self.0
             .emit(event.name(), event.payload())
             .map_err(|error| EventError::Delivery(error.to_string()))
-    }
-}
-
-struct DesktopSchool(AppHandle);
-impl SchoolExecutor for DesktopSchool {
-    fn execute(
-        &self,
-        request: SchoolExecution,
-        context: PullContext,
-    ) -> Result<Vec<IngestOutcome>, SchoolExecutorError> {
-        let execute = || -> Result<Vec<IngestOutcome>, String> {
-            if context.is_cancelled() {
-                return Err("Pull cancelled.".into());
-            }
-            let controller = self.0.state::<SchoolWebController>();
-            if let Some((profile, credentials)) = request.credentials {
-                controller.request_login(&self.0, profile, credentials)?;
-            }
-            if context.is_cancelled() {
-                return Err("Pull cancelled.".into());
-            }
-            if context.priority() == PullPriority::Manual {
-                controller.request_pull(&self.0, request.site, request.course_id, context)
-            } else {
-                controller.request_pull_background(
-                    &self.0,
-                    request.site,
-                    request.course_id,
-                    context,
-                )
-            }
-        };
-        execute().map_err(SchoolExecutorError::Execution)
     }
 }
 
@@ -70,33 +31,21 @@ impl ScheduledExporter for DesktopExport {
     }
 }
 
+pub(crate) fn core(app: &AppHandle) -> Arc<isct_core::Core> {
+    app.state::<Arc<isct_core::Core>>().inner().clone()
+}
 pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
-    app.state::<Arc<CoreRuntime>>().inner().clone()
+    core(app).runtime.clone()
 }
 
 // Operation-scoped ports avoid retaining AppHandle in the core's permanent
 // service state. Completed coordinator jobs release their work closures too.
 pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
-    let runtime = runtime(app);
-    let store = app.state::<DataStore>().inner().clone();
-    let events: Arc<dyn EventSink> = Arc::new(DesktopEvents(app.clone()));
-    SchedulerServices {
-        references: ReferenceService::new(
-            store.clone(),
-            runtime.coordinator.clone(),
-            events.clone(),
-        ),
-        school: SchoolService::new(
-            runtime.coordinator.clone(),
-            app.state::<Arc<SchoolAuthService>>().inner().clone(),
-            events.clone(),
-        ),
-        refresh: runtime.refresh.clone(),
-        store,
-        events,
-        executor: Arc::new(DesktopSchool(app.clone())),
-        exporter: Arc::new(DesktopExport(app.clone())),
-    }
+    core(app).services(
+        Arc::new(DesktopEvents(app.clone())),
+        app.state::<SchoolWebController>().engine.clone(),
+        Arc::new(DesktopExport(app.clone())),
+    )
 }
 
 pub(crate) fn publish_conditions(app: &AppHandle) -> Result<(), String> {
@@ -171,7 +120,7 @@ impl DesktopRuntime {
         !self.exiting.swap(true, Ordering::AcqRel)
     }
 
-    pub(crate) async fn shutdown(&self, core: &CoreRuntime) {
+    pub(crate) async fn shutdown(&self, core: &isct_core::Core) {
         self.tasks.close();
         core.shutdown().await;
         self.tasks.wait().await;

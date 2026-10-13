@@ -1,0 +1,225 @@
+use super::*;
+use std::path::PathBuf;
+use std::sync::{Arc, Barrier};
+
+struct Fixture {
+    root: PathBuf,
+    store: DataStore,
+}
+
+impl Fixture {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!("isct-agent-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = DataStore::initialize(root.join("workspace.db")).unwrap().0;
+        store
+            .put_workspace_setting(
+                "devicePreferences",
+                json!({"agentAccess":{"enabled":true,"lastWrites":[]}}),
+                "test",
+            )
+            .unwrap();
+        Self { root, store }
+    }
+
+    fn service(&self) -> AgentService {
+        AgentService::new(self.store.clone())
+    }
+
+    fn seed_offering(&self) {
+        self.store
+            .catalog_upsert_offerings(&[json!({
+                "id":"202612345", "year":2026, "quarters":["3Q"], "code":"ABC.101",
+                "title":{"en":"Agent Systems"}, "instructors":[{"en":"Ada"}],
+                "instructionLanguage":"en", "format":{"kinds":["lecture"]}, "media":{},
+                "credits":{"lecture":2.0,"exercise":0.0,"lab":0.0},
+                "schedule":[{"kind":"weekly","day":1,"periods":[1,2],"room":{"en":"W1"}}],
+                "academicUnit":{"en":"Engineering"}, "intensive":false,
+                "syllabusUrl":"https://example.invalid/202612345", "fetchedAt":{}
+            })])
+            .unwrap();
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+const WRITES: AgentPolicy = AgentPolicy { allow_writes: true };
+
+#[test]
+fn trace_keeps_validation_write_audit_and_read_shape_together() {
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    let created = service
+        .call(
+            "plan_event_create",
+            &json!({"title":"Review","start":"2026-10-19T09:00:00+09:00","duration":45}),
+            WRITES,
+        )
+        .unwrap();
+    let id = created["id"].as_str().unwrap();
+    assert_eq!(created["ok"], true);
+    assert!(created.get("rev").is_none());
+
+    let updated = service
+        .call(
+            "plan_event_update",
+            &json!({"id":id,"room":"W9","duration":60}),
+            WRITES,
+        )
+        .unwrap();
+    assert_eq!(updated, json!({"ok":true,"id":id}));
+    let schedule = service
+        .call(
+            "schedule",
+            &json!({"from":"2026-10-19","to":"2026-10-19"}),
+            WRITES,
+        )
+        .unwrap();
+    assert_eq!(schedule["plans"][0]["room"], "W9");
+    assert!(schedule["plans"][0].get("rev").is_none());
+
+    let workspace = fixture.store.load_workspace().unwrap();
+    let writes = workspace
+        .pointer("/settings/agentAccess/lastWrites")
+        .and_then(Value::as_array)
+        .unwrap();
+    assert_eq!(writes.len(), 2);
+    assert_eq!(writes[0]["tool"], "plan_event_update");
+    assert_eq!(writes[1]["tool"], "plan_event_create");
+}
+
+#[test]
+fn authorization_and_write_policy_fail_before_mutation() {
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    let denied = service
+        .call(
+            "plan_event_create",
+            &json!({"title":"No","start":"2026-10-19T09:00:00+09:00","duration":30}),
+            AgentPolicy {
+                allow_writes: false,
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(denied, AgentError::WritesDisabled));
+    assert!(fixture.store.user_rows("plans").unwrap().is_empty());
+
+    fixture
+        .store
+        .put_workspace_setting(
+            "devicePreferences",
+            json!({"agentAccess":{"enabled":false,"lastWrites":[]}}),
+            "test",
+        )
+        .unwrap();
+    assert!(matches!(
+        service.call("grades", &json!({}), WRITES),
+        Err(AgentError::Disabled)
+    ));
+}
+
+#[test]
+fn transaction_rechecks_revoked_access_before_running_the_write() {
+    let fixture = Fixture::new();
+    fixture
+        .store
+        .put_workspace_setting(
+            "devicePreferences",
+            json!({"agentAccess":{"enabled":false,"lastWrites":[]}}),
+            "test",
+        )
+        .unwrap();
+    let ran = std::cell::Cell::new(false);
+    let result = fixture.store.agent_write("plan_event_create", |_| {
+        ran.set(true);
+        Ok(())
+    });
+    assert!(matches!(result, Err(AgentWriteError::Disabled)));
+    assert!(!ran.get());
+}
+
+#[test]
+fn rejected_audit_rolls_back_every_row_of_plan_add() {
+    let fixture = Fixture::new();
+    fixture.seed_offering();
+    let connection = rusqlite::Connection::open(fixture.store.path()).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER reject_mcp_audit BEFORE UPDATE ON settings
+             WHEN NEW.updated_by='mcp' BEGIN SELECT RAISE(ABORT, 'audit rejected'); END;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let error = fixture
+        .service()
+        .call(
+            "plan_add",
+            &json!({"offeringId":"202612345","term":"2026-3Q"}),
+            WRITES,
+        )
+        .unwrap_err();
+    assert!(matches!(error, AgentError::Storage(_)));
+    assert!(fixture
+        .store
+        .user_rows("manual_courses")
+        .unwrap()
+        .is_empty());
+    assert!(fixture.store.user_rows("plan_items").unwrap().is_empty());
+}
+
+#[test]
+fn concurrent_plan_add_converges_on_one_course_and_plan_item() {
+    let fixture = Fixture::new();
+    fixture.seed_offering();
+    let service = Arc::new(fixture.service());
+    let barrier = Arc::new(Barrier::new(2));
+    let mut threads = Vec::new();
+    for _ in 0..2 {
+        let service = service.clone();
+        let barrier = barrier.clone();
+        threads.push(std::thread::spawn(move || {
+            barrier.wait();
+            service.call(
+                "plan_add",
+                &json!({"offeringId":"202612345","term":"2026-3Q"}),
+                WRITES,
+            )
+        }));
+    }
+    let results = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(results[0]["planItemId"], results[1]["planItemId"]);
+    assert_eq!(fixture.store.user_rows("manual_courses").unwrap().len(), 1);
+    assert_eq!(fixture.store.user_rows("plan_items").unwrap().len(), 1);
+}
+
+#[test]
+fn date_and_term_validation_messages_remain_stable() {
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    let error = service
+        .call(
+            "schedule",
+            &json!({"from":"2026-10-20","to":"2026-10-19"}),
+            WRITES,
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "date range must be ordered and no longer than 366 days"
+    );
+    assert_eq!(
+        service
+            .call("courses", &json!({"year":2026,"quarter":"5Q"}), WRITES)
+            .unwrap_err()
+            .to_string(),
+        "term must look like 2026-3Q, got 2026-5Q"
+    );
+}

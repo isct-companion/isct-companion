@@ -4,7 +4,12 @@
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
 
+pub mod agent;
 pub mod backup;
+pub mod catalog;
+pub mod cloud_credentials;
+pub mod facade;
+pub use facade::Core;
 pub mod cloud_sync;
 pub mod contracts;
 pub mod course_materials;
@@ -25,8 +30,12 @@ pub mod runtime;
 pub mod runtime_tasks;
 pub mod scheduler;
 pub mod school_auth;
+pub mod school_browser;
 pub mod school_parser;
 pub mod school_refresh;
 pub mod school_service;
 pub mod subscriptions;
 pub mod syllabus;
+
+#[cfg(feature = "desktop-workspaces")]
+pub mod workspaces;

@@ -81,11 +81,30 @@ export type SchoolLoginEvent = {
   state: SchoolLoginState;
   message: string;
 };
-/** A school session became usable or failed (sign-in, launch, or renewal). */
+export type SchoolSessionState =
+  "pending" | "active" | "failed" | "not-configured";
+/** A school session state changed (sign-in, launch, credential change, or renewal). */
 export type SchoolSessionEvent = {
   profile: SchoolAuthProfile;
-  state: "active" | "failed";
+  state: SchoolSessionState;
+  revision: number;
 };
+export type SchoolSessionSnapshot = {
+  revision: number;
+  states: {
+    science: SchoolSessionState;
+    tokyoTech: SchoolSessionState;
+  };
+};
+export type SchoolSessionLifecycle = {
+  kind: "launch" | "focus";
+  visible: boolean;
+};
+const isSchoolSessionState = (value: unknown): value is SchoolSessionState =>
+  value === "pending" ||
+  value === "active" ||
+  value === "failed" ||
+  value === "not-configured";
 /** One extractor result from LMS or one 教務Web page. */
 export type SchoolIngestOutcome = {
   site: SchoolSite;
@@ -335,7 +354,7 @@ export interface DesktopBridge {
   ): Promise<{
     site: SchoolSite;
     url: string;
-    phase: "sessionRestored" | "pageLoaded";
+    phase: "sessionRestored" | "pageLoaded" | "navigationDispatched";
   }>;
   configureSchoolWebPolicy(policy: {
     restoreAcrossRestarts: boolean;
@@ -373,16 +392,11 @@ export interface DesktopBridge {
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;
-  /**
-   * Makes sure the profile is signed in: loads its portal home in the hidden
-   * school view, and if that lands on sign-in, signs in with the saved
-   * credentials. Used at launch; later expiries are renewed natively whenever
-   * a school page is redirected to sign-in. Resolves false when skipped
-   * (school view in use or a sign-in running); results arrive through
-   * `onSchoolSession`.
-   */
-  ensureSchoolSession?(profile: SchoolAuthProfile): Promise<boolean>;
-  onSchoolSession?(callback: (event: SchoolSessionEvent) => void): () => void;
+  schoolSessionSnapshot(): Promise<SchoolSessionSnapshot>;
+  schoolSessionLifecycle(event: SchoolSessionLifecycle): Promise<void>;
+  onSchoolSession(
+    callback: (event: SchoolSessionEvent) => void,
+  ): Promise<() => void> | (() => void);
   /**
    * Runs the LMS or 教務Web extractor in the hidden school view and waits for
    * the result (one outcome per 教務Web page). Expired sessions are renewed
@@ -647,26 +661,43 @@ export function createTauriDesktopBridge(
     testSchoolConnection: (profile, credentials) =>
       result("test_school_connection", { profile, credentials }),
     loginSchool: (profile) => result("login_school", { profile, bounds: null }),
-    ensureSchoolSession: (profile) =>
-      booleanCommand("ensure_school_session", { profile }),
-    onSchoolSession: (callback) => {
+    schoolSessionSnapshot: async () => {
+      const snapshot = await result<SchoolSessionSnapshot>(
+        "school_session_snapshot",
+      );
+      if (
+        !Number.isSafeInteger(snapshot.revision) ||
+        snapshot.revision < 0 ||
+        !snapshot.states ||
+        !isSchoolSessionState(snapshot.states.science) ||
+        !isSchoolSessionState(snapshot.states.tokyoTech)
+      )
+        throw new Error("school_session_snapshot returned an invalid result.");
+      return snapshot;
+    },
+    schoolSessionLifecycle: async (event) => {
+      await invokeCommand("school_session_lifecycle", event);
+    },
+    onSchoolSession: async (callback) => {
       let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<SchoolSessionEvent>("school-session", (payload) => {
-        if (
-          !disposed &&
-          payload &&
-          (payload.profile === "science" || payload.profile === "tokyo-tech") &&
-          (payload.state === "active" || payload.state === "failed")
-        )
-          callback(payload);
-      }).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
+      const unlisten = await listen<SchoolSessionEvent>(
+        "school-session",
+        (payload) => {
+          if (
+            !disposed &&
+            payload &&
+            (payload.profile === "science" ||
+              payload.profile === "tokyo-tech") &&
+            isSchoolSessionState(payload.state) &&
+            Number.isSafeInteger(payload.revision) &&
+            payload.revision >= 0
+          )
+            callback(payload);
+        },
+      );
       return () => {
         disposed = true;
-        if (unlisten) quietly(unlisten);
+        quietly(unlisten);
       };
     },
     openSchoolSite: (site, css, js, bounds, targetUrl) =>

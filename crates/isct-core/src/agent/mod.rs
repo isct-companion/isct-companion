@@ -1,167 +1,94 @@
-use isct_companion_lib::data::DataStore;
+//! Agent read models and mutations shared by application adapters.
+
+use crate::data::{AgentWriteError, DataError, DataStore};
 use serde_json::{json, Value};
-use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use thiserror::Error;
 
-fn response(id: Value, result: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "result": result})
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AgentPolicy {
+    pub allow_writes: bool,
 }
 
-fn failure(id: Value, code: i64, message: impl Into<String>) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into()}})
+#[derive(Debug, Error)]
+pub enum AgentError {
+    #[error("IsctCompanion agent access is disabled in Settings.")]
+    Disabled,
+    #[error("Agent writes are disabled.")]
+    WritesDisabled,
+    #[error("unknown tool")]
+    UnknownTool,
+    #[error("{0}")]
+    InvalidInput(String),
+    #[error("{0}")]
+    Conflict(String),
+    #[error("{0}")]
+    Compatibility(String),
+    #[error("{0}")]
+    Storage(String),
 }
 
-fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
-    json!({
-        "name": name,
-        "description": description,
-        "inputSchema": {
-            "type": "object",
-            "properties": properties,
-            "required": required,
-            "additionalProperties": false
+impl From<&str> for AgentError {
+    fn from(message: &str) -> Self {
+        Self::InvalidInput(message.to_string())
+    }
+}
+impl From<String> for AgentError {
+    fn from(message: String) -> Self {
+        Self::InvalidInput(message)
+    }
+}
+impl From<DataError> for AgentError {
+    fn from(error: DataError) -> Self {
+        match error {
+            DataError::InvalidInput(message) => Self::InvalidInput(message),
+            DataError::Conflict(message) => Self::Conflict(message),
+            DataError::Compatibility(message) => Self::Compatibility(message),
+            DataError::Storage(message) => Self::Storage(message),
         }
-    })
+    }
 }
 
-fn tools() -> Vec<Value> {
-    vec![
-        tool(
-            "today",
-            "Today in Japan time: the calendar state (holiday, replacement day), classes actually held, personal plans, open assignments not yet due, open assignments overdue in the last 14 days, and the GPA summary.",
-            json!({}),
-            &[],
-        ),
-        tool(
-            "schedule",
-            "Registered or planned courses of the quarters in an inclusive ISO date range (maximum 366 days), intensive dates and personal plans with their occurrences.",
-            json!({
-                "from": {"type": "string", "format": "date"},
-                "to": {"type": "string", "format": "date"}
-            }),
-            &["from", "to"],
-        ),
-        tool(
-            "courses",
-            "Registered or planned courses for one academic quarter.",
-            json!({
-                "year": {"type": "integer"}, "quarter": {"enum": ["1Q", "2Q", "3Q", "4Q"]}
-            }),
-            &["year", "quarter"],
-        ),
-        tool(
-            "course",
-            "One course with syllabus, LMS items and assignments.",
-            json!({
-                "id": {"type": "string"}
-            }),
-            &["id"],
-        ),
-        tool(
-            "search_catalog",
-            "Search the local bilingual course catalog. Only rows with plannable: true can be passed to plan_add; the others need their syllabus opened once in IsctCompanion first.",
-            json!({
-                "query": {"type": "string"}
-            }),
-            &["query"],
-        ),
-        tool(
-            "registration",
-            "Imported read-only registration records.",
-            json!({
-                "year": {"type": "integer"}, "term": {"enum": ["1Q", "2Q", "3Q", "4Q"]}
-            }),
-            &[],
-        ),
-        tool("grades", "Imported official grade records.", json!({}), &[]),
-        tool(
-            "gpa",
-            "Imported GPA, GPT and credit summaries.",
-            json!({}),
-            &[],
-        ),
-        tool(
-            "requirements",
-            "Imported graduation requirement progress.",
-            json!({}),
-            &[],
-        ),
-        tool(
-            "recommended",
-            "Recommended courses for the person's admission year. departmentId defaults to the department chosen in Settings.",
-            json!({
-                "departmentId": {"type": "string"}
-            }),
-            &[],
-        ),
-        tool(
-            "plan_add",
-            "Add a catalog offering (plannable: true in search_catalog) to the person's local plan. term is YYYY-nQ and must be one of the offering's quarters.",
-            json!({
-                "offeringId": {"type": "string"}, "term": {"type": "string"}
-            }),
-            &["offeringId", "term"],
-        ),
-        tool(
-            "plan_remove",
-            "Remove an offering from the person's local plan.",
-            json!({
-                "offeringId": {"type": "string"}, "term": {"type": "string"}
-            }),
-            &["offeringId", "term"],
-        ),
-        tool(
-            "plan_event_create",
-            "Create a personal one-off or repeating plan and return its id. start is RFC 3339; duration is minutes.",
-            json!({
-                "title": {"type": "string"}, "start": {"type": "string", "format": "date-time"},
-                "duration": {"type": "integer", "minimum": 1, "maximum": 10080, "description": "Duration in minutes."}, "rrule": {"type": "string"},
-                "room": {"type": "string"}
-            }),
-            &["title", "start", "duration"],
-        ),
-        tool(
-            "plan_event_update",
-            "Update a personal plan. start is RFC 3339; duration is minutes.",
-            json!({
-                "id": {"type": "string"}, "title": {"type": "string"},
-                "start": {"type": "string", "format": "date-time"}, "duration": {"type": "integer", "minimum": 1, "maximum": 10080, "description": "Duration in minutes."},
-                "rrule": {"type": "string"}, "room": {"type": "string"}
-            }),
-            &["id"],
-        ),
-        tool(
-            "plan_event_delete",
-            "Delete a personal plan.",
-            json!({
-                "id": {"type": "string"}
-            }),
-            &["id"],
-        ),
-        tool(
-            "hide_assignment",
-            "Hide an assignment locally without changing LMS.",
-            json!({
-                "id": {"type": "string"}
-            }),
-            &["id"],
-        ),
-        tool(
-            "restore_assignment",
-            "Restore a locally hidden assignment.",
-            json!({
-                "id": {"type": "string"}
-            }),
-            &["id"],
-        ),
-    ]
+#[derive(Clone)]
+pub struct AgentService {
+    store: DataStore,
 }
 
-fn required<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
+impl AgentService {
+    pub fn new(store: DataStore) -> Self {
+        Self { store }
+    }
+
+    pub fn call(&self, name: &str, args: &Value, policy: AgentPolicy) -> Result<Value, AgentError> {
+        if !self.store.agent_access_enabled()? {
+            return Err(AgentError::Disabled);
+        }
+        if is_write_tool(name) && !policy.allow_writes {
+            return Err(AgentError::WritesDisabled);
+        }
+        let mut value = call_inner(&self.store, name, args)?;
+        slim(&mut value);
+        Ok(value)
+    }
+}
+
+pub fn is_write_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "plan_add"
+            | "plan_remove"
+            | "plan_event_create"
+            | "plan_event_update"
+            | "plan_event_delete"
+            | "hide_assignment"
+            | "restore_assignment"
+    )
+}
+
+fn required<'a>(args: &'a Value, key: &str) -> Result<&'a str, AgentError> {
     args.get(key)
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("{key} is required"))
+        .ok_or_else(|| AgentError::InvalidInput(format!("{key} is required")))
 }
 
 fn visible_rows(workspace: &Value, key: &str) -> Vec<Value> {
@@ -175,7 +102,7 @@ fn visible_rows(workspace: &Value, key: &str) -> Vec<Value> {
         .collect()
 }
 
-fn date_range(args: &Value) -> Result<(chrono::NaiveDate, chrono::NaiveDate), String> {
+fn date_range(args: &Value) -> Result<(chrono::NaiveDate, chrono::NaiveDate), AgentError> {
     let from = chrono::NaiveDate::parse_from_str(required(args, "from")?, "%Y-%m-%d")
         .map_err(|_| "from must be an ISO date".to_string())?;
     let to = chrono::NaiveDate::parse_from_str(required(args, "to")?, "%Y-%m-%d")
@@ -188,7 +115,7 @@ fn date_range(args: &Value) -> Result<(chrono::NaiveDate, chrono::NaiveDate), St
 }
 
 /// `YYYY-nQ` → (year, quarter).
-fn parse_term(term: &str) -> Result<(i64, &str), String> {
+fn parse_term(term: &str) -> Result<(i64, &str), AgentError> {
     let invalid = || format!("term must look like 2026-3Q, got {term}");
     let (year, quarter) = term.split_once('-').ok_or_else(invalid)?;
     let year = year
@@ -197,13 +124,15 @@ fn parse_term(term: &str) -> Result<(i64, &str), String> {
         .filter(|year| (1000..=9999).contains(year))
         .ok_or_else(invalid)?;
     if !matches!(quarter, "1Q" | "2Q" | "3Q" | "4Q") {
-        return Err(invalid());
+        return Err(invalid().into());
     }
     Ok((year, quarter))
 }
 
-fn now_jst() -> chrono::DateTime<chrono::FixedOffset> {
-    chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap())
+fn now_jst() -> Result<chrono::DateTime<chrono::FixedOffset>, AgentError> {
+    let offset = chrono::FixedOffset::east_opt(9 * 3600)
+        .ok_or_else(|| AgentError::Compatibility("Japan time offset is unavailable".into()))?;
+    Ok(chrono::Utc::now().with_timezone(&offset))
 }
 
 fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
@@ -355,10 +284,8 @@ fn plans_between(workspace: &Value, from: chrono::NaiveDate, to: chrono::NaiveDa
                     .filter_map(Value::as_str)
                     .map(str::to_string)
                     .collect::<Vec<_>>();
-                let occurrences = isct_companion_lib::plans::occurrences_between(
-                    &start, rule, &exdates, from, to,
-                )
-                .ok()?;
+                let occurrences =
+                    crate::plans::occurrences_between(&start, rule, &exdates, from, to).ok()?;
                 if occurrences.is_empty() {
                     return None;
                 }
@@ -434,7 +361,7 @@ fn clock(period: u64, end: bool) -> Option<&'static str> {
     Some(if end { pair.1 } else { pair.0 })
 }
 
-fn course_from_offering(offering: &Value, term: &str) -> Result<Value, String> {
+fn course_from_offering(offering: &Value, term: &str) -> Result<Value, AgentError> {
     let offering_id = offering
         .get("id")
         .and_then(Value::as_str)
@@ -489,34 +416,38 @@ fn course_from_offering(offering: &Value, term: &str) -> Result<Value, String> {
     }))
 }
 
-fn write_result(store: &DataStore, tool_name: &str, details: Value) -> Result<Value, String> {
-    store
-        .record_agent_write(tool_name)
-        .map_err(|error| error.to_string())?;
+fn write_result(details: Value) -> Value {
     let mut result = json!({"ok": true});
     if let (Some(result), Value::Object(details)) = (result.as_object_mut(), details) {
         result.extend(details);
     }
-    Ok(result)
+    result
+}
+
+fn agent_write_result<T>(result: Result<T, AgentWriteError>) -> Result<T, AgentError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(AgentWriteError::Disabled) => Err(AgentError::Disabled),
+        Err(AgentWriteError::Data(error)) => Err(error.into()),
+    }
 }
 
 /// A personal plan that has not been deleted.
-fn live_plan(store: &DataStore, id: &str) -> Result<Value, String> {
+fn live_plan(store: &DataStore, id: &str) -> Result<Value, AgentError> {
     store
-        .user_rows("plans")
-        .map_err(|error| error.to_string())?
+        .user_rows("plans")?
         .into_iter()
         .find(|row| text(row, "id") == Some(id) && row.get("deletedAt").is_none())
-        .ok_or_else(|| "plan was not found".to_string())
+        .ok_or_else(|| AgentError::InvalidInput("plan was not found".into()))
 }
 
-fn valid_plan_time(value: &str) -> Result<(), String> {
+fn valid_plan_time(value: &str) -> Result<(), AgentError> {
     chrono::DateTime::parse_from_rfc3339(value)
         .map(|_| ())
-        .map_err(|_| "start must be an RFC 3339 timestamp".to_string())
+        .map_err(|_| AgentError::InvalidInput("start must be an RFC 3339 timestamp".into()))
 }
 
-fn duration(args: &Value, required: bool) -> Result<Option<u64>, String> {
+fn duration(args: &Value, required: bool) -> Result<Option<u64>, AgentError> {
     let value = args.get("duration").and_then(Value::as_u64);
     if required && value.is_none() {
         return Err("duration is required".into());
@@ -527,17 +458,11 @@ fn duration(args: &Value, required: bool) -> Result<Option<u64>, String> {
     Ok(value)
 }
 
-fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
-    if !store
-        .agent_access_enabled()
-        .map_err(|error| error.to_string())?
-    {
-        return Err("IsctCompanion agent access is disabled in Settings.".into());
-    }
-    let workspace = store.load_workspace().map_err(|error| error.to_string())?;
+fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, AgentError> {
+    let workspace = store.load_workspace()?;
     match name {
         "today" => {
-            let now = now_jst();
+            let now = now_jst()?;
             let date = now.date_naive();
             let iso = date.to_string();
             let term = text(&workspace, "currentTerm")
@@ -607,13 +532,13 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 .ok_or_else(|| "course was not found".to_string())?;
             Ok(json!({
                 "course": course,
-                "lmsItems": store.table_rows("lms_items").map_err(|error| error.to_string())?.into_iter()
+                "lmsItems": store.table_rows("lms_items")?.into_iter()
                     .filter(|row| row.get("courseId").and_then(Value::as_str) == Some(id)
                         && row.get("visible") != Some(&Value::Bool(false))).collect::<Vec<_>>(),
                 "assignments": visible_rows(&workspace, "assignments").into_iter()
                     .filter(|row| row.get("courseId").and_then(Value::as_str) == Some(id)
                         && row.get("hidden") != Some(&Value::Bool(true))).collect::<Vec<_>>(),
-                "syllabus": store.table_rows("offering_content").map_err(|error| error.to_string())?.into_iter()
+                "syllabus": store.table_rows("offering_content")?.into_iter()
                     .filter(|row| row.get("offeringId").and_then(Value::as_str)
                         == course.get("offeringId").and_then(Value::as_str)).collect::<Vec<_>>()
             }))
@@ -621,15 +546,10 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
         "search_catalog" => {
             // Search-only rows lack the schedule and credits plan_add needs;
             // the app reads them from the syllabus site, which this server never contacts.
-            let mut rows = store
-                .catalog_search(required(args, "query")?)
-                .map_err(|error| error.to_string())?;
+            let mut rows = store.catalog_search(required(args, "query")?)?;
             for row in &mut rows {
                 let plannable = match text(row, "id") {
-                    Some(id) => store
-                        .catalog_offering(id)
-                        .map_err(|error| error.to_string())?
-                        .is_some(),
+                    Some(id) => store.catalog_offering(id)?.is_some(),
                     None => false,
                 };
                 row["plannable"] = Value::Bool(plannable);
@@ -641,8 +561,7 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let term = args.get("term").and_then(Value::as_str);
             Ok(Value::Array(
                 store
-                    .table_rows("registrations")
-                    .map_err(|error| error.to_string())?
+                    .table_rows("registrations")?
                     .into_iter()
                     .filter(|row| {
                         let offering = row
@@ -671,20 +590,12 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                     .collect(),
             ))
         }
-        "grades" => Ok(Value::Array(
-            store
-                .table_rows("grades")
-                .map_err(|error| error.to_string())?,
-        )),
+        "grades" => Ok(Value::Array(store.table_rows("grades")?)),
         "gpa" => Ok(json!({
-            "summary": store.table_rows("gpa_summary").map_err(|error| error.to_string())?,
-            "byTerm": store.table_rows("gpa_by_term").map_err(|error| error.to_string())?
+            "summary": store.table_rows("gpa_summary")?,
+            "byTerm": store.table_rows("gpa_by_term")?
         })),
-        "requirements" => Ok(Value::Array(
-            store
-                .table_rows("requirement_progress")
-                .map_err(|error| error.to_string())?,
-        )),
+        "requirements" => Ok(Value::Array(store.table_rows("requirement_progress")?)),
         "recommended" => {
             let department = args
                 .get("departmentId")
@@ -716,11 +627,8 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
             let (year, quarter) = parse_term(term)?;
-            let Some(offering) = store
-                .catalog_offering(offering_id)
-                .map_err(|error| error.to_string())?
-            else {
-                return Err(if store.catalog_search_item(offering_id).map_err(|error| error.to_string())?.is_some() {
+            let Some(offering) = store.catalog_offering(offering_id)? else {
+                return Err(if store.catalog_search_item(offering_id)?.is_some() {
                     "this course's schedule is not synced yet (plannable: false). Open it once in IsctCompanion, then try again."
                 } else {
                     "offering was not found in the local catalog"
@@ -741,7 +649,8 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 return Err(format!(
                     "offering is taught in {}, not {quarter}",
                     quarters.join(", ")
-                ));
+                )
+                .into());
             }
             // One course per offering and year, whatever quarter it sits in
             // (like addSyllabusDraft): writing a new one would replace it.
@@ -759,103 +668,115 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             {
                 return Err(format!(
                     "this offering is already on the {other} timetable; plan it for {other}"
-                ));
+                )
+                .into());
             }
-            let course_id = match existing.as_ref().and_then(|row| text(row, "id")) {
-                Some(id) => id.to_string(),
-                None => {
-                    let course = store
-                        .put_user_record(
-                            "manual_courses",
-                            course_from_offering(&offering, term)?,
-                            "mcp",
-                        )
-                        .map_err(|error| error.to_string())?;
-                    text(&course, "id")
-                        .ok_or("course identity could not be created")?
-                        .to_string()
+            let course_value = course_from_offering(&offering, term)?;
+            let details = agent_write_result(store.agent_write(name, |write| {
+                let stored_course = write
+                    .rows("manual_courses")?
+                    .into_iter()
+                    .find(|row| text(row, "offeringId") == Some(offering_id));
+                let course = match stored_course {
+                    Some(course) if course.get("deletedAt").is_none() => course,
+                    Some(course) => write.put(
+                        "manual_courses",
+                        course_value,
+                        course.get("rev").and_then(Value::as_u64),
+                    )?,
+                    None => match existing.clone() {
+                        Some(course) => course,
+                        None => write.put("manual_courses", course_value, Some(0))?,
+                    },
+                };
+                if let Some(other) = text(&course, "termId").filter(|other| *other != term) {
+                    return Err(DataError::InvalidInput(format!(
+                        "this offering is already on the {other} timetable; plan it for {other}"
+                    )));
                 }
-            };
-            let planned = store
-                .user_rows("plan_items")
-                .map_err(|error| error.to_string())?
-                .into_iter()
-                .find(|row| {
+                let course_id = text(&course, "id")
+                    .ok_or_else(|| {
+                        DataError::InvalidInput("course identity could not be created".into())
+                    })?
+                    .to_string();
+                let planned = write.rows("plan_items")?.into_iter().find(|row| {
                     text(row, "courseId") == Some(course_id.as_str())
                         && text(row, "termId") == Some(term)
                         && row.get("deletedAt").is_none()
                 });
-            let plan_item = match planned {
-                Some(row) => row,
-                None => store.put_user_record(
-                    "plan_items",
-                    json!({
-                        "kind": "plan-item",
-                        "termId": term, "offeringId": offering_id, "courseId": course_id, "state": "planned",
-                        "source": {"provider":"mcp"}
-                    }),
-                    "mcp",
-                ).map_err(|error| error.to_string())?,
-            };
-            write_result(
-                store,
-                name,
-                json!({"courseId": course_id, "planItemId": plan_item.get("id")}),
-            )
+                let plan_item = match planned {
+                    Some(row) => row,
+                    None => {
+                        let plan_id = format!("mcp-plan:{term}:{offering_id}");
+                        let value = json!({"id":plan_id.clone(),"kind":"plan-item","termId":term,
+                            "offeringId":offering_id,"courseId":course_id,"state":"planned",
+                            "source":{"provider":"mcp"}});
+                        let existing = write
+                            .rows("plan_items")?
+                            .into_iter()
+                            .find(|row| text(row, "id") == Some(plan_id.as_str()));
+                        let expected = existing
+                            .as_ref()
+                            .and_then(|row| row.get("rev"))
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0);
+                        write.put("plan_items", value, Some(expected))?
+                    }
+                };
+                Ok(json!({"courseId":course_id,"planItemId":plan_item.get("id")}))
+            }))?;
+            Ok(write_result(details))
         }
         "plan_remove" => {
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
             parse_term(term)?;
-            let mut removed = 0;
-            for row in store
-                .user_rows("plan_items")
-                .map_err(|error| error.to_string())?
-            {
-                if text(&row, "offeringId") == Some(offering_id)
-                    && text(&row, "termId") == Some(term)
-                    && row.get("deletedAt").is_none()
-                {
-                    if let Some(id) = text(&row, "id") {
-                        store
-                            .delete_user_record_checked(
+            let removed = agent_write_result(store.agent_write(name, |write| {
+                let mut removed = 0;
+                for row in write.rows("plan_items")? {
+                    if text(&row, "offeringId") == Some(offering_id)
+                        && text(&row, "termId") == Some(term)
+                        && row.get("deletedAt").is_none()
+                    {
+                        if let Some(id) = text(&row, "id") {
+                            write.delete(
                                 "plan_items",
                                 id,
-                                "mcp",
                                 row.get("rev").and_then(Value::as_u64),
-                            )
-                            .map_err(|error| error.to_string())?;
-                        removed += 1;
+                            )?;
+                            removed += 1;
+                        }
                     }
                 }
-            }
-            if removed == 0 {
-                return Err(format!("offering {offering_id} is not planned for {term}"));
-            }
-            write_result(store, name, json!({"removed": removed}))
+                if removed == 0 {
+                    return Err(DataError::InvalidInput(format!(
+                        "offering {offering_id} is not planned for {term}"
+                    )));
+                }
+                Ok(removed)
+            }))?;
+            Ok(write_result(json!({"removed": removed})))
         }
         "plan_event_create" => {
             let start = required(args, "start")?;
             valid_plan_time(start)?;
-            let duration = duration(args, true)?.unwrap();
+            let duration = duration(args, true)?
+                .ok_or_else(|| AgentError::InvalidInput("duration is required".into()))?;
             let rule = args.get("rrule").and_then(Value::as_str);
             if let Some(rule) = rule {
-                isct_companion_lib::plans::validate_rrule(rule)
-                    .map_err(|error| error.to_string())?;
+                crate::plans::validate_rrule(rule)
+                    .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
             }
-            let plan = store
-                .put_user_record(
-                    "plans",
-                    json!({
-                        "title": required(args, "title")?,
-                        "start": start, "duration": duration,
-                        "rrule": rule, "room": args.get("room").cloned().unwrap_or(Value::Null),
-                        "exdates": [], "source": {"provider":"mcp"}
-                    }),
-                    "mcp",
-                )
-                .map_err(|error| error.to_string())?;
-            write_result(store, name, json!({"id": plan.get("id")}))
+            let value = json!({
+            "title": required(args, "title")?,
+            "start": start, "duration": duration,
+            "rrule": rule, "room": args.get("room").cloned().unwrap_or(Value::Null),
+            "exdates": [], "source": {"provider":"mcp"}
+            });
+            let plan = agent_write_result(
+                store.agent_write(name, |write| write.put("plans", value, None)),
+            )?;
+            Ok(write_result(json!({"id": plan.get("id")})))
         }
         "plan_event_update" => {
             let id = required(args, "id")?;
@@ -865,8 +786,8 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             }
             duration(args, false)?;
             if let Some(rule) = args.get("rrule").and_then(Value::as_str) {
-                isct_companion_lib::plans::validate_rrule(rule)
-                    .map_err(|error| error.to_string())?;
+                crate::plans::validate_rrule(rule)
+                    .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
             }
             for key in ["title", "start", "duration", "rrule", "room"] {
                 if let Some(value) = args.get(key) {
@@ -874,21 +795,20 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 }
             }
             let expected = row.get("rev").and_then(Value::as_u64);
-            store
-                .put_user_record_checked("plans", row, "mcp", expected)
-                .map_err(|error| error.to_string())?;
-            write_result(store, name, json!({"id": id}))
+            agent_write_result(
+                store.agent_write(name, |write| write.put("plans", row, expected).map(|_| ())),
+            )?;
+            Ok(write_result(json!({"id": id})))
         }
         "plan_event_delete" => {
             let id = required(args, "id")?;
             let expected = live_plan(store, id)?.get("rev").and_then(Value::as_u64);
-            if !store
-                .delete_user_record_checked("plans", id, "mcp", expected)
-                .map_err(|error| error.to_string())?
-            {
+            if !agent_write_result(
+                store.agent_write(name, |write| write.delete("plans", id, expected)),
+            )? {
                 return Err("plan was not found".into());
             }
-            write_result(store, name, json!({"id": id}))
+            Ok(write_result(json!({"id": id})))
         }
         "hide_assignment" | "restore_assignment" => {
             let id = required(args, "id")?;
@@ -904,162 +824,22 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .unwrap_or(id);
             let mut mark = store
-                .user_rows("assignment_marks")
-                .map_err(|error| error.to_string())?
+                .user_rows("assignment_marks")?
                 .into_iter()
                 .find(|row| row.get("sourceKey").and_then(Value::as_str) == Some(source_key))
                 .unwrap_or_else(|| json!({"sourceKey":source_key,"assignmentId":id}));
             let expected = mark.get("rev").and_then(Value::as_u64).unwrap_or(0);
             mark["hidden"] = Value::Bool(name == "hide_assignment");
-            store
-                .put_user_record_checked("assignment_marks", mark, "mcp", Some(expected))
-                .map_err(|error| error.to_string())?;
-            write_result(store, name, json!({"id": id}))
+            agent_write_result(store.agent_write(name, |write| {
+                write
+                    .put("assignment_marks", mark, Some(expected))
+                    .map(|_| ())
+            }))?;
+            Ok(write_result(json!({"id": id})))
         }
-        _ => Err("unknown tool".into()),
-    }
-}
-
-fn main() {
-    let mut arguments = std::env::args().skip(1);
-    let mut database = None;
-    while let Some(argument) = arguments.next() {
-        if argument == "--db" {
-            database = arguments.next().map(PathBuf::from);
-        }
-    }
-    let Some(database) = database else {
-        eprintln!("isct-companion-mcp requires --db /path/to/school.db");
-        std::process::exit(2);
-    };
-    let store = match DataStore::initialize(database) {
-        Ok((store, _)) => store,
-        Err(error) => {
-            eprintln!("isct-companion-mcp could not open the database: {error}");
-            std::process::exit(2);
-        }
-    };
-    let enabled = store.agent_access_enabled().unwrap_or(false);
-    if !enabled {
-        eprintln!("IsctCompanion agent access is disabled in Settings.");
-        std::process::exit(3);
-    }
-
-    let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
-    for line in stdin.lock().lines().map_while(Result::ok) {
-        let request: Value = match serde_json::from_str(&line) {
-            Ok(request) => request,
-            Err(_) => continue,
-        };
-        let id = request.get("id").cloned();
-        let Some(id) = id else { continue };
-        let method = request
-            .get("method")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let answer = match method {
-            "initialize" => response(
-                id,
-                json!({
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "IsctCompanion", "version": env!("CARGO_PKG_VERSION")}
-                }),
-            ),
-            "ping" => response(id, json!({})),
-            "tools/list" => response(id, json!({"tools": tools()})),
-            "tools/call" => {
-                let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
-                let name = params
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let args = params
-                    .get("arguments")
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
-                match call(&store, name, &args).map(|mut value| {
-                    slim(&mut value);
-                    value
-                }) {
-                    Ok(value) => response(
-                        id,
-                        json!({
-                            "content": [{"type": "text", "text": serde_json::to_string(&value).unwrap()}],
-                            "structuredContent": value
-                        }),
-                    ),
-                    Err(error) => response(
-                        id,
-                        json!({
-                            "content": [{"type": "text", "text": error}],
-                            "isError": true
-                        }),
-                    ),
-                }
-            }
-            _ => failure(id, -32601, "Method not found"),
-        };
-        let _ = writeln!(stdout, "{}", answer);
-        let _ = stdout.flush();
+        _ => Err(AgentError::UnknownTool),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn workspace() -> Value {
-        let monday = json!([{"days": [1], "periods": [1, 2], "startTime": "08:50", "endTime": "10:30", "room": "M-102"}]);
-        json!({
-            "courses": [
-                {"id": "c1", "termId": "2026-3Q", "code": "A", "title": "Registered", "meetings": monday},
-                {"id": "c2", "termId": "2026-3Q", "code": "B", "title": "Not on the timetable", "meetings": monday},
-                {"id": "c3", "termId": "2026-3Q", "code": "C", "title": "Intensive", "meetings": []}
-            ],
-            "memberships": [
-                {"courseId": "c1", "termId": "2026-3Q"},
-                {"courseId": "c3", "termId": "2026-3Q"}
-            ],
-            "planItems": [],
-            "exceptions": [{"date": "2026-10-19", "type": "no-class"}],
-            "academicCalendar": [
-                {"id": "calendar:2026:quarter-start:3Q", "type": "quarter-start",
-                 "teachingRanges": [{"start": "2026-10-01", "end": "2026-11-30"}]},
-                {"date": "2026-10-12", "type": "holiday"},
-                {"date": "2026-10-15", "type": "replacement", "replacementDay": 1}
-            ],
-            "intensiveSchedules": [{"courseId": "c3", "from": "2026-10-20", "to": "2026-10-22",
-                "days": [{"date": "2026-10-21", "periods": [1, 2]}]}]
-        })
-    }
-
-    fn titles(date: &str) -> Vec<String> {
-        let date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
-        classes_on(&workspace(), "2026-3Q", date)
-            .iter()
-            .map(|class| class["title"].as_str().unwrap().to_string())
-            .collect()
-    }
-
-    #[test]
-    fn classes_follow_the_school_calendar() {
-        assert_eq!(titles("2026-10-05"), ["Registered"]); // ordinary Monday
-        assert!(titles("2026-10-06").is_empty()); // Tuesday
-        assert!(titles("2026-10-12").is_empty()); // holiday
-        assert_eq!(titles("2026-10-15"), ["Registered"]); // Thursday teaching Monday classes
-        assert!(titles("2026-10-19").is_empty()); // personal no-class exception
-        assert_eq!(titles("2026-10-21"), ["Intensive"]); // chosen intensive day only
-        assert!(titles("2026-10-20").is_empty());
-        assert!(titles("2026-12-07").is_empty()); // Monday outside the teaching range
-    }
-
-    #[test]
-    fn terms_are_validated() {
-        assert_eq!(parse_term("2026-3Q"), Ok((2026, "3Q")));
-        for bad in ["2026-banana", "2026-5Q", "spring", "26-1Q"] {
-            assert!(parse_term(bad).is_err(), "{bad}");
-        }
-    }
-}
+mod tests;

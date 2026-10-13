@@ -2,7 +2,7 @@
 import { JSDOM, VirtualConsole } from "jsdom";
 import { afterEach, describe, expect, it } from "vitest";
 
-import source from "../../backend/scripts/school-login.js?raw";
+import source from "../../crates/isct-core/src/school_browser/assets/school-login.js?raw";
 
 // Fixtures copy the live Extic / GetAccess markup; values, tokens and the
 // pages' own scripts are omitted (their effects are simulated where needed).
@@ -189,7 +189,9 @@ describe("Science Tokyo sign-in", () => {
 
   it("never resubmits a rejected password", async () => {
     const page = load(identifierPage.replace('class=" move-off-screen" ', ""), {
-      storage: { "isct-companion-login:run-1": JSON.stringify({ password: 1 }) },
+      storage: {
+        "isct-companion-login:run-1": JSON.stringify({ password: 1 }),
+      },
     });
     page.start();
     await settle();
@@ -203,7 +205,11 @@ describe("Science Tokyo sign-in", () => {
         '<div class="message warning" style="display: none">',
         '<div class="message warning">',
       ),
-      { storage: { "isct-companion-login:run-1": JSON.stringify({ password: 1 }) } },
+      {
+        storage: {
+          "isct-companion-login:run-1": JSON.stringify({ password: 1 }),
+        },
+      },
     );
     page.start();
     await settle();
@@ -417,7 +423,10 @@ describe("Tokyo Tech sign-in", () => {
     const page = load(matrixPage, {
       ...afterPassword,
       storage: {
-        "isct-companion-login:run-1": JSON.stringify({ password: 1, matrix: 1 }),
+        "isct-companion-login:run-1": JSON.stringify({
+          password: 1,
+          matrix: 1,
+        }),
       },
     });
     page.start();
@@ -430,7 +439,9 @@ describe("Tokyo Tech sign-in", () => {
     const page = load(`<p>portal</p>`, {
       url: "https://portal.nap.gsic.titech.ac.jp/?Message=fail&GAURI=x",
       ...tokyo,
-      storage: { "isct-companion-login:run-1": JSON.stringify({ password: 1 }) },
+      storage: {
+        "isct-companion-login:run-1": JSON.stringify({ password: 1 }),
+      },
     });
     page.start();
     await settle();
