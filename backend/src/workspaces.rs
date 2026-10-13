@@ -69,8 +69,13 @@ fn write_meta(dir: &Path, meta: &Meta) -> Result<(), String> {
 fn workspace_dir(app: &AppHandle, path: &str) -> Result<(PathBuf, Meta), String> {
     let (root, _) = root(app)?;
     let root = root.canonicalize().map_err(|e| e.to_string())?;
-    let dir = PathBuf::from(path).canonicalize().map_err(|e| e.to_string())?;
-    let inside = dir.strip_prefix(&root).ok().map(|rest| rest.components().count());
+    let dir = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let inside = dir
+        .strip_prefix(&root)
+        .ok()
+        .map(|rest| rest.components().count());
     // <term>/<course>/workspaces/<name>
     if inside != Some(4) || dir.parent().and_then(Path::file_name) != Some("workspaces".as_ref()) {
         return Err("Folder is not an assignment workspace".into());
@@ -90,15 +95,26 @@ fn info(dir: &Path, meta: &Meta) -> WorkspaceInfo {
     submit_files.sort();
     WorkspaceInfo {
         path: dir.to_string_lossy().into_owned(),
-        name: dir.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        name: dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned(),
         submit_files,
         zip: meta.zip,
-        zip_name: if meta.zip_name.is_empty() { default_zip_name(dir) } else { meta.zip_name.clone() },
+        zip_name: if meta.zip_name.is_empty() {
+            default_zip_name(dir)
+        } else {
+            meta.zip_name.clone()
+        },
     }
 }
 
 fn default_zip_name(dir: &Path) -> String {
-    format!("{}.zip", dir.file_name().unwrap_or_default().to_string_lossy())
+    format!(
+        "{}.zip",
+        dir.file_name().unwrap_or_default().to_string_lossy()
+    )
 }
 
 fn is_junk(name: &str) -> bool {
@@ -109,11 +125,24 @@ fn is_junk(name: &str) -> bool {
 fn safe_name(raw: &str, fallback: &str) -> String {
     let name: String = raw
         .chars()
-        .map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || "/\\:*?\"<>|".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
         .take(80)
         .collect();
-    let name = name.trim().trim_end_matches(['.', ' ']).trim_start_matches('.');
-    if name.is_empty() { fallback.into() } else { name.into() }
+    let name = name
+        .trim()
+        .trim_end_matches(['.', ' '])
+        .trim_start_matches('.');
+    if name.is_empty() {
+        fallback.into()
+    } else {
+        name.into()
+    }
 }
 
 fn find(dir: &Path, assignment: &str) -> Option<(PathBuf, Meta)> {
@@ -159,14 +188,30 @@ pub async fn create_assignment_workspace(
     }
     let sources = attachments
         .into_iter()
-        .map(|a| Ok((stored_file(&app, &a.path)?, safe_name(&a.name, "attachment"))))
+        .map(|a| {
+            Ok((
+                stored_file(&app, &a.path)?,
+                safe_name(&a.name, "attachment"),
+            ))
+        })
         .collect::<Result<Vec<_>, String>>()?;
     let base = safe_name(&title, "Assignment");
     let dir = (1..)
-        .map(|n| if n == 1 { parent.join(&base) } else { parent.join(format!("{base} ({n})")) })
+        .map(|n| {
+            if n == 1 {
+                parent.join(&base)
+            } else {
+                parent.join(format!("{base} ({n})"))
+            }
+        })
         .find(|path| !path.exists())
         .expect("an unused name exists");
-    let meta = Meta { assignment, title, zip: false, zip_name: String::new() };
+    let meta = Meta {
+        assignment,
+        title,
+        zip: false,
+        zip_name: String::new(),
+    };
     let created = dir.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         fs::create_dir_all(dir.join(SUBMIT_DIR)).map_err(|e| e.to_string())?;
@@ -175,7 +220,10 @@ pub async fn create_assignment_workspace(
         for (source, name) in sources {
             let is_zip = name.to_ascii_lowercase().ends_with(".zip");
             if is_zip {
-                let stem = Path::new(&name).file_stem().unwrap_or_default().to_string_lossy();
+                let stem = Path::new(&name)
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy();
                 unpack(&source, &dir, &stem)?;
             } else {
                 let target = dir.join(&name);
@@ -206,8 +254,12 @@ fn unpack(archive: &Path, dir: &Path, stem: &str) -> Result<(), String> {
     let mut entries = Vec::new();
     for index in 0..zip.len() {
         let entry = zip.by_index(index).map_err(|e| e.to_string())?;
-        let Some(name) = entry.enclosed_name() else { continue };
-        let junk = name.components().any(|c| matches!(c, Component::Normal(part) if is_junk(&part.to_string_lossy())));
+        let Some(name) = entry.enclosed_name() else {
+            continue;
+        };
+        let junk = name
+            .components()
+            .any(|c| matches!(c, Component::Normal(part) if is_junk(&part.to_string_lossy())));
         if !junk && !entry.is_symlink() {
             entries.push((index, name, entry.is_dir()));
         }
@@ -216,9 +268,17 @@ fn unpack(archive: &Path, dir: &Path, stem: &str) -> Result<(), String> {
         .iter()
         .filter_map(|(_, name, _)| name.components().next())
         .collect();
-    let single_folder = top.first().is_some_and(|first| top.iter().all(|c| c == first))
-        && entries.iter().any(|(_, name, _)| name.components().count() > 1);
-    let target = if single_folder { dir.to_path_buf() } else { dir.join(safe_name(stem, "attachment")) };
+    let single_folder = top
+        .first()
+        .is_some_and(|first| top.iter().all(|c| c == first))
+        && entries
+            .iter()
+            .any(|(_, name, _)| name.components().count() > 1);
+    let target = if single_folder {
+        dir.to_path_buf()
+    } else {
+        dir.join(safe_name(stem, "attachment"))
+    };
     let mut total = 0u64;
     for (index, name, is_dir) in entries {
         let path = target.join(&name);
@@ -236,7 +296,8 @@ fn unpack(archive: &Path, dir: &Path, stem: &str) -> Result<(), String> {
         let mut out = fs::File::create(&path).map_err(|e| e.to_string())?;
         // The declared size can lie; count what is actually written.
         let budget = MAX_UNPACK_BYTES.saturating_sub(total);
-        let written = io::copy(&mut (&mut entry).take(budget + 1), &mut out).map_err(|e| e.to_string())?;
+        let written =
+            io::copy(&mut (&mut entry).take(budget + 1), &mut out).map_err(|e| e.to_string())?;
         total += written;
         if written > budget {
             return Err("The archive is too large to unpack".into());
@@ -326,7 +387,9 @@ pub async fn prepare_workspace_submission(
     tauri::async_runtime::spawn_blocking(move || pack(&submit, &packed))
         .await
         .map_err(|e| e.to_string())??;
-    app.opener().reveal_item_in_dir(&output).map_err(|e| e.to_string())?;
+    app.opener()
+        .reveal_item_in_dir(&output)
+        .map_err(|e| e.to_string())?;
     Ok(current)
 }
 
@@ -340,7 +403,10 @@ fn pack(source: &Path, output: &Path) -> Result<(), String> {
     let mut pending = vec![source.to_path_buf()];
     let mut count = 0;
     while let Some(dir) = pending.pop() {
-        let mut children: Vec<_> = fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten().collect();
+        let mut children: Vec<_> = fs::read_dir(&dir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .collect();
         children.sort_by_key(|entry| entry.file_name());
         for entry in children {
             let path = entry.path();
@@ -360,16 +426,24 @@ fn pack(source: &Path, output: &Path) -> Result<(), String> {
                 .collect::<Vec<_>>()
                 .join("/");
             if path.is_dir() {
-                zip.add_directory(relative, options).map_err(|e| e.to_string())?;
+                zip.add_directory(relative, options)
+                    .map_err(|e| e.to_string())?;
                 pending.push(path);
             } else {
-                zip.start_file(relative, options).map_err(|e| e.to_string())?;
-                io::copy(&mut fs::File::open(&path).map_err(|e| e.to_string())?, &mut zip)
+                zip.start_file(relative, options)
                     .map_err(|e| e.to_string())?;
+                io::copy(
+                    &mut fs::File::open(&path).map_err(|e| e.to_string())?,
+                    &mut zip,
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
     }
-    zip.finish().map_err(|e| e.to_string())?.flush().map_err(|e| e.to_string())?;
+    zip.finish()
+        .map_err(|e| e.to_string())?
+        .flush()
+        .map_err(|e| e.to_string())?;
     fs::rename(&partial, output).map_err(|e| e.to_string())
 }
 
@@ -437,7 +511,9 @@ fn last_change(dir: &Path) -> Option<SystemTime> {
                 // Too large to scan fully: treat as recently used rather than guess.
                 return None;
             }
-            let Ok(meta) = entry.path().symlink_metadata() else { continue };
+            let Ok(meta) = entry.path().symlink_metadata() else {
+                continue;
+            };
             if let Ok(time) = meta.modified() {
                 newest = newest.max(time);
             }
@@ -454,7 +530,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("workspace-test-{name}-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("workspace-test-{name}-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -462,7 +539,8 @@ mod tests {
     fn archive(path: &Path, files: &[(&str, &str)]) {
         let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
         for (name, body) in files {
-            zip.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
             zip.write_all(body.as_bytes()).unwrap();
         }
         zip.finish().unwrap();
@@ -483,11 +561,21 @@ mod tests {
     fn unpacks_a_single_folder_in_place_and_skips_junk_and_traversal() {
         let dir = temp("unpack");
         let source = dir.join("src.zip");
-        archive(&source, &[("problem/Main.java", "class Main {}"), ("__MACOSX/problem/._Main.java", "x"), ("../evil", "x")]);
+        archive(
+            &source,
+            &[
+                ("problem/Main.java", "class Main {}"),
+                ("__MACOSX/problem/._Main.java", "x"),
+                ("../evil", "x"),
+            ],
+        );
         let out = dir.join("ws");
         fs::create_dir_all(&out).unwrap();
         unpack(&source, &out, "src").unwrap();
-        assert_eq!(fs::read_to_string(out.join("problem/Main.java")).unwrap(), "class Main {}");
+        assert_eq!(
+            fs::read_to_string(out.join("problem/Main.java")).unwrap(),
+            "class Main {}"
+        );
         assert!(!out.join("__MACOSX").exists());
         assert!(!dir.join("evil").exists());
 
@@ -509,7 +597,9 @@ mod tests {
         let output = dir.join("out.zip");
         pack(&submit, &output).unwrap();
         let mut zip = zip::ZipArchive::new(fs::File::open(&output).unwrap()).unwrap();
-        let mut names: Vec<_> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned()).collect();
+        let mut names: Vec<_> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned())
+            .collect();
         names.sort();
         assert_eq!(names, ["report.pdf", "src/", "src/Main.java"]);
         fs::remove_dir_all(dir).unwrap();

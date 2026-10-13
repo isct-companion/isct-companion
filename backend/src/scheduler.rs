@@ -46,10 +46,7 @@ fn due_occurrence(
     let last = timestamp(task.get("lastOccurrenceAt").and_then(Value::as_str));
     // Check public data immediately on each launch; the hourly recurrence
     // remains the retry path, and refresh_references enforces cache freshness.
-    if task.get("id").and_then(Value::as_str) == Some("builtin:reference-subscriptions")
-        && timestamp(task.get("lastRunAt").and_then(Value::as_str))
-            .is_none_or(|last| last < started_at)
-    {
+    if isct_core::reference_refresh::reference_due_at_launch(task, started_at) {
         return Ok(Some(started_at.to_rfc3339()));
     }
     if schedule == "launch" {
@@ -106,7 +103,10 @@ async fn execute(app: &tauri::AppHandle, action: &str, force: bool) -> Result<St
     let store = app.state::<DataStore>().inner().clone();
     match action {
         "export" => write_scheduled_export_inner(app, &store).map(|_| "Export completed".into()),
-        "reference-refresh" => crate::reference_refresh::refresh_all(app, force, false).await,
+        "reference-refresh" => crate::core_ports::references(app)
+            .refresh_all(force, false)
+            .await
+            .map_err(|error| error.to_string()),
         "lms-refresh" => {
             if !force
                 && app
@@ -143,7 +143,9 @@ impl Scheduler {
 
     async fn tick(&self, app: &tauri::AppHandle) -> Result<(), String> {
         let store = app.state::<DataStore>();
-        let tasks = store.user_rows("scheduled_tasks")?;
+        let tasks = store
+            .user_rows("scheduled_tasks")
+            .map_err(|error| error.to_string())?;
         let now = Utc::now();
         for task in tasks {
             if let Some(occurrence) = due_occurrence(&task, now, self.started_at)? {
@@ -157,7 +159,8 @@ impl Scheduler {
         // MCP is a separate process, so it cannot emit into this Tauri event
         // loop. Its durable write audit is the cross-process notification.
         let latest_agent_write = store
-            .load_workspace()?
+            .load_workspace()
+            .map_err(|error| error.to_string())?
             .pointer("/settings/agentAccess/lastWrites")
             .and_then(Value::as_array)
             .and_then(|writes| writes.last())
@@ -198,7 +201,8 @@ impl Scheduler {
         let result = async {
             let store = app.state::<DataStore>().inner().clone();
             let mut task = store
-                .user_rows("scheduled_tasks")?
+                .user_rows("scheduled_tasks")
+                .map_err(|error| error.to_string())?
                 .into_iter()
                 .find(|task| task.get("id").and_then(Value::as_str) == Some(id))
                 .ok_or("Scheduled task no longer exists.")?;
@@ -207,12 +211,9 @@ impl Scheduler {
             task["lastOccurrenceAt"] = Value::String(occurrence);
             task["lastRunAt"] = Value::String(Utc::now().to_rfc3339());
             task["lastResult"] = Value::String("Running".into());
-            let mut task = store.put_user_record_checked(
-                "scheduled_tasks",
-                task,
-                "scheduler",
-                Some(expected),
-            )?;
+            let mut task = store
+                .put_user_record_checked("scheduled_tasks", task, "scheduler", Some(expected))
+                .map_err(|error| error.to_string())?;
             app.emit("workspace-changed", json!({"source":"scheduler"}))
                 .map_err(|error| error.to_string())?;
             let action = task
@@ -225,7 +226,9 @@ impl Scheduler {
             let expected = task.get("rev").and_then(Value::as_u64).unwrap_or(0);
             task["lastRunAt"] = Value::String(Utc::now().to_rfc3339());
             task["lastResult"] = Value::String(message.clone());
-            store.put_user_record_checked("scheduled_tasks", task, "scheduler", Some(expected))?;
+            store
+                .put_user_record_checked("scheduled_tasks", task, "scheduler", Some(expected))
+                .map_err(|error| error.to_string())?;
             app.emit("workspace-changed", json!({"source":"scheduler"}))
                 .map_err(|error| error.to_string())?;
             Ok(message)
@@ -238,73 +241,6 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reference_refresh::{calendar_cache_present, reference_is_fresh};
-
-    #[test]
-    fn reference_subscriptions_run_at_launch_before_the_next_hour() {
-        let started = "2026-10-13T03:15:00Z".parse().unwrap();
-        let now = "2026-10-13T03:15:01Z".parse().unwrap();
-        let mut task = json!({
-            "id":"builtin:reference-subscriptions", "enabled":true,
-            "updatedAt":"2026-10-12T00:00:00Z",
-            "schedule":"RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0",
-            "lastRunAt":"2026-10-12T03:00:00Z"
-        });
-        assert_eq!(
-            due_occurrence(&task, now, started).unwrap(),
-            Some(started.to_rfc3339())
-        );
-        task["lastRunAt"] = json!(now.to_rfc3339());
-        task["lastOccurrenceAt"] = json!(started.to_rfc3339());
-        assert!(due_occurrence(&task, now, started).unwrap().is_none());
-        task["lastRunAt"] = Value::Null;
-        task["enabled"] = json!(false);
-        assert!(due_occurrence(&task, now, started).unwrap().is_none());
-    }
-
-    #[test]
-    fn reference_freshness_is_per_source_and_requires_the_requested_year() {
-        let now = "2026-10-13T03:15:00Z".parse().unwrap();
-        let mut row = json!({"year":2026,"fetchedAt":"2026-10-13T03:00:00Z"});
-        assert!(reference_is_fresh(&row, 2026, now));
-        assert!(!reference_is_fresh(&row, 2025, now));
-        assert!(!reference_is_fresh(&json!({}), 2026, now));
-        row["lastError"] = json!("Download failed");
-        assert!(!reference_is_fresh(&row, 2026, now));
-    }
-
-    #[test]
-    fn restored_subscription_hashes_do_not_replace_missing_quarter_data() {
-        let mut workspace = json!({"academicCalendar":[]});
-        assert!(!calendar_cache_present(&workspace, 2026));
-        workspace["academicCalendar"] = json!([
-            {"type":"quarter-start","quarter":"1Q","academicYear":2025,"date":"2025-04-07"}
-        ]);
-        assert!(!calendar_cache_present(&workspace, 2026));
-        workspace["academicCalendar"][0]["academicYear"] = json!(2026);
-        assert!(!calendar_cache_present(&workspace, 2026));
-        workspace["academicCalendar"] = Value::Array(
-            ["1Q", "2Q", "3Q", "4Q"]
-                .into_iter()
-                .flat_map(|quarter| {
-                    ["quarter-start", "quarter-end"]
-                        .into_iter()
-                        .map(move |kind| {
-                            json!({
-                                "type":kind,"quarter":quarter,"academicYear":2026,
-                                "date":"2026-04-01"
-                            })
-                        })
-                })
-                .collect(),
-        );
-        assert!(calendar_cache_present(&workspace, 2026));
-        workspace["academicCalendar"][0]["missingSince"] = json!("2026-10-13T00:00:00Z");
-        assert!(!calendar_cache_present(&workspace, 2026));
-        workspace["academicCalendar"][0]["missingSince"] = Value::Null;
-        workspace["academicCalendar"][0]["date"] = json!("2026-02-30");
-        assert!(!calendar_cache_present(&workspace, 2026));
-    }
 
     #[test]
     fn rrule_claims_only_new_occurrences() {

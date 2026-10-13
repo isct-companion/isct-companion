@@ -12,10 +12,6 @@ import {
   type WorkspaceRepository,
 } from "../storage/repository";
 import { requireAction } from "../platform/actions";
-import {
-  recordSubscriptionPoll,
-  type PollResult,
-} from "../platform/subscription-polling";
 import { detectPlatform } from "../platform/capabilities";
 import { createStore } from "zustand/vanilla";
 import { publishSchoolImport } from "../connectors/school";
@@ -456,13 +452,6 @@ export const workspaceActions = {
   editCalendar(edit: WorkspaceEdit) {
     requireAction("edit-calendar-advanced", detectPlatform());
     internalWorkspaceStore.update(edit);
-  },
-  /** Records an official-data check; device state, allowed on every platform. */
-  recordReferencePoll(results: PollResult[], checkedAt: string) {
-    requireAction("change-local-preference", detectPlatform());
-    internalWorkspaceStore.update((draft) =>
-      recordSubscriptionPoll(draft, results, checkedAt),
-    );
   },
   /** The study-guide cohort is a basic choice on every platform; the rest of
    * the academic profile stays behind the advanced calendar editor. */

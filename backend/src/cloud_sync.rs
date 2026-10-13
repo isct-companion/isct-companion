@@ -98,7 +98,7 @@ struct Journal {
 }
 impl Journal {
     fn observe(&mut self, document: Value, schedule: bool) -> Result<bool, String> {
-        let version = cloud_merge::version(&document)?;
+        let version = cloud_merge::version(&document).map_err(|error| error.to_string())?;
         if self.observed == version {
             return Ok(false);
         }
@@ -110,7 +110,7 @@ impl Journal {
         Ok(true)
     }
     fn enqueue(&mut self, document: Value, direction: Direction) -> Result<(), String> {
-        let version = cloud_merge::version(&document)?;
+        let version = cloud_merge::version(&document).map_err(|error| error.to_string())?;
         let deliveries: Vec<_> = self
             .state
             .providers
@@ -333,7 +333,7 @@ impl CloudSync {
             return Ok(());
         }
         let document = snapshot(app)?;
-        let version = cloud_merge::version(&document)?;
+        let version = cloud_merge::version(&document).map_err(|error| error.to_string())?;
         if self
             .journal
             .lock()
@@ -439,7 +439,8 @@ impl CloudSync {
                         }
                     }
                 }
-                job.task.version = cloud_merge::version(&job.document)?;
+                job.task.version =
+                    cloud_merge::version(&job.document).map_err(|error| error.to_string())?;
                 self.change(|j| {
                     let saved = j
                         .jobs
@@ -513,7 +514,10 @@ impl CloudSync {
                         Ok((document, versions)) => {
                             p.error = None;
                             p.last_synced_at = Some(chrono::Utc::now().to_rfc3339());
-                            p.synced_version = Some(cloud_merge::version(&document)?);
+                            p.synced_version = Some(
+                                cloud_merge::version(&document)
+                                    .map_err(|error| error.to_string())?,
+                            );
                             j.state.versions.retain(|v| v.provider != delivery.provider);
                             j.state.versions.extend(versions);
                         }
@@ -590,7 +594,10 @@ impl CloudSync {
         let mut document = job.document.clone();
         document["sync"]["workspaceId"] = json!(workspace_id);
         let document = if job.task.direction == Direction::Upload {
-            let device = app.state::<DataStore>().load_workspace()?["deviceId"]
+            let device = app
+                .state::<DataStore>()
+                .load_workspace()
+                .map_err(|error| error.to_string())?["deviceId"]
                 .as_str()
                 .ok_or("Device id missing")?
                 .to_owned();
@@ -642,7 +649,10 @@ impl CloudSync {
     fn checkpoint(&self, document: &Value) -> Result<(), String> {
         let directory = self.path.with_file_name("recovery");
         std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        let path = directory.join(format!("{}.json", cloud_merge::version(document)?));
+        let path = directory.join(format!(
+            "{}.json",
+            cloud_merge::version(document).map_err(|error| error.to_string())?
+        ));
         // Content-addressed copies do not rotate when another provider echoes the same data.
         if !path.exists() {
             use std::io::Write;
@@ -653,7 +663,7 @@ impl CloudSync {
             file.sync_all().map_err(|e| e.to_string())?;
             std::fs::rename(temporary, path).map_err(|e| e.to_string())?;
         }
-        let version = cloud_merge::version(document)?;
+        let version = cloud_merge::version(document).map_err(|error| error.to_string())?;
         self.change(|j| {
             if !j.state.recovery_points.iter().any(|p| p.version == version) {
                 j.state.recovery_points.insert(
@@ -800,10 +810,15 @@ fn supported(provider: CloudProvider) -> bool {
 }
 fn snapshot(app: &tauri::AppHandle) -> Result<Value, String> {
     let notes = serde_json::to_value(lms_files::export_notes(app)?).map_err(|e| e.to_string())?;
-    serde_json::from_str(&app.state::<DataStore>().export_data(notes)?).map_err(|e| e.to_string())
+    serde_json::from_str(
+        &app.state::<DataStore>()
+            .export_data(notes)
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|e| e.to_string())
 }
 fn validate_document(document: &Value) -> Result<(), String> {
-    crate::data::validate_sync_document(document)?;
+    crate::data::validate_sync_document(document).map_err(|error| error.to_string())?;
     let notes: Vec<lms_files::LocalNoteBackup> =
         serde_json::from_value(document["localNotes"].clone()).map_err(|e| e.to_string())?;
     lms_files::validate_notes(&notes)
@@ -818,7 +833,9 @@ fn apply_document(app: &tauri::AppHandle, document: &Value) -> Result<(), String
     } else {
         lms_files::merge_notes(app, &notes)?;
     }
-    app.state::<DataStore>().merge_cloud_data(&merged)
+    app.state::<DataStore>()
+        .merge_cloud_data(&merged)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

@@ -62,7 +62,11 @@ pub fn validate_rrule(raw: &str) -> Result<String, PlanError> {
     Ok(upper)
 }
 
-fn recurrence_set(start: &str, raw: &str, exdates: &[String]) -> Result<(String, RRuleSet), PlanError> {
+fn recurrence_set(
+    start: &str,
+    raw: &str,
+    exdates: &[String],
+) -> Result<(String, RRuleSet), PlanError> {
     let normalized = validate_rrule(raw)?;
     let mut calendar = format!(
         "DTSTART;TZID=Asia/Tokyo:{}\nRRULE:{}",

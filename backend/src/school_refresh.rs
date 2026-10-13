@@ -4,10 +4,10 @@ use crate::{
     lifecycle::SchoolSite,
     pull_coordinator::{PullConditions, PullCoordinator, PullNetwork, PullOptions},
     pull_service,
-    school_auth::SchoolAuthProfile,
     school_web::SchoolWebController,
 };
 use chrono::{DateTime, Utc};
+use isct_core::school_auth::SchoolAuthProfile;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -203,7 +203,9 @@ impl SchoolRefresh {
             .await;
 
         let store = app.state::<DataStore>().inner().clone();
-        let runs = store.last_import_runs()?;
+        let runs = store
+            .last_import_runs()
+            .map_err(|error| error.to_string())?;
         let (mut profiles, details) = {
             let mut queue = self.0.lock().map_err(|_| "refresh intent unavailable")?;
             let pending = std::mem::take(&mut queue.pending);

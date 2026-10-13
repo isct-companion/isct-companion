@@ -56,7 +56,7 @@ fn login_error(app: &AppHandle) -> http::Response<Vec<u8>> {
     // burst of failed images/files is safe: its queue discards duplicate
     // Science session jobs and orders the accepted request behind active work.
     let controller = app.state::<crate::school_web::SchoolWebController>();
-    let _ = controller.request_session(app, crate::school_auth::SchoolAuthProfile::Science);
+    let _ = controller.request_session(app, isct_core::school_auth::SchoolAuthProfile::Science);
     error(Reason::Login, None)
 }
 

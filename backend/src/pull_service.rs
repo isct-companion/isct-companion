@@ -2,10 +2,10 @@
 use crate::{
     lifecycle::SchoolSite,
     pull_coordinator::{PullCoordinator, PullError, PullOptions, PullPriority, PullTarget},
-    school_auth::SchoolAuthProfile,
     school_web::{IngestOutcome, SchoolWebController},
-    OsSecretVault, SchoolAuthService,
+    OsSecretVault,
 };
+use isct_core::school_auth::{SchoolAuthProfile, SchoolAuthService};
 use tauri::{Emitter, Manager};
 
 pub(crate) async fn school(
@@ -45,7 +45,8 @@ pub(crate) async fn school(
                             };
                             let credentials = handle
                                 .state::<SchoolAuthService<OsSecretVault>>()
-                                .load(profile)?
+                                .load(profile)
+                                .map_err(|error| error.to_string())?
                                 .ok_or("School credentials are not configured.")?;
                             controller.request_login(&handle, profile, credentials)?;
                         }
@@ -61,7 +62,9 @@ pub(crate) async fn school(
                         }
                     })
                     .await
-                    .map_err(|_| PullError::Execution("The school pull stopped unexpectedly.".into()))?;
+                    .map_err(|_| {
+                        PullError::Execution("The school pull stopped unexpectedly.".into())
+                    })?;
                     let outcomes = result.map_err(PullError::Execution)?;
                     // Extractor outcomes are returned unchanged, including partial
                     // 教務Web results and reconnect-required. They already committed.
@@ -69,11 +72,14 @@ pub(crate) async fn school(
                         "workspace-changed",
                         serde_json::json!({"source":"school-pull"}),
                     );
-                    encode_outcomes(&context, outcomes).await.map_err(PullError::Execution)
+                    encode_outcomes(&context, outcomes)
+                        .await
+                        .map_err(PullError::Execution)
                 }
             },
         )
-        .await.map_err(|error| error.to_string())?;
+        .await
+        .map_err(|error| error.to_string())?;
     serde_json::from_value(value).map_err(|_| "School pull returned an invalid result.".into())
 }
 
@@ -127,7 +133,11 @@ mod tests {
                     move |context| {
                         let rows: Vec<IngestOutcome> =
                             serde_json::from_value(original.clone()).unwrap();
-                        async move { encode_outcomes(&context, rows).await.map_err(PullError::Execution) }
+                        async move {
+                            encode_outcomes(&context, rows)
+                                .await
+                                .map_err(PullError::Execution)
+                        }
                     },
                 )
                 .await

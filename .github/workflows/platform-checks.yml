@@ -73,6 +73,9 @@ jobs:
       - name: Desktop Rust contracts
         if: matrix.target == 'aarch64-apple-darwin'
         run: cargo test --workspace --locked
+      - name: OCR disabled-backend contracts
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: cargo test -p isct-ocr --no-default-features --locked
       - name: Desktop lint
         if: matrix.target == 'aarch64-apple-darwin'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

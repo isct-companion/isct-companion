@@ -2202,10 +2202,9 @@ dependencies = [
  "chrono",
  "hickory-resolver",
  "if-addrs",
- "image",
- "imageproc",
  "ipnet",
  "isct-core",
+ "isct-ocr",
  "keyring",
  "objc2",
  "objc2-app-kit",
@@ -2214,10 +2213,8 @@ dependencies = [
  "objc2-foundation",
  "objc2-ui-kit",
  "objc2-web-kit",
- "ort",
  "percent-encoding",
  "rand 0.9.5",
- "regex",
  "reqwest 0.12.28",
  "ring",
  "rrule",
@@ -2248,13 +2245,35 @@ name = "isct-core"
 version = "1.0.0-rc.1"
 dependencies = [
  "chrono",
+ "regex",
+ "reqwest 0.12.28",
+ "ring",
  "rrule",
+ "rusqlite",
+ "scraper",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.20",
  "tokio",
  "ts-rs",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "isct-ocr"
+version = "1.0.0-rc.1"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "imageproc",
+ "ort",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+ "uuid",
 ]
 
 [[package]]
