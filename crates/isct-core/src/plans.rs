@@ -1,6 +1,7 @@
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
 use rrule::{RRuleSet, Tz};
 use serde::Serialize;
+use thiserror::Error;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -9,45 +10,59 @@ pub struct RecurrencePreview {
     pub occurrences: Vec<String>,
 }
 
-fn local_start(value: &str) -> Result<String, String> {
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum PlanError {
+    #[error("Plan start must be an ISO date or date-time.")]
+    InvalidStart,
+    #[error("Enter one RRULE without additional calendar properties.")]
+    AdditionalCalendarProperties,
+    #[error("RRULE must include FREQ.")]
+    MissingFrequency,
+    #[error("Plans may repeat daily, weekly, monthly, or yearly.")]
+    UnsupportedFrequency,
+    #[error("Plan recurrence has a minimum unit of one day.")]
+    SubdailyFrequency,
+    #[error("Invalid RRULE: {0}")]
+    InvalidRule(String),
+    #[error("range start is invalid")]
+    InvalidRangeStart,
+    #[error("range end is invalid")]
+    InvalidRangeEnd,
+}
+
+fn local_start(value: &str) -> Result<String, PlanError> {
     if let Ok(datetime) = DateTime::parse_from_rfc3339(value) {
         return Ok(datetime.format("%Y%m%dT%H%M%S").to_string());
     }
     if let Ok(datetime) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
         return Ok(datetime.format("%Y%m%dT%H%M%S").to_string());
     }
-    let date = NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .map_err(|_| "Plan start must be an ISO date or date-time.".to_string())?;
+    let date = NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| PlanError::InvalidStart)?;
     Ok(date.format("%Y%m%dT000000").to_string())
 }
 
-pub fn validate_rrule(raw: &str) -> Result<String, String> {
+pub fn validate_rrule(raw: &str) -> Result<String, PlanError> {
     let rule = raw.trim().strip_prefix("RRULE:").unwrap_or(raw.trim());
     if rule.is_empty() || rule.contains(['\r', '\n']) {
-        return Err("Enter one RRULE without additional calendar properties.".into());
+        return Err(PlanError::AdditionalCalendarProperties);
     }
     let upper = rule.to_ascii_uppercase();
     let frequency = upper
         .split(';')
         .find_map(|part| part.strip_prefix("FREQ="))
-        .ok_or_else(|| "RRULE must include FREQ.".to_string())?;
+        .ok_or(PlanError::MissingFrequency)?;
     if !matches!(frequency, "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY") {
-        return Err("Plans may repeat daily, weekly, monthly, or yearly.".into());
+        return Err(PlanError::UnsupportedFrequency);
     }
     for forbidden in ["BYHOUR=", "BYMINUTE=", "BYSECOND="] {
         if upper.split(';').any(|part| part.starts_with(forbidden)) {
-            return Err("Plan recurrence has a minimum unit of one day.".into());
+            return Err(PlanError::SubdailyFrequency);
         }
     }
     Ok(upper)
 }
 
-pub fn preview_rrule(
-    start: &str,
-    raw: &str,
-    exdates: &[String],
-    limit: u16,
-) -> Result<RecurrencePreview, String> {
+fn recurrence_set(start: &str, raw: &str, exdates: &[String]) -> Result<(String, RRuleSet), PlanError> {
     let normalized = validate_rrule(raw)?;
     let mut calendar = format!(
         "DTSTART;TZID=Asia/Tokyo:{}\nRRULE:{}",
@@ -57,9 +72,19 @@ pub fn preview_rrule(
     for date in exdates {
         calendar.push_str(&format!("\nEXDATE;TZID=Asia/Tokyo:{}", local_start(date)?));
     }
-    let set: RRuleSet = calendar
-        .parse()
-        .map_err(|error| format!("Invalid RRULE: {error}"))?;
+    let set = calendar
+        .parse::<RRuleSet>()
+        .map_err(|error| PlanError::InvalidRule(error.to_string()))?;
+    Ok((normalized, set))
+}
+
+pub fn preview_rrule(
+    start: &str,
+    raw: &str,
+    exdates: &[String],
+    limit: u16,
+) -> Result<RecurrencePreview, PlanError> {
+    let (normalized, set) = recurrence_set(start, raw, exdates)?;
     let occurrences = set
         .all(limit.min(100))
         .dates
@@ -78,27 +103,22 @@ pub fn occurrences_between(
     exdates: &[String],
     from: NaiveDate,
     to: NaiveDate,
-) -> Result<Vec<String>, String> {
-    let normalized = validate_rrule(raw)?;
-    let mut calendar = format!(
-        "DTSTART;TZID=Asia/Tokyo:{}\nRRULE:{}",
-        local_start(start)?,
-        normalized
-    );
-    for date in exdates {
-        calendar.push_str(&format!("\nEXDATE;TZID=Asia/Tokyo:{}", local_start(date)?));
-    }
-    let set: RRuleSet = calendar
-        .parse()
-        .map_err(|error| format!("Invalid RRULE: {error}"))?;
+) -> Result<Vec<String>, PlanError> {
+    let (_, set) = recurrence_set(start, raw, exdates)?;
+    let range_start = from
+        .and_hms_opt(0, 0, 0)
+        .ok_or(PlanError::InvalidRangeStart)?;
     let after = Tz::Asia__Tokyo
-        .from_local_datetime(&from.and_hms_opt(0, 0, 0).unwrap())
+        .from_local_datetime(&range_start)
         .single()
-        .ok_or("range start is invalid")?;
+        .ok_or(PlanError::InvalidRangeStart)?;
+    let range_end = to
+        .and_hms_opt(23, 59, 59)
+        .ok_or(PlanError::InvalidRangeEnd)?;
     let before = Tz::Asia__Tokyo
-        .from_local_datetime(&to.and_hms_opt(23, 59, 59).unwrap())
+        .from_local_datetime(&range_end)
         .single()
-        .ok_or("range end is invalid")?;
+        .ok_or(PlanError::InvalidRangeEnd)?;
     Ok(set
         .after(after)
         .before(before)

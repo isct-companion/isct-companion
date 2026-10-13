@@ -133,7 +133,7 @@ pub(crate) async fn refresh_one(
         index_url: request.index_url.clone(),
         year: request.year,
     })
-    .normalized()?
+    .normalized().map_err(|error| error.to_string())?
     {
         request.kind = kind;
         request.index_url = index_url;
@@ -156,9 +156,9 @@ pub(crate) async fn refresh_one(
             let app = app.clone();
             let request = request.clone();
             let probes = probes.clone();
-            async move { run_reference(&app, &request, &context, &probes).await }
+            async move { run_reference(&app, &request, &context, &probes).await.map_err(crate::pull_coordinator::PullError::Execution) }
         })
-        .await
+        .await.map_err(|error| error.to_string())
 }
 
 async fn run_reference(

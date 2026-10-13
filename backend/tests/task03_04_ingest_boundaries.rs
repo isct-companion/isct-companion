@@ -1,9 +1,8 @@
-// These acceptance tests include the production modules directly until the
-// core crate exposes them; each included module contains APIs this test binary
+use isct_core::contracts;
+
+// These acceptance tests include the remaining production modules directly
+// until the core crate exposes them; each module contains APIs this test binary
 // intentionally does not exercise.
-#[allow(dead_code)]
-#[path = "../src/contracts.rs"]
-mod contracts;
 #[allow(dead_code)]
 #[path = "../src/data/mod.rs"]
 mod data;

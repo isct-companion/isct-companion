@@ -2205,6 +2205,7 @@ dependencies = [
  "image",
  "imageproc",
  "ipnet",
+ "isct-core",
  "keyring",
  "objc2",
  "objc2-app-kit",
@@ -2236,11 +2237,24 @@ dependencies = [
  "tauri-plugin-school-web",
  "tauri-plugin-secure-storage",
  "tokio",
- "ts-rs",
  "url",
  "uuid",
  "wry",
  "zip",
+]
+
+[[package]]
+name = "isct-core"
+version = "1.0.0-rc.1"
+dependencies = [
+ "chrono",
+ "rrule",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "ts-rs",
+ "url",
 ]
 
 [[package]]

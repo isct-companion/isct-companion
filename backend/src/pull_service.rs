@@ -1,7 +1,7 @@
 //! Domain adapters share one coordinator across all triggers and platforms.
 use crate::{
     lifecycle::SchoolSite,
-    pull_coordinator::{PullCoordinator, PullOptions, PullPriority, PullTarget},
+    pull_coordinator::{PullCoordinator, PullError, PullOptions, PullPriority, PullTarget},
     school_auth::SchoolAuthProfile,
     school_web::{IngestOutcome, SchoolWebController},
     OsSecretVault, SchoolAuthService,
@@ -31,7 +31,7 @@ pub(crate) async fn school(
                 let app = app.clone();
                 async move {
                     if !context.phase("extracting").await {
-                        return Err("Pull cancelled.".into());
+                        return Err(PullError::Cancelled);
                     }
                     let handle = app.clone();
                     let executor_context = context.clone();
@@ -61,19 +61,19 @@ pub(crate) async fn school(
                         }
                     })
                     .await
-                    .map_err(|_| "The school pull stopped unexpectedly.".to_string())?;
-                    let outcomes = result?;
+                    .map_err(|_| PullError::Execution("The school pull stopped unexpectedly.".into()))?;
+                    let outcomes = result.map_err(PullError::Execution)?;
                     // Extractor outcomes are returned unchanged, including partial
                     // 教務Web results and reconnect-required. They already committed.
                     let _ = app.emit(
                         "workspace-changed",
                         serde_json::json!({"source":"school-pull"}),
                     );
-                    encode_outcomes(&context, outcomes).await
+                    encode_outcomes(&context, outcomes).await.map_err(PullError::Execution)
                 }
             },
         )
-        .await?;
+        .await.map_err(|error| error.to_string())?;
     serde_json::from_value(value).map_err(|_| "School pull returned an invalid result.".into())
 }
 
@@ -127,7 +127,7 @@ mod tests {
                     move |context| {
                         let rows: Vec<IngestOutcome> =
                             serde_json::from_value(original.clone()).unwrap();
-                        async move { encode_outcomes(&context, rows).await }
+                        async move { encode_outcomes(&context, rows).await.map_err(PullError::Execution) }
                     },
                 )
                 .await

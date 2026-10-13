@@ -2534,7 +2534,7 @@ impl SchoolWebController {
     /// Sets (or clears, when empty) the 教務Web registration queue. Applies to
     /// the next 教務Web page load.
     pub fn set_guide(&self, items: Vec<crate::kyomu_guide::GuideItem>) -> Result<bool, String> {
-        let items = crate::kyomu_guide::validate(items)?;
+        let items = crate::kyomu_guide::validate(items).map_err(|error| error.to_string())?;
         self.state
             .lock()
             .map_err(|_| "School web state is unavailable.")?

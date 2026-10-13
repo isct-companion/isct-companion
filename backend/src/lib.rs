@@ -20,13 +20,13 @@ mod campus_wifi;
 mod cloud;
 use data::cloud_merge;
 mod cloud_sync;
-pub mod contracts;
+pub use isct_core::contracts;
 pub mod data;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod icloud;
-mod kyomu_guide;
+use isct_core::kyomu_guide;
 mod kyomu_ingest;
-mod lifecycle;
+use isct_core::lifecycle;
 #[cfg(desktop)]
 mod lms_downloader;
 mod lms_files;
@@ -36,8 +36,8 @@ mod lms_protocol;
 mod matrix_ocr;
 #[cfg(all(matrix_ocr, debug_assertions))]
 mod matrix_red_crops;
-pub mod plans;
-mod pull_coordinator;
+pub use isct_core::plans;
+use isct_core::pull_coordinator;
 mod pull_service;
 mod reference_refresh;
 mod scheduler;
@@ -1400,7 +1400,7 @@ fn preview_plan_recurrence(
     limit: Option<u16>,
 ) -> Result<plans::RecurrencePreview, String> {
     require_local_main(&webview)?;
-    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5))
+    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5)).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

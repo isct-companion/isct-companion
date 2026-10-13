@@ -3,6 +3,7 @@
 //! person clicks. It never clicks, fills, submits or posts back by itself.
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 const MAX_ITEMS: usize = 40;
 
@@ -18,14 +19,22 @@ pub struct GuideItem {
     pub slot: String,
 }
 
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum GuideError {
+    #[error("Too many courses for the registration guide.")]
+    TooManyCourses,
+    #[error("A registration guide item is invalid.")]
+    InvalidItem,
+}
+
 fn bounded(value: &str, max: usize) -> bool {
     value.chars().count() <= max && !value.chars().any(char::is_control)
 }
 
 /// Rejects anything that is not a plain, bounded course row.
-pub fn validate(items: Vec<GuideItem>) -> Result<Vec<GuideItem>, String> {
+pub fn validate(items: Vec<GuideItem>) -> Result<Vec<GuideItem>, GuideError> {
     if items.len() > MAX_ITEMS {
-        return Err("Too many courses for the registration guide.".into());
+        return Err(GuideError::TooManyCourses);
     }
     for item in &items {
         let id_ok = item.offering_id.is_empty()
@@ -37,7 +46,7 @@ pub fn validate(items: Vec<GuideItem>) -> Result<Vec<GuideItem>, String> {
             || !bounded(&item.slot, 60)
             || item.day.is_some_and(|day| !(1..=7).contains(&day))
         {
-            return Err("A registration guide item is invalid.".into());
+            return Err(GuideError::InvalidItem);
         }
     }
     Ok(items)
