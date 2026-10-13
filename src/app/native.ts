@@ -47,6 +47,11 @@ export const official: Record<
     name: "Syllabus",
     customization: "syllabus",
   },
+  "study-guide": {
+    url: "https://www.titech.ac.jp/student/students/life/resources",
+    name: "学修案内",
+    customization: "portal",
+  },
 };
 export const customizationNames: Record<CustomizationSite, string> = {
   portal: "School portals",

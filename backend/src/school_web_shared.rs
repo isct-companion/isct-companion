@@ -1451,6 +1451,10 @@ mod tests {
             site_for_url("https://portal.t4.gsic.titech.ac.jp/ptl/ga/sso/"),
             Some(SchoolSite::Tsubame)
         );
+        assert_eq!(
+            site_for_url("https://www.titech.ac.jp/guide/guide_2026/gakubu1/guide.pdf"),
+            Some(SchoolSite::StudyGuide)
+        );
     }
 
     fn active(profile: SchoolAuthProfile, credentials: SchoolCredentials) -> ActiveLogin {
