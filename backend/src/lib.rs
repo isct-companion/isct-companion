@@ -37,12 +37,10 @@ use isct_core::pull_coordinator;
 #[cfg(matrix_ocr)]
 use isct_ocr as matrix_ocr;
 mod core_ports;
-mod pull_service;
-mod scheduler;
 pub(crate) use isct_core::school_auth;
 mod school_extract;
 pub(crate) use isct_core::school_parser;
-mod school_refresh;
+use isct_core::school_refresh;
 #[cfg(not(mobile))]
 mod school_web;
 #[cfg(mobile)]
@@ -369,14 +367,23 @@ async fn pull_school(
     lms_course_id: Option<u64>,
 ) -> Result<Vec<school_web::IngestOutcome>, String> {
     require_local_main(&webview)?;
-    pull_service::school(
-        &app,
-        site,
-        lms_course_id,
-        pull_coordinator::PullOptions::manual(),
-        false,
-    )
-    .await
+    let services = core_ports::services(&app);
+    core_ports::runtime(&app)
+        .run(async move {
+            services
+                .school
+                .pull(
+                    services.executor,
+                    site,
+                    lms_course_id,
+                    pull_coordinator::PullOptions::manual(),
+                    false,
+                )
+                .await
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -385,10 +392,7 @@ async fn pull_state(
     app: tauri::AppHandle,
 ) -> Result<Vec<pull_coordinator::PullSnapshot>, String> {
     require_local_main(&webview)?;
-    Ok(app
-        .state::<pull_coordinator::PullCoordinator>()
-        .snapshots()
-        .await)
+    Ok(core_ports::runtime(&app).coordinator.snapshots().await)
 }
 
 #[tauri::command]
@@ -398,10 +402,7 @@ async fn cancel_pull(
     id: String,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    Ok(app
-        .state::<pull_coordinator::PullCoordinator>()
-        .cancel(&id)
-        .await)
+    Ok(core_ports::runtime(&app).coordinator.cancel(&id).await)
 }
 
 #[tauri::command]
@@ -411,9 +412,11 @@ async fn refresh_reference_subscriptions(
     force: bool,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    core_ports::references(&app)
-        .refresh_all(force, true)
+    let references = core_ports::services(&app).references;
+    core_ports::runtime(&app)
+        .run(async move { references.refresh_all(force, true).await })
         .await
+        .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
 }
 
@@ -469,7 +472,7 @@ fn set_kyomu_guide(
 #[tauri::command]
 fn school_credential_status(
     webview: tauri::Webview,
-    service: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
 ) -> Result<SchoolCredentialStatus, String> {
     require_local_main(&webview)?;
     service.status().map_err(|error| error.to_string())
@@ -478,7 +481,7 @@ fn school_credential_status(
 #[tauri::command]
 fn save_school_credentials(
     webview: tauri::Webview,
-    service: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
 ) -> Result<bool, String> {
@@ -491,7 +494,7 @@ fn save_school_credentials(
 #[tauri::command]
 fn delete_school_credentials(
     webview: tauri::Webview,
-    service: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
     profile: SchoolAuthProfile,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
@@ -504,7 +507,7 @@ fn delete_school_credentials(
 fn copy_school_matrix(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
     let text = auth.matrix_text().map_err(|error| error.to_string())?;
@@ -518,7 +521,7 @@ fn copy_school_matrix(
 async fn login_school(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
     controller: tauri::State<'_, SchoolWebController>,
     profile: SchoolAuthProfile,
     bounds: Option<WebBounds>,
@@ -553,7 +556,7 @@ async fn ensure_school_session(
 async fn test_school_connection(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
     controller: tauri::State<'_, SchoolWebController>,
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -612,13 +615,14 @@ fn request_notification_permission(
 fn school_refresh_event(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    refresh: tauri::State<'_, school_refresh::SchoolRefresh>,
     event: school_refresh::RefreshEvent,
 ) -> Result<(), String> {
     require_local_main(&webview)?;
-    refresh.event(event);
-    refresh.publish_conditions(&app);
-    Ok(())
+    core_ports::runtime(&app)
+        .refresh
+        .event(event)
+        .map_err(|error| error.to_string())?;
+    core_ports::publish_conditions(&app)
 }
 
 #[tauri::command]
@@ -845,7 +849,7 @@ fn set_cloud_credential_sync_password(
 async fn sync_cloud_credentials(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-    auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
+    auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
     provider: CloudProvider,
     restore_existing: bool,
 ) -> Result<bool, String> {
@@ -939,11 +943,14 @@ async fn delete_user_record(
 async fn run_scheduled_task(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    scheduler: tauri::State<'_, scheduler::Scheduler>,
     id: String,
 ) -> Result<String, String> {
     require_local_main(&webview)?;
-    scheduler.run_now(&app, &id).await
+    core_ports::runtime(&app)
+        .run_scheduled(core_ports::services(&app), id)
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1550,9 +1557,14 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(lms_files::FileStore(std::sync::Mutex::new(())))
         .manage(SchoolWebController::new())
-        .manage(scheduler::Scheduler::default())
-        .manage(school_refresh::SchoolRefresh::default());
-    let builder = builder.manage(pull_coordinator::PullCoordinator::default());
+        .manage(core_ports::DesktopRuntime::default())
+        .manage(std::sync::Arc::new(isct_core::runtime::CoreRuntime::new(
+            if cfg!(mobile) {
+                pull_coordinator::PullNetwork::Cellular
+            } else {
+                pull_coordinator::PullNetwork::Wifi
+            },
+        )));
     #[cfg(target_os = "macos")]
     let builder = builder.manage(campus_wifi::CampusWifi::default());
     #[cfg(desktop)]
@@ -1674,12 +1686,12 @@ pub fn run() {
                 DesktopCloudService::new(vault.clone())
                     .expect("failed to initialize the cloud transport"),
             );
-            app.manage(SchoolAuthService::with_status_cache(
+            app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
                 vault,
                 app.path()
                     .app_data_dir()?
                     .join("school-credential-status.json"),
-            ));
+            )));
             let authorized = app
                 .state::<DesktopCloudService<OsSecretVault>>()
                 .authorized_providers()
@@ -1688,9 +1700,7 @@ pub fn run() {
                 cloud_sync::CloudSync::new(app_data_dir.join("cloud-sync.json"), &authorized)
                     .map_err(std::io::Error::other)?,
             );
-            pull_service::start(app.handle().clone());
-            school_refresh::SchoolRefresh::start(app.handle().clone());
-            scheduler::Scheduler::start(app.handle().clone());
+            core_ports::DesktopRuntime::start(app.handle());
             cloud_sync::CloudSync::start(app.handle().clone());
 
             #[cfg(desktop)]
@@ -1720,14 +1730,38 @@ pub fn run() {
         .expect("failed to build IsctCompanion")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
-                if code.is_none() {
+                let runtime = app.state::<core_ports::DesktopRuntime>();
+                if !runtime.stopped() {
                     api.prevent_exit();
-                    let app = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        cloud_sync::CloudSync::changed(&app);
-                        app.exit(0);
-                    });
+                    if runtime.begin_exit() {
+                        let app = app.clone();
+                        let code = code.unwrap_or(0);
+                        tauri::async_runtime::spawn(async move {
+                            cloud_sync::CloudSync::changed(&app);
+                            app.state::<core_ports::DesktopRuntime>()
+                                .shutdown(&core_ports::runtime(&app))
+                                .await;
+                            app.exit(code);
+                        });
+                    }
                 }
+            }
+            // OS suspension differs from losing keyboard focus. Only real
+            // suspension pauses admission in every lane; focus remains a fact.
+            #[cfg(mobile)]
+            if let tauri::RunEvent::WindowEvent { event, .. } = &event {
+                match event {
+                    tauri::WindowEvent::Suspended => {
+                        tauri::async_runtime::block_on(core_ports::runtime(app).suspend())
+                    }
+                    tauri::WindowEvent::Resumed => {
+                        tauri::async_runtime::block_on(core_ports::runtime(app).resume())
+                    }
+                    _ => (),
+                }
+            }
+            if matches!(&event, tauri::RunEvent::Resumed) {
+                tauri::async_runtime::block_on(core_ports::runtime(app).resume());
             }
 
             let foreground = match &event {
@@ -1750,7 +1784,8 @@ pub fn run() {
                 _ => None,
             };
             if let Some(foreground) = foreground {
-                app.state::<school_refresh::SchoolRefresh>()
+                let _ = core_ports::runtime(app)
+                    .refresh
                     .event(school_refresh::RefreshEvent {
                         kind: if foreground {
                             "foreground"
@@ -1762,8 +1797,7 @@ pub fn run() {
                         course_id: None,
                         network: None,
                     });
-                app.state::<school_refresh::SchoolRefresh>()
-                    .publish_conditions(app);
+                let _ = core_ports::publish_conditions(app);
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     cloud_sync::CloudSync::changed(&app);

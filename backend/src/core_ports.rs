@@ -1,15 +1,25 @@
-//! Desktop delivery adapters for shared domain services.
-use crate::{data::DataStore, pull_coordinator::PullCoordinator};
+//! Desktop adapters. Domain services and their task lifetime belong to Core.
+use crate::{data::DataStore, school_web::SchoolWebController};
 use isct_core::{
     events::CoreEvent,
     ports::{EventError, EventSink},
+    pull_coordinator::{PullContext, PullPriority},
     reference_refresh::ReferenceService,
+    runtime::CoreRuntime,
+    runtime_tasks::RuntimeTasks,
+    scheduler::{ExportError, ScheduledExporter, SchedulerServices},
+    school_auth::SchoolAuthService,
+    school_service::{
+        IngestOutcome, SchoolExecution, SchoolExecutor, SchoolExecutorError, SchoolService,
+    },
 };
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tauri::{AppHandle, Emitter, Manager};
 
 struct DesktopEvents(AppHandle);
-
 impl EventSink for DesktopEvents {
     fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
         self.0
@@ -18,12 +28,152 @@ impl EventSink for DesktopEvents {
     }
 }
 
-// Construct an operation's adapters without storing an AppHandle-backed service
-// in Tauri State. The database and coordinator remain the shared instances.
-pub(crate) fn references(app: &AppHandle) -> ReferenceService {
-    ReferenceService::new(
-        app.state::<DataStore>().inner().clone(),
-        app.state::<PullCoordinator>().inner().clone(),
-        Arc::new(DesktopEvents(app.clone())),
-    )
+struct DesktopSchool(AppHandle);
+impl SchoolExecutor for DesktopSchool {
+    fn execute(
+        &self,
+        request: SchoolExecution,
+        context: PullContext,
+    ) -> Result<Vec<IngestOutcome>, SchoolExecutorError> {
+        let execute = || -> Result<Vec<IngestOutcome>, String> {
+            if context.is_cancelled() {
+                return Err("Pull cancelled.".into());
+            }
+            let controller = self.0.state::<SchoolWebController>();
+            if let Some((profile, credentials)) = request.credentials {
+                controller.request_login(&self.0, profile, credentials)?;
+            }
+            if context.is_cancelled() {
+                return Err("Pull cancelled.".into());
+            }
+            if context.priority() == PullPriority::Manual {
+                controller.request_pull(&self.0, request.site, request.course_id, context)
+            } else {
+                controller.request_pull_background(
+                    &self.0,
+                    request.site,
+                    request.course_id,
+                    context,
+                )
+            }
+        };
+        execute().map_err(SchoolExecutorError::Execution)
+    }
+}
+
+struct DesktopExport(AppHandle);
+impl ScheduledExporter for DesktopExport {
+    fn export(&self) -> Result<(), ExportError> {
+        crate::write_scheduled_export_inner(&self.0, &self.0.state::<DataStore>())
+            .map(|_| ())
+            .map_err(ExportError::Failed)
+    }
+}
+
+pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
+    app.state::<Arc<CoreRuntime>>().inner().clone()
+}
+
+// Operation-scoped ports avoid retaining AppHandle in the core's permanent
+// service state. Completed coordinator jobs release their work closures too.
+pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
+    let runtime = runtime(app);
+    let store = app.state::<DataStore>().inner().clone();
+    let events: Arc<dyn EventSink> = Arc::new(DesktopEvents(app.clone()));
+    SchedulerServices {
+        references: ReferenceService::new(
+            store.clone(),
+            runtime.coordinator.clone(),
+            events.clone(),
+        ),
+        school: SchoolService::new(
+            runtime.coordinator.clone(),
+            app.state::<Arc<SchoolAuthService>>().inner().clone(),
+            events.clone(),
+        ),
+        refresh: runtime.refresh.clone(),
+        store,
+        events,
+        executor: Arc::new(DesktopSchool(app.clone())),
+        exporter: Arc::new(DesktopExport(app.clone())),
+    }
+}
+
+pub(crate) fn publish_conditions(app: &AppHandle) -> Result<(), String> {
+    let runtime = runtime(app);
+    tauri::async_runtime::block_on(runtime.refresh.publish_conditions(
+        &app.state::<DataStore>(),
+        &runtime.coordinator,
+        app.state::<SchoolWebController>().is_visible(),
+    ))
+    .map_err(|error| error.to_string())
+}
+
+#[derive(Default)]
+pub(crate) struct DesktopRuntime {
+    tasks: RuntimeTasks,
+    exiting: AtomicBool,
+    stopped: AtomicBool,
+}
+
+impl DesktopRuntime {
+    pub(crate) fn start(app: &AppHandle) {
+        let focused = app
+            .get_webview_window("main")
+            .and_then(|window| window.is_focused().ok())
+            == Some(true);
+        let _ = runtime(app)
+            .refresh
+            .event(isct_core::school_refresh::RefreshEvent {
+                kind: if focused { "foreground" } else { "background" }.into(),
+                profile: None,
+                course_id: None,
+                network: None,
+            });
+        let tasks = app.state::<Self>().tasks.clone();
+        let app = app.clone();
+        // Setup is called on the UI thread; enter Tauri's shared Tokio runtime
+        // before registering either owned loop.
+        tauri::async_runtime::block_on(async move {
+            let wake_app = app.clone();
+            let wake_tasks = tasks.clone();
+            tasks.spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+                loop {
+                    tokio::select! {
+                        _ = wake_tasks.closed() => break,
+                        _ = interval.tick() => {}
+                    }
+                    let visible = wake_app.state::<SchoolWebController>().is_visible();
+                    let _ = runtime(&wake_app).wake(services(&wake_app), visible).await;
+                }
+            });
+            let mut states = runtime(&app).coordinator.subscribe();
+            let event_tasks = tasks.clone();
+            tasks.spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = event_tasks.closed() => break,
+                        changed = states.changed() => { if changed.is_err() { break; } }
+                    }
+                    let snapshot = states.borrow_and_update().clone();
+                    let _ = app.emit_to("main", "pull-state-changed", snapshot);
+                }
+            });
+        });
+    }
+
+    pub(crate) fn stopped(&self) -> bool {
+        self.stopped.load(Ordering::Acquire)
+    }
+    pub(crate) fn begin_exit(&self) -> bool {
+        !self.exiting.swap(true, Ordering::AcqRel)
+    }
+
+    pub(crate) async fn shutdown(&self, core: &CoreRuntime) {
+        self.tasks.close();
+        core.shutdown().await;
+        self.tasks.wait().await;
+        self.stopped.store(true, Ordering::Release);
+    }
 }

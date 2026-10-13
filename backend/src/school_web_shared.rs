@@ -11,7 +11,6 @@ use crate::school_parser::{
     lms::{parse_payload as parse_lms_payload, LmsStage},
 };
 use crate::school_web::{apply_bounds, create_webview, NativeWebview as Webview};
-use crate::secrets::OsSecretVault;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use isct_core::school_auth::{
     upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
@@ -99,17 +98,7 @@ pub struct SchoolWebResult {
     pub phase: &'static str,
 }
 
-/// One extractor result, reported to waiting pulls and to the main window.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IngestOutcome {
-    pub site: SchoolSite,
-    pub kind: String,
-    /// `ok`, `reconnect-required` or `error`.
-    pub state: String,
-    pub changed: usize,
-    pub message: String,
-}
+pub use isct_core::school_service::IngestOutcome;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -333,8 +322,8 @@ fn emit_session(
         changed.notify_waiters();
     }
     if state == "active" {
-        if let Some(refresh) = app.try_state::<crate::school_refresh::SchoolRefresh>() {
-            refresh.event(crate::school_refresh::RefreshEvent {
+        if let Some(runtime) = app.try_state::<Arc<isct_core::runtime::CoreRuntime>>() {
+            let _ = runtime.refresh.event(crate::school_refresh::RefreshEvent {
                 kind: "account-active".into(),
                 profile: Some(profile),
                 course_id: None,
@@ -2919,8 +2908,7 @@ impl SchoolWebController {
                 });
                 let armed = if should_arm {
                     auth_profile.and_then(|profile| {
-                        let service =
-                            app_for_load.try_state::<SchoolAuthService<OsSecretVault>>()?;
+                        let service = app_for_load.try_state::<Arc<SchoolAuthService>>()?;
                         let credentials = service.load(profile).ok().flatten()?;
                         Some(ActiveLogin {
                             profile,

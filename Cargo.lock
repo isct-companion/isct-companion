@@ -2217,7 +2217,6 @@ dependencies = [
  "rand 0.9.5",
  "reqwest 0.12.28",
  "ring",
- "rrule",
  "rusqlite",
  "scraper",
  "security-framework 3.7.0",
@@ -2256,6 +2255,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-util",
  "ts-rs",
  "url",
  "uuid",
@@ -5312,6 +5312,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]
