@@ -35,13 +35,17 @@ sha2 = "0.10"
 url = "2.5"
 percent-encoding = "2"
 scraper = "0.24"
-ring = "0.17"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"
 
-# Assignment workspaces (desktop only): unpack attachments, pack submissions.
+# Desktop workspace archives and the embedded MCP HTTP transport.
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
-zip = { version = "9", default-features = false, features = ["deflate"] }
+isct-core = { path = "../crates/isct-core", features = ["desktop-workspaces"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+rmcp = { version = "=3.4.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+subtle = "2"
+tokio-util = { version = "0.7", features = ["rt"] }
+tokio = { version = "1", features = ["net"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 wry = "0.57"

@@ -319,13 +319,16 @@ fn emit_session(
         controller.sessions.insert(profile, state);
     }
     if state == "active" {
-        if let Some(runtime) = app.try_state::<Arc<isct_core::runtime::CoreRuntime>>() {
-            let _ = runtime.refresh.event(crate::school_refresh::RefreshEvent {
-                kind: "account-active".into(),
-                profile: Some(profile),
-                course_id: None,
-                network: None,
-            });
+        if let Some(runtime) = app.try_state::<Arc<isct_core::Core>>() {
+            let _ = runtime
+                .runtime
+                .refresh
+                .event(crate::school_refresh::RefreshEvent {
+                    kind: "account-active".into(),
+                    profile: Some(profile),
+                    course_id: None,
+                    network: None,
+                });
         }
     }
     eprintln!("[school-session] {profile:?} {state}");

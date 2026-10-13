@@ -4,14 +4,10 @@ use isct_core::{
     events::CoreEvent,
     ports::{EventError, EventSink},
     pull_coordinator::{PullContext, PullPriority},
-    reference_refresh::ReferenceService,
     runtime::CoreRuntime,
     runtime_tasks::RuntimeTasks,
     scheduler::{ExportError, ScheduledExporter, SchedulerServices},
-    school_auth::SchoolAuthService,
-    school_service::{
-        IngestOutcome, SchoolExecution, SchoolExecutor, SchoolExecutorError, SchoolService,
-    },
+    school_service::{IngestOutcome, SchoolExecution, SchoolExecutor, SchoolExecutorError},
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -70,33 +66,21 @@ impl ScheduledExporter for DesktopExport {
     }
 }
 
+pub(crate) fn core(app: &AppHandle) -> Arc<isct_core::Core> {
+    app.state::<Arc<isct_core::Core>>().inner().clone()
+}
 pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
-    app.state::<Arc<CoreRuntime>>().inner().clone()
+    core(app).runtime.clone()
 }
 
 // Operation-scoped ports avoid retaining AppHandle in the core's permanent
 // service state. Completed coordinator jobs release their work closures too.
 pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
-    let runtime = runtime(app);
-    let store = app.state::<DataStore>().inner().clone();
-    let events: Arc<dyn EventSink> = Arc::new(DesktopEvents(app.clone()));
-    SchedulerServices {
-        references: ReferenceService::new(
-            store.clone(),
-            runtime.coordinator.clone(),
-            events.clone(),
-        ),
-        school: SchoolService::new(
-            runtime.coordinator.clone(),
-            app.state::<Arc<SchoolAuthService>>().inner().clone(),
-            events.clone(),
-        ),
-        refresh: runtime.refresh.clone(),
-        store,
-        events,
-        executor: Arc::new(DesktopSchool(app.clone())),
-        exporter: Arc::new(DesktopExport(app.clone())),
-    }
+    core(app).services(
+        Arc::new(DesktopEvents(app.clone())),
+        Arc::new(DesktopSchool(app.clone())),
+        Arc::new(DesktopExport(app.clone())),
+    )
 }
 
 pub(crate) fn publish_conditions(app: &AppHandle) -> Result<(), String> {

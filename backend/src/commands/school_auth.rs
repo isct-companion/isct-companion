@@ -1,5 +1,8 @@
 //! Credential commands keep potentially interactive OS vault calls off the UI thread.
-use crate::{require_local_main, SchoolWebController, SchoolWebResult, WebBounds};
+use crate::{
+    require_local_main,
+    school_web::{SchoolWebController, SchoolWebResult, WebBounds},
+};
 use isct_core::school_auth::{
     SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentialStatus,
     SchoolCredentials,

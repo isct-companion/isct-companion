@@ -22,15 +22,30 @@ export function AgentSettings({
   update: (f: (d: Workspace) => Workspace) => void;
   notify: (message: string) => void;
 }) {
-  const [command, setCommand] = useState(
-    "isct-companion-mcp --db /absolute/path/to/school.db",
-  );
+  const [connection, setConnection] = useState<{
+    url: string;
+    token: string;
+  }>();
+  const [error, setError] = useState<string>();
   useEffect(() => {
     if (!desktopBridge) return;
-    void invoke<string>("agent_command")
-      .then(setCommand)
-      .catch(() => undefined);
+    let active = true;
+    void invoke<{ url: string; token: string }>("agent_connection")
+      .then((value) => {
+        if (active) setConnection(value);
+      })
+      .catch((reason: unknown) => {
+        if (active) setError(String(reason));
+      });
+    return () => {
+      active = false;
+    };
   }, []);
+  const copy = (value: string) =>
+    void navigator.clipboard
+      .writeText(value)
+      .then(() => notify(t("Copied")))
+      .catch(() => notify(t("Copy failed")));
   const access = data.settings.agentAccess;
   const writes = [...(access?.lastWrites ?? [])]
     .sort((a, b) => b.at.localeCompare(a.at))
@@ -65,23 +80,36 @@ export function AgentSettings({
       <SettingsGroup
         title="Connect an agent"
         footer={t(
-          "Add this command as a stdio MCP server in your agent. The isct-companion-mcp binary must be on your PATH.",
+          "Add this URL as a Streamable HTTP MCP server. Use the access token for Bearer authentication and keep IsctCompanion open.",
         )}
       >
-        <div className="commandLine">
-          <code>{command}</code>
-          <UiButton
-            className="button small"
-            onClick={() =>
-              void navigator.clipboard
-                .writeText(command)
-                .then(() => notify(t("Copied")))
-                .catch(() => notify(t("Copy failed")))
-            }
-          >
-            {t("Copy")}
-          </UiButton>
-        </div>
+        {connection ? (
+          <>
+            <div className="commandLine">
+              <code>{connection.url}</code>
+              <UiButton
+                className="button small"
+                onClick={() => copy(connection.url)}
+              >
+                {t("Copy URL")}
+              </UiButton>
+            </div>
+            <Row title="Access token">
+              <UiButton
+                className="button small"
+                onClick={() => copy(connection.token)}
+              >
+                {t("Copy token")}
+              </UiButton>
+            </Row>
+          </>
+        ) : (
+          <p className="paneEmpty" role={error ? "alert" : "status"}>
+            {error
+              ? `${t("MCP server is unavailable.")} ${error}`
+              : t("Loading…")}
+          </p>
+        )}
       </SettingsGroup>
       <SettingsGroup title="Recent agent changes">
         {writes.length ? (
