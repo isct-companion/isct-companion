@@ -1,4 +1,5 @@
 import { COURSE_PALETTE } from "../../core/course-colors";
+import { tokyoDate } from "../../core/civil-date";
 import { t } from "../../i18n";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import { confirmAction } from "../../components/confirm";
@@ -495,9 +496,7 @@ export function EventEditor({
                     days: undefined,
                     date:
                       draft.date ??
-                      new Intl.DateTimeFormat("en-CA", {
-                        timeZone: "Asia/Tokyo",
-                      }).format(new Date()),
+                      tokyoDate(new Date()),
                   });
               }}
             />

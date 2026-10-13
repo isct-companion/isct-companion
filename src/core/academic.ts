@@ -7,16 +7,10 @@ import type {
   Quarter,
   TermId,
 } from "./model";
-export const JST = "Asia/Tokyo";
+import { JST, tokyoDate } from "./civil-date";
+export { JST } from "./civil-date";
 export function termForDate(date: Date): TermId {
-  const p = new Intl.DateTimeFormat("en-CA", {
-    timeZone: JST,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const year = Number(p.find((x) => x.type === "year")!.value),
-    month = Number(p.find((x) => x.type === "month")!.value);
+  const [year, month] = tokyoDate(date).split("-").map(Number);
   const academic = month < 4 ? year - 1 : year;
   const q: Quarter =
     month >= 4 && month < 6
@@ -81,7 +75,7 @@ export function effectiveWeekday(
   date: Date,
   exceptions: CalendarException[],
 ): number {
-  const iso = new Intl.DateTimeFormat("en-CA", { timeZone: JST }).format(date);
+  const iso = tokyoDate(date);
   const e = exceptions.find((x) => x.date === iso && !x.deletedAt);
   if (e?.type === "no-class" || e?.type === "break") return 0;
   if (e?.type === "replacement" && e.replacementDay) return e.replacementDay;

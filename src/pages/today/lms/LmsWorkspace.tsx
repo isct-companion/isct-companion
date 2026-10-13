@@ -27,6 +27,9 @@ import type {
 } from "../../../platform/desktop-bridge";
 import { t } from "../../../i18n";
 import { desktopBridge } from "../../../app/native";
+import { detectPlatform } from "../../../platform/capabilities";
+import { AssignmentWorkspaceFooter } from "./AssignmentWorkspaceCard";
+import { assignmentBrief } from "./assignment-workspace";
 import { announcements, formatLmsDate, contentText, imageOnly, safeContent, safeUrl } from "./content";
 import { OfficialLmsView } from "./OfficialLmsView";
 import { FileTile, LmsIcon } from "./LmsIcon";
@@ -338,6 +341,8 @@ export function LmsWorkspace({
   );
   const limit = downloadLimit(data.settings);
   const files = useMemo<FileAccess>(() => ({ context: folder, limit }), [folder, limit]);
+  /** Assignment workspaces are a desktop feature (folders, VS Code). */
+  const workspaces = detectPlatform() === "native-desktop";
   const current = useRef<ReadingState>({
     version: 2,
     expanded,
@@ -871,6 +876,7 @@ export function LmsWorkspace({
     const body = source?.bodyHtml ? withoutActivityDates(source.bodyHtml) : "";
     const hasBody = Boolean(contentText(body).trim() || a.details?.trim());
     const showBody = openDetails.includes(a.id) || Boolean(query.trim());
+    const submit = () => open({ id: `official:${a.id}`, title: a.title, kind: "official", url: a.sourceUrl! });
     return (
       <article className={`lmsAssignmentCard ${state}`} data-assignment={a.id} key={a.id}>
         <header>
@@ -922,24 +928,35 @@ export function LmsWorkspace({
             )}
           </div>
         )}
-        <footer>
-          {a.sourceUrl && (
-            <button
-              type="button"
-              className={done ? "lmsTextLink" : "lmsSubmit"}
-              onClick={() =>
-                open({
-                  id: `official:${a.id}`,
-                  title: a.title,
-                  kind: "official",
-                  url: a.sourceUrl,
-                })
-              }
-            >
-              {t(done ? "View in LMS" : "Submit")} <LmsIcon name="external" size={13} />
-            </button>
-          )}
-        </footer>
+        {workspaces ? (
+          <AssignmentWorkspaceFooter
+            context={folder}
+            assignment={a}
+            html={body}
+            done={done}
+            brief={(attachments) => assignmentBrief({
+              title: a.title,
+              course: course.title,
+              due: due && new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Tokyo" }).format(due) + " JST",
+              url: a.sourceUrl,
+              html: body || a.details || "",
+              attachments,
+            })}
+            submit={a.sourceUrl ? submit : undefined}
+          />
+        ) : (
+          <footer>
+            {a.sourceUrl && (
+              <button
+                type="button"
+                className={done ? "lmsTextLink" : "lmsSubmit"}
+                onClick={submit}
+              >
+                {t(done ? "View in LMS" : "Submit")} <LmsIcon name="external" size={13} />
+              </button>
+            )}
+          </footer>
+        )}
       </article>
     );
   };

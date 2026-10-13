@@ -1,54 +1,15 @@
-# School data refresh
+# Pull coordination
 
-Refreshing school data (LMS, 教務Web) feels erratic today, and it blocks the
-person. This is the brief for making it predictable.
+Reference subscriptions, LMS and 教務Web share `backend/src/pull_coordinator.rs`.
+Manual commands, launch/scheduled refreshes, account activation, foreground
+events and lecture detail requests all enter its native admission path.
+The frontend reports facts and renders snapshots; its busy flags and workspace
+Promise queue no longer decide which requests execute.
 
-## What happens now
+## Refresh policy
 
-- `open_internal` in `backend/src/school_web_shared.rs` refuses to show any
-  school page while a pull job runs: "Wait for the school pull to finish
-  before opening this page." On a phone, opening a lecture starts a detail
-  pull for that course; tapping "Open in LMS" right after hits the refusal.
-- Refreshes start from several places that do not know about each other:
-  - the frontend (`src/app/App.tsx`): when an account becomes active, when
-    the window regains focus after 10 minutes (`refreshStale`), and once per
-    session when a lecture opens (LMS detail fill);
-  - the Rust scheduler (`backend/src/scheduler.rs`), polling every 30 s.
-
-## What it should do
-
-1. **The person always wins.** Opening a school page never fails because of
-   a background pull. Either the pull runs in its own hidden view so the
-   visible one is free, or the visible request preempts it: pause or cancel
-   the job, show the page, and resume or retry the job afterwards. No error
-   reaches the UI for this.
-2. **One scheduler.** Rust owns when refreshes run. The frontend only reports
-   events (account active, app foregrounded, lecture opened) and requests a
-   manual refresh; it no longer decides TTLs itself. Remove `refreshStale`
-   and the per-lecture detail trigger from `App.tsx` once Rust handles them.
-3. **Predictable rhythm.** Document and test it, roughly:
-   - on launch and on foreground: refresh only sources older than their TTL;
-   - opening a lecture: fill that course's details at low priority, after any
-     visible navigation, at most once per session;
-   - manual refresh: runs now, ahead of scheduled work;
-   - respect the existing cellular setting on mobile.
-4. **Quiet.** Background refreshes report through the existing progress
-   events only. The mobile status dot shows progress; no toasts or dialogs
-   for routine refreshes.
-
-## Acceptance
-
-- Rust test: a visible open during an active job succeeds, and the job
-  completes or is retried afterwards.
-- Opening a lecture and immediately tapping "Open in LMS" on a phone shows
-  the LMS page with no error.
-- The frontend contains no refresh timing logic; scheduler tests cover the
-  rhythm above.
-
-## Implemented rhythm
-
-`backend/src/school_refresh.rs` is the refresh policy; the existing scheduled
-jobs feed the same queue. `App.tsx` reports foreground/network and lecture
+`backend/src/school_refresh.rs` owns freshness and lecture debounce intents;
+`backend/src/scheduler.rs` feeds the same policy. Neither owns an execution queue. `App.tsx` reports foreground/network and lecture
 navigation events without a clock or a session-local detail cache. Native
 session completion also reports directly, including before the UI subscribes.
 
@@ -69,3 +30,61 @@ session completion also reports directly, including before the UI subscribes.
 The timetable comparison/review remains an explicit action. Automatic source
 refreshes do not open its review dialog. The 30-day timetable review policy is
 not a separate automatic import timer.
+
+
+## Execution and outcomes
+
+- Exact target keys coalesce and every caller receives the actual result.
+  Reference keys include kind, normalized HTTPS index URL and year; school
+  keys include site and optional positive course ID.
+- Full LMS and course detail are distinct keys. Full pulls only read assignment
+  details; lecture pulls also read files, pages, folders and announcements.
+  A full pull must therefore never consume a queued detail request.
+- One school lane protects the shared session and WebView executor. The HTTP
+  lane permits two reference jobs. Manual admission has priority; equal
+  priorities are FIFO. Authentication/navigation retain their own executor
+  lifecycle because visible browsing shares those resources.
+- Native state snapshots arrive through `pull-state-changed`; `pull_state`
+  provides a current read after the listener attaches. Each run has a unique
+  identity, so callbacks from earlier attempts cannot change a later run.
+- The reducer explicitly handles every pair of 11 finite states and 14
+  events (154 combinations). Unsupported events preserve the state and return
+  a rejection diagnostic. Queue entries, waiters, counters and run IDs are
+  runtime metadata outside the finite control state.
+- Cancellation drops queued work immediately. Running work owns its lane until
+  the underlying executor finishes; a same-key successor waits for that exit.
+  Entering Applying is atomic with cancellation and disables cancellation once
+  SQL writes begin. 教務Web may commit pages incrementally, so this gate begins
+  with its first successful page.
+- Partial school outcomes preserve their original `Ok` payload, including
+  successful pages and reconnect-required. The job snapshot ends Failed with
+  the reported problem. Retries default to zero, matching the prior adapters;
+  an explicit retry policy uses a fresh executor future for each attempt.
+
+Reference refreshes share a native adapter for probing, cache validation,
+fetching, applying and metadata writes. Startup always checks the built-in
+reference task immediately. Calendar hashes count as usable cache only when
+all eight valid quarter boundaries exist for the requested year. Automatic
+reference tasks use the current academic year; the Sources action uses the
+selected year, and department recommendations use the admission year.
+Other reference caches use local materialization fingerprints that are excluded
+from backups; this distinguishes a valid empty feed from a missing cache after
+restore. An error in one source does not prevent checking the remaining sources.
+
+Automatic school admission preserves the prior foreground/network/cellular/
+visible-view conditions. Reference scheduled tasks retain their existing
+HTTP admission behavior; the Sources action retains its offline/cellular
+checks. Cloud recovery, syllabus lookup and individual file downloads keep
+their specialized services and are outside this business pull coordinator.
+
+## Verification
+
+The coordinator tests exercise real fake executors, covering same-key joining,
+manual priority/FIFO, full/detail separation, HTTP bounds, cancellation, retry,
+panic settlement and stale callbacks. The automatic-school condition matrix
+checks all 32 combinations against the previous policy. Adapter tests compare
+serialized school outcomes before and after coordination, including partial
+failures. Frontend tests verify concurrent requests reach native admission and
+that a late initial snapshot cannot overwrite a newer state event. Existing
+extractor and SQLite fixture tests remain the data-contract regression suite.
+Live portal and physical iOS/Android verification remain separate checks.

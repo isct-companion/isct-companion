@@ -1,6 +1,7 @@
 import { RRule } from "rrule";
 import type { IntensiveSchedule, Plan } from "./model";
 import { classSlots } from "./timetable-layout";
+import { tokyoDate } from "./civil-date";
 
 const iso = (date: Date) => date.toISOString().slice(0, 10);
 const localDate = (value: string) => new Date(`${value}T12:00:00+09:00`);
@@ -53,11 +54,10 @@ export function planCivilStart(plan: Plan) {
     return { date: plan.start.slice(0, 10), time: plan.start.slice(11, 16) };
   const value = new Date(plan.start);
   return {
-    date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(
-      value,
-    ),
+    date: tokyoDate(value),
     time: new Intl.DateTimeFormat("en-GB", {
       timeZone: "Asia/Tokyo",
+      numberingSystem: "latn",
       hour: "2-digit",
       minute: "2-digit",
       hourCycle: "h23",

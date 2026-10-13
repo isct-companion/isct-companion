@@ -1,4 +1,5 @@
 import { COURSE_FILE_POLICY } from "./course-file-policy";
+import { termForDate } from "./academic";
 import type {
   Localized,
   Quarter,
@@ -34,20 +35,6 @@ export function pickLocalized(
     if (candidate) return candidate;
   }
   return fallback;
-}
-
-function defaultTerm(now = new Date()): TermId {
-  const month = now.getMonth() + 1;
-  const quarter: Quarter =
-    month >= 12 || month <= 3
-      ? "4Q"
-      : month >= 10
-        ? "3Q"
-        : month >= 6
-          ? "2Q"
-          : "1Q";
-  const academicYear = month <= 3 ? now.getFullYear() - 1 : now.getFullYear();
-  return `${academicYear}-${quarter}`;
 }
 
 function newDeviceId() {
@@ -98,7 +85,7 @@ export function referenceRefreshTask(
 
 /** A real first launch is empty; preview/demo data must be opted into elsewhere. */
 export function seedWorkspace(): Workspace {
-  const selectedTerm = defaultTerm();
+  const selectedTerm = termForDate(new Date());
   const deviceId = newDeviceId();
   return {
     schemaVersion: 3,

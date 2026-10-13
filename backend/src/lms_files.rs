@@ -116,7 +116,7 @@ fn config(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())?
         .join("course-files-root.json"))
 }
-fn root(app: &AppHandle) -> Result<(PathBuf, bool), String> {
+pub(crate) fn root(app: &AppHandle) -> Result<(PathBuf, bool), String> {
     if let Ok(value) = fs::read_to_string(config(app)?) {
         let path: PathBuf = serde_json::from_str(&value).map_err(|e| e.to_string())?;
         return Ok((path, true));
@@ -134,7 +134,7 @@ fn root(app: &AppHandle) -> Result<(PathBuf, bool), String> {
 
 /// Keep canonical/extended paths internally, but never expose Windows' `\\?\`
 /// prefix or locale-dependent backslashes in user-facing text.
-fn display_root(path: &Path) -> String {
+pub(crate) fn display_root(path: &Path) -> String {
     let value = path.to_string_lossy();
     #[cfg(windows)]
     {
@@ -162,7 +162,7 @@ fn materials_dir(app: &AppHandle, course: &CourseKey) -> Result<PathBuf, String>
 pub(crate) fn debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
     storage_dir(app, &["debug"])
 }
-fn storage_dir(app: &AppHandle, parts: &[&str]) -> Result<PathBuf, String> {
+pub(crate) fn storage_dir(app: &AppHandle, parts: &[&str]) -> Result<PathBuf, String> {
     let (root, _) = root(app)?;
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let root = root.canonicalize().map_err(|e| e.to_string())?;
@@ -980,7 +980,7 @@ fn safe_external_url(raw: &str) -> bool {
     })
 }
 /// A path the app saved under the storage root; anything else is refused.
-fn stored_file(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
+pub(crate) fn stored_file(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
     let (root, _) = root(app)?;
     let path = PathBuf::from(path)
         .canonicalize()

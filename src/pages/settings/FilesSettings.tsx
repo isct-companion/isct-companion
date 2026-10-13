@@ -4,6 +4,8 @@ import { COURSE_FILE_POLICY } from "../../core/course-file-policy";
 import type { Workspace } from "../../core/model";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
 import { CourseStorage } from "./CourseStorage";
+import { t } from "../../i18n";
+import { cleanWorkspaces } from "../today/lms/assignment-workspace";
 
 export function FilesSettings({
   data,
@@ -34,8 +36,45 @@ export function FilesSettings({
             }
           />
         </Row>
+        <Row
+          id="workspaces"
+          group
+          title="Assignment workspaces"
+          hint="Kept until you delete them. Old ones can be removed here."
+        >
+          <CleanWorkspaces />
+        </Row>
       </SettingsGroup>
     </>
+  );
+}
+
+/** Workspaces hold the student's own work, so cleanup is manual and only takes month-old ones. */
+function CleanWorkspaces() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+  return (
+    <span className="cleanWorkspaces">
+      {result && <small role="status">{result}</small>}
+      <button
+        type="button"
+        className="button small"
+        disabled={busy}
+        onClick={async () => {
+          if (!confirm(t("Delete every workspace unchanged for over a month?"))) return;
+          setBusy(true);
+          try {
+            setResult(t("Removed {{count}} workspaces", { count: await cleanWorkspaces() }));
+          } catch (error) {
+            setResult(String(error));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {t("Remove month-old workspaces")}
+      </button>
+    </span>
   );
 }
 

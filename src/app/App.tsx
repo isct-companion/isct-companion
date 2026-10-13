@@ -24,7 +24,6 @@ import {
 } from "./routes";
 import { notify } from "./notify";
 import { AppShell, MantineProvider } from "@mantine/core";
-import { invoke } from "@tauri-apps/api/core";
 import { UiButton } from "../components/mantine";
 import { confirmAction } from "../components/confirm";
 import i18n, { t } from "../i18n";
@@ -85,20 +84,16 @@ import { appTheme, cssVariablesResolver } from "./theme";
 import { performAction } from "../platform/actions";
 import {
   catalogCourse,
+  schoolPullForDisplay,
   type NativeCapabilitySnapshot,
   type SchoolPullOptions,
   type SchoolSite,
+  type PullSnapshot,
 } from "../platform/desktop-bridge";
 
 import type { SchedulerRuntimeState } from "../platform/scheduler";
 import { createScheduledTaskRuntime } from "../platform/scheduled-tasks";
-import {
-  pollReferenceSubscriptions,
-  subscriptionNetwork,
-  subscriptionPollDue,
-  type ReferenceProbeResult,
-  type ReferenceRefreshResult,
-} from "../platform/subscription-polling";
+import { subscriptionNetwork } from "../platform/subscription-polling";
 
 import { CourseFinder } from "../pages/courses/CourseFinder";
 import { LmsMergeDialog } from "../pages/courses/LmsMergeDialog";
@@ -194,58 +189,25 @@ function pullScienceLms(options?: SchoolPullOptions) {
   return workspaceActions.pullSchool("science-lms", options);
 }
 
-let referenceRefreshInFlight: Promise<string> | undefined;
-
 async function refreshReferenceSubscriptions(force = false): Promise<string> {
-  if (referenceRefreshInFlight) return referenceRefreshInFlight;
-  referenceRefreshInFlight = (async () => {
-    if (!desktopBridge) return "Paused: desktop app required";
-    const current = workspaceStore.getState().workspace;
-    if (!current) throw new Error("Workspace is not ready.");
-    if (!force && !subscriptionPollDue(current))
-      return "Up to date · daily check not due";
-    const network = subscriptionNetwork(detectPlatform());
-    if (network === "offline") return "Paused: offline";
-    if (
-      network === "cellular" &&
-      !current.settings.subscriptionRefresh.allowCellular
-    )
-      return "Paused: waiting for Wi-Fi";
-
-    const checkedAt = new Date().toISOString();
-    const results = await pollReferenceSubscriptions(
-      current,
-      (indexUrl) =>
-        invoke<ReferenceProbeResult>("probe_reference_source", { indexUrl }),
-      (kind, indexUrl, year, expectedIndexHash, knownHash) =>
-        invoke<ReferenceRefreshResult>("refresh_reference_source", {
-          kind,
-          indexUrl,
-          year,
-          expectedIndexHash,
-          knownHash,
-        }),
-    );
-    if (results.some((item) => (item.result?.changed ?? 0) > 0))
-      await workspaceStore.reload();
-    workspaceActions.recordReferencePoll(results, checkedAt);
-    await workspaceStore.flush();
-    const failed = results.filter((item) => item.error);
-    if (failed.length)
-      throw new Error(
-        `${failed.length} reference source${failed.length === 1 ? "" : "s"} failed`,
-      );
-    const changed = results.reduce(
-      (total, item) => total + (item.result?.changed ?? 0),
-      0,
-    );
-    return changed
-      ? `Updated ${changed} reference dataset${changed === 1 ? "" : "s"}`
-      : "Reference data is up to date";
-  })().finally(() => {
-    referenceRefreshInFlight = undefined;
-  });
-  return referenceRefreshInFlight;
+  if (!desktopBridge?.refreshReferenceSubscriptions)
+    return "Paused: desktop app required";
+  const current = workspaceStore.getState().workspace;
+  if (!current) throw new Error("Workspace is not ready.");
+  const network = subscriptionNetwork(detectPlatform());
+  if (network === "offline") return "Paused: offline";
+  if (
+    network === "cellular" &&
+    !current.settings.subscriptionRefresh.allowCellular
+  )
+    return "Paused: waiting for Wi-Fi";
+  await workspaceStore.flush();
+  try {
+    return await desktopBridge.refreshReferenceSubscriptions(force);
+  } finally {
+    // Failed sources may still accompany successful commits from other sources.
+    await workspaceStore.reload();
+  }
 }
 
 async function executeScheduledTask(
@@ -262,11 +224,9 @@ async function executeScheduledTask(
     if (!desktopBridge?.pullSchool)
       throw new Error("School refresh requires the desktop app.");
     const lmsOutcomes = await pullScienceLms();
-    if (!lmsOutcomes.length) return "Skipped: school queue is busy";
     const lmsProblem = pullProblem(lmsOutcomes);
     if (lmsProblem) throw new Error(lmsProblem);
     const kyomuOutcomes = await workspaceActions.pullSchool("kyomu");
-    if (!kyomuOutcomes.length) return "Skipped: school queue is busy";
     const kyomuProblem = pullProblem(kyomuOutcomes);
     if (kyomuProblem) throw new Error(kyomuProblem);
     await workspaceStore.reload();
@@ -541,13 +501,29 @@ export function WorkspaceApp() {
   const [offeringPanel, setOfferingPanel] = useState<FinderCourse | null>(null);
   // Courses the last finder add pushed off the timetable, so Undo can bring them back.
   const replacedByAdd = useRef<string[]>([]);
-  // Pull progress, 0–100 while running (null when idle).
-  const [lmsProgress, setLmsProgress] = useState<number | null>(null);
+  // View progress also includes the timetable review after the native pull.
+  const [lmsViewProgress, setLmsProgress] = useState<number | null>(null);
+  const [nativePulls, setNativePulls] = useState<PullSnapshot[]>([]);
+  const [nativeLmsProgress, setNativeLmsProgress] = useState(5);
+  const activeLms = schoolPullForDisplay(nativePulls, "science-lms");
+  const activeKyomu = schoolPullForDisplay(nativePulls, "kyomu");
+  const lmsProgress = activeLms
+    ? Math.max(lmsViewProgress ?? 5, nativeLmsProgress)
+    : lmsViewProgress;
+  const [kyomuViewProgress, setKyomuProgress] = useState<number | null>(null);
+  const kyomuProgress = kyomuViewProgress ?? (activeKyomu ? 5 : null);
+  useEffect(() => desktopBridge?.onPullState?.(setNativePulls), []);
+  useEffect(() => setNativeLmsProgress(5), [activeLms?.id]);
+  useEffect(() => {
+    if (activeLms?.state === "blocked")
+      setLmsPhase(`Waiting · ${activeLms.blockedBy ?? "school view"}`);
+    else if (activeLms?.state === "queued")
+      setLmsPhase("Waiting for school refresh");
+  }, [activeLms?.id, activeLms?.state, activeLms?.blockedBy]);
   const [lmsPhase, setLmsPhase] = useState("Ready");
   const [loginSteps, setLoginSteps] = useState<
     Partial<Record<"science" | "tokyo-tech", string>>
   >({});
-  const [kyomuProgress, setKyomuProgress] = useState<number | null>(null);
   const pulling = lmsProgress !== null;
   useEffect(() => {
     const offLogin = desktopBridge?.onSchoolLoginStatus?.((event) => {
@@ -570,7 +546,6 @@ export function WorkspaceApp() {
         );
     });
     const offProgress = desktopBridge?.onSchoolPullProgress?.((progress) => {
-      if (!pullBusy.current) return;
       const ratio = progress.total
         ? Math.min(1, progress.completed / progress.total)
         : 1;
@@ -581,10 +556,8 @@ export function WorkspaceApp() {
         assignment: [38, 44],
       } as const;
       const [start, end] = ranges[progress.phase];
-      setLmsProgress((current) =>
-        current === null
-          ? current
-          : Math.max(current, start + (end - start) * ratio),
+      setNativeLmsProgress((current) =>
+        Math.max(current, start + (end - start) * ratio),
       );
       const course = decodeEntities(progress.courseTitle).trim();
       const item = decodeEntities(progress.itemTitle).trim();
@@ -608,9 +581,6 @@ export function WorkspaceApp() {
       offProgress?.();
     };
   }, []);
-  const pullBusy = useRef(false);
-  const fullLmsPull = useRef(false);
-  const kyomuBusy = useRef(false);
   useEffect(() => {
     if (!desktopBridge?.schoolRefreshEvent) return;
     const report = (kind: "foreground" | "background") => {
@@ -659,7 +629,7 @@ export function WorkspaceApp() {
       desktopBridge?.onSchoolIngest?.((outcome) => {
         if (outcome.state === "ok" && pageRef.current === "web")
           ingestedOnWeb.current = true;
-        if (outcome.state === "ok" && !pullBusy.current && !kyomuBusy.current)
+        if (outcome.state === "ok")
           void workspaceActions.refreshSchool().catch(() => undefined);
       }),
     [],
@@ -713,6 +683,9 @@ export function WorkspaceApp() {
       const dispose = desktopBridge.onWorkspaceChanged(() => {
         void workspaceStore.reload().catch(() => undefined);
       });
+      // Native startup refresh may finish between initialization and this
+      // subscription. Read once after listening so its result cannot be lost.
+      void workspaceStore.reload().catch(() => undefined);
       return () => {
         dispose();
         unsubscribe();
@@ -1272,7 +1245,7 @@ export function WorkspaceApp() {
     });
   };
   /** LMS pull, then a review dialog when the timetable and LMS differ. */
-  // One school pull at a time, whether the person or a TTL started it.
+  // All triggers use the native coordinator and receive the shared result.
   // `quiet` (TTL refresh) reports only a review dialog, never a toast.
   const pullLms = async (
     scope: "term" | "all",
@@ -1281,21 +1254,12 @@ export function WorkspaceApp() {
   ) => {
     if (!desktopBridge?.pullSchool)
       return quiet || notify.info("LMS pull needs the desktop app.");
-    // A full timetable pull owns the school data pipeline. User and scheduled
-    // refreshes arriving while it runs are deliberately dropped, not queued.
-    if (pullBusy.current || kyomuBusy.current) return;
-    fullLmsPull.current = true;
-    pullBusy.current = true;
     setLmsPhase(
       scope === "all" ? "Scanning all LMS quarters" : `Scanning LMS · ${term}`,
     );
     setLmsProgress(5);
     try {
       const outcomes = await pullScienceLms();
-      if (!outcomes.length) {
-        setLmsPhase("Update skipped · full LMS pull already running");
-        return;
-      }
       const problem = pullProblem(outcomes);
       if (problem) {
         setLmsPhase(problem);
@@ -1399,21 +1363,12 @@ export function WorkspaceApp() {
       setLmsPhase(`Update failed · ${errorText(error) ?? t("unknown error")}`);
       if (!quiet) notify.error(error);
     } finally {
-      fullLmsPull.current = false;
-      pullBusy.current = false;
       setLmsProgress(null);
     }
   };
   /** Assignments and materials only; the timetable stays as it is. */
   const fetchLms = async (quiet = false, lmsCourseId?: number) => {
-    if (
-      !desktopBridge?.pullSchool ||
-      fullLmsPull.current ||
-      pullBusy.current ||
-      kyomuBusy.current
-    )
-      return false;
-    pullBusy.current = true;
+    if (!desktopBridge?.pullSchool) return false;
     setLmsPhase(
       lmsCourseId
         ? "Refreshing the current LMS course"
@@ -1422,10 +1377,6 @@ export function WorkspaceApp() {
     setLmsProgress(5);
     try {
       const outcomes = await pullScienceLms({ lmsCourseId });
-      if (!outcomes.length) {
-        setLmsPhase("Update skipped · full LMS pull already running");
-        return false;
-      }
       const problem = pullProblem(outcomes);
       setLmsPhase(problem ?? "Saving LMS changes");
       setLmsProgress(90);
@@ -1438,30 +1389,20 @@ export function WorkspaceApp() {
       if (!quiet) notify.error(error);
       return false;
     } finally {
-      pullBusy.current = false;
       setLmsProgress(null);
     }
   };
   const refreshKyomu = async (quiet = false) => {
-    if (
-      !desktopBridge?.pullSchool ||
-      fullLmsPull.current ||
-      pullBusy.current ||
-      kyomuBusy.current
-    )
-      return;
-    kyomuBusy.current = true;
+    if (!desktopBridge?.pullSchool) return;
     setKyomuProgress(5);
     try {
       const outcomes = await workspaceActions.pullSchool("kyomu");
-      if (!outcomes.length) return;
       const problem = pullProblem(outcomes);
 
       if (!quiet) notify.info(problem ?? "教務Web updated");
     } catch (error) {
       if (!quiet) notify.error(error);
     } finally {
-      kyomuBusy.current = false;
       setKyomuProgress(null);
     }
   };
@@ -1682,14 +1623,20 @@ export function WorkspaceApp() {
             );
             if (assignment) openLecture(assignment.courseId, { assignmentId });
           }}
-          pinAssignment={(assignmentId) => academicUpdate((draft) => {
-            const assignment = draft.assignments.find((item) => item.id === assignmentId);
-            if (assignment) {
-              assignment.pinned = !assignment.pinned;
-              assignment.rev += 1; assignment.updatedAt = stamp(); assignment.updatedBy = draft.deviceId;
-            }
-            return draft;
-          })}
+          pinAssignment={(assignmentId) =>
+            academicUpdate((draft) => {
+              const assignment = draft.assignments.find(
+                (item) => item.id === assignmentId,
+              );
+              if (assignment) {
+                assignment.pinned = !assignment.pinned;
+                assignment.rev += 1;
+                assignment.updatedAt = stamp();
+                assignment.updatedBy = draft.deviceId;
+              }
+              return draft;
+            })
+          }
           hideAssignment={(assignmentId) =>
             academicUpdate((draft) => {
               const assignment = draft.assignments.find(
