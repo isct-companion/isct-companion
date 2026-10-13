@@ -1,0 +1,27 @@
+[package]
+name = "isct-ocr"
+version = "1.0.0-rc.1"
+edition = "2021"
+rust-version = "1.90"
+description = "Optional matrix-card OCR for IsctCompanion"
+
+[features]
+default = ["onnx"]
+onnx = ["dep:base64", "dep:image", "dep:imageproc", "dep:ort", "dep:serde_json"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+# ONNX Runtime does not publish an Intel macOS binary. Keeping the complete
+# backend target-specific also makes the public stub build free of image/ORT.
+[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+base64 = { version = "0.22", optional = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"], optional = true }
+imageproc = { version = "0.27", default-features = false, optional = true }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }

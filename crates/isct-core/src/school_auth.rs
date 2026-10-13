@@ -1,5 +1,5 @@
 use crate::lifecycle::SchoolSite;
-use crate::secrets::SecretVault;
+use crate::ports::{SecretError, SecretVault};
 use ring::hmac;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -8,6 +8,32 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use url::Url;
+
+#[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
+pub enum SchoolAuthError {
+    #[error("{0}")]
+    InvalidInput(String),
+    #[error(transparent)]
+    Vault(#[from] SecretError),
+    #[error("{0}")]
+    Compatibility(String),
+    #[error("{0}")]
+    Storage(String),
+}
+
+impl SchoolAuthError {
+    fn invalid(message: impl Into<String>) -> Self {
+        Self::InvalidInput(message.into())
+    }
+
+    fn compatibility(message: impl Into<String>) -> Self {
+        Self::Compatibility(message.into())
+    }
+
+    fn storage(message: impl Into<String>) -> Self {
+        Self::Storage(message.into())
+    }
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -53,7 +79,7 @@ pub struct SchoolCredentials {
 }
 
 impl SchoolCredentials {
-    fn validate(&mut self, profile: SchoolAuthProfile) -> Result<(), String> {
+    fn validate(&mut self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
         self.username = self.username.trim().to_string();
         self.otp_secret = self.otp_secret.trim().replace(' ', "");
         self.matrix = self
@@ -63,30 +89,38 @@ impl SchoolCredentials {
             .map(|character| character.to_ascii_uppercase())
             .collect();
         if self.username.is_empty() || self.username.len() > 128 {
-            return Err("School username is invalid.".into());
+            return Err(SchoolAuthError::invalid("School username is invalid."));
         }
         if self.password.is_empty() || self.password.len() > 512 {
-            return Err("School password is invalid.".into());
+            return Err(SchoolAuthError::invalid("School password is invalid."));
         }
         if self.otp_secret.len() > 1_024 {
-            return Err("OTP setup value is too large.".into());
+            return Err(SchoolAuthError::invalid("OTP setup value is too large."));
         }
         match profile {
             SchoolAuthProfile::Science => {
                 if self.otp_secret.is_empty() {
-                    return Err("Science Tokyo OTP setup link or secret is required.".into());
+                    return Err(SchoolAuthError::invalid(
+                        "Science Tokyo OTP setup link or secret is required.",
+                    ));
                 }
                 otp_config(&self.otp_secret)?;
                 if !self.matrix.is_empty() {
-                    return Err("Matrix credentials belong to the Tokyo Tech account.".into());
+                    return Err(SchoolAuthError::invalid(
+                        "Matrix credentials belong to the Tokyo Tech account.",
+                    ));
                 }
             }
             SchoolAuthProfile::TokyoTech => {
                 if self.matrix.len() != 70 {
-                    return Err("Matrix must contain 7 rows × 10 columns.".into());
+                    return Err(SchoolAuthError::invalid(
+                        "Matrix must contain 7 rows × 10 columns.",
+                    ));
                 }
                 if !self.otp_secret.is_empty() {
-                    return Err("The Tokyo Tech account uses Matrix authentication.".into());
+                    return Err(SchoolAuthError::invalid(
+                        "The Tokyo Tech account uses Matrix authentication.",
+                    ));
                 }
             }
         }
@@ -218,7 +252,12 @@ impl<V: SecretVault> SchoolAuthService<V> {
             return;
         };
         let result = (|| -> Result<(), std::io::Error> {
-            std::fs::create_dir_all(path.parent().unwrap())?;
+            if let Some(parent) = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            {
+                std::fs::create_dir_all(parent)?;
+            }
             let temp = path.with_extension("tmp");
             std::fs::write(&temp, serde_json::to_vec(&status)?)?;
             std::fs::rename(temp, path)
@@ -233,15 +272,18 @@ impl<V: SecretVault> SchoolAuthService<V> {
     fn unlock_accounts(
         &self,
         unlocked: &mut HashMap<SchoolAuthProfile, Option<SchoolCredentials>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), SchoolAuthError> {
         if unlocked.len() == 2 {
             return Ok(());
         }
         let accounts = if let Some(payload) = self.vault.load(SCHOOL_CREDENTIAL_ACCOUNT)? {
-            let bundle: SchoolCredentialBundle = serde_json::from_str(&payload)
-                .map_err(|_| "Stored school credentials are invalid.".to_string())?;
+            let bundle: SchoolCredentialBundle = serde_json::from_str(&payload).map_err(|_| {
+                SchoolAuthError::compatibility("Stored school credentials are invalid.")
+            })?;
             if bundle.version != 1 {
-                return Err("Stored school credentials version is unsupported.".into());
+                return Err(SchoolAuthError::compatibility(
+                    "Stored school credentials version is unsupported.",
+                ));
             }
             bundle.accounts
         } else {
@@ -249,22 +291,29 @@ impl<V: SecretVault> SchoolAuthService<V> {
             for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
                 if let Some(payload) = self.vault.load(profile.account())? {
                     let mut credentials: SchoolCredentials = serde_json::from_str(&payload)
-                        .map_err(|_| "Stored school credentials are invalid.".to_string())?;
-                    credentials.validate(profile)?;
+                        .map_err(|_| {
+                            SchoolAuthError::compatibility("Stored school credentials are invalid.")
+                        })?;
+                    credentials
+                        .validate(profile)
+                        .map_err(|error| SchoolAuthError::compatibility(error.to_string()))?;
                     accounts.insert(profile, credentials);
                 }
             }
             if !accounts.is_empty() {
                 self.write_accounts(&accounts)?;
                 // Verify the replacement before touching either legacy entry.
-                let payload = self
-                    .vault
-                    .load(SCHOOL_CREDENTIAL_ACCOUNT)?
-                    .ok_or("Credential migration could not be verified")?;
-                let stored: SchoolCredentialBundle = serde_json::from_str(&payload)
-                    .map_err(|_| "Credential migration could not be verified")?;
+                let payload = self.vault.load(SCHOOL_CREDENTIAL_ACCOUNT)?.ok_or_else(|| {
+                    SchoolAuthError::storage("Credential migration could not be verified")
+                })?;
+                let stored: SchoolCredentialBundle =
+                    serde_json::from_str(&payload).map_err(|_| {
+                        SchoolAuthError::storage("Credential migration could not be verified")
+                    })?;
                 if stored.version != 1 || stored.accounts != accounts {
-                    return Err("Credential migration could not be verified".into());
+                    return Err(SchoolAuthError::storage(
+                        "Credential migration could not be verified",
+                    ));
                 }
                 for profile in accounts.keys() {
                     let _ = self.vault.delete(profile.account());
@@ -278,8 +327,10 @@ impl<V: SecretVault> SchoolAuthService<V> {
                 .get(&profile)
                 .cloned()
                 .map(|mut credentials| {
-                    credentials.validate(profile)?;
-                    Ok::<_, String>(credentials)
+                    credentials
+                        .validate(profile)
+                        .map_err(|error| SchoolAuthError::compatibility(error.to_string()))?;
+                    Ok::<_, SchoolAuthError>(credentials)
                 })
                 .transpose()?;
             validated.insert(profile, credentials);
@@ -290,22 +341,24 @@ impl<V: SecretVault> SchoolAuthService<V> {
     fn write_accounts(
         &self,
         accounts: &HashMap<SchoolAuthProfile, SchoolCredentials>,
-    ) -> Result<(), String> {
+    ) -> Result<(), SchoolAuthError> {
         let payload = serde_json::to_string(&SchoolCredentialBundle {
             version: 1,
             accounts: accounts.clone(),
         })
-        .map_err(|_| "School credentials could not be encoded.".to_string())?;
-        self.vault.store(SCHOOL_CREDENTIAL_ACCOUNT, &payload)
+        .map_err(|_| SchoolAuthError::storage("School credentials could not be encoded."))?;
+        self.vault
+            .store(SCHOOL_CREDENTIAL_ACCOUNT, &payload)
+            .map_err(SchoolAuthError::from)
     }
 
     /// Returns the validated native credential bundle for Rust-owned encrypted
     /// cloud sync. This value must never cross the WebView IPC boundary.
-    pub fn export_sync_payload(&self) -> Result<String, String> {
+    pub fn export_sync_payload(&self) -> Result<String, SchoolAuthError> {
         let mut unlocked = self
             .unlocked
             .lock()
-            .map_err(|_| "Credential cache unavailable")?;
+            .map_err(|_| SchoolAuthError::storage("Credential cache unavailable"))?;
         self.unlock_accounts(&mut unlocked)?;
         let accounts = unlocked
             .iter()
@@ -315,16 +368,19 @@ impl<V: SecretVault> SchoolAuthService<V> {
             version: 1,
             accounts,
         })
-        .map_err(|_| "School credentials could not be encoded.".to_string())
+        .map_err(|_| SchoolAuthError::storage("School credentials could not be encoded."))
     }
 
     /// Validates and replaces the native credential bundle after Rust has
     /// authenticated and decrypted it. No plaintext is returned to the UI.
-    pub fn import_sync_payload(&self, payload: &str) -> Result<usize, String> {
-        let mut bundle: SchoolCredentialBundle = serde_json::from_str(payload)
-            .map_err(|_| "Synced school credentials are invalid.".to_string())?;
+    pub fn import_sync_payload(&self, payload: &str) -> Result<usize, SchoolAuthError> {
+        let mut bundle: SchoolCredentialBundle = serde_json::from_str(payload).map_err(|_| {
+            SchoolAuthError::compatibility("Synced school credentials are invalid.")
+        })?;
         if bundle.version != 1 {
-            return Err("Synced school credentials version is unsupported.".into());
+            return Err(SchoolAuthError::compatibility(
+                "Synced school credentials version is unsupported.",
+            ));
         }
         for (profile, credentials) in &mut bundle.accounts {
             credentials.validate(*profile)?;
@@ -332,7 +388,7 @@ impl<V: SecretVault> SchoolAuthService<V> {
         let mut unlocked = self
             .unlocked
             .lock()
-            .map_err(|_| "Credential cache unavailable")?;
+            .map_err(|_| SchoolAuthError::storage("Credential cache unavailable"))?;
         self.write_accounts(&bundle.accounts)?;
         for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
             let credentials = bundle.accounts.get(&profile).cloned();
@@ -354,7 +410,7 @@ impl<V: SecretVault> SchoolAuthService<V> {
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, SchoolAuthError> {
         let credentials = self.resolve(profile, credentials)?;
         self.store(profile, &credentials)?;
         Ok(true)
@@ -364,11 +420,11 @@ impl<V: SecretVault> SchoolAuthService<V> {
         &self,
         profile: SchoolAuthProfile,
         credentials: &SchoolCredentials,
-    ) -> Result<(), String> {
+    ) -> Result<(), SchoolAuthError> {
         let mut unlocked = self
             .unlocked
             .lock()
-            .map_err(|_| "Credential cache unavailable")?;
+            .map_err(|_| SchoolAuthError::storage("Credential cache unavailable"))?;
         self.unlock_accounts(&mut unlocked)?;
         if unlocked.get(&profile).and_then(Option::as_ref) == Some(credentials) {
             return Ok(()); // Connect with unchanged credentials must not rewrite Keychain.
@@ -392,7 +448,7 @@ impl<V: SecretVault> SchoolAuthService<V> {
         &self,
         profile: SchoolAuthProfile,
         mut credentials: SchoolCredentials,
-    ) -> Result<SchoolCredentials, String> {
+    ) -> Result<SchoolCredentials, SchoolAuthError> {
         let status_expected_saved = self
             .cached_status()
             .map(|status| match profile {
@@ -420,16 +476,19 @@ impl<V: SecretVault> SchoolAuthService<V> {
                     SchoolAuthProfile::TokyoTech => credentials.matrix.trim().is_empty(),
                 })
         {
-            return Err(
+            return Err(SchoolAuthError::InvalidInput(
                 "Saved credentials were not found in the system credential vault. Enter them again."
                     .into(),
-            );
+            ));
         }
         credentials.validate(profile)?;
         Ok(credentials)
     }
 
-    pub fn load(&self, profile: SchoolAuthProfile) -> Result<Option<SchoolCredentials>, String> {
+    pub fn load(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<Option<SchoolCredentials>, SchoolAuthError> {
         let expected_saved = self
             .cached_status()
             .map(|status| match profile {
@@ -440,7 +499,7 @@ impl<V: SecretVault> SchoolAuthService<V> {
         let mut unlocked = self
             .unlocked
             .lock()
-            .map_err(|_| "Credential cache unavailable")?;
+            .map_err(|_| SchoolAuthError::storage("Credential cache unavailable"))?;
         if let Err(error) = self.unlock_accounts(&mut unlocked) {
             self.record_summary(profile, None, CredentialAvailability::AccessDenied);
             return Err(error);
@@ -460,11 +519,11 @@ impl<V: SecretVault> SchoolAuthService<V> {
         Ok(credentials)
     }
 
-    pub fn delete(&self, profile: SchoolAuthProfile) -> Result<bool, String> {
+    pub fn delete(&self, profile: SchoolAuthProfile) -> Result<bool, SchoolAuthError> {
         let mut unlocked = self
             .unlocked
             .lock()
-            .map_err(|_| "Credential cache unavailable")?;
+            .map_err(|_| SchoolAuthError::storage("Credential cache unavailable"))?;
         self.unlock_accounts(&mut unlocked)?;
         let mut accounts: HashMap<_, _> = unlocked
             .iter()
@@ -480,7 +539,7 @@ impl<V: SecretVault> SchoolAuthService<V> {
         Ok(true)
     }
 
-    pub fn status(&self) -> Result<SchoolCredentialStatus, String> {
+    pub fn status(&self) -> Result<SchoolCredentialStatus, SchoolAuthError> {
         // Metadata only: launch/session checks must not unlock Keychain merely to draw a badge.
         if let Some(mut status) = self.cached_status() {
             for summary in [&mut status.science, &mut status.tokyo_tech] {
@@ -512,10 +571,10 @@ impl<V: SecretVault> SchoolAuthService<V> {
         Ok(status)
     }
 
-    pub fn matrix_text(&self) -> Result<String, String> {
-        let credentials = self
-            .load(SchoolAuthProfile::TokyoTech)?
-            .ok_or_else(|| "Save the Tokyo Tech Matrix before copying it.".to_string())?;
+    pub fn matrix_text(&self) -> Result<String, SchoolAuthError> {
+        let credentials = self.load(SchoolAuthProfile::TokyoTech)?.ok_or_else(|| {
+            SchoolAuthError::invalid("Save the Tokyo Tech Matrix before copying it.")
+        })?;
         matrix_plain_text(&credentials.matrix)
     }
 }
@@ -525,10 +584,12 @@ const MATRIX_COLUMNS: usize = 10;
 
 /// A paste-friendly rendering in the same row-major order as the editor:
 /// A1…J1, A2…J2, …, A7…J7.
-fn matrix_plain_text(matrix: &str) -> Result<String, String> {
+fn matrix_plain_text(matrix: &str) -> Result<String, SchoolAuthError> {
     let cells: Vec<char> = matrix.chars().collect();
     if cells.len() != MATRIX_ROWS * MATRIX_COLUMNS {
-        return Err("Matrix must contain 7 rows × 10 columns.".into());
+        return Err(SchoolAuthError::invalid(
+            "Matrix must contain 7 rows × 10 columns.",
+        ));
     }
     Ok(cells
         .chunks(MATRIX_COLUMNS)
@@ -550,7 +611,7 @@ enum OtpAlgorithm {
     Sha512,
 }
 
-fn decode_base32(raw: &str) -> Result<Vec<u8>, String> {
+fn decode_base32(raw: &str) -> Result<Vec<u8>, SchoolAuthError> {
     let mut output = Vec::with_capacity(raw.len() * 5 / 8);
     let mut buffer = 0u32;
     let mut bits = 0u8;
@@ -558,7 +619,7 @@ fn decode_base32(raw: &str) -> Result<Vec<u8>, String> {
         let value = match character.to_ascii_uppercase() {
             'A'..='Z' => character.to_ascii_uppercase() as u8 - b'A',
             '2'..='7' => character as u8 - b'2' + 26,
-            _ => return Err("OTP secret is not valid Base32.".into()),
+            _ => return Err(SchoolAuthError::invalid("OTP secret is not valid Base32.")),
         };
         buffer = (buffer << 5) | u32::from(value);
         bits += 5;
@@ -569,43 +630,49 @@ fn decode_base32(raw: &str) -> Result<Vec<u8>, String> {
         }
     }
     if output.len() < 10 {
-        return Err("OTP secret is too short.".into());
+        return Err(SchoolAuthError::invalid("OTP secret is too short."));
     }
     Ok(output)
 }
 
-fn otp_config(raw: &str) -> Result<OtpConfig, String> {
+fn otp_config(raw: &str) -> Result<OtpConfig, SchoolAuthError> {
     let mut secret = raw.to_string();
     let mut digits = 6;
     let mut period = 30;
     let mut algorithm = OtpAlgorithm::Sha1;
     if raw.starts_with("otpauth://") {
-        let url = Url::parse(raw).map_err(|_| "OTP link is invalid.".to_string())?;
+        let url = Url::parse(raw).map_err(|_| SchoolAuthError::invalid("OTP link is invalid."))?;
         if url.scheme() != "otpauth" || url.host_str() != Some("totp") {
-            return Err("Only TOTP setup links are supported.".into());
+            return Err(SchoolAuthError::invalid(
+                "Only TOTP setup links are supported.",
+            ));
         }
         let pairs: std::collections::HashMap<_, _> = url.query_pairs().collect();
         secret = pairs
             .get("secret")
             .map(|value| value.to_string())
-            .ok_or_else(|| "OTP link has no secret.".to_string())?;
+            .ok_or_else(|| SchoolAuthError::invalid("OTP link has no secret."))?;
         if let Some(value) = pairs.get("digits") {
-            digits = value.parse().map_err(|_| "OTP digits are invalid.")?;
+            digits = value
+                .parse()
+                .map_err(|_| SchoolAuthError::invalid("OTP digits are invalid."))?;
         }
         if let Some(value) = pairs.get("period") {
-            period = value.parse().map_err(|_| "OTP period is invalid.")?;
+            period = value
+                .parse()
+                .map_err(|_| SchoolAuthError::invalid("OTP period is invalid."))?;
         }
         if let Some(value) = pairs.get("algorithm") {
             algorithm = match value.to_ascii_uppercase().as_str() {
                 "SHA1" => OtpAlgorithm::Sha1,
                 "SHA256" => OtpAlgorithm::Sha256,
                 "SHA512" => OtpAlgorithm::Sha512,
-                _ => return Err("OTP algorithm is unsupported.".into()),
+                _ => return Err(SchoolAuthError::invalid("OTP algorithm is unsupported.")),
             };
         }
     }
     if !(6..=8).contains(&digits) || period == 0 || period > 300 {
-        return Err("OTP parameters are invalid.".into());
+        return Err(SchoolAuthError::invalid("OTP parameters are invalid."));
     }
     Ok(OtpConfig {
         secret: decode_base32(&secret.replace([' ', '-'], ""))?,
@@ -615,7 +682,7 @@ fn otp_config(raw: &str) -> Result<OtpConfig, String> {
     })
 }
 
-fn otp_at(raw: &str, timestamp: u64) -> Result<String, String> {
+fn otp_at(raw: &str, timestamp: u64) -> Result<String, SchoolAuthError> {
     let config = otp_config(raw)?;
     let counter = timestamp / config.period;
     let algorithm = match config.algorithm {
@@ -648,14 +715,15 @@ pub struct OtpWindow {
 
 /// Codes for the current step and the next `ahead` steps, so a page that sits
 /// for a while before its code field appears can still submit a live code.
-pub fn upcoming_otps(raw: &str, ahead: u64) -> Result<Vec<OtpWindow>, String> {
+pub fn upcoming_otps(raw: &str) -> Result<Vec<OtpWindow>, SchoolAuthError> {
     let period = otp_config(raw)?.period;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| "System time is unavailable.".to_string())?
+        .map_err(|_| SchoolAuthError::storage("System time is unavailable."))?
         .as_secs();
     let start = now - now % period;
-    (0..=ahead)
+    // The login flow waits across the current window and at most three successors.
+    (0..=3)
         .map(|step| {
             let from = start + step * period;
             Ok(OtpWindow {
@@ -667,10 +735,10 @@ pub fn upcoming_otps(raw: &str, ahead: u64) -> Result<Vec<OtpWindow>, String> {
 }
 
 #[cfg(test)]
-pub fn current_otp(raw: &str) -> Result<String, String> {
+pub fn current_otp(raw: &str) -> Result<String, SchoolAuthError> {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| "System time is unavailable.".to_string())?
+        .map_err(|_| SchoolAuthError::storage("System time is unavailable."))?
         .as_secs();
     otp_at(raw, timestamp)
 }
@@ -685,7 +753,7 @@ mod tests {
     struct MemoryVault(Mutex<HashMap<String, String>>);
 
     impl SecretVault for MemoryVault {
-        fn store(&self, account: &str, secret: &str) -> Result<(), String> {
+        fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
             self.0
                 .lock()
                 .unwrap()
@@ -693,11 +761,11 @@ mod tests {
             Ok(())
         }
 
-        fn load(&self, account: &str) -> Result<Option<String>, String> {
+        fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
             Ok(self.0.lock().unwrap().get(account).cloned())
         }
 
-        fn delete(&self, account: &str) -> Result<(), String> {
+        fn delete(&self, account: &str) -> Result<(), SecretError> {
             self.0.lock().unwrap().remove(account);
             Ok(())
         }
@@ -714,6 +782,29 @@ mod tests {
         credentials.validate(SchoolAuthProfile::TokyoTech).unwrap();
         assert_eq!(credentials.username, "user");
         assert_eq!(credentials.matrix, "A".repeat(70));
+    }
+
+    #[test]
+    fn reports_invalid_input_and_incompatible_storage_separately() {
+        let invalid = SchoolAuthService::new(MemoryVault::default())
+            .save(
+                SchoolAuthProfile::TokyoTech,
+                SchoolCredentials {
+                    username: "user".into(),
+                    password: "password".into(),
+                    otp_secret: String::new(),
+                    matrix: "A".repeat(69),
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(invalid, SchoolAuthError::InvalidInput(_)));
+
+        let vault = MemoryVault::default();
+        vault.store(SCHOOL_CREDENTIAL_ACCOUNT, "not-json").unwrap();
+        let incompatible = SchoolAuthService::new(vault)
+            .load(SchoolAuthProfile::Science)
+            .unwrap_err();
+        assert!(matches!(incompatible, SchoolAuthError::Compatibility(_)));
     }
 
     #[test]
@@ -750,7 +841,7 @@ mod tests {
 
     #[test]
     fn upcoming_codes_cover_consecutive_windows() {
-        let windows = upcoming_otps("JBSWY3DPEHPK3PXP", 3).unwrap();
+        let windows = upcoming_otps("JBSWY3DPEHPK3PXP").unwrap();
         assert_eq!(windows.len(), 4);
         assert!(windows
             .windows(2)
@@ -924,21 +1015,21 @@ mod tests {
     }
     use std::sync::atomic::Ordering::SeqCst;
     impl SecretVault for CountingVault {
-        fn load(&self, account: &str) -> Result<Option<String>, String> {
+        fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
             self.reads.fetch_add(1, SeqCst);
             if self.fail_read.load(SeqCst) {
-                return Err("locked".into());
+                return Err(SecretError::Access("locked".into()));
             }
             self.inner.load(account)
         }
-        fn store(&self, account: &str, value: &str) -> Result<(), String> {
+        fn store(&self, account: &str, value: &str) -> Result<(), SecretError> {
             self.writes.fetch_add(1, SeqCst);
             if self.fail_write.load(SeqCst) {
-                return Err("write denied".into());
+                return Err(SecretError::Access("write denied".into()));
             }
             self.inner.store(account, value)
         }
-        fn delete(&self, account: &str) -> Result<(), String> {
+        fn delete(&self, account: &str) -> Result<(), SecretError> {
             self.inner.delete(account)
         }
     }
@@ -984,7 +1075,10 @@ mod tests {
             .unwrap();
         vault.fail_write.store(true, SeqCst);
         let service = SchoolAuthService::new(vault);
-        assert!(service.load(SchoolAuthProfile::Science).is_err());
+        assert!(matches!(
+            service.load(SchoolAuthProfile::Science),
+            Err(SchoolAuthError::Vault(SecretError::Access(_)))
+        ));
         assert!(service
             .vault
             .inner

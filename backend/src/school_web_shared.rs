@@ -5,9 +5,6 @@ use crate::kyomu_ingest::{apply_kyomu_payload, KYOMU_EXTRACT_SCRIPT};
 use crate::lifecycle::SchoolSite;
 use crate::lms_ingest::apply_lms_payload;
 use crate::pull_coordinator::PullContext;
-use crate::school_auth::{
-    upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
-};
 use crate::school_extract::{sanitize_school_url, T2SCHOLA_EXTRACT_SCRIPT};
 use crate::school_parser::{
     kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
@@ -16,6 +13,9 @@ use crate::school_parser::{
 use crate::school_web::{apply_bounds, create_webview, NativeWebview as Webview};
 use crate::secrets::OsSecretVault;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use isct_core::school_auth::{
+    upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
+};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -856,7 +856,7 @@ fn login_script(
     let otp = if credentials.otp_secret.is_empty() {
         Vec::new()
     } else {
-        upcoming_otps(&credentials.otp_secret, 3).ok()?
+        upcoming_otps(&credentials.otp_secret).ok()?
     };
     let profile = match login.profile {
         SchoolAuthProfile::Science => "science",

@@ -4,10 +4,10 @@ use crate::{
     lifecycle::SchoolSite,
     pull_coordinator::{PullConditions, PullCoordinator, PullNetwork, PullOptions},
     pull_service,
-    school_auth::SchoolAuthProfile,
     school_web::SchoolWebController,
 };
 use chrono::{DateTime, Utc};
+use isct_core::school_auth::SchoolAuthProfile;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{

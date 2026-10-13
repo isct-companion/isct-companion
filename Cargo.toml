@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["backend", "backend/plugins/*", "crates/isct-core"]
+members = ["backend", "backend/plugins/*", "crates/isct-core", "crates/isct-ocr"]
 default-members = ["backend"]
 
 [profile.release]

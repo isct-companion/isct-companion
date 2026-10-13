@@ -2,10 +2,10 @@
 use crate::{
     lifecycle::SchoolSite,
     pull_coordinator::{PullCoordinator, PullError, PullOptions, PullPriority, PullTarget},
-    school_auth::SchoolAuthProfile,
     school_web::{IngestOutcome, SchoolWebController},
-    OsSecretVault, SchoolAuthService,
+    OsSecretVault,
 };
+use isct_core::school_auth::{SchoolAuthProfile, SchoolAuthService};
 use tauri::{Emitter, Manager};
 
 pub(crate) async fn school(
@@ -45,7 +45,8 @@ pub(crate) async fn school(
                             };
                             let credentials = handle
                                 .state::<SchoolAuthService<OsSecretVault>>()
-                                .load(profile)?
+                                .load(profile)
+                                .map_err(|error| error.to_string())?
                                 .ok_or("School credentials are not configured.")?;
                             controller.request_login(&handle, profile, credentials)?;
                         }

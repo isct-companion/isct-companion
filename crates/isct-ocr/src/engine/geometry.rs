@@ -101,12 +101,13 @@ fn template(image: &RgbImage, recover_header_gaps: bool) -> Option<[Point; 4]> {
     let mut groups: Vec<Vec<Run>> = vec![];
     for run in runs {
         if let Some(g) = groups.iter_mut().find(|g| {
-            let last = g.last().unwrap();
-            run.y >= last.y
-                && (run.left - last.left).abs() < w * 0.06
-                && (run.right - last.right).abs() < w * 0.06
-                && (run.y - last.y <= 4.
-                    || (recover_header_gaps && joins_header(image, *last, run)))
+            g.last().is_some_and(|last| {
+                run.y >= last.y
+                    && (run.left - last.left).abs() < w * 0.06
+                    && (run.right - last.right).abs() < w * 0.06
+                    && (run.y - last.y <= 4.
+                        || (recover_header_gaps && joins_header(image, *last, run)))
+            })
         }) {
             g.push(run);
         } else {
@@ -114,14 +115,20 @@ fn template(image: &RgbImage, recover_header_gaps: bool) -> Option<[Point; 4]> {
         }
     }
     groups.retain(|g| {
+        let Some(last) = g.last() else {
+            return false;
+        };
         let span = median(g.iter().map(|r| r.right - r.left).collect());
-        let height = g.last().unwrap().y - g[0].y + 1.;
+        let height = last.y - g[0].y + 1.;
         span / height > 7. && span / height < 28. && height >= 6.
     });
     let weight =
         |g: &Vec<Run>| g.len() as f64 * median(g.iter().map(|r| r.right - r.left).collect());
     groups.sort_by(|a, b| weight(b).total_cmp(&weight(a)));
     for group in groups {
+        let Some(group_last) = group.last() else {
+            continue;
+        };
         let left = median(group.iter().map(|r| r.left).collect());
         let right = median(group.iter().map(|r| r.right).collect());
         let cw = (right - left) / 10.;
@@ -133,7 +140,7 @@ fn template(image: &RgbImage, recover_header_gaps: bool) -> Option<[Point; 4]> {
             while top > group[0].y - cw * 0.2 && dark(image, x, top, 125) {
                 top -= 1.;
             }
-            while bottom < group.last().unwrap().y + cw * 0.2 && dark(image, x, bottom, 125) {
+            while bottom < group_last.y + cw * 0.2 && dark(image, x, bottom, 125) {
                 bottom += 1.;
             }
             if bottom - top > cw * 0.3 {
@@ -279,7 +286,7 @@ fn detect_lines(image: &RgbImage, vertical: bool, count: usize) -> Option<Vec<Li
                 } else {
                     (cross, axis)
                 };
-                if *image.get_pixel(x as u32, y as u32).0.iter().max().unwrap() > 125 {
+                if image.get_pixel(x as u32, y as u32).0.into_iter().max() > Some(125) {
                     continue;
                 }
                 let position = axis as i32 - shift;
@@ -289,14 +296,7 @@ fn detect_lines(image: &RgbImage, vertical: bool, count: usize) -> Option<Vec<Li
                 scores[position as usize] += 1.;
                 if axis + 3 < length {
                     let (nx, ny) = if vertical { (x + 3, y) } else { (x, y + 3) };
-                    if *image
-                        .get_pixel(nx as u32, ny as u32)
-                        .0
-                        .iter()
-                        .max()
-                        .unwrap()
-                        > 160
-                    {
+                    if image.get_pixel(nx as u32, ny as u32).0.into_iter().max() > Some(160) {
                         edge_scores[position as usize] += 1.;
                     }
                 }
@@ -326,10 +326,10 @@ fn detect_lines(image: &RgbImage, vertical: bool, count: usize) -> Option<Vec<Li
         if line.support < 0.38 {
             continue;
         }
-        if let Some(last) = groups
-            .last_mut()
-            .filter(|g| line.position <= g.last().unwrap().position + 2.)
-        {
+        if let Some(last) = groups.last_mut().filter(|g| {
+            g.last()
+                .is_some_and(|last| line.position <= last.position + 2.)
+        }) {
             last.push(line);
         } else {
             groups.push(vec![line]);
@@ -337,8 +337,10 @@ fn detect_lines(image: &RgbImage, vertical: bool, count: usize) -> Option<Vec<Li
     }
     let mut candidates = vec![];
     for group in groups {
-        let broad = group.last().unwrap().position - group[0].position
-            >= length as f64 / (count * 2) as f64;
+        let Some(last) = group.last() else {
+            continue;
+        };
+        let broad = last.position - group[0].position >= length as f64 / (count * 2) as f64;
         let mut candidate = if broad {
             edges[group[0].position as usize]
         } else {

@@ -1,5 +1,7 @@
-use crate::secrets::SecretVault;
 use base64::Engine;
+#[cfg(test)]
+use isct_core::ports::SecretError;
+use isct_core::ports::SecretVault;
 use rand::RngCore;
 use ring::{aead, pbkdf2};
 use serde::{Deserialize, Serialize};
@@ -609,17 +611,23 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 + bounded_expiry(token.expires_in).saturating_sub(60),
             client_id: client_id.to_string(),
         };
-        self.vault.store(
-            provider_account(provider),
-            &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
-        )?;
+        self.vault
+            .store(
+                provider_account(provider),
+                &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
+            )
+            .map_err(|error| error.to_string())?;
         Ok(true)
     }
 
     pub fn authorized_providers(&self) -> Result<Vec<CloudProvider>, String> {
         let mut authorized = Vec::new();
         for provider in providers() {
-            let Some(raw) = self.vault.load(provider_account(provider))? else {
+            let Some(raw) = self
+                .vault
+                .load(provider_account(provider))
+                .map_err(|error| error.to_string())?
+            else {
                 continue;
             };
             if provider == CloudProvider::Icloud && raw == "connected" {
@@ -663,10 +671,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 + bounded_expiry(Some(expires_in)).saturating_sub(60),
             client_id: client_id.to_string(),
         };
-        self.vault.store(
-            provider_account(provider),
-            &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
-        )?;
+        self.vault
+            .store(
+                provider_account(provider),
+                &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
+            )
+            .map_err(|error| error.to_string())?;
         Ok(true)
     }
 
@@ -674,7 +684,8 @@ impl<V: SecretVault> DesktopCloudService<V> {
     pub fn refresh_android(&self, app: &tauri::AppHandle) -> Result<(), String> {
         let raw = self
             .vault
-            .load("google-drive")?
+            .load("google-drive")
+            .map_err(|error| error.to_string())?
             .ok_or("Google Drive is not connected")?;
         let stored: StoredToken =
             serde_json::from_str(&raw).map_err(|_| "Invalid Google Drive token")?;
@@ -697,14 +708,17 @@ impl<V: SecretVault> DesktopCloudService<V> {
     }
 
     pub fn disconnect(&self, provider: CloudProvider) -> Result<(), String> {
-        self.vault.delete(provider_account(provider))
+        self.vault
+            .delete(provider_account(provider))
+            .map_err(|error| error.to_string())
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub async fn connect_icloud(&self) -> Result<bool, String> {
         crate::icloud::account_available().await?;
         self.vault
-            .store(provider_account(CloudProvider::Icloud), "connected")?;
+            .store(provider_account(CloudProvider::Icloud), "connected")
+            .map_err(|error| error.to_string())?;
         Ok(true)
     }
 
@@ -714,7 +728,8 @@ impl<V: SecretVault> DesktopCloudService<V> {
         }
         let raw = self
             .vault
-            .load(provider_account(provider))?
+            .load(provider_account(provider))
+            .map_err(|error| error.to_string())?
             .ok_or_else(|| "Cloud authorization is required.".to_string())?;
         let mut token: StoredToken = serde_json::from_str(&raw)
             .map_err(|_| "Stored cloud authorization is invalid.".to_string())?;
@@ -763,10 +778,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 token.refresh_token = Some(value);
             }
             token.expires_at = now + bounded_expiry(refreshed.expires_in).saturating_sub(60);
-            self.vault.store(
-                provider_account(provider),
-                &serde_json::to_string(&token).map_err(|_| "Token serialization failed.")?,
-            )?;
+            self.vault
+                .store(
+                    provider_account(provider),
+                    &serde_json::to_string(&token).map_err(|_| "Token serialization failed.")?,
+                )
+                .map_err(|error| error.to_string())?;
         }
         Ok(token.access_token)
     }
@@ -1206,16 +1223,24 @@ impl<V: SecretVault> DesktopCloudService<V> {
     }
 
     pub fn credential_sync_configured(&self) -> Result<bool, String> {
-        Ok(self.vault.load(CREDENTIAL_PASSWORD_ACCOUNT)?.is_some())
+        Ok(self
+            .vault
+            .load(CREDENTIAL_PASSWORD_ACCOUNT)
+            .map_err(|error| error.to_string())?
+            .is_some())
     }
 
     pub fn set_credential_sync_password(&self, password: &str) -> Result<(), String> {
         validate_credential_password(password)?;
-        self.vault.store(CREDENTIAL_PASSWORD_ACCOUNT, password)
+        self.vault
+            .store(CREDENTIAL_PASSWORD_ACCOUNT, password)
+            .map_err(|error| error.to_string())
     }
 
     pub fn clear_credential_sync_password(&self) -> Result<(), String> {
-        self.vault.delete(CREDENTIAL_PASSWORD_ACCOUNT)
+        self.vault
+            .delete(CREDENTIAL_PASSWORD_ACCOUNT)
+            .map_err(|error| error.to_string())
     }
 
     pub async fn credential_backup_exists(&self, provider: CloudProvider) -> Result<bool, String> {
@@ -1235,7 +1260,8 @@ impl<V: SecretVault> DesktopCloudService<V> {
     ) -> Result<(), String> {
         let password = self
             .vault
-            .load(CREDENTIAL_PASSWORD_ACCOUNT)?
+            .load(CREDENTIAL_PASSWORD_ACCOUNT)
+            .map_err(|error| error.to_string())?
             .ok_or_else(|| "Credential sync is not configured on this device.".to_string())?;
         let encrypted = encrypt_credentials(payload, &password)?;
         self.write_file(provider, CREDENTIAL_FILE_NAME, encrypted)
@@ -1246,7 +1272,11 @@ impl<V: SecretVault> DesktopCloudService<V> {
         &self,
         provider: CloudProvider,
     ) -> Result<Option<String>, String> {
-        let Some(password) = self.vault.load(CREDENTIAL_PASSWORD_ACCOUNT)? else {
+        let Some(password) = self
+            .vault
+            .load(CREDENTIAL_PASSWORD_ACCOUNT)
+            .map_err(|error| error.to_string())?
+        else {
             return Ok(None);
         };
         let Some(encrypted) = self.read_file(provider, CREDENTIAL_FILE_NAME).await? else {
@@ -1266,27 +1296,27 @@ mod tests {
     struct MemoryVault(Mutex<HashMap<String, String>>);
 
     impl SecretVault for MemoryVault {
-        fn store(&self, account: &str, secret: &str) -> Result<(), String> {
+        fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
             self.0
                 .lock()
-                .map_err(|_| "lock failed".to_string())?
+                .map_err(|_| SecretError::Access("lock failed".into()))?
                 .insert(account.to_string(), secret.to_string());
             Ok(())
         }
 
-        fn load(&self, account: &str) -> Result<Option<String>, String> {
+        fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
             Ok(self
                 .0
                 .lock()
-                .map_err(|_| "lock failed".to_string())?
+                .map_err(|_| SecretError::Access("lock failed".into()))?
                 .get(account)
                 .cloned())
         }
 
-        fn delete(&self, account: &str) -> Result<(), String> {
+        fn delete(&self, account: &str) -> Result<(), SecretError> {
             self.0
                 .lock()
-                .map_err(|_| "lock failed".to_string())?
+                .map_err(|_| SecretError::Access("lock failed".into()))?
                 .remove(account);
             Ok(())
         }

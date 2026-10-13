@@ -55,6 +55,6 @@ if(typeof process !== 'undefined' && process.argv[1]?.endsWith('matrix-filter-re
  for(const [w,h]of [[8,9],[32,32],[64,64],[63,65]])for(const seed of [1,17,255,314159]) {
   const r=filter(w,h,fixture(w,h,seed));cases.push({width:w,height:h,seed,original:hash(r.original),cleaned:hash(r.cleaned),ink:r.ink});
  }
- fs.mkdirSync('backend/src/matrix_ocr/fixtures',{recursive:true});
- fs.writeFileSync('backend/src/matrix_ocr/fixtures/ts-filter.json',JSON.stringify(cases,null,2)+'\n');
+ fs.mkdirSync('crates/isct-ocr/src/engine/fixtures',{recursive:true});
+ fs.writeFileSync('crates/isct-ocr/src/engine/fixtures/ts-filter.json',JSON.stringify(cases,null,2)+'\n');
 }

@@ -432,7 +432,7 @@ impl Downloader {
     async fn ready(&self, app: &AppHandle) -> Result<Webview, FetchError> {
         let school = app.state::<crate::school_web::SchoolWebController>();
         school
-            .wait_for_session(app, crate::school_auth::SchoolAuthProfile::Science)
+            .wait_for_session(app, isct_core::school_auth::SchoolAuthProfile::Science)
             .await
             .map_err(|_| FetchError::Login)?;
         let view = match app.get_webview(LABEL) {
@@ -447,7 +447,8 @@ impl Downloader {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
             if attempt == 0 {
-                let _ = school.request_session(app, crate::school_auth::SchoolAuthProfile::Science);
+                let _ =
+                    school.request_session(app, isct_core::school_auth::SchoolAuthProfile::Science);
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 view.navigate(Url::parse(HOME).expect("valid LMS URL"))
                     .map_err(|_| FetchError::Network)?;

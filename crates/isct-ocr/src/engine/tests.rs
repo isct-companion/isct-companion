@@ -140,7 +140,38 @@ fn decode_limits_alpha_and_busy_scan() {
     );
     let service = MatrixOcrService::default();
     let _lock = service.0.lock().unwrap();
-    assert!(service.scan("", "", |_| {}).unwrap_err().contains("busy"));
+    assert_eq!(service.scan("", "", |_| {}), Err(MatrixOcrError::Busy));
+}
+
+#[test]
+fn poisoned_scan_state_is_cleared_for_the_next_call() {
+    let service = MatrixOcrService::default();
+    let interrupted = service.clone();
+    let stopped = std::thread::spawn(move || {
+        let _model = interrupted.0.lock().unwrap();
+        panic!("simulate an interrupted scan");
+    });
+    assert!(stopped.join().is_err());
+
+    assert!(matches!(
+        service.scan("not base64", "not base64", |_| {}),
+        Err(MatrixOcrError::Model(message)) if message.contains("recovered")
+    ));
+    assert_eq!(
+        service.scan("not base64", "not base64", |_| {}),
+        Err(MatrixOcrError::InvalidImage(
+            "Invalid image encoding".into()
+        ))
+    );
+}
+
+#[test]
+fn embedded_model_runs_a_synthetic_blank_tensor() {
+    let mut paddle = Paddle::new().expect("embedded Paddle model should initialize");
+    let result = paddle
+        .recognize(vec![0.; 3 * 48 * 320])
+        .expect("synthetic tensor inference should succeed");
+    assert!(result.confidence.is_finite());
 }
 
 // Local private fixtures are deliberately not embedded in the app or ordinary tests.
@@ -319,7 +350,21 @@ fn prepared_canvas_pixels_are_never_resampled() {
     assert!(service
         .scan(&encoded, &STANDARD.encode(png.into_inner()), |_| {})
         .unwrap_err()
+        .to_string()
         .contains("dimensions"));
+}
+
+#[test]
+fn invalid_input_does_not_poison_the_service() {
+    let service = MatrixOcrService::default();
+    for _ in 0..2 {
+        assert_eq!(
+            service.scan("not base64", "not base64", |_| {}),
+            Err(MatrixOcrError::InvalidImage(
+                "Invalid image encoding".into()
+            ))
+        );
+    }
 }
 
 #[test]

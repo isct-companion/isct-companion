@@ -32,16 +32,14 @@ mod lms_downloader;
 mod lms_files;
 pub(crate) use isct_core::lms_ingest;
 mod lms_protocol;
-#[cfg(matrix_ocr)]
-mod matrix_ocr;
-#[cfg(all(matrix_ocr, debug_assertions))]
-mod matrix_red_crops;
 pub use isct_core::plans;
 use isct_core::pull_coordinator;
+#[cfg(matrix_ocr)]
+use isct_ocr as matrix_ocr;
 mod pull_service;
 mod reference_refresh;
 mod scheduler;
-mod school_auth;
+pub(crate) use isct_core::school_auth;
 mod school_extract;
 pub(crate) use isct_core::school_parser;
 mod school_refresh;
@@ -145,9 +143,11 @@ async fn recognize_matrix_image(
         );
         #[cfg(not(debug_assertions))]
         let _ = app;
-        service.scan(&data, &preview, |completed| {
-            let _ = on_progress.send(completed);
-        })
+        service
+            .scan(&data, &preview, |completed| {
+                let _ = on_progress.send(completed);
+            })
+            .map_err(|error| error.to_string())
     })
     .await
     .map_err(|e| format!("Matrix recognition task failed: {e}"))?
@@ -470,7 +470,7 @@ fn school_credential_status(
     service: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
 ) -> Result<SchoolCredentialStatus, String> {
     require_local_main(&webview)?;
-    service.status()
+    service.status().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -481,7 +481,9 @@ fn save_school_credentials(
     credentials: SchoolCredentials,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    service.save(profile, credentials)
+    service
+        .save(profile, credentials)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -491,7 +493,7 @@ fn delete_school_credentials(
     profile: SchoolAuthProfile,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    service.delete(profile)
+    service.delete(profile).map_err(|error| error.to_string())
 }
 
 /// Copies the saved Matrix directly from the vault to the system clipboard,
@@ -503,7 +505,7 @@ fn copy_school_matrix(
     auth: tauri::State<'_, SchoolAuthService<OsSecretVault>>,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    let text = auth.matrix_text()?;
+    let text = auth.matrix_text().map_err(|error| error.to_string())?;
     app.clipboard()
         .write_text(text)
         .map_err(|_| "Matrix could not be copied to the clipboard.".to_string())?;
@@ -521,7 +523,8 @@ async fn login_school(
 ) -> Result<SchoolWebResult, String> {
     require_local_main(&webview)?;
     let credentials = auth
-        .load(profile)?
+        .load(profile)
+        .map_err(|error| error.to_string())?
         .ok_or_else(|| "Save this school account before signing in.".to_string())?;
     let _ = bounds;
     let controller = controller.inner().clone();
@@ -554,7 +557,9 @@ async fn test_school_connection(
     credentials: SchoolCredentials,
 ) -> Result<SchoolWebResult, String> {
     require_local_main(&webview)?;
-    let credentials = auth.resolve(profile, credentials)?;
+    let credentials = auth
+        .resolve(profile, credentials)
+        .map_err(|error| error.to_string())?;
     let controller = controller.inner().clone();
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -848,11 +853,14 @@ async fn sync_cloud_credentials(
     }
     if restore_existing {
         if let Some(credentials) = service.pull_credentials(provider).await? {
-            auth.import_sync_payload(&credentials)?;
+            auth.import_sync_payload(&credentials)
+                .map_err(|error| error.to_string())?;
             return Ok(true);
         }
     }
-    let credentials = auth.export_sync_payload()?;
+    let credentials = auth
+        .export_sync_payload()
+        .map_err(|error| error.to_string())?;
     service.back_up_credentials(provider, &credentials).await?;
     Ok(true)
 }
