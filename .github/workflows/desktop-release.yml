@@ -82,12 +82,12 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: . -> target
           key: desktop-${{ matrix.target }}
       - run: yarn install --immutable
       - name: Validate frontend and release version
@@ -134,12 +134,12 @@ jobs:
           fi
           yarn desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           if [[ "$RUNNER_OS" == macOS ]]; then
-            node scripts/verify-platform-bundle.mjs desktop "backend/target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
+            node scripts/verify-platform-bundle.mjs desktop "target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
           fi
           if [[ "$RUNNER_OS" == macOS && "$SIGN_MACOS" == true ]]; then
-            app="backend/target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
+            app="target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
             codesign --verify --deep --strict "$app"
-            for dmg in backend/target/${{ matrix.target }}/release/bundle/dmg/*.dmg; do
+            for dmg in target/${{ matrix.target }}/release/bundle/dmg/*.dmg; do
               report="$RUNNER_TEMP/notarization-${{ matrix.target }}.json"
               xcrun notarytool submit "$dmg" --key "$key_file" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait --output-format json > "$report"
               jq -e '.status == "Accepted"' "$report" > /dev/null

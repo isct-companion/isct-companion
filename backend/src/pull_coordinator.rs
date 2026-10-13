@@ -186,6 +186,8 @@ pub enum PullState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PullEvent {
+    // Reducer contract only: the runtime creates a fresh job for each enqueue.
+    #[cfg_attr(not(test), allow(dead_code))]
     Enqueue,
     Check,
     Block,
@@ -199,6 +201,8 @@ enum PullEvent {
     Fail,
     Cancel,
     Stop,
+    // Reserved until browser preemption migrates from the school executor.
+    #[cfg_attr(not(test), allow(dead_code))]
     Yield,
 }
 

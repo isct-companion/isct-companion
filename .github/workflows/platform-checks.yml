@@ -40,10 +40,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: . -> target
       # GitHub's Windows Server image cannot start the Tauri GUI test host
       # (STATUS_ENTRYPOINT_NOT_FOUND), but this still compiles and links every
       # unit and integration test target for Windows.
@@ -59,16 +59,23 @@ jobs:
           - aarch64-apple-darwin
           - x86_64-apple-darwin
           - aarch64-apple-ios
+          - aarch64-apple-ios-sim
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: . -> target
           key: ${{ matrix.target }}
       - run: cargo check --manifest-path backend/Cargo.toml --locked --target ${{ matrix.target }}
+      - name: Desktop Rust contracts
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: cargo test --workspace --locked
+      - name: Desktop lint
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   android:
     name: Android backend (arm64)
@@ -87,12 +94,12 @@ jobs:
       - name: Install Android NDK
         run: |
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: . -> target
           key: aarch64-linux-android
       - name: Configure Android toolchain
         run: |

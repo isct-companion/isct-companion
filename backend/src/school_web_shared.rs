@@ -576,10 +576,12 @@ pub struct SchoolWebController {
     state: Arc<Mutex<ControllerState>>,
 }
 
+type LoadedCallback = dyn Fn(&Webview, &str) + Send + Sync;
+
 /// Native adapters forward their callbacks into the same login/pull engine.
 #[derive(Clone)]
 pub(crate) struct ViewCallbacks {
-    pub loaded: Arc<dyn Fn(&Webview, &str) + Send + Sync>,
+    pub loaded: Arc<LoadedCallback>,
     pub title: Arc<dyn Fn(&str) + Send + Sync>,
     pub navigation: Arc<dyn Fn(&Url) -> bool + Send + Sync>,
     pub new_window: Arc<dyn Fn(Url) + Send + Sync>,
@@ -662,7 +664,7 @@ impl PageHistory {
             .pages
             .iter()
             .rposition(|page| Some(page.as_str()) != current)?;
-        if let Some(left) = self.pages.drain(index + 1..).last() {
+        if let Some(left) = self.pages.drain(index + 1..).next_back() {
             self.forward.push(left);
         }
         self.pages.last().cloned()
@@ -1230,6 +1232,9 @@ fn save_viewer_data(
     });
 }
 
+// These tests stay beside the state-machine helpers they exercise; the native
+// WebView implementation follows below.
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1244,8 +1249,10 @@ mod tests {
 
     #[test]
     fn deferred_session_is_released_and_queued_once() {
-        let mut state = ControllerState::default();
-        state.active_job = Some(ActiveSchoolJob::Session(SchoolAuthProfile::Science));
+        let mut state = ControllerState {
+            active_job: Some(ActiveSchoolJob::Session(SchoolAuthProfile::Science)),
+            ..ControllerState::default()
+        };
         assert!(defer_session_start(&mut state, SchoolAuthProfile::Science));
         assert_eq!(state.active_job, None);
         assert_eq!(queued_sessions(&state, SchoolAuthProfile::Science), 1);
@@ -1257,8 +1264,10 @@ mod tests {
 
     #[test]
     fn visible_preemption_and_stale_defer_do_not_duplicate_or_clear_new_work() {
-        let mut state = ControllerState::default();
-        state.active_job = Some(ActiveSchoolJob::Session(SchoolAuthProfile::Science));
+        let mut state = ControllerState {
+            active_job: Some(ActiveSchoolJob::Session(SchoolAuthProfile::Science)),
+            ..ControllerState::default()
+        };
         preempt_for_visible(&mut state);
         assert!(!defer_session_start(&mut state, SchoolAuthProfile::Science));
         assert_eq!(queued_sessions(&state, SchoolAuthProfile::Science), 1);
@@ -3025,7 +3034,7 @@ impl SchoolWebController {
                 }
                 if !css.trim().is_empty() {
                     if let Ok(css_json) = serde_json::to_string(&css) {
-                        let _ = webview.eval(&format!("(()=>{{const s=document.createElement('style');s.textContent={css_json};document.documentElement.appendChild(s)}})()"));
+                        let _ = webview.eval(format!("(()=>{{const s=document.createElement('style');s.textContent={css_json};document.documentElement.appendChild(s)}})()"));
                     }
                 }
                 if !javascript.trim().is_empty() {

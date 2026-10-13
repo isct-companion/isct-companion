@@ -39,12 +39,12 @@ jobs:
         run: |
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: . -> target
           key: android-release-aarch64
       - run: yarn install --immutable
       - name: Validate frontend and release version

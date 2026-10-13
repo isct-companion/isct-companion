@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["backend", "backend/plugins/*"]
+default-members = ["backend"]
+
+[profile.release]
+panic = "unwind"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

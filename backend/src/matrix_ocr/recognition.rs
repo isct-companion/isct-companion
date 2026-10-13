@@ -46,7 +46,7 @@ pub fn is_red(result: &Recognition) -> bool {
     result.text.is_empty() || result.confidence < 0.75
 }
 pub fn decode(data: &[f32], characters: &[String]) -> Result<Recognition, String> {
-    if characters.is_empty() || data.len() % characters.len() != 0 {
+    if characters.is_empty() || !data.len().is_multiple_of(characters.len()) {
         return Err("Unexpected Paddle output shape".into());
     }
     let (mut previous, mut text, mut confidence, mut count) = (usize::MAX, String::new(), 0., 0);

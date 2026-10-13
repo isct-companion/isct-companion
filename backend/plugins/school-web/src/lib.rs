@@ -1,4 +1,5 @@
 //! Internal Android adapter. Remote school pages never receive its plugin IPC.
+#![cfg(target_os = "android")]
 use serde::Serialize;
 use tauri::{
     plugin::{Builder, PluginHandle, TauriPlugin},

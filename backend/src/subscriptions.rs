@@ -865,7 +865,6 @@ impl SubscriptionClient {
             source_ts,
         })
     }
-
 }
 
 fn apply_row(
@@ -1320,14 +1319,6 @@ pub fn apply_exam_feed(
     changed += mark_missing(&tx, "exams", &prefix, &live)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(changed)
-}
-
-#[cfg(test)]
-pub fn bundled_2026() -> Result<(AcademicCalendar, Departments), String> {
-    Ok((
-        validate_academic_calendar(BUNDLED_ACADEMIC_CALENDAR_2026)?,
-        validate_departments(BUNDLED_DEPARTMENTS_2026)?,
-    ))
 }
 
 /// Selects the two independent bundled datasets. A calendar year must never
