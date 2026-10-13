@@ -1,16 +1,12 @@
 use crate::{
-    data::DataStore, lifecycle::SchoolSite, probe_reference_source_inner,
-    refresh_reference_source_inner, school_auth::SchoolAuthProfile, write_scheduled_export_inner,
-    OsSecretVault, SchoolAuthService, SchoolWebController,
+    data::DataStore, lifecycle::SchoolSite, pull_coordinator::PullOptions,
+    write_scheduled_export_inner,
 };
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rrule::{RRuleSet, Tz};
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::Mutex};
+use std::sync::Mutex;
 use tauri::{Emitter, Manager};
-
-const PUBLIC_INDEX: &str =
-    "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
 
 pub struct Scheduler {
     started_at: DateTime<Utc>,
@@ -95,208 +91,22 @@ fn task_result_problem(outcomes: &[crate::school_web::IngestOutcome]) -> Result<
     Ok(())
 }
 
-fn pull_site(app: &tauri::AppHandle, site: SchoolSite, force: bool) -> Result<(), String> {
+async fn pull_site(app: &tauri::AppHandle, site: SchoolSite, force: bool) -> Result<(), String> {
     if !force {
         app.state::<crate::school_refresh::SchoolRefresh>()
             .enqueue_scheduled(site);
         return Ok(());
     }
-    let profile = match site {
-        SchoolSite::ScienceLms => SchoolAuthProfile::Science,
-        SchoolSite::Kyomu => SchoolAuthProfile::TokyoTech,
-        _ => return Err("scheduled school pull uses an unsupported site".into()),
-    };
-    let credentials = app
-        .state::<SchoolAuthService<OsSecretVault>>()
-        .load(profile)?
-        .ok_or("School credentials are not configured.")?;
-    let controller = app.state::<SchoolWebController>().inner().clone();
-    controller.request_login(app, profile, credentials)?;
-    let outcomes = controller.request_pull(app, site, None)?;
+    let outcomes =
+        crate::pull_service::school(app, site, None, PullOptions::manual(), true).await?;
     task_result_problem(&outcomes)
-}
-
-fn has_reference_cache(workspace: &Value, kind: &str, year: i64) -> bool {
-    // Subscription metadata survives backup/restore, but reference caches do
-    // not. A saved hash cannot stand in for missing quarter boundaries.
-    if kind != "calendar" {
-        return true;
-    }
-    let boundaries = workspace
-        .get("academicCalendar")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|row| {
-            let kind = row.get("type").and_then(Value::as_str)?;
-            let quarter = row.get("quarter").and_then(Value::as_str)?;
-            let raw_date = row.get("date").and_then(Value::as_str)?;
-            let valid_date = NaiveDate::parse_from_str(raw_date, "%Y-%m-%d")
-                .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == raw_date);
-            (matches!(kind, "quarter-start" | "quarter-end")
-                && valid_date
-                && row.get("academicYear").and_then(Value::as_i64) == Some(year)
-                && row.get("deletedAt").is_none_or(Value::is_null)
-                && row.get("missingSince").is_none_or(Value::is_null))
-            .then(|| format!("{kind}:{quarter}"))
-        })
-        .collect::<std::collections::HashSet<_>>();
-    ["1Q", "2Q", "3Q", "4Q"].into_iter().all(|quarter| {
-        boundaries.contains(&format!("quarter-start:{quarter}"))
-            && boundaries.contains(&format!("quarter-end:{quarter}"))
-    })
-}
-
-fn reference_is_fresh(row: &Value, year: i64, now: DateTime<Utc>) -> bool {
-    row.get("year").and_then(Value::as_i64) == Some(year)
-        && row.get("lastError").is_none_or(Value::is_null)
-        && timestamp(row.get("fetchedAt").and_then(Value::as_str))
-            .is_some_and(|last| now - last < Duration::hours(24))
-}
-
-async fn refresh_references(store: &DataStore, force: bool) -> Result<String, String> {
-    let workspace = store.load_workspace()?;
-    let mut probes = HashMap::<String, Result<String, String>>::new();
-    let mut changed = 0u64;
-    let mut failures = 0usize;
-    for kind in ["calendar", "departments", "important-dates", "exams"] {
-        let existing = workspace
-            .get("subscriptions")
-            .and_then(Value::as_array)
-            .and_then(|rows| {
-                rows.iter().find(|row| {
-                    row.get("kind").and_then(Value::as_str) == Some(kind)
-                        && row.get("deletedAt").is_none_or(Value::is_null)
-                })
-            });
-        if existing
-            .and_then(|row| row.get("enabled"))
-            .and_then(Value::as_bool)
-            == Some(false)
-        {
-            continue;
-        }
-        let year = if kind == "departments" {
-            workspace
-                .pointer("/academicProfile/admissionYear")
-                .and_then(Value::as_i64)
-        } else {
-            workspace
-                .get("currentTerm")
-                .and_then(Value::as_str)
-                .and_then(|term| term.get(..4))
-                .and_then(|year| year.parse::<i64>().ok())
-        };
-        let Some(year) = year else { continue };
-        let has_cache = has_reference_cache(&workspace, kind, year);
-        if !force
-            && has_cache
-            && existing.is_some_and(|row| reference_is_fresh(row, year, Utc::now()))
-        {
-            continue;
-        }
-        let url = existing
-            .and_then(|row| row.get("url"))
-            .and_then(Value::as_str)
-            .filter(|url| url.starts_with("https://"))
-            .unwrap_or(PUBLIC_INDEX)
-            .to_string();
-        let same_year = existing
-            .and_then(|row| row.get("year"))
-            .and_then(Value::as_i64)
-            == Some(year);
-        let mut row = existing.cloned().unwrap_or_else(|| {
-            json!({
-                "id": format!("subscription:public:{kind}"),
-                "kind": kind, "url": url, "enabled": true
-            })
-        });
-        let expected_rev = row.get("rev").and_then(Value::as_u64).unwrap_or(0);
-        row["url"] = Value::String(url.clone());
-        let probe = if let Some(result) = probes.get(&url) {
-            result.clone()
-        } else {
-            let result = probe_reference_source_inner(&url).await;
-            probes.insert(url.clone(), result.clone());
-            result
-        };
-        let index_hash = match probe {
-            Ok(hash) => hash,
-            Err(error) => {
-                failures += 1;
-                row["lastError"] = Value::String(error);
-                store.put_user_record_checked(
-                    "subscriptions",
-                    row,
-                    "scheduler",
-                    Some(expected_rev),
-                )?;
-                continue;
-            }
-        };
-        if same_year
-            && has_cache
-            && row.get("indexHash").and_then(Value::as_str) == Some(index_hash.as_str())
-        {
-            row["fetchedAt"] = Value::String(Utc::now().to_rfc3339());
-            row["lastError"] = Value::Null;
-            store.put_user_record_checked("subscriptions", row, "scheduler", Some(expected_rev))?;
-            continue;
-        }
-        let known_hash = (same_year && has_cache)
-            .then(|| {
-                row.get("remoteHash")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .flatten();
-        match refresh_reference_source_inner(
-            store,
-            kind,
-            &url,
-            year as i32,
-            Some(index_hash.clone()),
-            known_hash,
-        )
-        .await
-        {
-            Ok(result) => {
-                changed += result.get("changed").and_then(Value::as_u64).unwrap_or(0);
-                row["year"] = Value::from(year);
-                row["indexHash"] = Value::String(index_hash);
-                for (target, source) in [
-                    ("dataUrl", "dataUrl"),
-                    ("remoteHash", "remoteHash"),
-                    ("sourceTs", "sourceTs"),
-                ] {
-                    if let Some(value) = result.get(source) {
-                        row[target] = value.clone();
-                    }
-                }
-                row["fetchedAt"] = Value::String(Utc::now().to_rfc3339());
-                row["lastError"] = Value::Null;
-            }
-            Err(error) => {
-                failures += 1;
-                row["lastError"] = Value::String(error);
-            }
-        }
-        store.put_user_record_checked("subscriptions", row, "scheduler", Some(expected_rev))?;
-    }
-    if failures > 0 {
-        Err(format!("{failures} reference source(s) failed"))
-    } else if changed > 0 {
-        Ok(format!("Updated {changed} reference dataset(s)"))
-    } else {
-        Ok("Reference data is up to date".into())
-    }
 }
 
 async fn execute(app: &tauri::AppHandle, action: &str, force: bool) -> Result<String, String> {
     let store = app.state::<DataStore>().inner().clone();
     match action {
         "export" => write_scheduled_export_inner(app, &store).map(|_| "Export completed".into()),
-        "reference-refresh" => refresh_references(&store, force).await,
+        "reference-refresh" => crate::reference_refresh::refresh_all(app, force, false).await,
         "lms-refresh" => {
             if !force
                 && app
@@ -306,22 +116,12 @@ async fn execute(app: &tauri::AppHandle, action: &str, force: bool) -> Result<St
             {
                 return Ok("Paused: app is not active".into());
             }
-            tauri::async_runtime::spawn_blocking({
-                let app = app.clone();
-                move || pull_site(&app, SchoolSite::ScienceLms, force)
-            })
-            .await
-            .map_err(|_| "LMS refresh stopped unexpectedly".to_string())??;
+            pull_site(app, SchoolSite::ScienceLms, force).await?;
             Ok("LMS background refresh completed".into())
         }
         "school-refresh" => {
             for site in [SchoolSite::ScienceLms, SchoolSite::Kyomu] {
-                tauri::async_runtime::spawn_blocking({
-                    let app = app.clone();
-                    move || pull_site(&app, site, force)
-                })
-                .await
-                .map_err(|_| "School refresh stopped unexpectedly".to_string())??;
+                pull_site(app, site, force).await?;
             }
             Ok("School refresh completed".into())
         }
@@ -438,6 +238,7 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reference_refresh::{calendar_cache_present, reference_is_fresh};
 
     #[test]
     fn reference_subscriptions_run_at_launch_before_the_next_hour() {
@@ -475,13 +276,13 @@ mod tests {
     #[test]
     fn restored_subscription_hashes_do_not_replace_missing_quarter_data() {
         let mut workspace = json!({"academicCalendar":[]});
-        assert!(!has_reference_cache(&workspace, "calendar", 2026));
+        assert!(!calendar_cache_present(&workspace, 2026));
         workspace["academicCalendar"] = json!([
             {"type":"quarter-start","quarter":"1Q","academicYear":2025,"date":"2025-04-07"}
         ]);
-        assert!(!has_reference_cache(&workspace, "calendar", 2026));
+        assert!(!calendar_cache_present(&workspace, 2026));
         workspace["academicCalendar"][0]["academicYear"] = json!(2026);
-        assert!(!has_reference_cache(&workspace, "calendar", 2026));
+        assert!(!calendar_cache_present(&workspace, 2026));
         workspace["academicCalendar"] = Value::Array(
             ["1Q", "2Q", "3Q", "4Q"]
                 .into_iter()
@@ -497,12 +298,12 @@ mod tests {
                 })
                 .collect(),
         );
-        assert!(has_reference_cache(&workspace, "calendar", 2026));
+        assert!(calendar_cache_present(&workspace, 2026));
         workspace["academicCalendar"][0]["missingSince"] = json!("2026-10-13T00:00:00Z");
-        assert!(!has_reference_cache(&workspace, "calendar", 2026));
+        assert!(!calendar_cache_present(&workspace, 2026));
         workspace["academicCalendar"][0]["missingSince"] = Value::Null;
         workspace["academicCalendar"][0]["date"] = json!("2026-02-30");
-        assert!(!has_reference_cache(&workspace, "calendar", 2026));
+        assert!(!calendar_cache_present(&workspace, 2026));
     }
 
     #[test]

@@ -39,6 +39,9 @@ mod matrix_red_crops;
 pub mod plans;
 #[cfg(test)]
 mod policy;
+mod pull_coordinator;
+mod pull_service;
+mod reference_refresh;
 mod scheduler;
 mod school_auth;
 mod school_extract;
@@ -366,13 +369,49 @@ async fn pull_school(
     lms_course_id: Option<u64>,
 ) -> Result<Vec<school_web::IngestOutcome>, String> {
     require_local_main(&webview)?;
-    let controller = app.state::<SchoolWebController>().inner().clone();
-    let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        controller.request_pull(&handle, site, lms_course_id)
-    })
+    pull_service::school(
+        &app,
+        site,
+        lms_course_id,
+        pull_coordinator::PullOptions::manual(),
+        false,
+    )
     .await
-    .map_err(|_| "The school pull stopped unexpectedly.".to_string())?
+}
+
+#[tauri::command]
+async fn pull_state(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<Vec<pull_coordinator::PullSnapshot>, String> {
+    require_local_main(&webview)?;
+    Ok(app
+        .state::<pull_coordinator::PullCoordinator>()
+        .snapshots()
+        .await)
+}
+
+#[tauri::command]
+async fn cancel_pull(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    Ok(app
+        .state::<pull_coordinator::PullCoordinator>()
+        .cancel(&id)
+        .await)
+}
+
+#[tauri::command]
+async fn refresh_reference_subscriptions(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    force: bool,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    reference_refresh::refresh_all(&app, force, true).await
 }
 
 /// School-owned records the workspace does not carry (LMS courses,
@@ -561,11 +600,13 @@ fn request_notification_permission(
 #[tauri::command]
 fn school_refresh_event(
     webview: tauri::Webview,
+    app: tauri::AppHandle,
     refresh: tauri::State<'_, school_refresh::SchoolRefresh>,
     event: school_refresh::RefreshEvent,
 ) -> Result<(), String> {
     require_local_main(&webview)?;
     refresh.event(event);
+    refresh.publish_conditions(&app);
     Ok(())
 }
 
@@ -1416,7 +1457,7 @@ async fn probe_reference_source_inner(index_url: &str) -> Result<String, String>
 #[tauri::command]
 async fn refresh_reference_source(
     webview: tauri::Webview,
-    store: tauri::State<'_, data::DataStore>,
+    app: tauri::AppHandle,
     kind: String,
     index_url: String,
     year: i32,
@@ -1424,13 +1465,18 @@ async fn refresh_reference_source(
     known_hash: Option<String>,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    refresh_reference_source_inner(
-        store.inner(),
-        &kind,
-        &index_url,
-        year,
-        expected_index_hash,
-        known_hash,
+    let _ = known_hash; // Cache completeness and hashes are read natively.
+    reference_refresh::refresh_one(
+        &app,
+        reference_refresh::ReferenceRequest {
+            kind,
+            index_url,
+            year,
+            force: true,
+            expected_index_hash,
+        },
+        pull_coordinator::PullPriority::Manual,
+        reference_refresh::probes(),
     )
     .await
 }
@@ -1442,6 +1488,7 @@ async fn refresh_reference_source_inner(
     year: i32,
     expected_index_hash: Option<String>,
     known_hash: Option<String>,
+    context: &pull_coordinator::PullContext,
 ) -> Result<serde_json::Value, String> {
     let client = subscriptions::SubscriptionClient::new()?;
     let mut connection = rusqlite::Connection::open(store.path()).map_err(|e| e.to_string())?;
@@ -1460,6 +1507,12 @@ async fn refresh_reference_source_inner(
                     serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
                 );
             };
+            if context.is_cancelled() {
+                return Err("Pull cancelled.".into());
+            }
+            if !context.applying().await {
+                return Err("Pull cancelled.".into());
+            }
             let changed = subscriptions::apply_reference(&mut connection, Some(&value), None)?;
             Ok(
                 serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
@@ -1479,6 +1532,12 @@ async fn refresh_reference_source_inner(
                     serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
                 );
             };
+            if context.is_cancelled() {
+                return Err("Pull cancelled.".into());
+            }
+            if !context.applying().await {
+                return Err("Pull cancelled.".into());
+            }
             let changed = subscriptions::apply_reference(&mut connection, None, Some(&value))?;
             Ok(
                 serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
@@ -1498,6 +1557,12 @@ async fn refresh_reference_source_inner(
                     serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
                 );
             };
+            if context.is_cancelled() {
+                return Err("Pull cancelled.".into());
+            }
+            if !context.applying().await {
+                return Err("Pull cancelled.".into());
+            }
             let changed = subscriptions::apply_important_dates(&mut connection, &value)?;
             Ok(
                 serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
@@ -1517,6 +1582,12 @@ async fn refresh_reference_source_inner(
                     serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
                 );
             };
+            if context.is_cancelled() {
+                return Err("Pull cancelled.".into());
+            }
+            if !context.applying().await {
+                return Err("Pull cancelled.".into());
+            }
             let mut changed = 0;
             let mut files = Vec::new();
             for feed in feeds {
@@ -1598,6 +1669,7 @@ pub fn run() {
         .manage(SchoolWebController::new())
         .manage(scheduler::Scheduler::default())
         .manage(school_refresh::SchoolRefresh::default());
+    let builder = builder.manage(pull_coordinator::PullCoordinator::default());
     #[cfg(target_os = "macos")]
     let builder = builder.manage(campus_wifi::CampusWifi::default());
     #[cfg(desktop)]
@@ -1648,6 +1720,9 @@ pub fn run() {
             reveal_school_download,
             set_school_web_zoom,
             pull_school,
+            pull_state,
+            cancel_pull,
+            refresh_reference_subscriptions,
             school_records,
             set_kyomu_guide,
             school_credential_status,
@@ -1735,8 +1810,9 @@ pub fn run() {
                 cloud_sync::CloudSync::new(app_data_dir.join("cloud-sync.json"), &authorized)
                     .map_err(std::io::Error::other)?,
             );
-            scheduler::Scheduler::start(app.handle().clone());
+            pull_service::start(app.handle().clone());
             school_refresh::SchoolRefresh::start(app.handle().clone());
+            scheduler::Scheduler::start(app.handle().clone());
             cloud_sync::CloudSync::start(app.handle().clone());
 
             #[cfg(desktop)]
@@ -1808,6 +1884,8 @@ pub fn run() {
                         course_id: None,
                         network: None,
                     });
+                app.state::<school_refresh::SchoolRefresh>()
+                    .publish_conditions(app);
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     cloud_sync::CloudSync::changed(&app);

@@ -4,6 +4,7 @@
 use crate::kyomu_ingest::{apply_kyomu_payload, KYOMU_EXTRACT_SCRIPT};
 use crate::lifecycle::SchoolSite;
 use crate::lms_ingest::apply_lms_payload;
+use crate::pull_coordinator::PullContext;
 use crate::school_auth::{
     upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
 };
@@ -99,13 +100,13 @@ pub struct SchoolWebResult {
 }
 
 /// One extractor result, reported to waiting pulls and to the main window.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IngestOutcome {
     pub site: SchoolSite,
     pub kind: String,
     /// `ok`, `reconnect-required` or `error`.
-    pub state: &'static str,
+    pub state: String,
     pub changed: usize,
     pub message: String,
 }
@@ -146,6 +147,7 @@ enum SchoolJob {
         site: SchoolSite,
         lms_course_id: Option<u64>,
         finished: mpsc::Sender<Result<Vec<IngestOutcome>, String>>,
+        context: Option<PullContext>,
     },
 }
 
@@ -168,6 +170,8 @@ enum SessionStart {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SchoolPullProgressRelay {
+    #[serde(default, rename = "_isctExtractionRun")]
+    extraction_run: String,
     phase: String,
     completed: usize,
     total: usize,
@@ -234,21 +238,21 @@ fn outcome(site: SchoolSite, kind: &str, result: Result<usize, String>) -> Inges
         Ok(changed) => IngestOutcome {
             site,
             kind: kind.into(),
-            state: "ok",
+            state: "ok".into(),
             changed,
             message: format!("{changed} rows changed"),
         },
         Err(message) if message == "reconnect-required" => IngestOutcome {
             site,
             kind: kind.into(),
-            state: "reconnect-required",
+            state: "reconnect-required".into(),
             changed: 0,
             message: "Sign-in required".into(),
         },
         Err(message) => IngestOutcome {
             site,
             kind: kind.into(),
-            state: "error",
+            state: "error".into(),
             changed: 0,
             message,
         },
@@ -389,6 +393,8 @@ struct ControllerState {
     session_changed: Arc<Notify>,
     creating: HashSet<SchoolSite>,
     ingestion_relays: HashMap<SchoolSite, String>,
+    /// One-shot identity of the latest extractor evaluation per WebView.
+    extraction_runs: HashMap<SchoolSite, String>,
     pending_ingestion: HashSet<SchoolSite>,
     /// Limits the next hidden LMS extraction to one course.
     pending_lms_course: Option<u64>,
@@ -403,6 +409,7 @@ struct ControllerState {
     /// The single owner of school navigation/authentication. Every request,
     /// including scheduled work, enters this queue before touching a WebView.
     active_job: Option<ActiveSchoolJob>,
+    pull_context: Option<PullContext>,
     jobs: VecDeque<SchoolJob>,
     preempted: bool,
     /// Pulls waiting for a page whose URL starts with the prefix to finish loading.
@@ -428,6 +435,7 @@ struct ControllerState {
 // Drop the extractor channels to wake the worker immediately. Its original
 // completion sender is requeued, so callers never receive a preemption error.
 fn preempt_for_visible(state: &mut ControllerState) {
+    state.extraction_runs.clear();
     if matches!(state.active_job, Some(ActiveSchoolJob::Pull { .. })) {
         state.preempted = true;
         state.ingest_waiters.clear();
@@ -442,6 +450,46 @@ fn preempt_for_visible(state: &mut ControllerState) {
         state.active_job = None;
         state.heartbeat = None;
     }
+}
+
+fn register_extraction(state: &mut ControllerState, site: SchoolSite) -> String {
+    let run = new_run_id();
+    state.extraction_runs.insert(site, run.clone());
+    run
+}
+
+fn extraction_is_current(state: &ControllerState, site: SchoolSite, run: &str) -> bool {
+    !run.is_empty()
+        && state
+            .extraction_runs
+            .get(&site)
+            .is_some_and(|current| current == run)
+}
+
+fn consume_extraction(state: &mut ControllerState, site: SchoolSite, raw: &str) -> bool {
+    let Some(run) = serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("_isctExtractionRun")?
+                .as_str()
+                .map(str::to_string)
+        })
+    else {
+        return false;
+    };
+    if state.extraction_runs.get(&site) != Some(&run) {
+        return false;
+    }
+    state.extraction_runs.remove(&site);
+    true
+}
+
+fn extraction_relay_script(setup: &str, script: &str, relay: &str, run: &str) -> String {
+    let run = serde_json::to_string(run).expect("extraction run is JSON safe");
+    format!(
+        "{setup}Promise.resolve({script}).then(v=>{{if(v&&typeof v==='object')v._isctExtractionRun={run};return v}}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))"
+    )
 }
 
 /// Releases a session job that could not start yet and keeps exactly one copy
@@ -468,11 +516,13 @@ fn settle_pull(
     finished: mpsc::Sender<Result<Vec<IngestOutcome>, String>>,
     result: Result<Vec<IngestOutcome>, String>,
 ) {
-    if state.preempted {
+    let context = state.pull_context.take();
+    if state.preempted && !context.as_ref().is_some_and(PullContext::is_cancelled) {
         state.jobs.push_back(SchoolJob::Pull {
             site,
             lms_course_id,
             finished,
+            context,
         });
     } else {
         let _ = finished.send(result);
@@ -498,12 +548,14 @@ impl Default for ControllerState {
             session_changed: Arc::new(Notify::new()),
             creating: HashSet::new(),
             ingestion_relays: HashMap::new(),
+            extraction_runs: HashMap::new(),
             pending_ingestion: HashSet::new(),
             pending_lms_course: None,
             pending_lms_full: false,
             ingest_waiters: HashMap::new(),
             pulling: None,
             active_job: None,
+            pull_context: None,
             jobs: VecDeque::new(),
             preempted: false,
             load_waiters: Vec::new(),
@@ -932,10 +984,10 @@ fn handle_pull_progress(state: &Arc<Mutex<ControllerState>>, app: &AppHandle, en
     {
         return;
     }
-    let active = state
-        .lock()
-        .ok()
-        .is_some_and(|state| state.pulling == Some(SchoolSite::ScienceLms));
+    let active = state.lock().ok().is_some_and(|state| {
+        state.pulling == Some(SchoolSite::ScienceLms)
+            && extraction_is_current(&state, SchoolSite::ScienceLms, &progress.extraction_run)
+    });
     if !active {
         return;
     }
@@ -1251,6 +1303,40 @@ mod tests {
         };
         finished.send(Ok(Vec::new())).unwrap();
         assert!(receiver.recv().unwrap().is_ok());
+    }
+
+    #[test]
+    fn extraction_identity_rejects_preempted_old_and_duplicate_relays() {
+        let mut state = ControllerState::default();
+        let site = SchoolSite::ScienceLms;
+        state.active_job = Some(ActiveSchoolJob::Pull {
+            site,
+            lms_course_id: Some(42),
+        });
+        let old = register_extraction(&mut state, site);
+        preempt_for_visible(&mut state);
+        assert!(state.extraction_runs.is_empty());
+
+        let current = register_extraction(&mut state, site);
+        assert!(!extraction_is_current(&state, site, &old));
+        assert!(extraction_is_current(&state, site, &current));
+        assert!(extraction_is_current(&state, site, &current));
+        assert_eq!(state.extraction_runs.get(&site), Some(&current));
+        let old_payload = serde_json::json!({
+            "_isctExtractionRun": old,
+            "sourceUrl": "https://lms.s.isct.ac.jp/2025/my/"
+        })
+        .to_string();
+        assert!(!consume_extraction(&mut state, site, &old_payload));
+        assert_eq!(state.extraction_runs.get(&site), Some(&current));
+
+        let current_payload = serde_json::json!({
+            "_isctExtractionRun": current,
+            "sourceUrl": "https://lms.s.isct.ac.jp/2025/my/"
+        })
+        .to_string();
+        assert!(consume_extraction(&mut state, site, &current_payload));
+        assert!(!consume_extraction(&mut state, site, &current_payload));
     }
 
     #[test]
@@ -1818,6 +1904,10 @@ impl SchoolWebController {
                 return;
             };
             state.preempted = false;
+            state.pull_context = match &job {
+                SchoolJob::Pull { context, .. } => context.clone(),
+                _ => None,
+            };
             state.active_job = Some(match &job {
                 SchoolJob::Session(profile) => ActiveSchoolJob::Session(*profile),
                 SchoolJob::Login { profile, .. } => ActiveSchoolJob::Login(*profile),
@@ -1877,11 +1967,16 @@ impl SchoolWebController {
                 site,
                 lms_course_id,
                 finished,
+                context,
             } => {
                 let controller = self.clone();
                 let handle = app.clone();
                 tauri::async_runtime::spawn_blocking(move || {
-                    let result = controller.pull_now(&handle, site, lms_course_id);
+                    let result = if context.as_ref().is_some_and(PullContext::is_cancelled) {
+                        Err("Pull cancelled.".into())
+                    } else {
+                        controller.pull_now(&handle, site, lms_course_id)
+                    };
                     if let Ok(mut state) = controller.state.lock() {
                         settle_pull(&mut state, site, lms_course_id, finished, result);
                     }
@@ -2016,8 +2111,9 @@ impl SchoolWebController {
         app: &AppHandle,
         site: SchoolSite,
         lms_course_id: Option<u64>,
+        context: PullContext,
     ) -> Result<Vec<IngestOutcome>, String> {
-        self.request_pull_priority(app, site, lms_course_id, true)
+        self.request_pull_priority(app, site, lms_course_id, true, context)
     }
 
     pub fn request_pull_background(
@@ -2025,8 +2121,9 @@ impl SchoolWebController {
         app: &AppHandle,
         site: SchoolSite,
         lms_course_id: Option<u64>,
+        context: PullContext,
     ) -> Result<Vec<IngestOutcome>, String> {
-        self.request_pull_priority(app, site, lms_course_id, false)
+        self.request_pull_priority(app, site, lms_course_id, false, context)
     }
 
     fn request_pull_priority(
@@ -2035,6 +2132,7 @@ impl SchoolWebController {
         site: SchoolSite,
         lms_course_id: Option<u64>,
         manual: bool,
+        context: PullContext,
     ) -> Result<Vec<IngestOutcome>, String> {
         let (sender, receiver) = mpsc::channel();
         {
@@ -2042,25 +2140,12 @@ impl SchoolWebController {
                 .state
                 .lock()
                 .map_err(|_| "School web state is unavailable.")?;
-            // A full LMS pull is authoritative. Later refresh clicks and
-            // scheduled refreshes are discarded rather than replayed.
-            if lms_course_id.is_none()
-                && site == SchoolSite::ScienceLms
-                && matches!(
-                    state.active_job,
-                    Some(ActiveSchoolJob::Pull {
-                        site: SchoolSite::ScienceLms,
-                        lms_course_id: None
-                    })
-                )
-            {
-                eprintln!("[school-queue] refresh discarded during full LMS pull");
-                return Ok(Vec::new());
-            }
+            // Business requests have already been admitted by PullCoordinator.
             let job = SchoolJob::Pull {
                 site,
                 lms_course_id,
                 finished: sender,
+                context: Some(context.clone()),
             };
             if manual {
                 state.jobs.push_front(job);
@@ -2070,9 +2155,24 @@ impl SchoolWebController {
             eprintln!("[school-queue] queued {site:?} pull");
         }
         self.advance_jobs(app);
-        receiver
-            .recv()
-            .map_err(|_| "The queued school pull did not finish in time.".to_string())?
+        loop {
+            match receiver.recv_timeout(Duration::from_millis(250)) {
+                Ok(result) => return result,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("School pull stopped.".into())
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if context.is_cancelled() {
+                        // A pull waiting behind visible navigation has not
+                        // touched the view yet. Drop it without waiting for hide.
+                        if let Ok(mut state) = self.state.lock() {
+                            state.jobs.retain(|job| !matches!(job,
+                                SchoolJob::Pull { context: Some(context), .. } if context.is_cancelled()));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn prepare_login(
@@ -2481,6 +2581,13 @@ impl SchoolWebController {
             .state
             .lock()
             .map_err(|_| "School web state is unavailable.")?;
+        if state
+            .pull_context
+            .as_ref()
+            .is_some_and(PullContext::is_cancelled)
+        {
+            return Err("Pull cancelled.".into());
+        }
         if state.preempted || state.active.is_some() {
             return Err("School job paused for visible navigation.".into());
         }
@@ -2695,11 +2802,21 @@ impl SchoolWebController {
                     if let (Some(script), Some(relay)) =
                         (ingestion_script(&target), existing_relay.as_deref())
                     {
-                        if let Ok(mut state) = self.state.lock() {
+                        let run = if let Ok(mut state) = self.state.lock() {
                             state.pending_ingestion.remove(&site);
+                            Some(register_extraction(&mut state, site))
+                        } else {
+                            None
+                        };
+                        if let Some(run) = run {
+                            let extraction = extraction_relay_script(
+                                "delete globalThis.__ISCT_COMPANION_LMS_COURSE_ID__;globalThis.__ISCT_COMPANION_LMS_FULL__=false;delete globalThis.__ISCT_COMPANION_LMS_PROGRESS__;",
+                                script,
+                                relay,
+                                &run,
+                            );
+                            let _ = webview.eval(&extraction);
                         }
-                        let extraction = format!("delete globalThis.__ISCT_COMPANION_LMS_COURSE_ID__;globalThis.__ISCT_COMPANION_LMS_FULL__=false;Promise.resolve({script}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))");
-                        let _ = webview.eval(&extraction);
                     }
                 }
             } else {
@@ -2933,7 +3050,7 @@ impl SchoolWebController {
                         }
                     }
                 }
-                let (should_ingest, lms_course_id, lms_full) = state_for_load
+                let (should_ingest, lms_course_id, lms_full, extraction_run) = state_for_load
                     .lock()
                     .ok()
                     .map(|mut state| {
@@ -2945,16 +3062,23 @@ impl SchoolWebController {
                         let full = should
                             && site == SchoolSite::ScienceLms
                             && std::mem::take(&mut state.pending_lms_full);
-                        (should, course, full)
+                        let run = should.then(|| register_extraction(&mut state, site));
+                        (should, course, full, run)
                     })
-                    .unwrap_or((false, None, false));
-                if let Some(script) = should_ingest.then(|| ingestion_script(raw_url)).flatten() {
+                    .unwrap_or((false, None, false, None));
+                if let (Some(script), Some(run)) = (
+                    should_ingest.then(|| ingestion_script(raw_url)).flatten(),
+                    extraction_run,
+                ) {
                     let course_config = lms_course_id
                         .map(|id| format!("globalThis.__ISCT_COMPANION_LMS_COURSE_ID__={id};"))
                         .unwrap_or_else(|| {
                             "delete globalThis.__ISCT_COMPANION_LMS_COURSE_ID__;".into()
                         });
-                    let extraction = format!("{course_config}globalThis.__ISCT_COMPANION_LMS_FULL__={lms_full};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>document.title='{progress_relay_for_load}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');Promise.resolve({script}).then(v=>location.href='{}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))", relay_for_load);
+                    let extraction_run =
+                        serde_json::to_string(&run).expect("extraction run is JSON safe");
+                    let setup = format!("{course_config}globalThis.__ISCT_COMPANION_LMS_FULL__={lms_full};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>{{if(v&&typeof v==='object')v._isctExtractionRun={extraction_run};document.title='{progress_relay_for_load}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}};");
+                    let extraction = extraction_relay_script(&setup, script, &relay_for_load, &run);
                     let _ = webview.eval(&extraction);
                 }
             }),
@@ -3015,9 +3139,26 @@ impl SchoolWebController {
                         if encoded.len() <= 11 * 1024 * 1024 {
                             if let Ok(bytes) = URL_SAFE_NO_PAD.decode(encoded) {
                                 if let Ok(raw) = String::from_utf8(bytes) {
+                                    let current = state_for_navigation.lock().ok().is_some_and(
+                                        |mut state| consume_extraction(&mut state, site, &raw),
+                                    );
+                                    if !current {
+                                        return false;
+                                    }
                                     let store =
                                         app_for_navigation.try_state::<crate::data::DataStore>();
                                     let apply = |apply: &dyn Fn(&mut rusqlite::Connection) -> Result<usize, String>| {
+                                        // Native callbacks are synchronous. Release controller
+                                        // ownership before entering the coordinator's commit gate.
+                                        let context = state_for_navigation.lock().ok().and_then(|state| {
+                                            (state.pulling == Some(site) && !state.preempted)
+                                                .then(|| state.pull_context.clone()).flatten()
+                                        });
+                                        if let Some(context) = context {
+                                            if !tauri::async_runtime::block_on(context.applying()) {
+                                                return Err("Pull cancelled.".into());
+                                            }
+                                        }
                                         store
                                             .as_ref()
                                             .ok_or_else(|| "Data store is unavailable.".to_string())
