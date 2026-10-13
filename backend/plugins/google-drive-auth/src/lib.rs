@@ -1,4 +1,5 @@
 //! Native Google Drive authentication for iOS.
+#![cfg(any(target_os = "ios", target_os = "android"))]
 use serde::{Deserialize, Serialize};
 use tauri::{
     plugin::{Builder, PluginHandle, TauriPlugin},

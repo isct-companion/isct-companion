@@ -531,7 +531,7 @@ pub(crate) fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), Stri
         .path_segments()
         .map(Iterator::collect::<Vec<_>>)
         .unwrap_or_default();
-    if segments.iter().any(|segment| *segment == "pluginfile.php") {
+    if segments.contains(&"pluginfile.php") {
         return Ok((url, LmsResourceKind::File));
     }
     let [.., "mod", module @ ("resource" | "url" | "folder"), "view.php"] = segments.as_slice()

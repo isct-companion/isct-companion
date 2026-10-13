@@ -19,7 +19,26 @@ use std::{
 use tokio::sync::{oneshot, watch, Mutex};
 use url::Url;
 
-type PullFuture = Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>;
+/// Stable categories at the service boundary; desktop adapters retain Display text.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum PullError {
+    #[error("{0}")]
+    InvalidTarget(String),
+    #[error("Pull cancelled.")]
+    Cancelled,
+    #[error("Pull coordinator stopped unexpectedly.")]
+    CoordinatorStopped,
+    #[error("Pull executor panicked.")]
+    ExecutorPanicked,
+    #[error("Pull executor was cancelled unexpectedly.")]
+    ExecutorStopped,
+    #[error("{0}")]
+    Execution(String),
+    #[error("Pull coordinator invariant failed: {0}")]
+    Invariant(String),
+}
+
+type PullFuture = Pin<Box<dyn Future<Output = Result<Value, PullError>> + Send>>;
 type PullWork = Arc<dyn Fn(PullContext) -> PullFuture + Send + Sync>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
@@ -41,7 +60,7 @@ pub enum PullTarget {
 }
 
 impl PullTarget {
-    pub(crate) fn normalized(self) -> Result<Self, String> {
+    pub fn normalized(self) -> Result<Self, PullError> {
         match self {
             Self::Reference {
                 kind,
@@ -49,16 +68,20 @@ impl PullTarget {
                 year,
             } => {
                 let mut url = Url::parse(index_url.trim())
-                    .map_err(|_| "Pull index URL is invalid.".to_string())?;
+                    .map_err(|_| PullError::InvalidTarget("Pull index URL is invalid.".into()))?;
                 if url.scheme() != "https"
                     || url.host_str().is_none()
                     || !url.username().is_empty()
                     || url.password().is_some()
                 {
-                    return Err("Pull index URL must be HTTPS.".into());
+                    return Err(PullError::InvalidTarget(
+                        "Pull index URL must be HTTPS.".into(),
+                    ));
                 }
                 if kind.trim().is_empty() || !(2000..=2200).contains(&year) {
-                    return Err("Pull reference kind or year is invalid.".into());
+                    return Err(PullError::InvalidTarget(
+                        "Pull reference kind or year is invalid.".into(),
+                    ));
                 }
                 url.set_fragment(None);
                 Ok(Self::Reference {
@@ -69,13 +92,19 @@ impl PullTarget {
             }
             Self::School { site, course_id } => {
                 if !matches!(site, SchoolSite::ScienceLms | SchoolSite::Kyomu) {
-                    return Err("Only LMS and 教務Web can be pulled.".into());
+                    return Err(PullError::InvalidTarget(
+                        "Only LMS and 教務Web can be pulled.".into(),
+                    ));
                 }
                 if course_id == Some(0) {
-                    return Err("LMS course ID must be positive.".into());
+                    return Err(PullError::InvalidTarget(
+                        "LMS course ID must be positive.".into(),
+                    ));
                 }
                 if site == SchoolSite::Kyomu && course_id.is_some() {
-                    return Err("教務Web does not accept an LMS course ID.".into());
+                    return Err(PullError::InvalidTarget(
+                        "教務Web does not accept an LMS course ID.".into(),
+                    ));
                 }
                 Ok(Self::School { site, course_id })
             }
@@ -186,6 +215,8 @@ pub enum PullState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PullEvent {
+    // Reducer contract only: the runtime creates a fresh job for each enqueue.
+    #[cfg_attr(not(test), allow(dead_code))]
     Enqueue,
     Check,
     Block,
@@ -199,6 +230,8 @@ enum PullEvent {
     Fail,
     Cancel,
     Stop,
+    // Reserved until browser preemption migrates from the school executor.
+    #[cfg_attr(not(test), allow(dead_code))]
     Yield,
 }
 
@@ -394,7 +427,7 @@ struct PullJob {
     cancel: Arc<AtomicBool>,
     work: PullWork,
     wait_for: Option<String>,
-    waiters: Vec<oneshot::Sender<Result<Value, String>>>,
+    waiters: Vec<oneshot::Sender<Result<Value, PullError>>>,
 }
 
 impl PullJob {
@@ -493,10 +526,10 @@ impl PullCoordinator {
         target: PullTarget,
         options: PullOptions,
         work: F,
-    ) -> Result<Value, String>
+    ) -> Result<Value, PullError>
     where
         F: Fn(PullContext) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Value, String>> + Send + 'static,
+        Fut: Future<Output = Result<Value, PullError>> + Send + 'static,
     {
         let target = target.normalized()?;
         let work: PullWork = Arc::new(move |context| Box::pin(work(context)));
@@ -506,7 +539,10 @@ impl PullCoordinator {
             let mut state = self.0.state.lock().await;
             if let Some(existing) = covering_job(&state, &target) {
                 let requeue = {
-                    let job = state.jobs.get_mut(&existing).expect("live pull key");
+                    let job = state
+                        .jobs
+                        .get_mut(&existing)
+                        .ok_or_else(|| PullError::Invariant("live pull key".into()))?;
                     job.waiters.push(sender);
                     promote(job, &options);
                     if options.priority == PullPriority::Manual
@@ -576,7 +612,7 @@ impl PullCoordinator {
         self.kick();
         receiver
             .await
-            .unwrap_or_else(|_| Err("Pull coordinator stopped unexpectedly.".into()))
+            .unwrap_or(Err(PullError::CoordinatorStopped))
     }
 
     pub async fn cancel(&self, id: &str) -> bool {
@@ -614,7 +650,7 @@ impl PullCoordinator {
             changed
         };
         if let Some(waiters) = settle {
-            settle_waiters(waiters, Err("Pull cancelled.".into()));
+            settle_waiters(waiters, Err(PullError::Cancelled));
         }
         if changed {
             self.kick();
@@ -676,7 +712,10 @@ impl PullCoordinator {
                 state.next_run += 1;
                 let run_id = state.next_run;
                 let (lane, work, context) = {
-                    let job = state.jobs.get_mut(&id).expect("selected pull");
+                    let Some(job) = state.jobs.get_mut(&id) else {
+                        // A stale queue entry cannot own a lane or a caller.
+                        continue;
+                    };
                     job.state = reduce(job.state, PullEvent::Start).state;
                     job.blocked_by = None;
                     job.phase = Some("running".into());
@@ -705,9 +744,9 @@ impl PullCoordinator {
             tokio::spawn(async move {
                 let result = worker.await.unwrap_or_else(|error| {
                     Err(if error.is_panic() {
-                        "Pull executor panicked.".into()
+                        PullError::ExecutorPanicked
                     } else {
-                        "Pull executor was cancelled unexpectedly.".into()
+                        PullError::ExecutorStopped
                     })
                 });
                 coordinator.finish(id, run_id, lane, result).await;
@@ -757,7 +796,13 @@ impl PullCoordinator {
         true
     }
 
-    async fn finish(&self, id: String, run_id: u64, lane: PullLane, result: Result<Value, String>) {
+    async fn finish(
+        &self,
+        id: String,
+        run_id: u64,
+        lane: PullLane,
+        result: Result<Value, PullError>,
+    ) {
         let mut settle = None;
         let mut retry = None;
         {
@@ -769,11 +814,14 @@ impl PullCoordinator {
             }
             release_lane(&mut state, lane);
             {
-                let job = state.jobs.get_mut(&id).expect("validated pull run");
+                let Some(job) = state.jobs.get_mut(&id) else {
+                    // Run identity was checked under this same lock above.
+                    return;
+                };
                 if job.state == PullState::Cancelling {
                     job.state = reduce(job.state, PullEvent::Stop).state;
                     let waiters = std::mem::take(&mut job.waiters);
-                    settle = Some((waiters, Err("Pull cancelled.".into())));
+                    settle = Some((waiters, Err(PullError::Cancelled)));
                     let target = job.target.clone();
                     remove_key_if_current(&mut state, &target, &id);
                 } else {
@@ -793,17 +841,16 @@ impl PullCoordinator {
                         }
                         Err(error) if job.attempt <= job.retry_limit => {
                             let transition = reduce(job.state, PullEvent::WaitRetry);
-                            debug_assert!(transition.accepted);
                             job.state = transition.state;
                             job.phase = Some("retryWaiting".into());
-                            job.last_error = Some(error);
+                            job.last_error = Some(error.to_string());
                             job.ready = false;
                             retry = Some(job.delay.max(Duration::from_millis(250)));
                         }
                         Err(error) => {
                             job.state = reduce(job.state, PullEvent::Fail).state;
                             job.phase = Some("failed".into());
-                            job.last_error = Some(error.clone());
+                            job.last_error = Some(error.to_string());
                             let waiters = std::mem::take(&mut job.waiters);
                             settle = Some((waiters, Err(error)));
                             let target = job.target.clone();
@@ -963,8 +1010,8 @@ fn publish_locked(shared: &PullShared, state: &CoordinatorState) {
 }
 
 fn settle_waiters(
-    waiters: Vec<oneshot::Sender<Result<Value, String>>>,
-    result: Result<Value, String>,
+    waiters: Vec<oneshot::Sender<Result<Value, PullError>>>,
+    result: Result<Value, PullError>,
 ) {
     for waiter in waiters {
         let _ = waiter.send(result.clone());
@@ -1174,7 +1221,7 @@ mod tests {
         tokio::task::yield_now().await;
         assert!(!successor_started.load(Ordering::SeqCst));
         old_finish.notify_one();
-        assert_eq!(old.await.unwrap().unwrap_err(), "Pull cancelled.");
+        assert_eq!(old.await.unwrap().unwrap_err(), PullError::Cancelled);
         while !successor_started.load(Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
@@ -1336,7 +1383,7 @@ mod tests {
                         } else {
                             assert_eq!(calls.load(Ordering::SeqCst), 0);
                             assert!(coordinator.cancel(&id).await);
-                            assert_eq!(task.await.unwrap().unwrap_err(), "Pull cancelled.");
+                            assert_eq!(task.await.unwrap().unwrap_err(), PullError::Cancelled);
                         }
                         course_id += 1;
                     }
@@ -1389,7 +1436,7 @@ mod tests {
                             async move {
                                 contexts.lock().await.push(context);
                                 if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
-                                    Err("retry".into())
+                                    Err(PullError::Execution("retry".into()))
                                 } else {
                                     second_started.notify_one();
                                     finish.notified().await;
@@ -1638,7 +1685,7 @@ mod tests {
                         let attempts = attempts.clone();
                         async move {
                             if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
-                                Err("try again".into())
+                                Err(PullError::Execution("try again".into()))
                             } else {
                                 Ok(json!("recovered"))
                             }
@@ -1677,7 +1724,7 @@ mod tests {
             tokio::task::yield_now().await;
         };
         assert!(coordinator.cancel(&id).await);
-        assert_eq!(delayed.await.unwrap().unwrap_err(), "Pull cancelled.");
+        assert_eq!(delayed.await.unwrap().unwrap_err(), PullError::Cancelled);
     }
 
     #[tokio::test]
@@ -1724,7 +1771,7 @@ mod tests {
             })
             .await
             .unwrap_err();
-        assert_eq!(error, "Pull executor panicked.");
+        assert_eq!(error, PullError::ExecutorPanicked);
     }
 
     #[tokio::test]
@@ -1767,7 +1814,7 @@ mod tests {
             PullState::Cancelling
         );
         stop.notify_one();
-        assert_eq!(task.await.unwrap().unwrap_err(), "Pull cancelled.");
+        assert_eq!(task.await.unwrap().unwrap_err(), PullError::Cancelled);
         let context = saved_context.lock().await.clone().unwrap();
         assert!(!context.phase("late").await);
         assert_eq!(coordinator.snapshots().await[0].state, PullState::Cancelled);

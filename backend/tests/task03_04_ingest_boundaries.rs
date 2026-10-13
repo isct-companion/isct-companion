@@ -1,11 +1,18 @@
-#[path = "../src/contracts.rs"]
-mod contracts;
+use isct_core::contracts;
+
+// These acceptance tests include the remaining production modules directly
+// until the core crate exposes them; each module contains APIs this test binary
+// intentionally does not exercise.
+#[allow(dead_code)]
 #[path = "../src/data/mod.rs"]
 mod data;
+#[allow(dead_code)]
 #[path = "../src/kyomu_ingest.rs"]
 mod kyomu_ingest;
+#[allow(dead_code)]
 #[path = "../src/lms_ingest.rs"]
 mod lms_ingest;
+#[allow(dead_code)]
 mod school_parser {
     pub(crate) mod kyomu {
         include!("../src/school_parser/kyomu.rs");

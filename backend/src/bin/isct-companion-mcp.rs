@@ -806,7 +806,7 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let duration = duration(args, true)?.unwrap();
             let rule = args.get("rrule").and_then(Value::as_str);
             if let Some(rule) = rule {
-                isct_companion_lib::plans::validate_rrule(rule)?;
+                isct_companion_lib::plans::validate_rrule(rule).map_err(|error| error.to_string())?;
             }
             let plan = store.put_user_record(
                 "plans",
@@ -828,7 +828,7 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             }
             duration(args, false)?;
             if let Some(rule) = args.get("rrule").and_then(Value::as_str) {
-                isct_companion_lib::plans::validate_rrule(rule)?;
+                isct_companion_lib::plans::validate_rrule(rule).map_err(|error| error.to_string())?;
             }
             for key in ["title", "start", "duration", "rrule", "room"] {
                 if let Some(value) = args.get(key) {

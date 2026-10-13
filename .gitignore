@@ -2,6 +2,7 @@
 node_modules/
 .yarn/
 dist/
+target/
 backend/target/
 backend/gen/
 backend/Info.ios.plist

@@ -34,3 +34,24 @@ Allowed exceptions:
   is fine.
 - Layout by viewport. Choosing the mobile or workstation shell from the window
   size (`src/app/form-factor.ts`) is a layout decision, not native behaviour.
+
+## 4. Consolidate domain logic and state in Rust
+
+`crates/isct-core` owns domain decisions, mutations and read models. Shells
+render, forward intents and implement platform ports; they do not maintain
+parallel business state machines. Keep platform handles out of core and use
+compile-time platform adapters. See `docs/core-consolidation.md` for contracts.
+
+New public core/FFI boundaries use typed errors. Remove non-test panic paths
+as modules migrate; enable `clippy::unwrap_used`, `expect_used` and `panic`
+denies for the completed core/FFI boundary. Release profiles use unwind, which
+alone is not crash recovery.
+
+Shells provide lifecycle facts and periodic wakeups; core decides what is due.
+Bounded task waits require explicit ownership and shutdown semantics. Expose
+coarse services through FFI, with correlated callbacks and snapshot recovery.
+
+Preserve active desktop behaviour and stored-data compatibility at each tested
+checkpoint, then commit. Remove superseded implementations and state owners;
+record production-code reduction separately from tests and generated code.
+Mobile shells will be redesigned; old mobile UI parity is not required.

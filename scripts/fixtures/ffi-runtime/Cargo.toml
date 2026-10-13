@@ -1,0 +1,14 @@
+[package]
+name = "isct-ffi-runtime-spike"
+version = "0.0.0"
+edition = "2021"
+[workspace]
+[lib]
+crate-type = ["cdylib", "rlib"]
+[dependencies]
+uniffi = { version = "=0.32.1", features = ["cli"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
+[profile.dev]
+debug = 1
+incremental = false

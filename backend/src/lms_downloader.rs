@@ -1,8 +1,8 @@
 //! LMS bytes and lazy resource resolution use WebKit's signed-in session.
 //! Requests are single-flight per target, small known files use four lanes,
 //! and large/unknown files use an independent serial lane.
+pub(crate) use crate::school_parser::lms::ResolvedResource;
 use crate::school_parser::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page};
-pub(crate) use crate::school_parser::lms::{ResolvedFile, ResolvedResource};
 use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, COOKIE, RANGE};
 use std::{
     collections::HashMap,

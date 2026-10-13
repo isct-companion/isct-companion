@@ -1,7 +1,4 @@
-#[path = "../src/plans.rs"]
-mod plans;
-
-use plans::{preview_rrule, validate_rrule};
+use isct_core::plans::{preview_rrule, validate_rrule};
 
 #[test]
 fn rejects_sub_daily_frequencies_and_components_with_a_clear_boundary() {
@@ -14,9 +11,9 @@ fn rejects_sub_daily_frequencies_and_components_with_a_clear_boundary() {
         "FREQ=MONTHLY;BYSECOND=5",
     ] {
         let error = validate_rrule(rule).expect_err(rule);
+        let message = error.to_string().to_ascii_lowercase();
         assert!(
-            error.to_ascii_lowercase().contains("day")
-                || error.to_ascii_lowercase().contains("daily"),
+            message.contains("day") || message.contains("daily"),
             "{rule} should explain the minimum daily recurrence boundary: {error}"
         );
     }

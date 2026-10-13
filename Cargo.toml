@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["backend", "backend/plugins/*", "crates/isct-core"]
+default-members = ["backend"]
+
+[profile.release]
+panic = "unwind"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+# Keep local rebuilds compact; the desktop bundle still retains line tables.
+[profile.dev]
+debug = 1
+incremental = false
+
+[profile.test]
+debug = 1
+incremental = false

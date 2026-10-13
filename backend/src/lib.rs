@@ -20,13 +20,13 @@ mod campus_wifi;
 mod cloud;
 use data::cloud_merge;
 mod cloud_sync;
-pub mod contracts;
+pub use isct_core::contracts;
 pub mod data;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod icloud;
-mod kyomu_guide;
+use isct_core::kyomu_guide;
 mod kyomu_ingest;
-mod lifecycle;
+use isct_core::lifecycle;
 #[cfg(desktop)]
 mod lms_downloader;
 mod lms_files;
@@ -36,10 +36,8 @@ mod lms_protocol;
 mod matrix_ocr;
 #[cfg(all(matrix_ocr, debug_assertions))]
 mod matrix_red_crops;
-pub mod plans;
-#[cfg(test)]
-mod policy;
-mod pull_coordinator;
+pub use isct_core::plans;
+use isct_core::pull_coordinator;
 mod pull_service;
 mod reference_refresh;
 mod scheduler;
@@ -246,6 +244,9 @@ fn configure_school_web_policy(
 }
 
 #[tauri::command]
+// Tauri supplies the first three parameters and the remaining fields preserve
+// the established IPC command shape.
+#[allow(clippy::too_many_arguments)]
 async fn open_school_site(
     webview: tauri::Webview,
     app: tauri::AppHandle,
@@ -439,10 +440,7 @@ fn school_records_inner(store: &data::DataStore) -> Result<serde_json::Value, St
         let rows = store
             .table_rows(table)?
             .into_iter()
-            .filter(|row| {
-                row.get("deletedAt")
-                    .map_or(true, serde_json::Value::is_null)
-            })
+            .filter(|row| row.get("deletedAt").is_none_or(serde_json::Value::is_null))
             .collect();
         records.insert(key.into(), serde_json::Value::Array(rows));
     }
@@ -1144,9 +1142,7 @@ async fn catalog_offerings(
             .into_iter()
             .filter(|row| {
                 row.get("year").and_then(serde_json::Value::as_u64) == Some(u64::from(year))
-                    && row
-                        .get("deletedAt")
-                        .map_or(true, serde_json::Value::is_null)
+                    && row.get("deletedAt").is_none_or(serde_json::Value::is_null)
             })
             .collect())
     })
@@ -1404,7 +1400,7 @@ fn preview_plan_recurrence(
     limit: Option<u16>,
 ) -> Result<plans::RecurrencePreview, String> {
     require_local_main(&webview)?;
-    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5))
+    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5)).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1496,7 +1492,7 @@ async fn refresh_reference_source_inner(
         "calendar" => {
             let fetched = client
                 .fetch_calendar(
-                    &index_url,
+                    index_url,
                     year,
                     expected_index_hash.as_deref(),
                     known_hash.as_deref(),
@@ -1521,7 +1517,7 @@ async fn refresh_reference_source_inner(
         "departments" => {
             let fetched = client
                 .fetch_departments(
-                    &index_url,
+                    index_url,
                     year,
                     expected_index_hash.as_deref(),
                     known_hash.as_deref(),
@@ -1546,7 +1542,7 @@ async fn refresh_reference_source_inner(
         "important-dates" => {
             let fetched = client
                 .fetch_important_dates(
-                    &index_url,
+                    index_url,
                     year,
                     expected_index_hash.as_deref(),
                     known_hash.as_deref(),
@@ -1571,7 +1567,7 @@ async fn refresh_reference_source_inner(
         "exams" => {
             let fetched = client
                 .fetch_exams(
-                    &index_url,
+                    index_url,
                     year,
                     expected_index_hash.as_deref(),
                     known_hash.as_deref(),
@@ -1783,11 +1779,9 @@ pub fn run() {
             let (data_store, rebuilt) = data::DataStore::initialize(app_data_dir.join("school.db"))
                 .map_err(std::io::Error::other)?;
             if rebuilt {
-                for legacy in ["workspace.json"] {
-                    let path = app_data_dir.join(legacy);
-                    if path.is_file() {
-                        std::fs::remove_file(path)?;
-                    }
+                let path = app_data_dir.join("workspace.json");
+                if path.is_file() {
+                    std::fs::remove_file(path)?;
                 }
             }
             app.manage(data_store);
@@ -1828,13 +1822,13 @@ pub fn run() {
                     .title("IsctCompanion")
                     .inner_size(1280.0, 820.0)
                     .min_inner_size(860.0, 620.0)
-                    .initialization_script(&native_bootstrap())
+                    .initialization_script(native_bootstrap())
                     .build()?;
             }
 
             #[cfg(mobile)]
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .initialization_script(&native_bootstrap())
+                .initialization_script(native_bootstrap())
                 .build()?;
             Ok(())
         })

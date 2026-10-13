@@ -26,7 +26,7 @@ if (process.argv[2] === "collect") {
   const target = process.argv[3];
   if (!targets[target]) throw new Error("Unsupported release target");
   const [format, extension] = targets[target];
-  const bundle = path.join(root, "backend/target", target, "release/bundle", format);
+  const bundle = path.join(root, "target", target, "release/bundle", format);
   const installers = readdirSync(bundle, { withFileTypes: true }).filter((entry) => entry.isFile() && entry.name.endsWith(extension));
   if (installers.length !== 1) throw new Error(`Expected exactly one ${format} installer, found ${installers.length}`);
   const output = path.join(root, "artifacts/desktop", target);

@@ -508,11 +508,13 @@ pub(crate) fn resolve_course_id(
     Ok(course_id)
 }
 
+type StoredRow = (String, u64, String, String, Option<String>, Option<String>);
+
 fn read_stored_row(
     transaction: &Transaction<'_>,
     table: &str,
     id: &str,
-) -> Result<Option<(String, u64, String, String, Option<String>, Option<String>)>, String> {
+) -> Result<Option<StoredRow>, String> {
     let sql = format!(
         "SELECT hash, rev, updated_at, updated_by, source, deleted_at FROM {table} WHERE id=?1"
     );
@@ -911,10 +913,9 @@ impl DataStore {
                     .get("source")
                     .and_then(|source| source.get("provider"))
                     .and_then(Value::as_str);
-                let provider = match source_provider {
-                    Some(provider @ ("lms" | "syllabus" | "kyomu")) => provider,
-                    _ => "manual",
-                };
+                let provider = source_provider
+                    .filter(|provider| matches!(*provider, "lms" | "syllabus" | "kyomu"))
+                    .unwrap_or("manual");
                 let external = object
                     .get("source")
                     .and_then(|source| source.get("externalId"))
@@ -1728,7 +1729,7 @@ impl DataStore {
             let fetched_at = content
                 .get("fetchedAt")
                 .and_then(Value::as_str)
-                .unwrap_or_else(|| "");
+                .unwrap_or("");
             transaction
                 .execute(
                     "INSERT INTO offering_content(offering_id, lang, content, fetched_at)

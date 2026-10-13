@@ -1,22 +1,28 @@
-#[path = "../src/contracts.rs"]
-mod contracts;
+use isct_core::contracts;
+
+// These acceptance tests include the remaining production modules directly
+// until the core crate exposes them; each module contains APIs this test binary
+// intentionally does not exercise.
+#[allow(dead_code)]
 #[path = "../src/data/mod.rs"]
 mod data;
+#[allow(dead_code)]
 #[path = "../src/subscriptions.rs"]
 mod subscriptions;
 
 use rusqlite::Connection;
 use serde_json::Value;
 use subscriptions::{
-    apply_subscription, bundled_2026, bundled_selection, validate_academic_calendar,
-    validate_departments, BUNDLED_ACADEMIC_CALENDAR_2026, BUNDLED_DEPARTMENTS_2025,
-    BUNDLED_DEPARTMENTS_2026, BUNDLED_INDEX,
+    apply_subscription, bundled_selection, validate_academic_calendar, validate_departments,
+    BUNDLED_ACADEMIC_CALENDAR_2026, BUNDLED_DEPARTMENTS_2025, BUNDLED_DEPARTMENTS_2026,
+    BUNDLED_INDEX,
 };
 use url::Url;
 
 #[test]
 fn official_bundled_files_validate_and_include_the_documented_cs_course() {
-    let (calendar, departments) = bundled_2026().expect("official bundled data must validate");
+    let (calendar, departments) =
+        bundled_selection(2026, 2026).expect("official bundled data must validate");
     assert_eq!(calendar.academic_year, 2026);
     assert_eq!(departments.departments.len(), 17);
     let cs = departments
@@ -164,7 +170,7 @@ fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
 
 #[test]
 fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
-    let (calendar, departments) = bundled_2026().expect("official bundled data");
+    let (calendar, departments) = bundled_selection(2026, 2026).expect("official bundled data");
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     data::migrations::migrate(&mut connection).expect("schema v3");
 
@@ -205,7 +211,7 @@ fn calendar_v2_preserves_disjoint_teaching_ranges_and_rejects_exam_overlap() {
 
 #[test]
 fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
-    let (calendar, departments) = bundled_2026().unwrap();
+    let (calendar, departments) = bundled_selection(2026, 2026).unwrap();
     let mut connection = Connection::open_in_memory().unwrap();
     data::migrations::migrate(&mut connection).unwrap();
     apply_subscription(&mut connection, &calendar, &departments).unwrap();

@@ -20,7 +20,7 @@ export default defineConfig({
   server: {
     port: 4173,
     watch: {
-      ignored: ["**/backend/target/**"],
+      ignored: ["**/target/**"],
     },
   },
   define: {
