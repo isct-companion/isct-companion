@@ -1,10 +1,48 @@
-use crate::data::{resolve_course_id, versioned::content_hash};
+use crate::data::{resolve_course_id, versioned::content_hash, DataError};
 use crate::school_parser::lms::{id_of, lms_url, LmsPayload};
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+
+#[derive(Debug, thiserror::Error)]
+pub enum IngestError {
+    #[error("{0}")]
+    InvalidPayload(String),
+    #[error("{0}")]
+    Storage(String),
+}
+
+impl From<String> for IngestError {
+    fn from(message: String) -> Self {
+        Self::InvalidPayload(message)
+    }
+}
+
+impl From<&str> for IngestError {
+    fn from(message: &str) -> Self {
+        Self::InvalidPayload(message.to_string())
+    }
+}
+
+impl From<DataError> for IngestError {
+    fn from(error: DataError) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
+impl From<rusqlite::Error> for IngestError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
+impl From<serde_json::Error> for IngestError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::InvalidPayload(error.to_string())
+    }
+}
 
 /// Read-only Moodle transport. Every request passes through `call`, whose
 /// closed allowlist is also checked before the request is constructed.
@@ -349,7 +387,7 @@ fn upsert_versioned(
     id: &str,
     value: &Value,
     columns: &[(&str, rusqlite::types::Value)],
-) -> Result<bool, String> {
+) -> Result<bool, IngestError> {
     let hash = content_hash(value)?;
     let existing: Option<(String, Option<String>)> = tx
         .query_row(
@@ -358,7 +396,7 @@ fn upsert_versioned(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
-        .map_err(|e| e.to_string())?;
+        .map_err(IngestError::from)?;
     let timestamp = Utc::now().to_rfc3339();
     if existing.as_ref().is_some_and(|(stored, _)| stored == &hash) {
         let changed = existing
@@ -368,7 +406,7 @@ fn upsert_versioned(
             &format!("UPDATE {table} SET last_seen_at=?2, missing_since=NULL, deleted_at=NULL,
                 value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"),
             params![id, timestamp],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(IngestError::from)?;
         return Ok(changed);
     }
     let mut names = vec![
@@ -399,7 +437,7 @@ fn upsert_versioned(
             r.get(0)
         })
         .optional()
-        .map_err(|e| e.to_string())?
+        .map_err(IngestError::from)?
         .unwrap_or(0);
     let rev = old_rev + 1;
     let mut stored = value.clone();
@@ -412,7 +450,7 @@ fn upsert_versioned(
         object.remove("missingSince");
         object.remove("deletedAt");
     }
-    let json = serde_json::to_string(&stored).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(&stored).map_err(IngestError::from)?;
     let mut values = vec![
         id.to_string().into(),
         json.into(),
@@ -433,7 +471,7 @@ fn upsert_versioned(
         ),
         rusqlite::params_from_iter(values),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(IngestError::from)?;
     Ok(true)
 }
 
@@ -453,7 +491,7 @@ fn write_assignment(
     due: Option<i64>,
     listed_open: bool,
     page_state: Option<&str>,
-) -> Result<bool, String> {
+) -> Result<bool, IngestError> {
     let cmid = source.cmid;
     let prior: Option<(String, Option<String>)> = tx
         .query_row(
@@ -462,7 +500,7 @@ fn write_assignment(
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()
-        .map_err(|e| e.to_string())?;
+        .map_err(IngestError::from)?;
     let effective_due = due.or_else(|| {
         prior
             .as_ref()
@@ -518,14 +556,14 @@ fn write_assignment(
 pub fn apply_lms_payload(
     connection: &mut Connection,
     payload: &LmsPayload,
-) -> Result<usize, String> {
+) -> Result<usize, IngestError> {
     let tx = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(|e| e.to_string())?;
+        .map_err(IngestError::from)?;
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
-    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'lms','full','running',?2)", params![run_id, started]).map_err(|e| e.to_string())?;
+    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'lms','full','running',?2)", params![run_id, started]).map_err(IngestError::from)?;
     let action_ids: HashSet<u64> = payload
         .action_events
         .iter()
@@ -566,7 +604,7 @@ pub fn apply_lms_payload(
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .map_err(|e| e.to_string())?
+            .map_err(IngestError::from)?
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .and_then(|stored| stored.get("timetables").cloned())
             .filter(Value::is_object)
@@ -588,7 +626,7 @@ pub fn apply_lms_payload(
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .map_err(|e| e.to_string())?
+            .map_err(IngestError::from)?
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .and_then(|stored| stored.get("sections").cloned());
         let mut sections = payload
@@ -612,10 +650,9 @@ pub fn apply_lms_payload(
                         })
                         .and_then(|s| s.get("bodyHtml"))
                     {
-                        section
-                            .as_object_mut()
-                            .unwrap()
-                            .insert("bodyHtml".into(), body.clone());
+                        if let Some(section) = section.as_object_mut() {
+                            section.insert("bodyHtml".into(), body.clone());
+                        }
                     }
                 }
             }
@@ -627,7 +664,7 @@ pub fn apply_lms_payload(
         changed += usize::from(upsert_versioned(
             &tx,
             "lms_courses",
-            value["id"].as_str().unwrap(),
+            &lms_course_id,
             &value,
             &[("lms_id", (course.id as i64).into())],
         )?);
@@ -654,16 +691,16 @@ pub fn apply_lms_payload(
             .collect();
         let mut statement = tx
             .prepare("SELECT id FROM lms_courses WHERE missing_since IS NULL")
-            .map_err(|e| e.to_string())?;
+            .map_err(IngestError::from)?;
         let old = statement
             .query_map([], |r| r.get::<_, String>(0))
-            .map_err(|e| e.to_string())?
+            .map_err(IngestError::from)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
+            .map_err(IngestError::from)?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live.contains(id)) {
             let missing = Utc::now().to_rfc3339();
-            changed += tx.execute("UPDATE lms_courses SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
+            changed += tx.execute("UPDATE lms_courses SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(IngestError::from)?;
         }
     }
     for structure in payload.structures.iter().filter(|s| s.complete) {
@@ -671,7 +708,7 @@ pub fn apply_lms_payload(
         let state = structure
             .state
             .as_ref()
-            .expect("validated complete structure");
+            .ok_or("complete LMS structure has no state")?;
         let sections: HashMap<u64, (&str, i64)> = state
             .get("section")
             .and_then(Value::as_array)
@@ -717,7 +754,7 @@ pub fn apply_lms_payload(
                     r.get::<_, String>(0)
                 })
                 .optional()
-                .map_err(|e| e.to_string())?
+                .map_err(IngestError::from)?
                 .and_then(|raw| serde_json::from_str(&raw).ok());
             let body = cm
                 .get("bodyHtml")
@@ -733,7 +770,7 @@ pub fn apply_lms_payload(
             changed += usize::from(upsert_versioned(
                 &tx,
                 "lms_items",
-                item["id"].as_str().unwrap(),
+                &item_id,
                 &item,
                 &[("cmid", (cmid as i64).into())],
             )?);
@@ -756,29 +793,29 @@ pub fn apply_lms_payload(
                 live_assignments.insert(format!("lms-assignment:{cmid}"));
             }
         }
-        let mut statement = tx.prepare("SELECT id FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1 AND missing_since IS NULL").map_err(|e|e.to_string())?;
+        let mut statement = tx.prepare("SELECT id FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1 AND missing_since IS NULL").map_err(IngestError::from)?;
         let old = statement
             .query_map([structure.course_id], |r| r.get::<_, String>(0))
-            .map_err(|e| e.to_string())?
+            .map_err(IngestError::from)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
+            .map_err(IngestError::from)?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live.contains(id)) {
             let missing = Utc::now().to_rfc3339();
-            changed += tx.execute("UPDATE lms_items SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
+            changed += tx.execute("UPDATE lms_items SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(IngestError::from)?;
         }
         let mut statement = tx
             .prepare("SELECT id FROM assignments WHERE lms_course_id=?1 AND missing_since IS NULL")
-            .map_err(|e| e.to_string())?;
+            .map_err(IngestError::from)?;
         let old = statement
             .query_map([structure.course_id], |r| r.get::<_, String>(0))
-            .map_err(|e| e.to_string())?
+            .map_err(IngestError::from)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
+            .map_err(IngestError::from)?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live_assignments.contains(id)) {
             let missing = Utc::now().to_rfc3339();
-            changed += tx.execute("UPDATE assignments SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(|e|e.to_string())?;
+            changed += tx.execute("UPDATE assignments SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1 AND missing_since IS NULL",params![id,missing]).map_err(IngestError::from)?;
         }
     }
     // Open work in courses whose structure was not loaded (other quarters).
@@ -832,14 +869,52 @@ pub fn apply_lms_payload(
             format!("{changed} rows changed")
         ],
     )
-    .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
+    .map_err(IngestError::from)?;
+    tx.commit().map_err(IngestError::from)?;
     Ok(changed)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::LMS_EXTRACT_SCRIPT;
+    use super::{apply_lms_payload, IngestError, LMS_EXTRACT_SCRIPT};
+    use crate::data::migrations;
+    use crate::school_parser::lms::{LmsCourse, LmsPayload, LmsStructure};
+    use rusqlite::Connection;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn invalid_item_payload() -> LmsPayload {
+        LmsPayload {
+            status: "ok".into(),
+            source_url: "https://lms.s.isct.ac.jp/2025/my/".into(),
+            language: "en".into(),
+            courses_complete: false,
+            courses: vec![LmsCourse {
+                id: 42,
+                fullname: "Test".into(),
+                shortname: "TEST[2026]".into(),
+                idnumber: String::new(),
+                coursecategory: 1,
+                startdate: 0,
+                enddate: 0,
+                viewurl: "https://lms.s.isct.ac.jp/2025/course/view.php?id=42".into(),
+                hidden: false,
+            }],
+            structures: vec![LmsStructure {
+                course_id: 42,
+                complete: true,
+                state: Some(
+                    json!({"section":[],"cm":[{"id":7,"sectionid":1,"module":"resource","name":"bad","url":"https://example.invalid/file"}]}),
+                ),
+                error: None,
+            }],
+            action_events: Vec::new(),
+            dated_events: Vec::new(),
+            assign_status: HashMap::new(),
+            timetable: None,
+            skipped: 0,
+        }
+    }
 
     #[test]
     fn extractor_routes_work_by_loaded_page_and_explicit_scope() {
@@ -850,5 +925,22 @@ mod tests {
         ));
         assert!(LMS_EXTRACT_SCRIPT.contains("'core_calendar_get_action_events_by_course'"));
         assert!(LMS_EXTRACT_SCRIPT.contains("fullScan && ((year === academicYear"));
+    }
+
+    #[test]
+    fn ingest_error_distinguishes_payload_rejection_from_storage_failure() {
+        let payload = invalid_item_payload();
+        let mut missing_schema = Connection::open_in_memory().unwrap();
+        assert!(matches!(
+            apply_lms_payload(&mut missing_schema, &payload),
+            Err(IngestError::Storage(_))
+        ));
+
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrations::migrate(&mut connection).unwrap();
+        assert!(matches!(
+            apply_lms_payload(&mut connection, &payload),
+            Err(IngestError::InvalidPayload(_))
+        ));
     }
 }

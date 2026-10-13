@@ -1,5 +1,6 @@
 use crate::syllabus::model::*;
 use crate::syllabus::transport::{MAX_BODY, ORIGIN};
+use crate::syllabus::SyllabusError;
 use chrono::NaiveDate;
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
@@ -60,8 +61,17 @@ pub(crate) struct DetailPage {
     pub warnings: Vec<String>,
 }
 
-fn selector(value: &str) -> Selector {
-    Selector::parse(value).expect("static syllabus selector must be valid")
+fn selector(value: &str) -> Result<Selector, SyllabusError> {
+    Selector::parse(value)
+        .map_err(|_| SyllabusError::from("Internal syllabus selector is invalid."))
+}
+
+type CachedPattern = LazyLock<Result<Regex, regex::Error>>;
+
+fn pattern(value: &'static CachedPattern) -> Result<&'static Regex, SyllabusError> {
+    value
+        .as_ref()
+        .map_err(|_| SyllabusError::from("Internal syllabus pattern is invalid."))
 }
 
 fn normalized_lines(value: &str) -> String {
@@ -165,11 +175,13 @@ fn section_key(heading: &str, unknown_index: usize) -> String {
 }
 
 pub(crate) fn quarters(value: &str) -> Vec<String> {
-    static RANGE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"([1-4])\s*[-～~]\s*([1-4])Q").unwrap());
-    static SINGLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([1-4])Q").unwrap());
+    static RANGE: CachedPattern = LazyLock::new(|| Regex::new(r"([1-4])\s*[-～~]\s*([1-4])Q"));
+    static SINGLE: CachedPattern = LazyLock::new(|| Regex::new(r"([1-4])Q"));
+    let (Ok(range), Ok(single)) = (pattern(&RANGE), pattern(&SINGLE)) else {
+        return Vec::new();
+    };
     let mut result = Vec::new();
-    for captures in RANGE.captures_iter(value) {
+    for captures in range.captures_iter(value) {
         let start = captures[1].parse::<u8>().unwrap_or(1);
         let end = captures[2].parse::<u8>().unwrap_or(start);
         for quarter in start..=end {
@@ -179,7 +191,7 @@ pub(crate) fn quarters(value: &str) -> Vec<String> {
             }
         }
     }
-    for captures in SINGLE.captures_iter(value) {
+    for captures in single.captures_iter(value) {
         let quarter = format!("{}Q", &captures[1]);
         if !result.contains(&quarter) {
             result.push(quarter);
@@ -196,11 +208,12 @@ fn parse_date(value: &str) -> Option<String> {
     if let Ok(date) = NaiveDate::parse_from_str(value, "%b %e, %Y") {
         return Some(date.format("%Y-%m-%d").to_string());
     }
-    static JA: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日$").unwrap());
-    static SLASH: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^(\d{4})/(\d{1,2})/(\d{1,2})$").unwrap());
-    let captures = JA.captures(value).or_else(|| SLASH.captures(value))?;
+    static JA: CachedPattern =
+        LazyLock::new(|| Regex::new(r"^(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日$"));
+    static SLASH: CachedPattern = LazyLock::new(|| Regex::new(r"^(\d{4})/(\d{1,2})/(\d{1,2})$"));
+    let ja = pattern(&JA).ok()?;
+    let slash = pattern(&SLASH).ok()?;
+    let captures = ja.captures(value).or_else(|| slash.captures(value))?;
     NaiveDate::from_ymd_opt(
         captures[1].parse().ok()?,
         captures[2].parse().ok()?,
@@ -236,16 +249,16 @@ pub(crate) fn parse_search(
     html: &str,
     requested_year: u16,
     limit: usize,
-) -> Result<SearchPage, String> {
+) -> Result<SearchPage, SyllabusError> {
     if html.len() > MAX_BODY {
         return Err("Syllabus response is too large.".into());
     }
     let document = Html::parse_document(html);
-    let table_selector = selector("table.c-table.is-table-style1");
-    let row_selector = selector("tbody tr");
-    let cell_selector = selector("td");
-    let link_selector = selector("td:nth-child(2) a[href*='/courses/']");
-    let count_selector = selector("p.c-item-amount__number");
+    let table_selector = selector("table.c-table.is-table-style1")?;
+    let row_selector = selector("tbody tr")?;
+    let cell_selector = selector("td")?;
+    let link_selector = selector("td:nth-child(2) a[href*='/courses/']")?;
+    let count_selector = selector("p.c-item-amount__number")?;
     let table = document
         .select(&table_selector)
         .next()
@@ -255,13 +268,15 @@ pub(crate) fn parse_search(
         .next()
         .map(element_text)
         .ok_or("Syllabus result count could not be verified.")?;
-    static COUNT_EN: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(\d+)\s+items?\s*/\s*out of\s*(\d+)").unwrap());
-    static COUNT_JA: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(\d+)\s*件\s*/\s*全\s*(\d+)\s*件").unwrap());
-    let captures = COUNT_EN
+    static COUNT_EN: CachedPattern =
+        LazyLock::new(|| Regex::new(r"(\d+)\s+items?\s*/\s*out of\s*(\d+)"));
+    static COUNT_JA: CachedPattern =
+        LazyLock::new(|| Regex::new(r"(\d+)\s*件\s*/\s*全\s*(\d+)\s*件"));
+    let count_en = pattern(&COUNT_EN)?;
+    let count_ja = pattern(&COUNT_JA)?;
+    let captures = count_en
         .captures(&count)
-        .or_else(|| COUNT_JA.captures(&count))
+        .or_else(|| count_ja.captures(&count))
         .ok_or("Syllabus result count could not be verified.")?;
     let returned = captures[1]
         .parse::<usize>()
@@ -349,16 +364,17 @@ fn split_trailing_room(part: &str) -> (&str, Option<String>) {
     (trimmed, None)
 }
 
-fn parse_schedule(value: &str) -> Result<Vec<ParsedScheduleEntry>, String> {
+fn parse_schedule(value: &str) -> Result<Vec<ParsedScheduleEntry>, SyllabusError> {
     let value = value.trim();
     if value == "-" {
         return Ok(Vec::new());
     }
-    static EN_WEEKLY: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^(\d{1,2})-(\d{1,2})\s+(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$").unwrap()
-    });
-    static JA_WEEKLY: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^(月|火|水|木|金|土|日)\s*(\d{1,2})-(\d{1,2})$").unwrap());
+    static EN_WEEKLY: CachedPattern =
+        LazyLock::new(|| Regex::new(r"^(\d{1,2})-(\d{1,2})\s+(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$"));
+    static JA_WEEKLY: CachedPattern =
+        LazyLock::new(|| Regex::new(r"^(月|火|水|木|金|土|日)\s*(\d{1,2})-(\d{1,2})$"));
+    let en_weekly = pattern(&EN_WEEKLY)?;
+    let ja_weekly = pattern(&JA_WEEKLY)?;
     let day = |value: &str| match value {
         "Mon" | "月" => Some(1),
         "Tue" | "火" => Some(2),
@@ -372,11 +388,11 @@ fn parse_schedule(value: &str) -> Result<Vec<ParsedScheduleEntry>, String> {
     let mut result = Vec::new();
     for raw_part in value.split(" / ") {
         let (part, room) = split_trailing_room(raw_part);
-        if let Some(captures) = EN_WEEKLY.captures(part) {
+        if let Some(captures) = en_weekly.captures(part) {
             let start = captures[1].parse::<u8>().map_err(|_| "invalid period")?;
             let end = captures[2].parse::<u8>().map_err(|_| "invalid period")?;
             if !(1..=10).contains(&start) || !(start..=10).contains(&end) {
-                return Err(format!("Unsupported syllabus schedule: {raw_part}"));
+                return Err(format!("Unsupported syllabus schedule: {raw_part}").into());
             }
             result.push(ParsedScheduleEntry {
                 kind: ScheduleKind::Weekly,
@@ -386,11 +402,11 @@ fn parse_schedule(value: &str) -> Result<Vec<ParsedScheduleEntry>, String> {
             });
             continue;
         }
-        if let Some(captures) = JA_WEEKLY.captures(part) {
+        if let Some(captures) = ja_weekly.captures(part) {
             let start = captures[2].parse::<u8>().map_err(|_| "invalid period")?;
             let end = captures[3].parse::<u8>().map_err(|_| "invalid period")?;
             if !(1..=10).contains(&start) || !(start..=10).contains(&end) {
-                return Err(format!("Unsupported syllabus schedule: {raw_part}"));
+                return Err(format!("Unsupported syllabus schedule: {raw_part}").into());
             }
             result.push(ParsedScheduleEntry {
                 kind: ScheduleKind::Weekly,
@@ -407,7 +423,7 @@ fn parse_schedule(value: &str) -> Result<Vec<ParsedScheduleEntry>, String> {
             "On-demand" | "オンデマンド" => ScheduleKind::OnDemand,
             "To be announced" | "未定" => ScheduleKind::Tba,
             "Only Registration" | "申告専用" => ScheduleKind::RegistrationOnly,
-            _ => return Err(format!("Unsupported syllabus schedule: {raw_part}")),
+            _ => return Err(format!("Unsupported syllabus schedule: {raw_part}").into()),
         };
         result.push(ParsedScheduleEntry {
             kind,
@@ -419,7 +435,7 @@ fn parse_schedule(value: &str) -> Result<Vec<ParsedScheduleEntry>, String> {
     Ok(result)
 }
 
-fn parse_format(value: &str) -> Result<ClassFormat, String> {
+fn parse_format(value: &str) -> Result<ClassFormat, SyllabusError> {
     let value = value.trim();
     if value == "-" || value.is_empty() {
         return Ok(ClassFormat::default());
@@ -446,14 +462,14 @@ fn parse_format(value: &str) -> Result<ClassFormat, String> {
         })
         .transpose()?;
     if kinds.is_empty() {
-        return Err(format!("Unsupported class format: {value}"));
+        return Err(format!("Unsupported class format: {value}").into());
     }
     Ok(ClassFormat { kinds, delivery })
 }
 
-fn parse_credits(document: &Html) -> Result<Credits, String> {
+fn parse_credits(document: &Html) -> Result<Credits, SyllabusError> {
     let values = document
-        .select(&selector("dd.is-dl-number-of-credits > span"))
+        .select(&selector("dd.is-dl-number-of-credits > span")?)
         .map(element_text)
         .map(|value| {
             value
@@ -508,8 +524,9 @@ pub(crate) fn parse_content(
     metadata: &[(String, String)],
     updated: Option<String>,
     language: &str,
-) -> Result<SyllabusContent, String> {
-    let heading_selector = selector("h3.c-h3");
+) -> Result<SyllabusContent, SyllabusError> {
+    let heading_selector = selector("h3.c-h3")?;
+    let table_cell_selector = selector("th, td")?;
     let headings = document.select(&heading_selector).collect::<Vec<_>>();
     if headings.len() > 64 {
         return Err("Syllabus content sections exceed supported limits.".into());
@@ -547,7 +564,7 @@ pub(crate) fn parse_content(
             if let Some(kind) = kind {
                 let cells = (name == "tr").then(|| {
                     element
-                        .select(&selector("th, td"))
+                        .select(&table_cell_selector)
                         .map(rich_element_text)
                         .collect::<Vec<_>>()
                 });
@@ -585,11 +602,12 @@ pub(crate) fn parse_content(
         });
     }
 
+    let lecture_cell_selector = selector("td")?;
     let lecture_plan = document
-        .select(&selector("table#lecture_plans tbody tr"))
+        .select(&selector("table#lecture_plans tbody tr")?)
         .filter_map(|row| {
             let cells = row
-                .select(&selector("td"))
+                .select(&lecture_cell_selector)
                 .map(rich_element_text)
                 .collect::<Vec<_>>();
             (cells.len() == 3).then(|| SyllabusLecture {
@@ -603,7 +621,7 @@ pub(crate) fn parse_content(
         return Err("Syllabus lesson plan exceeds supported limits.".into());
     }
     let competencies = document
-        .select(&selector("ul.c-check-list > li"))
+        .select(&selector("ul.c-check-list > li")?)
         .map(|item| SyllabusCompetency {
             label: rich_element_text(item),
             selected: class(item, "is-check-list-checked"),
@@ -632,7 +650,11 @@ pub(crate) fn parse_content(
     })
 }
 
-pub(crate) fn parse_detail(url: &Url, html: &str, language: &str) -> Result<DetailPage, String> {
+pub(crate) fn parse_detail(
+    url: &Url,
+    html: &str,
+    language: &str,
+) -> Result<DetailPage, SyllabusError> {
     if html.len() > MAX_BODY {
         return Err("Syllabus response is too large.".into());
     }
@@ -642,14 +664,14 @@ pub(crate) fn parse_detail(url: &Url, html: &str, language: &str) -> Result<Deta
     let (url_year, id) = course_identity(url).ok_or("Syllabus course identity is missing.")?;
     let document = Html::parse_document(html);
     let title = document
-        .select(&selector("h1.c-h1"))
+        .select(&selector("h1.c-h1")?)
         .next()
         .map(element_text)
         .filter(|value| !value.is_empty())
         .ok_or("Syllabus detail heading could not be verified.")?;
-    let item_selector = selector("dl.c-dl-2col > div.c-dl-2col__item");
-    let dt_selector = selector("dt");
-    let dd_selector = selector("dd");
+    let item_selector = selector("dl.c-dl-2col > div.c-dl-2col__item")?;
+    let dt_selector = selector("dt")?;
+    let dd_selector = selector("dd")?;
     let mut metadata = Vec::new();
     let mut fields = HashMap::new();
     for item in document.select(&item_selector) {
@@ -663,7 +685,7 @@ pub(crate) fn parse_detail(url: &Url, html: &str, language: &str) -> Result<Deta
         let value = rich_element_text(definition);
         if let Some(key) = metadata_key(&label) {
             if fields.insert(key, value.clone()).is_some() {
-                return Err(format!("Syllabus metadata field {key} was duplicated."));
+                return Err(format!("Syllabus metadata field {key} was duplicated.").into());
             }
         }
         metadata.push((label, value));
@@ -710,10 +732,10 @@ pub(crate) fn parse_detail(url: &Url, html: &str, language: &str) -> Result<Deta
     let format = parse_format(&fields["format"]);
     let mut warnings = Vec::new();
     if let Err(error) = &schedule {
-        warnings.push(error.clone());
+        warnings.push(error.to_string());
     }
     if let Err(error) = &format {
-        warnings.push(error.clone());
+        warnings.push(error.to_string());
     }
     let source_updated = parse_date(&fields["updated"]);
     if fields["updated"].trim() != "-" && source_updated.is_none() {

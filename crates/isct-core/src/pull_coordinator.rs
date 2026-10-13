@@ -610,9 +610,7 @@ impl PullCoordinator {
             self.wake_later(id, delay, false);
         }
         self.kick();
-        receiver
-            .await
-            .unwrap_or(Err(PullError::CoordinatorStopped))
+        receiver.await.unwrap_or(Err(PullError::CoordinatorStopped))
     }
 
     pub async fn cancel(&self, id: &str) -> bool {

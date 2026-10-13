@@ -1,4 +1,4 @@
-use crate::data::{resolve_course_id, versioned::content_hash};
+use crate::data::{resolve_course_id, versioned::content_hash, DataError};
 use chrono::{Datelike, NaiveDate, NaiveTime, Utc};
 use reqwest::{Client, Url};
 use rusqlite::{Connection, OptionalExtension, Transaction};
@@ -7,9 +7,53 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 
-#[cfg(test)]
+#[derive(Debug, thiserror::Error)]
+pub enum SubscriptionError {
+    #[error("{0}")]
+    Validation(String),
+    #[error("{0}")]
+    Network(String),
+    #[error("{0}")]
+    Storage(String),
+}
+
+impl From<String> for SubscriptionError {
+    fn from(message: String) -> Self {
+        Self::Validation(message)
+    }
+}
+
+impl From<&str> for SubscriptionError {
+    fn from(message: &str) -> Self {
+        Self::Validation(message.to_string())
+    }
+}
+
+impl From<DataError> for SubscriptionError {
+    fn from(error: DataError) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
+impl From<rusqlite::Error> for SubscriptionError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
+impl From<serde_json::Error> for SubscriptionError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Validation(error.to_string())
+    }
+}
+
+impl From<reqwest::Error> for SubscriptionError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Network(error.to_string())
+    }
+}
+
 pub const BUNDLED_INDEX: &str = include_str!("../subscriptions/index.json");
-#[cfg(test)]
 pub const BUNDLED_INDEX_HASH: &str = include_str!("../subscriptions/index.sha256");
 pub const BUNDLED_ACADEMIC_CALENDAR_2026: &str =
     include_str!("../subscriptions/data/2026/academic-calendar.json");
@@ -264,7 +308,7 @@ pub struct ReferenceFetch<T> {
     pub source_ts: String,
 }
 
-fn validate_indexed_source(source: &IndexedSource) -> Result<(), String> {
+fn validate_indexed_source(source: &IndexedSource) -> Result<(), SubscriptionError> {
     if source.hash.len() != 64 || !source.hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("subscription index hash must be a SHA-256 hex digest".into());
     }
@@ -273,7 +317,7 @@ fn validate_indexed_source(source: &IndexedSource) -> Result<(), String> {
     Ok(())
 }
 
-fn source_url(base: &Url, source: &IndexedSource) -> Result<Url, String> {
+fn source_url(base: &Url, source: &IndexedSource) -> Result<Url, SubscriptionError> {
     validate_indexed_source(source)?;
     https_url(
         base.join(&source.source)
@@ -282,16 +326,17 @@ fn source_url(base: &Url, source: &IndexedSource) -> Result<Url, String> {
     )
 }
 
-fn exam_manifest_hash(sources: &[IndexedSource]) -> Result<String, String> {
+fn exam_manifest_hash(sources: &[IndexedSource]) -> Result<String, SubscriptionError> {
     content_hash(&Value::Array(
         sources
             .iter()
             .map(|source| json!({ "source": source.source, "hash": source.hash }))
             .collect(),
     ))
+    .map_err(SubscriptionError::from)
 }
 
-fn verify_source_hash(raw: &str, expected: &str) -> Result<(), String> {
+fn verify_source_hash(raw: &str, expected: &str) -> Result<(), SubscriptionError> {
     let value: Value =
         serde_json::from_str(raw).map_err(|error| format!("invalid subscription JSON: {error}"))?;
     let actual = content_hash(&value)?;
@@ -301,23 +346,24 @@ fn verify_source_hash(raw: &str, expected: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn https_url(raw: &str) -> Result<Url, String> {
+fn https_url(raw: &str) -> Result<Url, SubscriptionError> {
     let url = Url::parse(raw).map_err(|_| format!("invalid HTTPS URL: {raw}"))?;
     if url.scheme() != "https"
         || !url.username().is_empty()
         || url.password().is_some()
         || url.host_str().is_none()
     {
-        return Err(format!("invalid HTTPS URL: {raw}"));
+        return Err(format!("invalid HTTPS URL: {raw}").into());
     }
     Ok(url)
 }
 
-fn date(raw: &str) -> Result<NaiveDate, String> {
-    NaiveDate::parse_from_str(raw, "%Y-%m-%d").map_err(|_| format!("invalid date: {raw}"))
+fn date(raw: &str) -> Result<NaiveDate, SubscriptionError> {
+    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+        .map_err(|_| SubscriptionError::from(format!("invalid date: {raw}")))
 }
 
-fn validate_sources(sources: &[SourceLink]) -> Result<(), String> {
+fn validate_sources(sources: &[SourceLink]) -> Result<(), SubscriptionError> {
     if sources.is_empty() {
         return Err("source must contain at least one citation".into());
     }
@@ -330,7 +376,7 @@ fn validate_sources(sources: &[SourceLink]) -> Result<(), String> {
     Ok(())
 }
 
-pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, String> {
+pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("academic calendar exceeds the size limit".into());
     }
@@ -353,7 +399,7 @@ pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, String>
         let start = date(&range.start)?;
         let end = date(&range.end)?;
         if start.year() != value.academic_year || end < start {
-            return Err(format!("invalid {quarter} range"));
+            return Err(format!("invalid {quarter} range").into());
         }
         if prior.is_some_and(|end| start <= end) {
             return Err("quarter ranges overlap or are unordered".into());
@@ -401,7 +447,7 @@ pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, String>
             return Err("calendar day is outside the academic year".into());
         }
         if !dates.insert(&day.date) {
-            return Err(format!("duplicate calendar day: {}", day.date));
+            return Err(format!("duplicate calendar day: {}", day.date).into());
         }
         match day.day_type {
             CalendarDayType::Replacement if !matches!(day.replacement_day, Some(1..=7)) => {
@@ -420,7 +466,7 @@ pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, String>
     Ok(value)
 }
 
-pub fn validate_departments(raw: &str) -> Result<Departments, String> {
+pub fn validate_departments(raw: &str) -> Result<Departments, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("departments data exceeds the size limit".into());
     }
@@ -511,7 +557,7 @@ pub fn validate_departments(raw: &str) -> Result<Departments, String> {
     Ok(value)
 }
 
-fn validate_feed_sources(sources: &[FeedSource]) -> Result<HashSet<&str>, String> {
+fn validate_feed_sources(sources: &[FeedSource]) -> Result<HashSet<&str>, SubscriptionError> {
     if sources.is_empty() {
         return Err("source must contain at least one citation".into());
     }
@@ -540,11 +586,21 @@ fn validate_feed_sources(sources: &[FeedSource]) -> Result<HashSet<&str>, String
 }
 
 fn date_in_academic_year(value: NaiveDate, year: i32) -> bool {
-    value >= NaiveDate::from_ymd_opt(year, 4, 1).unwrap()
-        && value <= NaiveDate::from_ymd_opt(year + 1, 3, 31).unwrap()
+    NaiveDate::from_ymd_opt(year, 4, 1)
+        .zip(NaiveDate::from_ymd_opt(year + 1, 3, 31))
+        .is_some_and(|(start, end)| value >= start && value <= end)
 }
 
-pub fn validate_important_dates(raw: &str, year: i32) -> Result<ImportantDates, String> {
+fn object_mut<'a>(
+    value: &'a mut Value,
+    context: &str,
+) -> Result<&'a mut serde_json::Map<String, Value>, SubscriptionError> {
+    value.as_object_mut().ok_or_else(|| {
+        SubscriptionError::Storage(format!("{context} did not serialize as an object"))
+    })
+}
+
+pub fn validate_important_dates(raw: &str, year: i32) -> Result<ImportantDates, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("important dates exceed the size limit".into());
     }
@@ -578,13 +634,17 @@ pub fn validate_important_dates(raw: &str, year: i32) -> Result<ImportantDates, 
                 .as_deref()
                 .is_some_and(|v| !matches!(v, "official" | "translation"))
         {
-            return Err(format!("important date {} is invalid", entry.id));
+            return Err(format!("important date {} is invalid", entry.id).into());
         }
     }
     Ok(value)
 }
 
-pub fn validate_exam_feed(raw: &str, year: i32, quarter: &str) -> Result<ExamFeed, String> {
+pub fn validate_exam_feed(
+    raw: &str,
+    year: i32,
+    quarter: &str,
+) -> Result<ExamFeed, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("exam data exceeds the size limit".into());
     }
@@ -602,7 +662,7 @@ pub fn validate_exam_feed(raw: &str, year: i32, quarter: &str) -> Result<ExamFee
                 .zip(NaiveTime::parse_from_str(end, "%H:%M").ok())
                 .is_some_and(|(a, b)| a < b),
             (None, None) => false,
-            _ => return Err(format!("exam {} has an incomplete exact time", entry.id)),
+            _ => return Err(format!("exam {} has an incomplete exact time", entry.id).into()),
         };
         let periods = entry.periods.as_ref().is_some_and(|p| {
             p.len() == 2 && (1..=10).contains(&p[0]) && p[0] <= p[1] && p[1] <= 10
@@ -623,7 +683,7 @@ pub fn validate_exam_feed(raw: &str, year: i32, quarter: &str) -> Result<ExamFee
                 .any(|id| !sources.contains(id.as_str()))
             || entry.source_pages.contains(&0)
         {
-            return Err(format!("exam {} is invalid", entry.id));
+            return Err(format!("exam {} is invalid", entry.id).into());
         }
     }
     Ok(value)
@@ -647,30 +707,33 @@ pub struct SubscriptionClient {
 }
 
 impl SubscriptionClient {
-    pub fn new() -> Result<Self, String> {
+    pub fn new() -> Result<Self, SubscriptionError> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::limited(3))
             .build()
-            .map_err(|e| e.to_string())?;
+            .map_err(SubscriptionError::from)?;
         Ok(Self { client })
     }
     /// Reads and validates the single repository entry point. Its raw hash is
     /// used to skip dataset requests when no metadata changed.
-    pub async fn probe_index_source(&self, index_url: &str) -> Result<String, String> {
+    pub async fn probe_index_source(&self, index_url: &str) -> Result<String, SubscriptionError> {
         let (_, _, hash) = self.fetch_index(index_url, None).await?;
         Ok(hash)
     }
-    async fn get(&self, url: Url, limit: usize) -> Result<String, String> {
+    async fn get(&self, url: Url, limit: usize) -> Result<String, SubscriptionError> {
         let mut response = self
             .client
             .get(url.clone())
             .header("Accept", "application/json")
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(SubscriptionError::from)?;
         if !response.status().is_success() {
-            return Err(format!("subscription GET failed: {}", response.status()));
+            return Err(SubscriptionError::Network(format!(
+                "subscription GET failed: {}",
+                response.status()
+            )));
         }
         if response.url().scheme() != "https" {
             return Err("subscription redirect left HTTPS".into());
@@ -681,7 +744,7 @@ impl SubscriptionClient {
             }
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        while let Some(chunk) = response.chunk().await.map_err(SubscriptionError::from)? {
             if bytes.len().saturating_add(chunk.len()) > limit {
                 return Err("subscription response exceeds the size limit".into());
             }
@@ -694,7 +757,7 @@ impl SubscriptionClient {
         &self,
         index_url: &str,
         expected_hash: Option<&str>,
-    ) -> Result<(Url, SubscriptionIndex, String), String> {
+    ) -> Result<(Url, SubscriptionIndex, String), SubscriptionError> {
         let base = https_url(index_url)?;
         let raw = self.get(base.clone(), MAX_INDEX_BYTES).await?;
         let actual = format!("{:x}", Sha256::digest(raw.as_bytes()));
@@ -714,7 +777,7 @@ impl SubscriptionClient {
         year: i32,
         expected_index_hash: Option<&str>,
         known_hash: Option<&str>,
-    ) -> Result<ReferenceFetch<AcademicCalendar>, String> {
+    ) -> Result<ReferenceFetch<AcademicCalendar>, SubscriptionError> {
         let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
         let source = &index
             .academic_years
@@ -749,7 +812,7 @@ impl SubscriptionClient {
         year: i32,
         expected_index_hash: Option<&str>,
         known_hash: Option<&str>,
-    ) -> Result<ReferenceFetch<Departments>, String> {
+    ) -> Result<ReferenceFetch<Departments>, SubscriptionError> {
         let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
         let source = &index
             .admission_years
@@ -784,7 +847,7 @@ impl SubscriptionClient {
         year: i32,
         expected_index_hash: Option<&str>,
         known_hash: Option<&str>,
-    ) -> Result<ReferenceFetch<ImportantDates>, String> {
+    ) -> Result<ReferenceFetch<ImportantDates>, SubscriptionError> {
         let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
         let source = index
             .academic_years
@@ -817,7 +880,7 @@ impl SubscriptionClient {
         year: i32,
         expected_index_hash: Option<&str>,
         known_hash: Option<&str>,
-    ) -> Result<ReferenceFetch<Vec<PublishedExamFeed>>, String> {
+    ) -> Result<ReferenceFetch<Vec<PublishedExamFeed>>, SubscriptionError> {
         let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
         let sources = &index
             .academic_years
@@ -874,7 +937,7 @@ fn apply_row(
     value: &Value,
     source_hash: &str,
     extra: &[(&str, rusqlite::types::Value)],
-) -> Result<bool, String> {
+) -> Result<bool, SubscriptionError> {
     let hash = content_hash(value)?;
     let old: Option<(String, u64, Option<String>)> = tx
         .query_row(
@@ -883,7 +946,7 @@ fn apply_row(
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
-        .map_err(|e| e.to_string())?;
+        .map_err(SubscriptionError::from)?;
     let timestamp = Utc::now().to_rfc3339();
     if old.as_ref().is_some_and(|(h, _, _)| h == &hash) {
         let changed = old
@@ -891,7 +954,7 @@ fn apply_row(
             .is_some_and(|(_, _, missing)| missing.is_some());
         tx.execute(&format!("UPDATE {table} SET last_seen_at=?2,missing_since=NULL,deleted_at=NULL,
             value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"), rusqlite::params![id,timestamp])
-            .map_err(|e|e.to_string())?;
+            .map_err(SubscriptionError::from)?;
         return Ok(changed);
     }
     let mut names = vec![
@@ -927,7 +990,7 @@ fn apply_row(
     let mut values = vec![
         id.to_string().into(),
         serde_json::to_string(&stored)
-            .map_err(|e| e.to_string())?
+            .map_err(SubscriptionError::from)?
             .into(),
         hash.into(),
         timestamp.clone().into(),
@@ -956,7 +1019,7 @@ fn apply_row(
         ),
         rusqlite::params_from_iter(values),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(SubscriptionError::from)?;
     Ok(true)
 }
 
@@ -964,7 +1027,7 @@ pub fn apply_subscription(
     connection: &mut Connection,
     calendar: &AcademicCalendar,
     departments: &Departments,
-) -> Result<usize, String> {
+) -> Result<usize, SubscriptionError> {
     apply_reference(connection, Some(calendar), Some(departments))
 }
 
@@ -972,7 +1035,7 @@ pub fn apply_reference(
     connection: &mut Connection,
     selected_calendar: Option<&AcademicCalendar>,
     selected_departments: Option<&Departments>,
-) -> Result<usize, String> {
+) -> Result<usize, SubscriptionError> {
     let empty_calendar = AcademicCalendar {
         schema_version: 1,
         academic_year: 0,
@@ -990,11 +1053,11 @@ pub fn apply_reference(
     };
     let calendar = selected_calendar.unwrap_or(&empty_calendar);
     let departments = selected_departments.unwrap_or(&empty_departments);
-    let calendar_value = serde_json::to_value(calendar).map_err(|e| e.to_string())?;
-    let departments_value = serde_json::to_value(departments).map_err(|e| e.to_string())?;
+    let calendar_value = serde_json::to_value(calendar).map_err(SubscriptionError::from)?;
+    let departments_value = serde_json::to_value(departments).map_err(SubscriptionError::from)?;
     let calendar_hash = content_hash(&calendar_value)?;
     let guide_hash = content_hash(&departments_value)?;
-    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let tx = connection.transaction().map_err(SubscriptionError::from)?;
     let mut changed = 0;
     let mut calendar_ids = HashSet::new();
     for (quarter, range) in &calendar.quarters {
@@ -1014,13 +1077,18 @@ pub fn apply_reference(
             changed += usize::from(apply_row(
                 &tx,
                 "academic_calendar",
-                value["id"].as_str().unwrap(),
+                &id,
                 &value,
                 &calendar_hash,
                 &[
                     ("date", date.clone().into()),
                     ("type", kind.to_string().into()),
-                    ("label", serde_json::to_string(&label).unwrap().into()),
+                    (
+                        "label",
+                        serde_json::to_string(&label)
+                            .map_err(SubscriptionError::from)?
+                            .into(),
+                    ),
                     ("source_hash", calendar_hash.clone().into()),
                 ],
             )?);
@@ -1029,19 +1097,11 @@ pub fn apply_reference(
     for day in &calendar.days {
         let id = format!("calendar:{}:day:{}", calendar.academic_year, day.date);
         calendar_ids.insert(id.clone());
-        let mut value = serde_json::to_value(day).map_err(|e| e.to_string())?;
-        value
-            .as_object_mut()
-            .expect("calendar day object")
-            .insert("id".into(), id.clone().into());
-        value
-            .as_object_mut()
-            .expect("calendar day object")
-            .insert("academicYear".into(), calendar.academic_year.into());
-        value
-            .as_object_mut()
-            .expect("calendar day object")
-            .insert("provenance".into(), json!({"source":calendar.source}));
+        let mut value = serde_json::to_value(day).map_err(SubscriptionError::from)?;
+        let object = object_mut(&mut value, "calendar day")?;
+        object.insert("id".into(), id.clone().into());
+        object.insert("academicYear".into(), calendar.academic_year.into());
+        object.insert("provenance".into(), json!({"source":calendar.source}));
         changed += usize::from(apply_row(
             &tx,
             "academic_calendar",
@@ -1066,7 +1126,12 @@ pub fn apply_reference(
                         .map(|v| (v as i64).into())
                         .unwrap_or(rusqlite::types::Value::Null),
                 ),
-                ("label", serde_json::to_string(&day.label).unwrap().into()),
+                (
+                    "label",
+                    serde_json::to_string(&day.label)
+                        .map_err(SubscriptionError::from)?
+                        .into(),
+                ),
                 ("source_hash", calendar_hash.clone().into()),
             ],
         )?);
@@ -1079,8 +1144,8 @@ pub fn apply_reference(
             departments.admission_year, department.id
         );
         department_ids.insert(id.clone());
-        let mut value = serde_json::to_value(department).map_err(|e| e.to_string())?;
-        let object = value.as_object_mut().expect("department object");
+        let mut value = serde_json::to_value(department).map_err(SubscriptionError::from)?;
+        let object = object_mut(&mut value, "department")?;
         object.insert("id".into(), id.clone().into());
         object.insert("admissionYear".into(), departments.admission_year.into());
         object.insert("cohortYear".into(), departments.admission_year.into());
@@ -1099,8 +1164,8 @@ pub fn apply_reference(
                 departments.admission_year, department.id, course.code, course.group
             );
             recommended_ids.insert(id.clone());
-            let mut value = serde_json::to_value(course).map_err(|e| e.to_string())?;
-            let object = value.as_object_mut().expect("recommended course object");
+            let mut value = serde_json::to_value(course).map_err(SubscriptionError::from)?;
+            let object = object_mut(&mut value, "recommended course")?;
             object.insert("id".into(), id.clone().into());
             object.insert("admissionYear".into(), departments.admission_year.into());
             object.insert("cohortYear".into(), departments.admission_year.into());
@@ -1164,19 +1229,19 @@ pub fn apply_reference(
             .prepare(&format!(
                 "SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"
             ))
-            .map_err(|e| e.to_string())?;
+            .map_err(SubscriptionError::from)?;
         let old = statement
             .query_map([prefix], |r| r.get::<_, String>(0))
-            .map_err(|e| e.to_string())?
+            .map_err(SubscriptionError::from)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
+            .map_err(SubscriptionError::from)?;
         drop(statement);
         for id in old.into_iter().filter(|id| !live.contains(id)) {
             let missing = Utc::now().to_rfc3339();
-            changed+=tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),rusqlite::params![id,missing]).map_err(|e|e.to_string())?;
+            changed+=tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),rusqlite::params![id,missing]).map_err(SubscriptionError::from)?;
         }
     }
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().map_err(SubscriptionError::from)?;
     Ok(changed)
 }
 
@@ -1185,22 +1250,22 @@ fn mark_missing(
     table: &str,
     prefix: &str,
     live: &HashSet<String>,
-) -> Result<usize, String> {
+) -> Result<usize, SubscriptionError> {
     let mut statement = tx
         .prepare(&format!(
             "SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"
         ))
-        .map_err(|e| e.to_string())?;
+        .map_err(SubscriptionError::from)?;
     let old = statement
         .query_map([prefix], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
+        .map_err(SubscriptionError::from)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        .map_err(SubscriptionError::from)?;
     drop(statement);
     let mut changed = 0;
     for id in old.into_iter().filter(|id| !live.contains(id)) {
         let timestamp = Utc::now().to_rfc3339();
-        changed += tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"), rusqlite::params![id,timestamp]).map_err(|e|e.to_string())?;
+        changed += tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"), rusqlite::params![id,timestamp]).map_err(SubscriptionError::from)?;
     }
     Ok(changed)
 }
@@ -1208,17 +1273,17 @@ fn mark_missing(
 pub fn apply_important_dates(
     connection: &mut Connection,
     feed: &ImportantDates,
-) -> Result<usize, String> {
-    let feed_value = serde_json::to_value(feed).map_err(|e| e.to_string())?;
+) -> Result<usize, SubscriptionError> {
+    let feed_value = serde_json::to_value(feed).map_err(SubscriptionError::from)?;
     let source_hash = content_hash(&feed_value)?;
-    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let tx = connection.transaction().map_err(SubscriptionError::from)?;
     let mut changed = 0;
     let mut live = HashSet::new();
     for entry in &feed.entries {
         let id = format!("important-date:{}:{}", feed.academic_year, entry.id);
         live.insert(id.clone());
-        let mut value = serde_json::to_value(entry).map_err(|e| e.to_string())?;
-        let object = value.as_object_mut().expect("important date object");
+        let mut value = serde_json::to_value(entry).map_err(SubscriptionError::from)?;
+        let object = object_mut(&mut value, "important date")?;
         object.insert("id".into(), id.clone().into());
         object.insert("academicYear".into(), feed.academic_year.into());
         object.insert(
@@ -1250,17 +1315,17 @@ pub fn apply_important_dates(
         &format!("important-date:{}:%", feed.academic_year),
         &live,
     )?;
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().map_err(SubscriptionError::from)?;
     Ok(changed)
 }
 
 pub fn apply_exam_feed(
     connection: &mut Connection,
     published: &PublishedExamFeed,
-) -> Result<usize, String> {
-    let feed_value = serde_json::to_value(&published.feed).map_err(|e| e.to_string())?;
+) -> Result<usize, SubscriptionError> {
+    let feed_value = serde_json::to_value(&published.feed).map_err(SubscriptionError::from)?;
     let source_hash = content_hash(&feed_value)?;
-    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let tx = connection.transaction().map_err(SubscriptionError::from)?;
     let mut changed = 0;
     let mut live = HashSet::new();
     for entry in &published.feed.entries {
@@ -1269,8 +1334,8 @@ pub fn apply_exam_feed(
             published.feed.academic_year, published.level, published.quarter, entry.id
         );
         live.insert(id.clone());
-        let mut value = serde_json::to_value(entry).map_err(|e| e.to_string())?;
-        let object = value.as_object_mut().expect("exam object");
+        let mut value = serde_json::to_value(entry).map_err(SubscriptionError::from)?;
+        let object = object_mut(&mut value, "exam")?;
         object.insert("id".into(), id.clone().into());
         object.insert("academicYear".into(), published.feed.academic_year.into());
         object.insert("level".into(), published.level.clone().into());
@@ -1317,7 +1382,7 @@ pub fn apply_exam_feed(
         published.feed.academic_year, published.level, published.quarter
     );
     changed += mark_missing(&tx, "exams", &prefix, &live)?;
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().map_err(SubscriptionError::from)?;
     Ok(changed)
 }
 
@@ -1326,19 +1391,15 @@ pub fn apply_exam_feed(
 pub fn bundled_selection(
     academic_year: i32,
     admission_year: i32,
-) -> Result<(AcademicCalendar, Departments), String> {
+) -> Result<(AcademicCalendar, Departments), SubscriptionError> {
     if academic_year != 2026 {
-        return Err(format!("no bundled academic calendar for {academic_year}"));
+        return Err(format!("no bundled academic calendar for {academic_year}").into());
     }
     let calendar = validate_academic_calendar(BUNDLED_ACADEMIC_CALENDAR_2026)?;
     let departments = match admission_year {
         2025 => validate_departments(BUNDLED_DEPARTMENTS_2025)?,
         2026 => validate_departments(BUNDLED_DEPARTMENTS_2026)?,
-        _ => {
-            return Err(format!(
-                "no bundled guide for admission year {admission_year}"
-            ))
-        }
+        _ => return Err(format!("no bundled guide for admission year {admission_year}").into()),
     };
     Ok((calendar, departments))
 }

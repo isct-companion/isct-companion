@@ -1,6 +1,9 @@
 pub mod cloud_merge;
+mod error;
 pub mod migrations;
 pub mod versioned;
+
+pub use error::DataError;
 
 use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -82,7 +85,9 @@ fn merge_object(target: &mut Value, source: Value) {
             continue;
         }
         if value.is_object() && target.get(&key).is_some_and(Value::is_object) {
-            merge_object(target.get_mut(&key).expect("checked"), value);
+            if let Some(target_value) = target.get_mut(&key) {
+                merge_object(target_value, value);
+            }
         } else {
             target.insert(key, value);
         }
@@ -337,21 +342,21 @@ fn content_value(value: &Value) -> Value {
     value
 }
 
-fn string_field<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+fn string_field<'a>(value: &'a Value, key: &str) -> Result<&'a str, DataError> {
     value
         .get(key)
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("record is missing {key}"))
+        .ok_or_else(|| DataError::from(format!("record is missing {key}")))
 }
 
-fn validate_contract<T: DeserializeOwned>(table: &str, value: &Value) -> Result<(), String> {
+fn validate_contract<T: DeserializeOwned>(table: &str, value: &Value) -> Result<(), DataError> {
     serde_json::from_value::<T>(value.clone())
         .map(|_| ())
-        .map_err(|error| format!("{table} validation failed: {error}"))
+        .map_err(|error| DataError::from(format!("{table} validation failed: {error}")))
 }
 
-fn validate_user_record(table: &str, value: &Value) -> Result<(), String> {
+fn validate_user_record(table: &str, value: &Value) -> Result<(), DataError> {
     use crate::contracts::*;
     match table {
         "manual_courses" => validate_contract::<Course>(table, value),
@@ -370,7 +375,7 @@ fn validate_user_record(table: &str, value: &Value) -> Result<(), String> {
     }
 }
 
-fn row_version(value: &Value) -> Result<VersionedValue, String> {
+fn row_version(value: &Value) -> Result<VersionedValue, DataError> {
     let content = content_value(value);
     Ok(VersionedValue {
         hash: content_hash(&content)?,
@@ -392,36 +397,34 @@ fn row_version(value: &Value) -> Result<VersionedValue, String> {
     })
 }
 
-fn read_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, String> {
+fn read_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, DataError> {
     let sql = format!("SELECT value FROM {table} ORDER BY id");
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|error| error.to_string())?;
+    let mut statement = connection.prepare(&sql).map_err(DataError::from)?;
     let rows = statement
         .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|error| error.to_string())?
+        .map_err(DataError::from)?
         .map(|row| {
-            let raw = row.map_err(|error| error.to_string())?;
-            serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))
+            let raw = row.map_err(DataError::from)?;
+            serde_json::from_str(&raw)
+                .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")))
         })
         .collect();
     rows
 }
 
-fn read_visible_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, String> {
+fn read_visible_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, DataError> {
     if !SCHOOL_CACHE_TABLES.contains(&table) {
         return read_rows(connection, table);
     }
     let sql = format!("SELECT value FROM {table} WHERE missing_since IS NULL ORDER BY id");
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|error| error.to_string())?;
+    let mut statement = connection.prepare(&sql).map_err(DataError::from)?;
     let rows = statement
         .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|error| error.to_string())?
+        .map_err(DataError::from)?
         .map(|row| {
-            let raw = row.map_err(|error| error.to_string())?;
-            serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))
+            let raw = row.map_err(DataError::from)?;
+            serde_json::from_str(&raw)
+                .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")))
         })
         .collect();
     rows
@@ -447,7 +450,10 @@ fn fill_missing(value: &mut Value, fallback: &Value) {
     }
 }
 
-pub(crate) fn canonical_course_id(academic_year: i32, offering_id: &str) -> Result<String, String> {
+pub(crate) fn canonical_course_id(
+    academic_year: i32,
+    offering_id: &str,
+) -> Result<String, DataError> {
     if !(1000..=9999).contains(&academic_year)
         || offering_id.len() != 9
         || !offering_id.bytes().all(|byte| byte.is_ascii_digit())
@@ -466,7 +472,7 @@ pub(crate) fn resolve_course_id(
     external_id: &str,
     academic_year: i32,
     offering_id: Option<&str>,
-) -> Result<String, String> {
+) -> Result<String, DataError> {
     if !matches!(provider, "lms" | "syllabus" | "kyomu" | "manual") || external_id.trim().is_empty()
     {
         return Err("invalid course identity source".into());
@@ -479,7 +485,7 @@ pub(crate) fn resolve_course_id(
             |row| row.get(0),
         )
         .optional()
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     let course_id = if let Some(offering_id) = offering_id {
         canonical_course_id(academic_year, offering_id)?
     } else if let Some(stored) = stored {
@@ -504,7 +510,7 @@ pub(crate) fn resolve_course_id(
                 now()
             ],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     Ok(course_id)
 }
 
@@ -514,7 +520,7 @@ fn read_stored_row(
     transaction: &Transaction<'_>,
     table: &str,
     id: &str,
-) -> Result<Option<StoredRow>, String> {
+) -> Result<Option<StoredRow>, DataError> {
     let sql = format!(
         "SELECT hash, rev, updated_at, updated_by, source, deleted_at FROM {table} WHERE id=?1"
     );
@@ -530,7 +536,7 @@ fn read_stored_row(
             ))
         })
         .optional()
-        .map_err(|error| error.to_string())
+        .map_err(DataError::from)
 }
 
 fn upsert_row(
@@ -538,7 +544,7 @@ fn upsert_row(
     table: &str,
     value: &Value,
     force: bool,
-) -> Result<bool, String> {
+) -> Result<bool, DataError> {
     let id = string_field(value, "id")?;
     let version = row_version(value)?;
     if let Some((stored_hash, stored_rev, _, _, _, stored_deleted)) =
@@ -556,7 +562,7 @@ fn upsert_row(
             return Ok(false);
         }
     }
-    let raw = serde_json::to_string(value).map_err(|error| error.to_string())?;
+    let raw = serde_json::to_string(value).map_err(DataError::from)?;
     let sql = format!(
         "INSERT INTO {table}
          (id, value, hash, updated_at, updated_by, rev, source, deleted_at)
@@ -580,11 +586,11 @@ fn upsert_row(
                 version.deleted_at
             ],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     Ok(true)
 }
 
-fn read_setting(connection: &Connection, key: &str) -> Result<Option<Value>, String> {
+fn read_setting(connection: &Connection, key: &str) -> Result<Option<Value>, DataError> {
     let raw: Option<String> = connection
         .query_row(
             "SELECT value FROM settings WHERE key=?1 AND deleted_at IS NULL",
@@ -592,20 +598,20 @@ fn read_setting(connection: &Connection, key: &str) -> Result<Option<Value>, Str
             |row| row.get(0),
         )
         .optional()
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     raw.map(|raw| {
-        serde_json::from_str(&raw).map_err(|_| "settings contain invalid JSON".to_string())
+        serde_json::from_str(&raw).map_err(|_| DataError::storage("settings contain invalid JSON"))
     })
     .transpose()
 }
 
-fn read_settings_export(connection: &Connection) -> Result<Vec<Value>, String> {
+fn read_settings_export(connection: &Connection) -> Result<Vec<Value>, DataError> {
     let mut statement = connection
         .prepare(
             "SELECT key, value, hash, updated_at, updated_by, rev, source, deleted_at
              FROM settings ORDER BY key",
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     let rows = statement
         .query_map([], |row| {
             let raw: String = row.get(1)?;
@@ -620,13 +626,13 @@ fn read_settings_export(connection: &Connection) -> Result<Vec<Value>, String> {
                 "deletedAt": row.get::<_, Option<String>>(7)?
             }))
         })
-        .map_err(|error| error.to_string())?
+        .map_err(DataError::from)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     Ok(rows)
 }
 
-fn setting_version(row: &Value) -> Result<VersionedValue, String> {
+fn setting_version(row: &Value) -> Result<VersionedValue, DataError> {
     let value = row
         .get("value")
         .cloned()
@@ -651,7 +657,7 @@ fn setting_version(row: &Value) -> Result<VersionedValue, String> {
     })
 }
 
-fn import_setting(transaction: &Transaction<'_>, row: &Value) -> Result<(), String> {
+fn import_setting(transaction: &Transaction<'_>, row: &Value) -> Result<(), DataError> {
     let key = string_field(row, "key")?;
     let incoming = setting_version(row)?;
     transaction
@@ -664,7 +670,7 @@ fn import_setting(transaction: &Transaction<'_>, row: &Value) -> Result<(), Stri
              rev=excluded.rev, source=excluded.source, deleted_at=excluded.deleted_at",
             params![
                 key,
-                serde_json::to_string(&incoming.value).map_err(|error| error.to_string())?,
+                serde_json::to_string(&incoming.value).map_err(DataError::from)?,
                 incoming.hash,
                 incoming.updated_at,
                 incoming.updated_by,
@@ -673,7 +679,7 @@ fn import_setting(transaction: &Transaction<'_>, row: &Value) -> Result<(), Stri
                 incoming.deleted_at
             ],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     Ok(())
 }
 
@@ -682,7 +688,7 @@ fn save_setting(
     key: &str,
     value: &Value,
     device_id: &str,
-) -> Result<bool, String> {
+) -> Result<bool, DataError> {
     let hash = content_hash(value)?;
     let existing: Option<(String, i64)> = transaction
         .query_row(
@@ -691,7 +697,7 @@ fn save_setting(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     if existing.as_ref().is_some_and(|(stored, _)| stored == &hash)
         && read_setting(transaction, key)?.is_some()
     {
@@ -708,38 +714,38 @@ fn save_setting(
              source=excluded.source, deleted_at=NULL",
             params![
                 key,
-                serde_json::to_string(value).map_err(|error| error.to_string())?,
+                serde_json::to_string(value).map_err(DataError::from)?,
                 hash,
                 now(),
                 device_id,
                 rev
             ],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     Ok(true)
 }
 
 /// Checks a local backup document before anything is restored from it. The
 /// kind and schema come first so an old or foreign file is reported as such
 /// rather than by whichever field it happens to fail on.
-pub fn parse_import(document: &str) -> Result<Value, String> {
-    let parsed: Value =
-        serde_json::from_str(document).map_err(|_| "the file is not valid JSON".to_string())?;
+pub fn parse_import(document: &str) -> Result<Value, DataError> {
+    let parsed: Value = serde_json::from_str(document)
+        .map_err(|_| DataError::from("the file is not valid JSON".to_string()))?;
     if parsed.get("kind").and_then(Value::as_str) != Some(BACKUP_KIND) {
         return Err("the file is not an IsctCompanion backup".into());
     }
     match parsed.get("schemaVersion") {
         Some(version) if version.as_u64() == Some(BACKUP_SCHEMA_VERSION) => {}
         Some(version) => {
-            return Err(format!(
+            return Err(DataError::compatibility(format!(
                 "the backup uses schema version {version}; this app reads version {BACKUP_SCHEMA_VERSION}"
-            ))
+            )))
         }
         None => return Err("the backup has no schema version".into()),
     }
     let exported_at = string_field(&parsed, "exportedAt")?;
     DateTime::parse_from_rfc3339(exported_at)
-        .map_err(|_| "import exportedAt must be RFC 3339".to_string())?;
+        .map_err(|_| DataError::from("import exportedAt must be RFC 3339".to_string()))?;
     let tables = parsed
         .get("tables")
         .and_then(Value::as_object)
@@ -754,7 +760,9 @@ pub fn parse_import(document: &str) -> Result<Value, String> {
         .collect();
     for table in &required {
         if !tables.get(*table).is_some_and(Value::is_array) {
-            return Err(format!("import table {table} must be an array"));
+            return Err(DataError::compatibility(format!(
+                "import table {table} must be an array"
+            )));
         }
     }
     for (name, rows) in tables {
@@ -775,7 +783,7 @@ pub fn parse_import(document: &str) -> Result<Value, String> {
     Ok(parsed)
 }
 
-pub(crate) fn validate_sync_document(document: &Value) -> Result<(), String> {
+pub fn validate_sync_document(document: &Value) -> Result<(), DataError> {
     parse_import(&document.to_string())?;
     for table in USER_BACKUP_TABLES {
         for row in document["tables"][table].as_array().into_iter().flatten() {
@@ -786,11 +794,11 @@ pub(crate) fn validate_sync_document(document: &Value) -> Result<(), String> {
 }
 
 impl DataStore {
-    pub fn initialize(path: PathBuf) -> Result<(Self, bool), String> {
+    pub fn initialize(path: PathBuf) -> Result<(Self, bool), DataError> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            std::fs::create_dir_all(parent).map_err(DataError::from)?;
         }
-        let mut connection = Connection::open(&path).map_err(|error| error.to_string())?;
+        let mut connection = Connection::open(&path).map_err(DataError::from)?;
         let rebuilt = migrations::migrate(&mut connection)?;
         // Catalog offerings are never deleted by the person; earlier workspace
         // saves tombstoned rows the window had not loaded yet. Restore them.
@@ -800,19 +808,19 @@ impl DataStore {
                  WHERE deleted_at IS NOT NULL",
                 [],
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let store = Self { path };
         store.ensure_defaults()?;
         Ok((store, rebuilt))
     }
 
-    fn open(&self) -> Result<Connection, String> {
-        let mut connection = Connection::open(&self.path).map_err(|error| error.to_string())?;
+    fn open(&self) -> Result<Connection, DataError> {
+        let mut connection = Connection::open(&self.path).map_err(DataError::from)?;
         migrations::migrate(&mut connection)?;
         Ok(connection)
     }
 
-    fn ensure_defaults(&self) -> Result<(), String> {
+    fn ensure_defaults(&self) -> Result<(), DataError> {
         let mut connection = self.open()?;
         let existing_device_id = read_setting(&connection, "deviceId")?;
         let workspace = empty_workspace();
@@ -820,9 +828,7 @@ impl DataStore {
             .as_ref()
             .and_then(Value::as_str)
             .unwrap_or(string_field(&workspace, "deviceId")?);
-        let transaction = connection
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction = connection.transaction().map_err(DataError::from)?;
         if existing_device_id.is_none() {
             for key in [
                 "deviceId",
@@ -854,7 +860,7 @@ impl DataStore {
             &lms_background_refresh_task(device_id),
             false,
         )?;
-        transaction.commit().map_err(|error| error.to_string())
+        transaction.commit().map_err(DataError::from)
     }
 
     fn user_table(table: &str) -> bool {
@@ -877,7 +883,12 @@ impl DataStore {
 
     /// User-owned records are changed one row at a time. The database owns
     /// IDs and revisions; callers cannot accidentally roll them backwards.
-    pub fn put_user_record(&self, table: &str, value: Value, actor: &str) -> Result<Value, String> {
+    pub fn put_user_record(
+        &self,
+        table: &str,
+        value: Value,
+        actor: &str,
+    ) -> Result<Value, DataError> {
         self.put_user_record_checked(table, value, actor, None)
     }
 
@@ -887,7 +898,7 @@ impl DataStore {
         mut value: Value,
         actor: &str,
         expected_rev: Option<u64>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, DataError> {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
         }
@@ -897,7 +908,7 @@ impl DataStore {
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         if table == "manual_courses" {
             let offering = object
                 .get("offeringId")
@@ -951,7 +962,7 @@ impl DataStore {
                             |row| row.get::<_, String>(0),
                         )
                         .optional()
-                        .map_err(|error| error.to_string())
+                        .map_err(DataError::from)
                 })
                 .transpose()?
                 .flatten()
@@ -966,7 +977,7 @@ impl DataStore {
                             |row| row.get::<_, String>(0),
                         )
                         .optional()
-                        .map_err(|error| error.to_string())
+                        .map_err(DataError::from)
                 })
                 .transpose()?
                 .flatten()
@@ -983,13 +994,13 @@ impl DataStore {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         if let Some(expected) = expected_rev {
             let actual = previous.as_ref().map(|(_, rev)| *rev as u64).unwrap_or(0);
             if expected != actual {
-                return Err(format!(
+                return Err(DataError::conflict(format!(
                     "revision conflict: {table}/{id} expected {expected}, actual {actual}"
-                ));
+                )));
             }
         }
         let revision = previous.as_ref().map_or(1, |(_, rev)| rev + 1);
@@ -1023,9 +1034,9 @@ impl DataStore {
             // Unchanged content keeps the stored revision; returning the
             // bumped copy would make the caller's next expected rev wrong.
             let (raw, _) = previous.ok_or_else(|| "record vanished during save".to_string())?;
-            transaction.commit().map_err(|error| error.to_string())?;
+            transaction.commit().map_err(DataError::from)?;
             return serde_json::from_str(&raw)
-                .map_err(|_| format!("{table} contains invalid JSON"));
+                .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")));
         }
         match table {
             "assignment_marks" => {
@@ -1038,7 +1049,7 @@ impl DataStore {
                         value.get("hidden").and_then(Value::as_bool).unwrap_or(false),
                         value.get("completedAt").and_then(Value::as_str),
                     ],
-                ).map_err(|error| error.to_string())?;
+                ).map_err(DataError::from)?;
             }
             "course_overrides" => {
                 transaction.execute(
@@ -1051,7 +1062,7 @@ impl DataStore {
                         value.get("instructor").and_then(Value::as_str),
                         value.get("color").and_then(Value::as_str),
                     ],
-                ).map_err(|error| error.to_string())?;
+                ).map_err(DataError::from)?;
             }
             "schedule_overrides" => {
                 transaction
@@ -1059,15 +1070,20 @@ impl DataStore {
                         "UPDATE schedule_overrides SET target_key=?2 WHERE id=?1",
                         params![id, value.get("targetKey").and_then(Value::as_str)],
                     )
-                    .map_err(|error| error.to_string())?;
+                    .map_err(DataError::from)?;
             }
             _ => {}
         }
-        transaction.commit().map_err(|error| error.to_string())?;
+        transaction.commit().map_err(DataError::from)?;
         Ok(value)
     }
 
-    pub fn delete_user_record(&self, table: &str, id: &str, actor: &str) -> Result<bool, String> {
+    pub fn delete_user_record(
+        &self,
+        table: &str,
+        id: &str,
+        actor: &str,
+    ) -> Result<bool, DataError> {
         self.delete_user_record_checked(table, id, actor, None)
     }
 
@@ -1077,14 +1093,14 @@ impl DataStore {
         id: &str,
         actor: &str,
         expected_rev: Option<u64>,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, DataError> {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
         }
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let raw: Option<(String, i64)> = transaction
             .query_row(
                 &format!("SELECT value, rev FROM {table} WHERE id=?1"),
@@ -1092,28 +1108,26 @@ impl DataStore {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let Some((raw, revision)) = raw else {
-            if expected_rev.is_some_and(|expected| expected != 0) {
-                return Err(format!(
-                    "revision conflict: {table}/{id} expected {}, actual 0",
-                    expected_rev.unwrap()
-                ));
+            if let Some(expected) = expected_rev.filter(|expected| *expected != 0) {
+                return Err(DataError::conflict(format!(
+                    "revision conflict: {table}/{id} expected {expected}, actual 0"
+                )));
             }
             return Ok(false);
         };
-        if expected_rev.is_some_and(|expected| expected != revision as u64) {
-            return Err(format!(
-                "revision conflict: {table}/{id} expected {}, actual {revision}",
-                expected_rev.unwrap()
-            ));
+        if let Some(expected) = expected_rev.filter(|expected| *expected != revision as u64) {
+            return Err(DataError::conflict(format!(
+                "revision conflict: {table}/{id} expected {expected}, actual {revision}"
+            )));
         }
-        let mut value: Value =
-            serde_json::from_str(&raw).map_err(|_| format!("{table} contains invalid JSON"))?;
+        let mut value: Value = serde_json::from_str(&raw)
+            .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")))?;
         let timestamp = now();
         let object = value
             .as_object_mut()
-            .ok_or_else(|| format!("{table} contains a non-object record"))?;
+            .ok_or_else(|| DataError::storage(format!("{table} contains a non-object record")))?;
         object.insert("rev".into(), Value::from(revision + 1));
         object.insert("updatedAt".into(), Value::String(timestamp.clone()));
         object.insert(
@@ -1123,18 +1137,18 @@ impl DataStore {
         );
         object.insert("deletedAt".into(), Value::String(timestamp));
         upsert_row(&transaction, table, &value, true)?;
-        transaction.commit().map_err(|error| error.to_string())?;
+        transaction.commit().map_err(DataError::from)?;
         Ok(true)
     }
 
-    pub fn user_rows(&self, table: &str) -> Result<Vec<Value>, String> {
+    pub fn user_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
         }
         read_rows(&self.open()?, table)
     }
 
-    pub fn agent_access_enabled(&self) -> Result<bool, String> {
+    pub fn agent_access_enabled(&self) -> Result<bool, DataError> {
         let connection = self.open()?;
         Ok(read_setting(&connection, "devicePreferences")?
             .or(read_setting(&connection, "settings")?)
@@ -1148,7 +1162,11 @@ impl DataStore {
 
     // Local reference markers are excluded from user backups and cloud exports.
     // Empty feeds need this local evidence too: metadata may survive a restore.
-    pub fn reference_cache_marker(&self, kind: &str, year: i32) -> Result<Option<Value>, String> {
+    pub fn reference_cache_marker(
+        &self,
+        kind: &str,
+        year: i32,
+    ) -> Result<Option<Value>, DataError> {
         read_setting(&self.open()?, &format!("referenceCache:{kind}:{year}"))
     }
 
@@ -1157,26 +1175,26 @@ impl DataStore {
         kind: &str,
         year: i32,
         marker: Value,
-    ) -> Result<(), String> {
+    ) -> Result<(), DataError> {
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         save_setting(
             &transaction,
             &format!("referenceCache:{kind}:{year}"),
             &marker,
             "reference-pull",
         )?;
-        transaction.commit().map_err(|error| error.to_string())
+        transaction.commit().map_err(DataError::from)
     }
 
     /// Patch only the poll clock under the same SQL lock as local preferences.
-    pub fn record_reference_poll(&self) -> Result<(), String> {
+    pub fn record_reference_poll(&self) -> Result<(), DataError> {
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let key = if read_setting(&transaction, "devicePreferences")?.is_some() {
             "devicePreferences"
         } else {
@@ -1193,14 +1211,14 @@ impl DataStore {
             .ok_or("subscription refresh must be an object")?
             .insert("lastCheckedAt".into(), json!(now()));
         save_setting(&transaction, key, &settings, "pull-coordinator")?;
-        transaction.commit().map_err(|error| error.to_string())
+        transaction.commit().map_err(DataError::from)
     }
 
-    pub fn record_agent_write(&self, tool: &str) -> Result<(), String> {
+    pub fn record_agent_write(&self, tool: &str) -> Result<(), DataError> {
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let key = if read_setting(&transaction, "devicePreferences")?.is_some() {
             "devicePreferences"
         } else {
@@ -1225,7 +1243,7 @@ impl DataStore {
         writes.insert(0, json!({"at": now(), "tool": tool}));
         writes.truncate(20);
         save_setting(&transaction, key, &settings, "mcp")?;
-        transaction.commit().map_err(|error| error.to_string())
+        transaction.commit().map_err(DataError::from)
     }
 
     pub fn put_workspace_setting(
@@ -1233,7 +1251,7 @@ impl DataStore {
         key: &str,
         value: Value,
         actor: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), DataError> {
         if !matches!(
             key,
             "selectedTerm"
@@ -1251,7 +1269,7 @@ impl DataStore {
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let device = read_setting(&transaction, "deviceId")?;
         save_setting(
             &transaction,
@@ -1259,10 +1277,10 @@ impl DataStore {
             &value,
             device.as_ref().and_then(Value::as_str).unwrap_or(actor),
         )?;
-        transaction.commit().map_err(|error| error.to_string())
+        transaction.commit().map_err(DataError::from)
     }
 
-    pub fn load_workspace(&self) -> Result<Value, String> {
+    pub fn load_workspace(&self) -> Result<Value, DataError> {
         let connection = self.open()?;
         let mut workspace = empty_workspace();
         for (field, table) in COLLECTIONS {
@@ -1373,11 +1391,9 @@ impl DataStore {
         Ok(workspace)
     }
 
-    pub fn reset_workspace(&self) -> Result<Value, String> {
+    pub fn reset_workspace(&self) -> Result<Value, DataError> {
         let mut connection = self.open()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction = connection.transaction().map_err(DataError::from)?;
         let reset_tables = COLLECTIONS
             .iter()
             .map(|(_, table)| *table)
@@ -1397,17 +1413,17 @@ impl DataStore {
         for table in reset_tables {
             transaction
                 .execute(&format!("DELETE FROM {table}"), [])
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
         }
         transaction
             .execute("DELETE FROM settings", [])
-            .map_err(|error| error.to_string())?;
-        transaction.commit().map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
+        transaction.commit().map_err(DataError::from)?;
         self.ensure_defaults()?;
         self.load_workspace()
     }
 
-    pub fn export_data(&self, notes: Value) -> Result<String, String> {
+    pub fn export_data(&self, notes: Value) -> Result<String, DataError> {
         let connection = self.open()?;
         let mut tables = Map::new();
         for table in USER_BACKUP_TABLES {
@@ -1435,16 +1451,16 @@ impl DataStore {
             "tables": tables,
             "localNotes": notes
         }))
-        .map_err(|error| error.to_string())
+        .map_err(DataError::from)
     }
 
     /// Merge under an IMMEDIATE transaction, including edits committed during
     /// the network round trip. Never replace the device's settings or identity.
-    pub fn merge_cloud_data(&self, remote: &Value) -> Result<(), String> {
+    pub fn merge_cloud_data(&self, remote: &Value) -> Result<(), DataError> {
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|e| e.to_string())?;
+            .map_err(DataError::from)?;
         let local_meta = json!({"sync":read_setting(&transaction, "cloudSyncMetadata")?});
         if cloud_merge::generation(remote) < cloud_merge::generation(&local_meta) {
             return Ok(());
@@ -1453,12 +1469,12 @@ impl DataStore {
             for table in USER_BACKUP_TABLES {
                 transaction
                     .execute(&format!("DELETE FROM {table}"), [])
-                    .map_err(|e| e.to_string())?;
+                    .map_err(DataError::from)?;
             }
             for key in USER_BACKUP_SETTINGS {
                 transaction
                     .execute("DELETE FROM settings WHERE key=?1", [key])
-                    .map_err(|e| e.to_string())?;
+                    .map_err(DataError::from)?;
             }
         }
         for table in USER_BACKUP_TABLES {
@@ -1494,36 +1510,39 @@ impl DataStore {
         }
         if remote["sync"].is_object() {
             transaction.execute("INSERT INTO settings(key,value,hash,updated_at,updated_by,rev) VALUES('cloudSyncMetadata',?1,?3,?2,'sync',1) ON CONFLICT(key) DO UPDATE SET value=excluded.value,hash=excluded.hash,updated_at=excluded.updated_at",
-                params![remote["sync"].to_string(), now(), content_hash(&remote["sync"])?]).map_err(|e|e.to_string())?;
+                params![remote["sync"].to_string(), now(), content_hash(&remote["sync"])?]).map_err(DataError::from)?;
         }
-        transaction.commit().map_err(|e| e.to_string())
+        transaction.commit().map_err(DataError::from)
     }
 
     /// Restores a document that passed [`parse_import`].
-    pub fn import_data(&self, parsed: &Value) -> Result<Value, String> {
+    pub fn import_data(&self, parsed: &Value) -> Result<Value, DataError> {
         let tables = parsed
             .get("tables")
             .and_then(Value::as_object)
-            .expect("validated by parse_import");
+            .ok_or_else(|| DataError::compatibility("import tables must be an object"))?;
         let mut connection = self.open()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction = connection.transaction().map_err(DataError::from)?;
         let allowed: HashSet<_> = USER_BACKUP_TABLES.iter().copied().collect();
         // A local backup restore is an explicit replacement, not sync/merge.
         for table in USER_BACKUP_TABLES {
             transaction
                 .execute(&format!("DELETE FROM {table}"), [])
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
         }
         for (table, rows) in tables {
             if table == "settings" {
                 continue;
             }
             if !allowed.contains(table.as_str()) {
-                return Err(format!("import contains unsupported table {table}"));
+                return Err(DataError::compatibility(format!(
+                    "import contains unsupported table {table}"
+                )));
             }
-            for incoming in rows.as_array().expect("validated") {
+            let incoming_rows = rows.as_array().ok_or_else(|| {
+                DataError::compatibility(format!("import table {table} must be an array"))
+            })?;
+            for incoming in incoming_rows {
                 validate_user_record(table, incoming)?;
                 upsert_row(&transaction, table, incoming, true)?;
             }
@@ -1532,28 +1551,28 @@ impl DataStore {
             for key in USER_BACKUP_SETTINGS {
                 transaction
                     .execute("DELETE FROM settings WHERE key=?1", [key])
-                    .map_err(|error| error.to_string())?;
+                    .map_err(DataError::from)?;
             }
             for row in settings {
                 let key = string_field(row, "key")?;
                 if !USER_BACKUP_SETTINGS.contains(&key) {
-                    return Err(format!("import contains device or secret setting {key}"));
+                    return Err(DataError::compatibility(format!(
+                        "import contains device or secret setting {key}"
+                    )));
                 }
                 import_setting(&transaction, row)?;
             }
         }
-        transaction.commit().map_err(|error| error.to_string())?;
+        transaction.commit().map_err(DataError::from)?;
         self.load_workspace()
     }
 
-    pub fn catalog_upsert_offerings(&self, offerings: &[Value]) -> Result<usize, String> {
+    pub fn catalog_upsert_offerings(&self, offerings: &[Value]) -> Result<usize, DataError> {
         for offering in offerings {
             string_field(offering, "id")?;
         }
         let mut connection = self.open()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction = connection.transaction().map_err(DataError::from)?;
         let mut changed = 0;
         for offering in offerings {
             let mut offering = offering.clone();
@@ -1565,7 +1584,7 @@ impl DataStore {
                     |row| row.get(0),
                 )
                 .optional()
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
             if let Some(search_item) =
                 search_item.and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             {
@@ -1640,7 +1659,7 @@ impl DataStore {
                 .join(" ");
             transaction
                 .execute("DELETE FROM offerings_fts WHERE offering_id=?1", [id])
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
             transaction
                 .execute(
                     "INSERT INTO offerings_fts
@@ -1648,19 +1667,17 @@ impl DataStore {
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![id, code, title_ja, title_en, instructors_ja, instructors_en],
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
         }
-        transaction.commit().map_err(|error| error.to_string())?;
+        transaction.commit().map_err(DataError::from)?;
         Ok(changed)
     }
 
     /// Search rows are deliberately stored apart from complete offerings.
     /// A partial result can therefore never masquerade as a persisted entity.
-    pub fn catalog_upsert_search_items(&self, items: &[Value]) -> Result<(), String> {
+    pub fn catalog_upsert_search_items(&self, items: &[Value]) -> Result<(), DataError> {
         let mut connection = self.open()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction = connection.transaction().map_err(DataError::from)?;
         for item in items {
             validate_contract::<crate::contracts::CatalogSearchItem>("catalog_search_items", item)?;
             let id = string_field(item, "id")?;
@@ -1695,28 +1712,26 @@ impl DataStore {
                  ON CONFLICT(id) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
                     params![
                         id,
-                        serde_json::to_string(item).map_err(|error| error.to_string())?,
+                        serde_json::to_string(item).map_err(DataError::from)?,
                         now()
                     ],
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
             transaction
                 .execute("DELETE FROM offerings_fts WHERE offering_id=?1", [id])
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
             transaction.execute(
                 "INSERT INTO offerings_fts(offering_id,code,title_ja,title_en,instructors_ja,instructors_en)
                  VALUES(?1,?2,?3,?4,?5,?6)",
                 params![id,code,title_ja,title_en,instructors_ja,instructors_en],
-            ).map_err(|error| error.to_string())?;
+            ).map_err(DataError::from)?;
         }
-        transaction.commit().map_err(|error| error.to_string())
+        transaction.commit().map_err(DataError::from)
     }
 
-    pub fn upsert_offering_content(&self, rows: &[Value]) -> Result<(), String> {
+    pub fn upsert_offering_content(&self, rows: &[Value]) -> Result<(), DataError> {
         let mut connection = self.open()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction = connection.transaction().map_err(DataError::from)?;
         for row in rows {
             let offering_id = string_field(row, "offeringId")?;
             let lang = string_field(row, "lang")?;
@@ -1739,16 +1754,16 @@ impl DataStore {
                     params![
                         offering_id,
                         lang,
-                        serde_json::to_string(content).map_err(|error| error.to_string())?,
+                        serde_json::to_string(content).map_err(DataError::from)?,
                         fetched_at
                     ],
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
         }
-        transaction.commit().map_err(|error| error.to_string())
+        transaction.commit().map_err(DataError::from)
     }
 
-    pub fn catalog_search(&self, query: &str) -> Result<Vec<Value>, String> {
+    pub fn catalog_search(&self, query: &str) -> Result<Vec<Value>, DataError> {
         let connection = self.open()?;
         if query.trim().is_empty() {
             let mut statement = connection
@@ -1763,13 +1778,13 @@ impl DataStore {
                      )
                      ORDER BY 1",
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
             return statement
                 .query_map([], |row| row.get::<_, String>(0))
-                .map_err(|error| error.to_string())?
+                .map_err(DataError::from)?
                 .map(|row| {
-                    serde_json::from_str(&row.map_err(|error| error.to_string())?)
-                        .map_err(|_| "catalog row contains invalid JSON".to_string())
+                    serde_json::from_str(&row.map_err(DataError::from)?)
+                        .map_err(|_| DataError::storage("catalog row contains invalid JSON"))
                 })
                 .collect();
         }
@@ -1787,19 +1802,19 @@ impl DataStore {
                  WHERE offerings_fts MATCH ?1 AND (o.id IS NOT NULL OR s.id IS NOT NULL)
                  ORDER BY rank LIMIT 100",
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let rows = statement
             .query_map([expression], |row| row.get::<_, String>(0))
-            .map_err(|error| error.to_string())?
+            .map_err(DataError::from)?
             .map(|row| {
-                serde_json::from_str(&row.map_err(|error| error.to_string())?)
-                    .map_err(|_| "offering contains invalid JSON".to_string())
+                serde_json::from_str(&row.map_err(DataError::from)?)
+                    .map_err(|_| DataError::storage("offering contains invalid JSON"))
             })
             .collect();
         rows
     }
 
-    pub fn catalog_offering(&self, id: &str) -> Result<Option<Value>, String> {
+    pub fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
         let connection = self.open()?;
         let raw: Option<String> = connection
             .query_row(
@@ -1808,15 +1823,16 @@ impl DataStore {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         raw.map(|raw| {
-            serde_json::from_str(&raw).map_err(|_| "offering contains invalid JSON".to_string())
+            serde_json::from_str(&raw)
+                .map_err(|_| DataError::storage("offering contains invalid JSON"))
         })
         .transpose()
     }
 
     /// A syllabus search row stored before its offering's details are read.
-    pub fn catalog_search_item(&self, id: &str) -> Result<Option<Value>, String> {
+    pub fn catalog_search_item(&self, id: &str) -> Result<Option<Value>, DataError> {
         let connection = self.open()?;
         let raw: Option<String> = connection
             .query_row(
@@ -1825,14 +1841,15 @@ impl DataStore {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         raw.map(|raw| {
-            serde_json::from_str(&raw).map_err(|_| "search row contains invalid JSON".to_string())
+            serde_json::from_str(&raw)
+                .map_err(|_| DataError::storage("search row contains invalid JSON"))
         })
         .transpose()
     }
 
-    pub fn lms_material_for_url(&self, url: &str) -> Result<Option<Value>, String> {
+    pub fn lms_material_for_url(&self, url: &str) -> Result<Option<Value>, DataError> {
         let connection = self.open()?;
         let raw: Option<String> = connection
             .query_row(
@@ -1844,9 +1861,10 @@ impl DataStore {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         raw.map(|raw| {
-            serde_json::from_str(&raw).map_err(|_| "LMS material contains invalid JSON".to_string())
+            serde_json::from_str(&raw)
+                .map_err(|_| DataError::storage("LMS material contains invalid JSON"))
         })
         .transpose()
     }
@@ -1859,7 +1877,7 @@ impl DataStore {
         cmid: u64,
         source_url: &str,
         resource_url: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, DataError> {
         self.update_lms_item_detail(
             cmid,
             source_url,
@@ -1870,13 +1888,13 @@ impl DataStore {
 
     /// Keeps a folder's resolved file list on its material, so reopening it
     /// needs no LMS request. A later crawl keeps it until a new read replaces it.
-    pub(crate) fn update_lms_folder_files(
+    pub fn update_lms_folder_files(
         &self,
         cmid: u64,
         source_url: &str,
         files: &[crate::contracts::FolderFile],
-    ) -> Result<bool, String> {
-        let files = serde_json::to_value(files).map_err(|error| error.to_string())?;
+    ) -> Result<bool, DataError> {
+        let files = serde_json::to_value(files).map_err(DataError::from)?;
         self.update_lms_item_detail(cmid, source_url, "folderFiles", files)
     }
 
@@ -1888,11 +1906,9 @@ impl DataStore {
         source_url: &str,
         key: &str,
         detail: Value,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, DataError> {
         let mut connection = self.open()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction = connection.transaction().map_err(DataError::from)?;
         let stored: Option<(String, String, u64)> = transaction
             .query_row(
                 "SELECT id,value,rev FROM lms_items WHERE cmid=?1 AND missing_since IS NULL LIMIT 1",
@@ -1900,12 +1916,12 @@ impl DataStore {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as u64)),
             )
             .optional()
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let Some((id, raw, revision)) = stored else {
             return Ok(false);
         };
         let mut value: Value = serde_json::from_str(&raw)
-            .map_err(|_| "LMS material contains invalid JSON".to_string())?;
+            .map_err(|_| DataError::storage("LMS material contains invalid JSON"))?;
         if value.get("url").and_then(Value::as_str) != Some(source_url) {
             return Ok(false);
         }
@@ -1941,18 +1957,18 @@ impl DataStore {
                  rev=?5,source='lms',last_seen_at=?4,missing_since=NULL,deleted_at=NULL WHERE id=?1",
                 params![
                     id,
-                    serde_json::to_string(&value).map_err(|error| error.to_string())?,
+                    serde_json::to_string(&value).map_err(DataError::from)?,
                     hash,
                     timestamp,
                     next_revision as i64
                 ],
             )
-            .map_err(|error| error.to_string())?;
-        transaction.commit().map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
+        transaction.commit().map_err(DataError::from)?;
         Ok(true)
     }
 
-    pub fn table_rows(&self, table: &str) -> Result<Vec<Value>, String> {
+    pub fn table_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         const READABLE: &[&str] = &[
             "registrations",
             "registration_states",
@@ -1977,13 +1993,13 @@ impl DataStore {
                      'content', json(content), 'fetchedAt', fetched_at)
                      FROM offering_content ORDER BY offering_id, lang",
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(DataError::from)?;
             let rows = statement
                 .query_map([], |row| row.get::<_, String>(0))
-                .map_err(|error| error.to_string())?
+                .map_err(DataError::from)?
                 .map(|row| {
-                    serde_json::from_str(&row.map_err(|error| error.to_string())?)
-                        .map_err(|_| "offering content is invalid JSON".to_string())
+                    serde_json::from_str(&row.map_err(DataError::from)?)
+                        .map_err(|_| DataError::storage("offering content is invalid JSON"))
                 })
                 .collect();
             return rows;
@@ -1993,14 +2009,14 @@ impl DataStore {
 
     /// When each importer (`lms`, `kyomu` per page kind) last finished a
     /// complete run: the cache age the app compares with its TTLs.
-    pub fn last_import_runs(&self) -> Result<Value, String> {
+    pub fn last_import_runs(&self) -> Result<Value, DataError> {
         let connection = self.open()?;
         let mut statement = connection
             .prepare(
                 "SELECT provider, scope, MAX(finished_at) FROM import_runs
                  WHERE state='complete' AND finished_at IS NOT NULL GROUP BY provider, scope",
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let rows = statement
             .query_map([], |row| {
                 Ok((
@@ -2009,10 +2025,10 @@ impl DataStore {
                     row.get::<_, String>(2)?,
                 ))
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let mut runs = Map::new();
         for row in rows {
-            let (provider, scope, finished) = row.map_err(|error| error.to_string())?;
+            let (provider, scope, finished) = row.map_err(DataError::from)?;
             runs.insert(format!("{provider}:{scope}"), Value::String(finished));
         }
         Ok(Value::Object(runs))
@@ -2026,6 +2042,27 @@ impl DataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn corrupt_stored_rows_are_storage_failures() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE plans (id TEXT, value TEXT);
+             CREATE TABLE assignments (id TEXT, value TEXT, missing_since TEXT);
+             INSERT INTO plans VALUES ('broken', 'not JSON');
+             INSERT INTO assignments VALUES ('broken', 'not JSON', NULL);",
+            )
+            .unwrap();
+        for result in [
+            read_rows(&connection, "plans"),
+            read_visible_rows(&connection, "assignments"),
+        ] {
+            let error = result.unwrap_err();
+            assert!(matches!(error, DataError::Storage(_)));
+            assert!(error.to_string().ends_with("contains invalid JSON"));
+        }
+    }
     use std::fs;
 
     fn store(name: &str) -> DataStore {
@@ -2316,7 +2353,7 @@ mod tests {
         let error = store
             .put_user_record_checked("plans", stale, "stale", Some(1))
             .unwrap_err();
-        assert!(error.contains("revision conflict"));
+        assert!(error.to_string().contains("revision conflict"));
         assert_eq!(
             store.user_rows("plans").unwrap()[0]["title"],
             "First writer"
@@ -2559,7 +2596,7 @@ mod tests {
         // Older backups also carried localNotes in a different shape.
         document["localNotes"] = json!({ "notes": [] });
         assert_eq!(
-            parse_import(&document.to_string()).unwrap_err(),
+            parse_import(&document.to_string()).unwrap_err().to_string(),
             "the backup uses schema version 5; this app reads version 6"
         );
         let _ = fs::remove_file(store.path());

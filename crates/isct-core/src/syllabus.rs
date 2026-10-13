@@ -2,6 +2,50 @@ mod api;
 pub(crate) mod model;
 pub(crate) mod transport;
 
+#[derive(Debug, thiserror::Error)]
+pub enum SyllabusError {
+    #[error("{0}")]
+    InvalidInput(String),
+    #[error("{0}")]
+    Network(String),
+    #[error("{0}")]
+    SiteChanged(String),
+}
+
+impl SyllabusError {
+    pub(crate) fn invalid_input(message: impl Into<String>) -> Self {
+        Self::InvalidInput(message.into())
+    }
+
+    pub(crate) fn network(message: impl Into<String>) -> Self {
+        Self::Network(message.into())
+    }
+}
+
+impl From<String> for SyllabusError {
+    fn from(message: String) -> Self {
+        Self::SiteChanged(message)
+    }
+}
+
+impl From<&str> for SyllabusError {
+    fn from(message: &str) -> Self {
+        Self::SiteChanged(message.to_string())
+    }
+}
+
+impl From<url::ParseError> for SyllabusError {
+    fn from(error: url::ParseError) -> Self {
+        Self::InvalidInput(error.to_string())
+    }
+}
+
+impl From<reqwest::Error> for SyllabusError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Network(error.to_string())
+    }
+}
+
 pub(crate) use crate::school_parser::syllabus as parser;
 
 pub use api::{
@@ -66,7 +110,7 @@ mod tests {
             .query_pairs()
             .any(|(k, v)| k == "teacher" && v == "Kobayashi"));
         let captured = parse_search(
-            include_str!("../../artifacts/syllabus-research/combined-search.html"),
+            include_str!("../../../artifacts/syllabus-research/combined-search.html"),
             2026,
             100,
         )
@@ -94,32 +138,34 @@ mod tests {
             (
                 "social",
                 "7/0-907-0-110100-0/202600907",
-                include_str!("../../artifacts/syllabus-research/social-en-content.html"),
+                include_str!("../../../artifacts/syllabus-research/social-en-content.html"),
             ),
             (
                 "parallel",
                 "4/0-904-342300-0-0/202602440",
-                include_str!("../../artifacts/syllabus-research/parallel-en-content.html"),
+                include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
             ),
             (
                 "procedural",
                 "4/0-904-342300-0-0/202602417",
-                include_str!("../../artifacts/syllabus-research/procedural-en-content.html"),
+                include_str!("../../../artifacts/syllabus-research/procedural-en-content.html"),
             ),
             (
                 "logic",
                 "4/1-22-442222-0-0/202604060",
-                include_str!("../../artifacts/syllabus-research/logic-en-content.html"),
+                include_str!("../../../artifacts/syllabus-research/logic-en-content.html"),
             ),
             (
                 "assembly",
                 "4/0-904-342300-0-0/202602427",
-                include_str!("../../artifacts/syllabus-research/assembly-en-content.html"),
+                include_str!("../../../artifacts/syllabus-research/assembly-en-content.html"),
             ),
             (
                 "programming-one",
                 "4/0-904-342200-0-0/202602384",
-                include_str!("../../artifacts/syllabus-research/programming-one-en-content.html"),
+                include_str!(
+                    "../../../artifacts/syllabus-research/programming-one-en-content.html"
+                ),
             ),
         ];
         let mut result = Vec::new();
@@ -139,7 +185,7 @@ mod tests {
     #[test]
     fn parses_verified_search_fixture() {
         let result = parse_search(
-            include_str!("../../artifacts/syllabus-research/search-excerpt.html"),
+            include_str!("../../../artifacts/syllabus-research/search-excerpt.html"),
             2026,
             12,
         )
@@ -165,7 +211,7 @@ mod tests {
         .unwrap();
         let page = parse_detail(
             &url,
-            include_str!("../../artifacts/syllabus-research/parallel-en-content.html"),
+            include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
             "en",
         )
         .unwrap();
@@ -197,11 +243,11 @@ mod tests {
         for (language, html) in [
             (
                 "en",
-                include_str!("../../artifacts/syllabus-research/social-en-content.html"),
+                include_str!("../../../artifacts/syllabus-research/social-en-content.html"),
             ),
             (
                 "ja",
-                include_str!("../../artifacts/syllabus-research/social-ja-content.html"),
+                include_str!("../../../artifacts/syllabus-research/social-ja-content.html"),
             ),
         ] {
             let url = Url::parse(&format!(
@@ -269,7 +315,7 @@ mod tests {
         .unwrap();
         let page = parse_detail(
             &url,
-            include_str!("../../artifacts/syllabus-research/parallel-en-content.html"),
+            include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
             "en",
         )
         .unwrap();
@@ -301,7 +347,7 @@ mod tests {
         .unwrap();
         let page = parse_detail(
             &url,
-            include_str!("../../artifacts/syllabus-research/detail-en-excerpt.html"),
+            include_str!("../../../artifacts/syllabus-research/detail-en-excerpt.html"),
             "en",
         )
         .unwrap();

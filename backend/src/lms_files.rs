@@ -642,7 +642,11 @@ fn stamp_note(app: &AppHandle, path: &Path) -> Result<(), String> {
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
-    let device = app.state::<crate::data::DataStore>().load_workspace()?["deviceId"].clone();
+    let device = app
+        .state::<crate::data::DataStore>()
+        .load_workspace()
+        .map_err(|error| error.to_string())?["deviceId"]
+        .clone();
     fs::write(
         path.with_extension("sync.json"),
         serde_json::to_vec(

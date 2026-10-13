@@ -490,7 +490,9 @@ fn course_from_offering(offering: &Value, term: &str) -> Result<Value, String> {
 }
 
 fn write_result(store: &DataStore, tool_name: &str, details: Value) -> Result<Value, String> {
-    store.record_agent_write(tool_name)?;
+    store
+        .record_agent_write(tool_name)
+        .map_err(|error| error.to_string())?;
     let mut result = json!({"ok": true});
     if let (Some(result), Value::Object(details)) = (result.as_object_mut(), details) {
         result.extend(details);
@@ -501,7 +503,8 @@ fn write_result(store: &DataStore, tool_name: &str, details: Value) -> Result<Va
 /// A personal plan that has not been deleted.
 fn live_plan(store: &DataStore, id: &str) -> Result<Value, String> {
     store
-        .user_rows("plans")?
+        .user_rows("plans")
+        .map_err(|error| error.to_string())?
         .into_iter()
         .find(|row| text(row, "id") == Some(id) && row.get("deletedAt").is_none())
         .ok_or_else(|| "plan was not found".to_string())
@@ -525,10 +528,13 @@ fn duration(args: &Value, required: bool) -> Result<Option<u64>, String> {
 }
 
 fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
-    if !store.agent_access_enabled()? {
+    if !store
+        .agent_access_enabled()
+        .map_err(|error| error.to_string())?
+    {
         return Err("IsctCompanion agent access is disabled in Settings.".into());
     }
-    let workspace = store.load_workspace()?;
+    let workspace = store.load_workspace().map_err(|error| error.to_string())?;
     match name {
         "today" => {
             let now = now_jst();
@@ -601,13 +607,13 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 .ok_or_else(|| "course was not found".to_string())?;
             Ok(json!({
                 "course": course,
-                "lmsItems": store.table_rows("lms_items")?.into_iter()
+                "lmsItems": store.table_rows("lms_items").map_err(|error| error.to_string())?.into_iter()
                     .filter(|row| row.get("courseId").and_then(Value::as_str) == Some(id)
                         && row.get("visible") != Some(&Value::Bool(false))).collect::<Vec<_>>(),
                 "assignments": visible_rows(&workspace, "assignments").into_iter()
                     .filter(|row| row.get("courseId").and_then(Value::as_str) == Some(id)
                         && row.get("hidden") != Some(&Value::Bool(true))).collect::<Vec<_>>(),
-                "syllabus": store.table_rows("offering_content")?.into_iter()
+                "syllabus": store.table_rows("offering_content").map_err(|error| error.to_string())?.into_iter()
                     .filter(|row| row.get("offeringId").and_then(Value::as_str)
                         == course.get("offeringId").and_then(Value::as_str)).collect::<Vec<_>>()
             }))
@@ -615,10 +621,15 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
         "search_catalog" => {
             // Search-only rows lack the schedule and credits plan_add needs;
             // the app reads them from the syllabus site, which this server never contacts.
-            let mut rows = store.catalog_search(required(args, "query")?)?;
+            let mut rows = store
+                .catalog_search(required(args, "query")?)
+                .map_err(|error| error.to_string())?;
             for row in &mut rows {
                 let plannable = match text(row, "id") {
-                    Some(id) => store.catalog_offering(id)?.is_some(),
+                    Some(id) => store
+                        .catalog_offering(id)
+                        .map_err(|error| error.to_string())?
+                        .is_some(),
                     None => false,
                 };
                 row["plannable"] = Value::Bool(plannable);
@@ -630,7 +641,8 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let term = args.get("term").and_then(Value::as_str);
             Ok(Value::Array(
                 store
-                    .table_rows("registrations")?
+                    .table_rows("registrations")
+                    .map_err(|error| error.to_string())?
                     .into_iter()
                     .filter(|row| {
                         let offering = row
@@ -659,12 +671,20 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                     .collect(),
             ))
         }
-        "grades" => Ok(Value::Array(store.table_rows("grades")?)),
+        "grades" => Ok(Value::Array(
+            store
+                .table_rows("grades")
+                .map_err(|error| error.to_string())?,
+        )),
         "gpa" => Ok(json!({
-            "summary": store.table_rows("gpa_summary")?,
-            "byTerm": store.table_rows("gpa_by_term")?
+            "summary": store.table_rows("gpa_summary").map_err(|error| error.to_string())?,
+            "byTerm": store.table_rows("gpa_by_term").map_err(|error| error.to_string())?
         })),
-        "requirements" => Ok(Value::Array(store.table_rows("requirement_progress")?)),
+        "requirements" => Ok(Value::Array(
+            store
+                .table_rows("requirement_progress")
+                .map_err(|error| error.to_string())?,
+        )),
         "recommended" => {
             let department = args
                 .get("departmentId")
@@ -696,8 +716,11 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
             let (year, quarter) = parse_term(term)?;
-            let Some(offering) = store.catalog_offering(offering_id)? else {
-                return Err(if store.catalog_search_item(offering_id)?.is_some() {
+            let Some(offering) = store
+                .catalog_offering(offering_id)
+                .map_err(|error| error.to_string())?
+            else {
+                return Err(if store.catalog_search_item(offering_id).map_err(|error| error.to_string())?.is_some() {
                     "this course's schedule is not synced yet (plannable: false). Open it once in IsctCompanion, then try again."
                 } else {
                     "offering was not found in the local catalog"
@@ -741,21 +764,27 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let course_id = match existing.as_ref().and_then(|row| text(row, "id")) {
                 Some(id) => id.to_string(),
                 None => {
-                    let course = store.put_user_record(
-                        "manual_courses",
-                        course_from_offering(&offering, term)?,
-                        "mcp",
-                    )?;
+                    let course = store
+                        .put_user_record(
+                            "manual_courses",
+                            course_from_offering(&offering, term)?,
+                            "mcp",
+                        )
+                        .map_err(|error| error.to_string())?;
                     text(&course, "id")
                         .ok_or("course identity could not be created")?
                         .to_string()
                 }
             };
-            let planned = store.user_rows("plan_items")?.into_iter().find(|row| {
-                text(row, "courseId") == Some(course_id.as_str())
-                    && text(row, "termId") == Some(term)
-                    && row.get("deletedAt").is_none()
-            });
+            let planned = store
+                .user_rows("plan_items")
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .find(|row| {
+                    text(row, "courseId") == Some(course_id.as_str())
+                        && text(row, "termId") == Some(term)
+                        && row.get("deletedAt").is_none()
+                });
             let plan_item = match planned {
                 Some(row) => row,
                 None => store.put_user_record(
@@ -766,7 +795,7 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                         "source": {"provider":"mcp"}
                     }),
                     "mcp",
-                )?,
+                ).map_err(|error| error.to_string())?,
             };
             write_result(
                 store,
@@ -779,18 +808,23 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let term = required(args, "term")?;
             parse_term(term)?;
             let mut removed = 0;
-            for row in store.user_rows("plan_items")? {
+            for row in store
+                .user_rows("plan_items")
+                .map_err(|error| error.to_string())?
+            {
                 if text(&row, "offeringId") == Some(offering_id)
                     && text(&row, "termId") == Some(term)
                     && row.get("deletedAt").is_none()
                 {
                     if let Some(id) = text(&row, "id") {
-                        store.delete_user_record_checked(
-                            "plan_items",
-                            id,
-                            "mcp",
-                            row.get("rev").and_then(Value::as_u64),
-                        )?;
+                        store
+                            .delete_user_record_checked(
+                                "plan_items",
+                                id,
+                                "mcp",
+                                row.get("rev").and_then(Value::as_u64),
+                            )
+                            .map_err(|error| error.to_string())?;
                         removed += 1;
                     }
                 }
@@ -806,18 +840,21 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let duration = duration(args, true)?.unwrap();
             let rule = args.get("rrule").and_then(Value::as_str);
             if let Some(rule) = rule {
-                isct_companion_lib::plans::validate_rrule(rule).map_err(|error| error.to_string())?;
+                isct_companion_lib::plans::validate_rrule(rule)
+                    .map_err(|error| error.to_string())?;
             }
-            let plan = store.put_user_record(
-                "plans",
-                json!({
-                    "title": required(args, "title")?,
-                    "start": start, "duration": duration,
-                    "rrule": rule, "room": args.get("room").cloned().unwrap_or(Value::Null),
-                    "exdates": [], "source": {"provider":"mcp"}
-                }),
-                "mcp",
-            )?;
+            let plan = store
+                .put_user_record(
+                    "plans",
+                    json!({
+                        "title": required(args, "title")?,
+                        "start": start, "duration": duration,
+                        "rrule": rule, "room": args.get("room").cloned().unwrap_or(Value::Null),
+                        "exdates": [], "source": {"provider":"mcp"}
+                    }),
+                    "mcp",
+                )
+                .map_err(|error| error.to_string())?;
             write_result(store, name, json!({"id": plan.get("id")}))
         }
         "plan_event_update" => {
@@ -828,7 +865,8 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             }
             duration(args, false)?;
             if let Some(rule) = args.get("rrule").and_then(Value::as_str) {
-                isct_companion_lib::plans::validate_rrule(rule).map_err(|error| error.to_string())?;
+                isct_companion_lib::plans::validate_rrule(rule)
+                    .map_err(|error| error.to_string())?;
             }
             for key in ["title", "start", "duration", "rrule", "room"] {
                 if let Some(value) = args.get(key) {
@@ -836,13 +874,18 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 }
             }
             let expected = row.get("rev").and_then(Value::as_u64);
-            store.put_user_record_checked("plans", row, "mcp", expected)?;
+            store
+                .put_user_record_checked("plans", row, "mcp", expected)
+                .map_err(|error| error.to_string())?;
             write_result(store, name, json!({"id": id}))
         }
         "plan_event_delete" => {
             let id = required(args, "id")?;
             let expected = live_plan(store, id)?.get("rev").and_then(Value::as_u64);
-            if !store.delete_user_record_checked("plans", id, "mcp", expected)? {
+            if !store
+                .delete_user_record_checked("plans", id, "mcp", expected)
+                .map_err(|error| error.to_string())?
+            {
                 return Err("plan was not found".into());
             }
             write_result(store, name, json!({"id": id}))
@@ -861,13 +904,16 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .unwrap_or(id);
             let mut mark = store
-                .user_rows("assignment_marks")?
+                .user_rows("assignment_marks")
+                .map_err(|error| error.to_string())?
                 .into_iter()
                 .find(|row| row.get("sourceKey").and_then(Value::as_str) == Some(source_key))
                 .unwrap_or_else(|| json!({"sourceKey":source_key,"assignmentId":id}));
             let expected = mark.get("rev").and_then(Value::as_u64).unwrap_or(0);
             mark["hidden"] = Value::Bool(name == "hide_assignment");
-            store.put_user_record_checked("assignment_marks", mark, "mcp", Some(expected))?;
+            store
+                .put_user_record_checked("assignment_marks", mark, "mcp", Some(expected))
+                .map_err(|error| error.to_string())?;
             write_result(store, name, json!({"id": id}))
         }
         _ => Err("unknown tool".into()),

@@ -62,13 +62,13 @@ const parsed = JSON.parse(
 ) as PublicCourse[];
 const official = JSON.parse(
   readFileSync(
-    resolve(process.cwd(), "backend/subscriptions/data/2026/departments.json"),
+    resolve(process.cwd(), "crates/isct-core/subscriptions/data/2026/departments.json"),
     "utf8",
   ),
 ) as OfficialDepartments;
 const official2025 = JSON.parse(
   readFileSync(
-    resolve(process.cwd(), "backend/subscriptions/data/2025/departments.json"),
+    resolve(process.cwd(), "crates/isct-core/subscriptions/data/2025/departments.json"),
     "utf8",
   ),
 ) as OfficialDepartments;

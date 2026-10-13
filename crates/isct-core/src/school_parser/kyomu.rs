@@ -1,3 +1,4 @@
+use super::SchoolParseError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
@@ -7,7 +8,7 @@ const MAX_RECORDS: usize = 5_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct KyomuPayload {
+pub struct KyomuPayload {
     pub status: String,
     pub source_url: String,
     pub kind: String,
@@ -16,7 +17,7 @@ pub(crate) struct KyomuPayload {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum KyomuStage {
+pub enum KyomuStage {
     Ready,
     ReconnectRequired,
 }
@@ -36,7 +37,7 @@ fn expected_kind(path: &str) -> Option<&'static str> {
 ///
 /// The adapter only reads the live DOM. Trust starts here: source identity,
 /// completeness, and collection limits are checked before persistence sees it.
-pub(crate) fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), String> {
+pub fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), SchoolParseError> {
     if raw.len() > MAX_PAYLOAD_BYTES {
         return Err("kyomu payload exceeds the size limit".into());
     }

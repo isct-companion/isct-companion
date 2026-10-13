@@ -3190,7 +3190,10 @@ impl SchoolWebController {
                                             Ok((LmsStage::Ready, Some(payload))) => outcome(
                                                 site,
                                                 "lms",
-                                                apply(&|c| apply_lms_payload(c, &payload)),
+                                                apply(&|c| {
+                                                    apply_lms_payload(c, &payload)
+                                                        .map_err(|error| error.to_string())
+                                                }),
                                             ),
                                             Ok(_) => outcome(
                                                 site,
@@ -3209,7 +3212,7 @@ impl SchoolWebController {
                                                     value.get("error")?.as_str().map(str::to_string)
                                                 })
                                                 .map(|reason| format!("{error}: {reason}"))
-                                                .unwrap_or(error);
+                                                .unwrap_or_else(|| error.to_string());
                                                 outcome(site, "lms", Err(reason))
                                             }
                                         }
@@ -3218,7 +3221,10 @@ impl SchoolWebController {
                                             (LmsStage::Ready, Some(payload)) => outcome(
                                                 site,
                                                 "lms",
-                                                apply(&|c| apply_lms_payload(c, &payload)),
+                                                apply(&|c| {
+                                                    apply_lms_payload(c, &payload)
+                                                        .map_err(|error| error.to_string())
+                                                }),
                                             ),
                                             _ => outcome(
                                                 site,
@@ -3235,7 +3241,10 @@ impl SchoolWebController {
                                             (KyomuStage::Ready, Some(payload)) => outcome(
                                                 site,
                                                 &kind,
-                                                apply(&|c| apply_kyomu_payload(c, &payload)),
+                                                apply(&|c| {
+                                                    apply_kyomu_payload(c, &payload)
+                                                        .map_err(|error| error.to_string())
+                                                }),
                                             ),
                                             _ => outcome(
                                                 site,

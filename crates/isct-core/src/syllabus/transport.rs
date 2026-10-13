@@ -1,3 +1,4 @@
+use super::SyllabusError;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -15,7 +16,11 @@ static PERMITS: Semaphore = Semaphore::const_new(CONCURRENT);
 static NEXT_START: Mutex<Option<Instant>> = Mutex::const_new(None);
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
-fn client() -> Result<&'static reqwest::Client, String> {
+fn request_error(error: reqwest::Error) -> SyllabusError {
+    SyllabusError::Network(error.to_string())
+}
+
+fn client() -> Result<&'static reqwest::Client, SyllabusError> {
     if let Some(client) = CLIENT.get() {
         return Ok(client);
     }
@@ -25,7 +30,7 @@ fn client() -> Result<&'static reqwest::Client, String> {
         .timeout(Duration::from_secs(12))
         .pool_idle_timeout(Duration::from_secs(30))
         .build()
-        .map_err(|_| "Syllabus client is unavailable.")?;
+        .map_err(|_| SyllabusError::network("Syllabus client is unavailable."))?;
     Ok(CLIENT.get_or_init(|| client))
 }
 
@@ -48,19 +53,21 @@ pub(crate) struct Page {
     pub html: String,
 }
 
-fn validate_url(url: &Url, allowed_path_prefix: &str) -> Result<(), String> {
+fn validate_url(url: &Url, allowed_path_prefix: &str) -> Result<(), SyllabusError> {
     if url.scheme() != "https"
         || url.host_str() != Some("syllabus.s.isct.ac.jp")
         || !url.username().is_empty()
         || url.password().is_some()
         || !url.path().starts_with(allowed_path_prefix)
     {
-        return Err("Syllabus request is outside the public syllabus origin.".into());
+        return Err(SyllabusError::invalid_input(
+            "Syllabus request is outside the public syllabus origin.",
+        ));
     }
     Ok(())
 }
 
-pub(crate) async fn get(mut url: Url) -> Result<Page, String> {
+pub(crate) async fn get(mut url: Url) -> Result<Page, SyllabusError> {
     let allowed_path_prefix = if url.path() == "/courses" {
         "/courses".to_string()
     } else {
@@ -72,7 +79,7 @@ pub(crate) async fn get(mut url: Url) -> Result<Page, String> {
     let _permit = PERMITS
         .acquire()
         .await
-        .map_err(|_| "Syllabus client is unavailable.")?;
+        .map_err(|_| SyllabusError::network("Syllabus client is unavailable."))?;
 
     for redirect_count in 0..=MAX_REDIRECTS {
         pace().await;
@@ -81,11 +88,13 @@ pub(crate) async fn get(mut url: Url) -> Result<Page, String> {
             .header(ACCEPT, "text/html")
             .send()
             .await
-            .map_err(|_| "Official syllabus is temporarily unavailable.")?;
+            .map_err(request_error)?;
 
         if response.status().is_redirection() {
             if redirect_count == MAX_REDIRECTS {
-                return Err("Syllabus returned too many redirects.".into());
+                return Err(SyllabusError::network(
+                    "Syllabus returned too many redirects.",
+                ));
             }
             let location = response
                 .headers()
@@ -94,16 +103,16 @@ pub(crate) async fn get(mut url: Url) -> Result<Page, String> {
                 .ok_or("Syllabus redirect was invalid.")?;
             let next = url
                 .join(location)
-                .map_err(|_| "Syllabus redirect was invalid.")?;
+                .map_err(|_| SyllabusError::network("Syllabus redirect was invalid."))?;
             validate_url(&next, &allowed_path_prefix)?;
             url = next;
             continue;
         }
         if !response.status().is_success() {
-            return Err(format!(
+            return Err(SyllabusError::network(format!(
                 "Official syllabus returned HTTP {}.",
                 response.status().as_u16()
-            ));
+            )));
         }
         let content_type = response
             .headers()
@@ -124,7 +133,7 @@ pub(crate) async fn get(mut url: Url) -> Result<Page, String> {
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|_| "Syllabus response could not be read.")?
+            .map_err(|_| SyllabusError::network("Syllabus response could not be read."))?
         {
             if bytes.len() + chunk.len() > MAX_BODY {
                 return Err("Syllabus response is too large.".into());
@@ -142,30 +151,37 @@ pub(crate) async fn get(mut url: Url) -> Result<Page, String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn concurrent_request_starts_are_spaced_apart() {
-        tauri::async_runtime::block_on(async {
-            let start = Instant::now();
-            let starts = (0..3)
-                .map(|_| {
-                    tauri::async_runtime::spawn(async {
-                        pace().await;
-                        Instant::now()
-                    })
+    #[tokio::test]
+    async fn concurrent_request_starts_are_spaced_apart() {
+        let start = Instant::now();
+        let starts = (0..3)
+            .map(|_| {
+                tokio::spawn(async {
+                    pace().await;
+                    Instant::now()
                 })
-                .collect::<Vec<_>>();
-            let mut times = Vec::new();
-            for handle in starts {
-                times.push(handle.await.unwrap());
-            }
-            times.sort();
-            // Three starts take at least two spacings, and not much more.
-            let spread = times[2] - times[0];
-            assert!(
-                spread >= SPACING * 2 - Duration::from_millis(5),
-                "{spread:?}"
-            );
-            assert!(start.elapsed() < Duration::from_secs(1));
-        });
+            })
+            .collect::<Vec<_>>();
+        let mut times = Vec::new();
+        for handle in starts {
+            times.push(handle.await.unwrap());
+        }
+        times.sort();
+        // Three starts take at least two spacings, and not much more.
+        let spread = times[2] - times[0];
+        assert!(
+            spread >= SPACING * 2 - Duration::from_millis(5),
+            "{spread:?}"
+        );
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn request_build_failures_are_network_errors() {
+        let error = reqwest::Client::new()
+            .get("://invalid")
+            .build()
+            .unwrap_err();
+        assert!(matches!(request_error(error), SyllabusError::Network(_)));
     }
 }

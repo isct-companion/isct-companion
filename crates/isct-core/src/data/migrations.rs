@@ -1,3 +1,4 @@
+use super::DataError;
 use rusqlite::{Connection, Transaction};
 
 pub const SCHEMA_VERSION: i64 = 6;
@@ -200,21 +201,21 @@ CREATE TABLE scheduled_tasks (
 );
 "#;
 
-fn drop_user_objects(transaction: &Transaction<'_>) -> Result<(), String> {
+fn drop_user_objects(transaction: &Transaction<'_>) -> Result<(), DataError> {
     let objects = {
         let mut statement = transaction
             .prepare(
                 "SELECT type, name FROM sqlite_master
                  WHERE name NOT LIKE 'sqlite_%' AND type IN ('table', 'view')",
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         let objects = statement
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
-            .map_err(|error| error.to_string())?
+            .map_err(DataError::from)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?;
+            .map_err(DataError::from)?;
         objects
     };
     for (kind, name) in objects {
@@ -224,36 +225,32 @@ fn drop_user_objects(transaction: &Transaction<'_>) -> Result<(), String> {
         } else {
             format!("DROP TABLE IF EXISTS \"{escaped}\"")
         };
-        transaction
-            .execute_batch(&sql)
-            .map_err(|error| error.to_string())?;
+        transaction.execute_batch(&sql).map_err(DataError::from)?;
     }
     Ok(())
 }
 
-pub fn migrate(connection: &mut Connection) -> Result<bool, String> {
+pub fn migrate(connection: &mut Connection) -> Result<bool, DataError> {
     connection
         .execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     if version == SCHEMA_VERSION {
         return Ok(false);
     }
     // Pre-release builds deliberately rebuild mismatched schemas. There is no
     // production user data to migrate yet.
-    let transaction = connection
-        .transaction()
-        .map_err(|error| error.to_string())?;
+    let transaction = connection.transaction().map_err(DataError::from)?;
     drop_user_objects(&transaction)?;
     transaction
         .execute_batch(CREATE_SCHEMA)
-        .map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
-        .map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())?;
+        .map_err(DataError::from)?;
+    transaction.commit().map_err(DataError::from)?;
     Ok(true)
 }
 

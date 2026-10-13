@@ -1,14 +1,5 @@
-use isct_core::contracts;
-
-// These acceptance tests include the remaining production modules directly
-// until the core crate exposes them; each module contains APIs this test binary
-// intentionally does not exercise.
-#[allow(dead_code)]
-#[path = "../src/data/mod.rs"]
-mod data;
-#[allow(dead_code)]
-#[path = "../src/subscriptions.rs"]
-mod subscriptions;
+use isct_core::data;
+use isct_core::subscriptions;
 
 use rusqlite::Connection;
 use serde_json::Value;
@@ -78,7 +69,10 @@ fn department_guide_must_match_its_declared_admission_cohort() {
     // recommendations as 2025 recommendations.
     official["admissionYear"] = 2025.into();
     let error = validate_departments(&official.to_string()).unwrap_err();
-    assert!(error.contains("does not match admissionYear"), "{error}");
+    assert!(
+        error.to_string().contains("does not match admissionYear"),
+        "{error}"
+    );
 }
 
 #[test]

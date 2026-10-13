@@ -2217,7 +2217,6 @@ dependencies = [
  "ort",
  "percent-encoding",
  "rand 0.9.5",
- "regex",
  "reqwest 0.12.28",
  "ring",
  "rrule",
@@ -2248,13 +2247,19 @@ name = "isct-core"
 version = "1.0.0-rc.1"
 dependencies = [
  "chrono",
+ "regex",
+ "reqwest 0.12.28",
  "rrule",
+ "rusqlite",
+ "scraper",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.20",
  "tokio",
  "ts-rs",
  "url",
+ "uuid",
 ]
 
 [[package]]

@@ -1,3 +1,4 @@
+use super::DataError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest, Sha256};
@@ -50,7 +51,7 @@ fn canonical_number(number: &Number) -> Value {
     if value.fract() == 0.0 && value >= i64::MIN as f64 && value <= i64::MAX as f64 {
         return Value::Number((value as i64).into());
     }
-    Value::Number(Number::from_f64(value).expect("JSON numbers are finite"))
+    Number::from_f64(value).map_or(Value::Null, Value::Number)
 }
 
 pub fn canonicalize(value: &Value) -> Value {
@@ -70,12 +71,12 @@ pub fn canonicalize(value: &Value) -> Value {
     }
 }
 
-pub fn canonical_json(value: &Value) -> Result<String, String> {
+pub fn canonical_json(value: &Value) -> Result<String, DataError> {
     serde_json::to_string(&canonicalize(value))
-        .map_err(|_| "value cannot be serialized as canonical JSON".to_string())
+        .map_err(|_| DataError::storage("value cannot be serialized as canonical JSON"))
 }
 
-pub fn content_hash(value: &Value) -> Result<String, String> {
+pub fn content_hash(value: &Value) -> Result<String, DataError> {
     let bytes = canonical_json(value)?;
     Ok(format!("{:x}", Sha256::digest(bytes.as_bytes())))
 }

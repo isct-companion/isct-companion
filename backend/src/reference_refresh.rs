@@ -82,7 +82,7 @@ fn cache_fingerprint(workspace: &Value, kind: &str, year: i32) -> Result<String,
         })
         .collect();
     rows.sort_by_key(|row| format!("{}:{}", row["collection"], row["record"]["id"]));
-    crate::data::versioned::content_hash(&json!(rows))
+    crate::data::versioned::content_hash(&json!(rows)).map_err(|error| error.to_string())
 }
 
 fn cache_present(
@@ -93,7 +93,10 @@ fn cache_present(
     if request.kind == "calendar" {
         return Ok(calendar_cache_present(workspace, request.year.into()));
     }
-    let Some(marker) = store.reference_cache_marker(&request.kind, request.year)? else {
+    let Some(marker) = store
+        .reference_cache_marker(&request.kind, request.year)
+        .map_err(|error| error.to_string())?
+    else {
         return Ok(false);
     };
     Ok(marker["indexUrl"].as_str() == Some(&request.index_url)
@@ -133,7 +136,8 @@ pub(crate) async fn refresh_one(
         index_url: request.index_url.clone(),
         year: request.year,
     })
-    .normalized().map_err(|error| error.to_string())?
+    .normalized()
+    .map_err(|error| error.to_string())?
     {
         request.kind = kind;
         request.index_url = index_url;
@@ -156,9 +160,14 @@ pub(crate) async fn refresh_one(
             let app = app.clone();
             let request = request.clone();
             let probes = probes.clone();
-            async move { run_reference(&app, &request, &context, &probes).await.map_err(crate::pull_coordinator::PullError::Execution) }
+            async move {
+                run_reference(&app, &request, &context, &probes)
+                    .await
+                    .map_err(crate::pull_coordinator::PullError::Execution)
+            }
         })
-        .await.map_err(|error| error.to_string())
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn run_reference(
@@ -172,7 +181,7 @@ async fn run_reference(
     }
     let store = app.state::<DataStore>().inner().clone();
     // Read revisions inside the shared job. Each coalesced request commits once.
-    let workspace = store.load_workspace()?;
+    let workspace = store.load_workspace().map_err(|error| error.to_string())?;
     let existing = workspace["subscriptions"].as_array().and_then(|rows| {
         rows.iter().find(|row| {
             row["kind"].as_str() == Some(&request.kind)
@@ -203,70 +212,71 @@ async fn run_reference(
     });
     let revision = row["rev"].as_u64().unwrap_or(0);
     row["url"] = json!(request.index_url);
-    let result = async {
-        if !context.phase("index").await {
-            return Err("Pull cancelled.".into());
-        }
-        let index_hash = if let Some(expected) = request.expected_index_hash.clone() {
-            expected
-        } else {
-            let mut cache = probes.lock().await;
-            if let Some(result) = cache.get(&request.index_url) {
-                result.clone()?
-            } else {
-                let result = probe_reference_source_inner(&request.index_url).await;
-                cache.insert(request.index_url.clone(), result.clone());
-                result?
-            }
-        };
-        let same_year = same_source && row["year"].as_i64() == Some(request.year.into());
-        let cached = same_year && has_cache && row["indexHash"].as_str() == Some(&index_hash);
-        let value = if cached {
-            json!({"changed":0,"skipped":true,"notModified":true})
-        } else {
-            let known_hash = (same_year && has_cache)
-                .then(|| row["remoteHash"].as_str().map(str::to_string))
-                .flatten();
-            if !context.phase("fetching").await {
+    let result =
+        async {
+            if !context.phase("index").await {
                 return Err("Pull cancelled.".into());
             }
-            refresh_reference_source_inner(
-                &store,
-                &request.kind,
-                &request.index_url,
-                request.year,
-                Some(index_hash.clone()),
-                known_hash,
-                context,
-            )
-            .await?
-        };
-        if !context.applying().await {
-            return Err("Pull cancelled.".into());
-        }
-        if request.kind != "calendar" && value["notModified"].as_bool() == Some(false) {
-            let materialized = store.load_workspace()?;
-            store.record_reference_cache(
+            let index_hash = if let Some(expected) = request.expected_index_hash.clone() {
+                expected
+            } else {
+                let mut cache = probes.lock().await;
+                if let Some(result) = cache.get(&request.index_url) {
+                    result.clone()?
+                } else {
+                    let result = probe_reference_source_inner(&request.index_url).await;
+                    cache.insert(request.index_url.clone(), result.clone());
+                    result?
+                }
+            };
+            let same_year = same_source && row["year"].as_i64() == Some(request.year.into());
+            let cached = same_year && has_cache && row["indexHash"].as_str() == Some(&index_hash);
+            let value = if cached {
+                json!({"changed":0,"skipped":true,"notModified":true})
+            } else {
+                let known_hash = (same_year && has_cache)
+                    .then(|| row["remoteHash"].as_str().map(str::to_string))
+                    .flatten();
+                if !context.phase("fetching").await {
+                    return Err("Pull cancelled.".into());
+                }
+                refresh_reference_source_inner(
+                    &store,
+                    &request.kind,
+                    &request.index_url,
+                    request.year,
+                    Some(index_hash.clone()),
+                    known_hash,
+                    context,
+                )
+                .await?
+            };
+            if !context.applying().await {
+                return Err("Pull cancelled.".into());
+            }
+            if request.kind != "calendar" && value["notModified"].as_bool() == Some(false) {
+                let materialized = store.load_workspace().map_err(|error| error.to_string())?;
+                store.record_reference_cache(
                 &request.kind,
                 request.year,
                 json!({
                     "indexUrl":request.index_url,
                     "fingerprint":cache_fingerprint(&materialized, &request.kind, request.year)?
                 }),
-            )?;
-        }
-        row["year"] = json!(request.year);
-        row["indexHash"] = json!(index_hash);
-        for key in ["dataUrl", "remoteHash", "sourceTs"] {
-            if let Some(value) = value.get(key) {
-                row[key] = value.clone();
+            ).map_err(|error| error.to_string())?;
             }
+            row["year"] = json!(request.year);
+            row["indexHash"] = json!(index_hash);
+            for key in ["dataUrl", "remoteHash", "sourceTs"] {
+                if let Some(value) = value.get(key) {
+                    row[key] = value.clone();
+                }
+            }
+            row["fetchedAt"] = json!(Utc::now().to_rfc3339());
+            row["lastError"] = Value::Null;
+            Ok(value)
         }
-        row["fetchedAt"] = json!(Utc::now().to_rfc3339());
-        row["lastError"] = Value::Null;
-        Ok(value)
-    }
-    .await;
+        .await;
     // Error metadata is a write too, so cancellation and SQL admission share a gate.
     if !context.applying().await {
         return Err("Pull cancelled.".into());
@@ -277,14 +287,17 @@ async fn run_reference(
     // User edits during a fetch take precedence over its metadata.
     // Checked writes also guard the small interval after this read.
     let latest = store
-        .user_rows("subscriptions")?
+        .user_rows("subscriptions")
+        .map_err(|error| error.to_string())?
         .into_iter()
         .find(|current| current["id"] == row["id"]);
     if latest
         .as_ref()
         .is_none_or(|current| current["rev"].as_u64().unwrap_or(0) == revision)
     {
-        store.put_user_record_checked("subscriptions", row, "pull-coordinator", Some(revision))?;
+        store
+            .put_user_record_checked("subscriptions", row, "pull-coordinator", Some(revision))
+            .map_err(|error| error.to_string())?;
     }
     let _ = app.emit("workspace-changed", json!({"source":"reference-pull"}));
     result
@@ -295,7 +308,10 @@ pub(crate) async fn refresh_all(
     force: bool,
     selected: bool,
 ) -> Result<String, String> {
-    let workspace = app.state::<DataStore>().load_workspace()?;
+    let workspace = app
+        .state::<DataStore>()
+        .load_workspace()
+        .map_err(|error| error.to_string())?;
     let probes: Probes = Arc::new(Mutex::new(HashMap::new()));
     let mut changed = 0u64;
     let mut failures = 0usize;
@@ -354,7 +370,9 @@ pub(crate) async fn refresh_all(
             Err(_) => failures += 1,
         }
     }
-    app.state::<DataStore>().record_reference_poll()?;
+    app.state::<DataStore>()
+        .record_reference_poll()
+        .map_err(|error| error.to_string())?;
     let _ = app.emit("workspace-changed", json!({"source":"reference-poll"}));
     if failures > 0 {
         Err(format!("{failures} reference source(s) failed"))

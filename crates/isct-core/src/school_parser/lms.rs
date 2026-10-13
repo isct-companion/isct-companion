@@ -1,3 +1,4 @@
+use super::SchoolParseError;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -12,7 +13,7 @@ const MAX_EVENTS: usize = 5_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LmsCourse {
+pub struct LmsCourse {
     pub id: u64,
     #[serde(default)]
     pub fullname: String,
@@ -34,7 +35,7 @@ pub(crate) struct LmsCourse {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LmsStructure {
+pub struct LmsStructure {
     pub course_id: u64,
     pub complete: bool,
     pub state: Option<Value>,
@@ -44,7 +45,7 @@ pub(crate) struct LmsStructure {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LmsPayload {
+pub struct LmsPayload {
     pub status: String,
     pub source_url: String,
     #[serde(default)]
@@ -92,21 +93,21 @@ struct RawLmsPayload {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LmsTimetable {
+pub struct LmsTimetable {
     pub term: String,
     pub meetings: HashMap<u64, Vec<Value>>,
     pub unscheduled: Vec<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LmsStage {
+pub enum LmsStage {
     Ready,
     ReconnectRequired,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub(crate) enum ResolvedResource {
+pub enum ResolvedResource {
     File { url: String },
     External { url: String },
     Folder { files: Vec<ResolvedFile> },
@@ -115,7 +116,7 @@ pub(crate) enum ResolvedResource {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub(crate) struct ResolvedFile {
+pub struct ResolvedFile {
     pub name: String,
     pub url: String,
 }
@@ -136,7 +137,7 @@ fn category_number<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<
     })
 }
 
-pub(crate) fn aggregate_slots(cells: &[(u64, u8, u8)]) -> HashMap<u64, Vec<Value>> {
+pub fn aggregate_slots(cells: &[(u64, u8, u8)]) -> HashMap<u64, Vec<Value>> {
     let mut by_course: HashMap<u64, std::collections::BTreeMap<u8, Vec<u8>>> = HashMap::new();
     for &(course, day, period) in cells {
         by_course
@@ -220,7 +221,7 @@ fn parse_timetable(raw: &Value, courses: &HashSet<u64>) -> Option<LmsTimetable> 
     })
 }
 
-pub(crate) fn is_lms_origin(url: &Url) -> bool {
+pub fn is_lms_origin(url: &Url) -> bool {
     url.scheme() == "https"
         && url.host_str() == Some("lms.s.isct.ac.jp")
         && url.port().is_none()
@@ -228,7 +229,7 @@ pub(crate) fn is_lms_origin(url: &Url) -> bool {
         && url.password().is_none()
 }
 
-pub(crate) fn is_plugin_file_url(url: &Url) -> bool {
+pub fn is_plugin_file_url(url: &Url) -> bool {
     is_lms_origin(url)
         && url.path_segments().is_some_and(|segments| {
             segments
@@ -241,7 +242,7 @@ pub(crate) fn lms_url(raw: &str) -> bool {
     Url::parse(raw).is_ok_and(|url| is_lms_origin(&url))
 }
 
-pub(crate) fn decode_entities(text: &str) -> String {
+pub fn decode_entities(text: &str) -> String {
     if !text.contains('&') {
         return text.to_string();
     }
@@ -311,7 +312,7 @@ fn valid_event(event: &Value) -> bool {
 /// Validates and normalizes the bounded result produced by the LMS capture
 /// adapter. Invalid records are counted and discarded without turning a
 /// partial result into authoritative deletion input.
-pub(crate) fn parse_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), String> {
+pub fn parse_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), SchoolParseError> {
     if raw.len() > MAX_PAYLOAD_BYTES {
         return Err("LMS payload exceeds the size limit".into());
     }
@@ -472,19 +473,16 @@ pub(crate) fn parse_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>),
 
 /// Parses a Moodle module page into a resource description. The downloader
 /// owns HTTP and disk I/O; this function only understands bounded HTML.
-pub(crate) fn parse_resource_page(
-    html: &str,
-    response_url: &Url,
-    module: &str,
-) -> ResolvedResource {
+pub fn parse_resource_page(html: &str, response_url: &Url, module: &str) -> ResolvedResource {
     if !is_lms_origin(response_url) {
         return ResolvedResource::Unresolved;
     }
     let page = Html::parse_document(html);
     let plugin_file = |raw: &str| response_url.join(raw).ok().filter(is_plugin_file_url);
     if module == "folder" {
-        let selector =
-            Selector::parse(".foldertree a[href*='/pluginfile.php/']").expect("static selector");
+        let Ok(selector) = Selector::parse(".foldertree a[href*='/pluginfile.php/']") else {
+            return ResolvedResource::Unresolved;
+        };
         let files = page
             .select(&selector)
             .filter_map(|link| {
@@ -508,8 +506,9 @@ pub(crate) fn parse_resource_page(
         };
     }
     if module == "url" {
-        let selector =
-            Selector::parse("#region-main a[href^='https://']").expect("static selector");
+        let Ok(selector) = Selector::parse("#region-main a[href^='https://']") else {
+            return ResolvedResource::Unresolved;
+        };
         let Some(url) = page
             .select(&selector)
             .find_map(|link| response_url.join(link.value().attr("href")?).ok())
@@ -529,7 +528,9 @@ pub(crate) fn parse_resource_page(
         ".resourceworkaround a[href]",
         ".resourcecontent a[href]",
     ] {
-        let selector = Selector::parse(selector).expect("static selector");
+        let Ok(selector) = Selector::parse(selector) else {
+            continue;
+        };
         if let Some(url) = page.select(&selector).find_map(|element| {
             element
                 .value()
@@ -541,10 +542,11 @@ pub(crate) fn parse_resource_page(
             return ResolvedResource::File { url: url.into() };
         }
     }
-    let selector = Selector::parse(
+    let Ok(selector) = Selector::parse(
         "[href*='pluginfile.php'], [src*='pluginfile.php'], [data*='pluginfile.php']",
-    )
-    .expect("static selector");
+    ) else {
+        return ResolvedResource::Unresolved;
+    };
     if let Some(url) = page.select(&selector).find_map(|element| {
         element
             .value()

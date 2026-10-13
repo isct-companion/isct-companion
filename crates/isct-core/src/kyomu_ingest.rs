@@ -1,4 +1,5 @@
 use crate::data::{resolve_course_id, versioned::content_hash};
+use crate::lms_ingest::IngestError;
 use crate::school_parser::kyomu::KyomuPayload;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -140,7 +141,7 @@ fn upsert(
     id: &str,
     value: &Value,
     extra: &[(&str, rusqlite::types::Value)],
-) -> Result<bool, String> {
+) -> Result<bool, IngestError> {
     let hash = content_hash(value)?;
     let old: Option<(String, u64, Option<String>)> = tx
         .query_row(
@@ -149,7 +150,7 @@ fn upsert(
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
-        .map_err(|e| e.to_string())?;
+        .map_err(IngestError::from)?;
     let timestamp = Utc::now().to_rfc3339();
     if old.as_ref().is_some_and(|(h, _, _)| h == &hash) {
         let changed = old
@@ -157,7 +158,7 @@ fn upsert(
             .is_some_and(|(_, _, missing)| missing.is_some());
         tx.execute(&format!("UPDATE {table} SET last_seen_at=?2,missing_since=NULL,deleted_at=NULL,
             value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"), params![id,timestamp])
-            .map_err(|e|e.to_string())?;
+            .map_err(IngestError::from)?;
         return Ok(changed);
     }
     let mut names = vec![
@@ -191,7 +192,7 @@ fn upsert(
     let mut values = vec![
         id.to_string().into(),
         serde_json::to_string(&stored)
-            .map_err(|e| e.to_string())?
+            .map_err(IngestError::from)?
             .into(),
         hash.into(),
         timestamp.clone().into(),
@@ -220,7 +221,7 @@ fn upsert(
         ),
         rusqlite::params_from_iter(values),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(IngestError::from)?;
     Ok(true)
 }
 
@@ -229,18 +230,18 @@ fn mark_missing(
     table: &str,
     prefix: &str,
     live: &HashSet<String>,
-) -> Result<usize, String> {
+) -> Result<usize, IngestError> {
     let mut statement = tx
         .prepare(&format!(
             "SELECT id FROM {table} WHERE id LIKE ?1 AND missing_since IS NULL"
         ))
-        .map_err(|e| e.to_string())?;
+        .map_err(IngestError::from)?;
     let pattern = format!("{prefix}%");
     let stale = statement
         .query_map([pattern], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
+        .map_err(IngestError::from)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        .map_err(IngestError::from)?;
     drop(statement);
     let missing = Utc::now().to_rfc3339();
     let mut changed = 0;
@@ -248,7 +249,7 @@ fn mark_missing(
         changed += tx.execute(
             &format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),
             params![id, missing],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(IngestError::from)?;
     }
     Ok(changed)
 }
@@ -391,10 +392,10 @@ pub fn declared_credits(data: &Value) -> Vec<Value> {
 pub fn apply_kyomu_payload(
     connection: &mut Connection,
     payload: &KyomuPayload,
-) -> Result<usize, String> {
-    let tx = connection.transaction().map_err(|e| e.to_string())?;
+) -> Result<usize, IngestError> {
+    let tx = connection.transaction().map_err(IngestError::from)?;
     let run = Uuid::new_v4().to_string();
-    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'kyomu',?2,'running',?3)",params![run,payload.kind,Utc::now().to_rfc3339()]).map_err(|e|e.to_string())?;
+    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'kyomu',?2,'running',?3)",params![run,payload.kind,Utc::now().to_rfc3339()]).map_err(IngestError::from)?;
     let mut changed = 0;
     match payload.kind.as_str() {
         "registrations" => {
@@ -451,12 +452,12 @@ pub fn apply_kyomu_payload(
             // The page lists every declaration; withdrawn ones leave it.
             let mut statement = tx
                 .prepare("SELECT id FROM registrations WHERE id LIKE 'kyomu-declared:%' AND missing_since IS NULL")
-                .map_err(|e| e.to_string())?;
+                .map_err(IngestError::from)?;
             let stale = statement
                 .query_map([], |r| r.get::<_, String>(0))
-                .map_err(|e| e.to_string())?
+                .map_err(IngestError::from)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| e.to_string())?;
+                .map_err(IngestError::from)?;
             drop(statement);
             for id in stale.into_iter().filter(|id| !live.contains(id)) {
                 let missing = Utc::now().to_rfc3339();
@@ -465,7 +466,7 @@ pub fn apply_kyomu_payload(
                         "UPDATE registrations SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1",
                         params![id, missing],
                     )
-                    .map_err(|e| e.to_string())?;
+                    .map_err(IngestError::from)?;
             }
         }
         "grades" => {
@@ -535,13 +536,8 @@ pub fn apply_kyomu_payload(
                         let id = format!("kyomu-requirement:{table_index}:{category}:{label}");
                         live.insert(id.clone());
                         let record = json!({"id":id,"table":table_index,"category":category,"label":label,"value":value});
-                        changed += usize::from(upsert(
-                            &tx,
-                            "requirement_progress",
-                            record["id"].as_str().unwrap(),
-                            &record,
-                            &[],
-                        )?);
+                        changed +=
+                            usize::from(upsert(&tx, "requirement_progress", &id, &record, &[])?);
                     }
                 }
             }
@@ -588,7 +584,7 @@ pub fn apply_kyomu_payload(
             format!("{changed} rows changed")
         ],
     )
-    .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
+    .map_err(IngestError::from)?;
+    tx.commit().map_err(IngestError::from)?;
     Ok(changed)
 }

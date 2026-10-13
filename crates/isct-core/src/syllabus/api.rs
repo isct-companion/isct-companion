@@ -1,6 +1,7 @@
 use super::model::*;
 use super::parser::{self, DetailPage, ParsedScheduleEntry, SearchPage, SearchRow};
 use super::transport::{self, ORIGIN};
+use super::SyllabusError;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use url::Url;
@@ -30,10 +31,16 @@ fn valid_scope(value: &str) -> bool {
             .all(|part| !part.is_empty() && part.chars().all(|value| value.is_ascii_digit()))
 }
 
-pub(crate) fn search_url(query: &str, year: u16, filters: &SyllabusFilters) -> Result<Url, String> {
+pub(crate) fn search_url(
+    query: &str,
+    year: u16,
+    filters: &SyllabusFilters,
+) -> Result<Url, SyllabusError> {
     let maximum_year = chrono::Datelike::year(&chrono::Utc::now()) + 1;
     if year < 2020 || i32::from(year) > maximum_year {
-        return Err("Syllabus academic year is unsupported.".into());
+        return Err(SyllabusError::invalid_input(
+            "Syllabus academic year is unsupported.",
+        ));
     }
     for value in [
         Some(query),
@@ -45,12 +52,16 @@ pub(crate) fn search_url(query: &str, year: u16, filters: &SyllabusFilters) -> R
     .flatten()
     {
         if value.chars().count() > 200 || value.chars().any(char::is_control) {
-            return Err("Syllabus search text is invalid or too long.".into());
+            return Err(SyllabusError::invalid_input(
+                "Syllabus search text is invalid or too long.",
+            ));
         }
     }
     let scope = filters.department.as_deref().unwrap_or_default().trim();
     if !scope.is_empty() && !valid_scope(scope) {
-        return Err("Syllabus department scope is invalid.".into());
+        return Err(SyllabusError::invalid_input(
+            "Syllabus department scope is invalid.",
+        ));
     }
     if let Some(groups) = &filters.groups {
         if groups.len() > 6
@@ -58,7 +69,9 @@ pub(crate) fn search_url(query: &str, year: u16, filters: &SyllabusFilters) -> R
                 .iter()
                 .any(|group| !["100", "200", "300", "400", "500", "600"].contains(&group.as_str()))
         {
-            return Err("Syllabus series filter is invalid.".into());
+            return Err(SyllabusError::invalid_input(
+                "Syllabus series filter is invalid.",
+            ));
         }
     }
     let endpoint = if scope.is_empty() {
@@ -66,7 +79,8 @@ pub(crate) fn search_url(query: &str, year: u16, filters: &SyllabusFilters) -> R
     } else {
         format!("{ORIGIN}/courses/{year}/{scope}/search")
     };
-    let mut url = Url::parse(&endpoint).map_err(|_| "Syllabus search URL is invalid.")?;
+    let mut url = Url::parse(&endpoint)
+        .map_err(|_| SyllabusError::invalid_input("Syllabus search URL is invalid."))?;
     let mut pairs = url.query_pairs_mut();
     pairs.append_pair("q", query.trim());
     if scope.is_empty() {
@@ -102,9 +116,11 @@ pub(crate) fn localized_search_url(
     year: u16,
     filters: &SyllabusFilters,
     language: &str,
-) -> Result<Url, String> {
+) -> Result<Url, SyllabusError> {
     if !matches!(language, "ja" | "en") {
-        return Err("Unsupported syllabus language.".into());
+        return Err(SyllabusError::invalid_input(
+            "Unsupported syllabus language.",
+        ));
     }
     let mut url = search_url(query, year, filters)?;
     url.query_pairs_mut().append_pair("hl", language);
@@ -116,7 +132,7 @@ fn public_search_url(
     year: u16,
     filters: &SyllabusFilters,
     language: &str,
-) -> Result<Url, String> {
+) -> Result<Url, SyllabusError> {
     let mut url = localized_search_url(query, year, filters, language)?;
     if language == "ja" {
         let pairs = url
@@ -155,7 +171,7 @@ pub async fn search_bilingual(
     year: u16,
     limit: usize,
     filters: Option<SyllabusFilters>,
-) -> Result<CatalogSearchResult, String> {
+) -> Result<CatalogSearchResult, SyllabusError> {
     let filters = filters.unwrap_or_default();
     if should_skip_search(query, &filters) {
         return Ok(CatalogSearchResult {
@@ -178,9 +194,11 @@ pub async fn department_catalog(
     year: u16,
     scope_path: &str,
     quarter: Option<&str>,
-) -> Result<CatalogSearchResult, String> {
+) -> Result<CatalogSearchResult, SyllabusError> {
     if quarter.is_some_and(|value| !["1Q", "2Q", "3Q", "4Q"].contains(&value)) {
-        return Err("Syllabus quarter filter is invalid.".into());
+        return Err(SyllabusError::invalid_input(
+            "Syllabus quarter filter is invalid.",
+        ));
     }
     let base_filters = SyllabusFilters {
         department: Some(scope_path.to_string()),
@@ -222,7 +240,7 @@ async fn tokio_join_search(
     year: u16,
     limit: usize,
     filters: &SyllabusFilters,
-) -> Result<(SearchPage, SearchPage), String> {
+) -> Result<(SearchPage, SearchPage), SyllabusError> {
     let en_url = public_search_url(query, year, filters, "en")?;
     let ja_url = public_search_url(query, year, filters, "ja")?;
     // Search is intentionally serialized. Detail/department callers can bound
@@ -307,14 +325,15 @@ fn merge_search(en: SearchPage, ja: SearchPage) -> CatalogSearchResult {
     }
 }
 
-fn offering_url(locator: &str) -> Result<Url, String> {
+fn offering_url(locator: &str) -> Result<Url, SyllabusError> {
     if locator.len() == 9 && locator.chars().all(|value| value.is_ascii_digit()) {
         // The canonical detail path `courses?jwc={id}` redirects to; a query
         // URL would lose the id once the language is set.
         return Url::parse(&format!("{ORIGIN}/courses/-/-/-/{locator}"))
-            .map_err(|_| "Syllabus URL is invalid.".to_string());
+            .map_err(|_| SyllabusError::invalid_input("Syllabus URL is invalid."));
     }
-    let mut url = Url::parse(locator).map_err(|_| "Syllabus URL is invalid.")?;
+    let mut url = Url::parse(locator)
+        .map_err(|_| SyllabusError::invalid_input("Syllabus URL is invalid."))?;
     url.set_fragment(None);
     url.set_query(None);
     Ok(url)
@@ -329,7 +348,7 @@ fn localized_detail_url(url: &Url, language: &str) -> Url {
     result
 }
 
-pub async fn sync_offering(locator: &str) -> Result<SyncOfferingResult, String> {
+pub async fn sync_offering(locator: &str) -> Result<SyncOfferingResult, SyllabusError> {
     let initial = offering_url(locator)?;
     let en_page = transport::get(localized_detail_url(&initial, "en")).await?;
     let canonical = en_page.url.clone();
@@ -341,7 +360,7 @@ pub async fn sync_offering(locator: &str) -> Result<SyncOfferingResult, String> 
 
 /// Course Finder only needs language-neutral list metadata. Fetch one detail
 /// page now; opening the syllabus later still performs the full bilingual sync.
-pub async fn sync_offering_summary(locator: &str) -> Result<SyncOfferingResult, String> {
+pub async fn sync_offering_summary(locator: &str) -> Result<SyncOfferingResult, SyllabusError> {
     let initial = offering_url(locator)?;
     let page = transport::get(localized_detail_url(&initial, "en")).await?;
     let parsed = parser::parse_detail(&page.url, &page.html, "en")?;
@@ -396,7 +415,7 @@ fn class_code(code: &str, class_label: Option<&str>) -> Option<String> {
         })
 }
 
-pub(super) fn single_detail(page: DetailPage) -> Result<SyncOfferingResult, String> {
+pub(super) fn single_detail(page: DetailPage) -> Result<SyncOfferingResult, SyllabusError> {
     let DetailPage {
         id,
         year,
@@ -473,7 +492,10 @@ pub(super) fn single_detail(page: DetailPage) -> Result<SyncOfferingResult, Stri
     })
 }
 
-pub(super) fn merge_detail(ja: DetailPage, en: DetailPage) -> Result<SyncOfferingResult, String> {
+pub(super) fn merge_detail(
+    ja: DetailPage,
+    en: DetailPage,
+) -> Result<SyncOfferingResult, SyllabusError> {
     if ja.id != en.id {
         return Err("Japanese and English syllabus pages identified different offerings.".into());
     }
@@ -586,6 +608,14 @@ mod offering_locator_tests {
     }
 
     #[test]
+    fn malformed_locator_is_an_input_error() {
+        assert!(matches!(
+            super::offering_url("not a URL"),
+            Err(super::SyllabusError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
     fn finder_summary_keeps_filter_metadata_without_claiming_bilingual_content() {
         let url = url::Url::parse(
             "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602440?hl=en",
@@ -593,7 +623,7 @@ mod offering_locator_tests {
         .unwrap();
         let page = super::parser::parse_detail(
             &url,
-            include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
+            include_str!("../../../../artifacts/syllabus-research/parallel-en-content.html"),
             "en",
         )
         .unwrap();

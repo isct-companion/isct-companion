@@ -1,4 +1,5 @@
 //! Pure, platform-independent last-writer-wins merge for user-owned records.
+use super::DataError;
 use serde_json::{json, Value};
 use std::{cmp::Ordering, collections::BTreeMap};
 
@@ -58,7 +59,7 @@ pub fn generation(document: &Value) -> (u64, String) {
     )
 }
 
-pub fn version(document: &Value) -> Result<String, String> {
+pub fn version(document: &Value) -> Result<String, DataError> {
     let normalized = merge(document, document);
     crate::data::versioned::content_hash(&contents(&normalized)).map(|hash| format!("v1-{hash}"))
 }
@@ -84,13 +85,15 @@ pub fn merge(a: &Value, b: &Value) -> Value {
         );
     }
     let mut settings = rows(&a["tables"]["settings"], &b["tables"]["settings"], "key");
-    settings.as_array_mut().unwrap().retain(|row| {
-        row["key"]
-            .as_str()
-            .is_some_and(|key| crate::data::USER_BACKUP_SETTINGS.contains(&key))
-    });
-    for setting in settings.as_array_mut().unwrap() {
-        sanitize_setting(setting);
+    if let Some(settings) = settings.as_array_mut() {
+        settings.retain(|row| {
+            row["key"]
+                .as_str()
+                .is_some_and(|key| crate::data::USER_BACKUP_SETTINGS.contains(&key))
+        });
+        for setting in settings {
+            sanitize_setting(setting);
+        }
     }
     tables.insert("settings".into(), settings);
     merged["tables"] = Value::Object(tables);

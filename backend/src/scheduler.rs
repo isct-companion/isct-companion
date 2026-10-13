@@ -143,7 +143,9 @@ impl Scheduler {
 
     async fn tick(&self, app: &tauri::AppHandle) -> Result<(), String> {
         let store = app.state::<DataStore>();
-        let tasks = store.user_rows("scheduled_tasks")?;
+        let tasks = store
+            .user_rows("scheduled_tasks")
+            .map_err(|error| error.to_string())?;
         let now = Utc::now();
         for task in tasks {
             if let Some(occurrence) = due_occurrence(&task, now, self.started_at)? {
@@ -157,7 +159,8 @@ impl Scheduler {
         // MCP is a separate process, so it cannot emit into this Tauri event
         // loop. Its durable write audit is the cross-process notification.
         let latest_agent_write = store
-            .load_workspace()?
+            .load_workspace()
+            .map_err(|error| error.to_string())?
             .pointer("/settings/agentAccess/lastWrites")
             .and_then(Value::as_array)
             .and_then(|writes| writes.last())
@@ -198,7 +201,8 @@ impl Scheduler {
         let result = async {
             let store = app.state::<DataStore>().inner().clone();
             let mut task = store
-                .user_rows("scheduled_tasks")?
+                .user_rows("scheduled_tasks")
+                .map_err(|error| error.to_string())?
                 .into_iter()
                 .find(|task| task.get("id").and_then(Value::as_str) == Some(id))
                 .ok_or("Scheduled task no longer exists.")?;
@@ -207,12 +211,9 @@ impl Scheduler {
             task["lastOccurrenceAt"] = Value::String(occurrence);
             task["lastRunAt"] = Value::String(Utc::now().to_rfc3339());
             task["lastResult"] = Value::String("Running".into());
-            let mut task = store.put_user_record_checked(
-                "scheduled_tasks",
-                task,
-                "scheduler",
-                Some(expected),
-            )?;
+            let mut task = store
+                .put_user_record_checked("scheduled_tasks", task, "scheduler", Some(expected))
+                .map_err(|error| error.to_string())?;
             app.emit("workspace-changed", json!({"source":"scheduler"}))
                 .map_err(|error| error.to_string())?;
             let action = task
@@ -225,7 +226,9 @@ impl Scheduler {
             let expected = task.get("rev").and_then(Value::as_u64).unwrap_or(0);
             task["lastRunAt"] = Value::String(Utc::now().to_rfc3339());
             task["lastResult"] = Value::String(message.clone());
-            store.put_user_record_checked("scheduled_tasks", task, "scheduler", Some(expected))?;
+            store
+                .put_user_record_checked("scheduled_tasks", task, "scheduler", Some(expected))
+                .map_err(|error| error.to_string())?;
             app.emit("workspace-changed", json!({"source":"scheduler"}))
                 .map_err(|error| error.to_string())?;
             Ok(message)

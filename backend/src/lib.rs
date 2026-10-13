@@ -21,16 +21,16 @@ mod cloud;
 use data::cloud_merge;
 mod cloud_sync;
 pub use isct_core::contracts;
-pub mod data;
+pub use isct_core::data;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod icloud;
 use isct_core::kyomu_guide;
-mod kyomu_ingest;
+pub(crate) use isct_core::kyomu_ingest;
 use isct_core::lifecycle;
 #[cfg(desktop)]
 mod lms_downloader;
 mod lms_files;
-mod lms_ingest;
+pub(crate) use isct_core::lms_ingest;
 mod lms_protocol;
 #[cfg(matrix_ocr)]
 mod matrix_ocr;
@@ -43,7 +43,7 @@ mod reference_refresh;
 mod scheduler;
 mod school_auth;
 mod school_extract;
-mod school_parser;
+pub(crate) use isct_core::school_parser;
 mod school_refresh;
 #[cfg(not(mobile))]
 mod school_web;
@@ -52,8 +52,8 @@ mod school_web;
 mod school_web;
 mod school_web_shared;
 mod secrets;
-mod subscriptions;
-mod syllabus;
+pub(crate) use isct_core::subscriptions;
+pub(crate) use isct_core::syllabus;
 #[cfg(desktop)]
 mod workspaces;
 
@@ -438,13 +438,19 @@ fn school_records_inner(store: &data::DataStore) -> Result<serde_json::Value, St
         ("requirements", "requirement_progress"),
     ] {
         let rows = store
-            .table_rows(table)?
+            .table_rows(table)
+            .map_err(|error| error.to_string())?
             .into_iter()
             .filter(|row| row.get("deletedAt").is_none_or(serde_json::Value::is_null))
             .collect();
         records.insert(key.into(), serde_json::Value::Array(rows));
     }
-    records.insert("lastRuns".into(), store.last_import_runs()?);
+    records.insert(
+        "lastRuns".into(),
+        store
+            .last_import_runs()
+            .map_err(|error| error.to_string())?,
+    );
     Ok(serde_json::Value::Object(records))
 }
 
@@ -687,7 +693,10 @@ async fn set_cloud_sync_provider(
     if enabled && provider == CloudProvider::GoogleDrive {
         let service = app.state::<DesktopCloudService<OsSecretVault>>();
         if !service.authorized_providers()?.contains(&provider) {
-            let workspace = app.state::<data::DataStore>().load_workspace()?;
+            let workspace = app
+                .state::<data::DataStore>()
+                .load_workspace()
+                .map_err(|error| error.to_string())?;
             let override_id = workspace
                 .pointer("/settings/cloud/clientId")
                 .and_then(serde_json::Value::as_str)
@@ -865,7 +874,7 @@ async fn load_workspace(
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    run_data_command(move || store.load_workspace()).await
+    run_data_command(move || store.load_workspace().map_err(|error| error.to_string())).await
 }
 
 #[tauri::command]
@@ -886,7 +895,9 @@ async fn put_user_record(
     require_local_main(&webview)?;
     let store = store.inner().clone();
     let result = run_data_command(move || {
-        store.put_user_record_checked(&table, record, "desktop", expected_rev)
+        store
+            .put_user_record_checked(&table, record, "desktop", expected_rev)
+            .map_err(|error| error.to_string())
     })
     .await?;
     cloud_sync::CloudSync::changed(&app);
@@ -905,7 +916,9 @@ async fn delete_user_record(
     require_local_main(&webview)?;
     let store = store.inner().clone();
     let result = run_data_command(move || {
-        store.delete_user_record_checked(&table, &id, "desktop", expected_rev)
+        store
+            .delete_user_record_checked(&table, &id, "desktop", expected_rev)
+            .map_err(|error| error.to_string())
     })
     .await?;
     cloud_sync::CloudSync::changed(&app);
@@ -934,9 +947,12 @@ async fn put_workspace_setting(
     require_local_main(&webview)?;
     let store = store.inner().clone();
     let result = run_data_command(move || {
-        store.put_workspace_setting(&key, value, "desktop")?;
         store
-            .load_workspace()?
+            .put_workspace_setting(&key, value, "desktop")
+            .map_err(|error| error.to_string())?;
+        store
+            .load_workspace()
+            .map_err(|error| error.to_string())?
             .get("currentTerm")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
@@ -958,7 +974,9 @@ async fn reset_workspace(
         .prepare_reset(&app)
         .await?;
     let store = store.inner().clone();
-    let result = run_data_command(move || store.reset_workspace()).await?;
+    let result =
+        run_data_command(move || store.reset_workspace().map_err(|error| error.to_string()))
+            .await?;
     cloud_sync::CloudSync::changed(&app);
     Ok(result)
 }
@@ -974,7 +992,7 @@ async fn export_data(
     run_data_command(move || {
         let notes = serde_json::to_value(lms_files::export_notes(&app)?)
             .map_err(|error| error.to_string())?;
-        store.export_data(notes)
+        store.export_data(notes).map_err(|error| error.to_string())
     })
     .await
 }
@@ -1042,7 +1060,9 @@ fn write_scheduled_export_inner(
 
     let notes =
         serde_json::to_value(lms_files::export_notes(app)?).map_err(|error| error.to_string())?;
-    let document = store.export_data(notes)?;
+    let document = store
+        .export_data(notes)
+        .map_err(|error| error.to_string())?;
     if document.len() > 32 * 1024 * 1024 {
         return Err("scheduled export exceeds the 32 MiB safety limit".into());
     }
@@ -1108,11 +1128,11 @@ async fn import_data(
     document: String,
 ) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
-    let parsed = data::parse_import(&document)?;
+    let parsed = data::parse_import(&document).map_err(|error| error.to_string())?;
     app.state::<cloud_sync::CloudSync>()
         .restore_document(&app, &parsed)
         .await?;
-    store.load_workspace()
+    store.load_workspace().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1123,7 +1143,12 @@ async fn catalog_upsert_offerings(
 ) -> Result<usize, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    run_data_command(move || store.catalog_upsert_offerings(&offerings)).await
+    run_data_command(move || {
+        store
+            .catalog_upsert_offerings(&offerings)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 /// Every stored offering of one academic year, with schedule, credits, language and
@@ -1138,7 +1163,8 @@ async fn catalog_offerings(
     let store = store.inner().clone();
     run_data_command(move || {
         Ok(store
-            .catalog_search("")?
+            .catalog_search("")
+            .map_err(|error| error.to_string())?
             .into_iter()
             .filter(|row| {
                 row.get("year").and_then(serde_json::Value::as_u64) == Some(u64::from(year))
@@ -1157,7 +1183,12 @@ async fn catalog_offering(
 ) -> Result<Option<serde_json::Value>, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    run_data_command(move || store.catalog_offering(&id)).await
+    run_data_command(move || {
+        store
+            .catalog_offering(&id)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1177,7 +1208,10 @@ async fn catalog_sync_offering(
             .filter(|value| value.len() == 9 && value.chars().all(|c| c.is_ascii_digit()))
     };
     if let Some(offering_id) = offering_id {
-        if let Some(stored) = store.catalog_offering(&offering_id)? {
+        if let Some(stored) = store
+            .catalog_offering(&offering_id)
+            .map_err(|error| error.to_string())?
+        {
             let cutoff = chrono::Utc::now()
                 - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
             let fresh = ["ja", "en"].iter().all(|language| {
@@ -1190,7 +1224,8 @@ async fn catalog_sync_offering(
             if fresh {
                 let offering = serde_json::from_value(stored).map_err(|error| error.to_string())?;
                 let content = store
-                    .table_rows("offering_content")?
+                    .table_rows("offering_content")
+                    .map_err(|error| error.to_string())?
                     .into_iter()
                     .filter(|row| {
                         row.get("offeringId").and_then(serde_json::Value::as_str)
@@ -1209,7 +1244,9 @@ async fn catalog_sync_offering(
             }
         }
     }
-    let result = syllabus::sync_offering(&id).await?;
+    let result = syllabus::sync_offering(&id)
+        .await
+        .map_err(|error| error.to_string())?;
     let offering = serde_json::to_value(&result.offering).map_err(|error| error.to_string())?;
     let content = result
         .content
@@ -1217,8 +1254,12 @@ async fn catalog_sync_offering(
         .map(serde_json::to_value)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
-    store.catalog_upsert_offerings(&[offering])?;
-    store.upsert_offering_content(&content)?;
+    store
+        .catalog_upsert_offerings(&[offering])
+        .map_err(|error| error.to_string())?;
+    store
+        .upsert_offering_content(&content)
+        .map_err(|error| error.to_string())?;
     Ok(result)
 }
 
@@ -1230,12 +1271,18 @@ fn store_search_items(
 ) -> Result<(), String> {
     let mut rows = Vec::new();
     for item in items {
-        if store.catalog_offering(&item.id)?.is_none() {
+        if store
+            .catalog_offering(&item.id)
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
             rows.push(serde_json::to_value(item).map_err(|error| error.to_string())?);
         }
     }
     if !rows.is_empty() {
-        store.catalog_upsert_search_items(&rows)?;
+        store
+            .catalog_upsert_search_items(&rows)
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -1299,8 +1346,12 @@ async fn sync_stale_details(
                     .map(serde_json::to_value)
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|error| error.to_string())?;
-                store.catalog_upsert_offerings(&[offering])?;
-                store.upsert_offering_content(&content)?;
+                store
+                    .catalog_upsert_offerings(&[offering])
+                    .map_err(|error| error.to_string())?;
+                store
+                    .upsert_offering_content(&content)
+                    .map_err(|error| error.to_string())?;
                 offerings.push(synced);
             }
             Ok(Err(error)) => warnings.push(format!("{id}: {error}")),
@@ -1320,7 +1371,9 @@ async fn catalog_sync_department(
 ) -> Result<syllabus::DepartmentSyncResult, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    let catalog = syllabus::department_catalog(year, &scope_path, quarter.as_deref()).await?;
+    let catalog = syllabus::department_catalog(year, &scope_path, quarter.as_deref())
+        .await
+        .map_err(|error| error.to_string())?;
     let targets = catalog
         .items
         .iter()
@@ -1348,7 +1401,9 @@ async fn catalog_query(
 ) -> Result<syllabus::CatalogSearchResult, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    let result = syllabus::search_bilingual(&query, year, 100, filters).await?;
+    let result = syllabus::search_bilingual(&query, year, 100, filters)
+        .await
+        .map_err(|error| error.to_string())?;
     store_search_items(&store, &result.items)?;
     Ok(result)
 }
@@ -1371,8 +1426,12 @@ async fn catalog_sync_offerings(
         // A course found by a search is stored as a search row until its
         // details have been read once.
         let url = [
-            store.catalog_offering(&id)?,
-            store.catalog_search_item(&id)?,
+            store
+                .catalog_offering(&id)
+                .map_err(|error| error.to_string())?,
+            store
+                .catalog_search_item(&id)
+                .map_err(|error| error.to_string())?,
         ]
         .into_iter()
         .flatten()
@@ -1400,7 +1459,8 @@ fn preview_plan_recurrence(
     limit: Option<u16>,
 ) -> Result<plans::RecurrencePreview, String> {
     require_local_main(&webview)?;
-    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5)).map_err(|error| error.to_string())
+    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5))
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1426,10 +1486,12 @@ async fn apply_bundled_subscriptions(
     let store = store.inner().clone();
     run_data_command(move || {
         let (calendar, departments) =
-            subscriptions::bundled_selection(academic_year, admission_year)?;
+            subscriptions::bundled_selection(academic_year, admission_year)
+                .map_err(|error| error.to_string())?;
         let mut connection =
             rusqlite::Connection::open(store.path()).map_err(|error| error.to_string())?;
         subscriptions::apply_subscription(&mut connection, &calendar, &departments)
+            .map_err(|error| error.to_string())
     })
     .await
 }
@@ -1445,9 +1507,11 @@ async fn probe_reference_source(
 }
 
 async fn probe_reference_source_inner(index_url: &str) -> Result<String, String> {
-    subscriptions::SubscriptionClient::new()?
+    subscriptions::SubscriptionClient::new()
+        .map_err(|error| error.to_string())?
         .probe_index_source(index_url)
         .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1486,7 +1550,7 @@ async fn refresh_reference_source_inner(
     known_hash: Option<String>,
     context: &pull_coordinator::PullContext,
 ) -> Result<serde_json::Value, String> {
-    let client = subscriptions::SubscriptionClient::new()?;
+    let client = subscriptions::SubscriptionClient::new().map_err(|error| error.to_string())?;
     let mut connection = rusqlite::Connection::open(store.path()).map_err(|e| e.to_string())?;
     match kind {
         "calendar" => {
@@ -1497,7 +1561,8 @@ async fn refresh_reference_source_inner(
                     expected_index_hash.as_deref(),
                     known_hash.as_deref(),
                 )
-                .await?;
+                .await
+                .map_err(|error| error.to_string())?;
             let Some(value) = fetched.value else {
                 return Ok(
                     serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
@@ -1509,7 +1574,8 @@ async fn refresh_reference_source_inner(
             if !context.applying().await {
                 return Err("Pull cancelled.".into());
             }
-            let changed = subscriptions::apply_reference(&mut connection, Some(&value), None)?;
+            let changed = subscriptions::apply_reference(&mut connection, Some(&value), None)
+                .map_err(|error| error.to_string())?;
             Ok(
                 serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
             )
@@ -1522,7 +1588,8 @@ async fn refresh_reference_source_inner(
                     expected_index_hash.as_deref(),
                     known_hash.as_deref(),
                 )
-                .await?;
+                .await
+                .map_err(|error| error.to_string())?;
             let Some(value) = fetched.value else {
                 return Ok(
                     serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
@@ -1534,7 +1601,8 @@ async fn refresh_reference_source_inner(
             if !context.applying().await {
                 return Err("Pull cancelled.".into());
             }
-            let changed = subscriptions::apply_reference(&mut connection, None, Some(&value))?;
+            let changed = subscriptions::apply_reference(&mut connection, None, Some(&value))
+                .map_err(|error| error.to_string())?;
             Ok(
                 serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
             )
@@ -1547,7 +1615,8 @@ async fn refresh_reference_source_inner(
                     expected_index_hash.as_deref(),
                     known_hash.as_deref(),
                 )
-                .await?;
+                .await
+                .map_err(|error| error.to_string())?;
             let Some(value) = fetched.value else {
                 return Ok(
                     serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
@@ -1559,7 +1628,8 @@ async fn refresh_reference_source_inner(
             if !context.applying().await {
                 return Err("Pull cancelled.".into());
             }
-            let changed = subscriptions::apply_important_dates(&mut connection, &value)?;
+            let changed = subscriptions::apply_important_dates(&mut connection, &value)
+                .map_err(|error| error.to_string())?;
             Ok(
                 serde_json::json!({"changed":changed,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":false}),
             )
@@ -1572,7 +1642,8 @@ async fn refresh_reference_source_inner(
                     expected_index_hash.as_deref(),
                     known_hash.as_deref(),
                 )
-                .await?;
+                .await
+                .map_err(|error| error.to_string())?;
             let Some(feeds) = fetched.value else {
                 return Ok(
                     serde_json::json!({"changed":0,"dataUrl":fetched.data_url,"remoteHash":fetched.remote_hash,"sourceTs":fetched.source_ts,"notModified":true}),
@@ -1587,7 +1658,8 @@ async fn refresh_reference_source_inner(
             let mut changed = 0;
             let mut files = Vec::new();
             for feed in feeds {
-                changed += subscriptions::apply_exam_feed(&mut connection, &feed)?;
+                changed += subscriptions::apply_exam_feed(&mut connection, &feed)
+                    .map_err(|error| error.to_string())?;
                 files.push(serde_json::json!({"level":feed.level,"quarter":feed.quarter.to_ascii_uppercase(),"dataUrl":feed.url}));
             }
             Ok(
