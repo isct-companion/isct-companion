@@ -9,6 +9,7 @@ export type Section =
   | "backup"
   | "sources"
   | "automation"
+  | "wifi"
   | "developer"
   | "agent"
   | "extensions"

@@ -2,6 +2,7 @@ import { exportQuarterIcs } from "../core/calendar-ics";
 import { contentLanguage, pickLocalized } from "../core/model";
 import { displayColor } from "../core/course-colors";
 import { decodeEntities } from "../core/text";
+import { ModalsProvider } from "@mantine/modals";
 import { Notifications } from "@mantine/notifications";
 import {
   createHashRouter,
@@ -25,6 +26,7 @@ import { notify } from "./notify";
 import { AppShell, MantineProvider } from "@mantine/core";
 import { invoke } from "@tauri-apps/api/core";
 import { UiButton } from "../components/mantine";
+import { confirmAction } from "../components/confirm";
 import i18n, { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import {
@@ -1041,7 +1043,7 @@ export function WorkspaceApp() {
       return draft;
     });
   };
-  const removeFromTimetable = (course: Course) => {
+  const removeFromTimetable = async (course: Course) => {
     const school = data.memberships.some(
       (item) =>
         item.courseId === course.id &&
@@ -1050,9 +1052,12 @@ export function WorkspaceApp() {
     );
     if (
       school &&
-      !confirm(
-        "Remove this course from the local timetable? This does not withdraw your school registration.",
-      )
+      !(await confirmAction(
+        t(
+          "Remove this course from the local timetable? This does not withdraw your school registration.",
+        ),
+        t("Remove"),
+      ))
     )
       return;
     academicUpdate((d) => {
@@ -1815,7 +1820,7 @@ export function WorkspaceApp() {
                 data={data}
                 readOnly={readOnly || !planning}
                 close={() => setPanelCourseId(null)}
-                remove={() => removeFromTimetable(panelCourse)}
+                remove={() => void removeFromTimetable(panelCourse)}
                 editIntensive={() => setIntensiveCourseId(panelCourse.id)}
                 lmsUrl={lmsUrlFor(panelCourse)}
                 openWeb={(url) => openWeb(url)}
@@ -2354,7 +2359,9 @@ export default function App({
         limit={1}
         transitionDuration={0}
       />
-      <RouterProvider router={router} />
+      <ModalsProvider>
+        <RouterProvider router={router} />
+      </ModalsProvider>
     </MantineProvider>
   );
 }

@@ -1,6 +1,7 @@
 import { COURSE_PALETTE } from "../../core/course-colors";
 import { t } from "../../i18n";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
+import { confirmAction } from "../../components/confirm";
 import { SyllabusDetails } from "./syllabus-details";
 import type { SyllabusCourse } from "../../core/syllabus";
 import { useState, type FormEvent } from "react";
@@ -372,8 +373,15 @@ export function CourseEditor({
             <UiButton
               type="button"
               className="button danger"
-              onClick={() => {
-                if (confirm(`Delete ${course.title}? This cannot be undone.`))
+              onClick={async () => {
+                if (
+                  await confirmAction(
+                    t("Delete {{title}}? This cannot be undone.", {
+                      title: course.title,
+                    }),
+                    t("Delete"),
+                  )
+                )
                   onDelete();
               }}
             >
@@ -556,8 +564,14 @@ export function EventEditor({
             <UiButton
               type="button"
               className="button danger"
-              onClick={() => {
-                if (confirm(`Delete ${event.title}?`)) onDelete();
+              onClick={async () => {
+                if (
+                  await confirmAction(
+                    t("Delete {{title}}?", { title: event.title }),
+                    t("Delete"),
+                  )
+                )
+                  onDelete();
               }}
             >
               {t("Delete")}

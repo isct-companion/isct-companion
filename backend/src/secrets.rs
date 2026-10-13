@@ -53,12 +53,18 @@ fn request(account: &str, data: Option<String>) -> Result<OptionsRequest, String
     })
 }
 
+// macOS debug builds (`tauri dev`) are unsigned, so they lack the
+// keychain-access-groups entitlement the data-protection keychain requires
+// (errSecMissingEntitlement, -34018). They keep school logins in the login
+// keychain instead; only release builds use the synchronized keychain.
 fn apple_keychain_sync(account: &str) -> bool {
-    cfg!(any(target_os = "macos", target_os = "ios"))
-        && matches!(
-            account,
-            "school-accounts" | "school-science" | "school-tokyo-tech"
-        )
+    cfg!(any(
+        all(target_os = "macos", not(debug_assertions)),
+        target_os = "ios"
+    )) && matches!(
+        account,
+        "school-accounts" | "school-science" | "school-tokyo-tech"
+    )
 }
 
 impl SecretVault for OsSecretVault {

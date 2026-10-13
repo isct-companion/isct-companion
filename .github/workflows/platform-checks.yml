@@ -2,13 +2,18 @@ name: Platform checks
 
 on:
   workflow_dispatch:
+  # Merges to main are not rechecked here: the PR already ran these checks and
+  # the Desktop release workflow rebuilds every platform on each main push.
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
 
 permissions:
   contents: read
+
+# A newer push to the same PR supersedes the run still in progress.
+concurrency:
+  group: platform-checks-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   frontend:

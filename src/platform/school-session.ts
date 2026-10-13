@@ -95,9 +95,13 @@ export function signInAtLaunch(
       .schoolCredentialStatus()
       .catch(() => undefined);
     if (!status) return;
+    // "access-denied" is the last attempt's result, cached across launches.
+    // Retry it, or one denied read would disable automatic sign-in for good.
     const configured = (summary: typeof status.science) =>
       summary.availability
-        ? ["saved-locked", "available"].includes(summary.availability)
+        ? ["saved-locked", "available", "access-denied"].includes(
+            summary.availability,
+          )
         : summary.saved; // compatibility with status files/tests from before the typed state
     const saved: [SchoolAuthProfile, boolean][] = [
       ["science", configured(status.science)],
