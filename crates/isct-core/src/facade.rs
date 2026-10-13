@@ -1,4 +1,5 @@
 //! One application service owner, shared by native shells and agent adapters.
+use crate::school_browser::{SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError};
 use crate::{
     agent::AgentService,
     data::{DataError, DataStore},
@@ -10,23 +11,58 @@ use crate::{
     school_auth::SchoolAuthService,
     school_service::{SchoolExecutor, SchoolService},
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub struct Core {
     pub store: DataStore,
     pub runtime: Arc<CoreRuntime>,
     pub auth: Arc<SchoolAuthService>,
     pub agent: AgentService,
+    school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
 }
 
 impl Core {
     pub fn new(store: DataStore, auth: Arc<SchoolAuthService>, network: PullNetwork) -> Self {
         Self {
             agent: AgentService::new(store.clone()),
+            school_browser: Mutex::new(None),
             store,
             auth,
             runtime: Arc::new(CoreRuntime::new(network)),
         }
+    }
+
+    pub fn attach_school_browser(
+        &self,
+        events: Arc<dyn EventSink>,
+        browser: Arc<dyn SchoolBrowser>,
+    ) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
+        let mut owner = self
+            .school_browser
+            .lock()
+            .map_err(|_| SchoolBrowserError::Stopped)?;
+        if owner.is_some() {
+            return Err(SchoolBrowserError::InvalidInput(
+                "School browser is already attached.".into(),
+            ));
+        }
+        let engine = SchoolBrowserEngine::new(
+            self.store.clone(),
+            self.auth.clone(),
+            events,
+            browser,
+            self.runtime.refresh.clone(),
+        )?;
+        *owner = Some(engine.clone());
+        Ok(engine)
+    }
+
+    pub fn school_browser(&self) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
+        self.school_browser
+            .lock()
+            .map_err(|_| SchoolBrowserError::Stopped)?
+            .clone()
+            .ok_or_else(|| SchoolBrowserError::Platform("School browser is unavailable.".into()))
     }
 
     /// Ports are scoped to operations, so completed work releases native handles.
@@ -78,6 +114,9 @@ impl Core {
     }
 
     pub async fn shutdown(&self) {
+        if let Ok(browser) = self.school_browser() {
+            browser.shutdown().await;
+        }
         self.runtime.shutdown().await;
     }
 }

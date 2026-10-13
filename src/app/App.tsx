@@ -74,8 +74,6 @@ import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
 import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
 import {
-  checkSessionsOnFocus,
-  signInAtLaunch,
   useSchoolSession,
   type SchoolSessionState,
 } from "../platform/school-session";
@@ -592,15 +590,6 @@ export function WorkspaceApp() {
         .catch(() => undefined);
       void desktopBridge?.cloudLifecycle?.(kind).catch(() => undefined);
     };
-    const off = desktopBridge.onSchoolSession?.((event) => {
-      if (event.state === "active")
-        void desktopBridge
-          ?.schoolRefreshEvent?.({
-            kind: "account-active",
-            profile: event.profile,
-          })
-          .catch(() => undefined);
-    });
     const focus = () => {
       if (document.visibilityState !== "hidden") report("foreground");
     };
@@ -614,7 +603,6 @@ export function WorkspaceApp() {
     addEventListener("offline", visibility);
     document.addEventListener("visibilitychange", visibility);
     return () => {
-      off?.();
       removeEventListener("focus", focus);
       removeEventListener("online", focus);
       removeEventListener("offline", visibility);
@@ -726,14 +714,6 @@ export function WorkspaceApp() {
       deliver: ({ title, body }) => desktopBridge?.notify(title, body),
     });
   }, [sourceData?.deviceId]);
-
-  // Sign saved school accounts in once at launch. After that, a school page
-  // redirected to sign-in is renewed natively, so there is no polling.
-  useEffect(() => {
-    void signInAtLaunch(desktopBridge);
-  }, []);
-  // Coming back to the window re-checks the school sessions (at most every 2 min).
-  useEffect(() => checkSessionsOnFocus(desktopBridge), []);
 
   // Once per launch, after settings load: drop downloaded course files left unused.
   const cleaned = useRef(false);

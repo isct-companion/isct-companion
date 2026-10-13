@@ -30,6 +30,7 @@ pub mod runtime;
 pub mod runtime_tasks;
 pub mod scheduler;
 pub mod school_auth;
+pub mod school_browser;
 pub mod school_parser;
 pub mod school_refresh;
 pub mod school_service;

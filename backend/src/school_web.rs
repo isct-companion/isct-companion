@@ -1,11 +1,11 @@
 //! Desktop resident school views; all login and extraction logic is shared.
 use crate::lifecycle::SchoolSite;
 #[cfg(target_os = "macos")]
-pub(crate) use crate::school_web_shared::SCHOOL_DATA_STORE;
-pub use crate::school_web_shared::{
+pub(crate) use crate::school_browser_native::SCHOOL_DATA_STORE;
+pub use crate::school_browser_native::{
     IngestOutcome, SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds,
 };
-use crate::school_web_shared::{ViewCallbacks, KYOMU_POPUP_SCRIPT, SCHOOL_LINKS_SCRIPT};
+use crate::school_browser_native::{ViewCallbacks, KYOMU_POPUP_SCRIPT, SCHOOL_LINKS_SCRIPT};
 #[cfg(target_os = "macos")]
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
@@ -49,9 +49,9 @@ pub(crate) fn create_webview(
         .disable_drag_drop_handler()
         .initialization_script_for_all_frames(KYOMU_POPUP_SCRIPT)
         .initialization_script_for_all_frames(SCHOOL_LINKS_SCRIPT)
-        .on_page_load(move |view, payload| {
+        .on_page_load(move |_, payload| {
             if payload.event() == PageLoadEvent::Finished {
-                (callbacks.loaded)(&view, payload.url().as_str());
+                (callbacks.loaded)(payload.url().as_str());
             }
         })
         .on_document_title_changed(move |_, title| (callbacks.title)(&title))

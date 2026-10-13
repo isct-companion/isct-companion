@@ -3,11 +3,9 @@ use crate::{data::DataStore, school_web::SchoolWebController};
 use isct_core::{
     events::CoreEvent,
     ports::{EventError, EventSink},
-    pull_coordinator::{PullContext, PullPriority},
     runtime::CoreRuntime,
     runtime_tasks::RuntimeTasks,
     scheduler::{ExportError, ScheduledExporter, SchedulerServices},
-    school_service::{IngestOutcome, SchoolExecution, SchoolExecutor, SchoolExecutorError},
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -15,45 +13,12 @@ use std::sync::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-struct DesktopEvents(AppHandle);
+pub(crate) struct DesktopEvents(pub(crate) AppHandle);
 impl EventSink for DesktopEvents {
     fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
         self.0
             .emit(event.name(), event.payload())
             .map_err(|error| EventError::Delivery(error.to_string()))
-    }
-}
-
-struct DesktopSchool(AppHandle);
-impl SchoolExecutor for DesktopSchool {
-    fn execute(
-        &self,
-        request: SchoolExecution,
-        context: PullContext,
-    ) -> Result<Vec<IngestOutcome>, SchoolExecutorError> {
-        let execute = || -> Result<Vec<IngestOutcome>, String> {
-            if context.is_cancelled() {
-                return Err("Pull cancelled.".into());
-            }
-            let controller = self.0.state::<SchoolWebController>();
-            if let Some((profile, credentials)) = request.credentials {
-                controller.request_login(&self.0, profile, credentials)?;
-            }
-            if context.is_cancelled() {
-                return Err("Pull cancelled.".into());
-            }
-            if context.priority() == PullPriority::Manual {
-                controller.request_pull(&self.0, request.site, request.course_id, context)
-            } else {
-                controller.request_pull_background(
-                    &self.0,
-                    request.site,
-                    request.course_id,
-                    context,
-                )
-            }
-        };
-        execute().map_err(SchoolExecutorError::Execution)
     }
 }
 
@@ -78,7 +43,7 @@ pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
 pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
     core(app).services(
         Arc::new(DesktopEvents(app.clone())),
-        Arc::new(DesktopSchool(app.clone())),
+        app.state::<SchoolWebController>().engine.clone(),
         Arc::new(DesktopExport(app.clone())),
     )
 }
@@ -155,7 +120,7 @@ impl DesktopRuntime {
         !self.exiting.swap(true, Ordering::AcqRel)
     }
 
-    pub(crate) async fn shutdown(&self, core: &CoreRuntime) {
+    pub(crate) async fn shutdown(&self, core: &isct_core::Core) {
         self.tasks.close();
         core.shutdown().await;
         self.tasks.wait().await;

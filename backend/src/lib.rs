@@ -19,12 +19,10 @@ pub use isct_core::data;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod icloud;
 use isct_core::kyomu_guide;
-pub(crate) use isct_core::kyomu_ingest;
 use isct_core::lifecycle;
 #[cfg(desktop)]
 mod lms_downloader;
 mod lms_files;
-pub(crate) use isct_core::lms_ingest;
 mod lms_protocol;
 pub use isct_core::plans;
 use isct_core::pull_coordinator;
@@ -32,15 +30,14 @@ use isct_core::pull_coordinator;
 use isct_ocr as matrix_ocr;
 mod core_ports;
 pub(crate) use isct_core::school_auth;
-mod school_extract;
-pub(crate) use isct_core::school_parser;
 use isct_core::school_refresh;
+mod school_browser_native;
+mod school_downloads;
 #[cfg(not(mobile))]
 mod school_web;
 #[cfg(mobile)]
 #[path = "school_web_mobile.rs"]
 mod school_web;
-mod school_web_shared;
 mod secrets;
 pub(crate) use isct_core::syllabus;
 #[cfg(desktop)]
@@ -164,7 +161,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(SchoolWebController::new())
         .manage(core_ports::DesktopRuntime::default());
     #[cfg(target_os = "macos")]
     let builder = builder.manage(campus_wifi::CampusWifi::default());
@@ -227,7 +223,8 @@ pub fn run() {
             commands::school_auth::copy_school_matrix,
             commands::school_auth::login_school,
             commands::school_auth::test_school_connection,
-            commands::school_auth::ensure_school_session,
+            commands::school_auth::school_session_snapshot,
+            commands::school_auth::school_session_lifecycle,
             commands::notifications::request_notification_permission,
             commands::notifications::notify,
             commands::school::school_refresh_event,
@@ -304,6 +301,17 @@ pub fn run() {
                     pull_coordinator::PullNetwork::Wifi
                 },
             )));
+            let school_controller = tauri::async_runtime::block_on(async {
+                let native = school_browser_native::NativeBrowser::new(app.handle().clone());
+                let engine = core_ports::core(app.handle()).attach_school_browser(
+                    std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
+                    native.clone(),
+                )?;
+                Ok::<_, isct_core::school_browser::SchoolBrowserError>(SchoolWebController::new(
+                    native, engine,
+                ))
+            })?;
+            app.manage(school_controller);
             let authorized = app
                 .state::<DesktopCloudService<OsSecretVault>>()
                 .authorized_providers()
@@ -369,7 +377,7 @@ pub fn run() {
                                 server.shutdown().await;
                             }
                             app.state::<core_ports::DesktopRuntime>()
-                                .shutdown(&core_ports::runtime(&app))
+                                .shutdown(&core_ports::core(&app))
                                 .await;
                             app.exit(code);
                         });
