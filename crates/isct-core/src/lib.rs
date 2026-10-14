@@ -31,6 +31,7 @@ pub mod lifecycle;
 pub mod lms_ingest;
 pub mod lms_session;
 pub mod notes;
+pub mod notification;
 pub mod plans;
 pub mod ports;
 pub mod pull_coordinator;

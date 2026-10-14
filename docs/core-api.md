@@ -181,7 +181,7 @@ a snapshot command the UI reads after subscribing.
 | Pull state | `Core::runtime.coordinator`: snapshots, subscribe, cancel | Forward intents and publish snapshots |
 | References | `Core::services(...).references` | Supply lifecycle/network facts |
 | Scheduler | `Core::runtime`: wake, run_scheduled, suspend, resume | Periodic wakeups and scheduled exporter port |
-| Catalog | `catalog::{offerings,catalog_query,catalog_sync_offering,catalog_sync_offerings,catalog_sync_department,syllabus_course}` | Call through the runtime's owned operation scope |
+| Catalog | `catalog::{offerings,finder_offerings,catalog_query,catalog_sync_offering,catalog_sync_offerings,catalog_sync_department,syllabus_course}` | Call through the runtime's owned operation scope |
 | Downloads | `Core::runtime.downloads`, `course_materials::CourseMaterials` | Cookie acquisition, native URL handlers and opening files |
 | Notes / backups / cloud | `notes::NoteStore`, `BackupService`, `CloudSync` | Selected root, dialogs, transport and events |
 | School credentials | `Core::auth` / `SchoolAuthService` | `SecretVault`, native login surface |
@@ -283,6 +283,8 @@ the shell owns refreshing that saved copy.
 stable keys, times, titles, bodies, priorities and deep links. It does not mark
 notifications delivered. A native shell applies its platform queue limits.
 Desktop and future native shells use the same schedule and reminder rules.
+`notification::NotificationContent` owns the title/body size limits for both
+planned reminders and shell-requested notifications.
 
 Desktop calls `Core::reminder_tick(sink, now)` from its existing wake loop.
 Core owns the 30-second gate, five-minute grace window, three-day fired-log
@@ -308,7 +310,9 @@ cancels with `MatrixOcrError::Cancelled`.
 
 Run OCR on a blocking worker. The shell handles HEIC-to-JPEG when its codec
 requires it (the desktop webview uses `heic-to`) and forwards progress. Tauri
-sends one bounded base64 image because its command/channel transport is JSON.
+sends one bounded base64 image because its command/channel transport is JSON;
+it checks the payload with `isct_ocr::check_base64_image_len` (derived from
+`MAX_IMAGE_BYTES`) before decoding.
 Native byte bindings need no base64 layer. Without the inference feature,
 including unsupported targets, the same API returns `Unavailable` cleanly.
 See [isct-ocr](../crates/isct-ocr/README.md) for limits and supported formats.
