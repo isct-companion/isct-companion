@@ -300,7 +300,7 @@ pub fn run() {
                 },
             )));
             let school_controller = tauri::async_runtime::block_on(async {
-                let native = school_browser_native::NativeBrowser::new(app.handle().clone());
+                let native = school_browser_native::NativeBrowser::new(app.handle().clone())?;
                 let engine = core_ports::core(app.handle()).attach_school_browser(
                     std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
                     native.clone(),
@@ -321,20 +321,13 @@ pub fn run() {
             core_ports::runtime(app.handle())
                 .attach_cloud(app.state::<cloud_sync::CloudSync>().0.clone())
                 .map_err(std::io::Error::other)?;
+            // The MCP listener exists only while Allow local agents is on;
+            // the wake loop starts, stops and retries it.
             #[cfg(desktop)]
-            match tauri::async_runtime::block_on(agent_server::AgentServer::start(
-                app.handle().clone(),
-            )) {
-                Ok(server) => {
-                    app.manage(server);
-                }
-                Err(error) => {
-                    eprintln!("Desktop MCP server unavailable: {error}");
-                    app.manage(commands::agent::AgentServerError(error));
-                }
-            }
-            core_ports::DesktopRuntime::start(app.handle());
-
+            app.manage(
+                agent_server::AgentAccess::new(app.handle().clone())
+                    .map_err(std::io::Error::other)?,
+            );
             #[cfg(desktop)]
             {
                 #[cfg(dev)]
@@ -356,6 +349,9 @@ pub fn run() {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .initialization_script(native_bootstrap())
                 .build()?;
+            // After the main window exists: the initial focus fact and event
+            // delivery both refer to it.
+            core_ports::DesktopRuntime::start(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -369,14 +365,25 @@ pub fn run() {
                         let app = app.clone();
                         let code = code.unwrap_or(0);
                         tauri::async_runtime::spawn(async move {
-                            cloud_sync::CloudSync::changed(&app).await;
-                            #[cfg(desktop)]
-                            if let Some(server) = app.try_state::<agent_server::AgentServer>() {
-                                server.shutdown().await;
+                            let drained = tokio::time::timeout(core_ports::EXIT_TIMEOUT, async {
+                                cloud_sync::CloudSync::changed(&app).await;
+                                #[cfg(desktop)]
+                                if let Some(access) = app.try_state::<agent_server::AgentAccess>() {
+                                    access.shutdown().await;
+                                }
+                                app.state::<core_ports::DesktopRuntime>()
+                                    .shutdown(&core_ports::core(&app))
+                                    .await;
+                            })
+                            .await;
+                            if drained.is_err() {
+                                eprintln!(
+                                    "[shutdown] owned work did not finish within {:?}; exiting",
+                                    core_ports::EXIT_TIMEOUT
+                                );
                             }
-                            app.state::<core_ports::DesktopRuntime>()
-                                .shutdown(&core_ports::core(&app))
-                                .await;
+                            let runtime = app.state::<core_ports::DesktopRuntime>();
+                            runtime.mark_stopped();
                             app.exit(code);
                         });
                     }
@@ -420,20 +427,12 @@ pub fn run() {
                 _ => None,
             };
             if let Some(foreground) = foreground {
-                let _ = core_ports::runtime(app)
-                    .refresh
-                    .event(school_refresh::RefreshEvent {
-                        kind: if foreground {
-                            "foreground"
-                        } else {
-                            "background"
-                        }
-                        .into(),
-                        profile: None,
-                        course_id: None,
-                        network: None,
-                    });
-                let _ = core_ports::publish_conditions(app);
+                if let Err(error) = core_ports::runtime(app)
+                    .refresh_event(school_refresh::RefreshEvent::lifecycle(foreground))
+                {
+                    eprintln!("[school-refresh] {error}");
+                }
+                core_ports::publish_conditions(app);
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     cloud_sync::CloudSync::changed(&app).await;

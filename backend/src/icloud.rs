@@ -3,6 +3,7 @@
 //! be shared with Drive and OneDrive without exposing it in iCloud Drive.
 
 use block2::RcBlock;
+use isct_core::cloud_sync::document::DocumentError;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::AnyThread;
@@ -132,7 +133,7 @@ fn write_request(
     name: String,
     temp_path: PathBuf,
     expected: Option<Option<u64>>,
-) -> oneshot::Receiver<Result<(), String>> {
+) -> oneshot::Receiver<Result<(), DocumentError>> {
     let database = cloud_database();
     let id = record_id(&name);
     let (tx, rx) = oneshot::channel();
@@ -144,9 +145,9 @@ fn write_request(
         let record = if record.is_null() {
             if unsafe { !is_missing(error) } {
                 if let Some(sender) = sender.lock().ok().and_then(|mut sender| sender.take()) {
-                    let _ = sender.send(Err(unsafe {
+                    let _ = sender.send(Err(DocumentError::Transport(unsafe {
                         error_text(error, "iCloud backup lookup failed.")
-                    }));
+                    })));
                 }
                 let _ = std::fs::remove_file(&temp_for_fetch);
                 return;
@@ -171,7 +172,7 @@ fn write_request(
                 .and_then(|value| value["revision"].as_u64());
             if current != expected {
                 if let Some(sender) = sender.lock().ok().and_then(|mut s| s.take()) {
-                    let _ = sender.send(Err("Cloud copy changed; retrying sync.".into()));
+                    let _ = sender.send(Err(DocumentError::Conflict));
                 }
                 let _ = std::fs::remove_file(&temp_for_fetch);
                 return;
@@ -188,9 +189,12 @@ fn write_request(
             let result = if error.is_null() {
                 Ok(())
             } else if unsafe { error.as_ref().is_some_and(|e| e.code() == 14) } {
-                Err("Cloud copy changed; retrying sync.".into())
+                // CKErrorServerRecordChanged: the conditional save lost a race.
+                Err(DocumentError::Conflict)
             } else {
-                Err(unsafe { error_text(error, "iCloud backup write failed.") })
+                Err(DocumentError::Transport(unsafe {
+                    error_text(error, "iCloud backup write failed.")
+                }))
             };
             let _ = std::fs::remove_file(&temp_for_save);
             if let Some(sender) = sender_for_save
@@ -218,6 +222,7 @@ pub async fn write(name: &str, bytes: Vec<u8>) -> Result<(), String> {
     write_request(name.to_string(), temp_path, None)
         .await
         .map_err(|_| "iCloud backup write did not complete.".to_string())?
+        .map_err(|error| error.to_string())
 }
 
 fn temp_asset_path() -> PathBuf {
@@ -228,11 +233,13 @@ pub async fn write_checked(
     name: &str,
     bytes: Vec<u8>,
     expected: Option<u64>,
-) -> Result<(), String> {
-    account_available().await?;
+) -> Result<(), DocumentError> {
+    account_available()
+        .await
+        .map_err(DocumentError::Transport)?;
     let temp = temp_asset_path();
-    std::fs::write(&temp, bytes).map_err(|e| e.to_string())?;
+    std::fs::write(&temp, bytes).map_err(|e| DocumentError::Transport(e.to_string()))?;
     write_request(name.to_string(), temp, Some(expected))
         .await
-        .map_err(|_| "iCloud write did not complete".to_string())?
+        .map_err(|_| DocumentError::Transport("iCloud write did not complete".into()))?
 }

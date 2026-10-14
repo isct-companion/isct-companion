@@ -31,6 +31,12 @@ pub enum ReferenceError {
     Network(String),
     #[error("{0}")]
     Storage(String),
+    /// A concurrent local edit won (stale revision).
+    #[error("{0}")]
+    Conflict(String),
+    /// Stored data has an unsupported shape or version.
+    #[error("{0}")]
+    Compatibility(String),
     #[error("Pull cancelled.")]
     Cancelled,
     #[error("{0}")]
@@ -41,7 +47,12 @@ pub enum ReferenceError {
 
 impl From<DataError> for ReferenceError {
     fn from(error: DataError) -> Self {
-        Self::Storage(error.to_string())
+        match error {
+            DataError::InvalidInput(message) => Self::InvalidInput(message),
+            DataError::Conflict(message) => Self::Conflict(message),
+            DataError::Compatibility(message) => Self::Compatibility(message),
+            DataError::Storage(message) => Self::Storage(message),
+        }
     }
 }
 
@@ -74,7 +85,11 @@ impl From<ReferenceError> for PullError {
         match error {
             ReferenceError::InvalidInput(message) => Self::InvalidInput(message),
             ReferenceError::Network(message) => Self::Network(message),
-            ReferenceError::Storage(message) => Self::Storage(message),
+            // The coordinator has no conflict/compatibility category; both
+            // are local storage outcomes of the pull.
+            ReferenceError::Storage(message)
+            | ReferenceError::Conflict(message)
+            | ReferenceError::Compatibility(message) => Self::Storage(message),
             ReferenceError::Cancelled => Self::Cancelled,
             ReferenceError::Coordination(error) => error,
             ReferenceError::PartialFailure(count) => {
@@ -225,7 +240,8 @@ impl ReferenceService {
         self
     }
 
-    pub async fn refresh_all(&self, force: bool, selected: bool) -> Result<String, ReferenceError> {
+    /// Automatic and manual runs use the same year rule as the Settings view.
+    pub async fn refresh_all(&self, force: bool) -> Result<String, ReferenceError> {
         let workspace = self.store.load_workspace()?;
         let probes: Probes = Arc::new(Mutex::new(HashMap::new()));
         let mut changed = 0u64;
@@ -235,7 +251,7 @@ impl ReferenceService {
             if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
                 continue;
             }
-            let Some(year) = subscription_year(&workspace, kind, selected) else {
+            let Some(year) = subscription_year(&workspace, kind) else {
                 continue;
             };
             let index_url = row
@@ -410,7 +426,7 @@ impl ReferenceService {
             if !context.applying().await {
                 return Err(ReferenceError::Cancelled);
             }
-            if request.kind != "calendar" && value["notModified"].as_bool() == Some(false) {
+            if value["notModified"].as_bool() == Some(false) {
                 let materialized = self.store.load_workspace()?;
                 self.store.record_reference_cache(
                     &request.kind,
@@ -503,31 +519,29 @@ struct ReferenceRequest {
     force: bool,
 }
 
-fn subscription_year(workspace: &Value, kind: &str, selected: bool) -> Option<i32> {
+/// Departments follow the admission year; term-based references follow the
+/// term the person is viewing (`selectedTerm`), for every kind of run.
+fn subscription_year(workspace: &Value, kind: &str) -> Option<i32> {
     let year = if kind == "departments" {
         workspace
             .pointer("/academicProfile/admissionYear")
             .and_then(Value::as_i64)
     } else {
-        workspace[if selected {
-            "selectedTerm"
-        } else {
-            "currentTerm"
-        }]
-        .as_str()
-        .and_then(|term| term.get(..4))
-        .and_then(|year| year.parse().ok())
+        workspace["selectedTerm"]
+            .as_str()
+            .and_then(|term| term.get(..4))
+            .and_then(|year| year.parse().ok())
     };
     year.and_then(|year| i32::try_from(year).ok())
         .filter(|year| *year > 0)
 }
 
-/// The settings view uses the same year selection as manual reference refresh.
+/// The settings view uses the same year selection as every reference refresh.
 pub fn subscription_views(workspace: &Value) -> Value {
     let mut views = serde_json::Map::new();
     for kind in ["calendar", "departments", "important-dates", "exams"] {
         let row = subscription_row(workspace, kind);
-        let year = subscription_year(workspace, kind, true);
+        let year = subscription_year(workspace, kind);
         let enabled = row.and_then(|row| row["enabled"].as_bool()).unwrap_or(true);
         let state = if !enabled {
             json!({"state":"off"})
@@ -614,6 +628,7 @@ pub fn reference_due_at_launch(task: &Value, started_at: DateTime<Utc>) -> bool 
 
 fn cache_fingerprint(workspace: &Value, kind: &str, year: i32) -> Result<String, ReferenceError> {
     let fields: &[&str] = match kind {
+        "calendar" => &["academicCalendar"],
         "departments" => &["departments", "recommendedCourses"],
         "important-dates" => &["importantDates"],
         "exams" => &["exams"],
@@ -652,8 +667,11 @@ fn cache_present(
     workspace: &Value,
     request: &ReferenceRequest,
 ) -> Result<bool, ReferenceError> {
-    if request.kind == "calendar" {
-        return Ok(calendar_cache_present(workspace, request.year.into()));
+    // A calendar applied before markers existed (or restored from a backup)
+    // still counts when it is complete; a partially published calendar
+    // counts through its local marker, so it is not refetched every hour.
+    if request.kind == "calendar" && calendar_cache_present(workspace, request.year.into()) {
+        return Ok(true);
     }
     let Some(marker) = store.reference_cache_marker(&request.kind, request.year)? else {
         return Ok(false);
@@ -903,7 +921,7 @@ mod tests {
         put_subscription(&store, "exams", true, json!({}));
         let transport = Arc::new(FakeTransport::default());
         service(&store, transport.clone())
-            .refresh_all(true, true)
+            .refresh_all(true)
             .await
             .unwrap();
 
@@ -913,11 +931,99 @@ mod tests {
         assert!(!calls.iter().any(|call| call.0 == "important-dates"));
 
         service(&store, transport.clone())
-            .refresh_all(true, true)
+            .refresh_all(true)
             .await
             .unwrap();
         assert_eq!(transport.probes.load(Ordering::Relaxed), 2);
         assert_eq!(transport.calls().len(), 6);
+    }
+
+    #[tokio::test]
+    async fn automatic_and_manual_runs_use_the_selected_term_year() {
+        let store = store("selected-year");
+        // A 2026 calendar makes currentTerm a 2026 quarter.
+        service(&store, Arc::new(FakeTransport::default()))
+            .apply_fetch(calendar_fetch(2026))
+            .unwrap();
+        store
+            .put_workspace_setting("selectedTerm", json!("2031-1Q"), "test")
+            .unwrap();
+        let workspace = store.load_workspace().unwrap();
+        assert!(workspace["currentTerm"]
+            .as_str()
+            .unwrap()
+            .starts_with("2026"));
+        disable(&store, &["departments", "important-dates", "exams"]);
+        put_subscription(&store, "calendar", true, json!({}));
+        let transport = Arc::new(FakeTransport::default());
+        for force in [false, true] {
+            service(&store, transport.clone())
+                .refresh_all(force)
+                .await
+                .unwrap();
+        }
+        let years = transport
+            .calls()
+            .into_iter()
+            .map(|(_, year, _)| year)
+            .collect::<Vec<_>>();
+        assert_eq!(years, [2031, 2031]);
+        assert_eq!(
+            subscription_views(&store.load_workspace().unwrap())["calendar"]["year"],
+            2031
+        );
+    }
+
+    #[tokio::test]
+    async fn partially_published_calendar_is_cached_until_it_changes() {
+        let store = store("partial-calendar");
+        let mut partial = calendar_fetch(2026);
+        if let Some(ReferencePayload::Calendar(calendar)) = partial.value.as_mut() {
+            calendar
+                .quarters
+                .retain(|quarter, _| quarter == "1Q" || quarter == "2Q");
+        }
+        let transport = Arc::new(FakeTransport::default());
+        transport.respond("calendar", [FakeResponse::Ok(partial)]);
+        let service = service(&store, transport.clone());
+        service
+            .refresh_one(
+                request("calendar", 2026, false),
+                PullPriority::Manual,
+                probes(),
+            )
+            .await
+            .unwrap();
+        assert!(!calendar_cache_present(
+            &store.load_workspace().unwrap(),
+            2026
+        ));
+        let workspace = store.load_workspace().unwrap();
+        assert!(cache_present(&store, &workspace, &request("calendar", 2026, false)).unwrap());
+
+        // The hourly automatic check neither probes nor fetches while fresh.
+        let probes_before = transport.probes.load(Ordering::Relaxed);
+        service
+            .refresh_one(
+                request("calendar", 2026, false),
+                PullPriority::Automatic,
+                probes(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(transport.calls().len(), 1);
+        assert_eq!(transport.probes.load(Ordering::Relaxed), probes_before);
+
+        // A forced check with an unchanged index reuses the cache.
+        service
+            .refresh_one(
+                request("calendar", 2026, true),
+                PullPriority::Manual,
+                probes(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(transport.calls().len(), 1);
     }
 
     #[tokio::test]
@@ -1182,7 +1288,7 @@ mod tests {
         );
 
         let error = service(&store, transport)
-            .refresh_all(true, true)
+            .refresh_all(true)
             .await
             .unwrap_err();
         assert!(matches!(error, ReferenceError::PartialFailure(1)));
@@ -1359,6 +1465,18 @@ mod tests {
             PullError::from(ReferenceError::Coordination(PullError::RuntimeUnavailable)),
             PullError::RuntimeUnavailable
         );
+        assert!(matches!(
+            ReferenceError::from(DataError::Conflict("stale".into())),
+            ReferenceError::Conflict(message) if message == "stale"
+        ));
+        assert!(matches!(
+            ReferenceError::from(DataError::Compatibility("old".into())),
+            ReferenceError::Compatibility(message) if message == "old"
+        ));
+        assert!(matches!(
+            ReferenceError::from(DataError::InvalidInput("bad".into())),
+            ReferenceError::InvalidInput(message) if message == "bad"
+        ));
     }
 }
 

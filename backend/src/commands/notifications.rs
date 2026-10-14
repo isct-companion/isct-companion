@@ -1,4 +1,5 @@
 use crate::require_local_main;
+use isct_core::notification::NotificationContent;
 use tauri::plugin::PermissionState;
 use tauri_plugin_notification::NotificationExt;
 
@@ -16,20 +17,19 @@ impl isct_core::schedule::NotificationSink for DesktopNotifications {
         >,
     > {
         Box::pin(async move {
-            show(&self.0, &item.title, &item.body)
+            NotificationContent::new(item.title, item.body)
+                .map_err(|error| error.to_string())
+                .and_then(|content| show(&self.0, &content))
                 .map_err(isct_core::schedule::NotificationSinkError::Delivery)
         })
     }
 }
 
-fn show(app: &tauri::AppHandle, title: &str, body: &str) -> Result<(), String> {
-    if title.len() > 160 || body.len() > 2_000 {
-        return Err("notification content is too large".into());
-    }
+fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), String> {
     app.notification()
         .builder()
-        .title(title)
-        .body(body)
+        .title(content.title())
+        .body(content.body())
         .show()
         .map_err(|_| "notification could not be shown".to_string())
 }
@@ -42,7 +42,8 @@ pub(crate) fn notify(
     body: String,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    show(&app, &title, &body)?;
+    let content = NotificationContent::new(title, body).map_err(|error| error.to_string())?;
+    show(&app, &content)?;
     Ok(true)
 }
 

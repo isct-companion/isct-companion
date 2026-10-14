@@ -55,6 +55,24 @@ pub struct Occurrence {
     pub overridden: Option<bool>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ScheduleProblemKind {
+    Plan,
+    ScheduleOverride,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleProblem {
+    pub kind: ScheduleProblemKind,
+    pub id: String,
+    pub title: String,
+    pub message: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct AgendaOptions {
     pub include_personal: bool,
@@ -217,9 +235,10 @@ pub fn plan_start(plan: &Value) -> Result<PlanCivilStart, ScheduleError> {
     Ok(PlanCivilStart { date, time })
 }
 
+/// The course's meetings around `now` across every quarter it belongs to, so a
+/// 3Q–4Q course keeps its class times when the quarter changes.
 pub fn course_timeline(
     workspace: &Value,
-    term: &str,
     course_id: &str,
     now: DateTime<FixedOffset>,
     before_days: u16,
@@ -234,25 +253,33 @@ pub fn course_timeline(
     let jst = FixedOffset::east_opt(9 * 3600)
         .ok_or_else(|| ScheduleError::Compatibility("JST offset unavailable".into()))?;
     let local_now = now.with_timezone(&jst).format("%Y-%m-%dT%H:%M").to_string();
+    let terms = array(workspace, "courses")
+        .iter()
+        .find(|row| visible(row) && text(row, "id") == Some(course_id))
+        .map(|course| course_terms(workspace, course))
+        .unwrap_or_default();
     let mut starts = Vec::new();
     for offset in -(i64::from(before_days))..=i64::from(after_days) {
         let date = (today + Duration::days(offset)).to_string();
-        for row in resolve_day_agenda(
-            workspace,
-            term,
-            &date,
-            AgendaOptions {
-                include_personal: false,
-                ..AgendaOptions::default()
-            },
-        )?
-        .into_iter()
-        .filter(|row| row.course_id.as_deref() == Some(course_id))
-        {
-            starts.push(format!("{}T{}", row.date, row.start_time));
+        for term in &terms {
+            for row in resolve_day_agenda(
+                workspace,
+                term,
+                &date,
+                AgendaOptions {
+                    include_personal: false,
+                    ..AgendaOptions::default()
+                },
+            )?
+            .into_iter()
+            .filter(|row| row.course_id.as_deref() == Some(course_id))
+            {
+                starts.push(format!("{}T{}", row.date, row.start_time));
+            }
         }
     }
     starts.sort();
+    starts.dedup();
     let last_started = starts
         .iter()
         .rev()
@@ -275,22 +302,72 @@ pub fn course_timeline(
     })
 }
 
-pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
-    let ids: HashSet<&str> = array(workspace, "memberships")
+/// Live memberships and plan items: the rows that put a course on the
+/// timetable of their quarter.
+fn placements(workspace: &Value) -> impl Iterator<Item = &Value> {
+    array(workspace, "memberships")
         .iter()
         .chain(array(workspace, "planItems"))
-        .filter(|row| visible(row) && text(row, "termId") == Some(term))
+        .filter(|row| visible(row))
+}
+
+/// Courses on the timetable of `term`: those with a live membership or plan
+/// item there. A course running 3Q–4Q is one course (its `termId` is where it
+/// was added) with a row in each quarter.
+pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
+    let ids: HashSet<&str> = placements(workspace)
+        .filter(|row| text(row, "termId") == Some(term))
+        .filter_map(|row| text(row, "courseId"))
+        .collect();
+    array(workspace, "courses")
+        .iter()
+        .filter(|row| visible(row) && text(row, "id").is_some_and(|id| ids.contains(id)))
+        .cloned()
+        .collect()
+}
+
+/// Every quarter a course belongs to, sorted: its own `termId` and each
+/// quarter a live membership or plan item places it in.
+pub fn course_terms(workspace: &Value, course: &Value) -> Vec<String> {
+    let id = text(course, "id");
+    let mut terms: Vec<String> = text(course, "termId")
+        .into_iter()
+        .chain(
+            placements(workspace)
+                .filter(|row| id.is_some() && text(row, "courseId") == id)
+                .filter_map(|row| text(row, "termId")),
+        )
+        .map(str::to_owned)
+        .collect();
+    terms.sort();
+    terms.dedup();
+    terms
+}
+
+/// Visible courses that belong to `term` (see [`course_terms`]), whether or
+/// not they are on its timetable.
+pub fn term_courses<'a>(workspace: &'a Value, term: &str) -> Vec<&'a Value> {
+    let placed: HashSet<&str> = placements(workspace)
+        .filter(|row| text(row, "termId") == Some(term))
         .filter_map(|row| text(row, "courseId"))
         .collect();
     array(workspace, "courses")
         .iter()
         .filter(|row| {
             visible(row)
-                && text(row, "termId") == Some(term)
-                && text(row, "id").is_some_and(|id| ids.contains(id))
+                && (text(row, "termId") == Some(term)
+                    || text(row, "id").is_some_and(|id| placed.contains(id)))
         })
-        .cloned()
         .collect()
+}
+
+/// Every quarter that has a visible course or a live placement.
+pub(crate) fn placement_terms(workspace: &Value) -> impl Iterator<Item = &str> {
+    array(workspace, "courses")
+        .iter()
+        .filter(|row| visible(row))
+        .chain(placements(workspace))
+        .filter_map(|row| text(row, "termId"))
 }
 
 pub fn occurrences_on_date(
@@ -308,7 +385,8 @@ pub fn occurrences_on_date(
             .as_ref()
             .and_then(|row| row.get("replacementDay"))
             .and_then(Value::as_u64)
-            .unwrap_or(u64::from(day)) as u8
+            .and_then(|value| u8::try_from(value).ok())
+            .unwrap_or(day)
     } else if closed && !options.include_cancelled_courses {
         0
     } else {
@@ -439,78 +517,114 @@ pub fn occurrences_on_date(
             });
         }
         for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
-            let start = plan_civil_start(text(plan, "start").unwrap_or_default())?;
-            let exdates: Vec<String> = plan
-                .get("exdates")
-                .and_then(Value::as_array)
-                .map(|v| {
-                    v.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect()
-                })
-                .unwrap_or_default();
-            let excluded = exdates
-                .iter()
-                .any(|value| plan_civil_start(value).is_ok_and(|start| start.0 == date));
-            let occurs = if excluded {
-                false
-            } else if let Some(rule) = text(plan, "rrule") {
-                let recurrence_start = format!("{}T{}:00+09:00", start.0, start.1);
-                crate::plans::occurrences_between(
-                    &recurrence_start,
-                    rule,
-                    &exdates,
-                    parse_civil_date(date)?,
-                    parse_civil_date(date)?,
-                )
-                .map_err(|e| ScheduleError::InvalidInput(e.to_string()))?
-                .into_iter()
-                .any(|v| v.starts_with(date))
-            } else {
-                start.0 == date
-                    && !exdates
-                        .iter()
-                        .any(|v| plan_civil_start(v).is_ok_and(|p| p.0 == date))
-            };
-            if !occurs {
-                continue;
+            // A stored plan that cannot be evaluated is reported by
+            // `schedule_problems`; it must not hide every other block.
+            if let Ok(Some(block)) = plan_occurrence(plan, date) {
+                blocks.push(block);
             }
-            let duration = plan.get("duration").and_then(Value::as_i64).unwrap_or(0);
-            let start_clock = NaiveDateTime::parse_from_str(
-                &format!("{date}T{}:00", start.1),
-                "%Y-%m-%dT%H:%M:%S",
-            )
-            .map_err(|_| {
-                ScheduleError::InvalidInput("Plan start must be an ISO date or date-time.".into())
-            })?;
-            let end = start_clock + Duration::minutes(duration);
-            let id = text(plan, "id").unwrap_or_default();
-            blocks.push(Occurrence {
-                key: format!("{id}-{date}"),
-                id: id.into(),
-                kind: OccurrenceKind::Plan,
-                course_id: text(plan, "courseId").map(str::to_owned),
-                date: date.into(),
-                title: text(plan, "title").unwrap_or_default().into(),
-                subtitle: None,
-                room: text(plan, "room").unwrap_or_default().into(),
-                start_time: start.1,
-                end_time: end.format("%H:%M").to_string(),
-                end_date: (end.date() != start_clock.date()).then(|| end.date().to_string()),
-                color: "#5f6b8a".into(),
-                conflict: None,
-                dim: None,
-                cancelled: None,
-                time_label: None,
-                conflict_with: None,
-                overridden: None,
-            });
         }
     }
     mark_conflicts(&mut blocks)?;
     blocks.sort_by(|a, b| a.start_time.cmp(&b.start_time).then(a.key.cmp(&b.key)));
     Ok(blocks)
+}
+
+fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, ScheduleError> {
+    let start = plan_civil_start(text(plan, "start").unwrap_or_default())?;
+    let exdates: Vec<String> = plan
+        .get("exdates")
+        .and_then(Value::as_array)
+        .map(|v| {
+            v.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let excluded = exdates
+        .iter()
+        .any(|value| plan_civil_start(value).is_ok_and(|start| start.0 == date));
+    let occurs = if excluded {
+        false
+    } else if let Some(rule) = text(plan, "rrule") {
+        let recurrence_start = format!("{}T{}:00+09:00", start.0, start.1);
+        crate::plans::occurrences_between(
+            &recurrence_start,
+            rule,
+            &exdates,
+            parse_civil_date(date)?,
+            parse_civil_date(date)?,
+        )
+        .map_err(|e| ScheduleError::InvalidInput(e.to_string()))?
+        .into_iter()
+        .any(|v| v.starts_with(date))
+    } else {
+        start.0 == date
+    };
+    if !occurs {
+        return Ok(None);
+    }
+    let duration = plan.get("duration").and_then(Value::as_i64).unwrap_or(0);
+    let start_clock =
+        NaiveDateTime::parse_from_str(&format!("{date}T{}:00", start.1), "%Y-%m-%dT%H:%M:%S")
+            .map_err(|_| {
+                ScheduleError::InvalidInput("Plan start must be an ISO date or date-time.".into())
+            })?;
+    let end = start_clock + Duration::minutes(duration);
+    let id = text(plan, "id").unwrap_or_default();
+    Ok(Some(Occurrence {
+        key: format!("{id}-{date}"),
+        id: id.into(),
+        kind: OccurrenceKind::Plan,
+        course_id: text(plan, "courseId").map(str::to_owned),
+        date: date.into(),
+        title: text(plan, "title").unwrap_or_default().into(),
+        subtitle: None,
+        room: text(plan, "room").unwrap_or_default().into(),
+        start_time: start.1,
+        end_time: end.format("%H:%M").to_string(),
+        end_date: (end.date() != start_clock.date()).then(|| end.date().to_string()),
+        color: "#5f6b8a".into(),
+        conflict: None,
+        dim: None,
+        cancelled: None,
+        time_label: None,
+        conflict_with: None,
+        overridden: None,
+    }))
+}
+
+/// Stored user records the schedule skips or leaves unapplied. Read models
+/// stay available; shells list these so the person can repair or delete them.
+pub fn schedule_problems(workspace: &Value) -> Vec<ScheduleProblem> {
+    let mut problems = Vec::new();
+    for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
+        if let Err(error) = crate::plans::validate_plan_recurrence(
+            text(plan, "start").unwrap_or_default(),
+            text(plan, "rrule"),
+        ) {
+            problems.push(ScheduleProblem {
+                kind: ScheduleProblemKind::Plan,
+                id: text(plan, "id").unwrap_or_default().into(),
+                title: text(plan, "title").unwrap_or_default().into(),
+                message: error.to_string(),
+            });
+        }
+    }
+    for row in array(workspace, "scheduleOverrides")
+        .iter()
+        .filter(|row| visible(row))
+    {
+        if let Err(error) = override_clock(row) {
+            problems.push(ScheduleProblem {
+                kind: ScheduleProblemKind::ScheduleOverride,
+                id: text(row, "id").unwrap_or_default().into(),
+                title: text(row, "title").unwrap_or_default().into(),
+                message: error.to_string(),
+            });
+        }
+    }
+    problems
 }
 
 fn course_occurrence(
@@ -612,7 +726,11 @@ pub fn resolve_day_agenda(
             match change {
                 Some(r) if r.get("hidden").and_then(Value::as_bool) == Some(true) => None,
                 Some(r) => {
-                    apply_override(&mut block, r).ok()?;
+                    // An override Core cannot apply leaves the class as
+                    // scheduled; `schedule_problems` reports the record.
+                    if apply_override(&mut block, r).is_err() {
+                        return Some(block);
+                    }
                     (block.date == date).then_some(block)
                 }
                 None => Some(block),
@@ -641,8 +759,9 @@ pub fn resolve_day_agenda(
             .into_iter()
             .find(|b| b.key == key)
         {
-            apply_override(&mut original, change)?;
-            blocks.push(original)
+            if apply_override(&mut original, change).is_ok() {
+                blocks.push(original)
+            }
         }
     }
     let registered: HashSet<_> = array(workspace, "memberships")
@@ -701,9 +820,13 @@ pub fn resolve_day_agenda(
                     .and_then(|code| by_code.get(&code.trim().to_uppercase()).copied())
             });
         let Some(course) = course else { continue };
+        // Unusable periods fall back like absent ones; `schedule_problems`
+        // reports an invalid override.
+        let valid =
+            |value: Option<&Value>| periods(value).filter(|p| clock_for_periods(*p).is_ok());
         let periods = change
-            .and_then(|r| periods(r.get("periods")))
-            .or_else(|| periods(exam.get("periods")));
+            .and_then(|r| valid(r.get("periods")))
+            .or_else(|| valid(exam.get("periods")));
         let clock = periods.map(clock_for_periods).transpose()?;
         let start = change
             .and_then(|r| text(r, "startTime"))
@@ -809,6 +932,7 @@ pub fn resolve_day_agenda(
 }
 
 fn apply_override(block: &mut Occurrence, row: &Value) -> Result<(), ScheduleError> {
+    let clock = override_clock(row)?;
     if let Some(v) = text(row, "date") {
         block.date = v.into()
     }
@@ -821,9 +945,6 @@ fn apply_override(block: &mut Occurrence, row: &Value) -> Result<(), ScheduleErr
     if let Some(v) = text(row, "courseId") {
         block.course_id = Some(v.into())
     }
-    let clock = periods(row.get("periods"))
-        .map(clock_for_periods)
-        .transpose()?;
     if let Some(v) = text(row, "startTime").or_else(|| clock.map(|v| v.0)) {
         block.start_time = v.into()
     }
@@ -833,12 +954,22 @@ fn apply_override(block: &mut Occurrence, row: &Value) -> Result<(), ScheduleErr
     block.overridden = Some(true);
     Ok(())
 }
+
+fn override_clock(row: &Value) -> Result<Option<(&'static str, &'static str)>, ScheduleError> {
+    match row.get("periods").filter(|value| !value.is_null()) {
+        None => Ok(None),
+        Some(value) => clock_for_periods(periods(Some(value)).ok_or_else(|| {
+            ScheduleError::InvalidInput("Choose periods from 1 to 10 in ascending order.".into())
+        })?)
+        .map(Some),
+    }
+}
+
+/// A `[first, last]` period pair; values outside `u8` are rejected, not wrapped.
 fn periods(value: Option<&Value>) -> Option<[u8; 2]> {
     let values = value?.as_array()?;
-    Some([
-        values.first()?.as_u64()? as u8,
-        values.get(1)?.as_u64()? as u8,
-    ])
+    let period = |index: usize| u8::try_from(values.get(index)?.as_u64()?).ok();
+    (values.len() == 2).then_some([period(0)?, period(1)?])
 }
 
 fn plan_civil_start(raw: &str) -> Result<(String, String), ScheduleError> {
@@ -914,10 +1045,11 @@ pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError
         .filter(|v| !v.trim().is_empty())
         .ok_or_else(|| ScheduleError::InvalidInput("Academic profile needs a name".into()))?
         .trim();
-    if input
-        .get("admissionYear")
-        .is_some_and(|v| !v.is_null() && (v.as_i64().is_none_or(|y| y < 2000)))
-    {
+    if input.get("admissionYear").is_some_and(|v| {
+        !v.is_null()
+            && v.as_i64()
+                .is_none_or(|y| !crate::data::ADMISSION_YEARS.contains(&y))
+    }) {
         return Err(ScheduleError::InvalidInput(
             "Academic profile has an invalid admission year".into(),
         ));

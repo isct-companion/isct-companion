@@ -7,7 +7,7 @@ use crate::{
     reference_refresh::ReferenceService,
     scheduler::{ExportError, ScheduledExporter},
     school_auth::SchoolAuthService,
-    school_service::{IngestOutcome, SchoolExecution, SchoolExecutor, SchoolService},
+    school_service::{IngestOutcome, IngestState, SchoolExecution, SchoolExecutor, SchoolService},
 };
 use serde_json::{json, Value};
 use std::sync::{
@@ -56,7 +56,7 @@ impl SchoolExecutor for NoopExecutor {
             Ok(vec![IngestOutcome {
                 site: request.site,
                 kind: "test".into(),
-                state: "ok".into(),
+                state: IngestState::Ok,
                 changed: 0,
                 message: String::new(),
             }])

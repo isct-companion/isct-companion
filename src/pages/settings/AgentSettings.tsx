@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { t } from "../../i18n";
 import type { Workspace } from "../../core/model";
 import { desktopBridge } from "../../app/native";
+import type { AgentConnection } from "../../platform/desktop-bridge";
 import { UiButton } from "../../components/mantine";
 import {
   Row,
@@ -22,25 +22,26 @@ export function AgentSettings({
   update: (f: (d: Workspace) => Workspace) => void;
   notify: (message: string) => void;
 }) {
-  const [connection, setConnection] = useState<{
-    url: string;
-    token: string;
-  }>();
-  const [error, setError] = useState<string>();
+  const [connection, setConnection] = useState<AgentConnection>();
+  const enabled = data.settings.agentAccess?.enabled === true;
+  // Re-read after the setting changes: the native side starts or stops the
+  // listener to match it before answering.
   useEffect(() => {
-    if (!desktopBridge) return;
+    if (!desktopBridge?.agentConnection) return;
     let active = true;
-    void invoke<{ url: string; token: string }>("agent_connection")
+    setConnection(undefined);
+    void desktopBridge
+      .agentConnection()
       .then((value) => {
         if (active) setConnection(value);
       })
       .catch((reason: unknown) => {
-        if (active) setError(String(reason));
+        if (active) setConnection({ state: "failed", error: String(reason) });
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [enabled]);
   const copy = (value: string) =>
     void navigator.clipboard
       .writeText(value)
@@ -83,7 +84,7 @@ export function AgentSettings({
           "Add this URL as a Streamable HTTP MCP server. Use the access token for Bearer authentication and keep IsctCompanion open.",
         )}
       >
-        {connection ? (
+        {connection?.state === "listening" ? (
           <>
             <div className="commandLine">
               <code>{connection.url}</code>
@@ -104,10 +105,17 @@ export function AgentSettings({
             </Row>
           </>
         ) : (
-          <p className="paneEmpty" role={error ? "alert" : "status"}>
-            {error
-              ? `${t("MCP server is unavailable.")} ${error}`
-              : t("Loading…")}
+          <p
+            className="paneEmpty"
+            role={connection?.state === "failed" ? "alert" : "status"}
+          >
+            {connection?.state === "failed"
+              ? `${t("MCP server is unavailable.")} ${connection.error}`
+              : connection?.state === "off"
+                ? t(
+                    "Turn on Allow local agents to show the connection details.",
+                  )
+                : t("Loading…")}
           </p>
         )}
       </SettingsGroup>

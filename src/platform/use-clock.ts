@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
 
-/** A stable shell clock fact. Core owns every decision derived from it. */
-export function useClock(intervalMs = 60_000, active = true): string {
-  const [now, setNow] = useState(() => new Date().toISOString());
+const MINUTE = 60_000;
+
+/** The current time floored to the minute. Every Core query that takes `now`
+ * uses this one clock, so consumers share request keys within a minute. */
+export function minuteNow(at = Date.now()): string {
+  return new Date(at - (at % MINUTE)).toISOString();
+}
+
+/** A stable shell clock fact. Core owns every decision derived from it.
+ * It ticks on each minute boundary while active. */
+export function useClock(active = true): string {
+  const [now, setNow] = useState(() => minuteNow());
   useEffect(() => {
     if (!active) return;
-    setNow(new Date().toISOString());
-    const timer = window.setInterval(
-      () => setNow(new Date().toISOString()),
-      intervalMs,
-    );
-    return () => window.clearInterval(timer);
-  }, [active, intervalMs]);
+    let timer: number;
+    const tick = () => {
+      setNow(minuteNow());
+      timer = window.setTimeout(tick, MINUTE - (Date.now() % MINUTE));
+    };
+    tick();
+    return () => window.clearTimeout(timer);
+  }, [active]);
   return now;
 }

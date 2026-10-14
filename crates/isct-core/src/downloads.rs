@@ -3,6 +3,7 @@
 pub use crate::school_parser::lms::ResolvedResource;
 use crate::{
     runtime_tasks::RuntimeTasks,
+    school_browser::is_login_url,
     school_parser::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page},
 };
 use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, RANGE};
@@ -385,6 +386,16 @@ impl SmallPool {
     }
 }
 
+/// The process that wrote a partial download temp file named
+/// `<target>.part-<pid>-<sequence>` (see `create_temp`). Partials of another
+/// process were orphaned by a crash or OS kill; cleanup reclaims them.
+pub(crate) fn partial_download_owner(name: &str) -> Option<u32> {
+    let (_, suffix) = name.rsplit_once(".part-")?;
+    let (pid, sequence) = suffix.split_once('-')?;
+    sequence.parse::<u64>().ok()?;
+    pid.parse().ok()
+}
+
 struct TempPath {
     path: PathBuf,
     armed: bool,
@@ -677,11 +688,6 @@ fn checked_response_url(response: &reqwest::Response) -> Result<Url, FetchError>
     is_lms_origin(&url)
         .then_some(url)
         .ok_or(FetchError::Invalid)
-}
-
-fn is_login_url(url: &Url) -> bool {
-    url.path_segments()
-        .is_some_and(|mut segments| segments.any(|segment| segment == "login" || segment == "auth"))
 }
 
 #[cfg(test)]

@@ -237,27 +237,22 @@ impl CloudTransport for FakeTransport {
 #[derive(Default)]
 struct FakeObserver {
     states: Mutex<Vec<SyncState>>,
-    workspaces: AtomicUsize,
+    workspaces: Mutex<Vec<WorkspaceChangeSource>>,
     broken: AtomicBool,
 }
 
-impl CloudObserver for FakeObserver {
-    fn state_changed(&self, state: SyncState) -> Result<(), CloudSyncError> {
+impl EventSink for FakeObserver {
+    fn emit(&self, event: CoreEvent) -> Result<(), crate::ports::EventError> {
         if self.broken.load(Ordering::SeqCst) {
-            return Err(CloudSyncError::Event("observer unavailable".into()));
+            return Err(crate::ports::EventError::Delivery(
+                "observer unavailable".into(),
+            ));
         }
-        self.states
-            .lock()
-            .map_err(|_| CloudSyncError::Event("Fake observer lock unavailable".into()))?
-            .push(state);
-        Ok(())
-    }
-
-    fn workspace_changed(&self, _source: &'static str) -> Result<(), CloudSyncError> {
-        if self.broken.load(Ordering::SeqCst) {
-            return Err(CloudSyncError::Event("observer unavailable".into()));
+        match event {
+            CoreEvent::CloudSyncState(state) => self.states.lock().unwrap().push(state),
+            CoreEvent::WorkspaceChanged { source } => self.workspaces.lock().unwrap().push(source),
+            _ => {}
         }
-        self.workspaces.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 }
@@ -303,7 +298,7 @@ impl Fixture {
         CloudServices {
             backup: self.backup.clone(),
             transport: self.transport.clone(),
-            observer: self.observer.clone(),
+            events: self.observer.clone(),
         }
     }
 
@@ -718,7 +713,7 @@ async fn storage_root_change_keeps_pending_apply_for_the_fresh_backup_service() 
     let fresh_services = CloudServices {
         backup: fresh_backup.clone(),
         transport: fixture.transport.clone(),
-        observer: fixture.observer.clone(),
+        events: fixture.observer.clone(),
     };
     fixture.sync.resume(fresh_services).await.unwrap();
 
@@ -776,4 +771,38 @@ async fn maximum_remote_generation_restore_is_rejected_before_enqueue_or_apply()
     let plans = fixture.store.user_rows("plans").unwrap();
     assert_eq!(plans.len(), 1);
     assert_eq!(plans[0]["title"], "keep-local");
+}
+
+#[tokio::test]
+async fn idle_pass_neither_rewrites_the_journal_nor_publishes() {
+    let fixture = Fixture::new("idle-pass");
+    let path = fixture.sync.0.journal.path.clone();
+    let sentinel = || {
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute("UPDATE journal SET value='sentinel' WHERE id=1", [])
+            .unwrap();
+    };
+    let stored = || -> String {
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .query_row("SELECT value FROM journal WHERE id=1", [], |row| row.get(0))
+            .unwrap()
+    };
+    sentinel();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(stored(), "sentinel");
+    assert!(fixture.observer.states.lock().unwrap().is_empty());
+
+    fixture
+        .sync
+        .0
+        .journal
+        .change(|journal| {
+            journal.state.automatic = true;
+            Ok(())
+        })
+        .unwrap();
+    assert_ne!(stored(), "sentinel");
 }

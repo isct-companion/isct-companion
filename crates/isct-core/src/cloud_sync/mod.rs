@@ -5,6 +5,8 @@ mod journal;
 use crate::{
     backup::{BackupError, BackupService},
     data::cloud_merge,
+    events::{CoreEvent, WorkspaceChangeSource},
+    ports::EventSink,
     runtime_tasks::{RuntimeTaskError, RuntimeTasks},
 };
 use journal::{version, Job, Journal, JournalStore};
@@ -29,7 +31,7 @@ pub enum CloudProvider {
     Icloud,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderState {
     pub provider: CloudProvider,
@@ -40,7 +42,7 @@ pub struct ProviderState {
     pub synced_version: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudVersion {
     pub id: String,
@@ -51,7 +53,7 @@ pub struct CloudVersion {
     pub version: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecoveryPoint {
     pub id: String,
@@ -66,7 +68,7 @@ pub enum Direction {
     Pull,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Delivery {
     pub provider: CloudProvider,
@@ -84,7 +86,7 @@ pub enum DeliveryStatus {
     Completed,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: String,
@@ -94,7 +96,7 @@ pub struct Task {
     pub deliveries: Vec<Delivery>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncState {
     pub syncing: bool,
@@ -120,8 +122,6 @@ pub enum CloudSyncError {
     Transport(String),
     #[error("{0}")]
     Conflict(String),
-    #[error("{0}")]
-    Event(String),
     #[error("Sync interrupted or timed out; the saved task will retry.")]
     Interrupted,
     #[error("The cloud sync service has stopped.")]
@@ -160,16 +160,11 @@ pub trait CloudTransport: Send + Sync {
     ) -> CloudFuture<'a, Value>;
 }
 
-pub trait CloudObserver: Send + Sync {
-    fn state_changed(&self, state: SyncState) -> Result<(), CloudSyncError>;
-    fn workspace_changed(&self, source: &'static str) -> Result<(), CloudSyncError>;
-}
-
 #[derive(Clone)]
 pub struct CloudServices {
     pub backup: BackupService,
     pub transport: Arc<dyn CloudTransport>,
-    pub observer: Arc<dyn CloudObserver>,
+    pub events: Arc<dyn EventSink>,
 }
 
 struct Inner {
@@ -261,10 +256,9 @@ impl CloudSync {
         let service = self.clone();
         self.0
             .tasks
-            .run(async move {
-                let _run = service.0.run.lock().await;
-                service.provider_result_inner(&services, provider, enabled, error)
-            })
+            // The journal serializes this change; an in-flight queue pass
+            // must not delay reporting a failed connection.
+            .run(async move { service.provider_result_inner(&services, provider, enabled, error) })
             .await
             .map_err(CloudSyncError::from)?
     }
@@ -424,14 +418,16 @@ impl CloudSync {
         });
     }
 
+    // Events are hints; the UI re-reads `cloud_sync_state`, and the sink
+    // reports its own delivery failures.
     fn publish(&self, services: &CloudServices) -> Result<(), CloudSyncError> {
         let state = self.state()?;
-        let _ = services.observer.state_changed(state);
+        let _ = services.events.emit(CoreEvent::CloudSyncState(state));
         Ok(())
     }
 
-    fn publish_workspace(&self, services: &CloudServices, source: &'static str) {
-        let _ = services.observer.workspace_changed(source);
+    fn publish_workspace(&self, services: &CloudServices, source: WorkspaceChangeSource) {
+        let _ = services.events.emit(CoreEvent::WorkspaceChanged { source });
     }
 
     fn provider_result_inner(
@@ -555,6 +551,7 @@ impl CloudSync {
         let Ok(_run) = self.0.run.try_lock() else {
             return self.state();
         };
+        let before = self.state()?;
         let worker = self.clone();
         let worker_services = services.clone();
         let result =
@@ -574,12 +571,15 @@ impl CloudSync {
             }
             Ok(())
         });
-        if settled.is_ok() {
+        // An idle pass writes nothing (no-op journal changes are skipped) and
+        // publishes nothing; work in the pass already published its steps.
+        let after = self.state()?;
+        if settled.is_ok() && after != before {
             let _ = self.publish(services);
         }
         result?;
         settled?;
-        self.state()
+        Ok(after)
     }
 
     async fn run_queue(&self, services: &CloudServices) -> Result<(), CloudSyncError> {
@@ -812,7 +812,7 @@ impl CloudSync {
         }
         self.apply_document(services, &merged).await?;
         self.capture_inner(services, false).await?;
-        self.publish_workspace(services, "cloud-sync");
+        self.publish_workspace(services, WorkspaceChangeSource::CloudSync);
         let versions = self
             .remote(
                 services.transport.versions(provider),
@@ -1027,7 +1027,7 @@ impl CloudSync {
             .change(|journal| journal.enqueue(restored.clone(), Direction::Upload))?;
         self.apply_document(services, &restored).await?;
         self.capture_inner(services, false).await?;
-        self.publish_workspace(services, "cloud-restore");
+        self.publish_workspace(services, WorkspaceChangeSource::CloudRestore);
         self.publish(services)?;
         drop(_run);
         self.resume_inner(services).await

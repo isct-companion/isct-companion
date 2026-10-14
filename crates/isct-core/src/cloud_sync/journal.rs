@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Mutex};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub(super) struct Job {
     pub(super) task: Task,
     pub(super) document: Value,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(super) struct Journal {
     #[serde(flatten)]
     pub(super) state: SyncState,
@@ -171,12 +171,11 @@ impl JournalStore {
             .state
             .providers
             .sort_by_key(|provider| provider.provider != CloudProvider::GoogleDrive);
-        let store = Self {
+        persist(&path, &journal)?;
+        Ok(Self {
             path,
             value: Mutex::new(journal),
-        };
-        store.change(|_| Ok(()))?;
-        Ok(store)
+        })
     }
 
     pub(super) fn change<T>(
@@ -189,18 +188,11 @@ impl JournalStore {
             .map_err(|_| CloudSyncError::Storage("Sync journal unavailable".into()))?;
         let mut next = guard.clone();
         let result = update(&mut next)?;
-        let serialized = serde_json::to_string(&next).map_err(storage)?;
-        let connection = rusqlite::Connection::open(&self.path).map_err(storage)?;
-        connection
-            .execute_batch("PRAGMA synchronous=FULL")
-            .map_err(storage)?;
-        connection
-            .execute(
-                "INSERT INTO journal(id,value) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET value=excluded.value",
-                [serialized],
-            )
-            .map_err(storage)?;
-        *guard = next;
+        // Idle passes must not fsync the whole journal: skip unchanged writes.
+        if next != *guard {
+            persist(&self.path, &next)?;
+            *guard = next;
+        }
         Ok(result)
     }
 
@@ -210,6 +202,21 @@ impl JournalStore {
             .map(|journal| read(&journal))
             .map_err(|_| CloudSyncError::Storage("Sync state unavailable".into()))
     }
+}
+
+fn persist(path: &std::path::Path, journal: &Journal) -> Result<(), CloudSyncError> {
+    let serialized = serde_json::to_string(journal).map_err(storage)?;
+    let connection = rusqlite::Connection::open(path).map_err(storage)?;
+    connection
+        .execute_batch("PRAGMA synchronous=FULL")
+        .map_err(storage)?;
+    connection
+        .execute(
+            "INSERT INTO journal(id,value) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET value=excluded.value",
+            [serialized],
+        )
+        .map_err(storage)?;
+    Ok(())
 }
 
 pub(super) fn version(document: &Value) -> Result<String, CloudSyncError> {

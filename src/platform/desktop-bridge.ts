@@ -266,6 +266,12 @@ export type CloudSyncState = {
 };
 
 /** Native business pull state; login/navigation remain executor details. */
+/** The local MCP server: no listener or token while agent access is off. */
+export type AgentConnection =
+  | { state: "off" }
+  | { state: "listening"; url: string; token: string }
+  | { state: "failed"; error: string };
+
 export type PullSnapshot = {
   id: string;
   target:
@@ -451,6 +457,8 @@ export interface DesktopBridge {
   }): Promise<void>;
   cloudLifecycle?(kind: "foreground" | "background"): Promise<void>;
   cloudSyncState?(): Promise<CloudSyncState>;
+  /** Local MCP server state; reconciles the listener with the setting first. */
+  agentConnection?(): Promise<AgentConnection>;
   setCloudSyncProvider?(
     provider: CloudSyncProvider,
     enabled: boolean,
@@ -864,6 +872,7 @@ export function createTauriDesktopBridge(
       result<void>("school_refresh_event", { event }),
     cloudLifecycle: (kind) => result<void>("cloud_lifecycle", { kind }),
     cloudSyncState: () => result<CloudSyncState>("cloud_sync_state"),
+    agentConnection: () => result<AgentConnection>("agent_connection"),
     setCloudSyncProvider: (provider, enabled) =>
       result<CloudSyncState>("set_cloud_sync_provider", { provider, enabled }),
     syncCloudNow: (direction) =>

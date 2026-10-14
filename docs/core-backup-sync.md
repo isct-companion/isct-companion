@@ -20,14 +20,19 @@ and formats.
 
 The native shell supplies paths, OS dialogs, HTTP/CloudKit/OAuth/credential
 storage, and events. `CloudServices` supplies a backup service, `CloudTransport`
-and `CloudObserver` for each operation. `WorkspaceTransport` is the lower-level
+and the shell's `EventSink` for each operation; state changes arrive as
+`CoreEvent::CloudSyncState` and applied documents as `WorkspaceChanged`
+(`cloud-sync` / `cloud-restore`). `WorkspaceTransport` is the lower-level
 conditional document read/write port. A shell should construct fresh services
 after changing the notes folder. Core retains no Tauri handles.
 
 The native one-second wake supplies an opportunity to work. Core admits a
 cloud pass at most every five seconds, applies a 45-second remote timeout and
 serializes queue execution. Only one periodic pass may remain in flight, so a
-slow scan cannot accumulate background workers. In async cloud flows, note
+slow scan cannot accumulate background workers. A pass with nothing due
+writes and publishes nothing: unchanged journal updates skip the fsync'd
+write, and `cloud-sync-state` is emitted only when the state changed.
+`provider_result` does not wait for a running queue pass. In async cloud flows, note
 scans, backup apply and recovery-file I/O run on blocking workers; they never
 occupy async executor threads while waiting on a filesystem. The lower-level
 `BackupService`, `Notes` and `recovery_document` APIs are synchronous; async

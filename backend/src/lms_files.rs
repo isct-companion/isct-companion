@@ -8,10 +8,12 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
-use isct_core::course_materials::{self, CourseMaterials};
-pub use isct_core::course_materials::{CourseKey, LocalFile, Material};
+use isct_core::course_materials::CourseMaterials;
+pub use isct_core::course_materials::{CourseKey, Material};
 pub use isct_core::notes::CourseFolder;
 use isct_core::notes::Notes;
+use isct_core::storage;
+pub use isct_core::storage::LocalFile;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageInfo {
@@ -20,7 +22,7 @@ pub struct StorageInfo {
     can_choose: bool,
 }
 pub(crate) fn component(value: &str) -> Result<&str, String> {
-    course_materials::component(value).map_err(|error| error.to_string())
+    storage::component(value).map_err(|error| error.to_string())
 }
 fn config(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
@@ -29,12 +31,20 @@ fn config(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())?
         .join("course-files-root.json"))
 }
+/// The chosen storage root. Only a missing configuration means "use the
+/// default"; any other read failure is surfaced, because NoteStore pins the
+/// first root it sees for the process lifetime.
 pub(crate) fn root(app: &AppHandle) -> Result<(PathBuf, bool), String> {
-    if let Ok(value) = fs::read_to_string(config(app)?) {
-        let path: PathBuf = serde_json::from_str(&value).map_err(|e| e.to_string())?;
-        return Ok((path, true));
+    match fs::read_to_string(config(app)?) {
+        Ok(value) => {
+            let path: PathBuf = serde_json::from_str(&value).map_err(|e| e.to_string())?;
+            Ok((path, true))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok((default_root(app)?, false))
+        }
+        Err(error) => Err(format!("Course storage settings are unreadable: {error}")),
     }
-    Ok((default_root(app)?, false))
 }
 fn default_root(app: &AppHandle) -> Result<PathBuf, String> {
     #[cfg(desktop)]
@@ -64,12 +74,9 @@ pub(crate) fn display_root(path: &Path) -> String {
     #[cfg(not(windows))]
     value.into_owned()
 }
-#[cfg(debug_assertions)]
+#[cfg(all(matrix_ocr, debug_assertions))]
 pub(crate) fn debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    storage_dir(app, &["debug"])
-}
-pub(crate) fn storage_dir(app: &AppHandle, parts: &[&str]) -> Result<PathBuf, String> {
-    course_materials::storage_dir(&root(app)?.0, parts).map_err(|error| error.to_string())
+    storage::storage_dir(&root(app)?.0, &["debug"]).map_err(|error| error.to_string())
 }
 pub(crate) fn materials(app: &AppHandle) -> Result<CourseMaterials, String> {
     #[cfg(desktop)]
@@ -161,7 +168,7 @@ pub async fn choose_course_storage(
                         .parent()
                         .ok_or("Storage configuration has no directory")?;
                     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-                    fs::write(&config, &bytes).map_err(|error| error.to_string())
+                    storage::atomic_write(&config, &bytes).map_err(|error| error.to_string())
                 }
             })
             .map_err(|error| error.to_string())?;
@@ -290,7 +297,7 @@ pub async fn open_course_material(
 
 /// A path the app saved under the storage root; anything else is refused.
 pub(crate) fn stored_file(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
-    course_materials::stored_file(&root(app)?.0, path).map_err(|error| error.to_string())
+    storage::stored_file(&root(app)?.0, path).map_err(|error| error.to_string())
 }
 #[tauri::command]
 pub async fn open_course_file(

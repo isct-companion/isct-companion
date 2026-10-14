@@ -728,6 +728,15 @@ export type Occurrence = {
   overridden: boolean | null;
 };
 
+export type ScheduleProblemKind = "plan" | "scheduleOverride";
+
+export type ScheduleProblem = {
+  kind: ScheduleProblemKind;
+  id: string;
+  title: string;
+  message: string;
+};
+
 export type NotificationLocale = "ja" | "en";
 
 export type NotificationPriority = "class" | "exam" | "deadline";
@@ -811,6 +820,12 @@ export type TermTaskView = {
 
 export type TaskView = {
   deadlines: { [key in string]?: TaskDeadlineView };
+  /**
+   * Visible assignments Core treats as submitted (`submission` submitted
+   * or graded, or LMS `submissionStatus` submitted). Shells render this
+   * instead of applying their own rule.
+   */
+  submittedIds: Array<string>;
   nearestByCourse: { [key in string]?: string };
   byTerm: { [key in string]?: TermTaskView };
 };
@@ -825,6 +840,11 @@ export type WorkspaceOverview = {
   coursesTerm: string;
   range: QuarterRange | null;
   courses: unknown[];
+  /**
+   * Every visible course belonging to `term` (own quarter or placed
+   * there), on its timetable or not.
+   */
+  termCourseIds: Array<string>;
   declaredCredits: number | null;
   termCredits: number;
   colors: { [key in string]?: string };
@@ -844,6 +864,10 @@ export type ScheduleView = {
   enrolledCourseIds: Array<string>;
   onTimetableCourseIds: Array<string>;
   allTerms: Array<string>;
+  /**
+   * Stored plans and overrides left out of `agendas`.
+   */
+  problems: Array<ScheduleProblem>;
 };
 
 export type ScheduleIntensiveDay = { date: string; periods: [number, number] };
@@ -856,7 +880,6 @@ export type WorkspaceQuery =
   | { kind: "planCivilStart"; plan: unknown }
   | {
       kind: "courseTimeline";
-      term: string;
       courseId: string;
       now: string;
       beforeDays: number;
@@ -930,7 +953,17 @@ export type WorkspaceQueryResult =
   | { kind: "notificationPlan"; value: NotificationPlan };
 
 export type WorkspaceSnapshot = {
+  /**
+   * Baseline for `WorkspaceMutation::expected_revision`. It covers only
+   * user-owned state, so school and reference ingests do not cause
+   * conflicts.
+   */
   revision: string;
+  /**
+   * Changes whenever any part of the snapshot changes; read-model caches
+   * key on it.
+   */
+  contentRevision: string;
   workspace: unknown;
   schoolRecords: unknown;
 };
@@ -941,7 +974,7 @@ export type WorkspaceMutation = {
 };
 
 export type WorkspaceIntent =
-  | { kind: "patchSettings"; patch: unknown }
+  | { kind: "replaceSettings"; settings: Settings }
   | { kind: "setAdmissionYear"; admissionYear: number | null }
   | {
       kind: "editAcademicCalendar";

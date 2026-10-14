@@ -1069,11 +1069,14 @@ pub fn finder_view(
         .collect();
     let plan = remote_plan(&parsed.factors, &scopes);
     let base = match &request.remote_ids {
-        Some(ids) => courses
-            .iter()
-            .filter(|c| ids.iter().any(|id| id == text(c, "id")))
-            .cloned()
-            .collect(),
+        Some(ids) => {
+            let ids: HashSet<&str> = ids.iter().map(String::as_str).collect();
+            courses
+                .iter()
+                .filter(|c| ids.contains(text(c, "id")))
+                .cloned()
+                .collect()
+        }
         None => courses.clone(),
     };
     let live = live_text(&request.input, &keys, &base, &ctx);
@@ -1273,6 +1276,34 @@ mod tests {
             vec!["X.1"]
         );
         assert!(clashing_courses(&fixture["courses"][3], placed.as_array().unwrap()).is_empty());
+    }
+    #[test]
+    fn a_three_q_four_q_course_keeps_its_periods_busy_in_four_q() {
+        let workspace = json!({
+            "currentTerm":"2026-4Q", "settings":{},
+            "courses":[{"id":"multi","termId":"2026-3Q","code":"MTH.B301",
+                "meetings":[{"days":[1],"periods":[1,2]}]}],
+            "memberships":[],
+            "planItems":[
+                {"id":"plan-3q","termId":"2026-3Q","courseId":"multi"},
+                {"id":"plan-4q","termId":"2026-4Q","courseId":"multi"}
+            ]
+        });
+        let view = finder_view(
+            &workspace,
+            vec![],
+            serde_json::from_value(json!({"year":2026,"term":"2026-4Q"})).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(view.context.busy.len(), 1);
+        assert_eq!(
+            (
+                view.context.busy[0].day,
+                view.context.busy[0].from,
+                view.context.busy[0].to
+            ),
+            (1, 1, 2)
+        );
     }
     #[test]
     fn partial_offerings_have_stable_finder_defaults() {

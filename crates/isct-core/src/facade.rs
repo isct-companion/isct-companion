@@ -117,7 +117,7 @@ impl Core {
             .map(|query| crate::schedule::query(&snapshot.workspace, query))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ScheduleQuerySnapshot {
-            revision: snapshot.revision,
+            revision: snapshot.content_revision,
             values,
         })
     }

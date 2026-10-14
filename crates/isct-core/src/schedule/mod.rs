@@ -27,10 +27,13 @@ pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use credits::declared_term_credits;
 pub use ics::{export_quarter_ics, CalendarExportScope};
+pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
-    course_timeline, intensive_days, next_plan_occurrences, occurrences_on_date, plan_start,
-    planning_week, resolve_day_agenda, scheduled_courses, validate_academic_profile, AgendaOptions,
-    CourseTimeline, Occurrence, OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek,
+    course_terms, course_timeline, intensive_days, next_plan_occurrences, occurrences_on_date,
+    plan_start, planning_week, resolve_day_agenda, schedule_problems, scheduled_courses,
+    term_courses, validate_academic_profile, AgendaOptions, CourseTimeline, Occurrence,
+    OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek, ScheduleProblem,
+    ScheduleProblemKind,
 };
 pub use reminders::{
     glance, notification_plan, GlanceSnapshot, NotificationItem, NotificationLocale,
@@ -87,7 +90,6 @@ pub enum WorkspaceQuery {
         plan: Value,
     },
     CourseTimeline {
-        term: String,
         course_id: String,
         now: String,
         #[serde(default = "default_timeline_before")]
@@ -195,6 +197,8 @@ pub struct ScheduleView {
     pub enrolled_course_ids: Vec<String>,
     pub on_timetable_course_ids: Vec<String>,
     pub all_terms: Vec<String>,
+    /// Stored plans and overrides left out of `agendas`.
+    pub problems: Vec<ScheduleProblem>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -209,6 +213,9 @@ pub struct WorkspaceOverview {
     pub range: Option<QuarterRange>,
     #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub courses: Vec<Value>,
+    /// Every visible course belonging to `term` (own quarter or placed
+    /// there), on its timetable or not.
+    pub term_course_ids: Vec<String>,
     pub declared_credits: Option<f64>,
     pub term_credits: f64,
     pub colors: std::collections::BTreeMap<String, String>,
@@ -309,14 +316,12 @@ pub fn query(
             Ok(WorkspaceQueryResult::PlanCivilStart(plan_start(&plan)?))
         }
         WorkspaceQuery::CourseTimeline {
-            term,
             course_id,
             now,
             before_days,
             after_days,
         } => Ok(WorkspaceQueryResult::CourseTimeline(course_timeline(
             workspace,
-            &term,
             &course_id,
             parse_timestamp(&now)?,
             before_days,
@@ -369,9 +374,8 @@ pub fn query(
                 let mut notices = Vec::new();
                 if let Some(state) = calendar_state.as_ref() {
                     let label = calendar::localized(state.get("label"), locale, "");
-                    let label = label.strip_prefix("No classes due to ").unwrap_or(&label);
                     if !label.is_empty() {
-                        notices.push(label.to_owned());
+                        notices.push(label);
                     }
                 }
                 let important_dates: Vec<_> = array(workspace, "importantDates")
@@ -425,6 +429,7 @@ pub fn query(
                 on_timetable_course_ids: overview.on_timetable_course_ids,
                 all_terms: overview.all_terms,
                 declared_credits: overview.declared_credits,
+                problems: schedule_problems(workspace),
             }))
         }
         WorkspaceQuery::DayAgenda {
@@ -533,11 +538,7 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
     );
     on_timetable_course_ids.sort();
     on_timetable_course_ids.dedup();
-    let mut all_terms: Vec<String> = array(workspace, "courses")
-        .iter()
-        .filter(|row| visible(row))
-        .filter_map(|row| text(row, "termId").map(str::to_owned))
-        .collect();
+    let mut all_terms: Vec<String> = placement_terms(workspace).map(str::to_owned).collect();
     all_terms.extend(
         array(workspace, "terms")
             .iter()
@@ -554,10 +555,8 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
         .filter(|course| visible(course))
         .filter_map(|course| Some((text(course, "id")?.to_owned(), display_color(course))))
         .collect();
-    let today_term = if array(workspace, "courses")
-        .iter()
-        .any(|course| visible(course) && text(course, "termId") == Some(current_term.as_str()))
-    {
+    // Today and Lecture Desk follow the current quarter once it has courses.
+    let today_term = if !term_courses(workspace, &current_term).is_empty() {
         current_term.clone()
     } else {
         selected_term.clone()
@@ -574,6 +573,10 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
     };
     Term::parse(&term)?;
     let courses = scheduled_courses(workspace, &term);
+    let term_course_ids = term_courses(workspace, &term)
+        .into_iter()
+        .filter_map(|course| text(course, "id").map(str::to_owned))
+        .collect();
     let enrolled_course_ids: Vec<String> = array(workspace, "memberships")
         .iter()
         .filter(|row| visible(row) && text(row, "termId") == Some(term.as_str()))
@@ -613,6 +616,7 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
         courses_term,
         range: calendar::quarter_range(workspace, &term)?,
         courses,
+        term_course_ids,
         declared_credits,
         term_credits,
         colors,
@@ -685,6 +689,8 @@ pub fn declarations() -> Vec<String> {
         CalendarExportScope::decl(),
         OccurrenceKind::decl(),
         Occurrence::decl(),
+        ScheduleProblemKind::decl(),
+        ScheduleProblem::decl(),
         NotificationLocale::decl(),
         NotificationPriority::decl(),
         NotificationItem::decl(),

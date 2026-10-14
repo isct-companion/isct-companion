@@ -146,7 +146,8 @@ export function Courses({
     [{ kind: "planningWeek", term }],
     editing,
   ).value?.[0];
-  const courses = data.courses.filter((c) => c.termId === term && !c.deletedAt);
+  // Courses of this quarter, a 3Q–4Q course in each of its quarters.
+  const courseCount = overview?.termCourseIds.length ?? 0;
   const events = data.events.filter((e) => e.termId === term && !e.deletedAt);
   const scheduled = (editing ? planning?.courses : overview?.courses) ?? [];
   // Intensive or unpublished times have no grid cell; they get their own lane.
@@ -183,7 +184,7 @@ export function Courses({
               : 5,
         );
   const removable =
-    !courses.length && !events.length && (data.terms ?? []).includes(term);
+    !courseCount && !events.length && (data.terms ?? []).includes(term);
   const [preview, setPreview] = useState<Block | null>(null);
   const select = (block: Block) => {
     if (!editing && block.kind !== "course") {
@@ -330,6 +331,22 @@ export function Courses({
           {conflictCount > 0 && (
             <Badge variant="light" color="red">
               {conflictCount} conflict{conflictCount > 1 ? "s" : ""}
+            </Badge>
+          )}
+          {!editing && Boolean(schedule?.problems.length) && (
+            <Badge
+              variant="light"
+              color="orange"
+              title={schedule!.problems
+                .map(
+                  (problem) =>
+                    `${problem.title || problem.id}: ${problem.message}`,
+                )
+                .join("\n")}
+            >
+              {t("{{count}} items not shown", {
+                count: schedule!.problems.length,
+              })}
             </Badge>
           )}
           {removable && canEdit && (
