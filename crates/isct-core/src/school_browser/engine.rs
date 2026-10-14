@@ -189,7 +189,8 @@ enum Trace {
         profile: SchoolAuthProfile,
         state: SchoolSessionState,
     },
-    Browsing,
+    /// The visible site changed. `Some` preempts hidden work.
+    Browsing(Option<SchoolSite>),
     Closed(BrowserId),
     Stopped,
 }
@@ -277,7 +278,7 @@ impl SchoolBrowserEngine {
             state.extraction = None;
         }
         drop(state);
-        let _ = self.0.traces.send(Trace::Browsing);
+        let _ = self.0.traces.send(Trace::Browsing(site));
         self.0.browsing_changed.notify_waiters();
         Ok(())
     }
@@ -654,6 +655,8 @@ impl SchoolBrowserEngine {
         loop {
             self.wait_until_hidden(&context).await?;
             let lane = self.acquire_pull_lane(&context).await?;
+            // A page may have opened while this pull waited for the lane; every
+            // hidden step below re-checks visibility and yields with Preempted.
             if context.is_cancelled() {
                 return Err(SchoolBrowserError::Cancelled);
             }
@@ -768,6 +771,7 @@ impl SchoolBrowserEngine {
         self.wait_until_hidden_without_context().await?;
         let site = profile.start_site();
         let url = safe_url(site.start_url())?;
+        let mut traces = self.hidden_traces()?;
         let browser = self.ensure_browser(site, url.clone())?;
         let run = new_id();
         {
@@ -776,6 +780,9 @@ impl SchoolBrowserEngine {
                 .state
                 .lock()
                 .map_err(|_| SchoolBrowserError::Stopped)?;
+            if state.browsing.is_some() {
+                return Err(SchoolBrowserError::Preempted);
+            }
             state.auto_blocked.remove(&profile);
             state.login = Some(ActiveLogin {
                 profile,
@@ -784,7 +791,6 @@ impl SchoolBrowserEngine {
             });
         }
         self.set_session(profile, SchoolSessionState::Pending);
-        let mut traces = self.0.traces.subscribe();
         if let Err(error) = self.dispatch(browser, BrowserAction::Navigate(url)) {
             self.fail_login(profile, &run, &error);
             return Err(error);
@@ -792,11 +798,14 @@ impl SchoolBrowserEngine {
         let state = tokio::time::timeout(SESSION_TIMEOUT, async {
             loop {
                 match traces.recv().await {
+                    // Pending only restates that this attempt is under way.
                     Ok(Trace::Session {
                         profile: found,
                         state,
-                    }) if found == profile => return Ok(state),
-                    Ok(Trace::Browsing) => return Err(SchoolBrowserError::Preempted),
+                    }) if found == profile && state != SchoolSessionState::Pending => {
+                        return Ok(state)
+                    }
+                    Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
                     Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => {
@@ -865,6 +874,7 @@ impl SchoolBrowserEngine {
     ) -> Result<bool, SchoolBrowserError> {
         let site = profile.start_site();
         let url = safe_url(site.start_url())?;
+        let mut traces = self.hidden_traces()?;
         let browser = self.ensure_browser(site, url.clone())?;
         {
             let mut state = self
@@ -872,10 +882,12 @@ impl SchoolBrowserEngine {
                 .state
                 .lock()
                 .map_err(|_| SchoolBrowserError::Stopped)?;
+            if state.browsing.is_some() {
+                return Err(SchoolBrowserError::Preempted);
+            }
             state.heartbeat = Some(profile);
         }
         self.set_session(profile, SchoolSessionState::Pending);
-        let mut traces = self.0.traces.subscribe();
         if let Err(error) = self.dispatch(browser, BrowserAction::Navigate(url)) {
             self.fail_heartbeat(profile);
             return Err(error);
@@ -886,8 +898,10 @@ impl SchoolBrowserEngine {
                     Ok(Trace::Session {
                         profile: found,
                         state,
-                    }) if found == profile => return Ok(state == SchoolSessionState::Active),
-                    Ok(Trace::Browsing) => return Err(SchoolBrowserError::Preempted),
+                    }) if found == profile && state != SchoolSessionState::Pending => {
+                        return Ok(state == SchoolSessionState::Active)
+                    }
+                    Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Stopped) | Err(broadcast::error::RecvError::Closed) => {
                         return Err(SchoolBrowserError::Stopped)
                     }
@@ -940,6 +954,24 @@ impl SchoolBrowserEngine {
         if self.clear_heartbeat(profile) {
             self.set_session(profile, SchoolSessionState::Failed);
         }
+    }
+
+    /// Subscribes before checking visibility, so a page opened after this
+    /// check reaches the caller's wait as `Trace::Browsing`. Hidden work must
+    /// never start while the person is looking at a school page.
+    fn hidden_traces(&self) -> Result<broadcast::Receiver<Trace>, SchoolBrowserError> {
+        let traces = self.0.traces.subscribe();
+        if self
+            .0
+            .state
+            .lock()
+            .map_err(|_| SchoolBrowserError::Stopped)?
+            .browsing
+            .is_some()
+        {
+            return Err(SchoolBrowserError::Preempted);
+        }
+        Ok(traces)
     }
 
     async fn acquire_lane(&self) -> Result<tokio::sync::MutexGuard<'_, ()>, SchoolBrowserError> {
@@ -1080,17 +1112,23 @@ impl SchoolBrowserEngine {
         context: &PullContext,
     ) -> Result<PageLoaded, SchoolBrowserError> {
         let url = safe_url(raw)?;
+        let mut traces = self.hidden_traces()?;
         let browser = self.ensure_browser(site, url.clone())?;
-        let baseline = self
-            .0
-            .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .views
-            .get(&site)
-            .map(|view| view.last_page)
-            .unwrap_or_default();
-        let mut traces = self.0.traces.subscribe();
+        let baseline = {
+            let state = self
+                .0
+                .state
+                .lock()
+                .map_err(|_| SchoolBrowserError::Stopped)?;
+            if state.browsing.is_some() {
+                return Err(SchoolBrowserError::Preempted);
+            }
+            state
+                .views
+                .get(&site)
+                .map(|view| view.last_page)
+                .unwrap_or_default()
+        };
         self.dispatch(browser, BrowserAction::Navigate(url))?;
         tokio::time::timeout(timeout, async {
             loop {
@@ -1113,7 +1151,7 @@ impl SchoolBrowserEngine {
                     Ok(Trace::Failed(event)) if event.page.browser == browser => {
                         return Err(SchoolBrowserError::Platform(event.message))
                     }
-                    Ok(Trace::Browsing) => return Err(SchoolBrowserError::Preempted),
+                    Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Closed(id)) if id == browser => {
                         return Err(SchoolBrowserError::Stopped)
                     }
@@ -1143,6 +1181,7 @@ impl SchoolBrowserEngine {
         context: &PullContext,
     ) -> Result<IngestOutcome, SchoolBrowserError> {
         let parsed = safe_url(url)?;
+        let mut traces = self.hidden_traces()?;
         let browser = self.ensure_browser(site, parsed.clone())?;
         let run = new_id();
         {
@@ -1151,6 +1190,11 @@ impl SchoolBrowserEngine {
                 .state
                 .lock()
                 .map_err(|_| SchoolBrowserError::Stopped)?;
+            // Checked under the same lock that arms the extraction: opening a
+            // page clears it, so the visible view is never navigated for a pull.
+            if state.browsing.is_some() {
+                return Err(SchoolBrowserError::Preempted);
+            }
             let baseline = state
                 .views
                 .get(&site)
@@ -1166,7 +1210,6 @@ impl SchoolBrowserEngine {
                 visible: false,
             });
         }
-        let mut traces = self.0.traces.subscribe();
         self.dispatch(browser, BrowserAction::Navigate(parsed))?;
         let raw = tokio::time::timeout(timeout, async {
             loop {
@@ -1183,7 +1226,7 @@ impl SchoolBrowserEngine {
                         run: found_run,
                         raw,
                     }) if found == browser && found_run == run => return Ok(raw),
-                    Ok(Trace::Browsing) => return Err(SchoolBrowserError::Preempted),
+                    Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Failed(event)) if event.page.browser == browser => {
                         return Err(SchoolBrowserError::Platform(event.message))
                     }

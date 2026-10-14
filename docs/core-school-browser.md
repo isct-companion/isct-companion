@@ -36,6 +36,10 @@ The shell owns:
 
 Window visibility is a shell fact. `user_browsing(Some(site))` yields hidden
 school work to the visible page; `user_browsing(None)` lets queued work resume.
+Every hidden step (session check, sign-in, pull navigation and extraction)
+re-checks visibility after it is admitted to the lane and refuses to start while
+a page is shown, so work that waited for the lane never navigates a page the
+person has just opened.
 The shell must keep this fact aligned with native presentation.
 
 ## Port and dispatch contract

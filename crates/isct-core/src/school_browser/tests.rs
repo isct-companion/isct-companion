@@ -1426,3 +1426,55 @@ async fn manual_join_while_waiting_for_the_lane_registers_a_manual_waiter() {
     engine.shutdown().await;
     assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
 }
+
+fn navigated_to(browser: &FakeBrowser, prefix: &str) -> usize {
+    browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| {
+            matches!(&command.command, BrowserAction::Navigate(url) if url.as_str().starts_with(prefix))
+        })
+        .count()
+}
+
+#[tokio::test]
+async fn pull_waiting_for_the_lane_does_not_navigate_a_page_the_user_just_opened() {
+    let (engine, browser, _, _) = engine();
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    browser.navigation(0).await;
+    let coordinator = PullCoordinator::default();
+    let pull = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::manual(),
+    );
+    wait_for_snapshot(&coordinator, |row| row.state == PullState::Running).await;
+    // The session check yields its lane to the visible page; the waiting pull
+    // must not take that lane and load its target into the shown view.
+    engine.user_browsing(Some(SchoolSite::ScienceLms)).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(navigated_to(&browser, "https://lms.s.isct.ac.jp/"), 0);
+    assert!(!pull.is_finished());
+    assert!(!check.is_finished());
+
+    engine.user_browsing(None).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while navigated_to(&browser, "https://lms.s.isct.ac.jp/") == 0
+            && navigated_to(&browser, "https://isct.ex-tic.com/") < 2
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    coordinator.shutdown().await;
+    assert!(pull.await.unwrap().is_err());
+    engine.shutdown().await;
+    assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
