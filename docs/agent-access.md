@@ -1,14 +1,24 @@
 # Agent access
 
-IsctCompanion exposes an opt-in local MCP server over stdio. Enable it in
-Settings → Developer options (switch on), then Settings → AI agent access, and register the binary with the database path shown
-by the installed application:
+IsctCompanion includes a local Streamable HTTP MCP server. Enable Developer
+options in Settings, then open AI agent access and enable Allow local agents.
+Register the URL shown there as an HTTP MCP server:
 
-```sh
-isct-companion-mcp --db /absolute/path/to/school.db
+```text
+http://127.0.0.1:47832/mcp
 ```
 
-The server refuses to start while Agent access is disabled.
+Use **Copy token** to configure Bearer authentication in your MCP client. Clients
+that accept HTTP headers should send `Authorization: Bearer <access token>`.
+The token stays on this device, outside exported data, and persists across app
+restarts. Keep it private. Keep IsctCompanion open while using the server.
+
+Calls use the desktop's existing Core service, with permission checked on every
+call. Turning Allow local agents off blocks subsequent tool calls. There is no
+CLI command, stdio adapter, bridge file or direct database mode to configure.
+The server binds only to loopback; authentication and Host/Origin checks protect
+the endpoint. If the port is unavailable, Settings shows the startup error.
+See [shared Core integration](core-api.md).
 
 ## Read tools
 
@@ -50,3 +60,8 @@ Writes are limited to personal tables and pass through the same validation and
 versioned store as the application. They return the ids they touched, are
 marked `source.provider: "mcp"` where the record has a source, and appear under
 Settings → AI agent access as recent writes.
+
+Writes and their audit entry commit in one transaction, with permission checked
+inside that transaction. The server returns the local result while cloud
+capture remains owned background work. If the connection breaks before a reply,
+read the current state before retrying a create operation.

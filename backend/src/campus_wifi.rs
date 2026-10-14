@@ -11,14 +11,13 @@
 //! system DNS, so requests are bound to the Wi-Fi interface and names are
 //! resolved by hickory against the lease's DNS server, from the Wi-Fi address.
 
-use crate::school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials};
-use crate::secrets::OsSecretVault;
 use hickory_resolver::{
     config::{NameServerConfig, ResolverConfig},
     name_server::TokioConnectionProvider,
     proto::xfer::Protocol,
     TokioResolver,
 };
+use isct_core::school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials};
 use objc2_core_wlan::CWWiFiClient;
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -173,11 +172,12 @@ async fn connect(
     let handle = app.clone();
     let credentials = tauri::async_runtime::spawn_blocking(move || {
         handle
-            .state::<SchoolAuthService<OsSecretVault>>()
+            .state::<std::sync::Arc<SchoolAuthService>>()
             .load(SchoolAuthProfile::TokyoTech)
     })
     .await
-    .map_err(|error| error.to_string())??;
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())?;
     let Some(credentials) = credentials else {
         return Ok(CampusWifiOutcome::NeedsAccount);
     };

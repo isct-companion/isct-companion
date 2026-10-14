@@ -6,7 +6,7 @@ Fill `offerings`, `offering_content` and `offerings_fts` (task 1) from the publi
 
 ## Today
 
-`backend/src/syllabus.rs` fetches one language per call (`hl=en` for search), parses search rows with `scraper` but syllabus content with regexes. `src/cache/syllabus-*.ts` and `src/core/syllabus-content.ts` cache results in localStorage (30 entries) and `src/cache/syllabus-languages.ts` fetches the other language in the background. Research notes: `docs/syllabus-connector-research.md`.
+`crates/isct-core/src/syllabus.rs` fetches one language per call (`hl=en` for search), parses search rows with `scraper` but syllabus content with regexes. `src/cache/syllabus-*.ts` and `src/core/syllabus-content.ts` cache results in localStorage (30 entries) and `src/cache/syllabus-languages.ts` fetches the other language in the background. Research notes: `docs/syllabus-connector-research.md`.
 
 ## Transport (verified 2026-09-28)
 
@@ -118,7 +118,7 @@ Normalize whitespace (including `<br>` inside `dt`) before matching; `contact` m
 
 ## Build
 
-1. Rewrite the parsers in `backend/src/syllabus.rs` with the selectors above; remove the regex document parsing.
+1. Rewrite the parsers in `crates/isct-core/src/syllabus.rs` with the selectors above; remove the regex document parsing.
 2. `sync_offering(id)` fetches detail in both languages, merges into one `Offering` (neutral fields must agree; if they disagree keep the English page's value and record a warning) and two `offering_content` rows, then updates FTS.
 3. `catalog_search` first answers from the database; a live search runs both languages, upserts the rows (without content), and returns merged results with `{returned, total, truncated}`.
 5. Frontend: the course catalog and course drawer read `catalog_*` commands and render `Localized` with `pickLocalized`. Delete `src/cache/syllabus-catalog.ts`, `src/cache/syllabus-languages.ts` and the localStorage part of `src/core/syllabus-content.ts`.

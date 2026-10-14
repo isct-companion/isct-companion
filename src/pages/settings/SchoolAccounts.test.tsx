@@ -50,6 +50,11 @@ const mocks = vi.hoisted(() => {
         mocks.sessionListeners.push(callback);
         return vi.fn();
       }),
+      schoolSessionSnapshot: vi.fn(async () => ({
+        revision: 0,
+        states: { science: "pending", tokyoTech: "pending" },
+      })),
+      schoolSessionLifecycle: vi.fn(async () => undefined),
     },
   };
 });
@@ -190,13 +195,13 @@ describe("school account cards", () => {
     const science = host.querySelectorAll("section")[0];
     await act(async () => {
       mocks.sessionListeners.forEach((listener) =>
-        listener({ profile: "science", state: "active" }),
+        listener({ profile: "science", state: "active", revision: 1 }),
       );
     });
     expect(science.textContent).toContain("Signed in");
     await act(async () => {
       mocks.sessionListeners.forEach((listener) =>
-        listener({ profile: "science", state: "failed" }),
+        listener({ profile: "science", state: "failed", revision: 2 }),
       );
     });
     expect(science.textContent).toContain("Sign-in failed");

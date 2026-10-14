@@ -1,31 +1,22 @@
+import departments from "../../crates/isct-core/src/course_query/departments.json";
 import type { Localized } from "./model";
 
 /**
  * The undergraduate departments as the official syllabus lists them. This is
  * syllabus structure, not subscription data, so search works without any.
  */
-export type SyllabusDepartment = { id: string; name: Localized; unitCode: string; scope: string };
+export type SyllabusDepartment = {
+  id: string;
+  name: Localized;
+  unitCode: string;
+  scope: string;
+};
 
-export const SYLLABUS_DEPARTMENTS: readonly SyllabusDepartment[] = [
-  { id: "math", name: { ja: "数学系", en: "Mathematics" }, unitCode: "311100", scope: "1/0-901-311100-0-0" },
-  { id: "physics", name: { ja: "物理学系", en: "Physics" }, unitCode: "311200", scope: "1/0-901-311200-0-0" },
-  { id: "chemistry", name: { ja: "化学系", en: "Chemistry" }, unitCode: "311300", scope: "1/0-901-311300-0-0" },
-  { id: "eps", name: { ja: "地球惑星科学系", en: "Earth and Planetary Sciences" }, unitCode: "311400", scope: "1/0-901-311400-0-0" },
-  { id: "mech", name: { ja: "機械系", en: "Mechanical Engineering" }, unitCode: "321500", scope: "2/0-902-321500-0-0" },
-  { id: "sc", name: { ja: "システム制御系", en: "Systems and Control Engineering" }, unitCode: "321600", scope: "2/0-902-321600-0-0" },
-  { id: "ee", name: { ja: "電気電子系", en: "Electrical and Electronic Engineering" }, unitCode: "321700", scope: "2/0-902-321700-0-0" },
-  { id: "ict", name: { ja: "情報通信系", en: "Information and Communications Engineering" }, unitCode: "321800", scope: "2/0-902-321800-0-0" },
-  { id: "ie", name: { ja: "経営工学系", en: "Industrial Engineering and Economics" }, unitCode: "321900", scope: "2/0-902-321900-0-0" },
-  { id: "mat", name: { ja: "材料系", en: "Materials Science and Engineering" }, unitCode: "332000", scope: "3/0-903-332000-0-0" },
-  { id: "chem-eng", name: { ja: "応用化学系", en: "Chemical Science and Engineering" }, unitCode: "332100", scope: "3/0-903-332100-0-0" },
-  { id: "mcs", name: { ja: "数理・計算科学系", en: "Mathematical and Computing Science" }, unitCode: "342200", scope: "4/0-904-342200-0-0" },
-  { id: "cs", name: { ja: "情報工学系", en: "Computer Science" }, unitCode: "342300", scope: "4/0-904-342300-0-0" },
-  { id: "life", name: { ja: "生命理工学系", en: "Life Science and Technology" }, unitCode: "352400", scope: "5/0-905-352400-0-0" },
-  { id: "arch", name: { ja: "建築学系", en: "Architecture and Building Engineering" }, unitCode: "362500", scope: "6/0-906-362500-0-0" },
-  { id: "civil", name: { ja: "土木・環境工学系", en: "Civil and Environmental Engineering" }, unitCode: "362600", scope: "6/0-906-362600-0-0" },
-  { id: "transdisciplinary", name: { ja: "融合理工学系", en: "Transdisciplinary Science and Engineering" }, unitCode: "362700", scope: "6/0-906-362700-0-0" },
-];
+// One checked-in syllabus structure is consumed by Rust and the shell.
+export const SYLLABUS_DEPARTMENTS: readonly SyllabusDepartment[] = departments;
 
 /** Settings may hold a plain id ("cs") or a subscription-scoped one ("2026:cs"). */
 export const departmentById = (id: string | undefined) =>
-  id ? SYLLABUS_DEPARTMENTS.find((d) => d.id === id || id.endsWith(`:${d.id}`)) : undefined;
+  id
+    ? SYLLABUS_DEPARTMENTS.find((d) => d.id === id || id.endsWith(`:${d.id}`))
+    : undefined;

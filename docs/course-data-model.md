@@ -58,7 +58,7 @@ Cloud storage and secret boundaries are defined in
 [data-ownership.md](data-ownership.md).
 
 **Schema** is version 6. Startup migration and development rebuild behavior are
-implemented in `backend/src/data/migrations.rs`.
+implemented in `crates/isct-core/src/data/migrations.rs`.
 
 ## Departments (系)
 

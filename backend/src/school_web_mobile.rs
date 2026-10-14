@@ -1,8 +1,8 @@
 //! Mobile native-view adapter for the shared Rust school browser controller.
 //! iOS views live on UIKit's main thread; Android views live in the Kotlin plugin.
 use crate::lifecycle::SchoolSite;
-use crate::school_web_shared::ViewCallbacks;
-pub use crate::school_web_shared::{
+use crate::school_browser_native::ViewCallbacks;
+pub use crate::school_browser_native::{
     IngestOutcome, SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds,
 };
 use tauri::AppHandle;
@@ -21,8 +21,8 @@ pub(crate) struct NativeWebview {
     site: SchoolSite,
 }
 impl NativeWebview {
-    pub(crate) fn label(&self) -> &'static str {
-        self.site.webview_label()
+    pub(crate) fn close(&self) -> Result<(), String> {
+        platform::operate(&self.app, self.site, "close", None)
     }
     pub(crate) fn eval(&self, script: &str) -> Result<(), String> {
         platform::operate(&self.app, self.site, "eval", Some(script))

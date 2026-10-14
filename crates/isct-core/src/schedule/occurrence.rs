@@ -1,0 +1,1051 @@
+use std::collections::{HashMap, HashSet};
+
+use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+#[cfg(feature = "ts")]
+use ts_rs::TS;
+
+use super::calendar::{calendar_state, content_language, localized, quarter_range};
+use super::civil::{clock_for_periods, weekday};
+use super::{
+    add_days, array, parse_civil_date, text, visible, ScheduleError, ScheduleIntensiveDay,
+};
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum OccurrenceKind {
+    Course,
+    Event,
+    Plan,
+    Exam,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct Occurrence {
+    pub key: String,
+    pub id: String,
+    pub kind: OccurrenceKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub course_id: Option<String>,
+    pub date: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    pub room: String,
+    pub start_time: String,
+    pub end_time: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_date: Option<String>,
+    pub color: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dim: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancelled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict_with: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overridden: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AgendaOptions {
+    pub include_personal: bool,
+    pub include_cancelled_courses: bool,
+    pub courses: Option<Vec<Value>>,
+    pub events: Option<Vec<Value>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct PlanningDay {
+    pub day: u8,
+    pub blocks: Vec<Occurrence>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct PlanningWeek {
+    #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
+    pub courses: Vec<Value>,
+    pub days: Vec<PlanningDay>,
+    pub conflict_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct PlanCivilStart {
+    pub date: String,
+    pub time: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct CourseTimeline {
+    pub last_started: Option<String>,
+    pub next: Option<String>,
+    pub class_at: Option<String>,
+}
+
+impl Default for AgendaOptions {
+    fn default() -> Self {
+        Self {
+            include_personal: true,
+            include_cancelled_courses: false,
+            courses: None,
+            events: None,
+        }
+    }
+}
+
+pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, ScheduleError> {
+    super::Term::parse(term)?;
+    let courses = scheduled_courses(workspace, term);
+    let events: Vec<_> = array(workspace, "events")
+        .iter()
+        .filter(|row| {
+            visible(row) && text(row, "termId") == Some(term) && text(row, "date").is_none()
+        })
+        .collect();
+    let mut days = Vec::new();
+    let mut conflict_count = 0;
+    for day in 1..=7_u8 {
+        let date = add_days("2000-01-02", i64::from(day))?;
+        let mut blocks = Vec::new();
+        for course in &courses {
+            let id = text(course, "id").unwrap_or_default();
+            for (index, meeting) in course
+                .get("meetings")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                if !meeting
+                    .get("days")
+                    .and_then(Value::as_array)
+                    .is_some_and(|values| {
+                        values
+                            .iter()
+                            .any(|value| value.as_u64() == Some(u64::from(day)))
+                    })
+                {
+                    continue;
+                }
+                blocks.push(course_occurrence(
+                    course,
+                    format!("{id}-{index}-{day}"),
+                    &date,
+                    text(meeting, "room").unwrap_or_default(),
+                    text(meeting, "startTime").unwrap_or_default(),
+                    text(meeting, "endTime").unwrap_or_default(),
+                    None,
+                ));
+            }
+        }
+        for event in &events {
+            if !event
+                .get("days")
+                .and_then(Value::as_array)
+                .is_some_and(|values| {
+                    values
+                        .iter()
+                        .any(|value| value.as_u64() == Some(u64::from(day)))
+                })
+            {
+                continue;
+            }
+            let id = text(event, "id").unwrap_or_default();
+            blocks.push(Occurrence {
+                key: format!("{id}-{day}"),
+                id: id.into(),
+                kind: OccurrenceKind::Event,
+                course_id: None,
+                date: date.clone(),
+                title: text(event, "title").unwrap_or_default().into(),
+                subtitle: None,
+                room: text(event, "room").unwrap_or_default().into(),
+                start_time: text(event, "startTime").unwrap_or_default().into(),
+                end_time: text(event, "endTime").unwrap_or_default().into(),
+                end_date: None,
+                color: "#8a887f".into(),
+                conflict: None,
+                dim: None,
+                cancelled: None,
+                time_label: None,
+                conflict_with: None,
+                overridden: None,
+            });
+        }
+        for left in 0..blocks.len() {
+            for right in left + 1..blocks.len() {
+                if overlap(&blocks[left], &blocks[right])? {
+                    conflict_count += 1;
+                }
+            }
+        }
+        mark_conflicts(&mut blocks)?;
+        blocks.sort_by(|left, right| {
+            left.start_time
+                .cmp(&right.start_time)
+                .then(left.key.cmp(&right.key))
+        });
+        days.push(PlanningDay { day, blocks });
+    }
+    Ok(PlanningWeek {
+        courses,
+        days,
+        conflict_count,
+    })
+}
+
+pub fn plan_start(plan: &Value) -> Result<PlanCivilStart, ScheduleError> {
+    let (date, time) = plan_civil_start(text(plan, "start").ok_or_else(|| {
+        ScheduleError::InvalidInput("Plan start must be an ISO date or date-time.".into())
+    })?)?;
+    Ok(PlanCivilStart { date, time })
+}
+
+pub fn course_timeline(
+    workspace: &Value,
+    term: &str,
+    course_id: &str,
+    now: DateTime<FixedOffset>,
+    before_days: u16,
+    after_days: u16,
+) -> Result<CourseTimeline, ScheduleError> {
+    if before_days > 366 || after_days > 366 {
+        return Err(ScheduleError::InvalidInput(
+            "course timeline range is too long".into(),
+        ));
+    }
+    let today = parse_civil_date(&super::tokyo_date(now))?;
+    let jst = FixedOffset::east_opt(9 * 3600)
+        .ok_or_else(|| ScheduleError::Compatibility("JST offset unavailable".into()))?;
+    let local_now = now.with_timezone(&jst).format("%Y-%m-%dT%H:%M").to_string();
+    let mut starts = Vec::new();
+    for offset in -(i64::from(before_days))..=i64::from(after_days) {
+        let date = (today + Duration::days(offset)).to_string();
+        for row in resolve_day_agenda(
+            workspace,
+            term,
+            &date,
+            AgendaOptions {
+                include_personal: false,
+                ..AgendaOptions::default()
+            },
+        )?
+        .into_iter()
+        .filter(|row| row.course_id.as_deref() == Some(course_id))
+        {
+            starts.push(format!("{}T{}", row.date, row.start_time));
+        }
+    }
+    starts.sort();
+    let last_started = starts
+        .iter()
+        .rev()
+        .find(|value| value.as_str() <= local_now.as_str())
+        .map(|value| format!("{value}:00+09:00"));
+    let next = starts
+        .iter()
+        .find(|value| value.as_str() > local_now.as_str())
+        .map(|value| format!("{value}:00+09:00"));
+    let class_at = last_started
+        .as_ref()
+        .filter(|value| value.starts_with(&today.to_string()))
+        .cloned()
+        .or_else(|| next.clone())
+        .or_else(|| last_started.clone());
+    Ok(CourseTimeline {
+        last_started,
+        next,
+        class_at,
+    })
+}
+
+pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
+    let ids: HashSet<&str> = array(workspace, "memberships")
+        .iter()
+        .chain(array(workspace, "planItems"))
+        .filter(|row| visible(row) && text(row, "termId") == Some(term))
+        .filter_map(|row| text(row, "courseId"))
+        .collect();
+    array(workspace, "courses")
+        .iter()
+        .filter(|row| {
+            visible(row)
+                && text(row, "termId") == Some(term)
+                && text(row, "id").is_some_and(|id| ids.contains(id))
+        })
+        .cloned()
+        .collect()
+}
+
+pub fn occurrences_on_date(
+    workspace: &Value,
+    term: &str,
+    date: &str,
+    options: AgendaOptions,
+) -> Result<Vec<Occurrence>, ScheduleError> {
+    let day = weekday(date)?;
+    let state = calendar_state(workspace, date);
+    let state_kind = state.as_ref().and_then(|row| text(row, "type"));
+    let closed = matches!(state_kind, Some("holiday" | "no-class" | "break"));
+    let teaching_day = if state_kind == Some("replacement") {
+        state
+            .as_ref()
+            .and_then(|row| row.get("replacementDay"))
+            .and_then(Value::as_u64)
+            .unwrap_or(u64::from(day)) as u8
+    } else if closed && !options.include_cancelled_courses {
+        0
+    } else {
+        day
+    };
+    let range = quarter_range(workspace, term)?;
+    let in_quarter = range
+        .as_ref()
+        .is_some_and(|range| date >= range.from.as_str() && date <= range.to.as_str());
+    let outside_teaching = range
+        .as_ref()
+        .and_then(|range| range.teaching_ranges.as_ref())
+        .is_some_and(|ranges| {
+            state_kind != Some("replacement")
+                && !ranges
+                    .iter()
+                    .any(|range| date >= range.start.as_str() && date <= range.end.as_str())
+        });
+    let courses = options
+        .courses
+        .unwrap_or_else(|| scheduled_courses(workspace, term));
+    let mut blocks = Vec::new();
+    if in_quarter {
+        for course in courses.iter().filter(|row| visible(row)) {
+            let course_id = text(course, "id").unwrap_or_default();
+            for (index, meeting) in course
+                .get("meetings")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .enumerate()
+            {
+                let meets = meeting
+                    .get("days")
+                    .and_then(Value::as_array)
+                    .is_some_and(|days| {
+                        days.iter()
+                            .any(|value| value.as_u64() == Some(u64::from(teaching_day)))
+                    });
+                if (outside_teaching && !options.include_cancelled_courses)
+                    || !meets
+                    || text(meeting, "validFrom").is_some_and(|from| date < from)
+                    || text(meeting, "validTo").is_some_and(|to| date > to)
+                {
+                    continue;
+                }
+                blocks.push(course_occurrence(
+                    course,
+                    format!("{course_id}-weekly-{index}-{date}"),
+                    date,
+                    text(meeting, "room").unwrap_or_default(),
+                    text(meeting, "startTime").unwrap_or_default(),
+                    text(meeting, "endTime").unwrap_or_default(),
+                    (closed || outside_teaching).then_some(true),
+                ));
+            }
+            for intensive in array(workspace, "intensiveSchedules").iter().filter(|row| {
+                visible(row)
+                    && text(row, "courseId") == Some(course_id)
+                    && text(row, "from").is_some_and(|from| date >= from)
+                    && text(row, "to").is_some_and(|to| date <= to)
+            }) {
+                let Some(selected) = intensive
+                    .get("days")
+                    .and_then(Value::as_array)
+                    .and_then(|days| days.iter().find(|row| text(row, "date") == Some(date)))
+                else {
+                    continue;
+                };
+                let Some(periods) = periods(selected.get("periods")) else {
+                    continue;
+                };
+                let (start, end) = clock_for_periods(periods)?;
+                blocks.push(course_occurrence(
+                    course,
+                    format!("{}-{date}", text(intensive, "id").unwrap_or_default()),
+                    date,
+                    text(intensive, "room").unwrap_or_default(),
+                    start,
+                    end,
+                    None,
+                ));
+            }
+        }
+    }
+    if options.include_personal {
+        let events = options.events.unwrap_or_else(|| {
+            array(workspace, "events")
+                .iter()
+                .filter(|row| text(row, "termId") == Some(term))
+                .cloned()
+                .collect()
+        });
+        for event in events.iter().filter(|row| visible(row)) {
+            let occurs = text(event, "date").map_or_else(
+                || {
+                    event
+                        .get("days")
+                        .and_then(Value::as_array)
+                        .is_some_and(|days| days.iter().any(|v| v.as_u64() == Some(u64::from(day))))
+                },
+                |value| value == date,
+            );
+            if !occurs {
+                continue;
+            }
+            let id = text(event, "id").unwrap_or_default();
+            blocks.push(Occurrence {
+                key: format!("{id}-{date}"),
+                id: id.into(),
+                kind: OccurrenceKind::Event,
+                course_id: None,
+                date: date.into(),
+                title: text(event, "title").unwrap_or_default().into(),
+                subtitle: None,
+                room: text(event, "room").unwrap_or_default().into(),
+                start_time: text(event, "startTime").unwrap_or_default().into(),
+                end_time: text(event, "endTime").unwrap_or_default().into(),
+                end_date: None,
+                color: "#8a887f".into(),
+                conflict: None,
+                dim: None,
+                cancelled: None,
+                time_label: None,
+                conflict_with: None,
+                overridden: None,
+            });
+        }
+        for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
+            let start = plan_civil_start(text(plan, "start").unwrap_or_default())?;
+            let exdates: Vec<String> = plan
+                .get("exdates")
+                .and_then(Value::as_array)
+                .map(|v| {
+                    v.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let excluded = exdates
+                .iter()
+                .any(|value| plan_civil_start(value).is_ok_and(|start| start.0 == date));
+            let occurs = if excluded {
+                false
+            } else if let Some(rule) = text(plan, "rrule") {
+                let recurrence_start = format!("{}T{}:00+09:00", start.0, start.1);
+                crate::plans::occurrences_between(
+                    &recurrence_start,
+                    rule,
+                    &exdates,
+                    parse_civil_date(date)?,
+                    parse_civil_date(date)?,
+                )
+                .map_err(|e| ScheduleError::InvalidInput(e.to_string()))?
+                .into_iter()
+                .any(|v| v.starts_with(date))
+            } else {
+                start.0 == date
+                    && !exdates
+                        .iter()
+                        .any(|v| plan_civil_start(v).is_ok_and(|p| p.0 == date))
+            };
+            if !occurs {
+                continue;
+            }
+            let duration = plan.get("duration").and_then(Value::as_i64).unwrap_or(0);
+            let start_clock = NaiveDateTime::parse_from_str(
+                &format!("{date}T{}:00", start.1),
+                "%Y-%m-%dT%H:%M:%S",
+            )
+            .map_err(|_| {
+                ScheduleError::InvalidInput("Plan start must be an ISO date or date-time.".into())
+            })?;
+            let end = start_clock + Duration::minutes(duration);
+            let id = text(plan, "id").unwrap_or_default();
+            blocks.push(Occurrence {
+                key: format!("{id}-{date}"),
+                id: id.into(),
+                kind: OccurrenceKind::Plan,
+                course_id: text(plan, "courseId").map(str::to_owned),
+                date: date.into(),
+                title: text(plan, "title").unwrap_or_default().into(),
+                subtitle: None,
+                room: text(plan, "room").unwrap_or_default().into(),
+                start_time: start.1,
+                end_time: end.format("%H:%M").to_string(),
+                end_date: (end.date() != start_clock.date()).then(|| end.date().to_string()),
+                color: "#5f6b8a".into(),
+                conflict: None,
+                dim: None,
+                cancelled: None,
+                time_label: None,
+                conflict_with: None,
+                overridden: None,
+            });
+        }
+    }
+    mark_conflicts(&mut blocks)?;
+    blocks.sort_by(|a, b| a.start_time.cmp(&b.start_time).then(a.key.cmp(&b.key)));
+    Ok(blocks)
+}
+
+fn course_occurrence(
+    course: &Value,
+    key: String,
+    date: &str,
+    room: &str,
+    start: &str,
+    end: &str,
+    cancelled: Option<bool>,
+) -> Occurrence {
+    let id = text(course, "id").unwrap_or_default();
+    Occurrence {
+        key,
+        id: id.into(),
+        kind: OccurrenceKind::Course,
+        course_id: Some(id.into()),
+        date: date.into(),
+        title: course
+            .pointer("/overrides/title")
+            .and_then(Value::as_str)
+            .or_else(|| text(course, "title"))
+            .unwrap_or_default()
+            .into(),
+        subtitle: text(course, "code").map(str::to_owned),
+        room: room.into(),
+        start_time: start.into(),
+        end_time: end.into(),
+        end_date: None,
+        color: course
+            .pointer("/overrides/color")
+            .and_then(Value::as_str)
+            .or_else(|| text(course, "color"))
+            .unwrap_or_default()
+            .into(),
+        conflict: None,
+        dim: Some(false),
+        cancelled,
+        time_label: None,
+        conflict_with: None,
+        overridden: None,
+    }
+}
+
+fn mark_conflicts(blocks: &mut [Occurrence]) -> Result<(), ScheduleError> {
+    for i in 0..blocks.len() {
+        for j in i + 1..blocks.len() {
+            if blocks[i].cancelled == Some(true) || blocks[j].cancelled == Some(true) {
+                continue;
+            }
+            if overlap(&blocks[i], &blocks[j])? {
+                blocks[i].conflict = Some(true);
+                blocks[j].conflict = Some(true)
+            }
+        }
+    }
+    Ok(())
+}
+fn overlap(a: &Occurrence, b: &Occurrence) -> Result<bool, ScheduleError> {
+    let end_a = format!(
+        "{}T{}",
+        a.end_date.clone().unwrap_or(if a.end_time <= a.start_time {
+            add_days(&a.date, 1)?
+        } else {
+            a.date.clone()
+        }),
+        a.end_time
+    );
+    let end_b = format!(
+        "{}T{}",
+        b.end_date.clone().unwrap_or(if b.end_time <= b.start_time {
+            add_days(&b.date, 1)?
+        } else {
+            b.date.clone()
+        }),
+        b.end_time
+    );
+    Ok(format!("{}T{}", a.date, a.start_time) < end_b
+        && format!("{}T{}", b.date, b.start_time) < end_a)
+}
+
+pub fn resolve_day_agenda(
+    workspace: &Value,
+    term: &str,
+    date: &str,
+    options: AgendaOptions,
+) -> Result<Vec<Occurrence>, ScheduleError> {
+    let mut blocks = occurrences_on_date(workspace, term, date, options.clone())?;
+    let overrides: Vec<_> = array(workspace, "scheduleOverrides")
+        .iter()
+        .filter(|r| visible(r))
+        .collect();
+    blocks = blocks
+        .into_iter()
+        .filter_map(|mut block| {
+            let change = overrides
+                .iter()
+                .find(|r| text(r, "targetKey") == Some(&block.key));
+            match change {
+                Some(r) if r.get("hidden").and_then(Value::as_bool) == Some(true) => None,
+                Some(r) => {
+                    apply_override(&mut block, r).ok()?;
+                    (block.date == date).then_some(block)
+                }
+                None => Some(block),
+            }
+        })
+        .collect();
+    for change in overrides.iter().filter(|r| {
+        r.get("hidden").and_then(Value::as_bool) != Some(true)
+            && text(r, "targetKind") == Some("course")
+            && text(r, "date") == Some(date)
+    }) {
+        let key = text(change, "targetKey").unwrap_or_default();
+        if blocks.iter().any(|b| b.key == key) {
+            continue;
+        }
+        let Some(source) = key
+            .get(key.len().saturating_sub(10)..)
+            .filter(|v| parse_civil_date(v).is_ok())
+        else {
+            continue;
+        };
+        if source == date {
+            continue;
+        }
+        if let Some(mut original) = occurrences_on_date(workspace, term, source, options.clone())?
+            .into_iter()
+            .find(|b| b.key == key)
+        {
+            apply_override(&mut original, change)?;
+            blocks.push(original)
+        }
+    }
+    let registered: HashSet<_> = array(workspace, "memberships")
+        .iter()
+        .filter(|r| {
+            visible(r)
+                && text(r, "termId") == Some(term)
+                && text(r, "status") != Some("withdrawn")
+                && r.pointer("/evidence/provider").and_then(Value::as_str) != Some("manual")
+        })
+        .filter_map(|r| text(r, "courseId"))
+        .collect();
+    let by_code: HashMap<_, _> = array(workspace, "courses")
+        .iter()
+        .filter(|c| visible(c) && text(c, "id").is_some_and(|id| registered.contains(id)))
+        .filter_map(|c| Some((text(c, "code")?.trim().to_uppercase(), c)))
+        .collect();
+    let locale = content_language(workspace);
+    let mut exams = Vec::new();
+    for exam in array(workspace, "exams").iter().filter(|e| {
+        visible(e)
+            && text(e, "status") == Some("scheduled")
+            && format!(
+                "{}-{}",
+                e.get("academicYear")
+                    .and_then(Value::as_i64)
+                    .unwrap_or_default(),
+                text(e, "quarter").unwrap_or_default()
+            ) == term
+    }) {
+        let target = text(exam, "sourceKey")
+            .or_else(|| text(exam, "id"))
+            .unwrap_or_default();
+        let change = overrides
+            .iter()
+            .find(|r| text(r, "targetKey") == Some(target));
+        if change.is_some_and(|r| r.get("hidden").and_then(Value::as_bool) == Some(true)) {
+            continue;
+        }
+        let effective = change
+            .and_then(|r| text(r, "date"))
+            .or_else(|| text(exam, "date"));
+        if effective != Some(date) {
+            continue;
+        }
+        let course = change
+            .and_then(|r| text(r, "courseId"))
+            .or_else(|| text(exam, "courseId"))
+            .and_then(|id| {
+                array(workspace, "courses")
+                    .iter()
+                    .find(|c| visible(c) && text(c, "id") == Some(id))
+            })
+            .or_else(|| {
+                text(exam, "courseCode")
+                    .and_then(|code| by_code.get(&code.trim().to_uppercase()).copied())
+            });
+        let Some(course) = course else { continue };
+        let periods = change
+            .and_then(|r| periods(r.get("periods")))
+            .or_else(|| periods(exam.get("periods")));
+        let clock = periods.map(clock_for_periods).transpose()?;
+        let start = change
+            .and_then(|r| text(r, "startTime"))
+            .or_else(|| clock.map(|v| v.0))
+            .or_else(|| text(exam, "startTime"));
+        let end = change
+            .and_then(|r| text(r, "endTime"))
+            .or_else(|| clock.map(|v| v.1))
+            .or_else(|| text(exam, "endTime"));
+        let (Some(start), Some(end)) = (start, end) else {
+            continue;
+        };
+        let id = text(course, "id").unwrap_or_default();
+        exams.push(Occurrence {
+            key: target.into(),
+            id: id.into(),
+            kind: OccurrenceKind::Exam,
+            course_id: Some(id.into()),
+            date: date.into(),
+            title: change
+                .and_then(|r| text(r, "title"))
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    localized(
+                        exam.get("label"),
+                        locale,
+                        course
+                            .pointer("/overrides/title")
+                            .and_then(Value::as_str)
+                            .or_else(|| text(course, "title"))
+                            .unwrap_or_default(),
+                    )
+                }),
+            subtitle: text(course, "code").map(str::to_owned),
+            room: change
+                .and_then(|r| text(r, "room"))
+                .map(str::to_owned)
+                .unwrap_or_else(|| localized(exam.get("room"), locale, "")),
+            start_time: start.into(),
+            end_time: end.into(),
+            end_date: None,
+            color: course
+                .pointer("/overrides/color")
+                .and_then(Value::as_str)
+                .or_else(|| text(course, "color"))
+                .unwrap_or_default()
+                .into(),
+            conflict: None,
+            dim: None,
+            cancelled: None,
+            time_label: Some(periods.map_or_else(
+                || format!("{start}–{end}"),
+                |p| format!("{}–{}限", p[0], p[1]),
+            )),
+            conflict_with: None,
+            overridden: change.map(|_| true),
+        });
+    }
+    let exam_ids: HashSet<_> = exams
+        .iter()
+        .filter_map(|e| e.course_id.as_deref())
+        .collect();
+    blocks.retain(|b| {
+        b.kind != OccurrenceKind::Course
+            || !b
+                .course_id
+                .as_deref()
+                .is_some_and(|id| exam_ids.contains(id))
+    });
+    blocks.extend(exams);
+    mark_conflicts(&mut blocks)?;
+    for i in 0..blocks.len() {
+        if blocks[i].kind != OccurrenceKind::Exam {
+            continue;
+        }
+        let collisions: Vec<_> = (0..blocks.len())
+            .filter(|&j| {
+                j != i
+                    && blocks[j].cancelled != Some(true)
+                    && blocks[j].course_id != blocks[i].course_id
+                    && overlap(&blocks[i], &blocks[j]).unwrap_or(false)
+            })
+            .collect();
+        let names: Vec<_> = collisions
+            .into_iter()
+            .map(|j| {
+                blocks[j].conflict = Some(true);
+                blocks[j].title.clone()
+            })
+            .collect();
+        if !names.is_empty() {
+            blocks[i].conflict = Some(true);
+            blocks[i].conflict_with = Some(names)
+        }
+    }
+    blocks.sort_by(|a, b| {
+        a.start_time
+            .cmp(&b.start_time)
+            .then((a.kind == OccurrenceKind::Exam).cmp(&(b.kind == OccurrenceKind::Exam)))
+            .then(a.key.cmp(&b.key))
+    });
+    Ok(blocks)
+}
+
+fn apply_override(block: &mut Occurrence, row: &Value) -> Result<(), ScheduleError> {
+    if let Some(v) = text(row, "date") {
+        block.date = v.into()
+    }
+    if let Some(v) = text(row, "title") {
+        block.title = v.into()
+    }
+    if let Some(v) = text(row, "room") {
+        block.room = v.into()
+    }
+    if let Some(v) = text(row, "courseId") {
+        block.course_id = Some(v.into())
+    }
+    let clock = periods(row.get("periods"))
+        .map(clock_for_periods)
+        .transpose()?;
+    if let Some(v) = text(row, "startTime").or_else(|| clock.map(|v| v.0)) {
+        block.start_time = v.into()
+    }
+    if let Some(v) = text(row, "endTime").or_else(|| clock.map(|v| v.1)) {
+        block.end_time = v.into()
+    }
+    block.overridden = Some(true);
+    Ok(())
+}
+fn periods(value: Option<&Value>) -> Option<[u8; 2]> {
+    let values = value?.as_array()?;
+    Some([
+        values.first()?.as_u64()? as u8,
+        values.get(1)?.as_u64()? as u8,
+    ])
+}
+
+fn plan_civil_start(raw: &str) -> Result<(String, String), ScheduleError> {
+    let (date, time) = crate::plans::plan_civil_start(raw)
+        .map_err(|error| ScheduleError::InvalidInput(error.to_string()))?;
+    Ok((date.to_string(), time.format("%H:%M").to_string()))
+}
+
+pub fn next_plan_occurrences(plan: &Value, limit: u16) -> Result<Vec<String>, ScheduleError> {
+    if limit == 0 {
+        return Ok(vec![]);
+    }
+    let start = text(plan, "start").ok_or_else(|| {
+        ScheduleError::InvalidInput("Plan start must be an ISO date or date-time.".into())
+    })?;
+    let exdates: Vec<String> = plan
+        .get("exdates")
+        .and_then(Value::as_array)
+        .map(|v| {
+            v.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(rule) = text(plan, "rrule") {
+        let civil_start = plan_civil_start(start)?;
+        let recurrence_start = format!("{}T{}:00+09:00", civil_start.0, civil_start.1);
+        let preview = crate::plans::preview_rrule(&recurrence_start, rule, &exdates, limit)
+            .map_err(|error| ScheduleError::InvalidInput(error.to_string()))?;
+        return Ok(preview.occurrences);
+    }
+    let civil = plan_civil_start(start)?;
+    if exdates
+        .iter()
+        .any(|v| plan_civil_start(v).is_ok_and(|p| p.0 == civil.0))
+    {
+        Ok(vec![])
+    } else {
+        Ok(vec![format!("{}T{}:00+09:00", civil.0, civil.1)])
+    }
+}
+
+pub fn intensive_days(
+    from: &str,
+    to: &str,
+    periods: [u8; 2],
+) -> Result<Vec<ScheduleIntensiveDay>, ScheduleError> {
+    clock_for_periods(periods)?;
+    let start = parse_civil_date(from)?;
+    let end = parse_civil_date(to)?;
+    let days = (end - start).num_days();
+    if !(0..=366).contains(&days) {
+        return Err(ScheduleError::InvalidInput(
+            "Choose a valid intensive-course date range.".into(),
+        ));
+    }
+    Ok((0..=days)
+        .map(|offset| ScheduleIntensiveDay {
+            date: (start + Duration::days(offset)).to_string(),
+            periods,
+        })
+        .collect())
+}
+
+pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError> {
+    let input = profile
+        .as_object()
+        .ok_or_else(|| ScheduleError::InvalidInput("Academic profile must be an object".into()))?;
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| ScheduleError::InvalidInput("Academic profile needs a name".into()))?
+        .trim();
+    if input
+        .get("admissionYear")
+        .is_some_and(|v| !v.is_null() && (v.as_i64().is_none_or(|y| y < 2000)))
+    {
+        return Err(ScheduleError::InvalidInput(
+            "Academic profile has an invalid admission year".into(),
+        ));
+    }
+    let grade_path = required_array(
+        input,
+        "gradePath",
+        "Academic profile needs at least one grade path entry",
+    )?;
+    let mut grades = HashSet::new();
+    let mut normalized_grades = Vec::new();
+    for (index, row) in grade_path.iter().enumerate() {
+        let object = row.as_object().ok_or_else(|| {
+            ScheduleError::InvalidInput(format!("Grade path entry {} must be an object", index + 1))
+        })?;
+        let grade = object
+            .get("grade")
+            .and_then(Value::as_str)
+            .filter(|v| !v.trim().is_empty())
+            .ok_or_else(|| {
+                ScheduleError::InvalidInput(format!(
+                    "Grade path entry {} needs a grade label",
+                    index + 1
+                ))
+            })?
+            .trim();
+        let year = object
+            .get("academicYear")
+            .and_then(Value::as_i64)
+            .filter(|v| *v >= 1900)
+            .ok_or_else(|| {
+                ScheduleError::InvalidInput(format!(
+                    "Grade path entry {} has an invalid academic year",
+                    index + 1
+                ))
+            })?;
+        if !grades.insert(grade.to_owned()) {
+            return Err(ScheduleError::InvalidInput(
+                "Grade labels must be unique".into(),
+            ));
+        }
+        normalized_grades.push(serde_json::json!({"grade":grade,"academicYear":year}));
+    }
+    let years = required_array(
+        input,
+        "years",
+        "Academic profile needs at least one configured year",
+    )?;
+    let mut configured = HashSet::new();
+    let mut normalized_years = Vec::new();
+    for (index, row) in years.iter().enumerate() {
+        let object = row.as_object().ok_or_else(|| {
+            ScheduleError::InvalidInput(format!("Configured year {} must be an object", index + 1))
+        })?;
+        let year = object
+            .get("academicYear")
+            .and_then(Value::as_i64)
+            .filter(|v| *v >= 1900)
+            .ok_or_else(|| {
+                ScheduleError::InvalidInput(format!(
+                    "Configured year {} has an invalid academic year",
+                    index + 1
+                ))
+            })?;
+        if !configured.insert(year) {
+            return Err(ScheduleError::InvalidInput(
+                "Configured academic years must be unique".into(),
+            ));
+        }
+        let starts = object
+            .get("quarterStarts")
+            .and_then(Value::as_object)
+            .ok_or_else(|| {
+                ScheduleError::InvalidInput(format!(
+                    "Configured year {} needs quarter starts",
+                    index + 1
+                ))
+            })?;
+        let values: Vec<_> = ["1Q", "2Q", "3Q", "4Q"]
+            .iter()
+            .map(|q| starts.get(*q).and_then(Value::as_str))
+            .collect();
+        if values
+            .iter()
+            .any(|v| v.is_none_or(|v| parse_civil_date(v).is_err()))
+        {
+            return Err(ScheduleError::InvalidInput(format!(
+                "Configured year {} needs valid starts for 1Q–4Q",
+                index + 1
+            )));
+        }
+        if values.windows(2).any(|w| w[1] <= w[0]) {
+            return Err(ScheduleError::InvalidInput(format!(
+                "Configured year {} quarter starts must be chronological",
+                index + 1
+            )));
+        }
+        normalized_years.push(serde_json::json!({"academicYear":year,"quarterStarts":starts}));
+    }
+    if normalized_grades.iter().any(|row| {
+        !configured.contains(
+            &row.get("academicYear")
+                .and_then(Value::as_i64)
+                .unwrap_or_default(),
+        )
+    }) {
+        return Err(ScheduleError::InvalidInput(
+            "Every grade path year must have quarter starts".into(),
+        ));
+    }
+    normalized_years.sort_by_key(|r| r.get("academicYear").and_then(Value::as_i64));
+    let mut output = Map::new();
+    output.insert("name".into(), Value::String(name.into()));
+    if let Some(year) = input.get("admissionYear").filter(|v| !v.is_null()) {
+        output.insert("admissionYear".into(), year.clone());
+    }
+    output.insert("gradePath".into(), Value::Array(normalized_grades));
+    output.insert("years".into(), Value::Array(normalized_years));
+    Ok(Value::Object(output))
+}
+fn required_array<'a>(
+    input: &'a Map<String, Value>,
+    key: &str,
+    message: &str,
+) -> Result<&'a Vec<Value>, ScheduleError> {
+    input
+        .get(key)
+        .and_then(Value::as_array)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| ScheduleError::InvalidInput(message.into()))
+}

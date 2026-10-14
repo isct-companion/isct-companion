@@ -2,9 +2,19 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { dueCountdown } from "../../core/academic";
 import { seedWorkspace, type Course, type Meeting } from "../../core/model";
 import { LectureDesk } from "./LectureDesk";
+
+const core = vi.hoisted(() => ({
+  schedule: undefined as unknown,
+  tasks: undefined as unknown,
+}));
+vi.mock("../../platform/core-query", () => ({
+  useScheduleQuery: (query: { kind: string }) => ({
+    value: query.kind === "taskView" ? core.tasks : core.schedule,
+    pending: false,
+  }),
+}));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -13,6 +23,8 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+  core.schedule = undefined;
+  core.tasks = undefined;
   // Wednesday 7 October, 12:00 in Japan.
   vi.useFakeTimers({ now: new Date("2026-10-07T03:00:00Z") });
 });
@@ -84,6 +96,50 @@ it("lists lectures in class order and waits for an explicit selection", async ()
     },
   ];
   const select = vi.fn();
+  const block = (
+    id: string,
+    date: string,
+    startTime: string,
+    endTime: string,
+    room: string,
+  ) => ({
+    key: `${id}-${date}`,
+    id,
+    kind: "course",
+    date,
+    title: `Course ${id}`,
+    subtitle: id.toUpperCase(),
+    room,
+    startTime,
+    endTime,
+    color: "blue",
+  });
+  core.schedule = {
+    allTerms: ["2026-3Q"],
+    courses: data.courses,
+    agendas: [
+      {
+        date: "2026-10-07",
+        occurrences: [
+          block("now", "2026-10-07", "10:45", "12:25", "R3"),
+          block("later", "2026-10-07", "13:30", "15:10", "R3"),
+        ],
+      },
+      {
+        date: "2026-10-08",
+        occurrences: [],
+      },
+      {
+        date: "2026-10-09",
+        occurrences: [block("friday", "2026-10-09", "08:50", "10:30", "R5")],
+      },
+    ],
+  };
+  core.tasks = {
+    byTerm: { "2026-3Q": { lectureOpenIds: ["a1"], lectureHiddenIds: [] } },
+    nearestByCourse: { later: "a1" },
+    deadlines: { a1: { countdownLabel: "1d 12h", countdownTone: "soon" } },
+  };
   await act(async () =>
     root.render(
       <LectureDesk
@@ -109,22 +165,36 @@ it("lists lectures in class order and waits for an explicit selection", async ()
   await act(async () => (rows[0] as HTMLButtonElement).click());
   expect(select).toHaveBeenCalledWith("now");
 
-  const filter = host.querySelector<HTMLInputElement>(".lectureFilter input, input.lectureFilter")!;
+  const filter = host.querySelector<HTMLInputElement>(
+    ".lectureFilter input, input.lectureFilter",
+  )!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(filter, "FRI");
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(filter, "FRI");
     filter.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  expect([...host.querySelectorAll(".lectureRow b")].map((b) => b.textContent)).toEqual(["Course friday"]);
+  expect(
+    [...host.querySelectorAll(".lectureRow b")].map((b) => b.textContent),
+  ).toEqual(["Course friday"]);
 
   // The same list switches to the quarter's open assignments.
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(filter, "");
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(filter, "");
     filter.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  const assignments = [...host.querySelectorAll<HTMLButtonElement>(".lectureMode button")][1];
+  const assignments = [
+    ...host.querySelectorAll<HTMLButtonElement>(".lectureMode button"),
+  ][1];
   await act(async () => assignments.click());
   const work = [...host.querySelectorAll<HTMLButtonElement>(".lectureRow")];
-  expect(work.map((row) => row.querySelector("b")?.textContent)).toEqual(["Report"]);
+  expect(work.map((row) => row.querySelector("b")?.textContent)).toEqual([
+    "Report",
+  ]);
   expect(work[0].querySelector("small")?.textContent).toBe("Course later");
   await act(async () => work[0].click());
   expect(select).toHaveBeenLastCalledWith("later", "a1");
@@ -144,6 +214,12 @@ it("lists lectures in class order and waits for an explicit selection", async ()
       hidden: true,
     },
   ];
+  core.tasks = {
+    ...(core.tasks as object),
+    byTerm: {
+      "2026-3Q": { lectureOpenIds: ["a1"], lectureHiddenIds: ["a2"] },
+    },
+  };
   await act(async () =>
     root.render(
       <LectureDesk
@@ -166,20 +242,4 @@ it("lists lectures in class order and waits for an explicit selection", async ()
   expect(hidden.querySelector("b")?.textContent).toBe("Quiz");
   await act(async () => hidden.querySelector("button")!.click());
   expect(restore).toHaveBeenCalledWith("a2");
-});
-
-it("counts down to the hour inside three days and in days beyond", () => {
-  const now = new Date("2026-10-07T00:00:00Z");
-  expect(dueCountdown("2026-10-07T00:40:00Z", now)).toMatchObject({
-    label: "40m",
-    tone: "urgent",
-  });
-  expect(dueCountdown("2026-10-08T12:00:00Z", now)).toMatchObject({
-    label: "1d 12h",
-    tone: "soon",
-  });
-  expect(dueCountdown("2026-10-12T05:00:00Z", now)).toMatchObject({
-    label: "5d",
-    tone: "normal",
-  });
 });

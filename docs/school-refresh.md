@@ -1,6 +1,6 @@
 # Pull coordination
 
-Reference subscriptions, LMS and 教務Web share `backend/src/pull_coordinator.rs`.
+Reference subscriptions, LMS and 教務Web share `crates/isct-core/src/pull_coordinator.rs`.
 Manual commands, launch/scheduled refreshes, account activation, foreground
 events and lecture detail requests all enter its native admission path.
 The frontend reports facts and renders snapshots; its busy flags and workspace
@@ -8,8 +8,9 @@ Promise queue no longer decide which requests execute.
 
 ## Refresh policy
 
-`backend/src/school_refresh.rs` owns freshness and lecture debounce intents;
-`backend/src/scheduler.rs` feeds the same policy. Neither owns an execution queue. `App.tsx` reports foreground/network and lecture
+`crates/isct-core/src/school_refresh.rs` owns freshness and lecture debounce
+intents; Core's `scheduler.rs` feeds the same policy. Neither owns an execution
+queue. `App.tsx` reports foreground/network and lecture
 navigation events without a clock or a session-local detail cache. Native
 session completion also reports directly, including before the UI subscribes.
 
@@ -61,7 +62,7 @@ not a separate automatic import timer.
   the reported problem. Retries default to zero, matching the prior adapters;
   an explicit retry policy uses a fresh executor future for each attempt.
 
-Reference refreshes share a native adapter for probing, cache validation,
+Reference refreshes share Core's `ReferenceService` for probing, cache validation,
 fetching, applying and metadata writes. Startup always checks the built-in
 reference task immediately. Calendar hashes count as usable cache only when
 all eight valid quarter boundaries exist for the requested year. Automatic
@@ -76,6 +77,32 @@ visible-view conditions. Reference scheduled tasks retain their existing
 HTTP admission behavior; the Sources action retains its offline/cellular
 checks. Cloud recovery, syllabus lookup and individual file downloads keep
 their specialized services and are outside this business pull coordinator.
+
+## Runtime lifetime
+
+`CoreRuntime` owns the coordinator, refresh intent, scheduler and admitted
+operations. Desktop supplies a one-second wakeup; Core checks the scheduler at
+most every 30 seconds and keeps its RRULE, launch and revision-claim policies.
+`SchoolService` chooses the account and loads credentials before calling the
+temporary `SchoolExecutor` port. The existing native Controller still owns
+WebView navigation/session preemption until its separate migration.
+
+- Losing main-window focus updates the foreground fact. Actual OS suspension
+  stops new execution in both coordinator lanes; resume reopens admission and
+  wakes due-work checking. Wake/suspend/resume transitions are serialized.
+- Shutdown permanently closes operation admission, cancels queued/delayed and
+  pre-commit pulls, and waits for their executors. It never aborts Applying.
+  Delayed retry timers wake on shutdown instead of retaining the runtime.
+- Owned operation tracking also waits for final subscription/task metadata and
+  events after a pull settles. A dropped UI request does not detach that work.
+  Completed job history retains snapshots, not executor closures or native
+  handles. Repeated shutdown is safe; resume cannot reopen a closed runtime.
+- Desktop owns and closes its wake/event loops, then exits only after Core
+  has drained. School/native transport waits retain their existing bounded
+  timeouts; shutdown uses cooperative cancellation, not forced task abortion.
+- Scheduler claims precede side effects. Automatic tasks recheck whether they
+  are still enabled/due, and final writes cannot overwrite a concurrent user
+  edit or deletion. Event delivery failure does not prevent final persistence.
 
 ## Verification
 

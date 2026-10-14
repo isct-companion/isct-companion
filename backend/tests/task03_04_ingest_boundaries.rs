@@ -1,27 +1,11 @@
-#[path = "../src/contracts.rs"]
-mod contracts;
-#[path = "../src/data/mod.rs"]
-mod data;
-#[path = "../src/kyomu_ingest.rs"]
-mod kyomu_ingest;
-#[path = "../src/lms_ingest.rs"]
-mod lms_ingest;
-mod school_parser {
-    pub(crate) mod kyomu {
-        include!("../src/school_parser/kyomu.rs");
-    }
-    pub(crate) mod lms {
-        include!("../src/school_parser/lms.rs");
-    }
-}
-
-use kyomu_ingest::{declared_credits, gpa_summaries};
-use lms_ingest::apply_lms_payload;
-use rusqlite::Connection;
-use school_parser::{
+use isct_core::data;
+use isct_core::kyomu_ingest::{declared_credits, gpa_summaries};
+use isct_core::lms_ingest::apply_lms_payload;
+use isct_core::school_parser::{
     kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
     lms::{aggregate_slots, decode_entities, parse_payload as parse_lms_payload, LmsStage},
 };
+use rusqlite::Connection;
 use serde_json::{json, Value};
 
 #[test]

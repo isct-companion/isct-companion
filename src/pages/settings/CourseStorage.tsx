@@ -4,7 +4,7 @@ import {
   chooseStorage,
   storageInfo,
   type StorageInfo,
-} from "../today/lms/files";
+} from "../../features/lms/files";
 export function CourseStorage() {
   const [info, setInfo] = useState<StorageInfo>();
   const [error, setError] = useState("");

@@ -47,12 +47,12 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: aarch64-apple-ios
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: . -> target
           key: ios-aarch64
       - run: yarn install --immutable
       - name: Validate frontend and release version

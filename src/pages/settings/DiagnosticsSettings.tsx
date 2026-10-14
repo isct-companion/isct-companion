@@ -1,4 +1,5 @@
-import { t } from "../../i18n";
+import { t, intlLocale } from "../../i18n";
+import { formatTimestamp } from "../../core/civil-date";
 import type { Workspace } from "../../core/model";
 import {
   resolveCapabilities,
@@ -53,7 +54,9 @@ export function DiagnosticsSettings({
                   {log.source} · {log.phase} · {log.state}
                 </b>
                 <span>
-                  {new Date(log.at).toLocaleString()} · {log.message}
+                  {formatTimestamp(log.at, intlLocale(data.settings.locale)) ??
+                    log.at}{" "}
+                  · {log.message}
                 </span>
               </div>
             ))

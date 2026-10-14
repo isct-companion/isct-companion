@@ -40,7 +40,7 @@ Selectors are local to that source's parser. A site change can therefore fail on
 
 ### Rust module boundary
 
-`backend/src/school_parser/` is the single parsing boundary. Its provider
+`crates/isct-core/src/school_parser/` is the single parsing boundary. Its provider
 modules accept bounded HTML or extractor JSON and return typed, validated
 values. They do not open network connections, access Tauri, write files, or
 write SQLite.

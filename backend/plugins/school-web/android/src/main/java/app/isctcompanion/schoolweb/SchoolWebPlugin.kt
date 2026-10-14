@@ -167,6 +167,7 @@ class SchoolWebPlugin(private val activity: Activity) : Plugin(activity) {
                     "bounds" -> bounds(resident, requireNotNull(args.bounds))
                     "eval" -> resident.view.evaluateJavascript(requireNotNull(args.value), null)
                     "navigate" -> { val url = requireNotNull(args.value); require(allowed(resident, url)); resident.view.loadUrl(url) }
+                    "close" -> { (resident.view.parent as? ViewGroup)?.removeView(resident.view); resident.view.destroy(); views.remove(args.site) }
                     "reload" -> resident.view.reload()
                     "hide" -> { (activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(resident.view.windowToken, 0); resident.view.clearFocus(); resident.view.visibility = View.INVISIBLE; CookieManager.getInstance().flush() }
                     "show" -> { resident.view.visibility = View.VISIBLE; resident.view.bringToFront() }

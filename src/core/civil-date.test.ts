@@ -1,6 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { isCivilDate, parseIsoTimestamp, tokyoDate } from "./civil-date";
-import { academicTermForDate } from "./academic-calendar";
+import {
+  isCivilDate,
+  parseIsoTimestamp,
+  tokyoDate,
+  formatTimestamp,
+} from "./civil-date";
 import { termForDate } from "./academic";
 import { seedWorkspace } from "./model";
 
@@ -44,31 +48,33 @@ it("pins Gregorian dates and Latin digits despite different calendar defaults", 
   expect(termForDate(new Date("2026-03-31T15:00:00Z"))).toBe("2026-1Q");
 });
 
-it("selects the configured quarter without comparing localized display strings", () => {
-  vi.spyOn(Intl.DateTimeFormat.prototype, "format", "get").mockReturnValue(
-    () => "10/13/2026",
-  );
-  expect(
-    academicTermForDate(new Date("2026-10-13T03:00:00Z"), {
-      name: "Study",
-      gradePath: [],
-      years: [
-        {
-          academicYear: 2026,
-          quarterStarts: {
-            "1Q": "2026-04-03",
-            "2Q": "2026-06-10",
-            "3Q": "2026-09-28",
-            "4Q": "2026-12-03",
-          },
-        },
-      ],
-    }),
-  ).toBe("2026-3Q");
-});
-
 it("starts in the Japan quarter when the device is still in the previous month", () => {
   vi.useFakeTimers({ now: new Date("2026-09-30T15:00:00Z") });
   vi.spyOn(Date.prototype, "getMonth").mockReturnValue(8);
   expect(seedWorkspace().currentTerm).toBe("2026-3Q");
+});
+
+it("formats timestamps in JST regardless of device zone and rejects malformed values", () => {
+  const value = "2026-12-31T15:01:00Z";
+  expect(formatTimestamp(value, "en-GB")).toBe(
+    new Intl.DateTimeFormat("en-GB", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Tokyo",
+      calendar: "gregory",
+    }).format(new Date(value)),
+  );
+  expect(
+    formatTimestamp(value, "en-GB", { timeZone: "America/Los_Angeles" }),
+  ).toBe(formatTimestamp(value, "en-GB"));
+  for (const invalid of [
+    "Invalid Date",
+    "2026-02-30T10:00:00Z",
+    "10/14/2026",
+    null,
+  ])
+    expect(formatTimestamp(invalid, "en-GB")).toBeUndefined();
 });

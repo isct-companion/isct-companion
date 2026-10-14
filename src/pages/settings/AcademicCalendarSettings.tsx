@@ -1,5 +1,5 @@
 import { notify as appNotify } from "../../app/notify";
-import { Fragment, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { t } from "../../i18n";
 import {
   contentLanguage,
@@ -8,20 +8,20 @@ import {
   type Workspace,
 } from "../../core/model";
 import {
-  academicYearCalendar,
-  academicYearOf,
+  useScheduleQuery,
+  type AcademicYearIndex,
+  type AcademicYearCalendar,
   type CalendarDayView,
   type CalendarOrigin,
-} from "../../core/calendar-view";
-import { subscriptionYear } from "../../platform/subscription-polling";
-import { tokyoDate } from "../../core/schedule";
-import { newUserRecordId } from "../../storage/ids";
+} from "../../platform/core-query";
+import { jstDate } from "../../app/shared";
+import type { WorkspaceIntent } from "../../core/workspace-intents";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import { SettingsGroup, SettingsHeader, Status } from "../../components/forms";
 import {
   formatDay,
   languageTag,
-  subscriptionState,
+  useSubscriptionViews,
 } from "./subscription-status";
 
 type Draft = Pick<
@@ -72,39 +72,51 @@ const ORIGIN_NOTE: Partial<Record<CalendarOrigin, string>> = {
 
 export function AcademicCalendarSettings({
   data,
-  update,
+  mutate,
   notify,
   readOnly,
   refreshReferences,
   back,
 }: {
   data: Workspace;
-  update: (f: (d: Workspace) => Workspace) => void;
+  mutate: (intent: WorkspaceIntent) => Promise<unknown>;
   notify: (message: string) => void;
   readOnly: boolean;
   refreshReferences?: () => Promise<string>;
   back: () => void;
 }) {
   const locale = data.settings.locale;
+  const subscription = useSubscriptionViews().value?.calendar;
   const followedYear =
-    subscriptionYear(data, "calendar") ?? Number(data.selectedTerm.slice(0, 4));
-  const [year, setYear] = useState(followedYear);
+    subscription?.year ?? Number(data.selectedTerm.slice(0, 4));
+  const [year, setYear] = useState(Number(data.selectedTerm.slice(0, 4)));
+  const initializedYear = useRef(false);
+  useEffect(() => {
+    if (initializedYear.current || subscription?.year == null) return;
+    initializedYear.current = true;
+    setYear(subscription.year);
+  }, [subscription?.year]);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [busy, setBusy] = useState(false);
   const [showPast, setShowPast] = useState(false);
-  const view = academicYearCalendar(data, year);
-  const years = [
-    ...new Set([
-      followedYear,
-      year,
-      ...data.academicCalendar
-        .filter((row) => !row.deletedAt)
-        .map((row) => row.academicYear ?? academicYearOf(row.date)),
-      ...data.exceptions
-        .filter((row) => !row.deletedAt)
-        .map((row) => academicYearOf(row.date)),
-    ]),
-  ].sort((a, b) => b - a);
+  const view = useScheduleQuery<AcademicYearCalendar>({
+    kind: "academicYear",
+    year,
+  }).value ?? {
+    year,
+    quarters: [],
+    days: [],
+    importantDates: [],
+    published: false,
+  };
+  const yearIndex = useScheduleQuery<AcademicYearIndex>({
+    kind: "academicYears",
+    date: jstDate(new Date()),
+    selectedYear: year,
+  }).value;
+  const years = [...(yearIndex?.years ?? [followedYear, year])].sort(
+    (a, b) => b - a,
+  );
 
   const checkNow = async () => {
     if (!refreshReferences) return;
@@ -122,7 +134,9 @@ export function AcademicCalendarSettings({
       {busy ? t("Checking…") : t("Check now")}
     </UiButton>
   );
-  const subscription = subscriptionState(data, "calendar");
+  const subscriptionState = subscription?.state ?? {
+    state: "pending" as const,
+  };
   // Only problems are worth a line; a healthy official calendar says nothing.
   const status =
     year !== followedYear ? (
@@ -131,16 +145,16 @@ export function AcademicCalendarSettings({
           {t("No official calendar saved for {{year}}.", { year })}
         </Status>
       )
-    ) : subscription.state === "error" ? (
+    ) : subscriptionState.state === "error" ? (
       <Status tone="error" action={checkButton}>
         {t("Could not update the official calendar.")}{" "}
-        <small>{subscription.message}</small>
+        <small>{subscriptionState.message}</small>
       </Status>
     ) : (
       !view.published &&
-      subscription.state !== "off" && (
+      subscriptionState.state !== "off" && (
         <Status tone="warn" action={checkButton}>
-          {subscription.state === "current"
+          {subscriptionState.state === "current"
             ? t("The official calendar for {{year}} is not published yet.", {
                 year,
               })
@@ -160,64 +174,32 @@ export function AcademicCalendarSettings({
       (draft.type === "replacement" && !draft.replacementDay)
     )
       return notify(t("Fill in the date, type and name."));
-    const existing = own.find((row) => row.date === draft.date);
-    if (existing && existing.id !== editing.id)
-      return notify(t("That date already has a change. Edit it instead."));
-    const now = new Date().toISOString();
-    const id = editing.id === "new" ? await newUserRecordId() : editing.id;
     const values = {
       ...draft,
       label: draft.label.trim(),
       replacementDay:
         draft.type === "replacement" ? draft.replacementDay : undefined,
     };
-    update((workspace) => ({
-      ...workspace,
-      exceptions:
-        editing.id === "new"
-          ? [
-              ...workspace.exceptions,
-              {
-                ...values,
-                id,
-                rev: 1,
-                updatedAt: now,
-                updatedBy: workspace.deviceId,
-              },
-            ]
-          : workspace.exceptions.map((row) =>
-              row.id === id
-                ? {
-                    ...row,
-                    ...values,
-                    rev: row.rev + 1,
-                    updatedAt: now,
-                    updatedBy: workspace.deviceId,
-                  }
-                : row,
-            ),
-    }));
-    setEditing(null);
-    notify(t("Calendar saved"));
+    try {
+      await mutate({
+        kind: "saveCalendarException",
+        draft: values,
+        existingId: editing.id === "new" ? undefined : editing.id,
+      });
+      setEditing(null);
+      notify(t("Calendar saved"));
+    } catch (error) {
+      appNotify.error(error);
+    }
   };
-  const remove = (id: string) => {
+  const remove = async (id: string) => {
     if (readOnly) return;
-    const now = new Date().toISOString();
-    update((workspace) => ({
-      ...workspace,
-      exceptions: workspace.exceptions.map((row) =>
-        row.id === id
-          ? {
-              ...row,
-              deletedAt: now,
-              rev: row.rev + 1,
-              updatedAt: now,
-              updatedBy: workspace.deviceId,
-            }
-          : row,
-      ),
-    }));
-    setEditing(null);
+    try {
+      await mutate({ kind: "deleteCalendarException", exceptionId: id });
+      setEditing(null);
+    } catch (error) {
+      appNotify.error(error);
+    }
   };
   const beginEdit = (day: CalendarDayView) =>
     setEditing(
@@ -353,7 +335,7 @@ export function AcademicCalendarSettings({
     </form>
   );
 
-  const today = tokyoDate(new Date());
+  const today = jstDate(new Date());
   const past = view.days.filter((day) => day.date < today);
   const days = showPast ? view.days : view.days.slice(past.length);
   const editingKey = (day: CalendarDayView) =>

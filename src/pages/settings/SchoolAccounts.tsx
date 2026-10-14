@@ -32,10 +32,7 @@ import type {
   SchoolCredentials,
   SchoolLoginEvent,
 } from "../../platform/desktop-bridge";
-import {
-  schoolSessions,
-  useSchoolSession,
-} from "../../platform/school-session";
+import { useSchoolSession } from "../../platform/school-session";
 
 const emptyStatus: SchoolCredentialStatus = {
   science: {
@@ -484,7 +481,6 @@ function Account({
     setBusy(true);
     started.current = true;
     setConnection({ state: "checking", step: "", message: "" });
-    schoolSessions.set(profile, undefined);
     armTimeout();
     try {
       await desktopBridge.saveSchoolCredentials(profile, nextCredentials);
@@ -540,7 +536,6 @@ function Account({
       setMatrixReplacing(false);
       setConnection({ state: "idle", step: "", message: "" });
       await refresh();
-      schoolSessions.set(profile, "not-configured");
       notify(`${title} account forgotten.`);
     } finally {
       setBusy(false);

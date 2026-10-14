@@ -1,7 +1,13 @@
-use crate::secrets::SecretVault;
 use base64::Engine;
+use isct_core::cloud_credentials;
+use isct_core::cloud_sync::document::{
+    self, CloudWorkspaceFile, DocumentError, WorkspaceTransport,
+};
+pub use isct_core::cloud_sync::CloudProvider;
+#[cfg(test)]
+use isct_core::ports::SecretError;
+use isct_core::ports::SecretVault;
 use rand::RngCore;
-use ring::{aead, pbkdf2};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(desktop)]
@@ -13,56 +19,11 @@ use std::io::Read;
 use std::io::Write;
 #[cfg(desktop)]
 use std::net::TcpListener;
-use std::num::NonZeroU32;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 const MAX_BODY_BYTES: usize = 25 * 1024 * 1024;
 const CLOUD_FILE_NAME: &str = "IsctCompanion.json";
-const CLOUD_FORMAT: &str = "IsctCompanion";
-const CLOUD_FORMAT_VERSION: u64 = 2;
-const CREDENTIAL_FILE_NAME: &str = "IsctCompanion.credentials.json";
-const CREDENTIAL_FORMAT: &str = "IsctCompanion.credentials";
-const CREDENTIAL_PASSWORD_ACCOUNT: &str = "cloud-credential-sync";
-const CREDENTIAL_KDF_ITERATIONS: u32 = 600_000;
-const CREDENTIAL_AAD: &[u8] = b"IsctCompanion.credentials.v1";
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CloudProvider {
-    GoogleDrive,
-    Onedrive,
-    Icloud,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CloudWorkspaceFile {
-    format: String,
-    format_version: u64,
-    revision: u64,
-    #[serde(default)]
-    version: String,
-    updated_at: String,
-    updated_by: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    device_name: Option<String>,
-    #[serde(skip)]
-    siblings: Vec<Value>,
-    pub(crate) document: Value,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    previous: Vec<CloudWorkspaceFile>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    checkpoints: Vec<CloudWorkspaceFile>,
-}
-
-impl CloudWorkspaceFile {
-    pub(crate) fn merged_document(&self) -> Value {
-        self.siblings.iter().fold(self.document.clone(), |a, b| {
-            crate::cloud_merge::merge(&a, b)
-        })
-    }
-}
 
 #[derive(Debug, Deserialize)]
 struct GoogleDriveFile {
@@ -72,19 +33,6 @@ struct GoogleDriveFile {
 #[derive(Debug, Deserialize)]
 struct GoogleDriveFiles {
     files: Option<Vec<GoogleDriveFile>>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct EncryptedCredentialFile {
-    format: String,
-    format_version: u64,
-    kdf: String,
-    iterations: u32,
-    salt: String,
-    cipher: String,
-    nonce: String,
-    ciphertext: String,
 }
 
 #[cfg(desktop)]
@@ -238,202 +186,6 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
-}
-
-fn validate_workspace_document(document: &Value) -> Result<(), String> {
-    if document.get("schemaVersion").and_then(Value::as_u64) != Some(6)
-        || document.get("kind").and_then(Value::as_str) != Some("IsctCompanion.local-backup")
-        || !document.get("tables").is_some_and(Value::is_object)
-        || !document.get("localNotes").is_some_and(Value::is_array)
-    {
-        return Err("Cloud workspace format is invalid or unsupported.".into());
-    }
-    Ok(())
-}
-
-fn parse_cloud_workspace(bytes: &[u8]) -> Result<CloudWorkspaceFile, String> {
-    let file: CloudWorkspaceFile = serde_json::from_slice(bytes)
-        .map_err(|_| "Cloud workspace is not valid JSON.".to_string())?;
-    if file.format != CLOUD_FORMAT
-        || !(1..=CLOUD_FORMAT_VERSION).contains(&file.format_version)
-        || file.revision == 0
-        || file.updated_by.trim().is_empty()
-        || chrono::DateTime::parse_from_rfc3339(&file.updated_at).is_err()
-    {
-        return Err("Cloud workspace format is invalid or unsupported.".into());
-    }
-    validate_workspace_document(&file.document)?;
-    Ok(file)
-}
-
-fn make_workspace_file(
-    document: Value,
-    device: &str,
-    remote: Option<&CloudWorkspaceFile>,
-) -> CloudWorkspaceFile {
-    CloudWorkspaceFile {
-        format: CLOUD_FORMAT.into(),
-        format_version: CLOUD_FORMAT_VERSION,
-        revision: remote.map_or(1, |r| r.revision + 1),
-        version: crate::cloud_merge::version(&document).unwrap_or_default(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-        updated_by: device.into(),
-        device_name: Some(
-            std::env::var("COMPUTERNAME")
-                .or_else(|_| std::env::var("HOSTNAME"))
-                .unwrap_or_else(|_| {
-                    format!(
-                        "{} · {}",
-                        std::env::consts::OS,
-                        device.chars().take(8).collect::<String>()
-                    )
-                }),
-        ),
-        siblings: Vec::new(),
-        document,
-        previous: rotate_versions(remote),
-        checkpoints: daily_checkpoints(remote),
-    }
-}
-
-// History lives in the same cloud object as current, so a failed upload
-// cannot rotate history without updating current (or vice versa).
-fn rotate_versions(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFile> {
-    let Some(current) = current else {
-        return Vec::new();
-    };
-    std::iter::once(current)
-        .chain(current.previous.iter())
-        .take(2)
-        .map(|old| {
-            let mut old = old.clone();
-            old.previous.clear();
-            old.checkpoints.clear();
-            old
-        })
-        .collect()
-}
-
-// Daily recovery points are independent of the two immediate predecessors.
-fn daily_checkpoints(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFile> {
-    let Some(current) = current else {
-        return Vec::new();
-    };
-    let mut days = std::collections::BTreeSet::new();
-    std::iter::once(current)
-        .chain(current.checkpoints.iter())
-        .filter(|old| days.insert(old.updated_at.get(..10).unwrap_or("").to_owned()))
-        .take(7)
-        .map(|old| {
-            let mut old = old.clone();
-            old.previous.clear();
-            old.checkpoints.clear();
-            old
-        })
-        .collect()
-}
-
-fn workspace_contents_equal(left: &Value, right: &Value) -> bool {
-    crate::cloud_merge::contents(left) == crate::cloud_merge::contents(right)
-        && left.get("sync") == right.get("sync")
-}
-
-fn validate_credential_password(password: &str) -> Result<(), String> {
-    let length = password.chars().count();
-    if !(8..=12).contains(&length) || password.chars().any(char::is_control) {
-        return Err("Encryption password must be 8–12 characters.".into());
-    }
-    Ok(())
-}
-
-fn derive_credential_key(password: &str, salt: &[u8], iterations: u32) -> Result<[u8; 32], String> {
-    let iterations = NonZeroU32::new(iterations)
-        .ok_or_else(|| "Encrypted credential KDF is invalid.".to_string())?;
-    let mut key = [0u8; 32];
-    pbkdf2::derive(
-        pbkdf2::PBKDF2_HMAC_SHA256,
-        iterations,
-        salt,
-        password.as_bytes(),
-        &mut key,
-    );
-    Ok(key)
-}
-
-fn encrypt_credentials(payload: &str, password: &str) -> Result<Vec<u8>, String> {
-    validate_credential_password(password)?;
-    let mut salt = [0u8; 16];
-    let mut nonce_bytes = [0u8; 12];
-    rand::rng().fill_bytes(&mut salt);
-    rand::rng().fill_bytes(&mut nonce_bytes);
-    let key = derive_credential_key(password, &salt, CREDENTIAL_KDF_ITERATIONS)?;
-    let key = aead::UnboundKey::new(&aead::AES_256_GCM, &key)
-        .map_err(|_| "Credential encryption setup failed.".to_string())?;
-    let key = aead::LessSafeKey::new(key);
-    let mut ciphertext = payload.as_bytes().to_vec();
-    key.seal_in_place_append_tag(
-        aead::Nonce::assume_unique_for_key(nonce_bytes),
-        aead::Aad::from(CREDENTIAL_AAD),
-        &mut ciphertext,
-    )
-    .map_err(|_| "Credential encryption failed.".to_string())?;
-    let encode = base64::engine::general_purpose::STANDARD;
-    serde_json::to_vec_pretty(&EncryptedCredentialFile {
-        format: CREDENTIAL_FORMAT.into(),
-        format_version: 1,
-        kdf: "pbkdf2-sha256".into(),
-        iterations: CREDENTIAL_KDF_ITERATIONS,
-        salt: encode.encode(salt),
-        cipher: "aes-256-gcm".into(),
-        nonce: encode.encode(nonce_bytes),
-        ciphertext: encode.encode(ciphertext),
-    })
-    .map_err(|_| "Encrypted credentials could not be encoded.".to_string())
-}
-
-fn decrypt_credentials(bytes: &[u8], password: &str) -> Result<String, String> {
-    validate_credential_password(password)?;
-    let file: EncryptedCredentialFile = serde_json::from_slice(bytes)
-        .map_err(|_| "Encrypted credential file is invalid.".to_string())?;
-    if file.format != CREDENTIAL_FORMAT
-        || file.format_version != 1
-        || file.kdf != "pbkdf2-sha256"
-        || file.iterations != CREDENTIAL_KDF_ITERATIONS
-        || file.cipher != "aes-256-gcm"
-    {
-        return Err("Encrypted credential file version is unsupported.".into());
-    }
-    let decode = base64::engine::general_purpose::STANDARD;
-    let salt = decode
-        .decode(file.salt)
-        .map_err(|_| "Encrypted credential salt is invalid.".to_string())?;
-    if salt.len() != 16 {
-        return Err("Encrypted credential salt is invalid.".into());
-    }
-    let nonce: [u8; 12] = decode
-        .decode(file.nonce)
-        .map_err(|_| "Encrypted credential nonce is invalid.".to_string())?
-        .try_into()
-        .map_err(|_| "Encrypted credential nonce is invalid.".to_string())?;
-    let mut ciphertext = decode
-        .decode(file.ciphertext)
-        .map_err(|_| "Encrypted credential payload is invalid.".to_string())?;
-    if !(16..=(64 * 1024 + 16)).contains(&ciphertext.len()) {
-        return Err("Encrypted credential payload is invalid.".into());
-    }
-    let key = derive_credential_key(password, &salt, file.iterations)?;
-    let key = aead::UnboundKey::new(&aead::AES_256_GCM, &key)
-        .map_err(|_| "Credential decryption setup failed.".to_string())?;
-    let key = aead::LessSafeKey::new(key);
-    let plaintext = key
-        .open_in_place(
-            aead::Nonce::assume_unique_for_key(nonce),
-            aead::Aad::from(CREDENTIAL_AAD),
-            &mut ciphertext,
-        )
-        .map_err(|_| "Credential decryption failed. Check the encryption password.".to_string())?;
-    String::from_utf8(plaintext.to_vec())
-        .map_err(|_| "Decrypted credential payload is invalid.".to_string())
 }
 
 fn valid_client_id(value: &str) -> bool {
@@ -609,17 +361,23 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 + bounded_expiry(token.expires_in).saturating_sub(60),
             client_id: client_id.to_string(),
         };
-        self.vault.store(
-            provider_account(provider),
-            &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
-        )?;
+        self.vault
+            .store(
+                provider_account(provider),
+                &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
+            )
+            .map_err(|error| error.to_string())?;
         Ok(true)
     }
 
     pub fn authorized_providers(&self) -> Result<Vec<CloudProvider>, String> {
         let mut authorized = Vec::new();
         for provider in providers() {
-            let Some(raw) = self.vault.load(provider_account(provider))? else {
+            let Some(raw) = self
+                .vault
+                .load(provider_account(provider))
+                .map_err(|error| error.to_string())?
+            else {
                 continue;
             };
             if provider == CloudProvider::Icloud && raw == "connected" {
@@ -663,10 +421,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 + bounded_expiry(Some(expires_in)).saturating_sub(60),
             client_id: client_id.to_string(),
         };
-        self.vault.store(
-            provider_account(provider),
-            &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
-        )?;
+        self.vault
+            .store(
+                provider_account(provider),
+                &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
+            )
+            .map_err(|error| error.to_string())?;
         Ok(true)
     }
 
@@ -674,7 +434,8 @@ impl<V: SecretVault> DesktopCloudService<V> {
     pub fn refresh_android(&self, app: &tauri::AppHandle) -> Result<(), String> {
         let raw = self
             .vault
-            .load("google-drive")?
+            .load("google-drive")
+            .map_err(|error| error.to_string())?
             .ok_or("Google Drive is not connected")?;
         let stored: StoredToken =
             serde_json::from_str(&raw).map_err(|_| "Invalid Google Drive token")?;
@@ -697,14 +458,17 @@ impl<V: SecretVault> DesktopCloudService<V> {
     }
 
     pub fn disconnect(&self, provider: CloudProvider) -> Result<(), String> {
-        self.vault.delete(provider_account(provider))
+        self.vault
+            .delete(provider_account(provider))
+            .map_err(|error| error.to_string())
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub async fn connect_icloud(&self) -> Result<bool, String> {
         crate::icloud::account_available().await?;
         self.vault
-            .store(provider_account(CloudProvider::Icloud), "connected")?;
+            .store(provider_account(CloudProvider::Icloud), "connected")
+            .map_err(|error| error.to_string())?;
         Ok(true)
     }
 
@@ -714,7 +478,8 @@ impl<V: SecretVault> DesktopCloudService<V> {
         }
         let raw = self
             .vault
-            .load(provider_account(provider))?
+            .load(provider_account(provider))
+            .map_err(|error| error.to_string())?
             .ok_or_else(|| "Cloud authorization is required.".to_string())?;
         let mut token: StoredToken = serde_json::from_str(&raw)
             .map_err(|_| "Stored cloud authorization is invalid.".to_string())?;
@@ -763,10 +528,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 token.refresh_token = Some(value);
             }
             token.expires_at = now + bounded_expiry(refreshed.expires_in).saturating_sub(60);
-            self.vault.store(
-                provider_account(provider),
-                &serde_json::to_string(&token).map_err(|_| "Token serialization failed.")?,
-            )?;
+            self.vault
+                .store(
+                    provider_account(provider),
+                    &serde_json::to_string(&token).map_err(|_| "Token serialization failed.")?,
+                )
+                .map_err(|error| error.to_string())?;
         }
         Ok(token.access_token)
     }
@@ -1014,7 +781,9 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 if !response.status().is_success() {
                     return Err("Google Drive workspace read failed.".into());
                 }
-                let file = parse_cloud_workspace(&read_limited(response, MAX_BODY_BYTES).await?)?;
+                let file =
+                    document::parse_cloud_workspace(&read_limited(response, MAX_BODY_BYTES).await?)
+                        .map_err(|error| error.to_string())?;
                 if let Some(current) = current.as_mut() {
                     current.siblings.push(file.document);
                 } else {
@@ -1025,7 +794,9 @@ impl<V: SecretVault> DesktopCloudService<V> {
         } else {
             self.read_file(provider, CLOUD_FILE_NAME)
                 .await?
-                .map(|bytes| parse_cloud_workspace(&bytes))
+                .map(|bytes| {
+                    document::parse_cloud_workspace(&bytes).map_err(|error| error.to_string())
+                })
                 .transpose()
         }
     }
@@ -1038,17 +809,14 @@ impl<V: SecretVault> DesktopCloudService<V> {
             .read_workspace(provider)
             .await?
             .map(|file| {
-                let mut seen = std::collections::BTreeSet::new();
-                file.previous
+                document::versions(provider, &file)
                     .into_iter()
-                    .chain(file.checkpoints)
-                    .filter(|old| seen.insert(old.revision))
-                    .map(|old| crate::cloud_sync::CloudVersion {
-                        id: format!("{}:{}", provider_account(provider), old.revision),
-                        provider,
-                        version: crate::cloud_merge::version(&old.document).unwrap_or_default(),
-                        saved_at: old.updated_at,
-                        device: old.device_name.unwrap_or(old.updated_by),
+                    .map(|version| crate::cloud_sync::CloudVersion {
+                        id: version.id,
+                        provider: version.provider,
+                        saved_at: version.saved_at,
+                        device: version.device,
+                        version: version.version,
                     })
                     .collect()
             })
@@ -1062,14 +830,8 @@ impl<V: SecretVault> DesktopCloudService<V> {
     ) -> Result<Value, String> {
         self.read_workspace(provider)
             .await?
-            .and_then(|file| {
-                file.previous
-                    .into_iter()
-                    .chain(file.checkpoints)
-                    .find(|old| old.revision == revision)
-            })
-            .map(|file| file.document)
-            .ok_or("Cloud version no longer exists.".into())
+            .and_then(|file| file.version_document(revision).cloned())
+            .ok_or_else(|| DocumentError::VersionMissing.to_string())
     }
 
     /// Re-read before committing: another device may have written since the
@@ -1080,44 +842,18 @@ impl<V: SecretVault> DesktopCloudService<V> {
         document: &Value,
         device: &str,
     ) -> Result<Value, String> {
-        for _ in 0..3 {
-            let remote = self.read_workspace(provider).await?;
-            if let Some(remote) = &remote {
-                if let (Some(a), Some(b)) = (
-                    document
-                        .pointer("/sync/workspaceId")
-                        .and_then(Value::as_str),
-                    remote
-                        .document
-                        .pointer("/sync/workspaceId")
-                        .and_then(Value::as_str),
-                ) {
-                    if a != b {
-                        return Err("This cloud account contains a different workspace.".into());
-                    }
-                }
-            }
-            let merged = remote
-                .as_ref()
-                .map(|r| crate::cloud_merge::merge(document, &r.merged_document()))
-                .unwrap_or_else(|| document.clone());
-            let file = make_workspace_file(merged.clone(), device, remote.as_ref());
-            if remote
-                .as_ref()
-                .is_some_and(|r| workspace_contents_equal(&r.document, &merged))
-            {
-                return Ok(merged);
-            }
-            match self
-                .write_workspace_file(provider, &file, remote.as_ref().map(|r| r.revision))
-                .await
-            {
-                Ok(()) => return Ok(merged),
-                Err(error) if error == "Cloud copy changed; retrying sync." => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        Err("Cloud copy keeps changing; sync will retry automatically.".into())
+        let device_name = std::env::var("COMPUTERNAME")
+            .or_else(|_| std::env::var("HOSTNAME"))
+            .unwrap_or_else(|_| {
+                format!(
+                    "{} · {}",
+                    std::env::consts::OS,
+                    device.chars().take(8).collect::<String>()
+                )
+            });
+        document::merge_and_push(self, provider, document, device, Some(&device_name))
+            .await
+            .map_err(|error| error.to_string())
     }
 
     async fn write_workspace_file(
@@ -1174,11 +910,16 @@ impl<V: SecretVault> DesktopCloudService<V> {
                     if !current.status().is_success() {
                         return Err("Google Drive workspace read failed.".into());
                     }
-                    let current =
-                        parse_cloud_workspace(&read_limited(current, MAX_BODY_BYTES).await?)?;
+                    let current = document::parse_cloud_workspace(
+                        &read_limited(current, MAX_BODY_BYTES).await?,
+                    )
+                    .map_err(|error| error.to_string())?;
                     if Some(current.revision) != expected
                         || file.previous.first().is_some_and(|previous| {
-                            !workspace_contents_equal(&current.document, &previous.document)
+                            !document::workspace_contents_equal(
+                                &current.document,
+                                &previous.document,
+                            )
                         })
                     {
                         return Err("Cloud copy changed; retrying sync.".into());
@@ -1206,24 +947,32 @@ impl<V: SecretVault> DesktopCloudService<V> {
     }
 
     pub fn credential_sync_configured(&self) -> Result<bool, String> {
-        Ok(self.vault.load(CREDENTIAL_PASSWORD_ACCOUNT)?.is_some())
+        Ok(self
+            .vault
+            .load(cloud_credentials::PASSWORD_ACCOUNT)
+            .map_err(|error| error.to_string())?
+            .is_some())
     }
 
     pub fn set_credential_sync_password(&self, password: &str) -> Result<(), String> {
-        validate_credential_password(password)?;
-        self.vault.store(CREDENTIAL_PASSWORD_ACCOUNT, password)
+        cloud_credentials::validate_password(password).map_err(|error| error.to_string())?;
+        self.vault
+            .store(cloud_credentials::PASSWORD_ACCOUNT, password)
+            .map_err(|error| error.to_string())
     }
 
     pub fn clear_credential_sync_password(&self) -> Result<(), String> {
-        self.vault.delete(CREDENTIAL_PASSWORD_ACCOUNT)
+        self.vault
+            .delete(cloud_credentials::PASSWORD_ACCOUNT)
+            .map_err(|error| error.to_string())
     }
 
     pub async fn credential_backup_exists(&self, provider: CloudProvider) -> Result<bool, String> {
-        if provider == CloudProvider::Icloud {
+        if !cloud_credentials::supports_provider(provider) {
             return Ok(false);
         }
         Ok(self
-            .read_file(provider, CREDENTIAL_FILE_NAME)
+            .read_file(provider, cloud_credentials::FILE_NAME)
             .await?
             .is_some())
     }
@@ -1235,10 +984,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
     ) -> Result<(), String> {
         let password = self
             .vault
-            .load(CREDENTIAL_PASSWORD_ACCOUNT)?
+            .load(cloud_credentials::PASSWORD_ACCOUNT)
+            .map_err(|error| error.to_string())?
             .ok_or_else(|| "Credential sync is not configured on this device.".to_string())?;
-        let encrypted = encrypt_credentials(payload, &password)?;
-        self.write_file(provider, CREDENTIAL_FILE_NAME, encrypted)
+        let encrypted =
+            cloud_credentials::encrypt(payload, &password).map_err(|error| error.to_string())?;
+        self.write_file(provider, cloud_credentials::FILE_NAME, encrypted)
             .await
     }
 
@@ -1246,13 +997,54 @@ impl<V: SecretVault> DesktopCloudService<V> {
         &self,
         provider: CloudProvider,
     ) -> Result<Option<String>, String> {
-        let Some(password) = self.vault.load(CREDENTIAL_PASSWORD_ACCOUNT)? else {
+        let Some(password) = self
+            .vault
+            .load(cloud_credentials::PASSWORD_ACCOUNT)
+            .map_err(|error| error.to_string())?
+        else {
             return Ok(None);
         };
-        let Some(encrypted) = self.read_file(provider, CREDENTIAL_FILE_NAME).await? else {
+        let Some(encrypted) = self
+            .read_file(provider, cloud_credentials::FILE_NAME)
+            .await?
+        else {
             return Ok(None);
         };
-        decrypt_credentials(&encrypted, &password).map(Some)
+        cloud_credentials::decrypt(&encrypted, &password)
+            .map(Some)
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl<V: SecretVault> WorkspaceTransport for DesktopCloudService<V> {
+    fn read<'a>(
+        &'a self,
+        provider: CloudProvider,
+    ) -> document::BoxFuture<'a, Option<CloudWorkspaceFile>> {
+        Box::pin(async move {
+            self.read_workspace(provider)
+                .await
+                .map_err(DocumentError::Transport)
+        })
+    }
+
+    fn write<'a>(
+        &'a self,
+        provider: CloudProvider,
+        file: &'a CloudWorkspaceFile,
+        expected_revision: Option<u64>,
+    ) -> document::BoxFuture<'a, ()> {
+        Box::pin(async move {
+            self.write_workspace_file(provider, file, expected_revision)
+                .await
+                .map_err(|error| {
+                    if error == DocumentError::Conflict.to_string() {
+                        DocumentError::Conflict
+                    } else {
+                        DocumentError::Transport(error)
+                    }
+                })
+        })
     }
 }
 
@@ -1266,70 +1058,30 @@ mod tests {
     struct MemoryVault(Mutex<HashMap<String, String>>);
 
     impl SecretVault for MemoryVault {
-        fn store(&self, account: &str, secret: &str) -> Result<(), String> {
+        fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
             self.0
                 .lock()
-                .map_err(|_| "lock failed".to_string())?
+                .map_err(|_| SecretError::Access("lock failed".into()))?
                 .insert(account.to_string(), secret.to_string());
             Ok(())
         }
 
-        fn load(&self, account: &str) -> Result<Option<String>, String> {
+        fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
             Ok(self
                 .0
                 .lock()
-                .map_err(|_| "lock failed".to_string())?
+                .map_err(|_| SecretError::Access("lock failed".into()))?
                 .get(account)
                 .cloned())
         }
 
-        fn delete(&self, account: &str) -> Result<(), String> {
+        fn delete(&self, account: &str) -> Result<(), SecretError> {
             self.0
                 .lock()
-                .map_err(|_| "lock failed".to_string())?
+                .map_err(|_| SecretError::Access("lock failed".into()))?
                 .remove(account);
             Ok(())
         }
-    }
-
-    #[test]
-    fn daily_recovery_survives_frequent_same_day_updates() {
-        let mut file = make_workspace_file(serde_json::json!({"day":0}), "Phone", None);
-        file.updated_at = "2026-10-01T00:00:00Z".into();
-        for day in 2..=9 {
-            file = make_workspace_file(serde_json::json!({"day":day}), "Phone", Some(&file));
-            file.updated_at = format!("2026-10-{day:02}T00:00:00Z");
-        }
-        for edit in 0..20 {
-            file = make_workspace_file(serde_json::json!({"edit":edit}), "Phone", Some(&file));
-            file.updated_at = "2026-10-09T12:00:00Z".into();
-        }
-        assert_eq!(file.previous.len(), 2);
-        assert_eq!(file.checkpoints.len(), 7);
-        assert!(file
-            .checkpoints
-            .iter()
-            .any(|p| p.updated_at.starts_with("2026-10-03")));
-        assert!(file
-            .checkpoints
-            .iter()
-            .all(|p| p.previous.is_empty() && p.checkpoints.is_empty()));
-    }
-    #[test]
-    fn rotations_keep_two_flat_versions_and_restore_rotates_current() {
-        let mut file = make_workspace_file(serde_json::json!({"value":1}), "Laptop", None);
-        for value in 2..=6 {
-            file = make_workspace_file(serde_json::json!({"value":value}), "Phone", Some(&file));
-            assert!(file.previous.len() <= 2);
-            assert!(file.previous.iter().all(|old| old.previous.is_empty()));
-        }
-        assert_eq!(file.previous[0].document["value"], 5);
-        assert_eq!(file.previous[1].document["value"], 4);
-        let restored =
-            make_workspace_file(file.previous[1].document.clone(), "Laptop", Some(&file));
-        assert_eq!(restored.document["value"], 4);
-        assert_eq!(restored.previous[0].document["value"], 6);
-        assert_eq!(restored.previous.len(), 2);
     }
 
     #[test]
@@ -1351,42 +1103,6 @@ mod tests {
             service.vault.load("onedrive").unwrap().as_deref(),
             Some("connected")
         );
-    }
-
-    #[test]
-    fn parses_workspace_wrapper_and_compares_only_restorable_content() {
-        let document = serde_json::json!({
-            "schemaVersion": 6,
-            "exportedAt": "2026-01-01T00:00:00Z",
-            "kind": "IsctCompanion.local-backup",
-            "deviceId": "local-backup",
-            "tables": {},
-            "localNotes": []
-        });
-        let bytes = serde_json::to_vec(&serde_json::json!({
-            "format": CLOUD_FORMAT,
-            "formatVersion": CLOUD_FORMAT_VERSION,
-            "revision": 2,
-            "updatedAt": "2026-01-01T00:00:00Z",
-            "updatedBy": "device-a",
-            "document": document
-        }))
-        .unwrap();
-        let parsed = parse_cloud_workspace(&bytes).unwrap();
-        let mut later = parsed.document.clone();
-        later["exportedAt"] = Value::String("2026-02-01T00:00:00Z".into());
-        assert!(workspace_contents_equal(&parsed.document, &later));
-    }
-
-    #[test]
-    fn credential_encryption_round_trips_and_rejects_wrong_password() {
-        let encrypted = encrypt_credentials("{\"version\":1}", "eight888").unwrap();
-        assert_eq!(
-            decrypt_credentials(&encrypted, "eight888").unwrap(),
-            "{\"version\":1}"
-        );
-        assert!(decrypt_credentials(&encrypted, "wrong999").is_err());
-        assert!(encrypt_credentials("{}", "short").is_err());
     }
 
     #[test]

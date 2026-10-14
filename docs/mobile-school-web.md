@@ -1,22 +1,25 @@
 # Mobile school WebView
 
 The mobile shell uses the desktop command names and result objects. Both adapters
-use `school_web_shared.rs` for login scripts, authenticated relay nonces, session
-checks, ingestion jobs, URL history, and resident-view lifecycle. Mobile reports
-`schoolWeb` and `schoolImport` as supported.
+implement the native `SchoolBrowser` port for the one `isct-core` school-browser
+engine. Core owns login scripts, authenticated relay nonces, session checks,
+ingestion jobs, URL history and restore policy; adapters own native views,
+presentation and callbacks. See [Core school browser](core-school-browser.md)
+for the dispatch and callback contract. Mobile reports `schoolWeb` and
+`schoolImport` as supported.
 
 ## Native adapters
 
 - iOS creates a wry child WKWebView on UIKit's main thread, with the existing
   school data-store identifier. Title, navigation, load, and popup callbacks enter
-  the shared controller through a serialized worker, so native credential calls
+  Core through the native browser port, so native credential calls
   can use the main queue without blocking a WebKit delegate. wry's iOS
   `set_bounds` does not set the child frame, so
   the adapter sets its UIKit frame directly. Bounds are converted from the main
   WebView's origin and clipped to the parent's safe area.
 - Android uses the local `tauri-plugin-school-web` Kotlin plugin. Each school
   view is an ordinary Android WebView without the app's Tauri IPC bridge. Its
-  navigation delegate uses the Rust allowlist; Rust validates relay nonces.
+  navigation delegate uses Core's Rust allowlist; Core validates relay nonces.
   Scripts run through `evaluateJavascript` after page load, including existing
   and later same-origin popup frames. Native events enter
   a serialized Rust worker, which can invoke Kotlin without blocking Android's

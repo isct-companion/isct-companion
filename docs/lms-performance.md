@@ -7,7 +7,7 @@ This check measures local section-summary parsing and production bundle output. 
 ## Reproduce
 
 ```sh
-node --experimental-strip-types scripts/performance/lms-content.mjs
+node scripts/performance/lms-content.mjs
 yarn test
 yarn build
 ```

@@ -8,8 +8,8 @@ Let AI agents on the same machine use the person's app data through the Model Co
 
 ## Build
 
-- A separate binary in the Rust workspace (`backend/src/bin/isct-companion-mcp.rs`), stdio transport, sharing the data module from task 1. It opens `school.db` directly (WAL allows the app to keep running).
-- Off by default; enabled in Settings → AI agent access (a Developer options page, task 10), which shows the command to register it with an agent. When disabled, the binary refuses to start.
+- A standard Streamable HTTP MCP server embedded in desktop at `http://127.0.0.1:47832/mcp`, using the official Rust SDK and the existing Core service. No CLI or headless database mode.
+- Off by default; enabled in Settings → AI agent access (a Developer options page, task 10), which provides the URL and Bearer token. Permission is checked on every call.
 - **Read tools** (return JSON with both languages where stored):
   - `today()` — teaching state, classes, assignments (hidden excluded), academic summary
   - `schedule(from, to)` — classes, intensive days, plans
@@ -18,7 +18,7 @@ Let AI agents on the same machine use the person's app data through the Model Co
   - `search_catalog(query | slot filters, department?)`
   - `registration(year, term)`, `grades()`, `gpa()`, `requirements()`
   - `recommended(departmentId?)`
-- **Write tools** (person's own data only; go through the same validation and versioned update as the UI; the app picks up changes on next focus):
+- **Write tools** (person's own data only; go through the same validation and versioned update as the UI; the app receives a workspace change event):
   - `plan_add(offeringId, term)`, `plan_remove(...)`
   - `plan_event_create/update/delete` (task 9 plans, RRULE rules enforced)
   - `hide_assignment(id)`, `restore_assignment(id)`
@@ -27,6 +27,6 @@ Let AI agents on the same machine use the person's app data through the Model Co
 
 ## Acceptance
 
-- Protocol tests over stdio for each tool; schema of each tool documented in `docs/agent-access.md`.
+- Real HTTP protocol tests cover the tool manifest, calls, authentication, revocation and shutdown; tool schemas are documented in `docs/agent-access.md`.
 - A write tool cannot touch school tables (test attempts fail).
-- Disabled in Settings → the server exits with a clear message.
+- Disabled in Settings → tool calls are denied, including already-connected clients.

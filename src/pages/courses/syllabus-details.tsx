@@ -2,7 +2,7 @@ import { ExternalLink } from "../../components/ExternalLink";
 import { t } from "../../i18n";
 import { useEffect, useRef, useState } from "react";
 import type { SyllabusCourse } from "../../core/syllabus";
-import { lessonNumber } from "../today/lms/lessons";
+import { lessonNumber } from "../../features/lms/lessons";
 import {
   syllabusIdentity,
   validSyllabusContent,

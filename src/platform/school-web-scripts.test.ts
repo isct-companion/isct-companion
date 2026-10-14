@@ -5,7 +5,10 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 // Scripts the native side injects into every school webview at document start.
 const script = (name: string) =>
-  readFileSync(resolve(process.cwd(), "backend/scripts", name), "utf8");
+  readFileSync(
+    resolve(process.cwd(), "crates/isct-core/src/school_browser/assets", name),
+    "utf8",
+  );
 
 const run = (source: string) => new Function(source)();
 
@@ -96,7 +99,9 @@ describe("教務Web popup overlay", () => {
   });
 
   const overlays = () => [
-    ...document.querySelectorAll<HTMLIFrameElement>("iframe[data-isct-companion-popup]"),
+    ...document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-isct-companion-popup]",
+    ),
   ];
 
   it("shows same-origin popups in a named frame that knows its opener", async () => {
@@ -111,7 +116,8 @@ describe("教務Web popup overlay", () => {
       new URL("/Titech/PID1_3_1.aspx?cps=1", location.href).href,
     );
     expect(
-      (frame as HTMLIFrameElement & { isctCompanionOpener?: Window }).isctCompanionOpener,
+      (frame as HTMLIFrameElement & { isctCompanionOpener?: Window })
+        .isctCompanionOpener,
     ).toBe(window);
     expect(popup).toBe(frame.contentWindow);
     // The same window name reuses the overlay, like a named popup window.
@@ -120,7 +126,9 @@ describe("教務Web popup overlay", () => {
     expect(nativeOpen).not.toHaveBeenCalled();
 
     (
-      window as Window & { __isctCompanionPopups: { close(frame: Element): void } }
+      window as Window & {
+        __isctCompanionPopups: { close(frame: Element): void };
+      }
     ).__isctCompanionPopups.close(frame);
     await new Promise((resolve) => setTimeout(resolve));
     expect(overlays()).toHaveLength(0);

@@ -1,6 +1,6 @@
 import { intlLocale } from "../../i18n/locale";
 import type { Subscription, Workspace } from "../../core/model";
-import { subscriptionYear } from "../../platform/subscription-polling";
+import { useScheduleQuery } from "../../platform/core-query";
 import { isCivilDate, parseIsoTimestamp } from "../../core/civil-date";
 
 export const subscriptionRow = (data: Workspace, kind: Subscription["kind"]) =>
@@ -33,17 +33,15 @@ export type SubscriptionState =
   | { state: "current"; fetchedAt: string }
   | { state: "pending" };
 
-/** What one official dataset looks like for the year it currently follows. */
-export function subscriptionState(
-  data: Workspace,
-  kind: Subscription["kind"],
-): SubscriptionState {
-  const row = subscriptionRow(data, kind);
-  const year = subscriptionYear(data, kind);
-  if (row?.enabled === false) return { state: "off" };
-  if (!year) return { state: "no-year" };
-  if (row?.lastError) return { state: "error", message: row.lastError };
-  if (row?.fetchedAt && parseIsoTimestamp(row.fetchedAt) && row.year === year)
-    return { state: "current", fetchedAt: row.fetchedAt };
-  return { state: "pending" };
+export type SubscriptionView = {
+  year?: number | null;
+  enabled: boolean;
+  state: SubscriptionState;
+  url: string;
+  dataUrl?: string | null;
+};
+export function useSubscriptionViews() {
+  return useScheduleQuery<Record<Subscription["kind"], SubscriptionView>>({
+    kind: "subscriptionViews",
+  });
 }

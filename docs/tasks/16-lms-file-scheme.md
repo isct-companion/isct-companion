@@ -8,7 +8,7 @@ Crawl-time detail reads (task 3) become a prefetch optimisation. They are no lon
 
 ## Today
 
-- `open_course_material` (`backend/src/lms_files.rs`) takes a `pluginfile.php` URL, maps it to `<term>/<course>/materials/<name>-<url-digest>.<ext>`, returns the path when the file exists, and otherwise downloads it through `lms_downloader.rs`. The frontend turns the path into an asset URL with `convertFileSrc` (`src/pages/today/lms/files.ts`).
+- `open_course_material` (`backend/src/lms_files.rs`) takes a `pluginfile.php` URL, maps it to `<term>/<course>/materials/<name>-<url-digest>.<ext>`, returns the path when the file exists, and otherwise downloads it through `lms_downloader.rs`. The frontend turns the path into an asset URL with `convertFileSrc` (`src/features/lms/files.ts`).
 - `material_url` accepts only `pluginfile.php`. A `mod/resource/view.php?id=N` link can be opened only when the LMS crawl already stored its `resourceUrl`. Without it the viewer shows "File details have not been synced" (`LmsWorkspace.tsx`, material viewer branch).
 - `lms_downloader.rs` drives one hidden same-session webview with a single job slot (`turn` mutex). Downloads are strictly serial.
 - Images inside rich LMS HTML (`RichContent`) and thumbnails (`thumbnails.ts`) go through their own paths.

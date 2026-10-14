@@ -4,23 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { UiButton } from "../../components/mantine";
 import {
   DAYS,
-  factorsOf,
-  localFactors,
-  remotePlan,
-  liveText,
-  normalizedKeys,
-  run,
-  suggest,
-  totalCredits,
-  clashes,
   LOCAL_TYPES,
   type Condition,
-  type FinderContext,
   type FinderCourse,
   type Suggestion,
 } from "../../core/course-query";
 import { pickLocalized, type Lang, type TermId } from "../../core/model";
-import { SYLLABUS_DEPARTMENTS } from "../../core/departments";
+import {
+  finderQuery,
+  useFinderQuery,
+  type FinderAction,
+  type FinderView,
+} from "../../platform/finder-query";
 import type { DesktopBridge } from "../../platform/desktop-bridge";
 import { t } from "../../i18n";
 
@@ -43,7 +38,15 @@ function schedule(course: FinderCourse) {
       .map((s) =>
         s.kind === "weekly" && s.day && s.periods
           ? `${DAYS[s.day - 1] ?? s.day}${s.periods[0]}-${s.periods[1]}`
-          : ({ intensive: "集中", seminar: "特課研", internship: "インターン", tba: "未定", "on-demand": "オンデマンド" } as Record<string, string>)[s.kind] ?? s.kind,
+          : ((
+              {
+                intensive: "集中",
+                seminar: "特課研",
+                internship: "インターン",
+                tba: "未定",
+                "on-demand": "オンデマンド",
+              } as Record<string, string>
+            )[s.kind] ?? s.kind),
       )
       .join(" ") || "—"
   );
@@ -63,8 +66,8 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 const PAGE_SIZE = 25;
 const DETAIL_BATCH = 6;
-const scopeOf = (unitCode: string) => SYLLABUS_DEPARTMENTS.find((d) => d.unitCode === unitCode)?.scope;
-const message = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
+const message = (reason: unknown) =>
+  reason instanceof Error ? reason.message : String(reason);
 
 type Remote =
   | { state: "idle" }
@@ -81,18 +84,15 @@ export function CourseFinder({
   year,
   term,
   language,
-  load,
-  context,
-  onTimetable,
   keys,
-  setKeys,
+  edit,
+  replaceKeys,
   add,
   undo,
   manual,
   summary,
   openCourse,
   activeId,
-  replaces,
   readOnly = false,
   query,
   syncDetails,
@@ -100,21 +100,16 @@ export function CourseFinder({
   year: number;
   term: TermId;
   language: Lang;
-  load: (year: number) => Promise<FinderCourse[]>;
-  context: FinderContext;
-  /** Course codes already on the timetable for this quarter. */
-  onTimetable: ReadonlySet<string>;
   keys: string[];
-  setKeys: (keys: string[]) => void;
-  add: (courses: FinderCourse[]) => void;
-  undo: (courses: FinderCourse[]) => void;
+  edit: (action: FinderAction) => Promise<FinderView | undefined>;
+  replaceKeys: (keys: string[] | ((current: string[]) => string[])) => void;
+  add: (courses: FinderCourse[]) => Promise<unknown>;
+  undo: (courses: FinderCourse[]) => Promise<unknown>;
   manual?: () => void;
   /** Shows a result's syllabus details (over the timetable). */
   openCourse?: (course: FinderCourse) => void;
   /** The result whose details are open. */
   activeId?: string;
-  /** Whether Add would replace a course in the same periods. */
-  replaces?: (course: FinderCourse) => boolean;
   readOnly?: boolean;
   /** What is on this quarter's timetable, e.g. "3 on timetable · 6 credits". */
   summary?: string;
@@ -123,33 +118,33 @@ export function CourseFinder({
   /** Detail pages (schedule, credits) for stored search rows. */
   syncDetails?: NonNullable<DesktopBridge["catalogSyncOfferings"]>;
 }) {
-  const [courses, setCourses] = useState<FinderCourse[] | null>(null);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const [error, setError] = useState("");
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [lastAdded, setLastAdded] = useState<FinderCourse[] | null>(null);
+  const [mutating, setMutating] = useState(false);
   const [remote, setRemote] = useState<Remote>({ state: "idle" });
-  const [details, setDetails] = useState<{ done: number; total: number } | null>(null);
+  const [details, setDetails] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [page, setPage] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const reload = () =>
-    load(year)
-      .then((fresh) => {
-        setCourses(fresh);
-        return fresh;
-      })
-      .catch((reason) => {
-        setError(message(reason));
-        return [] as FinderCourse[];
-      });
-  useEffect(() => void reload(), [year]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reload = async () => {
+    setCatalogRevision((revision) => revision + 1);
+  };
   useEffect(() => {
     const focus = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && inputRef.current?.offsetParent) {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "k" &&
+        inputRef.current?.offsetParent
+      ) {
         event.preventDefault();
         inputRef.current.focus();
         inputRef.current.select();
@@ -159,17 +154,44 @@ export function CourseFinder({
     return () => removeEventListener("keydown", focus);
   }, []);
 
-  const list = courses ?? [];
-  const { factors, duplicates } = useMemo(() => factorsOf(keys, context), [keys, context]);
-  const local = useMemo(() => localFactors(factors), [factors]);
-  const plan = useMemo(() => remotePlan(factors, scopeOf), [factors]);
+  const planning = useFinderQuery({ year, term, keys });
+  // Keep the last plan while its replacement loads; typing never restarts a search.
+  const planningKey = JSON.stringify([year, term, keys]);
+  const lastPlan = useRef({ key: planningKey, value: planning.value?.plan });
+  if (planning.value)
+    lastPlan.current = { key: planningKey, value: planning.value.plan };
+  const plan =
+    lastPlan.current.key === planningKey ? lastPlan.current.value : undefined;
   const planKey = JSON.stringify(plan);
+  const result = useFinderQuery(
+    {
+      year,
+      term,
+      keys,
+      input,
+      remoteIds:
+        remote.state === "done"
+          ? [...remote.ids]
+          : remote.state === "idle"
+            ? undefined
+            : [],
+    },
+    catalogRevision,
+  );
+  const view = result.value;
+  const courses = view?.courses;
+  const list = view?.courses ?? [];
+  const factors = view?.factors ?? planning.value?.factors ?? [];
+  const duplicates = view?.duplicates ?? 0;
+  const onTimetable = new Set(view?.onTimetable ?? []);
 
   // Pills the syllabus understands become one search (no paging, ≤100 rows);
   // detail pages are then fetched for those rows only, a few at a time.
   useEffect(() => {
+    if (!plan) return;
     setPage(0);
-    if ("unsupported" in plan) return setRemote({ state: "unsupported", why: plan.unsupported });
+    if ("unsupported" in plan)
+      return setRemote({ state: "unsupported", why: plan.unsupported });
     if (!query) return setRemote({ state: "idle" });
     let cancelled = false;
     setRemote({ state: "searching" });
@@ -177,7 +199,9 @@ export function CourseFinder({
     setError("");
     const timer = setTimeout(async () => {
       try {
-        const results = await Promise.all(plan.queries.map((q) => query(year, q)));
+        const results = await Promise.all(
+          plan.queries.map((q) => query(year, q)),
+        );
         if (cancelled) return;
         const ids = new Set(results.flatMap((r) => r.ids));
         setRemote({
@@ -186,21 +210,24 @@ export function CourseFinder({
           total: results.reduce((sum, r) => sum + r.total, 0),
           truncated: results.some((r) => r.truncated),
         });
-        const fresh = await reload();
+        await reload();
         if (cancelled || !syncDetails) return;
-        // Only rows of the planned quarter(s) need schedules.
-        const quarterOnly = factors.filter((f) => f.type === "quarter");
-        const pending = run(fresh.filter((c) => ids.has(c.id)), quarterOnly, context)
-          .map((r) => r.course)
-          .filter((c) => c.detailed === false);
+        const pending = (
+          await finderQuery({ year, term, keys, remoteIds: [...ids] })
+        ).detailIds;
         if (!pending.length) return;
         const problems: string[] = [];
         setDetails({ done: 0, total: pending.length });
         for (let i = 0; i < pending.length && !cancelled; i += DETAIL_BATCH) {
-          const batch = pending.slice(i, i + DETAIL_BATCH).map((c) => c.id);
-          problems.push(...(await syncDetails(batch).catch((reason) => [message(reason)])));
+          const batch = pending.slice(i, i + DETAIL_BATCH);
+          problems.push(
+            ...(await syncDetails(batch).catch((reason) => [message(reason)])),
+          );
           if (cancelled) return;
-          setDetails({ done: Math.min(i + DETAIL_BATCH, pending.length), total: pending.length });
+          setDetails({
+            done: Math.min(i + DETAIL_BATCH, pending.length),
+            total: pending.length,
+          });
           await reload();
         }
         if (!cancelled) {
@@ -220,32 +247,33 @@ export function CourseFinder({
     };
   }, [planKey, year, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Without a syllabus answer the finder works on what is stored locally.
-  const base = useMemo(
-    () => (remote.state === "done" ? list.filter((c) => remote.ids.has(c.id)) : remote.state === "idle" ? list : []),
-    [list, remote],
-  );
-  const live = useMemo(() => liveText(input, keys, base, context), [input, keys, base, context]);
-  const rows = useMemo(
-    () => run(base, remote.state === "done" ? local : factors, context, live),
-    [base, remote.state, local, factors, context, live],
-  );
+  const live = view?.live ?? "";
+  const rows = view?.rows ?? [];
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const shown = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   useEffect(() => setPage(0), [live]);
-  const suggestions: Suggestion[] = useMemo(
-    () => (open ? suggest(input, keys, base, context) : []),
-    [open, input, keys, base, context],
-  );
+  const suggestions: Suggestion[] = open ? (view?.suggestions ?? []) : [];
   const byId = useMemo(() => new Map(list.map((c) => [c.id, c])), [list]);
-  const chosen = [...selected].map((id) => byId.get(id)).filter((c): c is FinderCourse => Boolean(c));
-  const chosenCredits = chosen.reduce((sum, c) => sum + totalCredits(c), 0);
-  const chosenClashes = chosen.filter((c) => clashes(c, context.busy)).length;
-
+  const chosen = [...selected]
+    .map((id) => byId.get(id))
+    .filter((c): c is FinderCourse => Boolean(c));
+  const chosenCredits = chosen.reduce(
+    (sum, c) => sum + (view?.credits[c.id] ?? 0),
+    0,
+  );
+  const chosenClashes = chosen.filter((c) =>
+    view?.clashes.includes(c.id),
+  ).length;
+  const editSequence = useRef(0);
   const commit = (key: string) => {
-    setKeys(normalizedKeys([...keys, key], context));
-    setInput("");
-    setActive(0);
+    const sequence = ++editSequence.current;
+    void edit({ kind: "commit", key })
+      .then((next) => {
+        if (!next || sequence !== editSequence.current) return;
+        setInput("");
+        setActive(0);
+      })
+      .catch((reason) => setError(message(reason)));
   };
   const toggle = (course: FinderCourse) => {
     if (onTimetable.has(course.code)) return;
@@ -258,23 +286,44 @@ export function CourseFinder({
   };
   const apply = (s: Suggestion | undefined) => {
     if (!s) return;
-    if (s.kind === "course") toggle(s.course); // keep the text: several matches can be picked in a row
+    if (s.kind === "course")
+      toggle(s.course); // keep the text: several matches can be picked in a row
     else commit(s.key);
   };
-  const addOne = (course: FinderCourse) => {
-    add([course]);
-    setLastAdded([course]);
-    setSelected((current) => {
-      const next = new Set(current);
-      next.delete(course.id);
-      return next;
-    });
+  const addCourses = async (courses: FinderCourse[]) => {
+    if (mutating) return;
+    setMutating(true);
+    setError("");
+    try {
+      await add(courses);
+      setLastAdded(courses);
+      setSelected((current) => {
+        const next = new Set(current);
+        courses.forEach((course) => next.delete(course.id));
+        return next;
+      });
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setMutating(false);
+    }
   };
   const addSelected = () => {
     if (!chosen.length) return;
-    add(chosen);
-    setLastAdded(chosen);
-    setSelected(new Set());
+    void addCourses(chosen);
+  };
+  const undoLast = async () => {
+    if (!lastAdded || mutating) return;
+    setMutating(true);
+    setError("");
+    try {
+      await undo(lastAdded);
+      setLastAdded(null);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setMutating(false);
+    }
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -282,7 +331,11 @@ export function CourseFinder({
       event.preventDefault();
       if (!suggestions.length) return;
       setOpen(true);
-      setActive((i) => (i + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length);
+      setActive(
+        (i) =>
+          (i + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) %
+          suggestions.length,
+      );
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (!input.trim() && chosen.length) addSelected();
@@ -293,45 +346,67 @@ export function CourseFinder({
     } else if (event.key === "Escape") {
       setOpen(false);
     } else if (event.key === "Backspace" && !input && keys.length) {
-      setKeys(keys.slice(0, -1));
+      replaceKeys((current) => current.slice(0, -1));
     }
   };
   const onChange = (value: string) => {
-    // A complete condition followed by a space becomes a pill.
-    if (/\s$/.test(value) && value.trim()) {
-      const typed = value.trim();
-      const top = suggest(typed, keys, list, context)[0];
-      const exact = top && top.kind === "condition" && top.condition.type !== "text" &&
-        normalizedKeys([typed], context)[0] === top.key;
-      if (exact) return commit(top.key);
-    }
+    const sequence = ++editSequence.current;
     setInput(value);
     setActive(0);
     setOpen(true);
+    if (/\s$/.test(value) && value.trim()) {
+      void finderQuery({ year, term, keys, input: value })
+        .then((next) => {
+          if (sequence === editSequence.current && next.commitKey)
+            commit(next.commitKey);
+        })
+        .catch((reason) => setError(message(reason)));
+    }
   };
   const onPaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
-    const text = event.clipboardData.getData("text").normalize("NFKC");
-    const codes = [...new Set((text.match(/[A-Za-z]{3}\.[A-Za-z]\d{3}/g) ?? []).map((c) => c.toUpperCase()))];
-    if (codes.length < 2) return;
+    const text = event.clipboardData.getData("text");
     event.preventDefault();
-    const quarter = Number(term.slice(-2, -1));
-    setSelected((current) => {
-      const next = new Set(current);
-      for (const code of codes) {
-        const match = list.find((c) => c.code === code && c.quarters.includes(`${quarter}Q` as never)) ?? list.find((c) => c.code === code);
-        if (match && !onTimetable.has(match.code)) next.add(match.id);
-      }
-      return next;
-    });
-    const missing = codes.filter((code) => !list.some((c) => c.code === code));
-    setError(missing.length ? `${t("Not found")}: ${missing.join(", ")}` : "");
+    const field = event.currentTarget;
+    const pasted =
+      input.slice(0, field.selectionStart ?? input.length) +
+      text +
+      input.slice(field.selectionEnd ?? input.length);
+    const sequence = ++editSequence.current;
+    void edit({ kind: "paste", text })
+      .then((next) => {
+        if (sequence !== editSequence.current || !next) return;
+        if (!next.pasteHandled) {
+          onChange(pasted);
+          return;
+        }
+        setSelected((current) => new Set([...current, ...next.pastedIds]));
+        setError(
+          next.missingCodes.length
+            ? `${t("Not found")}: ${next.missingCodes.join(", ")}`
+            : "",
+        );
+      })
+      .catch((reason) => setError(message(reason)));
   };
 
-  const pillLabel = (c: Condition) => (c.type === "code" || c.type === "time" || c.type === "level" || c.type === "dept" || c.type === "quarter" ? c.label : t(c.label));
+  const pillLabel = (c: Condition) =>
+    c.type === "code" ||
+    c.type === "time" ||
+    c.type === "level" ||
+    c.type === "dept" ||
+    c.type === "quarter"
+      ? c.label
+      : t(c.label);
   const filteredByText = live ? `· ${t("contains")} “${live}”` : "";
 
   return (
-    <Paper component="aside" className="listCard courseFinder" withBorder shadow="xs" radius="md">
+    <Paper
+      component="aside"
+      className="listCard courseFinder"
+      withBorder
+      shadow="xs"
+      radius="md"
+    >
       <header>
         <div className="finderTitle">
           <b>
@@ -351,7 +426,11 @@ export function CourseFinder({
           </span>
         </div>
         <div className="courseListTools">
-          {manual && <UiButton type="button" onClick={manual}>{t("Manual")}</UiButton>}
+          {manual && (
+            <UiButton type="button" onClick={manual}>
+              {t("Manual")}
+            </UiButton>
+          )}
         </div>
       </header>
 
@@ -365,11 +444,22 @@ export function CourseFinder({
                   type="button"
                   className={`finderPill ${c.exclude ? "exclude" : c.type}`}
                   title={t("Remove")}
-                  onClick={(event) => { event.stopPropagation(); setKeys(keys.filter((k) => k !== c.key)); }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    replaceKeys((current) =>
+                      current.filter((key) => key !== c.key),
+                    );
+                  }}
                 >
-                  {c.exclude ? <b>{t("Not")}</b> : TAG[c.type] ? <b>{t(TAG[c.type]!)}</b> : null}
+                  {c.exclude ? (
+                    <b>{t("Not")}</b>
+                  ) : TAG[c.type] ? (
+                    <b>{t(TAG[c.type]!)}</b>
+                  ) : null}
                   {pillLabel(c)}
-                  {LOCAL_TYPES.has(c.type) && !c.exclude && <i className="finderLocal">{t("local")}</i>}
+                  {LOCAL_TYPES.has(c.type) && !c.exclude && (
+                    <i className="finderLocal">{t("local")}</i>
+                  )}
                   <span aria-hidden="true">×</span>
                 </button>
               </span>
@@ -382,7 +472,11 @@ export function CourseFinder({
             role="combobox"
             aria-expanded={open && suggestions.length > 0}
             aria-controls="course-finder-suggestions"
-            aria-activedescendant={open && suggestions.length ? `course-finder-s${active}` : undefined}
+            aria-activedescendant={
+              open && suggestions.length
+                ? `course-finder-s${active}`
+                : undefined
+            }
             aria-label={t("Find courses")}
             autoComplete="off"
             spellCheck={false}
@@ -395,14 +489,25 @@ export function CourseFinder({
           />
         </div>
         {open && suggestions.length > 0 && (
-          <div className="finderSuggestions" id="course-finder-suggestions" role="listbox" onMouseDown={(event) => event.preventDefault()}>
+          <div
+            className="finderSuggestions"
+            id="course-finder-suggestions"
+            role="listbox"
+            onMouseDown={(event) => event.preventDefault()}
+          >
             {suggestions.map((s, i) => {
-              const head = { condition: input.trim() ? t("Conditions") : t("Common"), course: t("Courses"), text: t("Search") }[s.kind];
+              const head = {
+                condition: input.trim() ? t("Conditions") : t("Common"),
+                course: t("Courses"),
+                text: t("Search"),
+              }[s.kind];
               const prev = suggestions[i - 1];
               const showHead = !prev || prev.kind !== s.kind;
               const query = input.replace(/^!/, "").trim();
               return (
-                <div key={`${s.kind}-${s.kind === "course" ? s.course.id : s.key}`}>
+                <div
+                  key={`${s.kind}-${s.kind === "course" ? s.course.id : s.key}`}
+                >
                   {showHead && <div className="finderHead">{head}</div>}
                   <div
                     id={`course-finder-s${i}`}
@@ -415,28 +520,59 @@ export function CourseFinder({
                     {s.kind === "condition" && (
                       <>
                         <span>
-                          {s.condition.exclude ? <b>{t("Not")}</b> : TAG[s.condition.type] ? <b>{t(TAG[s.condition.type]!)}</b> : null}
-                          <Highlight text={pillLabel(s.condition)} query={query} />
+                          {s.condition.exclude ? (
+                            <b>{t("Not")}</b>
+                          ) : TAG[s.condition.type] ? (
+                            <b>{t(TAG[s.condition.type]!)}</b>
+                          ) : null}
+                          <Highlight
+                            text={pillLabel(s.condition)}
+                            query={query}
+                          />
                         </span>
-                        {s.count >= 0 && <small className={s.count ? "" : "zero"}>{s.count}</small>}
+                        {s.count >= 0 && (
+                          <small className={s.count ? "" : "zero"}>
+                            {s.count}
+                          </small>
+                        )}
                       </>
                     )}
                     {s.kind === "course" && (
                       <>
                         <span>
-                          {selected.has(s.course.id) && <i className="finderCheck">✓</i>}
-                          <Highlight text={pickLocalized(s.course.title, language)} query={query} />
+                          {selected.has(s.course.id) && (
+                            <i className="finderCheck">✓</i>
+                          )}
+                          <Highlight
+                            text={pickLocalized(s.course.title, language)}
+                            query={query}
+                          />
                           <em>
-                            <Highlight text={s.course.code} query={query} /> · {schedule(s.course)} · {s.course.quarters.join(" ")}
+                            <Highlight text={s.course.code} query={query} /> ·{" "}
+                            {schedule(s.course)} · {s.course.quarters.join(" ")}
                           </em>
                         </span>
-                        <small>{onTimetable.has(s.course.code) ? t("On timetable") : selected.has(s.course.id) ? t("Selected") : t("Enter to select")}</small>
+                        <small>
+                          {onTimetable.has(s.course.code)
+                            ? t("On timetable")
+                            : selected.has(s.course.id)
+                              ? t("Selected")
+                              : t("Enter to select")}
+                        </small>
                       </>
                     )}
                     {s.kind === "text" && (
                       <>
-                        <span>{s.key.startsWith("!") ? `${t("Not")} “${query}”` : `${t("Search the syllabus for")} “${query}”`}</span>
-                        {s.count >= 0 && <small className={s.count ? "" : "zero"}>{s.count}</small>}
+                        <span>
+                          {s.key.startsWith("!")
+                            ? `${t("Not")} “${query}”`
+                            : `${t("Search the syllabus for")} “${query}”`}
+                        </span>
+                        {s.count >= 0 && (
+                          <small className={s.count ? "" : "zero"}>
+                            {s.count}
+                          </small>
+                        )}
                       </>
                     )}
                   </div>
@@ -444,7 +580,18 @@ export function CourseFinder({
               );
             })}
             <div className="finderKeys">
-              <span><kbd>↑↓</kbd> {t("choose")}</span><span><kbd>↵</kbd> {t("apply")}</span><span><kbd>Tab</kbd> {t("complete")}</span><span><kbd>!</kbd> {t("exclude")}</span>
+              <span>
+                <kbd>↑↓</kbd> {t("choose")}
+              </span>
+              <span>
+                <kbd>↵</kbd> {t("apply")}
+              </span>
+              <span>
+                <kbd>Tab</kbd> {t("complete")}
+              </span>
+              <span>
+                <kbd>!</kbd> {t("exclude")}
+              </span>
             </div>
           </div>
         )}
@@ -456,16 +603,27 @@ export function CourseFinder({
           {duplicates > 0 && ` · ${t("duplicates merged")}`}
         </span>
         {remote.state === "done" && (
-          <button type="button" className="textButton" onClick={() => setRefresh((n) => n + 1)}>
+          <button
+            type="button"
+            className="textButton"
+            onClick={() => setRefresh((n) => n + 1)}
+          >
             {t("Refresh")}
           </button>
         )}
         {remote.state === "done" && remote.truncated && (
           <span className="finderWarn">
-            {t("The syllabus returns at most 100 of {{total}} — narrow with a code, 番台 or word.", { total: remote.total })}
+            {t(
+              "The syllabus returns at most 100 of {{total}} — narrow with a code, 番台 or word.",
+              { total: remote.total },
+            )}
           </span>
         )}
-        {error && <span className="finderError">{error}</span>}
+        {(error || result.error || planning.error) && (
+          <span className="finderError">
+            {error || result.error || planning.error}
+          </span>
+        )}
       </div>
 
       <div className="finderResults">
@@ -475,25 +633,36 @@ export function CourseFinder({
             {remote.state === "unsupported" ? (
               <span>
                 {remote.why === "too-many"
-                  ? t("Unsupported search: the syllabus takes at most 4 department × code combinations. Narrow it down.")
-                  : t("Unsupported search: the syllabus needs a department, a code or a word. Add one or change the conditions.")}
+                  ? t(
+                      "Unsupported search: the syllabus takes at most 4 department × code combinations. Narrow it down.",
+                    )
+                  : t(
+                      "Unsupported search: the syllabus needs a department, a code or a word. Add one or change the conditions.",
+                    )}
               </span>
             ) : remote.state === "searching" ? (
               <span>{t("Searching the syllabus…")}</span>
             ) : details ? (
               <span>{t("Loading schedules from the syllabus…")}</span>
             ) : remote.state === "done" && remote.total === 0 ? (
-              <span>{t("The syllabus found nothing. Change or remove a condition.")}</span>
+              <span>
+                {t("The syllabus found nothing. Change or remove a condition.")}
+              </span>
             ) : (
-              <span>{t("No matching courses. Remove a condition to widen the search.")}</span>
+              <span>
+                {t(
+                  "No matching courses. Remove a condition to widen the search.",
+                )}
+              </span>
             )}
           </div>
         )}
         {shown.map(({ course, matched }) => {
           const placed = onTimetable.has(course.code);
-          const rec = context.recommended.get(course.code);
-          const clash = !placed && clashes(course, context.busy);
-          const replacing = clash && Boolean(replaces?.(course));
+          const rec = view?.context.recommended[course.code];
+          const clash = !placed && Boolean(view?.clashes.includes(course.id));
+          const replacing =
+            clash && Boolean(view?.replacements[course.id]?.length);
           return (
             <div
               key={course.id}
@@ -507,15 +676,35 @@ export function CourseFinder({
                 disabled={placed || readOnly}
                 onChange={() => toggle(course)}
               />
-              <button type="button" className="finderMain" onClick={() => openCourse?.(course)}>
-                <b><Highlight text={pickLocalized(course.title, language)} query={live} /></b>
+              <button
+                type="button"
+                className="finderMain"
+                onClick={() => openCourse?.(course)}
+              >
+                <b>
+                  <Highlight
+                    text={pickLocalized(course.title, language)}
+                    query={live}
+                  />
+                </b>
                 <small>
-                  <code>{course.code}</code> · {schedule(course)} · {course.quarters.join(" ")}
-                  {course.detailed !== false && ` · ${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
+                  <code>{course.code}</code> · {schedule(course)} ·{" "}
+                  {course.quarters.join(" ")}
+                  {course.detailed !== false &&
+                    ` · ${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
                   {matched.length > 0 && <em> · {matched.join(" / ")}</em>}
                 </small>
                 <span className="finderBadges">
-                  {rec && <i className="rec">{rec.group}{rec.mark === "required" ? " ◎" : rec.mark ? " ○" : " Guide"}</i>}
+                  {rec && (
+                    <i className="rec">
+                      {rec.group}
+                      {rec.mark === "required"
+                        ? " ◎"
+                        : rec.mark
+                          ? " ○"
+                          : " Guide"}
+                    </i>
+                  )}
                   {clash && <i className="clash">{t("Conflict")}</i>}
                 </span>
               </button>
@@ -525,9 +714,13 @@ export function CourseFinder({
                 <UiButton
                   type="button"
                   className={`finderAdd${replacing ? " replace" : ""}`}
-                  disabled={readOnly}
-                  title={replacing ? t("Replaces the course in the same periods") : undefined}
-                  onClick={() => addOne(course)}
+                  disabled={readOnly || mutating}
+                  title={
+                    replacing
+                      ? t("Replaces the course in the same periods")
+                      : undefined
+                  }
+                  onClick={() => void addCourses([course])}
                 >
                   {replacing ? t("Replace") : t("Add")}
                 </UiButton>
@@ -539,9 +732,25 @@ export function CourseFinder({
 
       {pages > 1 && (
         <nav className="finderPager" aria-label={t("Pages")}>
-          <button type="button" className="textButton" disabled={page === 0} onClick={() => setPage(page - 1)}>‹ {t("Prev")}</button>
-          <span>{page + 1} / {pages}</span>
-          <button type="button" className="textButton" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>{t("Next")} ›</button>
+          <button
+            type="button"
+            className="textButton"
+            disabled={page === 0}
+            onClick={() => setPage(page - 1)}
+          >
+            ‹ {t("Prev")}
+          </button>
+          <span>
+            {page + 1} / {pages}
+          </span>
+          <button
+            type="button"
+            className="textButton"
+            disabled={page >= pages - 1}
+            onClick={() => setPage(page + 1)}
+          >
+            {t("Next")} ›
+          </button>
         </nav>
       )}
 
@@ -549,7 +758,12 @@ export function CourseFinder({
         {lastAdded ? (
           <span>
             {t("Added {{count}}", { count: lastAdded.length })} ·{" "}
-            <button type="button" className="textButton" onClick={() => { undo(lastAdded); setLastAdded(null); }}>
+            <button
+              type="button"
+              className="textButton"
+              disabled={mutating}
+              onClick={() => void undoLast()}
+            >
               {t("Undo")}
             </button>
           </span>
@@ -560,11 +774,23 @@ export function CourseFinder({
               : t("Nothing selected")}
           </span>
         )}
-        <UiButton type="button" className="button" disabled={!chosen.length} onClick={() => setSelected(new Set())}>
+        <UiButton
+          type="button"
+          className="button"
+          disabled={!chosen.length || mutating}
+          onClick={() => setSelected(new Set())}
+        >
           {t("Clear")}
         </UiButton>
-        <UiButton type="button" className="button primary" disabled={!chosen.length} onClick={addSelected}>
-          {chosen.length ? t("Add {{count}}", { count: chosen.length }) : t("Add")}
+        <UiButton
+          type="button"
+          className="button primary"
+          disabled={!chosen.length || mutating}
+          onClick={addSelected}
+        >
+          {chosen.length
+            ? t("Add {{count}}", { count: chosen.length })
+            : t("Add")}
         </UiButton>
       </footer>
     </Paper>

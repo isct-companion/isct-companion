@@ -24,6 +24,18 @@ export function isCivilDate(value: unknown): value is string {
   );
 }
 
+/** Shift a validated ISO-shaped civil date without involving the host zone. */
+export function addCivilDays(date: string, days: number): string {
+  const value = new Date(`${date}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+/** Monday = 1 … Sunday = 7, for timetable display and navigation. */
+export function civilWeekday(date: string): number {
+  return new Date(`${date}T12:00:00Z`).getUTCDay() || 7;
+}
+
 /** Machine dates must not depend on a locale's display order or separators. */
 export function tokyoDate(date: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -37,4 +49,25 @@ export function tokyoDate(date: Date): string {
   return ["year", "month", "day"]
     .map((type) => parts.find((part) => part.type === type)!.value)
     .join("-");
+}
+
+/** Display timestamps in the academic zone; malformed legacy values never reach Intl. */
+export function formatTimestamp(
+  value: unknown,
+  locale: string,
+  options: Intl.DateTimeFormatOptions = {},
+): string | undefined {
+  const date = parseIsoTimestamp(value);
+  return date
+    ? new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        ...options,
+        timeZone: JST,
+        calendar: "gregory",
+      }).format(date)
+    : undefined;
 }

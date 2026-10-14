@@ -1,9 +1,17 @@
-// @vitest-environment jsdom
-import { beforeAll, describe, expect, it } from "vitest";
-import type { ScheduledTask } from "../core/model";
-import { workspaceActions, workspaceStore } from "../store/workspace";
+import { describe, expect, it, vi } from "vitest";
+import { seedWorkspace, type ScheduledTask } from "../core/model";
+import type { CoreWorkspaceSnapshot } from "../core/workspace-intents";
+import { createWorkspaceStore } from "../store/workspace";
 
-const STORAGE_KEY = "isct-companion-workspace-v3";
+const emptySchoolRecords = {
+  lastRuns: {},
+  lmsCourses: [],
+  registrations: [],
+  registrationStates: [],
+  grades: [],
+  gpaByTerm: [],
+  requirements: [],
+};
 
 function scheduledExport(): ScheduledTask {
   return {
@@ -18,42 +26,57 @@ function scheduledExport(): ScheduledTask {
   };
 }
 
-describe("Task 10 scheduled-task run persistence", () => {
-  beforeAll(async () => {
-    localStorage.clear();
-    await workspaceStore.initialize();
-    workspaceActions.updateSettings((draft) => {
-      draft.scheduledTasks = [scheduledExport()];
-    });
-    await workspaceStore.flush();
-  });
-
-  it("durably records the claimed occurrence, completion time, and result", async () => {
+describe("Task 10 scheduled-task Core persistence boundary", () => {
+  it("sends the claimed occurrence and adopts Core's durable result", async () => {
+    const workspace = seedWorkspace();
+    workspace.scheduledTasks = [scheduledExport()];
+    const initial: CoreWorkspaceSnapshot = {
+      revision: "before",
+      workspace,
+      schoolRecords: emptySchoolRecords,
+    };
     const occurrenceAt = "2026-09-29T12:00:00.000Z";
     const runAt = "2026-09-29T12:00:01.000Z";
-
-    await workspaceActions.recordScheduledTaskRun(
-      "local-daily-export",
-      occurrenceAt,
-      runAt,
-      "Export completed",
-    );
-
-    const task = workspaceStore.getState().workspace?.scheduledTasks[0];
-    expect(task).toMatchObject({
-      id: "local-daily-export",
+    const persisted = structuredClone(workspace);
+    Object.assign(persisted.scheduledTasks[0], {
       lastOccurrenceAt: occurrenceAt,
       lastRunAt: runAt,
       lastResult: "Export completed",
       rev: 2,
       updatedAt: runAt,
     });
-    expect(task?.updatedBy).toBe(
-      workspaceStore.getState().workspace?.deviceId,
+    const mutate = vi.fn(
+      async () =>
+        ({
+          revision: "after",
+          workspace: persisted,
+          schoolRecords: emptySchoolRecords,
+        }) satisfies CoreWorkspaceSnapshot,
     );
+    const store = createWorkspaceStore({
+      snapshot: vi.fn(async () => initial),
+      mutate,
+    });
+    await store.initialize();
+    await store.mutate({
+      kind: "recordScheduledTaskRun",
+      taskId: "local-daily-export",
+      occurrenceAt,
+      runAt,
+      result: "Export completed",
+    });
 
-    const persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
-    expect(persisted.scheduledTasks[0]).toMatchObject({
+    expect(mutate).toHaveBeenCalledWith({
+      expectedRevision: "before",
+      intent: {
+        kind: "recordScheduledTaskRun",
+        taskId: "local-daily-export",
+        occurrenceAt,
+        runAt,
+        result: "Export completed",
+      },
+    });
+    expect(store.getState().workspace?.scheduledTasks[0]).toMatchObject({
       lastOccurrenceAt: occurrenceAt,
       lastRunAt: runAt,
       lastResult: "Export completed",

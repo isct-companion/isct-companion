@@ -3,7 +3,6 @@ import { SwipeActions } from "../../components/SwipeActions";
 import { useFormFactor } from "../../app/form-factor";
 import { t } from "../../i18n";
 import { UiButton } from "../../components/mantine";
-import { deadlineState, dueCountdown } from "../../core/academic";
 import {
   contentLanguage,
   pickLocalized,
@@ -13,17 +12,15 @@ import {
   type TermId,
   type Workspace,
 } from "../../core/model";
-import { timetableCourses } from "../../components/timetable/workspace";
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
 import { CourseFinder } from "./CourseFinder";
+import { addCivilDays as addDays, civilWeekday } from "../../core/civil-date";
 import {
-  addDays,
-  calendarState,
-  civilWeekday,
-  importantDatesOnDate,
-  resolveDayAgenda,
-} from "../../core/schedule";
+  useScheduleQuery,
+  type ScheduleView,
+  type TaskView,
+} from "../../platform/core-query";
 
 const timeLabel = (value: string) => value.replace(/^0/, "");
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -101,22 +98,25 @@ export function Today({
   const isToday = viewIso === todayIso;
   const viewDate = new Date(`${viewIso}T12:00:00+09:00`);
   const weekStart = addDays(viewIso, 1 - civilWeekday(viewIso));
-  const teachingState = calendarState(data, viewIso);
+  const schedule = useScheduleQuery<ScheduleView>({
+    kind: "scheduleView",
+    term,
+    from: weekStart,
+    to: addDays(viewIso, 7),
+    includePersonal: true,
+  }).value;
+  const agenda = schedule?.agendas.find((day) => day.date === viewIso);
+  const teachingState = agenda?.calendarState;
   const effectiveDay = civilWeekday(viewIso);
-  const courses = timetableCourses(data, term);
-  const events = data.events.filter(
-    (event) => event.termId === term && !event.deletedAt,
-  );
-  const blocks = resolveDayAgenda(data, term, viewIso, { courses, events });
-  const importantDates = importantDatesOnDate(data, viewIso);
+  const blocks = agenda?.occurrences ?? [];
+  const importantDates = agenda?.importantDates ?? [];
   const week = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(weekStart, index);
     return {
       date,
-      busy:
-        date === viewIso
-          ? blocks.length > 0
-          : resolveDayAgenda(data, term, date, { courses, events }).length > 0,
+      busy: Boolean(
+        schedule?.agendas.find((day) => day.date === date)?.occurrences.length,
+      ),
     };
   });
   const minutes = jstMinutes(now);
@@ -131,66 +131,41 @@ export function Today({
     : -1;
   const focusIndex = activeIndex >= 0 ? activeIndex : nextIndex;
 
-  // Every assignment of this quarter, however far its deadline; work from
-  // earlier quarters (never-submitted reports of finished courses) is not
-  // shown.
-  const inThisQuarter = (assignment: Assignment) => {
-    const course = data.courses.find(
-      (item) => item.id === assignment.courseId && !item.deletedAt,
-    );
-    return course
-      ? course.termId === term
-      : assignment.dueAt !== null &&
-          new Date(assignment.dueAt).getTime() >= now.getTime();
-  };
-  const assignments = data.assignments
-    .filter(
-      (assignment) =>
-        !assignment.deletedAt &&
-        !assignment.hidden &&
-        assignment.dueAt !== null &&
-        Number.isFinite(new Date(assignment.dueAt).getTime()) &&
-        inThisQuarter(assignment),
-    )
-    .sort((left, right) => (left.dueAt ?? "").localeCompare(right.dueAt ?? ""));
-  const isPast = (item: Assignment) =>
-    new Date(item.dueAt!).getTime() < now.getTime();
-  // "Today": open work from now on. "Earlier" adds what is already submitted
-  // and everything whose deadline has passed.
-  const pending = assignments.filter(
-    (item) => !isSubmitted(item) && !isPast(item),
-  );
-  const pinned = assignments.filter((item) => item.pinned);
-  const unpinned = assignments.filter((item) => !item.pinned);
-  const upcoming =
+  const taskView = useScheduleQuery<TaskView>({
+    kind: "taskView",
+    now: now.toISOString(),
+  }).value;
+  const taskTerm = taskView?.byTerm[term];
+  const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
+  const rows = (ids: string[] | undefined) =>
+    (ids ?? []).flatMap((id) => byAssignment.get(id) ?? []);
+  const pending = rows(taskTerm?.pendingIds);
+  const pinned = rows(taskTerm?.pinnedIds);
+  const soon = rows(
     dueScope === "earlier"
-      ? unpinned.filter((item) => !isPast(item))
-      : pending.filter((item) => !item.pinned);
-  const past = dueScope === "earlier" ? unpinned.filter(isPast).reverse() : [];
-  // This week first; later deadlines in their own group.
-  const weekEnd = now.getTime() + 7 * 86_400_000;
-  const soon = upcoming.filter(
-    (item) => new Date(item.dueAt!).getTime() <= weekEnd,
+      ? taskTerm?.earlierDueThisWeekIds
+      : taskTerm?.dueThisWeekIds,
   );
-  const later = upcoming.filter(
-    (item) => new Date(item.dueAt!).getTime() > weekEnd,
+  const later = rows(
+    dueScope === "earlier" ? taskTerm?.earlierLaterIds : taskTerm?.laterIds,
   );
+  const past = dueScope === "earlier" ? rows(taskTerm?.overdueIds) : [];
   const row = (assignment: Assignment) => {
     const course = data.courses.find(
       (item) => item.id === assignment.courseId && !item.deletedAt,
     );
-    const due = deadlineState(assignment, now);
+    const due = taskView?.deadlines?.[assignment.id];
+    if (!due) return null;
     const submitted = isSubmitted(assignment);
     // Past and submitted: gray; past and never submitted: red; submitted
     // ahead of the deadline: green.
-    const state =
-      due.ms < 0
-        ? submitted
-          ? " closed"
-          : " missed"
-        : submitted
-          ? " done"
-          : "";
+    const state = due.overdue
+      ? submitted
+        ? " closed"
+        : " missed"
+      : submitted
+        ? " done"
+        : "";
     const content = (
       <div
         className={`dueRow${state}${mobile ? " touchRow" : ""}`}
@@ -211,16 +186,16 @@ export function Today({
               {submitted ? "submitted" : (assignment.submission ?? "unknown")}
             </small>
           </span>
-          {due.ms >= 0 && !submitted ? (
+          {!due.overdue && !submitted ? (
             <time
-              className={`dueChip ${dueCountdown(assignment.dueAt!, now).tone}`}
+              className={`dueChip ${due.countdownTone}`}
               dateTime={assignment.dueAt!}
               title={due.label}
             >
-              {dueCountdown(assignment.dueAt!, now).label}
+              {due.countdownLabel}
             </time>
           ) : (
-            <time className={due.ms < 0 ? "overdue" : due.tone}>
+            <time className={due.overdue ? "overdue" : due.tone}>
               {due.label}
             </time>
           )}
@@ -257,10 +232,15 @@ export function Today({
   // With no agenda today, show the next actual occurrence within a week.
   const nextClass = (() => {
     if (blocks.length) return undefined;
-    for (let offset = 1; offset <= 7; offset++) {
-      const date = addDays(viewIso, offset);
+    for (const dayAgenda of schedule?.agendas ?? []) {
+      const date = dayAgenda.date;
+      if (date <= viewIso || date > addDays(viewIso, 7)) continue;
+      const offset = Math.round(
+        (Date.parse(`${date}T12:00:00Z`) - Date.parse(`${viewIso}T12:00:00Z`)) /
+          86_400_000,
+      );
       const day = civilWeekday(date);
-      const first = resolveDayAgenda(data, term, date, { courses, events })[0];
+      const first = dayAgenda.occurrences[0];
       if (first)
         return {
           ...first,
@@ -422,7 +402,7 @@ export function Today({
                           endTime: block.endTime,
                         });
                       else if (block.kind === "event") {
-                        const event = events.find(
+                        const event = data.events.find(
                           (item) => item.id === block.id,
                         );
                         if (event) openEvent(event);
@@ -479,7 +459,7 @@ export function Today({
                     }
                     onClick={() => {
                       if (nextClass.kind === "event") {
-                        const event = events.find(
+                        const event = data.events.find(
                           (item) => item.id === nextClass.id,
                         );
                         if (event) openEvent(event);

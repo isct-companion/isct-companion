@@ -67,8 +67,8 @@ const server=http.createServer(async(req,res)=>{
  else if(req.url==='/heic.mjs')data=fs.readFileSync(new URL(import.meta.resolve('heic-to/csp')));
  else if(req.url==='/legacy.mjs')data=fs.readFileSync('scripts/matrix-legacy-reference.mjs');
  else if(req.url==='/matrix-filter-reference.mjs')data=fs.readFileSync('scripts/matrix-filter-reference.mjs');
- else if(req.url==='/model'){data=fs.readFileSync('backend/models/paddle/en-ppocrv5.onnx');type='application/octet-stream';}
- else if(req.url==='/characters'){data=fs.readFileSync('backend/models/paddle/characters.json');type='application/json';}
+ else if(req.url==='/model'){data=fs.readFileSync('crates/isct-ocr/models/paddle/en-ppocrv5.onnx');type='application/octet-stream';}
+ else if(req.url==='/characters'){data=fs.readFileSync('crates/isct-ocr/models/paddle/characters.json');type='application/json';}
  else if(req.url==='/native-grid'){if(!fs.existsSync(path.join(scratch,'native-grid.json'))){res.writeHead(202).end();return;}data=fs.readFileSync(path.join(scratch,'native-grid.json'));type='application/json';}
  else if(/^\/ort\/[a-zA-Z0-9_.-]+$/.test(req.url)){data=fs.readFileSync(path.join(ortDir,path.basename(req.url)));if(req.url.endsWith('.wasm'))type='application/wasm';}
  else{res.writeHead(404).end();return;}
@@ -77,7 +77,7 @@ const server=http.createServer(async(req,res)=>{
 });
 const waitFor=async name=>{const start=Date.now();while(!fs.existsSync(path.join(scratch,name))){if(failed)throw new Error('Private browser stage failed; no sensitive output emitted.');if(Date.now()-start>120000)throw new Error('Private browser stage timed out.');await new Promise(r=>setTimeout(r,200));}};
 const cargo=stage=>new Promise((resolve,reject)=>{
- const child=spawn('cargo',['test','--manifest-path','backend/Cargo.toml','--locked','private_ts_native_parity','--','--ignored','--nocapture'],{cwd:root,env:{...process.env,MATRIX_PRIVATE_DIR:scratch,MATRIX_PRIVATE_STAGE:stage},stdio:['ignore','pipe','pipe']});
+ const child=spawn('cargo',['test','--manifest-path','crates/isct-ocr/Cargo.toml','--locked','private_ts_native_parity','--','--ignored','--nocapture'],{cwd:root,env:{...process.env,MATRIX_PRIVATE_DIR:scratch,MATRIX_PRIVATE_STAGE:stage},stdio:['ignore','pipe','pipe']});
  // Discard raw tool output: failing test diagnostics must never leak characters.
  child.stdout.resume();child.stderr.resume();child.on('exit',code=>code===0?resolve():reject(new Error('Native private comparison failed (details suppressed).')));
 });

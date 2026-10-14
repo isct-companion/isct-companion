@@ -187,7 +187,12 @@ describe("Tauri bridge contract", () => {
   it("maps credential, session, and webview calls to narrow commands", async () => {
     const invoke = vi.fn(async (command: string) => {
       if (command === "save_school_credentials") return true;
-      if (command === "ensure_school_session") return false;
+      if (command === "school_session_snapshot")
+        return {
+          revision: 4,
+          states: { science: "active", tokyoTech: "pending" },
+        };
+      if (command === "school_session_lifecycle") return null;
       if (command === "navigate_school_web") return true;
       if (command === "set_school_web_zoom") return true;
       if (command === "school_web_back") return false;
@@ -208,7 +213,11 @@ describe("Tauri bridge contract", () => {
       matrix: "A".repeat(70),
     };
     await bridge.saveSchoolCredentials("science", credentials);
-    await expect(bridge.ensureSchoolSession?.("science")).resolves.toBe(false);
+    await expect(bridge.schoolSessionSnapshot()).resolves.toEqual({
+      revision: 4,
+      states: { science: "active", tokyoTech: "pending" },
+    });
+    await bridge.schoolSessionLifecycle({ kind: "focus", visible: true });
     await bridge.openSchoolSite("science-portal", "body{}", "window.x=1", {
       x: 1,
       y: 2,
@@ -225,25 +234,31 @@ describe("Tauri bridge contract", () => {
       profile: "science",
       credentials,
     });
-    expect(invoke).toHaveBeenNthCalledWith(2, "ensure_school_session", {
-      profile: "science",
+    expect(invoke).toHaveBeenNthCalledWith(
+      2,
+      "school_session_snapshot",
+      undefined,
+    );
+    expect(invoke).toHaveBeenNthCalledWith(3, "school_session_lifecycle", {
+      kind: "focus",
+      visible: true,
     });
-    expect(invoke).toHaveBeenNthCalledWith(3, "open_school_site", {
+    expect(invoke).toHaveBeenNthCalledWith(4, "open_school_site", {
       site: "science-portal",
       css: "body{}",
       js: "window.x=1",
       bounds: { x: 1, y: 2, width: 3, height: 4 },
       targetUrl: null,
     });
-    expect(invoke).toHaveBeenNthCalledWith(4, "navigate_school_web", {
+    expect(invoke).toHaveBeenNthCalledWith(5, "navigate_school_web", {
       site: "science-portal",
       url: "https://isct.ex-tic.com/idm/user/portal/",
     });
-    expect(invoke).toHaveBeenNthCalledWith(5, "set_school_web_zoom", {
+    expect(invoke).toHaveBeenNthCalledWith(6, "set_school_web_zoom", {
       site: "science-portal",
       scale: 1.2,
     });
-    expect(invoke).toHaveBeenNthCalledWith(6, "school_web_back", {
+    expect(invoke).toHaveBeenNthCalledWith(7, "school_web_back", {
       site: "kyomu",
     });
     await expect(bridge.schoolWebForward?.("kyomu")).resolves.toBe(true);
@@ -338,13 +353,13 @@ describe("Tauri bridge contract", () => {
     );
     const bridge = createTauriDesktopBridge(vi.fn(), listen, "native-desktop");
     const callback = vi.fn();
-    const dispose = bridge.onSchoolSession?.(callback);
-    await Promise.resolve();
-    handler?.({ profile: "science", state: "active" });
-    handler?.({ profile: "other", state: "active" });
-    handler?.({ profile: "science", state: "broken" });
+    const dispose = await bridge.onSchoolSession(callback);
+    handler?.({ profile: "science", state: "active", revision: 2 });
+    handler?.({ profile: "other", state: "active", revision: 3 });
+    handler?.({ profile: "science", state: "broken", revision: 4 });
+    handler?.({ profile: "science", state: "failed", revision: -1 });
     expect(callback).toHaveBeenCalledOnce();
-    dispose?.();
+    dispose();
     expect(unlisten).toHaveBeenCalledOnce();
   });
 });

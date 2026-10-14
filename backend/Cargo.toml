@@ -15,10 +15,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
+isct-core = { path = "../crates/isct-core", features = ["ts"] }
+isct-ocr = { path = "../crates/isct-ocr" }
 tokio = { version = "1", features = ["time", "sync", "fs", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ts-rs = { version = "11", features = ["serde-compat"] }
 tauri = { version = "2.12", features = ["unstable", "protocol-asset"] }
 tauri-plugin-notification = "2.4"
 tauri-plugin-opener = "2.5"
@@ -26,24 +27,25 @@ tauri-plugin-dialog = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1", features = ["v4", "v7"] }
-rrule = "0.14"
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native"] }
 rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "cookies"] }
 sha2 = "0.10"
 url = "2.5"
 percent-encoding = "2"
-regex = "1"
 scraper = "0.24"
-ring = "0.17"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"
 
-# Assignment workspaces (desktop only): unpack attachments, pack submissions.
+# Desktop workspace archives and the embedded MCP HTTP transport.
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
-zip = { version = "9", default-features = false, features = ["deflate"] }
+isct-core = { path = "../crates/isct-core", features = ["desktop-workspaces"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+rmcp = { version = "=3.4.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+subtle = "2"
+tokio-util = { version = "0.7", features = ["rt"] }
+tokio = { version = "1", features = ["net"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 wry = "0.57"
@@ -73,16 +75,3 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSRe
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSURL"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKUIDelegate", "WKWebView"] }
-
-# Matrix OCR: ort ships no prebuilt ONNX Runtime for Intel macOS, so the scanner
-# is compiled out there. Keep this condition in sync with build.rs (`matrix_ocr`).
-[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
-imageproc = { version = "0.27", default-features = false }
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"] }
-
-[profile.release]
-panic = "abort"
-codegen-units = 1
-lto = true
-opt-level = "s"
-strip = true

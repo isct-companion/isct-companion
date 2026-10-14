@@ -372,7 +372,6 @@
   "AI agent access": "AI 智能体访问",
   "AY {{year}}": "{{year}} 学年",
   "Add a day": "添加日期",
-  "Add this command as a stdio MCP server in your agent. The isct-companion-mcp binary must be on your PATH.": "将此命令作为 stdio MCP 服务器添加到智能体。isct-companion-mcp 程序必须在 PATH 中。",
   "Added by you": "由你添加",
   "Adds AI agent access, site styles and scripts, and diagnostics.": "启用 AI 智能体访问、网站样式与脚本以及诊断功能。",
   "After this many days without opening them. Your notes are kept.": "超过此天数未打开的文件将被删除。你的笔记会保留。",
@@ -793,5 +792,10 @@
   "Kept until you delete them. Old ones can be removed here.": "不会自动清理；可在此删除旧的工作区。",
   "Delete every workspace unchanged for over a month?": "删除所有超过一个月未修改的工作区？",
   "Removed {{count}} workspaces": "已删除 {{count}} 个工作区",
-  "Remove month-old workspaces": "清除一个月前的工作区"
+  "Remove month-old workspaces": "清除一个月前的工作区",
+  "Add this URL as a Streamable HTTP MCP server. Use the access token for Bearer authentication and keep IsctCompanion open.": "将此地址作为 Streamable HTTP MCP 服务器添加到智能体，使用访问令牌进行 Bearer 认证，并保持 IsctCompanion 运行。",
+  "Copy URL": "复制地址",
+  "Access token": "访问令牌",
+  "Copy token": "复制令牌",
+  "MCP server is unavailable.": "MCP 服务器不可用。"
 }

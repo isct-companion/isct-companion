@@ -6,7 +6,11 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-function rustRawString(source: string, constant: string): string {
+function rustRawString(
+  sourcePath: string,
+  constant: string,
+): string {
+  const source = read(sourcePath);
   const match = source.match(
     new RegExp(`pub const ${constant}: &str = r#\\"([\\s\\S]*?)\\"#;`),
   );
@@ -21,7 +25,7 @@ function rustRawString(source: string, constant: string): string {
     start + ending.index + ending[0].length,
   );
   return [...expression.matchAll(/r#"([\s\S]*?)"#|include_str!\("([^"]+)"\)/g)]
-    .map((part) => part[1] ?? read(`backend/src/${part[2]}`))
+    .map((part) => part[1] ?? read(join(dirname(sourcePath), part[2])))
     .join("");
 }
 
@@ -61,7 +65,7 @@ describe("public syllabus fixture provenance", () => {
 describe("authenticated school extractor safety", () => {
   it("keeps the 教務 extractor DOM-read-only", () => {
     const script = rustRawString(
-      read("backend/src/kyomu_ingest.rs"),
+      "crates/isct-core/src/kyomu_ingest.rs",
       "KYOMU_EXTRACT_SCRIPT",
     );
     expect(script).not.toMatch(
@@ -73,7 +77,7 @@ describe("authenticated school extractor safety", () => {
 
   it("keeps the LMS AJAX method allowlist closed and exact", () => {
     const script = rustRawString(
-      read("backend/src/lms_ingest.rs"),
+      "crates/isct-core/src/lms_ingest.rs",
       "LMS_EXTRACT_SCRIPT",
     );
     const allowlistBody = script.match(
@@ -102,7 +106,9 @@ describe("authenticated school extractor safety", () => {
 describe("bundled public subscription data", () => {
   it("ships the 17 documented departments and the cited CS recommendation", () => {
     const data = JSON.parse(
-      read("backend/subscriptions/data/2026/departments.json"),
+      read(
+        "crates/isct-core/tests/fixtures/subscriptions/data/2026/departments.json",
+      ),
     ) as {
       source: { url: string }[];
       departments: {
@@ -139,7 +145,9 @@ describe("bundled public subscription data", () => {
 
   it("cites an official source for every non-empty academic-calendar day list", () => {
     const calendar = JSON.parse(
-      read("backend/subscriptions/data/2026/academic-calendar.json"),
+      read(
+        "crates/isct-core/tests/fixtures/subscriptions/data/2026/academic-calendar.json",
+      ),
     ) as {
       source: { title: string; url: string }[];
       days: unknown[];

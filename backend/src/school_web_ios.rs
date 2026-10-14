@@ -1,7 +1,7 @@
 //! wry's iOS set_bounds is a no-op, so UIKit sets the child's frame explicitly.
 use super::NativeWebview;
 use crate::lifecycle::SchoolSite;
-use crate::school_web_shared::{
+use crate::school_browser_native::{
     ViewCallbacks, WebBounds, KYOMU_POPUP_SCRIPT, SCHOOL_DATA_STORE, SCHOOL_LINKS_SCRIPT,
 };
 use objc2::{rc::Retained, MainThreadMarker};
@@ -86,32 +86,6 @@ pub(super) fn create(
         app: app.clone(),
         site,
     };
-    let loaded_view = view_handle.clone();
-    let (events, receiver) = mpsc::channel::<(&'static str, String)>();
-    // Keychain plugin calls and subsequent view operations may need UIKit's
-    // main queue. Never wait for them inside a WebKit delegate on that queue.
-    std::thread::spawn(move || {
-        for (kind, value) in receiver {
-            match kind {
-                "loaded" => (callbacks.loaded)(&loaded_view, &value),
-                "title" => (callbacks.title)(&value),
-                "navigation" => {
-                    if let Ok(url) = Url::parse(&value) {
-                        (callbacks.navigation)(&url);
-                    }
-                }
-                "newWindow" => {
-                    if let Ok(url) = Url::parse(&value) {
-                        (callbacks.new_window)(url);
-                    }
-                }
-                _ => {}
-            }
-        }
-    });
-    let load_events = events.clone();
-    let title_events = events.clone();
-    let navigation_events = events.clone();
     let target = target.to_string();
     let (tx, rx) = mpsc::channel();
     // with_webview runs this closure on UIKit's main thread. A raw UIKit handle
@@ -129,19 +103,19 @@ pub(super) fn create(
                 .with_initialization_script_for_main_only(SCHOOL_LINKS_SCRIPT, false)
                 .with_on_page_load_handler(move |event, url| {
                     if matches!(event, PageLoadEvent::Finished) {
-                        let _ = load_events.send(("loaded", url));
+                        (callbacks.loaded)(&url);
                     }
                 })
                 .with_document_title_changed_handler(move |title| {
-                    let _ = title_events.send(("title", title));
+                    (callbacks.title)(&title);
                 })
                 .with_navigation_handler(move |raw| {
-                    let allowed = crate::school_extract::sanitize_school_url(&raw).is_some();
-                    let _ = navigation_events.send(("navigation", raw));
-                    allowed
+                    Url::parse(&raw).is_ok_and(|url| (callbacks.navigation)(&url))
                 })
                 .with_new_window_req_handler(move |raw, _| {
-                    let _ = events.send(("newWindow", raw));
+                    if let Ok(url) = Url::parse(&raw) {
+                        (callbacks.new_window)(url);
+                    }
                     NewWindowResponse::Deny
                 })
                 .build_as_child(&window)
@@ -188,7 +162,11 @@ pub(super) fn operate(
     let value = value.map(str::to_string);
     on_ui(app, move || {
         VIEWS.with(|views| {
-            let views = views.borrow();
+            let mut views = views.borrow_mut();
+            if operation == "close" {
+                views.remove(&site);
+                return Ok(());
+            }
             let resident = views.get(&site).ok_or("School view is unavailable.")?;
             let view = &resident.view;
             match operation.as_str() {

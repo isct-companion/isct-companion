@@ -1,7 +1,9 @@
+import { notify as appNotify } from "../../app/notify";
 import { errorText } from "../../app/shared";
 import { useState } from "react";
 import { t } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../core/model";
+import type { WorkspaceIntent } from "../../core/workspace-intents";
 import { UiButton } from "../../components/mantine";
 import {
   Row,
@@ -58,26 +60,16 @@ function describeSchedule(schedule: string) {
 
 export function AutomationSettings({
   data,
-  update,
+  mutate,
   runScheduledTask,
 }: {
   data: Workspace;
-  update: (f: (d: Workspace) => Workspace) => void;
+  mutate: (intent: WorkspaceIntent) => Promise<unknown>;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
 }) {
   const [running, setRunning] = useState<string>();
   const locale = data.settings.locale;
   const tasks = data.scheduledTasks.filter((task) => !task.deletedAt);
-  const edit = (id: string, fn: (task: ScheduledTask) => void) =>
-    update((draft) => {
-      const target = draft.scheduledTasks.find((item) => item.id === id);
-      if (target) {
-        fn(target);
-        target.rev += 1;
-        target.updatedAt = new Date().toISOString();
-      }
-      return draft;
-    });
   const runNow = async (task: ScheduledTask) => {
     if (!runScheduledTask) return;
     setRunning(task.id);
@@ -89,10 +81,6 @@ export function AutomationSettings({
     } finally {
       setRunning(undefined);
     }
-    edit(task.id, (target) => {
-      target.lastRunAt = new Date().toISOString();
-      target.lastResult = result;
-    });
   };
   return (
     <>
@@ -131,7 +119,11 @@ export function AutomationSettings({
                 <Toggle
                   checked={task.enabled}
                   onChange={(enabled) =>
-                    edit(task.id, (target) => (target.enabled = enabled))
+                    void mutate({
+                      kind: "saveScheduledTask",
+                      draft: { ...task, enabled },
+                      existingId: task.id,
+                    }).catch(appNotify.error)
                   }
                 />
               </div>

@@ -12,6 +12,7 @@ export function matrixConfidence(
   return confidence >= 0.9 ? "high" : "medium";
 }
 export type Recognition = { text: string; confidence: number };
+export type OcrProgress = { completed: number; total: number };
 
 export function normalizeMatrixText(value: string): string {
   return value
@@ -32,52 +33,48 @@ export function parseMatrixText(text: string): string[] {
   return [...compact];
 }
 
-/** Keep the established WebView decoding/resampling; native code consumes these
- * exact PNG pixels without resizing again. Inference and filters remain Rust. */
-export async function prepareMatrixCanvases(file: File) {
-  let bitmap: ImageBitmap;
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+async function base64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const chunks: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    chunks.push(
+      String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)),
+    );
+  }
+  return btoa(chunks.join(""));
+}
+
+/** HEIC conversion is a shell codec capability. Decode, orientation, alpha
+ * compositing and both OCR working sizes belong to the Rust library. */
+export async function prepareMatrixImage(file: File): Promise<string> {
+  if (!file.size || file.size > MAX_IMAGE_BYTES)
+    throw new Error("Choose a valid image smaller than 20 MB.");
+  const { isHeic, heicTo } = await import("heic-to/csp");
+  let input: Blob = file;
+  let heic = false;
   try {
-    bitmap = await createImageBitmap(file);
+    heic = await isHeic(file);
   } catch {
-    // WebViews differ in HEIC codec support; libheif supplies the same fallback
-    // on every target, loaded only when the built-in decoder cannot read a file.
-    const { isHeic, heicTo } = await import("heic-to/csp");
-    if (!(await isHeic(file)))
-      throw new Error(
-        "Cannot read this image. Choose a valid PNG, JPEG, WebP or HEIC photo.",
-      );
+    throw new Error(
+      "Cannot read this image. Choose a valid PNG, JPEG, WebP or HEIC photo.",
+    );
+  }
+  if (heic) {
     try {
-      bitmap = await heicTo({ blob: file, type: "bitmap" });
+      input = await heicTo({ blob: file, type: "image/jpeg", quality: 0.95 });
     } catch {
       throw new Error(
         "Cannot decode this HEIC image. Try exporting it as PNG or JPEG.",
       );
     }
+    if (!input.size || input.size > MAX_IMAGE_BYTES)
+      throw new Error(
+        "Decoded HEIC image exceeds 20 MB. Try exporting it as JPEG.",
+      );
   }
-  const scale = Math.min(1, 2200 / Math.max(bitmap.width, bitmap.height));
-  const source = document.createElement("canvas");
-  source.width = Math.max(1, Math.round(bitmap.width * scale));
-  source.height = Math.max(1, Math.round(bitmap.height * scale));
-  try {
-    const context = source.getContext("2d");
-    if (!context) throw new Error("Cannot prepare the selected image.");
-    context.fillStyle = "white";
-    context.fillRect(0, 0, source.width, source.height);
-    context.drawImage(bitmap, 0, 0, source.width, source.height);
-  } finally {
-    bitmap.close();
-  }
-  const smallScale = Math.min(1, 600 / Math.max(source.width, source.height));
-  const preview = document.createElement("canvas");
-  preview.width = Math.max(1, Math.round(source.width * smallScale));
-  preview.height = Math.max(1, Math.round(source.height * smallScale));
-  const context = preview.getContext("2d");
-  if (!context) throw new Error("Cannot prepare the matrix preview.");
-  context.drawImage(source, 0, 0, preview.width, preview.height);
-  return {
-    data: source.toDataURL("image/png").split(",")[1],
-    preview: preview.toDataURL("image/png").split(",")[1],
-  };
+  return base64(input);
 }
 
 export async function recognizeMatrixImage(
@@ -86,15 +83,13 @@ export async function recognizeMatrixImage(
 ): Promise<Recognition[]> {
   if (!isTauri())
     throw new Error("Scan image is available in the desktop app.");
-  if (!file.size || file.size > 20 * 1024 * 1024)
-    throw new Error("Choose a valid image smaller than 20 MB.");
-  const images = await prepareMatrixCanvases(file);
-  const onProgressChannel = new Channel<number>();
-  onProgressChannel.onmessage = (completed) =>
-    onProgress?.(completed, MATRIX_SIZE);
+  const image = await prepareMatrixImage(file);
+  const onProgressChannel = new Channel<OcrProgress>();
+  onProgressChannel.onmessage = (progress) =>
+    onProgress?.(progress.completed, progress.total);
   try {
     return await invoke<Recognition[]>("recognize_matrix_image", {
-      ...images,
+      image,
       onProgress: onProgressChannel,
     });
   } catch (error) {

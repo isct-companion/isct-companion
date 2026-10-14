@@ -22,7 +22,9 @@ it("installs Android support once per document and into later popup frames", () 
   const existing = frame();
   main.children.push({ contentWindow: existing.win });
   const source = readFileSync(
-    resolve("backend/scripts/android-school-support.js"),
+    resolve(
+      "crates/isct-core/src/school_browser/assets/android-school-support.js",
+    ),
     "utf8",
   ).replace(
     "__ISCT_SUPPORT_SCRIPTS__",

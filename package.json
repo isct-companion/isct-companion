@@ -12,12 +12,12 @@
     "tauri:build": "node scripts/tauri.mjs build",
     "desktop:dev": "node scripts/tauri.mjs dev",
     "desktop:build": "node scripts/tauri.mjs build",
-    "test": "vitest run",
+    "test": "vitest run --exclude 'artifacts/**' --exclude 'target/**'",
     "test:watch": "vitest",
     "format": "prettier --write src vite.config.ts",
     "icons:desktop": "node scripts/generate-desktop-icons.mjs",
-    "backend:test": "cargo test --manifest-path backend/Cargo.toml --locked",
-    "backend:check": "cargo check --manifest-path backend/Cargo.toml --locked"
+    "backend:test": "cargo test --workspace --locked",
+    "backend:check": "cargo check --workspace --locked"
   },
   "dependencies": {
     "@codemirror/lang-cpp": "^6.0.0",

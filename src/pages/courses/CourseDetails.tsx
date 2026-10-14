@@ -3,7 +3,6 @@ import { useState } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
 import { PullRing } from "../../components/PullRing";
 import { dayNames } from "../../components/timetable/timetable";
-import { deadlineState } from "../../core/academic";
 import {
   contentLanguage,
   pickLocalized,
@@ -12,6 +11,8 @@ import {
 } from "../../core/model";
 import { t } from "../../i18n";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
+import { useScheduleQuery, type TaskView } from "../../platform/core-query";
+import { useClock } from "../../platform/use-clock";
 import { SyllabusDetails } from "./syllabus-details";
 
 /** The course's official syllabus page: its own URL when that is one, else by offering id. */
@@ -101,6 +102,8 @@ export function CourseDetails({
   const [localTab, setTab] = useState<CourseTab>(initialTab);
   const tab = onTabChange ? initialTab : localTab;
   const bridge = getDesktopBridge();
+  const now = useClock();
+  const tasks = useScheduleQuery<TaskView>({ kind: "taskView", now }).value;
   const language = contentLanguage(data.settings);
   const materials = (data.materials as LmsItem[])
     .filter(
@@ -295,7 +298,7 @@ export function CourseDetails({
               {refresh}
             </header>
             {assignments.map((assignment) => {
-              const due = deadlineState(assignment);
+              const due = tasks?.deadlines?.[assignment.id];
               return (
                 <div className="detailsRow" key={assignment.id}>
                   {assignment.sourceUrl ? (
@@ -309,12 +312,12 @@ export function CourseDetails({
                   )}
                   <small
                     className={
-                      due.ms < 0 && assignment.submission === "open"
+                      due?.overdue && assignment.submission === "open"
                         ? "overdue"
-                        : due.tone
+                        : (due?.tone ?? "normal")
                     }
                   >
-                    {assignment.dueAt ? due.label : "—"} ·{" "}
+                    {due?.label ?? "—"} ·{" "}
                     {t(assignment.submission ?? "unknown")}
                   </small>
                 </div>
