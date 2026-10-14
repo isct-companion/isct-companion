@@ -808,18 +808,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
         Ok(self
             .read_workspace(provider)
             .await?
-            .map(|file| {
-                document::versions(provider, &file)
-                    .into_iter()
-                    .map(|version| crate::cloud_sync::CloudVersion {
-                        id: version.id,
-                        provider: version.provider,
-                        saved_at: version.saved_at,
-                        device: version.device,
-                        version: version.version,
-                    })
-                    .collect()
-            })
+            .map(|file| document::versions(provider, &file))
             .unwrap_or_default())
     }
 

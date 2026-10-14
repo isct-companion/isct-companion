@@ -8,6 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
     Router,
 };
+use isct_core::ports::EventSink;
 use isct_core::{
     agent::{is_write_tool, AgentPolicy},
     events::{CoreEvent, WorkspaceChangeSource},
@@ -36,7 +37,7 @@ use std::{
     time::Duration,
 };
 use subtle::ConstantTimeEq;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tokio::sync::{Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 
@@ -316,10 +317,11 @@ impl AgentHandler {
             .and_then(|result| result);
             let notify = result.is_ok() && write;
             if let Some(app) = app.as_ref().filter(|_| notify) {
-                let event = CoreEvent::WorkspaceChanged {
-                    source: WorkspaceChangeSource::Mcp,
-                };
-                let _ = app.emit(event.name(), event.payload());
+                let _ = crate::core_ports::DesktopEvents(app.clone()).emit(
+                    CoreEvent::WorkspaceChanged {
+                        source: WorkspaceChangeSource::Mcp,
+                    },
+                );
             }
             let _ = send.send(result);
             // This work remains owned after the HTTP caller disconnects.

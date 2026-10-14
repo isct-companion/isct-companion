@@ -163,6 +163,12 @@ file dialogs, openers and cloud transport. Native window bounds and cookie-store
 objects stay in the shell. Core owns domain decisions, validation, persistence
 and task state. Adapters map typed errors to existing Tauri string responses.
 
+`ports::EventSink` is the single event path. Every `CoreEvent` (workspace,
+school login/session/progress/ingest/web/download, pull state and cloud sync
+state) carries its UI event name and JSON payload; the desktop sink forwards it
+to the main webview and logs delivery failures. Events are hints: each one has
+a snapshot command the UI reads after subscribing.
+
 ## Service map
 
 | Service | Rust entry points | Shell responsibility |

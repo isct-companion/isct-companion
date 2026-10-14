@@ -333,8 +333,6 @@ pub fn run() {
                     app.manage(commands::agent::AgentServerError(error));
                 }
             }
-            core_ports::DesktopRuntime::start(app.handle());
-
             #[cfg(desktop)]
             {
                 #[cfg(dev)]
@@ -356,6 +354,9 @@ pub fn run() {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .initialization_script(native_bootstrap())
                 .build()?;
+            // After the main window exists: the initial focus fact and event
+            // delivery both refer to it.
+            core_ports::DesktopRuntime::start(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

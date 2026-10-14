@@ -5,6 +5,8 @@ mod journal;
 use crate::{
     backup::{BackupError, BackupService},
     data::cloud_merge,
+    events::{CoreEvent, WorkspaceChangeSource},
+    ports::EventSink,
     runtime_tasks::{RuntimeTaskError, RuntimeTasks},
 };
 use journal::{version, Job, Journal, JournalStore};
@@ -120,8 +122,6 @@ pub enum CloudSyncError {
     Transport(String),
     #[error("{0}")]
     Conflict(String),
-    #[error("{0}")]
-    Event(String),
     #[error("Sync interrupted or timed out; the saved task will retry.")]
     Interrupted,
     #[error("The cloud sync service has stopped.")]
@@ -160,16 +160,11 @@ pub trait CloudTransport: Send + Sync {
     ) -> CloudFuture<'a, Value>;
 }
 
-pub trait CloudObserver: Send + Sync {
-    fn state_changed(&self, state: SyncState) -> Result<(), CloudSyncError>;
-    fn workspace_changed(&self, source: &'static str) -> Result<(), CloudSyncError>;
-}
-
 #[derive(Clone)]
 pub struct CloudServices {
     pub backup: BackupService,
     pub transport: Arc<dyn CloudTransport>,
-    pub observer: Arc<dyn CloudObserver>,
+    pub events: Arc<dyn EventSink>,
 }
 
 struct Inner {
@@ -424,14 +419,16 @@ impl CloudSync {
         });
     }
 
+    // Events are hints; the UI re-reads `cloud_sync_state`, and the sink
+    // reports its own delivery failures.
     fn publish(&self, services: &CloudServices) -> Result<(), CloudSyncError> {
         let state = self.state()?;
-        let _ = services.observer.state_changed(state);
+        let _ = services.events.emit(CoreEvent::CloudSyncState(state));
         Ok(())
     }
 
-    fn publish_workspace(&self, services: &CloudServices, source: &'static str) {
-        let _ = services.observer.workspace_changed(source);
+    fn publish_workspace(&self, services: &CloudServices, source: WorkspaceChangeSource) {
+        let _ = services.events.emit(CoreEvent::WorkspaceChanged { source });
     }
 
     fn provider_result_inner(
@@ -812,7 +809,7 @@ impl CloudSync {
         }
         self.apply_document(services, &merged).await?;
         self.capture_inner(services, false).await?;
-        self.publish_workspace(services, "cloud-sync");
+        self.publish_workspace(services, WorkspaceChangeSource::CloudSync);
         let versions = self
             .remote(
                 services.transport.versions(provider),
@@ -1027,7 +1024,7 @@ impl CloudSync {
             .change(|journal| journal.enqueue(restored.clone(), Direction::Upload))?;
         self.apply_document(services, &restored).await?;
         self.capture_inner(services, false).await?;
-        self.publish_workspace(services, "cloud-restore");
+        self.publish_workspace(services, WorkspaceChangeSource::CloudRestore);
         self.publish(services)?;
         drop(_run);
         self.resume_inner(services).await

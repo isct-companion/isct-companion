@@ -20,7 +20,9 @@ and formats.
 
 The native shell supplies paths, OS dialogs, HTTP/CloudKit/OAuth/credential
 storage, and events. `CloudServices` supplies a backup service, `CloudTransport`
-and `CloudObserver` for each operation. `WorkspaceTransport` is the lower-level
+and the shell's `EventSink` for each operation; state changes arrive as
+`CoreEvent::CloudSyncState` and applied documents as `WorkspaceChanged`
+(`cloud-sync` / `cloud-restore`). `WorkspaceTransport` is the lower-level
 conditional document read/write port. A shell should construct fresh services
 after changing the notes folder. Core retains no Tauri handles.
 
