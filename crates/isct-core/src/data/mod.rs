@@ -1068,6 +1068,22 @@ impl WorkspaceWrite<'_, '_> {
         delete_user_record_in_transaction(self.transaction, table, id, "workspace", expected_rev)
     }
 
+    /// Whether a live row with this ID is stored in the given user table.
+    pub(crate) fn has_user_row(&self, table: &str, id: &str) -> Result<bool, DataError> {
+        if !DataStore::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        self.transaction
+            .query_row(
+                &format!("SELECT 1 FROM {table} WHERE id=?1 AND deleted_at IS NULL"),
+                [id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map(|row| row.is_some())
+            .map_err(DataError::from)
+    }
+
     pub(crate) fn save_setting(&self, key: &str, value: &Value) -> Result<(), DataError> {
         if !matches!(
             key,

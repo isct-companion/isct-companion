@@ -573,26 +573,11 @@ fn save_course(
     if let Some(existing) = existing
         .filter(|row| row.pointer("/source/provider").and_then(Value::as_str) != Some("manual"))
     {
-        let source_key = existing
-            .get("sourceKey")
-            .and_then(Value::as_str)
-            .unwrap_or_else(|| {
-                existing
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-            });
-        write.put(
-            "course_overrides",
-            json!({
-                "sourceKey": source_key,
-                "courseId": existing.get("id"),
-                "title": draft.get("title"),
-                "instructor": draft.get("instructor"),
-                "color": draft.get("color"),
-                "lessonLog": existing.pointer("/overrides/lessonLog")
-            }),
-            None,
+        put_course_override(
+            write,
+            existing,
+            ["title", "instructor", "color"]
+                .map(|key| (key, draft.get(key).cloned().unwrap_or(Value::Null))),
         )?;
         return set_course_on_timetable(
             write,
@@ -702,46 +687,85 @@ fn edit_course_batch(
     {
         return Err("credits must be between 0 and 20".into());
     }
-    if changes
+    let language = changes
         .language
         .as_deref()
-        .is_some_and(|language| !matches!(language, "ja" | "en" | "ja-en" | "other"))
-    {
+        .map(str::trim)
+        .filter(|language| !language.is_empty());
+    if language.is_some_and(|language| !matches!(language, "ja" | "en" | "ja-en" | "other")) {
         return Err("instruction language is invalid".into());
     }
+    let instructor = changes
+        .instructor
+        .as_deref()
+        .map(str::trim)
+        .filter(|instructor| !instructor.is_empty());
     let ids: HashSet<_> = course_ids.into_iter().collect();
     for course in rows(current, "courses")?.filter(|row| {
         row.get("id")
             .and_then(Value::as_str)
-            .is_some_and(|id| ids.contains(id))
+            .is_some_and(|id| ids.contains(id) && row.get("deletedAt").is_none_or(Value::is_null))
     }) {
+        let id = string(course, "id")?;
+        let manual = course.pointer("/source/provider").and_then(Value::as_str) == Some("manual");
+        // Catalog and LMS courses keep their source instructor; the person's
+        // name for it is an overlay like the course editor writes.
+        if let Some(instructor) = instructor.filter(|_| !manual) {
+            put_course_override(write, course, [("instructor", Value::from(instructor))])?;
+        }
+        if language.is_none() && changes.credits.is_none() && (instructor.is_none() || !manual) {
+            continue;
+        }
+        if !write.has_user_row("manual_courses", id)? {
+            return Err("credits and language of a school timetable course cannot be edited".into());
+        }
         let mut updated = course.clone();
         let object = object_mut(&mut updated, "course")?;
-        if let Some(language) = &changes.language {
-            object.insert(
-                "instructionLanguage".into(),
-                Value::String(language.clone()),
-            );
+        // The read model embeds the overlay; the stored row never contains it.
+        object.remove("overrides");
+        if let Some(language) = language {
+            object.insert("instructionLanguage".into(), Value::from(language));
         }
-        if let Some(instructor) = changes
-            .instructor
-            .as_ref()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-        {
-            object.insert("instructor".into(), Value::String(instructor.into()));
+        if let Some(instructor) = instructor.filter(|_| manual) {
+            object.insert("instructor".into(), Value::from(instructor));
         }
         if let Some(credits) = changes.credits {
             object.insert("credits".into(), Value::from(credits));
         }
-        if course.pointer("/source/provider").and_then(Value::as_str) == Some("manual") {
-            write.put("manual_courses", updated, revision(course))?;
-        } else {
-            let overlay = json!({"sourceKey": course.get("sourceKey").or_else(|| course.get("id")), "courseId":course.get("id"), "title":Value::Null, "instructor":changes.instructor, "color":Value::Null, "lessonLog":Value::Null});
-            write.put("course_overrides", overlay, None)?;
-        }
+        write.put("manual_courses", updated, revision(course))?;
     }
     Ok(())
+}
+
+/// One overlay row holds every personal change to a non-manual course. Each
+/// edit replaces only its own fields and keeps the others.
+fn put_course_override<const N: usize>(
+    write: &WorkspaceWrite<'_, '_>,
+    course: &Value,
+    changes: [(&str, Value); N],
+) -> Result<(), DataError> {
+    let id = string(course, "id")?;
+    let mut overlay = course
+        .get("overrides")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (key, value) in changes {
+        overlay.insert(key.into(), value);
+    }
+    overlay.insert(
+        "sourceKey".into(),
+        Value::from(
+            course
+                .get("sourceKey")
+                .and_then(Value::as_str)
+                .unwrap_or(id),
+        ),
+    );
+    overlay.insert("courseId".into(), Value::from(id));
+    write
+        .put("course_overrides", Value::Object(overlay), None)
+        .map(|_| ())
 }
 
 fn set_course_on_timetable(
@@ -1933,10 +1957,6 @@ fn record_lesson(
         .map_err(|_| DataError::from("lesson occurrence must be RFC 3339"))?;
     let course = visible_row(current, "courses", course_id)
         .ok_or_else(|| "course was not found".to_string())?;
-    let source_key = course
-        .get("sourceKey")
-        .and_then(Value::as_str)
-        .unwrap_or(course_id);
     let mut log = course
         .pointer("/overrides/lessonLog")
         .and_then(Value::as_array)
@@ -1947,13 +1967,7 @@ fn record_lesson(
     if log.len() > 60 {
         log.drain(..log.len() - 60);
     }
-    write
-        .put(
-            "course_overrides",
-            json!({"sourceKey":source_key,"courseId":course_id,"lessonLog":log}),
-            None,
-        )
-        .map(|_| ())
+    put_course_override(write, course, [("lessonLog", Value::Array(log))])
 }
 
 fn merge_patch(target: &mut Value, patch: Value) {
@@ -2157,6 +2171,129 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
         assert_eq!(service.snapshot().unwrap().revision, original.revision);
+    }
+
+    fn mutate(service: &WorkspaceService, intent: WorkspaceIntent) -> WorkspaceSnapshot {
+        let expected_revision = service.snapshot().unwrap().revision;
+        service
+            .mutate(WorkspaceMutation {
+                expected_revision,
+                intent,
+            })
+            .unwrap()
+    }
+
+    fn course<'a>(snapshot: &'a WorkspaceSnapshot, id: &str) -> &'a Value {
+        snapshot.workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["id"] == id)
+            .unwrap()
+    }
+
+    #[test]
+    fn course_edits_merge_into_one_overlay_and_batch_credits_reach_every_course() {
+        let service = service("course-overlay");
+        let added = mutate(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![json!({
+                    "id":"202600002", "year":2026, "quarters":["3Q"],
+                    "code":"CSC.T364", "title":{"en":"Systems"},
+                    "instructors":[{"en":"Teacher One"}],
+                    "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202600002",
+                    "credits":{"lecture":2,"exercise":0,"lab":0},
+                    "instructionLanguage":"ja",
+                    "schedule":[{"kind":"weekly","day":1,"periods":[1,2]}]
+                })],
+            },
+        );
+        let catalog_id = added.workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["offeringId"] == "202600002")
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let manual = mutate(
+            &service,
+            WorkspaceIntent::SaveCourse {
+                draft: json!({"code":"X.1","title":"Own","instructor":"Me","credits":1,"meetings":[]}),
+                term_id: "2026-3Q".into(),
+                existing_id: None,
+            },
+        );
+        let manual_id = manual.workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["title"] == "Own")
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        mutate(
+            &service,
+            WorkspaceIntent::SaveCourse {
+                draft: json!({"title":"Renamed","instructor":"Teacher A","color":"#123456"}),
+                term_id: "2026-3Q".into(),
+                existing_id: Some(catalog_id.clone()),
+            },
+        );
+        let marked = mutate(
+            &service,
+            WorkspaceIntent::RecordLesson {
+                course_id: catalog_id.clone(),
+                occurrence: "2026-10-05T08:50:00+09:00".into(),
+                section_id: 3,
+            },
+        );
+        let overrides = &course(&marked, &catalog_id)["overrides"];
+        assert_eq!(overrides["title"], "Renamed");
+        assert_eq!(overrides["color"], "#123456");
+        assert_eq!(overrides["lessonLog"][0]["sectionId"], 3);
+
+        let edited = mutate(
+            &service,
+            WorkspaceIntent::EditCourseBatch {
+                course_ids: vec![catalog_id.clone(), manual_id.clone()],
+                changes: CourseBatchChanges {
+                    credits: Some(4.0),
+                    ..CourseBatchChanges::default()
+                },
+            },
+        );
+        let catalog = course(&edited, &catalog_id);
+        assert_eq!(catalog["credits"], 4.0);
+        assert_eq!(catalog["overrides"]["title"], "Renamed");
+        assert_eq!(catalog["overrides"]["instructor"], "Teacher A");
+        assert_eq!(catalog["overrides"]["lessonLog"][0]["sectionId"], 3);
+        assert_eq!(course(&edited, &manual_id)["credits"], 4.0);
+        assert_eq!(course(&edited, &manual_id)["instructor"], "Me");
+
+        let renamed = mutate(
+            &service,
+            WorkspaceIntent::EditCourseBatch {
+                course_ids: vec![catalog_id.clone(), manual_id.clone()],
+                changes: CourseBatchChanges {
+                    instructor: Some(" Teacher B ".into()),
+                    language: Some("en".into()),
+                    ..CourseBatchChanges::default()
+                },
+            },
+        );
+        let catalog = course(&renamed, &catalog_id);
+        assert_eq!(catalog["overrides"]["instructor"], "Teacher B");
+        assert_eq!(catalog["overrides"]["color"], "#123456");
+        assert_eq!(catalog["instructionLanguage"], "en");
+        assert_eq!(catalog["credits"], 4.0);
+        assert_eq!(course(&renamed, &manual_id)["instructor"], "Teacher B");
+        assert_eq!(course(&renamed, &manual_id)["instructionLanguage"], "en");
     }
 
     #[test]
