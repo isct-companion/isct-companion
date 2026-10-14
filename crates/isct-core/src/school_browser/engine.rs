@@ -1,4 +1,4 @@
-use super::sanitize_school_url;
+use super::policy::{is_identity_login, is_login_step, sanitize_school_url};
 use super::{
     assets::SCHOOL_LOGIN, ActionId, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     LoadFailed, NavigationDecision, NewWindowDecision, PageId, PageLoaded, SchoolBrowser,
@@ -993,7 +993,7 @@ impl SchoolBrowserEngine {
     /// page. Returns `true` when saved credentials cannot recover it: the
     /// profile's automatic sign-in is blocked after a failure.
     fn sign_in_landing(&self, url: &Url, signing_in: &mut Option<SchoolAuthProfile>) -> bool {
-        let Some(profile) = is_login_url(url)
+        let Some(profile) = is_identity_login(url)
             .then(|| url.host_str().and_then(SchoolAuthProfile::for_auth_host))
             .flatten()
         else {
@@ -1725,7 +1725,7 @@ impl Inner {
             heartbeat.filter(|profile| login_succeeded(event.url.as_str(), *profile))
         {
             self.set_session_from_inner(profile, SchoolSessionState::Active);
-        } else if is_login_url(&event.url) {
+        } else if is_identity_login(&event.url) {
             self.arm_saved_login(event.page, event.url.clone(), auth_relay);
         }
         if let Some(extraction) = extraction.filter(|run| {
@@ -2458,25 +2458,6 @@ fn pull_profile(site: SchoolSite) -> SchoolAuthProfile {
 }
 fn new_id() -> String {
     uuid::Uuid::now_v7().simple().to_string()
-}
-fn is_login_url(url: &Url) -> bool {
-    url.host_str()
-        .and_then(SchoolAuthProfile::for_auth_host)
-        .is_some()
-        && is_login_step(url)
-}
-fn is_login_step(url: &Url) -> bool {
-    let path = url.path().trim_end_matches('/');
-    match url.host_str() {
-        Some("isct.ex-tic.com") => matches!(
-            path,
-            "/auth" | "/auth/session" | "/auth/session/second_factor"
-        ),
-        Some("portal.nap.gsic.titech.ac.jp" | "portal.titech.ac.jp") => {
-            matches!(path, "" | "/portal.pl" | "/GetAccess/Login")
-        }
-        _ => false,
-    }
 }
 fn login_succeeded(raw: &str, profile: SchoolAuthProfile) -> bool {
     let Ok(url) = Url::parse(raw) else {

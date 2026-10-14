@@ -2,6 +2,7 @@
 use isct_core::{
     downloads::{DownloadSession, FetchError},
     lms_session::{LmsSessionPort, SessionState, LMS_HOME as HOME},
+    school_browser::is_login_url,
     school_parser::lms::is_lms_origin,
 };
 use std::{
@@ -150,9 +151,4 @@ fn cookie_header(view: &Webview, url: &Url) -> Result<String, FetchError> {
     } else {
         Ok(header)
     }
-}
-
-fn is_login_url(url: &Url) -> bool {
-    url.path_segments()
-        .is_some_and(|mut segments| segments.any(|segment| segment == "login" || segment == "auth"))
 }

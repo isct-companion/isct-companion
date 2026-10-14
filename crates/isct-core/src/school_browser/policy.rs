@@ -1,3 +1,4 @@
+use crate::school_auth::SchoolAuthProfile;
 use url::Url;
 
 pub const SCHOOL_HOSTS: &[&str] = &[
@@ -51,9 +52,64 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
     Some(url.to_string())
 }
 
+/// Whether a loaded or fetched URL is a school sign-in page: an identity
+/// provider's credential step, or a service's own login or SSO hand-off route
+/// such as the LMS `/login/` and `/auth/` pages. This is the single sign-in
+/// detector shared by the browser engine and the LMS downloaders.
+pub fn is_login_url(url: &Url) -> bool {
+    is_identity_login(url)
+        || url.path_segments().is_some_and(|mut segments| {
+            segments.any(|segment| segment == "login" || segment == "auth")
+        })
+}
+
+/// An identity-provider page where saved credentials can be entered.
+pub(crate) fn is_identity_login(url: &Url) -> bool {
+    url.host_str()
+        .and_then(SchoolAuthProfile::for_auth_host)
+        .is_some()
+        && is_login_step(url)
+}
+
+pub(crate) fn is_login_step(url: &Url) -> bool {
+    let path = url.path().trim_end_matches('/');
+    match url.host_str() {
+        Some("isct.ex-tic.com") => matches!(
+            path,
+            "/auth" | "/auth/session" | "/auth/session/second_factor"
+        ),
+        Some("portal.nap.gsic.titech.ac.jp" | "portal.titech.ac.jp") => {
+            matches!(path, "" | "/portal.pl" | "/GetAccess/Login")
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sign_in_pages_are_recognized_for_identity_providers_and_services() {
+        for raw in [
+            "https://isct.ex-tic.com/auth/session",
+            "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login?Template=userpass_key",
+            "https://lms.s.isct.ac.jp/2025/login/index.php",
+            "https://lms.s.isct.ac.jp/2025/auth/saml2/login.php",
+        ] {
+            assert!(is_login_url(&Url::parse(raw).unwrap()), "{raw}");
+        }
+        for raw in [
+            "https://isct.ex-tic.com/idm/user/portal/",
+            "https://lms.s.isct.ac.jp/2025/my/",
+            "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_resource/content/1/a.pdf",
+        ] {
+            assert!(!is_login_url(&Url::parse(raw).unwrap()), "{raw}");
+        }
+        assert!(!is_identity_login(
+            &Url::parse("https://lms.s.isct.ac.jp/2025/login/index.php").unwrap()
+        ));
+    }
 
     #[test]
     fn school_urls_keep_only_bounded_domain_parameters() {
