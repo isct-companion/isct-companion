@@ -609,7 +609,6 @@ export function LmsWorkspace({
   }, [active, course.id]);
   const timeline = useScheduleQuery<CourseTimeline>({
     kind: "courseTimeline",
-    term: course.termId,
     courseId: course.id,
     now: timelineNow,
     beforeDays: 14,

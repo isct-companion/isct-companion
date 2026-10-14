@@ -66,6 +66,7 @@ vi.mock("../platform/core-query", () => {
       coursesTerm: term,
       range: null,
       courses,
+      termCourseIds: courses.map((course) => course.id),
       declaredCredits: null,
       termCredits: courses.reduce((sum, course) => sum + course.credits, 0),
       colors: Object.fromEntries(

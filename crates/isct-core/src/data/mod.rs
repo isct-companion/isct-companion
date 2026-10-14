@@ -1089,6 +1089,40 @@ impl WorkspaceWrite<'_, '_> {
         save_setting(self.transaction, key, value, &actor).map(|_| ())
     }
 
+    /// The catalog rows `Core::lms_merge_preview` compares with, read inside
+    /// this transaction so an applied merge sees the reviewed offerings.
+    pub(crate) fn catalog_rows(&self) -> Result<Vec<Value>, DataError> {
+        catalog_list(self.transaction)
+    }
+
+    /// Points the LMS assignments and materials of one LMS course at the
+    /// timetable course it was matched with. The content hash is left alone:
+    /// it tracks what the LMS sent, so an unchanged pull keeps the link and a
+    /// changed one is relinked by the next merge.
+    pub(crate) fn relink_lms_records(
+        &self,
+        lms_course_id: u64,
+        course_id: &str,
+    ) -> Result<usize, DataError> {
+        let timestamp = now();
+        let mut changed = 0;
+        for table in ["assignments", "lms_items"] {
+            changed += self
+                .transaction
+                .execute(
+                    &format!(
+                        "UPDATE {table} SET rev=rev+1, updated_at=?3,
+                           value=json_set(value,'$.courseId',?2,'$.rev',rev+1,'$.updatedAt',?3)
+                         WHERE json_extract(value,'$.lmsCourseId')=?1
+                           AND COALESCE(json_extract(value,'$.courseId'),'')<>?2"
+                    ),
+                    params![lms_course_id as i64, course_id, timestamp],
+                )
+                .map_err(DataError::from)?;
+        }
+        Ok(changed)
+    }
+
     pub(crate) fn save_settings(&self, settings: &Value) -> Result<(), DataError> {
         let (user, device, cloud) = settings_parts(settings);
         self.save_setting("userPreferences", &user)?;
@@ -1122,6 +1156,33 @@ impl AgentWriteTransaction<'_, '_> {
     ) -> Result<bool, DataError> {
         delete_user_record_in_transaction(self.transaction, table, id, "mcp", expected_rev)
     }
+}
+
+/// Every catalog row: detailed offerings, plus search-only rows not yet
+/// replaced by details.
+fn catalog_list(connection: &Connection) -> Result<Vec<Value>, DataError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT value FROM offerings
+             WHERE deleted_at IS NULL AND missing_since IS NULL
+             UNION ALL
+             SELECT s.value FROM catalog_search_items s
+             WHERE NOT EXISTS (
+               SELECT 1 FROM offerings o
+               WHERE o.id=s.id AND o.deleted_at IS NULL AND o.missing_since IS NULL
+             )
+             ORDER BY 1",
+        )
+        .map_err(DataError::from)?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(DataError::from)?
+        .map(|row| {
+            serde_json::from_str(&row.map_err(DataError::from)?)
+                .map_err(|_| DataError::storage("catalog row contains invalid JSON"))
+        })
+        .collect();
+    rows
 }
 
 fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
@@ -2018,27 +2079,7 @@ impl DataStore {
     pub fn catalog_search(&self, query: &str) -> Result<Vec<Value>, DataError> {
         let connection = self.open()?;
         if query.trim().is_empty() {
-            let mut statement = connection
-                .prepare(
-                    "SELECT value FROM offerings
-                     WHERE deleted_at IS NULL AND missing_since IS NULL
-                     UNION ALL
-                     SELECT s.value FROM catalog_search_items s
-                     WHERE NOT EXISTS (
-                       SELECT 1 FROM offerings o
-                       WHERE o.id=s.id AND o.deleted_at IS NULL AND o.missing_since IS NULL
-                     )
-                     ORDER BY 1",
-                )
-                .map_err(DataError::from)?;
-            return statement
-                .query_map([], |row| row.get::<_, String>(0))
-                .map_err(DataError::from)?
-                .map(|row| {
-                    serde_json::from_str(&row.map_err(DataError::from)?)
-                        .map_err(|_| DataError::storage("catalog row contains invalid JSON"))
-                })
-                .collect();
+            return catalog_list(&connection);
         }
         let expression = query
             .split_whitespace()

@@ -241,6 +241,7 @@ function renderPlanner(
     allTerms: [data.selectedTerm],
     range: { from: "2026-06-01", to: "2026-09-30" },
     courses,
+    termCourseIds: courses.map((course) => course.id),
   };
   core.planning = {
     courses,

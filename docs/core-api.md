@@ -257,7 +257,23 @@ remote search. The shell executes the returned syllabus plan and reports progres
 `Core::lms_merge_preview(scope, term)` returns review rows, conflict groups and
 missing syllabus detail IDs. The shell fetches those details, requests the final
 preview, then forwards the person's choices as `ApplyLmsMerge`. Core recomputes
-and applies the chosen changes in its transaction. `catalog::syllabus_course`
+the same diff from the same catalog rows and applies the chosen changes in its
+transaction: chosen LMS courses join as `lms-member` memberships (also in their
+quarters outside the reviewed scope), LMS-sourced courses take syllabus names,
+URL and credits, chosen common courses take the LMS times with the syllabus
+room, unchecked local courses leave that quarter, and LMS assignments and
+materials are linked to the matched course.
+
+A course belongs to every quarter it is placed in: its own `termId` plus each
+quarter with a live membership or plan item, so a 3Q–4Q course is one course
+with a placement in each quarter. Timetables, Today, reminders, ICS, finder
+busy slots, task grouping and the course timeline use those placements.
+`AddCatalogCourses` plans an offering into each of its quarters when added in
+one of them (otherwise into the quarter on screen) and replaces only local
+drafts that clash in that quarter. `UndoCatalogCourses` reverses exactly the
+last add of the session: it removes the plan items that add placed and brings
+back the ones it replaced. `SetCourseOnTimetable` off and `DeleteCourseBatch`
+remove a course's placements in every quarter, whatever added them. `catalog::syllabus_course`
 returns the localized editor projection, including period times and rooms.
 
 `taskView(now)` returns deadline presentation, nearest assignment per course,

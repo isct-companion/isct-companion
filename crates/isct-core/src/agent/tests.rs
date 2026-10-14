@@ -303,3 +303,104 @@ fn date_and_term_validation_messages_remain_stable() {
         "term must look like 2026-3Q, got 2026-5Q"
     );
 }
+
+#[test]
+fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
+    let fixture = Fixture::new();
+    fixture
+        .store
+        .catalog_upsert_offerings(&[json!({
+            "id":"202612346", "year":2026, "quarters":["3Q","4Q"], "code":"ABC.201",
+            "title":{"en":"Long Systems"}, "instructors":[{"en":"Ada"}],
+            "instructionLanguage":"en", "format":{"kinds":["lecture"]}, "media":{},
+            "credits":{"lecture":2.0,"exercise":0.0,"lab":0.0},
+            "schedule":[{"kind":"weekly","day":1,"periods":[1,2],"room":{"en":"W1"}}],
+            "academicUnit":{"en":"Engineering"}, "intensive":false,
+            "syllabusUrl":"https://example.invalid/202612346", "fetchedAt":{}
+        })])
+        .unwrap();
+    let service = fixture.service();
+    let added = service
+        .call(
+            "plan_add",
+            &json!({"offeringId":"202612346","term":"2026-4Q"}),
+            WRITES,
+        )
+        .unwrap();
+    assert_eq!(added["terms"], json!(["2026-3Q", "2026-4Q"]));
+    assert_eq!(added["planItemId"], "mcp-plan:2026-4Q:202612346");
+    for quarter in ["3Q", "4Q"] {
+        let courses = service
+            .call("courses", &json!({"year":2026,"quarter":quarter}), WRITES)
+            .unwrap();
+        assert_eq!(courses[0]["id"], "2026-202612346", "{quarter}");
+    }
+    // Planned in another of its quarters is no reason to refuse.
+    service
+        .call(
+            "plan_remove",
+            &json!({"offeringId":"202612346","term":"2026-3Q"}),
+            WRITES,
+        )
+        .unwrap();
+    let again = service
+        .call(
+            "plan_add",
+            &json!({"offeringId":"202612346","term":"2026-3Q"}),
+            WRITES,
+        )
+        .unwrap();
+    assert_eq!(again["courseId"], "2026-202612346");
+    assert_eq!(fixture.store.user_rows("manual_courses").unwrap().len(), 1);
+    let live = fixture
+        .store
+        .user_rows("plan_items")
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.get("deletedAt").is_none())
+        .count();
+    assert_eq!(live, 2);
+}
+
+#[test]
+fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
+    let fixture = Fixture::new();
+    fixture.seed_offering();
+    let service = fixture.service();
+    service
+        .call(
+            "plan_add",
+            &json!({"offeringId":"202612345","term":"2026-3Q"}),
+            WRITES,
+        )
+        .unwrap();
+    let course = fixture.store.user_rows("manual_courses").unwrap().remove(0);
+    fixture
+        .store
+        .delete_user_record("manual_courses", course["id"].as_str().unwrap(), "test")
+        .unwrap();
+    // The school lists the same offering as a registered course.
+    let mut school = course.clone();
+    school["id"] = json!("2026-school-202612345");
+    school["source"] = json!({"provider":"kyomu"});
+    let connection = rusqlite::Connection::open(fixture.store.path()).unwrap();
+    connection
+        .execute(
+            "INSERT INTO timetable_courses (id,value,hash,updated_at,updated_by,rev)
+             VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','kyomu',1)",
+            rusqlite::params!["2026-school-202612345", school.to_string()],
+        )
+        .unwrap();
+    drop(connection);
+    let added = service
+        .call(
+            "plan_add",
+            &json!({"offeringId":"202612345","term":"2026-3Q"}),
+            WRITES,
+        )
+        .unwrap();
+    assert_eq!(added["courseId"], "2026-school-202612345");
+    assert!(fixture.store.user_rows("manual_courses").unwrap()[0]
+        .get("deletedAt")
+        .is_some());
+}

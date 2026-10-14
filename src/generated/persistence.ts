@@ -825,6 +825,11 @@ export type WorkspaceOverview = {
   coursesTerm: string;
   range: QuarterRange | null;
   courses: unknown[];
+  /**
+   * Every visible course belonging to `term` (own quarter or placed
+   * there), on its timetable or not.
+   */
+  termCourseIds: Array<string>;
   declaredCredits: number | null;
   termCredits: number;
   colors: { [key in string]?: string };
@@ -856,7 +861,6 @@ export type WorkspaceQuery =
   | { kind: "planCivilStart"; plan: unknown }
   | {
       kind: "courseTimeline";
-      term: string;
       courseId: string;
       now: string;
       beforeDays: number;
