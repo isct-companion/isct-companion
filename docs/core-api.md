@@ -165,24 +165,24 @@ and task state. Adapters map typed errors to existing Tauri string responses.
 
 ## Service map
 
-| Service | Rust entry points | Shell responsibility |
-|---|---|---|
-| Workspace | `Core::workspace.snapshot/mutate` | Render snapshots; forward typed intents with expected revision |
-| Schedule / calendar | `Core::schedule_query`, `schedule::{glance,notification_plan}` | Supply explicit dates/times; render views and export bytes |
-| Course finder / LMS review | `Core::finder_query`, `Core::lms_merge_preview` | Input, selection, progress and review confirmation |
-| Reminders | `Core::reminder_tick`, `Core::import_legacy_reminders` | Wakeups, migration bytes and `NotificationSink` |
-| School | `Core::school_browser()`, `Core::services(...).school`, `Core::school_records` | Native views, presentation, callbacks and downloads |
-| Pull state | `Core::runtime.coordinator`: snapshots, subscribe, cancel | Forward intents and publish snapshots |
-| References | `Core::services(...).references` | Supply lifecycle/network facts |
-| Scheduler | `Core::runtime`: wake, run_scheduled, suspend, resume | Periodic wakeups and scheduled exporter port |
-| Catalog | `catalog::{offerings,catalog_query,catalog_sync_offering,catalog_sync_offerings,catalog_sync_department,syllabus_course}` | Call through the runtime's owned operation scope |
-| Downloads | `Core::runtime.downloads`, `course_materials::CourseMaterials` | Cookie acquisition, native URL handlers and opening files |
-| Notes / backups / cloud | `notes::NoteStore`, `BackupService`, `CloudSync` | Selected root, dialogs, transport and events |
-| School credentials | `Core::auth` / `SchoolAuthService` | `SecretVault`, native login surface |
-| Encrypted credential backup | `cloud_credentials::{validate_password,encrypt,decrypt,supports_provider}` | Fetch/store encrypted bytes; vault access |
-| Assignment workspaces | `workspaces::Workspaces` | Selected root, Finder/editor opening; desktop feature only |
-| Agent operations | `Core::agent.call(name,args,AgentPolicy)` | MCP schema/HTTP transport and local authentication |
-| OCR | Separate `isct-ocr` crate | Supported platform setup and progress delivery |
+| Service                     | Rust entry points                                                                                                         | Shell responsibility                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Workspace                   | `Core::workspace.snapshot/mutate`                                                                                         | Render snapshots; forward typed intents with expected revision |
+| Schedule / calendar         | `Core::schedule_query`, `schedule::{glance,notification_plan}`                                                            | Supply explicit dates/times; render views and export bytes     |
+| Course finder / LMS review  | `Core::finder_query`, `Core::lms_merge_preview`                                                                           | Input, selection, progress and review confirmation             |
+| Reminders                   | `Core::reminder_tick`, `Core::import_legacy_reminders`                                                                    | Wakeups, migration bytes and `NotificationSink`                |
+| School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::school_records`                                            | Native views, presentation, callbacks and downloads            |
+| Pull state                  | `Core::runtime.coordinator`: snapshots, subscribe, cancel                                                                 | Forward intents and publish snapshots                          |
+| References                  | `Core::services(...).references`                                                                                          | Supply lifecycle/network facts                                 |
+| Scheduler                   | `Core::runtime`: wake, run_scheduled, suspend, resume                                                                     | Periodic wakeups and scheduled exporter port                   |
+| Catalog                     | `catalog::{offerings,catalog_query,catalog_sync_offering,catalog_sync_offerings,catalog_sync_department,syllabus_course}` | Call through the runtime's owned operation scope               |
+| Downloads                   | `Core::runtime.downloads`, `course_materials::CourseMaterials`                                                            | Cookie acquisition, native URL handlers and opening files      |
+| Notes / backups / cloud     | `notes::NoteStore`, `BackupService`, `CloudSync`                                                                          | Selected root, dialogs, transport and events                   |
+| School credentials          | `Core::auth` / `SchoolAuthService`                                                                                        | `SecretVault`, native login surface                            |
+| Encrypted credential backup | `cloud_credentials::{validate_password,encrypt,decrypt,supports_provider}`                                                | Fetch/store encrypted bytes; vault access                      |
+| Assignment workspaces       | `workspaces::Workspaces`                                                                                                  | Selected root, Finder/editor opening; desktop feature only     |
+| Agent operations            | `Core::agent.call(name,args,AgentPolicy)`                                                                                 | MCP schema/HTTP transport and local authentication             |
+| OCR                         | Separate `isct-ocr` crate                                                                                                 | Supported platform setup and progress delivery                 |
 
 Catalog caching preserves the bilingual freshness threshold and stored detail
 content. Batch fetches are ordered futures held by the calling operation; no
@@ -237,9 +237,15 @@ request per timetable cell:
 
 ```json
 [
-  {"kind":"workspaceOverview","term":""},
-  {"kind":"scheduleView","term":"2026-3Q","from":"2026-10-12","to":"2026-10-18","includePersonal":true},
-  {"kind":"glance","now":"2026-10-14T08:00:00+09:00"}
+  { "kind": "workspaceOverview", "term": "" },
+  {
+    "kind": "scheduleView",
+    "term": "2026-3Q",
+    "from": "2026-10-12",
+    "to": "2026-10-18",
+    "includePersonal": true
+  },
+  { "kind": "glance", "now": "2026-10-14T08:00:00+09:00" }
 ]
 ```
 
@@ -462,12 +468,12 @@ cancellation errors, with remaining coordinator errors retained as a typed
 `CoreRuntime::run` and `run_scheduled` return `RuntimeTaskError` for the owned
 operation itself, separately from the operation's domain result:
 
-| Variant | Meaning | Recovery |
-|---|---|---|
-| `Stopped` | Admission has closed or its lock is unavailable | Use an active Core instance; do not retry on a stopped scope |
-| `Unavailable` | No Tokio runtime is entered | Enter the host-owned runtime before invoking the operation |
-| `Panicked` | The admitted worker unwound | Report failure and re-read affected state before deciding whether to retry |
-| `Interrupted` | The admitted worker was cancelled by its runtime | Recover the runtime and re-read state before retrying |
+| Variant       | Meaning                                          | Recovery                                                                   |
+| ------------- | ------------------------------------------------ | -------------------------------------------------------------------------- |
+| `Stopped`     | Admission has closed or its lock is unavailable  | Use an active Core instance; do not retry on a stopped scope               |
+| `Unavailable` | No Tokio runtime is entered                      | Enter the host-owned runtime before invoking the operation                 |
+| `Panicked`    | The admitted worker unwound                      | Report failure and re-read affected state before deciding whether to retry |
+| `Interrupted` | The admitted worker was cancelled by its runtime | Recover the runtime and re-read state before retrying                      |
 
 Dropping a caller does not cancel admitted work. The tracked worker remains
 owned until completion, and shutdown drains it. A worker panic is returned as an
