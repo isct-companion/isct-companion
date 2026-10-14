@@ -428,8 +428,7 @@ pub fn run() {
             };
             if let Some(foreground) = foreground {
                 if let Err(error) = core_ports::runtime(app)
-                    .refresh
-                    .event(school_refresh::RefreshEvent::lifecycle(foreground))
+                    .refresh_event(school_refresh::RefreshEvent::lifecycle(foreground))
                 {
                     eprintln!("[school-refresh] {error}");
                 }

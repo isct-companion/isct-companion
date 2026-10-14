@@ -207,7 +207,7 @@ pub(crate) async fn pull_state(
     app: tauri::AppHandle,
 ) -> Result<Vec<pull_coordinator::PullSnapshot>, String> {
     require_local_main(&webview)?;
-    Ok(core_ports::runtime(&app).coordinator.snapshots().await)
+    Ok(core_ports::runtime(&app).pull_snapshots().await)
 }
 
 #[tauri::command]
@@ -217,7 +217,7 @@ pub(crate) async fn cancel_pull(
     id: String,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    Ok(core_ports::runtime(&app).coordinator.cancel(&id).await)
+    Ok(core_ports::runtime(&app).cancel_pull(&id).await)
 }
 
 #[tauri::command]
@@ -259,8 +259,7 @@ pub(crate) async fn school_refresh_event(
     require_local_main(&webview)?;
     let runtime = core_ports::runtime(&app);
     runtime
-        .refresh
-        .event(event)
+        .refresh_event(event)
         .map_err(|error| error.to_string())?;
     let visible = app.state::<SchoolWebController>().is_visible();
     let store = app.state::<crate::data::DataStore>().inner().clone();

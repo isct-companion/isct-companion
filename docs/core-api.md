@@ -178,7 +178,7 @@ a snapshot command the UI reads after subscribing.
 | Course finder / LMS review | `Core::finder_query`, `Core::lms_merge_preview` | Input, selection, progress and review confirmation |
 | Reminders | `Core::reminder_tick`, `Core::import_legacy_reminders` | Wakeups, migration bytes and `NotificationSink` |
 | School | `Core::school_browser()`, `Core::services(...).school`, `Core::school_records` | Native views, presentation, callbacks and downloads |
-| Pull state | `Core::runtime.coordinator`: snapshots, subscribe, cancel | Forward intents and publish snapshots |
+| Pull state | `CoreRuntime::{pull_snapshots,subscribe_pulls,cancel_pull,refresh_event}` | Forward intents and publish snapshots |
 | References | `Core::services(...).references` | Supply lifecycle/network facts |
 | Scheduler | `Core::runtime`: wake, run_scheduled, suspend, resume | Periodic wakeups and scheduled exporter port |
 | Catalog | `catalog::{offerings,finder_offerings,catalog_query,catalog_sync_offering,catalog_sync_offerings,catalog_sync_department,syllabus_course}` | Call through the runtime's owned operation scope |

@@ -31,12 +31,14 @@ pub enum RuntimeError {
 mod tests;
 
 pub struct CoreRuntime {
-    pub coordinator: PullCoordinator,
+    /// Pulls go through `run`-tracked services; shells read and cancel via
+    /// the methods below.
+    pub(crate) coordinator: PullCoordinator,
     pub notes: crate::notes::NoteStore,
     cloud: OnceLock<crate::cloud_sync::CloudSync>,
     pub downloads: crate::downloads::Downloader,
     pub lms_session: crate::lms_session::LmsSession,
-    pub refresh: SchoolRefresh,
+    pub(crate) refresh: SchoolRefresh,
     scheduler: Scheduler,
     tasks: RuntimeTasks,
     next_scheduled: Mutex<Instant>,
@@ -140,6 +142,29 @@ impl CoreRuntime {
             .publish_conditions(store, &self.coordinator, school_visible)
             .await
             .map_err(RuntimeError::from)
+    }
+
+    /// Forward a shell fact (foreground, account, lecture, network).
+    pub fn refresh_event(
+        &self,
+        event: crate::school_refresh::RefreshEvent,
+    ) -> Result<(), RuntimeError> {
+        Ok(self.refresh.event(event)?)
+    }
+
+    pub async fn pull_snapshots(&self) -> Vec<crate::pull_coordinator::PullSnapshot> {
+        self.coordinator.snapshots().await
+    }
+
+    pub fn subscribe_pulls(
+        &self,
+    ) -> tokio::sync::watch::Receiver<Vec<crate::pull_coordinator::PullSnapshot>> {
+        self.coordinator.subscribe()
+    }
+
+    /// Cancel a pull before it applies; false when it cannot be cancelled.
+    pub async fn cancel_pull(&self, id: &str) -> bool {
+        self.coordinator.cancel(id).await
     }
 
     /// Track the complete operation, including result/event writes after its

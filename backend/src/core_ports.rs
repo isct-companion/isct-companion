@@ -109,9 +109,8 @@ impl DesktopRuntime {
             .get_webview_window("main")
             .and_then(|window| window.is_focused().ok())
             == Some(true);
-        if let Err(error) = runtime(app)
-            .refresh
-            .event(isct_core::school_refresh::RefreshEvent::lifecycle(focused))
+        if let Err(error) =
+            runtime(app).refresh_event(isct_core::school_refresh::RefreshEvent::lifecycle(focused))
         {
             eprintln!("[school-refresh] {error}");
         }
@@ -151,7 +150,7 @@ impl DesktopRuntime {
             });
             // Started after the main window exists. The UI also reads
             // `pull_state` after subscribing, so no snapshot depends on an emit.
-            let mut states = runtime(&app).coordinator.subscribe();
+            let mut states = runtime(&app).subscribe_pulls();
             let event_tasks = tasks.clone();
             let events = DesktopEvents(app.clone());
             tasks.spawn(async move {
