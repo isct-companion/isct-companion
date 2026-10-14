@@ -18,7 +18,13 @@ use uuid::Uuid;
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
+    /// Baseline for `WorkspaceMutation::expected_revision`. It covers only
+    /// user-owned state, so school and reference ingests do not cause
+    /// conflicts.
     pub revision: String,
+    /// Changes whenever any part of the snapshot changes; read-model caches
+    /// key on it.
+    pub content_revision: String,
     #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub workspace: Value,
     #[cfg_attr(feature = "ts", ts(type = "unknown"))]
@@ -263,8 +269,8 @@ impl WorkspaceService {
     }
 
     pub fn snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceError> {
-        let (workspace, school_records) = self.store.workspace_snapshot_parts()?;
-        snapshot(workspace, school_records).map_err(WorkspaceError::from)
+        let (workspace, school_records, revision) = self.store.workspace_snapshot_parts()?;
+        snapshot(workspace, school_records, revision).map_err(WorkspaceError::from)
     }
 
     pub fn mutate(&self, mutation: WorkspaceMutation) -> Result<WorkspaceSnapshot, WorkspaceError> {
@@ -272,29 +278,26 @@ impl WorkspaceService {
             &mutation.expected_revision,
             |write, current, school_records| {
                 apply_intent(write, current, school_records, mutation.intent)?;
-                let (workspace, school_records) = write.snapshot_parts()?;
-                snapshot(workspace, school_records)
+                let (workspace, school_records, revision) = write.snapshot_parts()?;
+                snapshot(workspace, school_records, revision)
             },
         )?;
         Ok(result)
     }
 }
 
-fn snapshot(workspace: Value, school_records: Value) -> Result<WorkspaceSnapshot, DataError> {
-    let revision = snapshot_revision(&workspace, &school_records)?;
+fn snapshot(
+    workspace: Value,
+    school_records: Value,
+    revision: String,
+) -> Result<WorkspaceSnapshot, DataError> {
+    let bytes = serde_json::to_vec(&(&workspace, &school_records)).map_err(DataError::from)?;
     Ok(WorkspaceSnapshot {
         revision,
+        content_revision: format!("{:x}", Sha256::digest(bytes)),
         workspace,
         school_records,
     })
-}
-
-pub(crate) fn snapshot_revision(
-    workspace: &Value,
-    school_records: &Value,
-) -> Result<String, DataError> {
-    let bytes = serde_json::to_vec(&(workspace, school_records)).map_err(DataError::from)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
 fn apply_intent(
@@ -1730,6 +1733,14 @@ where
         "id".into(),
         Value::String(existing_id.unwrap_or_else(|| Uuid::now_v7().to_string())),
     );
+    // Run and fetch bookkeeping belongs to Core; a form built from an older
+    // snapshot must not roll it back.
+    for field in crate::data::bookkeeping_fields(table) {
+        match existing.and_then(|row| row.get(*field)) {
+            Some(value) => object.insert((*field).into(), value.clone()),
+            None => object.remove(*field),
+        };
+    }
     enrich(object)?;
     write
         .put(table, row, existing.and_then(revision))
@@ -2518,7 +2529,10 @@ mod tests {
                 },
             })
             .unwrap();
-        assert_ne!(next.revision, original.revision);
+        // Run bookkeeping is Core-owned: it changes the content, not the
+        // baseline user edits are checked against.
+        assert_ne!(next.content_revision, original.content_revision);
+        assert_eq!(next.revision, original.revision);
         let task = next.workspace["scheduledTasks"]
             .as_array()
             .unwrap()
@@ -2528,7 +2542,82 @@ mod tests {
         assert_eq!(task["lastOccurrenceAt"], "2026-09-29T12:00:00.000Z");
         assert_eq!(task["lastRunAt"], "2026-09-29T12:00:01.000Z");
         assert_eq!(task["lastResult"], "Export completed");
-        assert_eq!(service.snapshot().unwrap().revision, next.revision);
+        assert_eq!(
+            service.snapshot().unwrap().content_revision,
+            next.content_revision
+        );
+    }
+
+    #[test]
+    fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
+        let service = service("ingest-revision");
+        let before = service.snapshot().unwrap();
+        // A school ingest, a reference poll and a scheduler run land between
+        // the person's snapshot and their edit.
+        service
+            .store
+            .catalog_upsert_offerings(&[json!({
+                "id":"202600009", "year":2026, "quarters":["3Q"], "code":"X.9",
+                "title":{"en":"Ingested"}, "instructors":[], "instructionLanguage":"en",
+                "format":{"kinds":["lecture"]}, "media":{},
+                "credits":{"lecture":1.0,"exercise":0.0,"lab":0.0}, "schedule":[],
+                "academicUnit":{"en":"Unit"}, "intensive":false,
+                "syllabusUrl":"https://example.invalid/202600009", "fetchedAt":{}
+            })])
+            .unwrap();
+        service.store.record_reference_poll().unwrap();
+        let mut task = service.store.user_rows("scheduled_tasks").unwrap()[0].clone();
+        let rev = task["rev"].as_u64();
+        task["lastRunAt"] = json!("2026-10-14T00:00:00Z");
+        task["lastResult"] = json!("Done");
+        service
+            .store
+            .put_user_record_checked("scheduled_tasks", task, "scheduler", rev)
+            .unwrap();
+        let ingested = service.snapshot().unwrap();
+        assert_ne!(ingested.content_revision, before.content_revision);
+        assert_eq!(ingested.revision, before.revision);
+
+        let edited = service
+            .mutate(WorkspaceMutation {
+                expected_revision: before.revision.clone(),
+                intent: WorkspaceIntent::SelectTerm {
+                    term_id: "2026-4Q".into(),
+                },
+            })
+            .unwrap();
+        assert_ne!(edited.revision, before.revision);
+        // A toggle built from the older snapshot keeps the newer run record.
+        let stale_task = before.workspace["scheduledTasks"][0].clone();
+        let toggled = mutate(
+            &service,
+            WorkspaceIntent::SaveScheduledTask {
+                existing_id: stale_task["id"].as_str().map(str::to_owned),
+                draft: json!({
+                    "name": stale_task["name"], "action": stale_task["action"],
+                    "schedule": stale_task["schedule"],
+                    "enabled": !stale_task["enabled"].as_bool().unwrap()
+                }),
+            },
+        );
+        let saved = toggled.workspace["scheduledTasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == stale_task["id"])
+            .unwrap();
+        assert_eq!(saved["enabled"], !stale_task["enabled"].as_bool().unwrap());
+        assert_eq!(saved["lastResult"], "Done");
+        // A user edit still conflicts with another user edit.
+        let error = service
+            .mutate(WorkspaceMutation {
+                expected_revision: edited.revision,
+                intent: WorkspaceIntent::SelectTerm {
+                    term_id: "2026-3Q".into(),
+                },
+            })
+            .unwrap_err();
+        assert!(matches!(error, WorkspaceError::Conflict(_)));
     }
 
     #[test]

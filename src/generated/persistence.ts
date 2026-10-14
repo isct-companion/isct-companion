@@ -943,7 +943,17 @@ export type WorkspaceQueryResult =
   | { kind: "notificationPlan"; value: NotificationPlan };
 
 export type WorkspaceSnapshot = {
+  /**
+   * Baseline for `WorkspaceMutation::expected_revision`. It covers only
+   * user-owned state, so school and reference ingests do not cause
+   * conflicts.
+   */
   revision: string;
+  /**
+   * Changes whenever any part of the snapshot changes; read-model caches
+   * key on it.
+   */
+  contentRevision: string;
   workspace: unknown;
   schoolRecords: unknown;
 };

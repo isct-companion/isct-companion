@@ -306,6 +306,7 @@ beforeEach(() => {
     workspace: data,
     status: "ready",
     revision: "fixture:ready",
+    contentRevision: "fixture:ready",
   };
   fixture.hide.mockResolvedValue(undefined);
   fixture.capabilities.mockResolvedValue({ schoolWeb: true });

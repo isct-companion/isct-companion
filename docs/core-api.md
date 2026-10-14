@@ -192,9 +192,15 @@ admitted work. The underlying syllabus transport still owns request pacing.
 
 ## Workspace transactions and read models
 
-`Core::workspace.snapshot()` returns `{revision, workspace, schoolRecords}`.
-All three are assembled from one SQLite read transaction. The revision is an
-opaque SHA-256 fingerprint of the canonical workspace and school records.
+`Core::workspace.snapshot()` returns
+`{revision, contentRevision, workspace, schoolRecords}`, all assembled from one
+SQLite read transaction. `revision` is an opaque SHA-256 fingerprint of the
+user-owned rows and settings intents are checked against; school, catalog and
+reference caches and Core bookkeeping (scheduler run fields, subscription fetch
+state, the subscription poll clock) are excluded, so a background ingest never
+turns a person's edit into a conflict. Intents keep that bookkeeping from the
+stored row. `contentRevision` fingerprints the whole snapshot; read-model caches
+key on it.
 
 Send `WorkspaceMutation { expected_revision, intent }` to
 `Core::workspace.mutate`. Core starts an IMMEDIATE transaction, rechecks the

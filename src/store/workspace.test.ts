@@ -28,6 +28,7 @@ function coreService(initial: Workspace = seedWorkspace()) {
   let workspace = structuredClone(initial);
   const result = (): CoreWorkspaceSnapshot => ({
     revision: `r${generation}`,
+    contentRevision: `r${generation}`,
     workspace: structuredClone(workspace),
     schoolRecords: schoolRecords(),
   });
@@ -117,6 +118,7 @@ describe("Zustand workspace snapshot cache", () => {
     let rejectOnce = true;
     const snapshot = (): CoreWorkspaceSnapshot => ({
       revision,
+      contentRevision: revision,
       workspace: structuredClone(workspace),
       schoolRecords: schoolRecords(),
     });
@@ -171,6 +173,7 @@ describe("Zustand workspace snapshot cache", () => {
     await Promise.resolve();
     const stale = {
       revision: "r0",
+      contentRevision: "r0",
       workspace: seedWorkspace(),
       schoolRecords: schoolRecords(),
     };

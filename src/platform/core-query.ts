@@ -147,7 +147,7 @@ export function useScheduleQueries<T extends unknown[]>(
   queries: readonly ScheduleQuery[],
   enabled = true,
 ): QueryState<T> {
-  const revision = useWorkspace((state) => state.revision);
+  const revision = useWorkspace((state) => state.contentRevision);
   const [attempt, setAttempt] = useState(0);
   const requestKey = JSON.stringify(queries);
   const key = JSON.stringify([revision, queries]);

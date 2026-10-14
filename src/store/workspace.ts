@@ -19,7 +19,10 @@ export type WorkspaceSnapshot = {
   readonly workspace?: Workspace;
   readonly schoolRecords?: SchoolRecords;
   readonly status: "idle" | "loading" | "ready" | "error";
+  /** Baseline for user intents; school and reference ingests keep it. */
   readonly revision: string;
+  /** Changes with any snapshot content; read-model caches key on it. */
+  readonly contentRevision: string;
   readonly error?: string;
 };
 export type WorkspaceEdit = (draft: Workspace) => Workspace | void;
@@ -42,6 +45,7 @@ export function createWorkspaceStore(
     Object.freeze({
       status: "idle",
       revision: "",
+      contentRevision: "",
     }),
   );
   let loading: Promise<void> | undefined;
@@ -57,6 +61,7 @@ export function createWorkspaceStore(
       schoolRecords: snapshot.schoolRecords,
       status: "ready",
       revision: snapshot.revision,
+      contentRevision: snapshot.contentRevision,
       error: undefined,
     });
   };
@@ -103,7 +108,7 @@ export function createWorkspaceStore(
         const request = refreshRequest;
         const snapshot = await service.snapshot();
         if (
-          state.getState().revision !== before.revision ||
+          state.getState().contentRevision !== before.contentRevision ||
           request !== refreshRequest
         )
           continue;
@@ -187,6 +192,7 @@ export function createBrowserPreviewService(
   let workspace: Workspace | undefined;
   const snapshot = (): CoreWorkspaceSnapshot => ({
     revision: `preview:${JSON.stringify(workspace).length}`,
+    contentRevision: `preview:${JSON.stringify(workspace).length}`,
     workspace: structuredClone(workspace!),
     schoolRecords: emptySchoolRecords(),
   });

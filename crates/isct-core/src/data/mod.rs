@@ -72,6 +72,81 @@ pub(crate) const USER_BACKUP_TABLES: &[&str] = &[
     "subscriptions",
 ];
 
+/// Core-owned bookkeeping that background work (scheduler, reference
+/// refresh) updates inside user-owned rows. Shells never supply it, so it is
+/// not part of the user-intent revision.
+const BOOKKEEPING_FIELDS: &[(&str, &[&str])] = &[
+    (
+        "scheduled_tasks",
+        &["lastOccurrenceAt", "lastRunAt", "lastResult"],
+    ),
+    (
+        "subscriptions",
+        &[
+            "fetchedAt",
+            "lastError",
+            "indexHash",
+            "remoteHash",
+            "dataUrl",
+            "sourceTs",
+            "year",
+        ],
+    ),
+];
+pub(crate) fn bookkeeping_fields(table: &str) -> &'static [&'static str] {
+    BOOKKEEPING_FIELDS
+        .iter()
+        .find(|(name, _)| *name == table)
+        .map_or(&[], |(_, fields)| fields)
+}
+
+/// Settings rows a user intent reads as its baseline.
+const INTENT_SETTINGS: &[&str] = &[
+    "selectedTerm",
+    "terms",
+    "academicProfile",
+    "settings",
+    "userPreferences",
+    "devicePreferences",
+    "cloud",
+    "importStatus",
+];
+
+/// Fingerprint of the user-owned state intents are checked against. School
+/// and reference caches and Core bookkeeping are excluded, so a background
+/// ingest does not turn a person's edit into a conflict.
+fn intent_revision(connection: &Connection) -> Result<String, DataError> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for table in USER_BACKUP_TABLES.iter().chain(&["scheduled_tasks"]) {
+        let bookkeeping = bookkeeping_fields(table);
+        hasher.update(table.as_bytes());
+        for row in read_rows(connection, table)? {
+            let mut content = content_value(&row);
+            if let Some(object) = content.as_object_mut() {
+                // `source` is stamped on a row's first Core write; real edits
+                // always change other content as well.
+                for field in bookkeeping.iter().chain(&["source"]) {
+                    object.remove(*field);
+                }
+            }
+            hasher.update(serde_json::to_vec(&(content, row.get("deletedAt")))?);
+        }
+    }
+    for key in INTENT_SETTINGS {
+        let mut value = read_setting(connection, key)?.unwrap_or(Value::Null);
+        if let Some(refresh) = value
+            .pointer_mut("/subscriptionRefresh")
+            .and_then(Value::as_object_mut)
+        {
+            refresh.remove("lastCheckedAt");
+        }
+        hasher.update(key.as_bytes());
+        hasher.update(serde_json::to_vec(&value)?);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 pub(crate) const USER_BACKUP_SETTINGS: &[&str] = &["userPreferences", "academicProfile", "terms"];
 const BACKUP_KIND: &str = "IsctCompanion.local-backup";
 const BACKUP_SCHEMA_VERSION: u64 = 6;
@@ -1152,10 +1227,12 @@ pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
 }
 
 impl WorkspaceWrite<'_, '_> {
-    pub(crate) fn snapshot_parts(&self) -> Result<(Value, Value), DataError> {
+    /// `(workspace, school records, user-intent revision)` as written so far.
+    pub(crate) fn snapshot_parts(&self) -> Result<(Value, Value, String), DataError> {
         Ok((
             DataStore::load_workspace_from(self.transaction)?,
             DataStore::school_records_from(self.transaction)?,
+            intent_revision(self.transaction)?,
         ))
     }
 
@@ -1572,16 +1649,18 @@ impl DataStore {
 
     pub fn load_workspace(&self) -> Result<Value, DataError> {
         self.workspace_snapshot_parts()
-            .map(|(workspace, _)| workspace)
+            .map(|(workspace, _, _)| workspace)
     }
 
-    pub(crate) fn workspace_snapshot_parts(&self) -> Result<(Value, Value), DataError> {
+    /// `(workspace, school records, user-intent revision)` from one read.
+    pub(crate) fn workspace_snapshot_parts(&self) -> Result<(Value, Value, String), DataError> {
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(DataError::from)?;
         let workspace = Self::load_workspace_from(&transaction)?;
         let school_records = Self::school_records_from(&transaction)?;
+        let revision = intent_revision(&transaction)?;
         transaction.commit().map_err(DataError::from)?;
-        Ok((workspace, school_records))
+        Ok((workspace, school_records, revision))
     }
 
     pub(crate) fn workspace_write<T>(
@@ -1593,14 +1672,14 @@ impl DataStore {
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DataError::from)?;
-        let current = Self::load_workspace_from(&transaction)?;
-        let school_records = Self::school_records_from(&transaction)?;
-        let actual = crate::workspace::snapshot_revision(&current, &school_records)?;
+        let actual = intent_revision(&transaction)?;
         if actual != expected_revision {
             return Err(DataError::conflict(format!(
                 "workspace revision conflict: expected {expected_revision}, actual {actual}"
             )));
         }
+        let current = Self::load_workspace_from(&transaction)?;
+        let school_records = Self::school_records_from(&transaction)?;
         let result = operation(
             &WorkspaceWrite {
                 transaction: &transaction,
