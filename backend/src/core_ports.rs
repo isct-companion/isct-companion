@@ -132,6 +132,8 @@ impl DesktopRuntime {
                         _ = interval.tick() => {}
                     }
                     crate::cloud_sync::CloudSync::tick(&wake_app);
+                    #[cfg(desktop)]
+                    crate::agent_server::AgentAccess::tick(&wake_app);
                     let visible = wake_app.state::<SchoolWebController>().is_visible();
                     let woke = runtime(&wake_app).wake(services(&wake_app), visible).await;
                     wake_failure.record("runtime", woke);

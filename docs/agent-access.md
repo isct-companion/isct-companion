@@ -14,10 +14,15 @@ The token stays on this device, outside exported data, and persists across app
 restarts. Keep it private. Keep IsctCompanion open while using the server.
 
 Calls use the desktop's existing Core service, with permission checked on every
-call. Turning Allow local agents off blocks subsequent tool calls. There is no
-CLI command, stdio adapter, bridge file or direct database mode to configure.
-The server binds only to loopback; authentication and Host/Origin checks protect
-the endpoint. If the port is unavailable, Settings shows the startup error.
+call. The server listens only while Allow local agents is on: the token is
+created the first time it is turned on, and turning it off stops the listener
+(within a few seconds, or immediately from Settings). There is no CLI command,
+stdio adapter, bridge file or direct database mode to configure. The server
+binds only to loopback; authentication and Host/Origin checks protect the
+endpoint. If the port is unavailable, Settings shows the error and the app
+retries every few seconds, so the server starts once the port frees.
+Local storage failures reach clients as a generic error; details stay in the
+app's log.
 See [shared Core integration](core-api.md).
 
 ## Read tools

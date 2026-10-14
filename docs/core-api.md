@@ -329,8 +329,11 @@ described in [notes and backup APIs](core-backup-sync.md).
 
 ## MCP and desktop lifetime
 
-Desktop starts one standard Streamable HTTP MCP server at
-`http://127.0.0.1:47832/mcp`, backed by the official Rust MCP SDK. Settings → AI
+While Settings → AI agent access allows local agents, desktop runs one
+standard Streamable HTTP MCP server at `http://127.0.0.1:47832/mcp`, backed by
+the official Rust MCP SDK. The listener and token exist only while access is
+on; the wake loop starts, stops and retries the listener to match the stored
+setting. Settings → AI
 agent access provides the URL and a copy button for the Bearer access token.
 There is no separate CLI, stdio adapter, bridge descriptor or headless database
 mode. The app must stay open. All 17 tools call the existing `Core.agent`; no
@@ -340,7 +343,9 @@ The token lives in the app's local data directory with Unix mode 0600, outside
 the database, cloud snapshots and backup exports. It persists across app restarts
 so client configuration remains usable. The adapter checks Bearer authentication,
 Host and Origin, bounds HTTP work, and lets Core recheck agent permission for
-every tool call. Binding failure is reported by Settings without crashing desktop.
+every tool call. Binding failure is reported by Settings without crashing
+desktop and is retried every five seconds. Storage and compatibility errors
+reach clients as a generic message and are logged locally.
 
 Concurrent plan additions converge on one stable identity. Writes recheck
 permission and commit mutations and audit together in one SQLite transaction.

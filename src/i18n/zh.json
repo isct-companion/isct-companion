@@ -797,5 +797,6 @@
   "Copy URL": "复制地址",
   "Access token": "访问令牌",
   "Copy token": "复制令牌",
-  "MCP server is unavailable.": "MCP 服务器不可用。"
+  "MCP server is unavailable.": "MCP 服务器不可用。",
+  "Turn on Allow local agents to show the connection details.": "开启“允许本地智能体”后即可显示连接信息。"
 }

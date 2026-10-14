@@ -321,18 +321,13 @@ pub fn run() {
             core_ports::runtime(app.handle())
                 .attach_cloud(app.state::<cloud_sync::CloudSync>().0.clone())
                 .map_err(std::io::Error::other)?;
+            // The MCP listener exists only while Allow local agents is on;
+            // the wake loop starts, stops and retries it.
             #[cfg(desktop)]
-            match tauri::async_runtime::block_on(agent_server::AgentServer::start(
-                app.handle().clone(),
-            )) {
-                Ok(server) => {
-                    app.manage(server);
-                }
-                Err(error) => {
-                    eprintln!("Desktop MCP server unavailable: {error}");
-                    app.manage(commands::agent::AgentServerError(error));
-                }
-            }
+            app.manage(
+                agent_server::AgentAccess::new(app.handle().clone())
+                    .map_err(std::io::Error::other)?,
+            );
             #[cfg(desktop)]
             {
                 #[cfg(dev)]
@@ -373,8 +368,8 @@ pub fn run() {
                             let drained = tokio::time::timeout(core_ports::EXIT_TIMEOUT, async {
                                 cloud_sync::CloudSync::changed(&app).await;
                                 #[cfg(desktop)]
-                                if let Some(server) = app.try_state::<agent_server::AgentServer>() {
-                                    server.shutdown().await;
+                                if let Some(access) = app.try_state::<agent_server::AgentAccess>() {
+                                    access.shutdown().await;
                                 }
                                 app.state::<core_ports::DesktopRuntime>()
                                     .shutdown(&core_ports::core(&app))
