@@ -1069,11 +1069,14 @@ pub fn finder_view(
         .collect();
     let plan = remote_plan(&parsed.factors, &scopes);
     let base = match &request.remote_ids {
-        Some(ids) => courses
-            .iter()
-            .filter(|c| ids.iter().any(|id| id == text(c, "id")))
-            .cloned()
-            .collect(),
+        Some(ids) => {
+            let ids: HashSet<&str> = ids.iter().map(String::as_str).collect();
+            courses
+                .iter()
+                .filter(|c| ids.contains(text(c, "id")))
+                .cloned()
+                .collect()
+        }
         None => courses.clone(),
     };
     let live = live_text(&request.input, &keys, &base, &ctx);
