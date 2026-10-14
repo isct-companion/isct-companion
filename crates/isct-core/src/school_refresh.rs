@@ -18,13 +18,40 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// A shell fact. Unknown kinds are rejected at deserialization instead of
+/// being ignored.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RefreshKind {
+    AccountActive,
+    Foreground,
+    Background,
+    LectureOpened,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefreshEvent {
-    pub kind: String,
+    pub kind: RefreshKind,
     pub profile: Option<SchoolAuthProfile>,
     pub course_id: Option<u64>,
     pub network: Option<String>,
+}
+
+impl RefreshEvent {
+    /// The window or app gained (`true`) or lost foreground.
+    pub fn lifecycle(foreground: bool) -> Self {
+        Self {
+            kind: if foreground {
+                RefreshKind::Foreground
+            } else {
+                RefreshKind::Background
+            },
+            profile: None,
+            course_id: None,
+            network: None,
+        }
+    }
 }
 
 struct RefreshIntent {
@@ -34,6 +61,8 @@ struct RefreshIntent {
     seen: HashSet<u64>,
     network: PullNetwork,
     foreground: bool,
+    /// One automatic batch at a time, so its order is the admission order.
+    running: bool,
 }
 
 #[derive(Clone)]
@@ -48,6 +77,7 @@ impl SchoolRefresh {
             seen: HashSet::new(),
             network: initial_network,
             foreground: true,
+            running: false,
         })))
     }
 
@@ -56,19 +86,19 @@ impl SchoolRefresh {
         if let Some(network) = event.network {
             queue.network = parse_network(&network);
         }
-        match event.kind.as_str() {
-            "account-active" => {
+        match event.kind {
+            RefreshKind::AccountActive => {
                 if let Some(profile) = event.profile {
                     queue.profiles.insert(profile);
                     queue.pending.insert(profile);
                 }
             }
-            "foreground" => {
+            RefreshKind::Foreground => {
                 queue.foreground = true;
                 queue.pending = queue.profiles.clone();
             }
-            "background" => queue.foreground = false,
-            "lecture-opened" => {
+            RefreshKind::Background => queue.foreground = false,
+            RefreshKind::LectureOpened => {
                 if let Some(course_id) = event.course_id.filter(|id| *id > 0) {
                     if queue.seen.insert(course_id) {
                         queue
@@ -77,14 +107,13 @@ impl SchoolRefresh {
                     }
                 }
             }
-            _ => {}
         }
         Ok(())
     }
 
     pub fn enqueue_scheduled(&self, site: SchoolSite) -> Result<(), SchoolError> {
         self.event(RefreshEvent {
-            kind: "account-active".into(),
+            kind: RefreshKind::AccountActive,
             profile: Some(profile_for_site(site)),
             course_id: None,
             network: None,
@@ -95,77 +124,124 @@ impl SchoolRefresh {
         self.0.lock().map(|queue| queue.foreground).unwrap_or(false)
     }
 
+    /// Read the stored facts the refresh policy needs on a blocking worker,
+    /// so neither the UI thread nor an executor thread waits on SQLite.
+    pub async fn load_inputs(store: &DataStore) -> Result<RefreshInputs, SchoolError> {
+        let store = store.clone();
+        tokio::task::spawn_blocking(move || {
+            let storage = |error: crate::data::DataError| SchoolError::Storage(error.to_string());
+            let allow_cellular = store
+                .load_workspace()
+                .map_err(storage)?
+                .pointer("/settings/subscriptionRefresh/allowCellular")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let runs = store.last_import_runs().map_err(storage)?;
+            Ok(RefreshInputs {
+                allow_cellular,
+                runs,
+            })
+        })
+        .await
+        .map_err(|error| SchoolError::Storage(error.to_string()))?
+    }
+
+    /// Republish pull conditions after a shell fact changed.
     pub async fn publish_conditions(
         &self,
         store: &DataStore,
         coordinator: &PullCoordinator,
         school_visible: bool,
     ) -> Result<(), SchoolError> {
-        let workspace = match store.load_workspace() {
-            Ok(workspace) => workspace,
-            Err(error) => {
-                publish_fail_closed(coordinator).await;
-                return Err(SchoolError::Storage(error.to_string()));
-            }
-        };
-        let allow_cellular = workspace
-            .pointer("/settings/subscriptionRefresh/allowCellular")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let conditions = match self.conditions(allow_cellular, school_visible) {
-            Ok(conditions) => conditions,
-            Err(error) => {
-                publish_fail_closed(coordinator).await;
-                return Err(error);
-            }
-        };
-        coordinator.set_conditions(conditions).await;
-        Ok(())
+        let inputs = Self::load_inputs(store).await;
+        self.apply_conditions(inputs.as_ref(), coordinator, school_visible)
+            .await
     }
 
-    pub async fn tick(
+    /// In-memory part of a wake: publish conditions from already loaded
+    /// inputs. A failed read publishes a fail-closed state.
+    pub async fn apply_conditions(
         &self,
-        store: &DataStore,
+        inputs: Result<&RefreshInputs, &SchoolError>,
+        coordinator: &PullCoordinator,
+        school_visible: bool,
+    ) -> Result<(), SchoolError> {
+        let conditions = inputs
+            .map_err(Clone::clone)
+            .and_then(|inputs| self.conditions(inputs.allow_cellular, school_visible));
+        match conditions {
+            Ok(conditions) => {
+                coordinator.set_conditions(conditions).await;
+                Ok(())
+            }
+            Err(error) => {
+                publish_fail_closed(coordinator).await;
+                Err(error)
+            }
+        }
+    }
+
+    /// Admit due work as one sequential batch: full pulls (Science first),
+    /// then lecture details. Coordinator FIFO order is assigned when each pull
+    /// is submitted, so submitting in sequence keeps that order real.
+    pub fn tick(
+        &self,
+        inputs: &RefreshInputs,
         service: &SchoolService,
         executor: Arc<dyn SchoolExecutor>,
         tasks: &RuntimeTasks,
     ) -> Result<(), SchoolError> {
-        let runs = store
-            .last_import_runs()
-            .map_err(|error| SchoolError::Storage(error.to_string()))?;
-        let (profiles, details) = self.take_ready(&runs, Utc::now(), Instant::now())?;
-        for profile in profiles {
-            let site = site_for_profile(profile);
-            let service = service.clone();
-            let executor = executor.clone();
-            if !tasks.spawn(async move {
-                let _ = service
-                    .pull(executor, site, None, PullOptions::automatic(), false)
-                    .await;
-            }) {
-                self.restore_profile(profile)?;
+        let Some((profiles, details)) =
+            self.take_ready(&inputs.runs, Utc::now(), Instant::now())?
+        else {
+            return Ok(());
+        };
+        let batch = RunningBatch(self.clone());
+        let service = service.clone();
+        let (batch_profiles, batch_details) = (profiles.clone(), details.clone());
+        let admitted = tasks.spawn(async move {
+            let refresh = batch.0.clone();
+            let _batch = batch;
+            for profile in batch_profiles {
+                let site = site_for_profile(profile);
+                if let Err(error) = service
+                    .pull(
+                        executor.clone(),
+                        site,
+                        None,
+                        PullOptions::automatic(),
+                        false,
+                    )
+                    .await
+                {
+                    crate::diagnostics::report("school-refresh", &error);
+                }
             }
-        }
-        for course_id in details {
-            let refresh = self.clone();
-            let service = service.clone();
-            let executor = executor.clone();
-            if !tasks.spawn(async move {
+            for course_id in batch_details {
                 let result = service
                     .pull(
-                        executor,
+                        executor.clone(),
                         SchoolSite::ScienceLms,
                         Some(course_id),
                         PullOptions::automatic(),
                         false,
                     )
                     .await;
+                if let Err(error) = &result {
+                    crate::diagnostics::report("school-refresh", error);
+                }
                 if result.as_ref().map_or(true, |rows| {
                     rows.is_empty() || rows.iter().any(|row| row.state != "ok")
                 }) {
                     let _ = refresh.retry_detail(course_id);
                 }
-            }) {
+            }
+        });
+        if !admitted {
+            for profile in profiles {
+                self.restore_profile(profile)?;
+            }
+            for course_id in details {
                 self.retry_detail(course_id)?;
             }
         }
@@ -186,13 +262,17 @@ impl SchoolRefresh {
         })
     }
 
+    #[allow(clippy::type_complexity)]
     fn take_ready(
         &self,
         runs: &Value,
         now: DateTime<Utc>,
         instant: Instant,
-    ) -> Result<(Vec<SchoolAuthProfile>, Vec<u64>), SchoolError> {
+    ) -> Result<Option<(Vec<SchoolAuthProfile>, Vec<u64>)>, SchoolError> {
         let mut queue = self.0.lock().map_err(|_| SchoolError::RefreshUnavailable)?;
+        if queue.running {
+            return Ok(None);
+        }
         let pending = std::mem::take(&mut queue.pending);
         let mut profiles = pending
             .into_iter()
@@ -200,7 +280,11 @@ impl SchoolRefresh {
             .collect::<Vec<_>>();
         profiles.sort_by_key(|profile| usize::from(*profile != SchoolAuthProfile::Science));
         let details = drain_ready_details(&mut queue, instant);
-        Ok((profiles, details))
+        if profiles.is_empty() && details.is_empty() {
+            return Ok(None);
+        }
+        queue.running = true;
+        Ok(Some((profiles, details)))
     }
 
     fn restore_profile(&self, profile: SchoolAuthProfile) -> Result<(), SchoolError> {
@@ -219,6 +303,24 @@ impl SchoolRefresh {
             .seen
             .remove(&course_id);
         Ok(())
+    }
+}
+
+/// Stored facts read once per wake.
+pub struct RefreshInputs {
+    allow_cellular: bool,
+    runs: Value,
+}
+
+/// Clears the running flag when a batch finishes, is refused or is dropped.
+struct RunningBatch(SchoolRefresh);
+
+impl Drop for RunningBatch {
+    fn drop(&mut self) {
+        match self.0 .0.lock() {
+            Ok(mut queue) => queue.running = false,
+            Err(poisoned) => poisoned.into_inner().running = false,
+        }
     }
 }
 
@@ -378,7 +480,7 @@ mod tests {
         for profile in [SchoolAuthProfile::TokyoTech, SchoolAuthProfile::Science] {
             refresh
                 .event(RefreshEvent {
-                    kind: "account-active".into(),
+                    kind: RefreshKind::AccountActive,
                     profile: Some(profile),
                     course_id: None,
                     network: None,
@@ -386,7 +488,11 @@ mod tests {
                 .unwrap();
         }
         let now: DateTime<Utc> = "2026-10-12T00:00:00Z".parse().unwrap();
-        let (profiles, _) = refresh.take_ready(&json!({}), now, Instant::now()).unwrap();
+        let (profiles, _) = refresh
+            .take_ready(&json!({}), now, Instant::now())
+            .unwrap()
+            .unwrap();
+        refresh.0.lock().unwrap().running = false;
         assert_eq!(
             profiles,
             [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech]
@@ -394,23 +500,27 @@ mod tests {
         assert!(refresh
             .take_ready(&json!({}), now, Instant::now())
             .unwrap()
-            .0
-            .is_empty());
-        refresh
-            .event(RefreshEvent {
-                kind: "foreground".into(),
-                profile: None,
-                course_id: None,
-                network: None,
-            })
-            .unwrap();
+            .is_none());
+        refresh.event(RefreshEvent::lifecycle(true)).unwrap();
         assert_eq!(
             refresh
                 .take_ready(&json!({}), now, Instant::now())
                 .unwrap()
+                .unwrap()
                 .0,
             [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech]
         );
+        // A running batch defers newly due work instead of interleaving it.
+        refresh.event(RefreshEvent::lifecycle(true)).unwrap();
+        assert!(refresh
+            .take_ready(&json!({}), now, Instant::now())
+            .unwrap()
+            .is_none());
+        drop(RunningBatch(refresh.clone()));
+        assert!(refresh
+            .take_ready(&json!({}), now, Instant::now())
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -419,7 +529,7 @@ mod tests {
         for _ in 0..3 {
             refresh
                 .event(RefreshEvent {
-                    kind: "lecture-opened".into(),
+                    kind: RefreshKind::LectureOpened,
                     profile: None,
                     course_id: Some(42),
                     network: None,
@@ -437,7 +547,7 @@ mod tests {
         refresh.retry_detail(42).unwrap();
         refresh
             .event(RefreshEvent {
-                kind: "lecture-opened".into(),
+                kind: RefreshKind::LectureOpened,
                 profile: None,
                 course_id: Some(42),
                 network: None,
@@ -451,7 +561,7 @@ mod tests {
         let refresh = SchoolRefresh::new(PullNetwork::Cellular);
         refresh
             .event(RefreshEvent {
-                kind: "background".into(),
+                kind: RefreshKind::Background,
                 profile: None,
                 course_id: None,
                 network: Some("offline".into()),
@@ -503,7 +613,7 @@ mod tests {
 
         refresh
             .event(RefreshEvent {
-                kind: "lecture-opened".into(),
+                kind: RefreshKind::LectureOpened,
                 profile: None,
                 course_id: Some(42),
                 network: None,
@@ -511,9 +621,9 @@ mod tests {
             .unwrap();
         refresh.0.lock().unwrap().details[0].1 = Instant::now();
         let tasks = RuntimeTasks::default();
+        let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
         refresh
-            .tick(&store, &service, executor.clone(), &tasks)
-            .await
+            .tick(&inputs, &service, executor.clone(), &tasks)
             .unwrap();
         tasks.close();
         tasks.wait().await;
@@ -521,7 +631,7 @@ mod tests {
 
         refresh
             .event(RefreshEvent {
-                kind: "lecture-opened".into(),
+                kind: RefreshKind::LectureOpened,
                 profile: None,
                 course_id: Some(42),
                 network: None,
@@ -529,9 +639,9 @@ mod tests {
             .unwrap();
         refresh.0.lock().unwrap().details[0].1 = Instant::now();
         let tasks = RuntimeTasks::default();
+        let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
         refresh
-            .tick(&store, &service, executor.clone(), &tasks)
-            .await
+            .tick(&inputs, &service, executor.clone(), &tasks)
             .unwrap();
         tasks.close();
         tasks.wait().await;
@@ -539,7 +649,7 @@ mod tests {
 
         refresh
             .event(RefreshEvent {
-                kind: "lecture-opened".into(),
+                kind: RefreshKind::LectureOpened,
                 profile: None,
                 course_id: Some(42),
                 network: None,
@@ -547,12 +657,92 @@ mod tests {
             .unwrap();
         assert!(refresh.0.lock().unwrap().details.is_empty());
         let tasks = RuntimeTasks::default();
+        let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
         refresh
-            .tick(&store, &service, executor.clone(), &tasks)
-            .await
+            .tick(&inputs, &service, executor.clone(), &tasks)
             .unwrap();
         tasks.close();
         tasks.wait().await;
         assert_eq!(executor.calls.load(Ordering::Relaxed), 2);
+    }
+
+    struct RecordingExecutor(Mutex<Vec<(SchoolSite, Option<u64>)>>);
+
+    impl SchoolExecutor for RecordingExecutor {
+        fn execute(
+            &self,
+            request: SchoolExecution,
+            _context: PullContext,
+        ) -> crate::school_service::SchoolExecutorFuture<'_> {
+            Box::pin(async move {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push((request.site, request.course_id));
+                Ok(vec![IngestOutcome {
+                    site: request.site,
+                    kind: "lms".into(),
+                    state: "ok".into(),
+                    changed: 0,
+                    message: "Updated".into(),
+                }])
+            })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn tick_runs_science_then_kyomu_then_details_in_order() {
+        let store = store("batch-order");
+        let coordinator = PullCoordinator::default();
+        coordinator
+            .set_conditions(PullConditions {
+                network: PullNetwork::Wifi,
+                foreground: true,
+                school_visible: false,
+                allow_cellular: false,
+            })
+            .await;
+        let service = SchoolService::new(
+            coordinator,
+            Arc::new(SchoolAuthService::new(EmptyVault)),
+            Arc::new(NoopEvents),
+        );
+        let refresh = SchoolRefresh::new(PullNetwork::Wifi);
+        refresh
+            .event(RefreshEvent {
+                kind: RefreshKind::LectureOpened,
+                profile: None,
+                course_id: Some(42),
+                network: None,
+            })
+            .unwrap();
+        refresh.0.lock().unwrap().details[0].1 = Instant::now();
+        for profile in [SchoolAuthProfile::TokyoTech, SchoolAuthProfile::Science] {
+            refresh
+                .event(RefreshEvent {
+                    kind: RefreshKind::AccountActive,
+                    profile: Some(profile),
+                    course_id: None,
+                    network: None,
+                })
+                .unwrap();
+        }
+        let executor = Arc::new(RecordingExecutor(Mutex::new(Vec::new())));
+        let tasks = RuntimeTasks::default();
+        let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
+        refresh
+            .tick(&inputs, &service, executor.clone(), &tasks)
+            .unwrap();
+        tasks.close();
+        tasks.wait().await;
+        assert_eq!(
+            *executor.0.lock().unwrap(),
+            [
+                (SchoolSite::ScienceLms, None),
+                (SchoolSite::Kyomu, None),
+                (SchoolSite::ScienceLms, Some(42)),
+            ]
+        );
+        assert!(!refresh.0.lock().unwrap().running);
     }
 }

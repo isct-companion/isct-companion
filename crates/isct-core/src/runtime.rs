@@ -31,12 +31,14 @@ pub enum RuntimeError {
 mod tests;
 
 pub struct CoreRuntime {
-    pub coordinator: PullCoordinator,
+    /// Pulls go through `run`-tracked services; shells read and cancel via
+    /// the methods below.
+    pub(crate) coordinator: PullCoordinator,
     pub notes: crate::notes::NoteStore,
     cloud: OnceLock<crate::cloud_sync::CloudSync>,
     pub downloads: crate::downloads::Downloader,
     pub lms_session: crate::lms_session::LmsSession,
-    pub refresh: SchoolRefresh,
+    pub(crate) refresh: SchoolRefresh,
     scheduler: Scheduler,
     tasks: RuntimeTasks,
     next_scheduled: Mutex<Instant>,
@@ -74,6 +76,15 @@ impl CoreRuntime {
         services: SchedulerServices,
         school_visible: bool,
     ) -> Result<(), RuntimeError> {
+        if self.tasks.is_closed() {
+            return Err(RuntimeTaskError::Stopped.into());
+        }
+        if self.suspended.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        // Storage reads happen before the lifecycle lock, so suspend/resume
+        // (called on the UI thread) only ever wait for in-memory work.
+        let inputs = SchoolRefresh::load_inputs(&services.store).await;
         let _lifecycle = self.lifecycle.lock().await;
         if self.tasks.is_closed() {
             return Err(RuntimeTaskError::Stopped.into());
@@ -82,16 +93,16 @@ impl CoreRuntime {
             return Ok(());
         }
         self.refresh
-            .publish_conditions(&services.store, &self.coordinator, school_visible)
+            .apply_conditions(inputs.as_ref(), &self.coordinator, school_visible)
             .await?;
-        self.refresh
-            .tick(
-                &services.store,
+        if let Ok(inputs) = &inputs {
+            self.refresh.tick(
+                inputs,
                 &services.school,
                 services.executor.clone(),
                 &self.tasks,
-            )
-            .await?;
+            )?;
+        }
         let now = Instant::now();
         let due = {
             let mut next = self
@@ -110,11 +121,50 @@ impl CoreRuntime {
                 let runtime = self.clone();
                 self.tasks.spawn(async move {
                     let _guard = guard;
-                    let _ = runtime.scheduler.tick(&services).await;
+                    if let Err(error) = runtime.scheduler.tick(&services).await {
+                        crate::diagnostics::report("scheduler", &error);
+                    }
                 });
             }
         }
         Ok(())
+    }
+
+    /// Republish pull conditions after a shell fact changed (focus, network,
+    /// school view). Async and off the lifecycle lock: safe to spawn from a UI
+    /// event handler without blocking it.
+    pub async fn publish_conditions(
+        &self,
+        store: &crate::data::DataStore,
+        school_visible: bool,
+    ) -> Result<(), RuntimeError> {
+        self.refresh
+            .publish_conditions(store, &self.coordinator, school_visible)
+            .await
+            .map_err(RuntimeError::from)
+    }
+
+    /// Forward a shell fact (foreground, account, lecture, network).
+    pub fn refresh_event(
+        &self,
+        event: crate::school_refresh::RefreshEvent,
+    ) -> Result<(), RuntimeError> {
+        Ok(self.refresh.event(event)?)
+    }
+
+    pub async fn pull_snapshots(&self) -> Vec<crate::pull_coordinator::PullSnapshot> {
+        self.coordinator.snapshots().await
+    }
+
+    pub fn subscribe_pulls(
+        &self,
+    ) -> tokio::sync::watch::Receiver<Vec<crate::pull_coordinator::PullSnapshot>> {
+        self.coordinator.subscribe()
+    }
+
+    /// Cancel a pull before it applies; false when it cannot be cancelled.
+    pub async fn cancel_pull(&self, id: &str) -> bool {
+        self.coordinator.cancel(id).await
     }
 
     /// Track the complete operation, including result/event writes after its

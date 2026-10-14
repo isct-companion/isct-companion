@@ -1,9 +1,12 @@
 //! Desktop school-download handling, including the macOS PDF viewer save hook.
 
 use isct_core::{
-    lifecycle::SchoolSite, runtime_tasks::RuntimeTasks, school_browser::sanitize_school_url,
+    events::{CoreEvent, SchoolDownloadEvent, SchoolDownloadState},
+    lifecycle::SchoolSite,
+    ports::EventSink,
+    runtime_tasks::RuntimeTasks,
+    school_browser::sanitize_school_url,
 };
-use serde::Serialize;
 #[cfg(target_os = "macos")]
 use std::collections::HashMap;
 use std::{
@@ -15,14 +18,13 @@ use std::{
 };
 #[cfg(desktop)]
 use tauri::webview::DownloadEvent;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 #[cfg(target_os = "macos")]
 #[path = "school_pdf_save.rs"]
 mod pdf_save;
 
-const MAIN_WINDOW: &str = "main";
 const DOWNLOAD_NAME_LIMIT: usize = 200;
 
 #[derive(Default)]
@@ -42,19 +44,6 @@ struct DownloadInner {
 
 #[derive(Clone, Default)]
 pub(crate) struct SchoolDownloads(Arc<DownloadInner>);
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SchoolDownloadEvent {
-    site: SchoolSite,
-    /// `started`, `done` or `failed`.
-    state: &'static str,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<String>,
-}
 
 impl SchoolDownloads {
     pub(crate) fn set_visible(&self, site: Option<SchoolSite>) {
@@ -90,7 +79,7 @@ impl SchoolDownloads {
                 emit_download(
                     app,
                     site,
-                    "started",
+                    SchoolDownloadState::Started,
                     name,
                     sanitize_school_url(url.as_str()),
                     None,
@@ -132,7 +121,7 @@ impl SchoolDownloads {
 
         let name = download_file_name(&saved.suggested_name, &saved.mime_type);
         let Ok(directory) = app.path().download_dir() else {
-            emit_download(app, site, "failed", name, None, None);
+            emit_download(app, site, SchoolDownloadState::Failed, name, None, None);
             return;
         };
         let app = app.clone();
@@ -166,7 +155,14 @@ impl SchoolDownloads {
             downloads.finish(&app, site, name, written);
         });
         if !spawned {
-            emit_download(&failed_app, site, "failed", failed_name, None, None);
+            emit_download(
+                &failed_app,
+                site,
+                SchoolDownloadState::Failed,
+                failed_name,
+                None,
+                None,
+            );
         }
     }
 
@@ -238,9 +234,16 @@ impl SchoolDownloads {
                 if let Ok(mut state) = self.0.state.lock() {
                     state.saved.insert(path.clone());
                 }
-                emit_download(app, site, "done", name, None, Some(&path));
+                emit_download(
+                    app,
+                    site,
+                    SchoolDownloadState::Done,
+                    name,
+                    None,
+                    Some(&path),
+                );
             }
-            None => emit_download(app, site, "failed", name, None, None),
+            None => emit_download(app, site, SchoolDownloadState::Failed, name, None, None),
         }
     }
 }
@@ -248,15 +251,13 @@ impl SchoolDownloads {
 fn emit_download(
     app: &AppHandle,
     site: SchoolSite,
-    state: &'static str,
+    state: SchoolDownloadState,
     name: String,
     url: Option<String>,
     path: Option<&Path>,
 ) {
-    eprintln!("[school-download] {site:?} {state} {name}");
-    let _ = app.emit_to(
-        MAIN_WINDOW,
-        "school-download",
+    eprintln!("[school-download] {site:?} {state:?} {name}");
+    let _ = crate::core_ports::DesktopEvents(app.clone()).emit(CoreEvent::SchoolDownload(
         SchoolDownloadEvent {
             site,
             state,
@@ -264,7 +265,7 @@ fn emit_download(
             url,
             path: path.and_then(Path::to_str).map(str::to_string),
         },
-    );
+    ));
 }
 
 fn download_allowed(raw_url: &str, site: SchoolSite, active: Option<SchoolSite>) -> bool {

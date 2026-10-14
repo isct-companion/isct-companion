@@ -335,3 +335,42 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
     assert_eq!(schedule["plans"][0]["title"], "Still committed");
     fixture.core.shutdown().await;
 }
+
+#[tokio::test]
+async fn listener_and_token_follow_the_agent_access_setting() {
+    let fixture = Fixture::new();
+    let token_path = fixture.root.join("agent-token");
+    // Hold a free port to simulate another process using it.
+    let blocker = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = blocker.local_addr().unwrap().port();
+    let access = AgentAccess::with(fixture.core.clone(), token_path.clone(), None, port);
+
+    assert!(matches!(access.reconcile().await, AgentConnection::Off));
+    assert!(!token_path.exists(), "no token while agent access is off");
+
+    fixture.enabled(true);
+    assert!(matches!(
+        access.reconcile().await,
+        AgentConnection::Failed { error } if error.contains("already in use")
+    ));
+    drop(blocker);
+    let AgentConnection::Listening { url, token } = access.reconcile().await else {
+        panic!("a freed port is bound on the next reconcile");
+    };
+    assert_eq!(url, format!("http://127.0.0.1:{port}/mcp"));
+    assert_eq!(std::fs::read_to_string(&token_path).unwrap().trim(), token);
+    assert!(tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+        .await
+        .is_ok());
+
+    fixture.enabled(false);
+    assert!(matches!(access.reconcile().await, AgentConnection::Off));
+    assert!(tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+        .await
+        .is_err());
+
+    fixture.enabled(true);
+    access.shutdown().await;
+    assert!(matches!(access.reconcile().await, AgentConnection::Off));
+    fixture.core.shutdown().await;
+}

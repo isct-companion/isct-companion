@@ -1978,7 +1978,7 @@ impl Inner {
         if let Some(event) = event {
             if value == SchoolSessionState::Active {
                 let _ = self.refresh.event(RefreshEvent {
-                    kind: "account-active".into(),
+                    kind: crate::school_refresh::RefreshKind::AccountActive,
                     profile: Some(profile),
                     course_id: None,
                     network: None,

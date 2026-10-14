@@ -808,18 +808,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
         Ok(self
             .read_workspace(provider)
             .await?
-            .map(|file| {
-                document::versions(provider, &file)
-                    .into_iter()
-                    .map(|version| crate::cloud_sync::CloudVersion {
-                        id: version.id,
-                        provider: version.provider,
-                        saved_at: version.saved_at,
-                        device: version.device,
-                        version: version.version,
-                    })
-                    .collect()
-            })
+            .map(|file| document::versions(provider, &file))
             .unwrap_or_default())
     }
 
@@ -861,14 +850,19 @@ impl<V: SecretVault> DesktopCloudService<V> {
         provider: CloudProvider,
         file: &CloudWorkspaceFile,
         expected: Option<u64>,
-    ) -> Result<(), String> {
-        let bytes = serde_json::to_vec(file).map_err(|e| e.to_string())?;
+    ) -> Result<(), DocumentError> {
+        let transport = DocumentError::Transport;
+        let bytes = serde_json::to_vec(file).map_err(|e| transport(e.to_string()))?;
         if bytes.len() > MAX_BODY_BYTES {
-            return Err("Cloud workspace exceeds the size limit.".into());
+            return Err(transport("Cloud workspace exceeds the size limit.".into()));
         }
         match provider {
             CloudProvider::GoogleDrive => {
-                if let Some(id) = self.google_file_id(CLOUD_FILE_NAME).await? {
+                if let Some(id) = self
+                    .google_file_id(CLOUD_FILE_NAME)
+                    .await
+                    .map_err(transport)?
+                {
                     // v2 exposes the file ETag explicitly; it is honored by
                     // conditional media reads and writes of the same resource.
                     let meta = self
@@ -878,19 +872,22 @@ impl<V: SecretVault> DesktopCloudService<V> {
                             Url::parse(&format!(
                                 "https://www.googleapis.com/drive/v2/files/{id}?fields=etag"
                             ))
-                            .map_err(|e| e.to_string())?,
+                            .map_err(|e| transport(e.to_string()))?,
                             None,
                             None,
                         )
-                        .await?;
+                        .await
+                        .map_err(transport)?;
                     if !meta.status().is_success() {
-                        return Err("Google Drive metadata read failed.".into());
+                        return Err(transport("Google Drive metadata read failed.".into()));
                     }
-                    let meta: Value = serde_json::from_slice(&read_limited(meta, 65536).await?)
-                        .map_err(|e| e.to_string())?;
-                    let etag = meta["etag"]
-                        .as_str()
-                        .ok_or("Google Drive did not return a version tag.")?;
+                    let meta: Value = serde_json::from_slice(
+                        &read_limited(meta, 65536).await.map_err(transport)?,
+                    )
+                    .map_err(|e| transport(e.to_string()))?;
+                    let etag = meta["etag"].as_str().ok_or_else(|| {
+                        transport("Google Drive did not return a version tag.".into())
+                    })?;
                     let current = self
                         .send_matching(
                             provider,
@@ -898,22 +895,24 @@ impl<V: SecretVault> DesktopCloudService<V> {
                             Url::parse(&format!(
                                 "https://www.googleapis.com/drive/v2/files/{id}?alt=media"
                             ))
-                            .map_err(|e| e.to_string())?,
+                            .map_err(|e| transport(e.to_string()))?,
                             None,
                             None,
                             Some(etag),
                         )
-                        .await?;
+                        .await
+                        .map_err(transport)?;
                     if current.status() == reqwest::StatusCode::PRECONDITION_FAILED {
-                        return Err("Cloud copy changed; retrying sync.".into());
+                        return Err(DocumentError::Conflict);
                     }
                     if !current.status().is_success() {
-                        return Err("Google Drive workspace read failed.".into());
+                        return Err(transport("Google Drive workspace read failed.".into()));
                     }
                     let current = document::parse_cloud_workspace(
-                        &read_limited(current, MAX_BODY_BYTES).await?,
-                    )
-                    .map_err(|error| error.to_string())?;
+                        &read_limited(current, MAX_BODY_BYTES)
+                            .await
+                            .map_err(transport)?,
+                    )?;
                     if Some(current.revision) != expected
                         || file.previous.first().is_some_and(|previous| {
                             !document::workspace_contents_equal(
@@ -922,27 +921,35 @@ impl<V: SecretVault> DesktopCloudService<V> {
                             )
                         })
                     {
-                        return Err("Cloud copy changed; retrying sync.".into());
+                        return Err(DocumentError::Conflict);
                     }
-                    let response = self.send_matching(provider,reqwest::Method::PUT,Url::parse(&format!("https://www.googleapis.com/upload/drive/v2/files/{id}?uploadType=media")).map_err(|e|e.to_string())?,Some("application/json"),Some(bytes),Some(etag)).await?;
+                    let response = self.send_matching(provider,reqwest::Method::PUT,Url::parse(&format!("https://www.googleapis.com/upload/drive/v2/files/{id}?uploadType=media")).map_err(|e|transport(e.to_string()))?,Some("application/json"),Some(bytes),Some(etag)).await.map_err(transport)?;
                     if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
-                        return Err("Cloud copy changed; retrying sync.".into());
+                        return Err(DocumentError::Conflict);
                     }
                     if !response.status().is_success() {
-                        return Err(format!("Cloud file write failed ({}).", response.status()));
+                        return Err(transport(format!(
+                            "Cloud file write failed ({}).",
+                            response.status()
+                        )));
                     }
                     Ok(())
                 } else if expected.is_none() {
-                    self.write_file(provider, CLOUD_FILE_NAME, bytes).await
+                    self.write_file(provider, CLOUD_FILE_NAME, bytes)
+                        .await
+                        .map_err(transport)
                 } else {
-                    Err("Cloud copy changed; retrying sync.".into())
+                    Err(DocumentError::Conflict)
                 }
             }
             #[cfg(target_vendor = "apple")]
             CloudProvider::Icloud => {
                 crate::icloud::write_checked(CLOUD_FILE_NAME, bytes, expected).await
             }
-            _ => self.write_file(provider, CLOUD_FILE_NAME, bytes).await,
+            _ => self
+                .write_file(provider, CLOUD_FILE_NAME, bytes)
+                .await
+                .map_err(transport),
         }
     }
 
@@ -1037,13 +1044,6 @@ impl<V: SecretVault> WorkspaceTransport for DesktopCloudService<V> {
         Box::pin(async move {
             self.write_workspace_file(provider, file, expected_revision)
                 .await
-                .map_err(|error| {
-                    if error == DocumentError::Conflict.to_string() {
-                        DocumentError::Conflict
-                    } else {
-                        DocumentError::Transport(error)
-                    }
-                })
         })
     }
 }

@@ -8,8 +8,9 @@ use axum::{
     response::{IntoResponse, Response},
     Router,
 };
+use isct_core::ports::EventSink;
 use isct_core::{
-    agent::{is_write_tool, AgentPolicy},
+    agent::{is_write_tool, AgentError, AgentPolicy},
     events::{CoreEvent, WorkspaceChangeSource},
     runtime_tasks::RuntimeTasks,
     Core,
@@ -36,7 +37,7 @@ use std::{
     time::Duration,
 };
 use subtle::ConstantTimeEq;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tokio::sync::{Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 
@@ -58,17 +59,158 @@ pub(crate) struct AgentServer {
     server: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
-impl AgentServer {
-    pub(crate) async fn start(app: tauri::AppHandle) -> Result<Self, String> {
+/// What Settings shows for agent access.
+#[derive(Clone, Serialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub(crate) enum AgentConnection {
+    /// Allow local agents is off: no listener and no token.
+    Off,
+    Listening {
+        url: String,
+        token: String,
+    },
+    /// Enabled, but the listener could not start; retried periodically.
+    Failed {
+        error: String,
+    },
+}
+
+enum AccessState {
+    Off,
+    Listening(AgentServer),
+    Failed(String),
+}
+
+/// Owns the MCP listener for the lifetime of the "Allow local agents"
+/// setting: the token is minted and the port bound only while it is on.
+/// Core still rechecks permission on every tool call.
+pub(crate) struct AgentAccess {
+    core: Arc<Core>,
+    token_path: PathBuf,
+    port: u16,
+    app: Option<tauri::AppHandle>,
+    state: Mutex<AccessState>,
+    closed: std::sync::atomic::AtomicBool,
+    next_check: std::sync::Mutex<std::time::Instant>,
+}
+
+const RECONCILE_INTERVAL: Duration = Duration::from_secs(5);
+
+impl AgentAccess {
+    pub(crate) fn new(app: tauri::AppHandle) -> Result<Self, String> {
         let token_path = app
             .path()
             .app_data_dir()
             .map_err(|error| error.to_string())?
             .join("agent-token");
         let core = crate::core_ports::core(&app);
-        Self::bind(core, token_path, Some(app), PORT).await
+        Ok(Self::with(core, token_path, Some(app), PORT))
     }
 
+    fn with(
+        core: Arc<Core>,
+        token_path: PathBuf,
+        app: Option<tauri::AppHandle>,
+        port: u16,
+    ) -> Self {
+        Self {
+            core,
+            token_path,
+            port,
+            app,
+            state: Mutex::new(AccessState::Off),
+            closed: std::sync::atomic::AtomicBool::new(false),
+            next_check: std::sync::Mutex::new(std::time::Instant::now()),
+        }
+    }
+
+    /// Start or stop the listener to match the stored setting. A read
+    /// failure stops the listener (fail closed) and is reported.
+    pub(crate) async fn reconcile(&self) -> AgentConnection {
+        let core = self.core.clone();
+        let enabled = tokio::task::spawn_blocking(move || core.store.agent_access_enabled())
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result.map_err(|error| error.to_string()));
+        let mut state = self.state.lock().await;
+        let closed = self.closed.load(std::sync::atomic::Ordering::Acquire);
+        match (enabled, closed) {
+            (Ok(true), false) => {
+                if !matches!(*state, AccessState::Listening(_)) {
+                    let next = match AgentServer::bind(
+                        self.core.clone(),
+                        self.token_path.clone(),
+                        self.app.clone(),
+                        self.port,
+                    )
+                    .await
+                    {
+                        Ok(server) => AccessState::Listening(server),
+                        Err(error) => {
+                            if !matches!(&*state, AccessState::Failed(previous) if *previous == error)
+                            {
+                                eprintln!("[mcp] server unavailable: {error}");
+                            }
+                            AccessState::Failed(error)
+                        }
+                    };
+                    *state = next;
+                }
+            }
+            (enabled, _) => {
+                if let AccessState::Listening(server) =
+                    std::mem::replace(&mut *state, AccessState::Off)
+                {
+                    server.shutdown().await;
+                }
+                if let Err(error) = enabled {
+                    eprintln!("[mcp] agent access setting unavailable: {error}");
+                    *state =
+                        AccessState::Failed("The agent access setting could not be read.".into());
+                }
+            }
+        }
+        match &*state {
+            AccessState::Off => AgentConnection::Off,
+            AccessState::Listening(server) => AgentConnection::Listening {
+                url: server.connection.url.clone(),
+                token: server.connection.token.clone(),
+            },
+            AccessState::Failed(error) => AgentConnection::Failed {
+                error: error.clone(),
+            },
+        }
+    }
+
+    /// Called from the desktop wake loop: picks up setting changes made
+    /// outside Settings and retries a failed bind (e.g. once the port frees).
+    pub(crate) fn tick(app: &tauri::AppHandle) {
+        let Some(access) = app.try_state::<Self>() else {
+            return;
+        };
+        let now = std::time::Instant::now();
+        match access.next_check.lock() {
+            Ok(mut next) if now >= *next => *next = now + RECONCILE_INTERVAL,
+            _ => return,
+        }
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            app.state::<Self>().reconcile().await;
+        });
+    }
+
+    /// Stop admission permanently and drain the listener, if any.
+    pub(crate) async fn shutdown(&self) {
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Release);
+        let mut state = self.state.lock().await;
+        if let AccessState::Listening(server) = std::mem::replace(&mut *state, AccessState::Off) {
+            server.shutdown().await;
+        }
+    }
+}
+
+impl AgentServer {
     async fn bind(
         core: Arc<Core>,
         token_path: PathBuf,
@@ -121,6 +263,7 @@ impl AgentServer {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn connection(&self) -> ConnectionInfo {
         self.connection.clone()
     }
@@ -309,17 +452,21 @@ impl AgentHandler {
             let result = tokio::task::spawn_blocking(move || {
                 core.agent
                     .call(&name, &arguments, AgentPolicy { allow_writes: true })
-                    .map_err(|error| error.to_string())
+                    .map_err(client_error)
             })
             .await
-            .map_err(|error| error.to_string())
+            .map_err(|error| {
+                eprintln!("[mcp] tool worker failed: {error}");
+                INTERNAL_ERROR.to_string()
+            })
             .and_then(|result| result);
             let notify = result.is_ok() && write;
             if let Some(app) = app.as_ref().filter(|_| notify) {
-                let event = CoreEvent::WorkspaceChanged {
-                    source: WorkspaceChangeSource::Mcp,
-                };
-                let _ = app.emit(event.name(), event.payload());
+                let _ = crate::core_ports::DesktopEvents(app.clone()).emit(
+                    CoreEvent::WorkspaceChanged {
+                        source: WorkspaceChangeSource::Mcp,
+                    },
+                );
             }
             let _ = send.send(result);
             // This work remains owned after the HTTP caller disconnects.
@@ -332,6 +479,21 @@ impl AgentHandler {
         receive
             .await
             .map_err(|_| "The MCP request stopped before completion.".to_string())?
+    }
+}
+
+const INTERNAL_ERROR: &str = "IsctCompanion could not complete the request. Try again later.";
+
+/// Domain errors are the client's to act on; local storage/compatibility
+/// failures can carry paths or SQL text, so clients get a generic message
+/// and the details go to the local log.
+fn client_error(error: AgentError) -> String {
+    match error {
+        AgentError::Storage(_) | AgentError::Compatibility(_) => {
+            eprintln!("[mcp] tool failed: {error}");
+            INTERNAL_ERROR.into()
+        }
+        other => other.to_string(),
     }
 }
 
@@ -358,9 +520,13 @@ impl ServerHandler for AgentHandler {
                 tokio::task::spawn_blocking(move || core.store.agent_access_enabled()).await
             })
             .await
-            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
-            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
-            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| error.to_string())
+            .and_then(|joined| joined.map_err(|error| error.to_string()))
+            .and_then(|enabled| enabled.map_err(|error| error.to_string()))
+            .map_err(|error| {
+                eprintln!("[mcp] tool list failed: {error}");
+                ErrorData::internal_error(INTERNAL_ERROR, None)
+            })?;
         Ok(ListToolsResult::with_all_items(if enabled {
             tools()
         } else {

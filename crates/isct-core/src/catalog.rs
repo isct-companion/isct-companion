@@ -269,6 +269,19 @@ pub fn offerings(
         .collect())
 }
 
+/// Offerings of one academic year in the course finder's normalized shape
+/// (schedule, credits, language and format); rows that cannot be normalized
+/// are left out.
+pub fn finder_offerings(
+    store: &data::DataStore,
+    year: u16,
+) -> Result<Vec<serde_json::Value>, CatalogError> {
+    Ok(offerings(store, year)?
+        .into_iter()
+        .filter_map(crate::course_query::normalize_offering)
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
