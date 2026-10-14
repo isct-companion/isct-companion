@@ -68,11 +68,13 @@ not a separate automatic import timer.
 
 Reference refreshes share Core's `ReferenceService` for probing, cache validation,
 fetching, applying and metadata writes. Startup always checks the built-in
-reference task immediately. Calendar hashes count as usable cache only when
-all eight valid quarter boundaries exist for the requested year. Automatic
+reference task immediately. Calendar hashes count as usable cache when all
+eight valid quarter boundaries exist for the requested year, or when the local
+materialization marker still matches the stored rows, so a partially
+published calendar is not refetched every hour. Automatic
 reference tasks, the Sources action and the Settings view all use the
 selected term's year; department recommendations use the admission year.
-Other reference caches use local materialization fingerprints that are excluded
+All reference caches use local materialization fingerprints that are excluded
 from backups; this distinguishes a valid empty feed from a missing cache after
 restore. An error in one source does not prevent checking the remaining sources.
 
