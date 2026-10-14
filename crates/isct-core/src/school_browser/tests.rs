@@ -1764,3 +1764,33 @@ async fn manual_sign_in_paused_by_a_visible_page_resumes_after_it_hides() {
     )));
     engine.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
+    let (engine, browser, _, _) = engine();
+    let listener = browser.listener();
+    // Poison the engine state from a panicking native callback thread.
+    let poisoned = std::thread::spawn({
+        let engine = engine.clone();
+        move || engine.poison_state_for_test()
+    })
+    .join();
+    assert!(poisoned.is_err());
+    assert!(engine.session_snapshot().is_ok());
+    assert!(engine
+        .navigate(
+            SchoolSite::Kyomu,
+            "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx"
+        )
+        .unwrap());
+    let navigation = browser.navigation(0).await;
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx").unwrap(),
+    });
+    engine.shutdown().await;
+}

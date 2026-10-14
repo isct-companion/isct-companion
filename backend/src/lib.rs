@@ -300,7 +300,7 @@ pub fn run() {
                 },
             )));
             let school_controller = tauri::async_runtime::block_on(async {
-                let native = school_browser_native::NativeBrowser::new(app.handle().clone());
+                let native = school_browser_native::NativeBrowser::new(app.handle().clone())?;
                 let engine = core_ports::core(app.handle()).attach_school_browser(
                     std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
                     native.clone(),

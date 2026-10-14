@@ -101,7 +101,7 @@ pub struct NativeBrowser {
     downloads: crate::school_downloads::SchoolDownloads,
 }
 impl NativeBrowser {
-    pub fn new(app: AppHandle) -> Arc<Self> {
+    pub fn new(app: AppHandle) -> Result<Arc<Self>, BrowserError> {
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let this = Arc::new(Self {
             app: Mutex::new(Some(app)),
@@ -113,7 +113,7 @@ impl NativeBrowser {
         });
         let weak = Arc::downgrade(&this);
         let tasks = this.tasks.clone();
-        this.tasks.spawn(async move {
+        let started = this.tasks.spawn(async move {
             loop {
                 let operation = tokio::select! {
                     biased;
@@ -128,7 +128,13 @@ impl NativeBrowser {
                 let _ = tokio::task::spawn_blocking(move || native.perform(operation)).await;
             }
         });
-        this
+        // Without the operation loop every command would be queued and never run.
+        if !started {
+            return Err(BrowserError::Unavailable(
+                "The school view queue could not start.".into(),
+            ));
+        }
+        Ok(this)
     }
     fn listener(&self) -> Option<Arc<dyn SchoolBrowserListener>> {
         self.listener.lock().ok()?.as_ref()?.upgrade()
