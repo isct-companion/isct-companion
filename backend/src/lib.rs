@@ -24,7 +24,6 @@ use isct_core::lifecycle;
 mod lms_downloader;
 mod lms_files;
 mod lms_protocol;
-pub use isct_core::plans;
 use isct_core::pull_coordinator;
 #[cfg(matrix_ocr)]
 use isct_ocr as matrix_ocr;
@@ -215,7 +214,6 @@ pub fn run() {
             commands::school::pull_state,
             commands::school::cancel_pull,
             commands::school::refresh_reference_subscriptions,
-            commands::school::school_records,
             commands::school::set_kyomu_guide,
             commands::school_auth::school_credential_status,
             commands::school_auth::save_school_credentials,
@@ -262,7 +260,6 @@ pub fn run() {
             commands::catalog::catalog_sync_department,
             commands::catalog::catalog_query,
             commands::catalog::catalog_sync_offerings,
-            commands::catalog::preview_plan_recurrence,
             commands::agent::agent_connection,
             #[cfg(target_os = "macos")]
             campus_wifi::campus_wifi_connect,

@@ -70,7 +70,11 @@ const LmsWorkspace = lazy(() =>
 import { bootstrapReminders } from "../platform/reminders";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
-import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
+import {
+  detectPlatform,
+  resolveCapabilities,
+  type CapabilityRuntime,
+} from "../platform/capabilities";
 import {
   useSchoolSession,
   type SchoolSessionState,
@@ -86,7 +90,6 @@ import {
   type PullSnapshot,
 } from "../platform/desktop-bridge";
 
-import type { SchedulerRuntimeState } from "../platform/scheduler";
 import { subscriptionNetwork } from "../platform/subscription-polling";
 
 import { CourseFinder } from "../pages/courses/CourseFinder";
@@ -554,7 +557,7 @@ export function WorkspaceApp() {
     [],
   );
   const [schedulerState, setSchedulerState] =
-    useState<SchedulerRuntimeState>("off");
+    useState<CapabilityRuntime["background"]["scheduler"]>("off");
   const [nativeCapabilities, setNativeCapabilities] =
     useState<NativeCapabilitySnapshot>();
   const [nativeCapabilitiesReady, setNativeCapabilitiesReady] = useState(false);

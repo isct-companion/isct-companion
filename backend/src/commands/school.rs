@@ -1,7 +1,7 @@
 use crate::{
     core_ports, kyomu_guide,
     lifecycle::SchoolSite,
-    pull_coordinator, require_local_main, run_data_command, school_refresh,
+    pull_coordinator, require_local_main, school_refresh,
     school_web::{self, SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds},
 };
 use isct_core::school_browser::sanitize_school_url;
@@ -232,18 +232,6 @@ pub(crate) async fn refresh_reference_subscriptions(
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
-}
-
-/// School-owned records the workspace does not carry (LMS courses,
-/// registrations, grades, GPA by term, requirements).
-#[tauri::command]
-pub(crate) async fn school_records(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-) -> Result<serde_json::Value, String> {
-    require_local_main(&webview)?;
-    let core = core_ports::core(&app);
-    run_data_command(move || core.school_records().map_err(|e| e.to_string())).await
 }
 
 #[tauri::command]

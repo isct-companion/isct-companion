@@ -425,7 +425,6 @@ export interface DesktopBridge {
   onPullState?(callback: (states: PullSnapshot[]) => void): () => void;
   cancelPull?(id: string): Promise<boolean>;
   refreshReferenceSubscriptions?(force: boolean): Promise<string>;
-  schoolRecords?(): Promise<SchoolRecords>;
   /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
   setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
   /** An extractor finished while the person browsed LMS / 教務Web. */
@@ -795,37 +794,6 @@ export function createTauriDesktopBridge(
       if (typeof value !== "string")
         throw new Error("Reference refresh returned an invalid result.");
       return value;
-    },
-    schoolRecords: async () => {
-      const value = requireObject<Partial<SchoolRecords>>(
-        "school_records",
-        await invokeCommand("school_records"),
-      );
-      const rows = <T>(list: unknown): T[] =>
-        Array.isArray(list)
-          ? (list.filter((row) => row && typeof row === "object") as T[])
-          : [];
-      const lastRuns =
-        value.lastRuns && typeof value.lastRuns === "object"
-          ? Object.fromEntries(
-              Object.entries(value.lastRuns).filter(
-                (entry): entry is [string, string] =>
-                  typeof entry[1] === "string",
-              ),
-            )
-          : {};
-      return {
-        lastRuns,
-        lmsCourses: rows<LmsCourseRecord>(value.lmsCourses).filter(
-          (row) =>
-            typeof row.lmsId === "number" && typeof row.shortname === "string",
-        ),
-        registrations: rows(value.registrations),
-        registrationStates: rows(value.registrationStates),
-        grades: rows(value.grades),
-        gpaByTerm: rows(value.gpaByTerm),
-        requirements: rows(value.requirements),
-      };
     },
     setKyomuGuide: (items) => booleanCommand("set_kyomu_guide", { items }),
     onSchoolIngest: (callback) => {

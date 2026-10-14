@@ -235,16 +235,6 @@ const finderView = (request: Record<string, unknown>) => ({
         };
       case "catalog_sync_offerings":
         return [];
-      case "school_records":
-        return {
-          lastRuns: {},
-          lmsCourses: [],
-          registrations: [],
-          registrationStates: [],
-          grades: [],
-          gpaByTerm: [],
-          requirements: [],
-        };
       case "runtime_capabilities":
         return {};
       case "school_credential_status":

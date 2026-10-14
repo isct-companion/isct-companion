@@ -1,4 +1,4 @@
-use crate::{core_ports, data, plans, require_local_main, run_data_command, syllabus};
+use crate::{core_ports, data, require_local_main, run_data_command, syllabus};
 
 #[tauri::command]
 pub(crate) async fn catalog_upsert_offerings(
@@ -121,17 +121,4 @@ pub(crate) async fn catalog_sync_offerings(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub(crate) fn preview_plan_recurrence(
-    webview: tauri::Webview,
-    start: String,
-    rrule: String,
-    exdates: Vec<String>,
-    limit: Option<u16>,
-) -> Result<plans::RecurrencePreview, String> {
-    require_local_main(&webview)?;
-    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5))
-        .map_err(|error| error.to_string())
 }
