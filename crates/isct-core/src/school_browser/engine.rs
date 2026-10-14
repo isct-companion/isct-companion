@@ -859,6 +859,7 @@ impl SchoolBrowserEngine {
                     }) if found == profile && state != SchoolSessionState::Pending => {
                         return Ok(state)
                     }
+                    Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
                     Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -955,6 +956,7 @@ impl SchoolBrowserEngine {
                     }) if found == profile && state != SchoolSessionState::Pending => {
                         return Ok(state == SchoolSessionState::Active)
                     }
+                    Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Stopped) | Err(broadcast::error::RecvError::Closed) => {
                         return Err(SchoolBrowserError::Stopped)
@@ -1255,9 +1257,7 @@ impl SchoolBrowserEngine {
                         return Err(SchoolBrowserError::Platform(event.message))
                     }
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
-                    Ok(Trace::Closed(id)) if id == browser => {
-                        return Err(SchoolBrowserError::Stopped)
-                    }
+                    Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
                     Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => {
@@ -1359,9 +1359,7 @@ impl SchoolBrowserEngine {
                     Ok(Trace::Failed(event)) if event.page.browser == browser => {
                         return Err(SchoolBrowserError::Platform(event.message))
                     }
-                    Ok(Trace::Closed(id)) if id == browser => {
-                        return Err(SchoolBrowserError::Stopped)
-                    }
+                    Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
                     Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => {
@@ -1840,7 +1838,7 @@ impl Inner {
             } else if event.page.sequence <= view.last_page {
                 return false;
             }
-            view.last_page = event.page.sequence;
+            view.last_page = view.last_page.max(event.page.sequence);
             view.navigation = None;
             true
         });
@@ -1992,6 +1990,8 @@ impl Inner {
         }
     }
 
+    /// Forgets a view generation the shell closed or could not create, so the
+    /// next request creates a new view instead of dispatching into nothing.
     fn closed(&self, browser: BrowserId) {
         if let Ok(mut state) = self.state.lock() {
             if state
@@ -2003,6 +2003,17 @@ impl Inner {
             }
         }
         let _ = self.traces.send(Trace::Closed(browser));
+    }
+
+    fn sent(
+        &self,
+        browser: BrowserId,
+        result: Result<(), BrowserError>,
+    ) -> Result<(), BrowserError> {
+        if let Err(BrowserError::Unavailable(_)) = &result {
+            self.closed(browser);
+        }
+        result
     }
 
     fn dispatch(
@@ -2031,11 +2042,14 @@ impl Inner {
                 }
             }
         }
-        self.browser.dispatch(BrowserCommand {
+        self.sent(
             browser,
-            action,
-            command,
-        })?;
+            self.browser.dispatch(BrowserCommand {
+                browser,
+                action,
+                command,
+            }),
+        )?;
         Ok(action)
     }
 
@@ -2056,11 +2070,14 @@ impl Inner {
                 }
             }
         }
-        self.browser.dispatch(BrowserCommand {
+        self.sent(
             browser,
-            action,
-            command: BrowserAction::Eval(script),
-        })
+            self.browser.dispatch(BrowserCommand {
+                browser,
+                action,
+                command: BrowserAction::Eval(script),
+            }),
+        )
     }
 
     fn arm_saved_login(self: &Arc<Self>, page: PageId, url: Url, relay: String) {
@@ -2407,6 +2424,12 @@ fn apply_raw(
             message,
         },
     })
+}
+
+/// A per-view close is a platform failure for the work in that view, not a
+/// shutdown of the whole school browser.
+fn view_closed() -> SchoolBrowserError {
+    SchoolBrowserError::Platform("The school view was closed.".into())
 }
 
 fn sign_in_required(site: SchoolSite, kind: &str) -> IngestOutcome {

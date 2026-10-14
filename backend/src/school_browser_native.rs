@@ -148,7 +148,20 @@ impl NativeBrowser {
     }
     fn perform(self: Arc<Self>, op: Operation) {
         let (id, cause, result) = match op {
-            Operation::Ensure(id, url) => (id, None, self.create(id, url)),
+            Operation::Ensure(id, url) => {
+                if let Err(error) = self.create(id, url) {
+                    eprintln!(
+                        "[school-web] {} could not be created: {error}",
+                        id.site.webview_label()
+                    );
+                    // Core forgets this generation and creates a new view next time.
+                    self.discard(id);
+                    if let Some(listener) = self.listener() {
+                        listener.closed(id)
+                    }
+                }
+                return;
+            }
             Operation::Dispatch(command) => {
                 let id = command.browser;
                 let cause = Some(command.action);
@@ -165,16 +178,7 @@ impl NativeBrowser {
                 self.with_view(id, |view| view.navigate(url).map_err(|e| e.to_string())),
             ),
             Operation::Dispose(id) => {
-                let view = self.presentation.lock().ok().and_then(|mut state| {
-                    if state.views.get(&id.site).is_some_and(|v| v.id == id) {
-                        state.views.remove(&id.site)
-                    } else {
-                        None
-                    }
-                });
-                if let Some(view) = view {
-                    let _ = view.native.close();
-                }
+                self.discard(id);
                 if let Some(listener) = self.listener() {
                     listener.closed(id)
                 }
@@ -182,32 +186,45 @@ impl NativeBrowser {
             }
         };
         if let Err(error) = result {
-            if let Some(listener) = self.listener() {
-                listener.load_failed(LoadFailed {
-                    page: self.next_page(id),
-                    cause,
-                    url: None,
-                    message: error.to_string(),
-                })
+            let Some(listener) = self.listener() else {
+                return;
+            };
+            // A command for a view that no longer exists cannot fail a page of it.
+            match self.next_page(id) {
+                Some(page) if !matches!(error, BrowserError::Unavailable(_)) => listener
+                    .load_failed(LoadFailed {
+                        page,
+                        cause,
+                        url: None,
+                        message: error.to_string(),
+                    }),
+                _ => listener.closed(id),
             }
         }
     }
-    fn next_page(&self, id: BrowserId) -> PageId {
-        let sequence = self
-            .presentation
-            .lock()
-            .ok()
-            .and_then(|p| {
-                p.views
-                    .get(&id.site)
-                    .filter(|v| v.id == id)
-                    .map(|v| v.page.fetch_add(1, Ordering::AcqRel) + 1)
-            })
-            .unwrap_or(1);
-        PageId {
+    fn discard(&self, id: BrowserId) {
+        let view = self.presentation.lock().ok().and_then(|mut state| {
+            if state.views.get(&id.site).is_some_and(|v| v.id == id) {
+                state.views.remove(&id.site)
+            } else {
+                None
+            }
+        });
+        if let Some(view) = view {
+            let _ = view.native.close();
+        }
+    }
+    fn next_page(&self, id: BrowserId) -> Option<PageId> {
+        let sequence = self.presentation.lock().ok().and_then(|p| {
+            p.views
+                .get(&id.site)
+                .filter(|v| v.id == id)
+                .map(|v| v.page.fetch_add(1, Ordering::AcqRel) + 1)
+        })?;
+        Some(PageId {
             browser: id,
             sequence,
-        }
+        })
     }
     fn with_view(
         &self,

@@ -50,6 +50,8 @@ struct FakeBrowser {
     listener: Mutex<Option<Weak<dyn SchoolBrowserListener>>>,
     commands: Mutex<Vec<BrowserCommand>>,
     current: Mutex<HashMap<BrowserId, Url>>,
+    /// Report the next dispatch as sent to a view that no longer exists.
+    unavailable: AtomicBool,
 }
 
 impl FakeBrowser {
@@ -170,6 +172,11 @@ impl SchoolBrowser for FakeBrowser {
     }
 
     fn dispatch(&self, command: BrowserCommand) -> Result<(), BrowserError> {
+        if self.unavailable.swap(false, Ordering::AcqRel) {
+            return Err(BrowserError::Unavailable(
+                "School view is unavailable.".into(),
+            ));
+        }
         if let BrowserAction::Navigate(url) = &command.command {
             self.current
                 .lock()
@@ -1622,4 +1629,56 @@ async fn hidden_pulls_without_saved_credentials_report_sign_in_required_promptly
         coordinator.shutdown().await;
         engine.shutdown().await;
     }
+}
+
+#[tokio::test]
+async fn a_closed_view_fails_its_session_check_and_is_recreated_next_time() {
+    let (engine, browser, _, _) = engine();
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    let first = browser.navigation(0).await;
+    browser.listener().closed(first.browser);
+    let error = tokio::time::timeout(std::time::Duration::from_secs(5), check)
+        .await
+        .expect("a closed view must not wait for the session timeout")
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error,
+        SchoolBrowserError::Platform("The school view was closed.".into())
+    );
+    assert_eq!(
+        engine.session_snapshot().unwrap().states.science,
+        SchoolSessionState::Failed
+    );
+    let retry = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    let second = browser.navigation(1).await;
+    assert_eq!(second.browser.site, first.browser.site);
+    assert!(second.browser.generation > first.browser.generation);
+    engine.shutdown().await;
+    assert_eq!(retry.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+#[tokio::test]
+async fn a_view_reported_unavailable_is_replaced_instead_of_kept_as_a_zombie() {
+    let (engine, browser, _, _) = engine();
+    let target = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+    browser.unavailable.store(true, Ordering::Release);
+    assert!(engine.navigate(SchoolSite::Kyomu, target).is_err());
+    assert!(engine.navigate(SchoolSite::Kyomu, target).unwrap());
+    let commands = browser.commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    let ensured: Vec<_> = browser.current.lock().unwrap().keys().copied().collect();
+    assert_eq!(
+        ensured.len(),
+        2,
+        "the second navigation must create a new view"
+    );
+    assert!(ensured.contains(&commands[0].browser));
+    engine.shutdown().await;
 }

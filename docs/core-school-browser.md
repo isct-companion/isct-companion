@@ -57,6 +57,12 @@ Completion and failure return through `SchoolBrowserListener`:
 - `new_window` returns `SameView`, `OpenSchool`, `OpenExternal` or `Ignore`;
 - `closed` invalidates that logical browser generation.
 
+A shell reports `closed` when it disposes a view, cannot create one, or receives
+a command for a view that no longer exists; returning `Unavailable` from
+`dispatch` has the same effect. Core then forgets that generation, so the next
+request creates a new view. Work waiting in a closed view fails with a platform
+error naming the closed view; only engine shutdown reports `Stopped`.
+
 Callbacks carry a `BrowserId { site, generation }`. Core rejects callbacks from
 an older resident view. A `PageId` adds the native view's monotonic load
 sequence, and Core rejects page loads that do not advance it. `ActionId`
