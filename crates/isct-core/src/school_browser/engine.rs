@@ -85,6 +85,7 @@ struct State {
     login: Option<ActiveLogin>,
     auto_blocked: HashSet<SchoolAuthProfile>,
     extraction: Option<Extraction>,
+    hidden: Option<HiddenWork>,
     sessions: HashMap<SchoolAuthProfile, SchoolSessionState>,
     revision: u64,
     last_focus: Option<Instant>,
@@ -174,6 +175,58 @@ struct Extraction {
     baseline: u64,
     target: String,
     visible: bool,
+}
+
+/// A hidden pull navigation. It owns automatic sign-in in its view and is
+/// resumed at `target` when that sign-in completes elsewhere.
+struct HiddenWork {
+    browser: BrowserId,
+    run: String,
+    target: Url,
+    prefix: Option<String>,
+}
+
+impl HiddenWork {
+    fn reached(&self, url: &Url) -> bool {
+        match &self.prefix {
+            Some(prefix) => url.as_str().starts_with(prefix.as_str()),
+            None => url == &self.target,
+        }
+    }
+}
+
+/// Clears the hidden navigation and its unconsumed extraction on every exit.
+struct HiddenGuard<'a> {
+    inner: &'a Inner,
+    run: String,
+}
+
+impl Drop for HiddenGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.inner.state.lock() {
+            if state
+                .hidden
+                .as_ref()
+                .is_some_and(|work| work.run == self.run)
+            {
+                state.hidden = None;
+            }
+            if state
+                .extraction
+                .as_ref()
+                .is_some_and(|extraction| extraction.run == self.run)
+            {
+                state.extraction = None;
+            }
+        }
+    }
+}
+
+/// How a hidden navigation ended when it did not fail.
+enum HiddenLoad<T> {
+    Ready(T),
+    /// The view landed on a sign-in page that saved credentials cannot pass.
+    SignInRequired,
 }
 
 #[derive(Clone, Debug)]
@@ -276,6 +329,7 @@ impl SchoolBrowserEngine {
         state.browsing = site;
         if site.is_some() {
             state.extraction = None;
+            state.hidden = None;
         }
         drop(state);
         let _ = self.0.traces.send(Trace::Browsing(site));
@@ -956,6 +1010,24 @@ impl SchoolBrowserEngine {
         }
     }
 
+    /// Records that a hidden navigation landed on an identity-provider sign-in
+    /// page. Returns `true` when saved credentials cannot recover it: the
+    /// profile's automatic sign-in is blocked after a failure.
+    fn sign_in_landing(&self, url: &Url, signing_in: &mut Option<SchoolAuthProfile>) -> bool {
+        let Some(profile) = is_login_url(url)
+            .then(|| url.host_str().and_then(SchoolAuthProfile::for_auth_host))
+            .flatten()
+        else {
+            return false;
+        };
+        *signing_in = Some(profile);
+        self.0
+            .state
+            .lock()
+            .ok()
+            .is_some_and(|state| state.login.is_none() && state.auto_blocked.contains(&profile))
+    }
+
     /// Subscribes before checking visibility, so a page opened after this
     /// check reaches the caller's wait as `Trace::Browsing`. Hidden work must
     /// never start while the person is looking at a school page.
@@ -1040,6 +1112,7 @@ impl SchoolBrowserEngine {
                 let outcome = self
                     .extract_page(
                         site,
+                        "lms",
                         "https://lms.s.isct.ac.jp/2025/my/",
                         course_id,
                         course_id.is_none(),
@@ -1050,19 +1123,26 @@ impl SchoolBrowserEngine {
                 Ok(vec![outcome])
             }
             SchoolSite::Kyomu => {
-                self.navigate_and_wait(
-                    site,
-                    &format!("{KYOMU_ROOT}Default.aspx"),
-                    Some(&format!("{KYOMU_ROOT}Student/")),
-                    OPEN_TIMEOUT,
-                    context,
-                )
-                .await?;
+                let landing = self
+                    .navigate_and_wait(
+                        site,
+                        &format!("{KYOMU_ROOT}Default.aspx"),
+                        Some(&format!("{KYOMU_ROOT}Student/")),
+                        OPEN_TIMEOUT,
+                        context,
+                    )
+                    .await?;
+                if let HiddenLoad::SignInRequired = landing {
+                    let outcome = sign_in_required(site, "session");
+                    let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
+                    return Ok(vec![outcome]);
+                }
                 let mut outcomes = Vec::new();
                 for (page, kind) in KYOMU_PULL_PAGES.into_iter().zip(KYOMU_PULL_KINDS) {
                     let outcome = self
                         .extract_page(
                             site,
+                            kind,
                             &format!("{KYOMU_ROOT}{page}"),
                             None,
                             false,
@@ -1110,12 +1190,13 @@ impl SchoolBrowserEngine {
         prefix: Option<&str>,
         timeout: Duration,
         context: &PullContext,
-    ) -> Result<PageLoaded, SchoolBrowserError> {
+    ) -> Result<HiddenLoad<PageLoaded>, SchoolBrowserError> {
         let url = safe_url(raw)?;
         let mut traces = self.hidden_traces()?;
         let browser = self.ensure_browser(site, url.clone())?;
+        let run = new_id();
         let baseline = {
-            let state = self
+            let mut state = self
                 .0
                 .state
                 .lock()
@@ -1123,13 +1204,24 @@ impl SchoolBrowserEngine {
             if state.browsing.is_some() {
                 return Err(SchoolBrowserError::Preempted);
             }
+            state.hidden = Some(HiddenWork {
+                browser,
+                run: run.clone(),
+                target: url.clone(),
+                prefix: prefix.map(str::to_string),
+            });
             state
                 .views
                 .get(&site)
                 .map(|view| view.last_page)
                 .unwrap_or_default()
         };
+        let _hidden = HiddenGuard {
+            inner: &self.0,
+            run,
+        };
         self.dispatch(browser, BrowserAction::Navigate(url))?;
+        let mut signing_in = None;
         tokio::time::timeout(timeout, async {
             loop {
                 if context.is_cancelled() {
@@ -1146,7 +1238,18 @@ impl SchoolBrowserEngine {
                             && prefix
                                 .is_none_or(|prefix| event.url.as_str().starts_with(prefix)) =>
                     {
-                        return Ok(event)
+                        return Ok(HiddenLoad::Ready(event))
+                    }
+                    Ok(Trace::Loaded(event)) if event.page.browser == browser => {
+                        if self.sign_in_landing(&event.url, &mut signing_in) {
+                            return Ok(HiddenLoad::SignInRequired);
+                        }
+                    }
+                    Ok(Trace::Session { profile, state })
+                        if signing_in == Some(profile)
+                            && sign_in_settled_without_session(state) =>
+                    {
+                        return Ok(HiddenLoad::SignInRequired)
                     }
                     Ok(Trace::Failed(event)) if event.page.browser == browser => {
                         return Err(SchoolBrowserError::Platform(event.message))
@@ -1171,9 +1274,11 @@ impl SchoolBrowserEngine {
         })?
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn extract_page(
         &self,
         site: SchoolSite,
+        kind: &str,
         url: &str,
         course_id: Option<u64>,
         full: bool,
@@ -1209,8 +1314,19 @@ impl SchoolBrowserEngine {
                 target: parsed.to_string(),
                 visible: false,
             });
+            state.hidden = Some(HiddenWork {
+                browser,
+                run: run.clone(),
+                target: parsed.clone(),
+                prefix: None,
+            });
         }
+        let _hidden = HiddenGuard {
+            inner: &self.0,
+            run: run.clone(),
+        };
         self.dispatch(browser, BrowserAction::Navigate(parsed))?;
+        let mut signing_in = None;
         let raw = tokio::time::timeout(timeout, async {
             loop {
                 if context.is_cancelled() {
@@ -1225,7 +1341,20 @@ impl SchoolBrowserEngine {
                         browser: found,
                         run: found_run,
                         raw,
-                    }) if found == browser && found_run == run => return Ok(raw),
+                    }) if found == browser && found_run == run => {
+                        return Ok(HiddenLoad::Ready(raw))
+                    }
+                    Ok(Trace::Loaded(event)) if event.page.browser == browser => {
+                        if self.sign_in_landing(&event.url, &mut signing_in) {
+                            return Ok(HiddenLoad::SignInRequired);
+                        }
+                    }
+                    Ok(Trace::Session { profile, state })
+                        if signing_in == Some(profile)
+                            && sign_in_settled_without_session(state) =>
+                    {
+                        return Ok(HiddenLoad::SignInRequired)
+                    }
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Failed(event)) if event.page.browser == browser => {
                         return Err(SchoolBrowserError::Platform(event.message))
@@ -1247,6 +1376,14 @@ impl SchoolBrowserEngine {
                 "The school page did not answer in time. Check the account in Settings.".into(),
             )
         })??;
+        let raw = match raw {
+            HiddenLoad::Ready(raw) => raw,
+            HiddenLoad::SignInRequired => {
+                let outcome = sign_in_required(site, kind);
+                let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
+                return Ok(outcome);
+            }
+        };
         if !context.applying().await {
             return Err(SchoolBrowserError::Cancelled);
         }
@@ -1321,41 +1458,7 @@ impl SchoolBrowserEngine {
         browser: BrowserId,
         command: BrowserAction,
     ) -> Result<ActionId, SchoolBrowserError> {
-        let action = ActionId(self.0.next_action.fetch_add(1, Ordering::Relaxed));
-        if matches!(command, BrowserAction::Navigate(_)) {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            if let Some(view) = state.views.get_mut(&browser.site) {
-                if view.id == browser {
-                    view.navigation = Some(action);
-                    if view.actions.len() >= 64 {
-                        view.actions.clear();
-                    }
-                    view.actions.insert(action, true);
-                }
-            }
-        } else if matches!(command, BrowserAction::Reload) {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            if let Some(view) = state.views.get_mut(&browser.site) {
-                if view.id == browser {
-                    view.navigation = Some(action);
-                    view.actions.insert(action, true);
-                }
-            }
-        }
-        self.0.browser.dispatch(BrowserCommand {
-            browser,
-            action,
-            command,
-        })?;
-        Ok(action)
+        self.0.dispatch(browser, command)
     }
 
     fn set_session(&self, profile: SchoolAuthProfile, value: SchoolSessionState) {
@@ -1667,6 +1770,21 @@ impl Inner {
                     message: "Connected".into(),
                 }));
                 self.set_session_from_inner(active.profile, SchoolSessionState::Active);
+                // A hidden pull that was sent through sign-in continues at its target.
+                let resume = self.state.lock().ok().and_then(|state| {
+                    state
+                        .hidden
+                        .as_ref()
+                        .filter(|work| {
+                            work.browser == event.page.browser
+                                && state.browsing.is_none()
+                                && !work.reached(&event.url)
+                        })
+                        .map(|work| work.target.clone())
+                });
+                if let Some(target) = resume {
+                    let _ = self.dispatch(event.page.browser, BrowserAction::Navigate(target));
+                }
             } else if let Some(script) = login_script(event.url.as_str(), &active, &auth_relay) {
                 let _ = self.dispatch_eval(event.page.browser, script, true);
             }
@@ -1887,6 +2005,40 @@ impl Inner {
         let _ = self.traces.send(Trace::Closed(browser));
     }
 
+    fn dispatch(
+        &self,
+        browser: BrowserId,
+        command: BrowserAction,
+    ) -> Result<ActionId, SchoolBrowserError> {
+        let action = ActionId(self.next_action.fetch_add(1, Ordering::Relaxed));
+        if matches!(command, BrowserAction::Navigate(_)) {
+            let mut state = self.state.lock().map_err(|_| SchoolBrowserError::Stopped)?;
+            if let Some(view) = state.views.get_mut(&browser.site) {
+                if view.id == browser {
+                    view.navigation = Some(action);
+                    if view.actions.len() >= 64 {
+                        view.actions.clear();
+                    }
+                    view.actions.insert(action, true);
+                }
+            }
+        } else if matches!(command, BrowserAction::Reload) {
+            let mut state = self.state.lock().map_err(|_| SchoolBrowserError::Stopped)?;
+            if let Some(view) = state.views.get_mut(&browser.site) {
+                if view.id == browser {
+                    view.navigation = Some(action);
+                    view.actions.insert(action, true);
+                }
+            }
+        }
+        self.browser.dispatch(BrowserCommand {
+            browser,
+            action,
+            command,
+        })?;
+        Ok(action)
+    }
+
     fn dispatch_eval(
         &self,
         browser: BrowserId,
@@ -1937,7 +2089,7 @@ impl Inner {
             let loaded = tokio::task::spawn_blocking(move || auth.load(profile)).await;
             let Some(inner) = weak.upgrade() else { return };
             let owned = inner.state.lock().ok().is_some_and(|state| {
-                (state.heartbeat == Some(profile) || state.browsing == Some(page.browser.site))
+                owns_sign_in(&state, profile, page.browser)
                     && state.views.get(&page.browser.site).is_some_and(|view| {
                         view.id == page.browser
                             && view.last_page == page.sequence
@@ -1965,8 +2117,7 @@ impl Inner {
             };
             let accepted = inner.state.lock().ok().is_some_and(|mut state| {
                 if state.login.is_none()
-                    && (state.heartbeat == Some(profile)
-                        || state.browsing == Some(page.browser.site))
+                    && owns_sign_in(&state, profile, page.browser)
                     && state.views.get(&page.browser.site).is_some_and(|view| {
                         view.id == page.browser
                             && view.last_page == page.sequence
@@ -2247,13 +2398,7 @@ fn apply_raw(
             changed,
             message: format!("{changed} rows changed"),
         },
-        Err((kind, message)) if message == "reconnect-required" => IngestOutcome {
-            site,
-            kind,
-            state: "reconnect-required".into(),
-            changed: 0,
-            message: "Sign-in required".into(),
-        },
+        Err((kind, message)) if message == "reconnect-required" => sign_in_required(site, &kind),
         Err((kind, message)) => IngestOutcome {
             site,
             kind,
@@ -2262,6 +2407,34 @@ fn apply_raw(
             message,
         },
     })
+}
+
+fn sign_in_required(site: SchoolSite, kind: &str) -> IngestOutcome {
+    IngestOutcome {
+        site,
+        kind: kind.into(),
+        state: "reconnect-required".into(),
+        changed: 0,
+        message: "Sign-in required".into(),
+    }
+}
+
+/// Automatic sign-in belongs to the session check, the visible page or the
+/// hidden pull that led this view to the identity provider.
+fn owns_sign_in(state: &State, profile: SchoolAuthProfile, browser: BrowserId) -> bool {
+    state.heartbeat == Some(profile)
+        || state.browsing == Some(browser.site)
+        || state
+            .hidden
+            .as_ref()
+            .is_some_and(|work| work.browser == browser)
+}
+
+fn sign_in_settled_without_session(state: SchoolSessionState) -> bool {
+    matches!(
+        state,
+        SchoolSessionState::Failed | SchoolSessionState::NotConfigured
+    )
 }
 
 fn snapshot(state: &State) -> SchoolSessionSnapshot {

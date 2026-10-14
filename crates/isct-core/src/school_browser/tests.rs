@@ -80,7 +80,7 @@ impl FakeBrowser {
     }
 
     async fn navigation(&self, index: usize) -> BrowserCommand {
-        for _ in 0..1_000 {
+        for attempt in 0..6_000 {
             let commands: Vec<_> = self
                 .commands
                 .lock()
@@ -92,7 +92,7 @@ impl FakeBrowser {
             if let Some(command) = commands.get(index) {
                 return command.clone();
             }
-            tokio::task::yield_now().await;
+            settle(attempt).await;
         }
         panic!("navigation {index} was not dispatched");
     }
@@ -102,7 +102,7 @@ impl FakeBrowser {
     }
 
     async fn extraction_script_at(&self, index: usize) -> String {
-        for _ in 0..1_000 {
+        for attempt in 0..6_000 {
             let scripts: Vec<_> = self
                 .commands
                 .lock()
@@ -118,13 +118,13 @@ impl FakeBrowser {
             if let Some(script) = scripts.get(index) {
                 return script.clone();
             }
-            tokio::task::yield_now().await;
+            settle(attempt).await;
         }
         panic!("extraction {index} was not dispatched");
     }
 
     async fn eval(&self, index: usize) -> String {
-        for _ in 0..1_000 {
+        for attempt in 0..6_000 {
             let scripts: Vec<_> = self
                 .commands
                 .lock()
@@ -138,13 +138,23 @@ impl FakeBrowser {
             if let Some(script) = scripts.get(index) {
                 return script.clone();
             }
-            tokio::task::yield_now().await;
+            settle(attempt).await;
         }
         panic!("eval {index} was not dispatched");
     }
 
     fn set_current_url(&self, browser: BrowserId, url: Url) {
         self.current.lock().unwrap().insert(browser, url);
+    }
+}
+
+/// Yields first, then sleeps briefly so blocking work (vault reads, SQLite
+/// commits) can finish on a loaded machine.
+async fn settle(attempt: usize) {
+    if attempt < 1_000 {
+        tokio::task::yield_now().await;
+    } else {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     }
 }
 
@@ -1477,4 +1487,139 @@ async fn pull_waiting_for_the_lane_does_not_navigate_a_page_the_user_just_opened
     assert!(pull.await.unwrap().is_err());
     engine.shutdown().await;
     assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+fn lms_courses_relay(script: &str, id: u64) -> Url {
+    extraction_relay(
+        script,
+        serde_json::json!({
+            "status": "ok",
+            "sourceUrl": "https://lms.s.isct.ac.jp/2025/my/",
+            "language": "en",
+            "coursesComplete": true,
+            "courses": [{
+                "id": id,
+                "fullname": "Recovered course",
+                "shortname": "RECOVER",
+                "viewurl": format!("https://lms.s.isct.ac.jp/2025/course/view.php?id={id}")
+            }]
+        }),
+    )
+}
+
+#[tokio::test]
+async fn hidden_pull_signs_in_with_saved_credentials_and_resumes_at_its_target() {
+    let (engine, browser, _, store) =
+        engine_with_auth(Arc::new(SchoolAuthService::new(saved_science_vault())));
+    let coordinator = PullCoordinator::default();
+    let request = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::automatic(),
+    );
+    let first = browser.navigation(0).await;
+    let listener = browser.listener();
+    // The expired LMS session redirects the hidden view to the identity provider.
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: first.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/auth").unwrap(),
+    });
+    let config = login_config(&browser.eval(0).await);
+    assert_eq!(config["username"], "student");
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: first.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/").unwrap(),
+    });
+    let resumed = browser.navigation(1).await;
+    assert_eq!(resumed.browser, first.browser);
+    assert_eq!(
+        resumed.command,
+        BrowserAction::Navigate(Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap())
+    );
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: first.browser,
+            sequence: 3,
+        },
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap(),
+    });
+    let relay = lms_courses_relay(&browser.extraction_script().await, 333333333);
+    listener.decide_navigation(
+        PageId {
+            browser: first.browser,
+            sequence: 3,
+        },
+        relay,
+        true,
+    );
+    let outcomes: Vec<IngestOutcome> =
+        serde_json::from_value(request.await.unwrap().unwrap()).unwrap();
+    assert_eq!(outcomes[0].state, "ok");
+    assert_eq!(
+        engine.session_snapshot().unwrap().states.science,
+        SchoolSessionState::Active
+    );
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM lms_courses WHERE id='lms-course:333333333'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    coordinator.shutdown().await;
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn hidden_pulls_without_saved_credentials_report_sign_in_required_promptly() {
+    for (site, sign_in, kind) in [
+        (
+            SchoolSite::ScienceLms,
+            "https://isct.ex-tic.com/auth",
+            "lms",
+        ),
+        (
+            SchoolSite::Kyomu,
+            "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login?Template=userpass_key",
+            "session",
+        ),
+    ] {
+        let (engine, browser, _, _) = engine();
+        let coordinator = PullCoordinator::default();
+        let request = spawn_pull(&engine, &coordinator, site, PullOptions::manual());
+        let navigation = browser.navigation(0).await;
+        browser.listener().page_loaded(PageLoaded {
+            page: PageId {
+                browser: navigation.browser,
+                sequence: 1,
+            },
+            cause: None,
+            url: Url::parse(sign_in).unwrap(),
+        });
+        let value = tokio::time::timeout(std::time::Duration::from_secs(5), request)
+            .await
+            .expect("a sign-in landing must not wait for the page timeout")
+            .unwrap()
+            .unwrap();
+        let outcomes: Vec<IngestOutcome> = serde_json::from_value(value).unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(
+            (outcomes[0].kind.as_str(), outcomes[0].state.as_str()),
+            (kind, "reconnect-required")
+        );
+        coordinator.shutdown().await;
+        engine.shutdown().await;
+    }
 }

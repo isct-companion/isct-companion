@@ -94,7 +94,12 @@ than letting the frontend infer state.
 
 A session timeout settles to `failed` and releases the lane for a later retry.
 Automatic credential reads are accepted only while their original page and
-login owner remain current. Page identity comparisons use the same sanitized
+login owner remain current. The owner is the session check, the visible page, or
+a hidden pull whose navigation landed on the identity provider. A hidden pull
+signs in with saved credentials and, once sign-in succeeds, Core loads the
+pull's target again. When the profile has no saved credentials, its automatic
+sign-in is blocked after a failure, or the attempt fails, the pull returns
+`reconnect-required` at once instead of waiting for the page timeout. Page identity comparisons use the same sanitized
 URL representation on both sides, including identity-provider query URLs.
 
 `SchoolLoginEvent` remains separate from session state. It reports automation
