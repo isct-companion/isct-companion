@@ -397,7 +397,11 @@ async fn provider_panic_is_settled_and_the_same_delivery_can_retry() {
         .sync(fixture.services(), Direction::Upload)
         .await
         .unwrap_err();
-    assert!(matches!(error, CloudSyncError::Transport(_)));
+    assert_eq!(error, CloudSyncError::Task(RuntimeTaskError::Panicked));
+    assert_eq!(
+        error.to_string(),
+        "Cloud sync worker failed; the saved task will retry."
+    );
     let pending = fixture.sync.state().unwrap();
     assert!(!pending.syncing);
     assert_eq!(
@@ -414,6 +418,22 @@ async fn provider_panic_is_settled_and_the_same_delivery_can_retry() {
         .unwrap();
     let receipt = retried.tasks.iter().find(|row| row.id == task).unwrap();
     assert_eq!(receipt.deliveries[0].status, DeliveryStatus::Completed);
+}
+
+#[tokio::test]
+async fn storage_worker_panic_preserves_its_category_and_later_work_can_run() {
+    let error = blocking::<()>(|| panic!("synthetic storage worker failure"))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        CloudSyncError::StorageTask(RuntimeTaskError::Panicked)
+    );
+    assert_eq!(
+        error.to_string(),
+        "Cloud storage worker failed; the saved task will retry."
+    );
+    assert_eq!(blocking(|| Ok(42)).await, Ok(42));
 }
 
 #[tokio::test]

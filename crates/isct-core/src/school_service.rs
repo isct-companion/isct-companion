@@ -8,7 +8,7 @@ use crate::{
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
 /// One extractor result. The wire contract is shared by desktop and mobile.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -32,17 +32,28 @@ pub struct SchoolExecution {
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum SchoolExecutorError {
     #[error("{0}")]
+    InvalidInput(String),
+    #[error("{0}")]
+    Authentication(String),
+    #[error("{0}")]
+    Storage(String),
+    #[error("{0}")]
+    Timeout(String),
+    #[error("{0}")]
+    Stopped(String),
+    #[error("{0}")]
+    SiteChanged(String),
+    #[error("{0}")]
     Execution(String),
     #[error("Pull cancelled.")]
     Cancelled,
 }
 
+pub type SchoolExecutorFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Vec<IngestOutcome>, SchoolExecutorError>> + Send + 'a>>;
+
 pub trait SchoolExecutor: Send + Sync {
-    fn execute(
-        &self,
-        request: SchoolExecution,
-        context: PullContext,
-    ) -> Result<Vec<IngestOutcome>, SchoolExecutorError>;
+    fn execute(&self, request: SchoolExecution, context: PullContext) -> SchoolExecutorFuture<'_>;
 }
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
@@ -53,10 +64,18 @@ pub enum SchoolError {
     Auth(#[from] SchoolAuthError),
     #[error("{0}")]
     Executor(String),
+    #[error("{0}")]
+    Authentication(String),
+    #[error("{0}")]
+    Timeout(String),
+    #[error("{0}")]
+    Stopped(String),
+    #[error("{0}")]
+    SiteChanged(String),
     #[error("Pull cancelled.")]
     Cancelled,
     #[error("{0}")]
-    Coordination(String),
+    Coordination(#[source] PullError),
     #[error("School pull returned an invalid result.")]
     Compatibility,
     #[error("refresh intent unavailable")]
@@ -69,9 +88,16 @@ impl From<PullError> for SchoolError {
     fn from(error: PullError) -> Self {
         match error {
             PullError::Cancelled => Self::Cancelled,
-            PullError::InvalidTarget(message) => Self::InvalidInput(message),
+            PullError::InvalidTarget(message) | PullError::InvalidInput(message) => {
+                Self::InvalidInput(message)
+            }
+            PullError::Authentication(message) => Self::Authentication(message),
+            PullError::Storage(message) => Self::Storage(message),
+            PullError::Timeout(message) => Self::Timeout(message),
+            PullError::ServiceStopped(message) => Self::Stopped(message),
+            PullError::SiteChanged(message) => Self::SiteChanged(message),
             PullError::Execution(message) => Self::Executor(message),
-            other => Self::Coordination(other.to_string()),
+            other => Self::Coordination(other),
         }
     }
 }
@@ -118,51 +144,48 @@ impl SchoolService {
                         if !context.phase("extracting").await {
                             return Err(PullError::Cancelled);
                         }
-                        let auth = service.auth.clone();
-                        let executor_context = context.clone();
-                        let result = tokio::task::spawn_blocking(move || {
-                            if executor_context.is_cancelled() {
-                                return Err(SchoolExecutorError::Cancelled);
-                            }
-                            let credentials = if login_first {
-                                let profile = profile_for_site(site);
-                                let credentials = auth
-                                    .load(profile)
-                                    .map_err(|error| {
-                                        SchoolExecutorError::Execution(error.to_string())
-                                    })?
-                                    .ok_or_else(|| {
-                                        SchoolExecutorError::Execution(
-                                            "School credentials are not configured.".into(),
-                                        )
-                                    })?;
-                                Some((profile, credentials))
-                            } else {
-                                None
-                            };
-                            if executor_context.is_cancelled() {
-                                return Err(SchoolExecutorError::Cancelled);
-                            }
-                            executor.execute(
+                        if context.is_cancelled() {
+                            return Err(PullError::Cancelled);
+                        }
+                        let credentials = if login_first {
+                            let auth = service.auth.clone();
+                            let profile = profile_for_site(site);
+                            let loaded = tokio::task::spawn_blocking(move || auth.load(profile))
+                                .await
+                                .map_err(|error| {
+                                    if error.is_panic() {
+                                        PullError::ExecutorPanicked
+                                    } else {
+                                        PullError::ExecutorStopped
+                                    }
+                                })?
+                                .map_err(map_auth_error)
+                                .map_err(map_executor_error)?;
+                            Some((
+                                profile,
+                                loaded.ok_or_else(|| {
+                                    PullError::Authentication(
+                                        "School credentials are not configured.".into(),
+                                    )
+                                })?,
+                            ))
+                        } else {
+                            None
+                        };
+                        if context.is_cancelled() {
+                            return Err(PullError::Cancelled);
+                        }
+                        let result = executor
+                            .execute(
                                 SchoolExecution {
                                     site,
                                     course_id,
                                     credentials,
                                 },
-                                executor_context,
+                                context.clone(),
                             )
-                        })
-                        .await
-                        .map_err(|_| {
-                            PullError::Execution("The school pull stopped unexpectedly.".into())
-                        })?;
-                        let result = match result {
-                            Ok(result) => result,
-                            Err(SchoolExecutorError::Cancelled) => {
-                                return Err(PullError::Cancelled)
-                            }
-                            Err(error) => return Err(PullError::Execution(error.to_string())),
-                        };
+                            .await
+                            .map_err(map_executor_error)?;
                         if context.is_cancelled() {
                             return Err(PullError::Cancelled);
                         }
@@ -182,6 +205,27 @@ impl SchoolService {
             .await
             .map_err(SchoolError::from)?;
         serde_json::from_value(value).map_err(|_| SchoolError::Compatibility)
+    }
+}
+
+fn map_executor_error(error: SchoolExecutorError) -> PullError {
+    match error {
+        SchoolExecutorError::InvalidInput(message) => PullError::InvalidInput(message),
+        SchoolExecutorError::Authentication(message) => PullError::Authentication(message),
+        SchoolExecutorError::Storage(message) => PullError::Storage(message),
+        SchoolExecutorError::Timeout(message) => PullError::Timeout(message),
+        SchoolExecutorError::Stopped(message) => PullError::ServiceStopped(message),
+        SchoolExecutorError::SiteChanged(message) => PullError::SiteChanged(message),
+        SchoolExecutorError::Execution(message) => PullError::Execution(message),
+        SchoolExecutorError::Cancelled => PullError::Cancelled,
+    }
+}
+
+fn map_auth_error(error: SchoolAuthError) -> SchoolExecutorError {
+    match error {
+        SchoolAuthError::InvalidInput(message) => SchoolExecutorError::InvalidInput(message),
+        SchoolAuthError::Storage(message) => SchoolExecutorError::Storage(message),
+        other => SchoolExecutorError::Authentication(other.to_string()),
     }
 }
 
@@ -252,6 +296,7 @@ mod tests {
     enum Behavior {
         Outcomes(Vec<IngestOutcome>),
         Error(String),
+        Typed(SchoolExecutorError),
         Panic,
     }
 
@@ -297,9 +342,11 @@ mod tests {
             &self,
             _request: SchoolExecution,
             _context: PullContext,
-        ) -> Result<Vec<IngestOutcome>, SchoolExecutorError> {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Ok(vec![outcome("ok")])
+        ) -> SchoolExecutorFuture<'_> {
+            Box::pin(async move {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Ok(vec![outcome("ok")])
+            })
         }
     }
 
@@ -317,17 +364,22 @@ mod tests {
             &self,
             request: SchoolExecution,
             _context: PullContext,
-        ) -> Result<Vec<IngestOutcome>, SchoolExecutorError> {
-            self.requests.lock().unwrap().push((
-                request.site,
-                request.course_id,
-                request.credentials.as_ref().map(|(profile, _)| *profile),
-            ));
-            match &*self.behavior.lock().unwrap() {
-                Behavior::Outcomes(rows) => Ok(rows.clone()),
-                Behavior::Error(message) => Err(SchoolExecutorError::Execution(message.clone())),
-                Behavior::Panic => panic!("native executor panic"),
-            }
+        ) -> SchoolExecutorFuture<'_> {
+            Box::pin(async move {
+                self.requests.lock().unwrap().push((
+                    request.site,
+                    request.course_id,
+                    request.credentials.as_ref().map(|(profile, _)| *profile),
+                ));
+                match &*self.behavior.lock().unwrap() {
+                    Behavior::Outcomes(rows) => Ok(rows.clone()),
+                    Behavior::Error(message) => {
+                        Err(SchoolExecutorError::Execution(message.clone()))
+                    }
+                    Behavior::Typed(error) => Err(error.clone()),
+                    Behavior::Panic => panic!("native executor panic"),
+                }
+            })
         }
     }
 
@@ -435,6 +487,97 @@ mod tests {
                 .unwrap();
             assert_eq!(rows, [outcome("ok")]);
         }
+    }
+
+    #[tokio::test]
+    async fn typed_executor_errors_keep_their_category_and_release_the_lane() {
+        let cases = [
+            (
+                SchoolExecutorError::Authentication("Sign-in expired.".into()),
+                SchoolError::Authentication("Sign-in expired.".into()),
+            ),
+            (
+                SchoolExecutorError::Storage("School database unavailable.".into()),
+                SchoolError::Storage("School database unavailable.".into()),
+            ),
+            (
+                SchoolExecutorError::Timeout("School page timed out.".into()),
+                SchoolError::Timeout("School page timed out.".into()),
+            ),
+            (
+                SchoolExecutorError::Stopped("The school browser has stopped.".into()),
+                SchoolError::Stopped("The school browser has stopped.".into()),
+            ),
+            (
+                SchoolExecutorError::SiteChanged("School page changed.".into()),
+                SchoolError::SiteChanged("School page changed.".into()),
+            ),
+        ];
+        for (executor_error, expected) in cases {
+            let coordinator = PullCoordinator::default();
+            let service = service(
+                coordinator,
+                Arc::new(SchoolAuthService::new(MemoryVault::default())),
+            );
+            let error = service
+                .pull(
+                    Arc::new(FakeExecutor::new(Behavior::Typed(executor_error))),
+                    SchoolSite::Kyomu,
+                    None,
+                    PullOptions::manual(),
+                    false,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error, expected);
+
+            let rows = service
+                .pull(
+                    Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome("ok")]))),
+                    SchoolSite::Kyomu,
+                    None,
+                    PullOptions::manual(),
+                    false,
+                )
+                .await
+                .unwrap();
+            assert_eq!(rows, vec![outcome("ok")]);
+        }
+    }
+
+    #[tokio::test]
+    async fn executor_panic_keeps_its_typed_source_and_the_next_pull_runs() {
+        let coordinator = PullCoordinator::default();
+        let service = service(
+            coordinator,
+            Arc::new(SchoolAuthService::new(MemoryVault::default())),
+        );
+        let error = service
+            .pull(
+                Arc::new(FakeExecutor::new(Behavior::Panic)),
+                SchoolSite::Kyomu,
+                None,
+                PullOptions::manual(),
+                false,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            SchoolError::Coordination(PullError::ExecutorPanicked)
+        );
+
+        let rows = service
+            .pull(
+                Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome("ok")]))),
+                SchoolSite::Kyomu,
+                None,
+                PullOptions::manual(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows, vec![outcome("ok")]);
     }
 
     #[tokio::test]

@@ -100,26 +100,29 @@ impl FakeBrowser {
     }
 
     async fn extraction_script(&self) -> String {
+        self.extraction_script_at(0).await
+    }
+
+    async fn extraction_script_at(&self, index: usize) -> String {
         for _ in 0..1_000 {
-            if let Some(script) =
-                self.commands
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .find_map(|command| match &command.command {
-                        BrowserAction::Eval(script)
-                            if script.contains("isct-companion-extract://") =>
-                        {
-                            Some(script.clone())
-                        }
-                        _ => None,
-                    })
-            {
-                return script;
+            let scripts: Vec<_> = self
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|command| match &command.command {
+                    BrowserAction::Eval(script) if script.contains("isct-companion-extract://") => {
+                        Some(script.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            if let Some(script) = scripts.get(index) {
+                return script.clone();
             }
             tokio::task::yield_now().await;
         }
-        panic!("extraction was not dispatched");
+        panic!("extraction {index} was not dispatched");
     }
 
     async fn eval(&self, index: usize) -> String {
@@ -833,6 +836,148 @@ async fn coordinator_pull_accepts_native_cause_none_and_commits_lms_payload() {
 }
 
 #[tokio::test]
+async fn full_lms_pull_rejects_the_preempted_relay_and_resumes_the_same_caller() {
+    let (engine, browser, _, store) = engine();
+    let coordinator = PullCoordinator::default();
+    let request = {
+        let engine = engine.clone();
+        let coordinator = coordinator.clone();
+        tokio::spawn(async move {
+            coordinator
+                .run(
+                    PullTarget::School {
+                        site: SchoolSite::ScienceLms,
+                        course_id: None,
+                    },
+                    PullOptions::manual(),
+                    move |context| {
+                        let engine = engine.clone();
+                        async move {
+                            engine
+                                .pull(SchoolSite::ScienceLms, None, context, PullPriority::Manual)
+                                .await
+                                .map(|outcomes| serde_json::to_value(outcomes).unwrap())
+                                .map_err(|error| {
+                                    crate::pull_coordinator::PullError::Execution(error.to_string())
+                                })
+                        }
+                    },
+                )
+                .await
+        })
+    };
+    let first_navigation = browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: first_navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap(),
+    });
+    let stale_relay = extraction_relay(
+        &browser.extraction_script_at(0).await,
+        serde_json::json!({
+            "status": "ok",
+            "sourceUrl": "https://lms.s.isct.ac.jp/2025/my/",
+            "language": "en",
+            "coursesComplete": true,
+            "courses": [{
+                "id": 111111111,
+                "fullname": "Preempted course",
+                "shortname": "STALE",
+                "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=111111111"
+            }]
+        }),
+    );
+    let admitted = coordinator.snapshots().await[0].clone();
+
+    engine.user_browsing(Some(SchoolSite::Kyomu)).unwrap();
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!request.is_finished());
+    engine.user_browsing(None).unwrap();
+
+    let resumed_navigation = browser.navigation(1).await;
+    assert_eq!(resumed_navigation.browser, first_navigation.browser);
+    assert_eq!(
+        browser.listener().decide_navigation(
+            PageId {
+                browser: first_navigation.browser,
+                sequence: 1,
+            },
+            stale_relay,
+            true,
+        ),
+        NavigationDecision::Cancel
+    );
+    assert!(!request.is_finished());
+
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: resumed_navigation.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap(),
+    });
+    let fresh_relay = extraction_relay(
+        &browser.extraction_script_at(1).await,
+        serde_json::json!({
+            "status": "ok",
+            "sourceUrl": "https://lms.s.isct.ac.jp/2025/my/",
+            "language": "en",
+            "coursesComplete": true,
+            "courses": [{
+                "id": 222222222,
+                "fullname": "Resumed course",
+                "shortname": "FRESH",
+                "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=222222222"
+            }]
+        }),
+    );
+    assert_eq!(
+        browser.listener().decide_navigation(
+            PageId {
+                browser: resumed_navigation.browser,
+                sequence: 2,
+            },
+            fresh_relay,
+            true,
+        ),
+        NavigationDecision::Cancel
+    );
+    let value = request.await.unwrap().unwrap();
+    let outcomes: Vec<IngestOutcome> = serde_json::from_value(value).unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].state, "ok");
+
+    let completed = coordinator.snapshots().await[0].clone();
+    assert_eq!(completed.id, admitted.id);
+    assert_eq!(completed.attempt, 1);
+    assert_eq!(completed.state, PullState::Succeeded);
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    let stale: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM lms_courses WHERE id='lms-course:111111111'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let fresh: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM lms_courses WHERE id='lms-course:222222222'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!((stale, fresh), (0, 1));
+    coordinator.shutdown().await;
+    engine.shutdown().await;
+}
+
+#[tokio::test]
 async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails() {
     let (engine, browser, _, store) = engine();
     let coordinator = PullCoordinator::default();
@@ -901,7 +1046,7 @@ async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails(
         &browser.extraction_script().await,
         serde_json::json!({
             "status": "ok",
-            "sourceUrl": gpa_url,
+            "sourceUrl": gpa_url.as_str(),
             "kind": "gpa",
             "data": {
                 "overall": [[[], ["GPA", "GPT", "修得済単位", "合格率"], ["3.20", "100", "10", "90"]]],

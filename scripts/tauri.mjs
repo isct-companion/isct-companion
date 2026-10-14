@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -8,9 +9,16 @@ import {
 } from "./oauth-config.mjs";
 import { patchIosProject } from "./patch-ios-project.mjs";
 import { macSigningConfig } from "./macos-signing.mjs";
+import { developmentVersion } from "./build-version.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const command = process.argv.slice(2);
+const development = command.includes("dev") || command.includes("--debug");
+const version = development
+  ? developmentVersion(
+      JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version,
+    )
+  : undefined;
 const commandPlatform = command.includes("ios")
   ? "ios"
   : command.includes("android")
@@ -27,7 +35,13 @@ const macConfig = shouldSignMac
   ? macSigningConfig({ required: true })
   : undefined;
 const tauriCommand = [...process.argv.slice(2)];
-if (macConfig) tauriCommand.push("--config", JSON.stringify(macConfig));
+if (macConfig || version) {
+  tauriCommand.push(
+    "--config",
+    JSON.stringify({ ...macConfig, ...(version ? { version } : {}) }),
+  );
+}
+if (version) console.log(`Development build: ${version}`);
 const child = spawn(
   process.execPath,
   [path.join(root, "node_modules/@tauri-apps/cli/tauri.js"), ...tauriCommand],
@@ -37,6 +51,7 @@ const child = spawn(
     env: {
       ...process.env,
       ...nativeOAuthEnv(),
+      ...(version ? { ISCT_APP_VERSION: version } : {}),
       ISCT_BUILD_TARGET: buildTarget,
       TAURI_APP_PATH: path.join(root, "backend"),
       TAURI_FRONTEND_PATH: root,

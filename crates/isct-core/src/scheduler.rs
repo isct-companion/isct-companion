@@ -324,7 +324,7 @@ mod tests {
         pull_coordinator::{PullContext, PullCoordinator, PullNetwork},
         school_auth::SchoolAuthService,
         school_refresh::RefreshEvent,
-        school_service::{SchoolExecution, SchoolExecutorError},
+        school_service::SchoolExecution,
     };
     use serde_json::json;
     use std::sync::{
@@ -358,14 +358,16 @@ mod tests {
             &self,
             request: SchoolExecution,
             _context: PullContext,
-        ) -> Result<Vec<IngestOutcome>, SchoolExecutorError> {
-            Ok(vec![IngestOutcome {
-                site: request.site,
-                kind: "test".into(),
-                state: "ok".into(),
-                changed: 0,
-                message: String::new(),
-            }])
+        ) -> crate::school_service::SchoolExecutorFuture<'_> {
+            Box::pin(async move {
+                Ok(vec![IngestOutcome {
+                    site: request.site,
+                    kind: "test".into(),
+                    state: "ok".into(),
+                    changed: 0,
+                    message: String::new(),
+                }])
+            })
         }
     }
 

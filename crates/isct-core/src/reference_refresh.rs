@@ -34,7 +34,7 @@ pub enum ReferenceError {
     #[error("Pull cancelled.")]
     Cancelled,
     #[error("{0}")]
-    Coordination(String),
+    Coordination(#[source] PullError),
     #[error("{0} reference source(s) failed")]
     PartialFailure(usize),
 }
@@ -59,8 +59,27 @@ impl From<PullError> for ReferenceError {
     fn from(error: PullError) -> Self {
         match error {
             PullError::Cancelled => Self::Cancelled,
-            PullError::InvalidTarget(message) => Self::InvalidInput(message),
-            other => Self::Coordination(other.to_string()),
+            PullError::InvalidTarget(message) | PullError::InvalidInput(message) => {
+                Self::InvalidInput(message)
+            }
+            PullError::Network(message) => Self::Network(message),
+            PullError::Storage(message) => Self::Storage(message),
+            other => Self::Coordination(other),
+        }
+    }
+}
+
+impl From<ReferenceError> for PullError {
+    fn from(error: ReferenceError) -> Self {
+        match error {
+            ReferenceError::InvalidInput(message) => Self::InvalidInput(message),
+            ReferenceError::Network(message) => Self::Network(message),
+            ReferenceError::Storage(message) => Self::Storage(message),
+            ReferenceError::Cancelled => Self::Cancelled,
+            ReferenceError::Coordination(error) => error,
+            ReferenceError::PartialFailure(count) => {
+                Self::Execution(format!("{count} reference source(s) failed"))
+            }
         }
     }
 }
@@ -312,7 +331,7 @@ impl ReferenceService {
                     service
                         .run_reference(&request, &context, &probes)
                         .await
-                        .map_err(|error| PullError::Execution(error.to_string()))
+                        .map_err(PullError::from)
                 }
             })
             .await
@@ -1264,5 +1283,42 @@ mod tests {
         task["id"] = json!("builtin:reference-subscriptions");
         task["enabled"] = json!(false);
         assert!(!reference_due_at_launch(&task, started));
+    }
+
+    #[test]
+    fn reference_error_categories_survive_the_coordinator_boundary() {
+        for (source, expected) in [
+            (
+                ReferenceError::Network("reference host unavailable".into()),
+                PullError::Network("reference host unavailable".into()),
+            ),
+            (
+                ReferenceError::Storage("reference cache unavailable".into()),
+                PullError::Storage("reference cache unavailable".into()),
+            ),
+            (
+                ReferenceError::InvalidInput("reference URL invalid".into()),
+                PullError::InvalidInput("reference URL invalid".into()),
+            ),
+        ] {
+            let pulled = PullError::from(source);
+            assert_eq!(pulled, expected);
+            match ReferenceError::from(pulled) {
+                ReferenceError::Network(message) => {
+                    assert_eq!(message, "reference host unavailable")
+                }
+                ReferenceError::Storage(message) => {
+                    assert_eq!(message, "reference cache unavailable")
+                }
+                ReferenceError::InvalidInput(message) => {
+                    assert_eq!(message, "reference URL invalid")
+                }
+                other => panic!("unexpected restored reference error: {other}"),
+            }
+        }
+        assert_eq!(
+            PullError::from(ReferenceError::Coordination(PullError::RuntimeUnavailable)),
+            PullError::RuntimeUnavailable
+        );
     }
 }
