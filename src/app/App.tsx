@@ -569,13 +569,16 @@ export function WorkspaceApp() {
       .catch(() => setNativeCapabilities(undefined))
       .finally(() => setNativeCapabilitiesReady(true));
   }, []);
+  // Courses of the quarter on screen, a 3Q–4Q course in each of its quarters.
+  const termCourseKey = overview.value?.termCourseIds.join("\n");
   useEffect(() => {
     if (!sourceData || !desktopBridge || !nativeCapabilities?.syllabusSearch)
       return;
+    const termCourses = new Set(termCourseKey?.split("\n") ?? []);
     for (const course of sourceData.courses.filter(
       (course) =>
         !course.deletedAt &&
-        course.termId === sourceData.selectedTerm &&
+        termCourses.has(course.id) &&
         isSyllabusCourse(course) &&
         course.url,
     ))
@@ -583,7 +586,7 @@ export function WorkspaceApp() {
         .syllabusCourse(course.url!, contentLanguage(sourceData.settings))
         .catch(() => undefined);
   }, [
-    sourceData?.selectedTerm,
+    termCourseKey,
     sourceData?.settings.locale,
     sourceData?.settings.contentLanguage,
     sourceData?.courses,

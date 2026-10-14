@@ -620,6 +620,101 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert!(!view.deadlines.contains_key("invalid"));
 }
 
+/// A 3Q–4Q course added in 3Q: one course row (termId 3Q) with a plan item in
+/// each quarter, while the calendar has moved on to 4Q.
+pub(crate) fn multi_quarter_workspace() -> Value {
+    let mut data = workspace();
+    data["currentTerm"] = json!("2026-4Q");
+    data["selectedTerm"] = json!("2026-3Q");
+    data["courses"] = json!([{"id":"multi","termId":"2026-3Q","title":"Long Course","code":"MTH.B301","color":"#526e91",
+        "meetings":[{"days":[1],"periods":[1,2],"startTime":"08:50","endTime":"10:30","room":"W-1"}]}]);
+    data["memberships"] = json!([]);
+    data["planItems"] = json!([
+        {"id":"plan-3q","termId":"2026-3Q","courseId":"multi","offeringId":"202630001","state":"planned"},
+        {"id":"plan-4q","termId":"2026-4Q","courseId":"multi","offeringId":"202630001","state":"planned"}
+    ]);
+    data["academicCalendar"] = json!([
+        {"id":"q3s","academicYear":2026,"quarter":"3Q","date":"2026-10-01","type":"quarter-start","label":{"en":"3Q"}},
+        {"id":"q3e","academicYear":2026,"quarter":"3Q","date":"2026-11-25","type":"quarter-end","label":{"en":"3Q end"}},
+        {"id":"q4s","academicYear":2026,"quarter":"4Q","date":"2026-12-01","type":"quarter-start","label":{"en":"4Q"}},
+        {"id":"q4e","academicYear":2026,"quarter":"4Q","date":"2027-02-05","type":"quarter-end","label":{"en":"4Q end"}}
+    ]);
+    data["assignments"] = json!([{"id":"report","courseId":"multi","title":"Report","dueAt":"2026-12-10T23:59:00+09:00"}]);
+    data
+}
+
+#[test]
+fn a_three_q_four_q_course_belongs_to_every_quarter_it_is_placed_in() {
+    let data = multi_quarter_workspace();
+    let at = |raw: &str| DateTime::parse_from_rfc3339(raw).unwrap();
+    assert_eq!(scheduled_courses(&data, "2026-4Q")[0]["id"], "multi");
+    assert_eq!(
+        course_terms(&data, &data["courses"][0]),
+        vec!["2026-3Q", "2026-4Q"]
+    );
+
+    // Timetable and Today: 4Q has the course, so Today follows 4Q.
+    let WorkspaceQueryResult::WorkspaceOverview(overview) = query(
+        &data,
+        WorkspaceQuery::WorkspaceOverview {
+            term: "2026-4Q".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("overview expected")
+    };
+    assert_eq!(overview.today_term, "2026-4Q");
+    assert_eq!(overview.courses[0]["id"], "multi");
+    assert_eq!(overview.term_course_ids, vec!["multi"]);
+    assert!(overview.all_terms.contains(&"2026-4Q".to_string()));
+    let monday =
+        resolve_day_agenda(&data, "2026-4Q", "2026-12-07", AgendaOptions::default()).unwrap();
+    assert_eq!(monday[0].course_id.as_deref(), Some("multi"));
+    let today = glance(&data, at("2026-12-07T07:00:00+09:00")).unwrap();
+    assert_eq!(today.term, "2026-4Q");
+    assert_eq!(today.agenda[0].course_id.as_deref(), Some("multi"));
+
+    // Reminders and calendar export.
+    let reminders = notification_plan(
+        &data,
+        at("2026-12-07T08:30:00+09:00"),
+        at("2026-12-07T09:00:00+09:00"),
+        Some(NotificationLocale::En),
+    )
+    .unwrap();
+    assert!(reminders
+        .items
+        .iter()
+        .any(|item| item.key == "class:multi-weekly-0-2026-12-07"));
+    let ics = export_quarter_ics(
+        &data,
+        "2026-4Q",
+        CalendarExportScope::Courses,
+        at("2026-12-01T00:00:00Z"),
+    )
+    .unwrap();
+    assert!(ics.contains("UID:multi-weekly-0-2026-12-07@isctcompanion.local"));
+
+    // Work for the course counts in 4Q, and its class times continue into 4Q.
+    let tasks = task_view(&data, at("2026-12-07T07:00:00+09:00")).unwrap();
+    assert_eq!(tasks.by_term["2026-4Q"].pending_ids, vec!["report"]);
+    assert_eq!(tasks.by_term["2026-3Q"].pending_ids, vec!["report"]);
+    let timeline =
+        course_timeline(&data, "multi", at("2026-11-24T12:00:00+09:00"), 14, 14).unwrap();
+    assert_eq!(
+        timeline.last_started.as_deref(),
+        Some("2026-11-23T08:50:00+09:00")
+    );
+    assert_eq!(timeline.next.as_deref(), Some("2026-12-07T08:50:00+09:00"));
+
+    // Off the 4Q timetable, the course stays in 3Q only.
+    let mut off = data.clone();
+    off["planItems"][1]["deletedAt"] = json!("2026-12-01T00:00:00Z");
+    assert!(scheduled_courses(&off, "2026-4Q").is_empty());
+    let today = glance(&off, at("2026-12-07T07:00:00+09:00")).unwrap();
+    assert_eq!(today.term, "2026-3Q");
+}
+
 #[test]
 fn ics_folds_utf8_and_rolls_overnight() {
     let mut data = workspace();

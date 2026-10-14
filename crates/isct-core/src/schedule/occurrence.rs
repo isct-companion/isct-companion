@@ -217,9 +217,10 @@ pub fn plan_start(plan: &Value) -> Result<PlanCivilStart, ScheduleError> {
     Ok(PlanCivilStart { date, time })
 }
 
+/// The course's meetings around `now` across every quarter it belongs to, so a
+/// 3Q–4Q course keeps its class times when the quarter changes.
 pub fn course_timeline(
     workspace: &Value,
-    term: &str,
     course_id: &str,
     now: DateTime<FixedOffset>,
     before_days: u16,
@@ -234,25 +235,33 @@ pub fn course_timeline(
     let jst = FixedOffset::east_opt(9 * 3600)
         .ok_or_else(|| ScheduleError::Compatibility("JST offset unavailable".into()))?;
     let local_now = now.with_timezone(&jst).format("%Y-%m-%dT%H:%M").to_string();
+    let terms = array(workspace, "courses")
+        .iter()
+        .find(|row| visible(row) && text(row, "id") == Some(course_id))
+        .map(|course| course_terms(workspace, course))
+        .unwrap_or_default();
     let mut starts = Vec::new();
     for offset in -(i64::from(before_days))..=i64::from(after_days) {
         let date = (today + Duration::days(offset)).to_string();
-        for row in resolve_day_agenda(
-            workspace,
-            term,
-            &date,
-            AgendaOptions {
-                include_personal: false,
-                ..AgendaOptions::default()
-            },
-        )?
-        .into_iter()
-        .filter(|row| row.course_id.as_deref() == Some(course_id))
-        {
-            starts.push(format!("{}T{}", row.date, row.start_time));
+        for term in &terms {
+            for row in resolve_day_agenda(
+                workspace,
+                term,
+                &date,
+                AgendaOptions {
+                    include_personal: false,
+                    ..AgendaOptions::default()
+                },
+            )?
+            .into_iter()
+            .filter(|row| row.course_id.as_deref() == Some(course_id))
+            {
+                starts.push(format!("{}T{}", row.date, row.start_time));
+            }
         }
     }
     starts.sort();
+    starts.dedup();
     let last_started = starts
         .iter()
         .rev()
@@ -275,22 +284,72 @@ pub fn course_timeline(
     })
 }
 
-pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
-    let ids: HashSet<&str> = array(workspace, "memberships")
+/// Live memberships and plan items: the rows that put a course on the
+/// timetable of their quarter.
+fn placements(workspace: &Value) -> impl Iterator<Item = &Value> {
+    array(workspace, "memberships")
         .iter()
         .chain(array(workspace, "planItems"))
-        .filter(|row| visible(row) && text(row, "termId") == Some(term))
+        .filter(|row| visible(row))
+}
+
+/// Courses on the timetable of `term`: those with a live membership or plan
+/// item there. A course running 3Q–4Q is one course (its `termId` is where it
+/// was added) with a row in each quarter.
+pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
+    let ids: HashSet<&str> = placements(workspace)
+        .filter(|row| text(row, "termId") == Some(term))
+        .filter_map(|row| text(row, "courseId"))
+        .collect();
+    array(workspace, "courses")
+        .iter()
+        .filter(|row| visible(row) && text(row, "id").is_some_and(|id| ids.contains(id)))
+        .cloned()
+        .collect()
+}
+
+/// Every quarter a course belongs to, sorted: its own `termId` and each
+/// quarter a live membership or plan item places it in.
+pub fn course_terms(workspace: &Value, course: &Value) -> Vec<String> {
+    let id = text(course, "id");
+    let mut terms: Vec<String> = text(course, "termId")
+        .into_iter()
+        .chain(
+            placements(workspace)
+                .filter(|row| id.is_some() && text(row, "courseId") == id)
+                .filter_map(|row| text(row, "termId")),
+        )
+        .map(str::to_owned)
+        .collect();
+    terms.sort();
+    terms.dedup();
+    terms
+}
+
+/// Visible courses that belong to `term` (see [`course_terms`]), whether or
+/// not they are on its timetable.
+pub fn term_courses<'a>(workspace: &'a Value, term: &str) -> Vec<&'a Value> {
+    let placed: HashSet<&str> = placements(workspace)
+        .filter(|row| text(row, "termId") == Some(term))
         .filter_map(|row| text(row, "courseId"))
         .collect();
     array(workspace, "courses")
         .iter()
         .filter(|row| {
             visible(row)
-                && text(row, "termId") == Some(term)
-                && text(row, "id").is_some_and(|id| ids.contains(id))
+                && (text(row, "termId") == Some(term)
+                    || text(row, "id").is_some_and(|id| placed.contains(id)))
         })
-        .cloned()
         .collect()
+}
+
+/// Every quarter that has a visible course or a live placement.
+pub(crate) fn placement_terms(workspace: &Value) -> impl Iterator<Item = &str> {
+    array(workspace, "courses")
+        .iter()
+        .filter(|row| visible(row))
+        .chain(placements(workspace))
+        .filter_map(|row| text(row, "termId"))
 }
 
 pub fn occurrences_on_date(

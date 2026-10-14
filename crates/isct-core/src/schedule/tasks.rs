@@ -6,7 +6,10 @@ use serde_json::Value;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
-use super::{array, parse_timestamp, scheduled_courses, text, visible, ScheduleError};
+use super::{
+    array, course_terms, parse_timestamp, placement_terms, scheduled_courses, text, visible,
+    ScheduleError,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -86,16 +89,27 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
             nearest_by_course.insert(course.into(), (*due, id.into()));
         }
     }
-    let mut terms: HashSet<String> = array(workspace, "courses")
-        .iter()
-        .filter(|row| visible(row))
-        .filter_map(|row| text(row, "termId").map(str::to_owned))
-        .collect();
+    let mut terms: HashSet<String> = placement_terms(workspace).map(str::to_owned).collect();
     for key in ["currentTerm", "selectedTerm"] {
         if let Some(term) = text(workspace, key) {
             terms.insert(term.to_owned());
         }
     }
+    // Quarters each assignment's course belongs to (a 3Q–4Q course's work
+    // counts in both); `None` when the course is unknown.
+    let assignment_terms: BTreeMap<&str, Option<Vec<String>>> = array(workspace, "assignments")
+        .iter()
+        .filter_map(|row| {
+            let course_terms = text(row, "courseId")
+                .and_then(|course| {
+                    array(workspace, "courses")
+                        .iter()
+                        .find(|item| visible(item) && text(item, "id") == Some(course))
+                })
+                .map(|course| course_terms(workspace, course));
+            Some((text(row, "id")?, course_terms))
+        })
+        .collect();
     let mut by_term = BTreeMap::new();
     for term in terms {
         let course_ids: HashSet<String> = scheduled_courses(workspace, &term)
@@ -122,16 +136,11 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
                 }
             }
             let Some(due) = parsed.get(id) else { continue };
-            let course_term = text(row, "courseId")
-                .and_then(|course| {
-                    array(workspace, "courses")
-                        .iter()
-                        .find(|item| text(item, "id") == Some(course))
-                })
-                .and_then(|course| text(course, "termId"));
-            if hidden
-                || !(course_term == Some(term.as_str()) || (course_term.is_none() && *due >= now))
-            {
+            let in_term = match assignment_terms.get(id).and_then(Option::as_ref) {
+                Some(terms) => terms.contains(&term),
+                None => *due >= now,
+            };
+            if hidden || !in_term {
                 continue;
             }
             today.push((*due, id.to_owned(), row));
