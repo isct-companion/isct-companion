@@ -25,7 +25,8 @@ export type SchoolSite =
   | "kyomu"
   | "library"
   | "tsubame"
-  | "syllabus";
+  | "syllabus"
+  | "study-guide";
 /** A file a school page saved to Downloads (download or PDF viewer ↓). */
 export type SchoolDownloadEvent = {
   site: SchoolSite;

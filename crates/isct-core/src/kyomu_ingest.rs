@@ -30,12 +30,21 @@ pub const KYOMU_EXTRACT_SCRIPT: &str = r#"(() => {
     return match ? {category:match[1], mark:match[2] === '◎' ? 'required'
       : match[2] === '○' ? 'recommended' : 'elective'} : {raw:clean(raw)};
   };
-  const schedule = raw => clean(raw).split(/\s*[、,]\s*/).map(part => {
-    const match = part.match(/([1-4])Q[:：]\s*([月火水木金土日])\s*(\d+)\s*[-–〜~]\s*(\d+)/);
-    if (!match) return {raw:part};
-    const first = Number(match[3]), last = Number(match[4]);
-    return {quarter:match[1]+'Q', day:match[2], periods:Array.from({length:last-first+1},(_,i)=>first+i)};
-  }).filter(item => item.raw || item.quarter);
+  // One meeting per <br> line: `3Q：火3-4`, `3～4Q：金7-8` (once per quarter).
+  const lines = el => {
+    if (!el) return [];
+    const copy = el.cloneNode(true);
+    copy.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+    return copy.textContent.split('\n').map(clean).filter(Boolean);
+  };
+  const schedule = rows => rows.flatMap(part => {
+    const match = part.match(/^([1-4])(?:\s*[~〜-]\s*([1-4]))?Q[:：]\s*([月火水木金土日])\s*(\d+)\s*[-–〜~]\s*(\d+)/);
+    if (!match) return [{raw:part}];
+    const from = Number(match[1]), to = Number(match[2] || match[1]);
+    const first = Number(match[4]), last = Number(match[5]);
+    const periods = Array.from({length:last-first+1},(_,i)=>first+i);
+    return Array.from({length:to-from+1},(_,i)=>({quarter:(from+i)+'Q', day:match[3], periods}));
+  });
   if (kind === 'registrations') {
     const rawState = text(document,'#ctl00_ContentPlaceHolder1_ctl00_lblStatus2');
     const stateMap = {'一時保存':'saved','要エラーチェック':'needs-check','本登録可能':'registrable',
@@ -51,9 +60,10 @@ pub const KYOMU_EXTRACT_SCRIPT: &str = r#"(() => {
       const courseState = classes.includes('timetableError') ? 'rejected'
         : classes.some(c => c === 'timetableAlert1' || c === 'timetableAlert2' || c === 'timetableAlert3' || c === 'timetableAlert22') ? 'needs-approval'
         : classes.includes('timetableUnchecked') ? 'needs-check' : 'registrable';
-      const rawSchedule = [text(block,'.ttYoubi'),text(block,'.ttYoubi2')].filter(Boolean).join(',');
+      // .ttYoubi2 is .ttYoubi without the rooms.
+      const times = lines(block.querySelector('.ttYoubi2') || block.querySelector('.ttYoubi'));
       courses.push({offeringId,title:text(block,'.ttKamokuName a'),code:text(block,'.ttSinkokuNo'),
-        instructor:text(block,'.ttKyoin'),schedule:schedule(rawSchedule),requirement:requirement(text(block,'.ttSuisho')),
+        instructor:text(block,'.ttKyoin'),schedule:schedule(times),requirement:requirement(text(block,'.ttSuisho')),
         courseState,declaredOnly:false});
     }
     for (const table of document.querySelectorAll('table[id^="kamokuUnit_"][id$="_gvKamoku"]')) {
@@ -68,8 +78,9 @@ pub const KYOMU_EXTRACT_SCRIPT: &str = r#"(() => {
         const creditRaw = text(row,'span.resultUnitKamokuTaniSP');
         const credit = creditRaw.match(/\[\s*([\d.]+)-([\d.]+)-([\d.]+)\s*\]/);
         const rawSchedule = text(row,'td.tdYoubi');
+        const times = lines(row.querySelector('td.tdYoubi'));
         courses.push({offeringId,title:clean(link?.textContent),code:text(row,'span.resultUnitKamokuCodeSP'),
-          instructor:at('授業担当教員'),schedule:schedule(rawSchedule),declaredOnly:rawSchedule === '申告専用',
+          instructor:at('授業担当教員'),schedule:schedule(times),declaredOnly:rawSchedule === '申告専用',
           requirement:requirement(at('備考')),credits:credit ? {lecture:Number(credit[1]),exercise:Number(credit[2]),lab:Number(credit[3])}:null});
       }
     }

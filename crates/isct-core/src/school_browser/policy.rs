@@ -13,6 +13,7 @@ pub const SCHOOL_HOSTS: &[&str] = &[
     "kyomu0.gakumu.titech.ac.jp",
     "request.libra.titech.ac.jp",
     "portal.t4.gsic.titech.ac.jp",
+    "www.titech.ac.jp",
 ];
 
 pub fn sanitize_school_url(raw: &str) -> Option<String> {
