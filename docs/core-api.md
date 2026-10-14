@@ -305,7 +305,10 @@ Before the first delivery, the Tauri shell forwards the old
 `isct-reminders-fired` localStorage value to `Core::import_legacy_reminders`.
 Core merges it once and persists completion. The shell deletes the old value
 only after success. Delivery waits for this migration barrier, preventing a
-startup tick from racing migration. New shells pass an empty legacy log.
+startup tick from racing migration. The wait lasts at most one minute after
+the reminder service starts; then Core creates an empty log and delivers, so a
+shell without a legacy log need not call the import. A later import still
+merges its entries.
 Shutdown closes admission and drains reminder tasks.
 
 ## OCR input boundary
