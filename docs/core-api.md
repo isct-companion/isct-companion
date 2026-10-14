@@ -240,8 +240,16 @@ generated TypeScript contract is the complete request list.
 Dates are strict `YYYY-MM-DD`; clock/wakeup timestamps require an ISO offset.
 Plan inputs also accept ISO civil dates and minute/second date-times for editor
 and stored-data compatibility, interpreted in JST. Core canonicalizes new plan
-writes to RFC 3339 with an explicit offset. Desktop and MCP share this parser,
-recurrence and civil-date exclusions. Academic dates use JST independently of
+writes to RFC 3339 with an explicit offset. RRULE `UNTIL` accepts a date
+(through the end of that JST day), a floating date-time (JST) or a UTC `...Z`
+value; Core converts it to UTC before evaluation, so nothing depends on the
+machine's zone. Every local writer, including MCP, stores only plans whose
+start and recurrence evaluate, and schedule overrides whose periods name a class
+slot (`InvalidIntent` / MCP `InvalidInput` otherwise). Desktop and MCP share this parser,
+recurrence and civil-date exclusions. A stored plan or override that still cannot
+be evaluated (for example synced from elsewhere) is skipped, or left unapplied,
+without failing the other queries; `scheduleView.problems` lists it for the
+person to repair. Academic dates use JST independently of
 the device language/timezone. Invalid inputs return
 `ScheduleError` through `ReadModelError`; shells display the error without
 substituting an independent calendar calculation. The frontend discards responses

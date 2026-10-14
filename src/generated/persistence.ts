@@ -728,6 +728,15 @@ export type Occurrence = {
   overridden: boolean | null;
 };
 
+export type ScheduleProblemKind = "plan" | "scheduleOverride";
+
+export type ScheduleProblem = {
+  kind: ScheduleProblemKind;
+  id: string;
+  title: string;
+  message: string;
+};
+
 export type NotificationLocale = "ja" | "en";
 
 export type NotificationPriority = "class" | "exam" | "deadline";
@@ -844,6 +853,10 @@ export type ScheduleView = {
   enrolledCourseIds: Array<string>;
   onTimetableCourseIds: Array<string>;
   allTerms: Array<string>;
+  /**
+   * Stored plans and overrides left out of `agendas`.
+   */
+  problems: Array<ScheduleProblem>;
 };
 
 export type ScheduleIntensiveDay = { date: string; periods: [number, number] };

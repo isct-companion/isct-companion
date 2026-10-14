@@ -259,6 +259,13 @@ contract!(Plan {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub rrule: Option<String>,
     pub exdates: Vec<String>, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub reminder: Option<u64>,
 });
+impl Plan {
+    /// Every local writer stores a plan the schedule can evaluate: a JST
+    /// start and, when it repeats, a supported RRULE.
+    pub fn validate(&self) -> Result<(), crate::plans::PlanError> {
+        crate::plans::validate_plan_recurrence(&self.start, self.rrule.as_deref())
+    }
+}
 contract!(DateRange { pub start: String, pub end: String, });
 contract!(AcademicCalendarDay {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
@@ -342,6 +349,15 @@ contract!(ScheduleOverride {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub title: Option<String>,
     pub hidden: bool,
 });
+impl ScheduleOverride {
+    /// Replacement periods must name a real class slot.
+    pub fn validate(&self) -> Result<(), crate::schedule::ScheduleError> {
+        self.periods
+            .map(|(first, last)| crate::schedule::clock_for_periods([first, last]))
+            .transpose()
+            .map(|_| ())
+    }
+}
 contract!(Subscription {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub data_url: Option<String>, pub url: String,

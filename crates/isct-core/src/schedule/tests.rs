@@ -84,11 +84,51 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
     assert_eq!(friday.occurrences.len(), 1);
     assert_eq!(friday.occurrences[0].cancelled, Some(true));
     assert!(friday.no_classes);
-    assert_eq!(friday.calendar_notice.as_deref(), Some("Campus Festival"));
+    assert_eq!(
+        friday.calendar_notice.as_deref(),
+        Some("No classes due to Campus Festival")
+    );
     assert!(
         occurrences_on_date(&data, "2026-3Q", "2026-10-09", AgendaOptions::default())
             .unwrap()
             .is_empty()
+    );
+}
+
+#[test]
+fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
+    let mut data = workspace();
+    data["plans"] = json!([
+        {"id":"good","title":"Study","start":"2026-04-13T18:00:00+09:00","duration":60,"rrule":"FREQ=DAILY;UNTIL=20260420","exdates":[]},
+        {"id":"bad-rule","title":"Broken","start":"2026-04-13T19:00:00+09:00","duration":60,"rrule":"FREQ=DAILY;INTERVAL=garbage","exdates":[]},
+        {"id":"bad-start","title":"No start","start":"tomorrow","duration":60,"exdates":[]}
+    ]);
+    data["scheduleOverrides"] = json!([
+        {"id":"descending","targetKey":"course-weekly-0-2026-04-13","targetKind":"course","periods":[5,3],"room":"Elsewhere","hidden":false},
+        {"id":"wrapped","targetKey":"elsewhere","targetKind":"course","periods":[257,258],"hidden":false}
+    ]);
+    let day = resolve_day_agenda(&data, "2026-1Q", "2026-04-13", AgendaOptions::default())
+        .unwrap();
+    assert_eq!(
+        day.iter().map(|block| block.id.as_str()).collect::<Vec<_>>(),
+        ["course", "good"]
+    );
+    // The class stays as scheduled instead of disappearing.
+    assert_eq!(day[0].start_time, "08:50");
+    assert_eq!(day[0].room, "M-101");
+    assert_eq!(day[0].overridden, None);
+    let problems = schedule_problems(&data);
+    assert_eq!(
+        problems
+            .iter()
+            .map(|problem| (problem.kind, problem.id.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (ScheduleProblemKind::Plan, "bad-rule"),
+            (ScheduleProblemKind::Plan, "bad-start"),
+            (ScheduleProblemKind::ScheduleOverride, "descending"),
+            (ScheduleProblemKind::ScheduleOverride, "wrapped"),
+        ]
     );
 }
 

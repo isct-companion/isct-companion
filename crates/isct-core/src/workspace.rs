@@ -2154,6 +2154,23 @@ mod tests {
     }
 
     #[test]
+    fn schedule_override_periods_must_name_a_class_slot() {
+        let service = service("override-periods");
+        let original = service.snapshot().unwrap();
+        let error = service
+            .mutate(WorkspaceMutation {
+                expected_revision: original.revision.clone(),
+                intent: WorkspaceIntent::SaveScheduleOverride {
+                    draft: json!({"targetKey":"course-weekly-0-2026-10-14","targetKind":"course","periods":[5,3],"hidden":false}),
+                    existing_id: None,
+                },
+            })
+            .unwrap_err();
+        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        assert_eq!(service.snapshot().unwrap().revision, original.revision);
+    }
+
+    #[test]
     fn course_batch_validation_happens_before_any_row_is_changed() {
         let service = service("course-batch");
         let original = service.snapshot().unwrap();

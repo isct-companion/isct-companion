@@ -356,6 +356,26 @@ fn validate_contract<T: DeserializeOwned>(table: &str, value: &Value) -> Result<
         .map_err(|error| DataError::from(format!("{table} validation failed: {error}")))
 }
 
+/// Domain rules every local writer (workspace intents, MCP, scheduler) must
+/// meet beyond the wire shape. Synced and imported rows are only shape-checked;
+/// read models skip and report a stored record they cannot evaluate.
+fn validate_local_record(table: &str, value: &Value) -> Result<(), DataError> {
+    let invalid = |error: &dyn std::fmt::Display| DataError::from(format!("{table}: {error}"));
+    match table {
+        "plans" => serde_json::from_value::<crate::contracts::Plan>(value.clone())
+            .map_err(|error| invalid(&error))?
+            .validate()
+            .map_err(|error| invalid(&error)),
+        "schedule_overrides" => {
+            serde_json::from_value::<crate::contracts::ScheduleOverride>(value.clone())
+                .map_err(|error| invalid(&error))?
+                .validate()
+                .map_err(|error| invalid(&error))
+        }
+        _ => Ok(()),
+    }
+}
+
 fn validate_user_record(table: &str, value: &Value) -> Result<(), DataError> {
     use crate::contracts::*;
     match table {
@@ -919,6 +939,7 @@ fn put_user_record_in_transaction(
     }
     normalize_optional_nulls(&mut value);
     validate_user_record(table, &value)?;
+    validate_local_record(table, &value)?;
     let unchanged = previous
         .as_ref()
         .and_then(|(raw, _)| serde_json::from_str::<Value>(raw).ok())
