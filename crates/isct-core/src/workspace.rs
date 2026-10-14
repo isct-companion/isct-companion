@@ -8,7 +8,8 @@ use crate::data::{DataError, DataStore, WorkspaceWrite};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
@@ -252,11 +253,29 @@ pub fn declarations() -> Vec<String> {
 #[derive(Clone)]
 pub struct WorkspaceService {
     store: DataStore,
+    /// What the last `AddCatalogCourses` placed and replaced, so
+    /// `UndoCatalogCourses` reverses exactly that add.  Like the finder's undo
+    /// toast it lasts for this session only.
+    catalog_undo: Arc<Mutex<Option<CatalogAddReceipt>>>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct CatalogAddReceipt {
+    term_id: String,
+    /// Sorted offering ids the add was asked for.
+    offering_ids: Vec<String>,
+    /// Plan items the add put on the timetable (new or brought back).
+    placed: Vec<String>,
+    /// Plan items the add took off because their course clashed.
+    replaced: Vec<String>,
 }
 
 impl WorkspaceService {
     pub fn new(store: DataStore) -> Self {
-        Self { store }
+        Self {
+            store,
+            catalog_undo: Arc::default(),
+        }
     }
 
     pub fn snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceError> {
@@ -265,14 +284,24 @@ impl WorkspaceService {
     }
 
     pub fn mutate(&self, mutation: WorkspaceMutation) -> Result<WorkspaceSnapshot, WorkspaceError> {
+        let mut undo = self
+            .catalog_undo
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
         let result = self.store.workspace_write(
             &mutation.expected_revision,
             |write, current, school_records| {
-                apply_intent(write, current, school_records, mutation.intent)?;
+                apply_intent(write, current, school_records, mutation.intent, &mut undo)?;
                 let (workspace, school_records) = write.snapshot_parts()?;
                 snapshot(workspace, school_records)
             },
         )?;
+        // Only a committed add or undo changes what Undo reverses.
+        *self
+            .catalog_undo
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = undo;
         Ok(result)
     }
 }
@@ -299,6 +328,7 @@ fn apply_intent(
     current: &Value,
     school_records: &Value,
     intent: WorkspaceIntent,
+    catalog_undo: &mut Option<CatalogAddReceipt>,
 ) -> Result<(), DataError> {
     match intent {
         WorkspaceIntent::PatchSettings { patch } => {
@@ -366,12 +396,16 @@ fn apply_intent(
             on_timetable,
         } => set_course_on_timetable(write, current, &course_id, on_timetable),
         WorkspaceIntent::AddCatalogCourses { term_id, offerings } => {
-            add_catalog_courses(write, current, &term_id, offerings)
+            *catalog_undo = Some(add_catalog_courses(write, current, &term_id, offerings)?);
+            Ok(())
         }
         WorkspaceIntent::UndoCatalogCourses {
             term_id,
             offering_ids,
-        } => undo_catalog_courses(write, current, &term_id, offering_ids),
+        } => {
+            let receipt = catalog_undo.take();
+            undo_catalog_courses(write, current, &term_id, offering_ids, receipt)
+        }
         WorkspaceIntent::ApplyLmsMerge {
             terms,
             add,
@@ -653,6 +687,8 @@ fn save_course(
     Ok(())
 }
 
+/// Deletes the selected courses, whatever added them, with every quarter
+/// they are placed in.
 fn delete_course_batch(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
@@ -660,34 +696,46 @@ fn delete_course_batch(
 ) -> Result<(), DataError> {
     let ids: HashSet<_> = course_ids.into_iter().collect();
     for course in rows(current, "courses")?.filter(|row| {
-        row.get("id")
-            .and_then(Value::as_str)
-            .is_some_and(|id| ids.contains(id))
+        is_live(row)
+            && row
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| ids.contains(id))
     }) {
         let id = string(course, "id")?;
-        if course.pointer("/source/provider").and_then(Value::as_str) == Some("manual") {
-            write.delete("manual_courses", id, revision(course))?;
-        }
+        // Courses the school cache lists are not user rows; delete reports
+        // false for them and their placements still go.
+        write.delete("manual_courses", id, None)?;
+        remove_placements(write, current, id, None)?;
     }
+    Ok(())
+}
+
+/// Tombstones the live memberships and plan items that put a course on the
+/// timetable: in `term`, or in every quarter it runs in.
+fn remove_placements(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    course_id: &str,
+    term: Option<&str>,
+) -> Result<(), DataError> {
     for (field, table) in [
         ("memberships", "manual_memberships"),
         ("planItems", "plan_items"),
     ] {
         for row in rows(current, field)?.filter(|row| {
-            row.get("courseId")
-                .and_then(Value::as_str)
-                .is_some_and(|id| ids.contains(id))
+            is_live(row)
+                && row.get("courseId").and_then(Value::as_str) == Some(course_id)
+                && term.is_none_or(|term| row.get("termId").and_then(Value::as_str) == Some(term))
         }) {
-            if row
-                .pointer("/evidence/provider")
-                .and_then(Value::as_str)
-                .is_none_or(|provider| provider == "manual")
-            {
-                write.delete(table, string(row, "id")?, revision(row))?;
-            }
+            write.delete(table, string(row, "id")?, None)?;
         }
     }
     Ok(())
+}
+
+fn is_live(row: &Value) -> bool {
+    row.get("deletedAt").is_none_or(Value::is_null)
 }
 
 fn edit_course_batch(
@@ -752,144 +800,204 @@ fn set_course_on_timetable(
 ) -> Result<(), DataError> {
     let course = visible_row(current, "courses", course_id)
         .ok_or_else(|| "course was not found".to_string())?;
-    let term = string(course, "termId")?;
-    let membership = rows(current, "memberships")?.find(|row| {
-        row.get("courseId").and_then(Value::as_str) == Some(course_id)
-            && row.get("termId").and_then(Value::as_str) == Some(term)
-            && row.get("deletedAt").is_none()
-    });
-    let plan_item = rows(current, "planItems")?.find(|row| {
-        row.get("courseId").and_then(Value::as_str) == Some(course_id)
-            && row.get("termId").and_then(Value::as_str) == Some(term)
-            && row.get("deletedAt").is_none()
-    });
-    if on {
-        if membership.is_none() && plan_item.is_none() {
-            write.put("manual_memberships", json!({"id":Uuid::now_v7().to_string(),"kind":"membership","rev":0,"updatedAt":"","updatedBy":"","termId":term,"courseId":course_id,"status":"declared","evidence":{"provider":"manual"}}), None)?;
-        }
-    } else {
-        if let Some(row) = membership.filter(|row| {
-            row.pointer("/evidence/provider").and_then(Value::as_str) == Some("manual")
-        }) {
-            write.delete("manual_memberships", string(row, "id")?, revision(row))?;
-        }
-        if let Some(row) = plan_item {
-            write.delete("plan_items", string(row, "id")?, revision(row))?;
-        }
+    if !on {
+        // Off takes the course out of every quarter it runs in (3Q–4Q
+        // alike), whoever placed it there.
+        return remove_placements(write, current, course_id, None);
+    }
+    let placed = rows(current, "memberships")?
+        .chain(rows(current, "planItems")?)
+        .any(|row| is_live(row) && row.get("courseId").and_then(Value::as_str) == Some(course_id));
+    if !placed {
+        let term = string(course, "termId")?;
+        write.put("manual_memberships", json!({"id":Uuid::now_v7().to_string(),"kind":"membership","rev":0,"updatedAt":"","updatedBy":"","termId":term,"courseId":course_id,"status":"declared","evidence":{"provider":"manual"}}), None)?;
     }
     Ok(())
 }
 
+/// Adds catalog offerings to the timetable of `term_id`, the quarter on
+/// screen.  An offering running over several quarters (3Q–4Q) that is added
+/// in one of them is planned into each of them; added outside its quarters
+/// it stays in `term_id`.  A local draft (plan item) in `term_id` whose
+/// periods clash leaves the timetable; school-registered courses stay.
 fn add_catalog_courses(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
     term_id: &str,
     offerings: Vec<Value>,
-) -> Result<(), DataError> {
+) -> Result<CatalogAddReceipt, DataError> {
     validate_term(term_id)?;
     let locale = workspace_content_locale(current);
-    let scheduled_ids: HashSet<_> = rows(current, "memberships")?
-        .chain(rows(current, "planItems")?)
-        .filter(|row| {
-            row.get("termId").and_then(Value::as_str) == Some(term_id)
-                && row.get("deletedAt").is_none_or(Value::is_null)
-        })
-        .filter_map(|row| row.get("courseId").and_then(Value::as_str))
+    let (plan_year, quarter) = (&term_id[..4], &term_id[5..]);
+    let mut offering_ids = offerings
+        .iter()
+        .map(|offering| string(offering, "id").map(str::to_string))
+        .collect::<Result<Vec<_>, _>>()?;
+    offering_ids.sort();
+    offering_ids.dedup();
+    let mut receipt = CatalogAddReceipt {
+        term_id: term_id.to_string(),
+        offering_ids,
+        ..CatalogAddReceipt::default()
+    };
+    // Working copies, so later offerings see what earlier ones changed.
+    let mut courses: Vec<Value> = rows(current, "courses")?.cloned().collect();
+    let mut plans: Vec<Value> = rows(current, "planItems")?.cloned().collect();
+    let members: Vec<&Value> = rows(current, "memberships")?
+        .filter(|row| is_live(row))
         .collect();
-    let scheduled: Vec<_> = rows(current, "courses")?
-        .filter(|course| {
-            course
-                .get("id")
-                .and_then(Value::as_str)
-                .is_some_and(|id| scheduled_ids.contains(id))
-                && course.get("termId").and_then(Value::as_str) == Some(term_id)
-        })
-        .collect();
-    let mut removed_plans = HashSet::new();
     for offering in offerings {
         let offering_id = string(&offering, "id")?;
         let year = offering
             .get("year")
             .and_then(Value::as_i64)
-            .or_else(|| term_id.get(..4).and_then(|year| year.parse().ok()))
+            .or_else(|| plan_year.parse().ok())
             .ok_or_else(|| "catalog offering is missing academic year".to_string())?;
-        let course_id =
-            if offering_id.len() == 9 && offering_id.bytes().all(|byte| byte.is_ascii_digit()) {
-                crate::data::canonical_course_id(
-                    i32::try_from(year).map_err(|_| "academic year is invalid")?,
-                    offering_id,
-                )?
-            } else {
-                format!("{year}-{offering_id}")
-            };
-        let meetings = catalog_meetings(&offering, locale)?;
-        for victim in &scheduled {
-            if meetings_conflict(&meetings, victim.get("meetings").unwrap_or(&Value::Null)) {
-                if let Some(plan) = rows(current, "planItems")?.find(|row| {
-                    row.get("courseId") == victim.get("id")
-                        && row.get("termId").and_then(Value::as_str) == Some(term_id)
-                        && row.get("deletedAt").is_none_or(Value::is_null)
-                }) {
-                    let id = string(plan, "id")?;
-                    if removed_plans.insert(id.to_string()) {
-                        write.delete("plan_items", id, revision(plan))?;
-                    }
-                }
-            }
-        }
-        let credits = offering
-            .get("credits")
+        let course_id = offering_course_id(
+            i32::try_from(year).map_err(|_| "academic year is invalid")?,
+            offering_id,
+        )?;
+        let placed_here: HashSet<&str> = members
+            .iter()
+            .copied()
+            .chain(plans.iter().filter(|row| is_live(row)))
+            .filter(|row| row.get("termId").and_then(Value::as_str) == Some(term_id))
+            .filter_map(|row| row.get("courseId").and_then(Value::as_str))
+            .collect();
+        let on_timetable: Vec<Value> = courses
+            .iter()
+            .filter(|course| {
+                is_live(course)
+                    && course
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| placed_here.contains(id))
+            })
             .cloned()
-            .unwrap_or_else(|| json!({"lecture":0,"exercise":0,"lab":0}));
-        let total = ["lecture", "exercise", "lab"]
-            .into_iter()
-            .filter_map(|key| credits.get(key).and_then(Value::as_f64))
-            .sum::<f64>();
-        let title = localized(offering.get("title"), locale);
-        let instructor = offering
-            .get("instructors")
+            .collect();
+        for victim in crate::course_query::clashing_courses(&offering, &on_timetable) {
+            let Some(plan) = plans.iter_mut().find(|row| {
+                is_live(row)
+                    && row.get("courseId") == victim.get("id")
+                    && row.get("termId").and_then(Value::as_str) == Some(term_id)
+            }) else {
+                continue;
+            };
+            let id = string(plan, "id")?.to_string();
+            write.delete("plan_items", &id, revision(plan))?;
+            plan["deletedAt"] = Value::String("replaced".into());
+            receipt.replaced.push(id);
+        }
+        let live_course = courses.iter().find(|course| {
+            is_live(course)
+                && (course.get("id").and_then(Value::as_str) == Some(&course_id)
+                    || course.get("offeringId").and_then(Value::as_str) == Some(offering_id))
+        });
+        // A course already in the workspace stays as it is (and in its own
+        // quarter); only its plan items change.
+        let course_id = match live_course {
+            Some(course) => string(course, "id")?.to_string(),
+            None => {
+                let credits = offering
+                    .get("credits")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"lecture":0,"exercise":0,"lab":0}));
+                let total = ["lecture", "exercise", "lab"]
+                    .into_iter()
+                    .filter_map(|key| credits.get(key).and_then(Value::as_f64))
+                    .sum::<f64>();
+                let instructor = offering
+                    .get("instructors")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .map(|value| localized(Some(value), locale))
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" / ");
+                let tombstone = courses
+                    .iter()
+                    .find(|course| course.get("id").and_then(Value::as_str) == Some(&course_id));
+                let course = write.put(
+                    "manual_courses",
+                    json!({
+                        "id":course_id, "kind":"course", "termId":term_id, "offeringId":offering_id,
+                        "names":{"title":offering.get("title"),"instructor":offering.get("instructors").and_then(Value::as_array).and_then(|items| items.first()).cloned().unwrap_or_else(|| json!({}))},
+                        "code":offering.get("code").and_then(Value::as_str).unwrap_or_default(),
+                        "title":localized(offering.get("title"), locale), "instructor":instructor, "credits":total,
+                        "creditSplit":credits,
+                        "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
+                        "color":"#556b8d", "meetings":catalog_meetings(&offering, locale)?,
+                        "url":offering.get("syllabusUrl"),
+                        "source":{"provider":"syllabus","externalId":offering_id}
+                    }),
+                    tombstone.and_then(revision),
+                )?;
+                let id = string(&course, "id")?.to_string();
+                courses.retain(|row| row.get("id").and_then(Value::as_str) != Some(&id));
+                courses.push(course);
+                id
+            }
+        };
+        let quarters: Vec<&str> = offering
+            .get("quarters")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .map(|value| localized(Some(value), locale))
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join(" / ");
-        let source_provider = offering
-            .get("_sourceProvider")
-            .and_then(Value::as_str)
-            .unwrap_or("syllabus");
-        let source_external_id = offering
-            .get("_sourceExternalId")
-            .and_then(Value::as_str)
-            .unwrap_or(offering_id);
-        let existing = rows(current, "courses")?
-            .find(|course| course.get("id").and_then(Value::as_str) == Some(&course_id));
-        let course = write.put(
-            "manual_courses",
-            json!({
-                "id":course_id, "kind":"course", "termId":term_id, "offeringId":offering_id,
-                "names":{"title":offering.get("title"),"instructor":offering.get("instructors").and_then(Value::as_array).and_then(|items| items.first())},
-                "code":offering.get("code").and_then(Value::as_str).unwrap_or_default(),
-                "title":title, "instructor":instructor, "credits":total,
-                "creditSplit":credits,
-                "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
-                "color":"#556b8d", "meetings":meetings,
-                "url":offering.get("syllabusUrl"),
-                "source":{"provider":source_provider,"externalId":source_external_id}
-            }),
-            existing.and_then(revision),
-        )?;
-        let course_id = string(&course, "id")?;
-        write.put(
-            "plan_items",
-            json!({"kind":"plan-item","termId":term_id,"courseId":course_id,"offeringId":offering_id,"state":"planned"}),
-            None,
-        )?;
+            .filter_map(Value::as_str)
+            .collect();
+        let plan_terms: Vec<String> = if quarters.contains(&quarter) {
+            quarters
+                .iter()
+                .map(|quarter| format!("{plan_year}-{quarter}"))
+                .filter(|term| validate_term(term).is_ok())
+                .collect()
+        } else {
+            vec![term_id.to_string()]
+        };
+        for plan_term in plan_terms {
+            let mine = |row: &&Value| {
+                row.get("courseId").and_then(Value::as_str) == Some(&course_id)
+                    && row.get("termId").and_then(Value::as_str) == Some(&plan_term)
+            };
+            if plans.iter().filter(mine).any(is_live) {
+                continue;
+            }
+            // Bring back the latest removed draft before writing a new one.
+            let removed = plans
+                .iter()
+                .filter(mine)
+                .max_by(|a, b| {
+                    a.get("deletedAt")
+                        .and_then(Value::as_str)
+                        .cmp(&b.get("deletedAt").and_then(Value::as_str))
+                })
+                .cloned();
+            let plan = match removed {
+                Some(row) => {
+                    let rev = revision(&row);
+                    write.put("plan_items", row, rev)?
+                }
+                None => write.put(
+                    "plan_items",
+                    json!({"kind":"plan-item","termId":plan_term,"courseId":course_id,"offeringId":offering_id,"state":"planned"}),
+                    None,
+                )?,
+            };
+            let id = string(&plan, "id")?.to_string();
+            plans.retain(|row| row.get("id").and_then(Value::as_str) != Some(&id));
+            plans.push(plan);
+            receipt.placed.push(id);
+        }
     }
-    Ok(())
+    Ok(receipt)
 }
 
+/// Applies the person's LMS review choices to the diff Core recomputes from
+/// the same catalog rows the preview used: adds the chosen LMS courses as
+/// LMS memberships, refreshes LMS-sourced courses, retimes the chosen common
+/// courses, drops the unchecked local ones from that quarter and links LMS
+/// assignments and materials to the timetable course they belong to.
 fn apply_lms_merge(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
@@ -902,135 +1010,277 @@ fn apply_lms_merge(
     for term in &terms {
         validate_term(term)?;
     }
-    let scope: HashSet<_> = terms.iter().cloned().collect();
     let add: HashSet<_> = add.into_iter().collect();
     let keep: HashSet<_> = keep.into_iter().collect();
     let retime: HashSet<_> = retime.into_iter().collect();
-    let scheduled_ids: HashSet<_> = rows(current, "memberships")?
-        .chain(rows(current, "planItems")?)
-        .filter(|row| row.get("deletedAt").is_none_or(Value::is_null))
-        .filter_map(|row| row.get("courseId").and_then(Value::as_str))
-        .collect();
-    let mut unmatched_local: HashSet<String> = rows(current, "courses")?
-        .filter(|course| {
-            course
-                .get("id")
-                .and_then(Value::as_str)
-                .is_some_and(|id| scheduled_ids.contains(id))
-                && course
-                    .get("termId")
-                    .and_then(Value::as_str)
-                    .is_some_and(|term| scope.contains(term))
-        })
-        .filter_map(|course| course.get("id").and_then(Value::as_str).map(str::to_string))
-        .collect();
-    let offerings = current.get("offerings").and_then(Value::as_array);
-    let mut selected = Vec::new();
-    for lms in school_records
-        .get("lmsCourses")
-        .and_then(Value::as_array)
+    let offerings = write
+        .catalog_rows()?
         .into_iter()
-        .flatten()
-    {
-        if lms.get("hidden").and_then(Value::as_bool) == Some(true) {
+        .filter_map(crate::course_query::normalize_offering)
+        .collect::<Vec<_>>();
+    let locale = workspace_content_locale(current);
+    let diff = lms_diff(current, school_records, &terms, &offerings, locale)?;
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let lms_id_of = |entry: &Value| {
+        entry
+            .pointer("/lms/lmsId")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| DataError::from("LMS course is missing lmsId"))
+    };
+    let mut linked = HashMap::<u64, String>::new();
+    for pair in &diff.common {
+        linked.insert(
+            lms_id_of(&pair["lms"])?,
+            string(&pair["local"], "id")?.to_string(),
+        );
+    }
+    let stored_courses: Vec<&Value> = rows(current, "courses")?.collect();
+    // Course rows this merge changes, written once each at the end.
+    let mut edited = HashMap::<String, (Value, Option<u64>)>::new();
+    let mut created = HashSet::<String>::new();
+    let memberships: Vec<&Value> = rows(current, "memberships")?.collect();
+    let mut live_members: HashSet<(String, String)> = memberships
+        .iter()
+        .filter(|row| is_live(row))
+        .filter_map(|row| {
+            Some((
+                row.get("courseId")?.as_str()?.to_string(),
+                row.get("termId")?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
+
+    for entry in diff.lms_only.iter().filter(|entry| {
+        entry
+            .get("key")
+            .and_then(Value::as_str)
+            .is_some_and(|key| add.contains(key))
+    }) {
+        let term = string(entry, "termId")?;
+        let lms = &entry["lms"];
+        let lms_id = lms_id_of(entry)?;
+        let offering = entry.get("offering").filter(|value| value.is_object());
+        let year: i32 = term[..4]
+            .parse()
+            .map_err(|_| DataError::from("term year is invalid"))?;
+        let offering_id = lms.get("offeringId").and_then(Value::as_str);
+        let mut id = match offering_id {
+            Some(offering_id) => offering_course_id(year, offering_id)?,
+            None => format!("{year}-lms-{lms_id}"),
+        };
+        match stored_courses
+            .iter()
+            .find(|course| course.get("id").and_then(Value::as_str) == Some(&id))
+        {
+            _ if created.contains(&id) => {}
+            Some(course) if is_live(course) => {}
+            Some(course) => {
+                write.put("manual_courses", stored_course(course), revision(course))?;
+            }
+            None => {
+                let syllabus = offering
+                    .map(|offering| catalog_meetings(offering, locale))
+                    .transpose()?
+                    .unwrap_or_else(|| json!([]));
+                let meetings = match entry.get("gridMeetings").filter(|grid| !grid.is_null()) {
+                    Some(grid) => meetings_from_grid(grid, &syllabus)?,
+                    None => syllabus,
+                };
+                let credits = offering
+                    .and_then(|offering| offering.get("credits"))
+                    .cloned()
+                    .unwrap_or_else(|| json!({"lecture":0,"exercise":0,"lab":0}));
+                let instructors = offering
+                    .and_then(|offering| offering.get("instructors"))
+                    .and_then(Value::as_array);
+                let mut course = json!({
+                    "id":id, "kind":"course", "termId":term,
+                    "names":{
+                        "title":offering.and_then(|offering| offering.get("title")).or_else(|| lms.get("title")),
+                        "instructor":instructors.and_then(|items| items.first()).cloned().unwrap_or_else(|| json!({}))
+                    },
+                    "code":entry.get("code"), "title":entry.get("title"),
+                    "instructor":instructors.into_iter().flatten()
+                        .map(|value| localized(Some(value), locale))
+                        .filter(|value| !value.is_empty())
+                        .collect::<Vec<_>>().join(" / "),
+                    "credits":credit_total(&credits), "creditSplit":credits,
+                    "instructionLanguage":normalize_language(offering.and_then(|offering| offering.get("instructionLanguage")).and_then(Value::as_str)),
+                    "color":"#526e91", "meetings":meetings,
+                    "source":{"provider":"lms","externalId":lms_id.to_string(),"fetchedAt":now}
+                });
+                // The LMS page is reached through the LMS record; `url` is the syllabus.
+                let url = offering
+                    .and_then(|offering| offering.get("syllabusUrl"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| {
+                        offering_id
+                            .map(|id| format!("https://syllabus.s.isct.ac.jp/courses/-/-/-/{id}"))
+                    });
+                let object = object_mut(&mut course, "course")?;
+                if let Some(url) = url {
+                    object.insert("url".into(), Value::String(url));
+                }
+                if let Some(offering_id) = offering_id {
+                    object.insert("offeringId".into(), Value::String(offering_id.into()));
+                }
+                let course = write.put("manual_courses", course, None)?;
+                id = string(&course, "id")?.to_string();
+                created.insert(id.clone());
+            }
+        }
+        // A 3Q–4Q course pulled in 3Q also joins 4Q; quarters inside the
+        // reviewed scope are left to their own entry, which the person may
+        // have unchecked.
+        let mut member_terms = vec![term.to_string()];
+        member_terms.extend(
+            lms_terms_with_offering(lms, offering)
+                .into_iter()
+                .filter(|other| !terms.contains(other)),
+        );
+        for member_term in member_terms {
+            if live_members.contains(&(id.clone(), member_term.clone())) {
+                continue;
+            }
+            let membership_id = format!("lms-membership:{lms_id}:{member_term}");
+            match memberships
+                .iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == Some(&membership_id))
+            {
+                Some(row) if is_live(row) => {}
+                Some(row) => {
+                    write.put("manual_memberships", (*row).clone(), revision(row))?;
+                }
+                None => {
+                    write.put(
+                        "manual_memberships",
+                        json!({
+                            "id":membership_id, "kind":"membership", "termId":member_term,
+                            "courseId":id, "status":"lms-member",
+                            "evidence":{"provider":"lms","externalId":lms_id.to_string(),"fetchedAt":now}
+                        }),
+                        None,
+                    )?;
+                }
+            }
+            live_members.insert((id.clone(), member_term));
+        }
+        linked.entry(lms_id).or_insert(id);
+    }
+
+    // The latest edited copy of a live course, else its stored row.
+    let draft = |edited: &HashMap<String, (Value, Option<u64>)>, id: &str| {
+        edited.get(id).cloned().or_else(|| {
+            stored_courses
+                .iter()
+                .find(|course| {
+                    is_live(course) && course.get("id").and_then(Value::as_str) == Some(id)
+                })
+                .map(|course| (stored_course(course), revision(course)))
+        })
+    };
+    // Courses added from LMS follow its current name and take the syllabus
+    // URL and credits once the syllabus gives them.
+    for pair in &diff.common {
+        let local = &pair["local"];
+        if local.pointer("/source/provider").and_then(Value::as_str) != Some("lms") {
             continue;
         }
-        let lms_id = lms
-            .get("lmsId")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "LMS course is missing lmsId".to_string())?;
-        let offering_id = lms.get("offeringId").and_then(Value::as_str);
-        for term in lms_terms(lms)
-            .into_iter()
-            .filter(|term| scope.contains(term))
+        let entry = &pair["lms"];
+        let offering = entry.get("offering").filter(|value| value.is_object());
+        let names = offering
+            .and_then(|offering| offering.get("title"))
+            .or_else(|| entry.pointer("/lms/title"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let title = entry.get("title").cloned().unwrap_or_else(|| json!(""));
+        let mut changed = false;
+        let renamed = local
+            .pointer("/overrides/title")
+            .and_then(Value::as_str)
+            .is_some_and(|title| !title.is_empty());
+        let id = string(local, "id")?;
+        let Some((mut course, rev)) = draft(&edited, id) else {
+            continue;
+        };
+        if !renamed
+            && (course.pointer("/names/title").unwrap_or(&json!({})) != &names
+                || course.get("title") != Some(&title))
         {
-            let matched = rows(current, "courses")?.find(|course| {
-                course.get("termId").and_then(Value::as_str) == Some(&term)
-                    && course
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .is_some_and(|id| scheduled_ids.contains(id))
-                    && (offering_id.is_some()
-                        && course.get("offeringId").and_then(Value::as_str) == offering_id
-                        || base_code(
-                            course
-                                .get("code")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default(),
-                        ) == base_code(
-                            lms.get("shortname")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default(),
-                        ))
-            });
-            if let Some(course) = matched {
-                let course_id = string(course, "id")?;
-                unmatched_local.remove(course_id);
-                if retime.contains(&format!("local:{course_id}")) {
-                    if let Some(grid) = lms.pointer(&format!("/timetables/{term}")) {
-                        if course.pointer("/source/provider").and_then(Value::as_str)
-                            == Some("manual")
-                        {
-                            let mut updated = course.clone();
-                            object_mut(&mut updated, "course")?
-                                .insert("meetings".into(), meetings_from_grid(grid)?);
-                            write.put("manual_courses", updated, revision(course))?;
-                        }
-                    }
-                }
-                continue;
+            let instructor = course
+                .pointer("/names/instructor")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            course["names"] = json!({"title":names,"instructor":instructor});
+            course["title"] = title;
+            changed = true;
+        }
+        if let Some(url) = offering
+            .and_then(|offering| offering.get("syllabusUrl"))
+            .and_then(Value::as_str)
+        {
+            if !course
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with("https://syllabus.s.isct.ac.jp/"))
+            {
+                course["url"] = Value::String(url.into());
+                changed = true;
             }
-            let key = format!("lms:{lms_id}:{term}");
-            if !add.contains(&key) {
-                continue;
+        }
+        if let Some(credits) = offering.and_then(|offering| offering.get("credits")) {
+            let total = credit_total(credits);
+            if total > 0.0 && course.get("credits").and_then(Value::as_f64) == Some(0.0) {
+                course["credits"] = json!(total);
+                course["creditSplit"] = credits.clone();
+                changed = true;
             }
-            if let Some(offering) = offering_id.and_then(|id| {
-                offerings.and_then(|rows| {
-                    rows.iter()
-                        .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                })
-            }) {
-                let mut offering = offering.clone();
-                object_mut(&mut offering, "offering")?
-                    .insert("_sourceProvider".into(), Value::String("lms".into()));
-                object_mut(&mut offering, "offering")?.insert(
-                    "_sourceExternalId".into(),
-                    Value::String(lms_id.to_string()),
-                );
-                if let Some(grid) = lms.pointer(&format!("/timetables/{term}")) {
-                    object_mut(&mut offering, "offering")?
-                        .insert("schedule".into(), grid_schedule(grid)?);
-                }
-                selected.push((term.clone(), offering));
-            } else {
-                let id = offering_id
-                    .map(str::to_string)
-                    .unwrap_or_else(|| format!("lms-{lms_id}"));
-                selected.push((term.clone(), json!({
-                    "id":id, "year":term.get(..4).and_then(|year|year.parse::<i64>().ok()),
-                    "_sourceProvider":"lms", "_sourceExternalId":lms_id.to_string(),
-                    "code":lms.get("shortname"), "title":lms.get("title"), "instructors":[],
-                    "credits":{"lecture":0,"exercise":0,"lab":0}, "instructionLanguage":"other",
-                    "schedule":lms.pointer(&format!("/timetables/{term}")).map(grid_schedule).transpose()?.unwrap_or_else(|| json!([])),
-                    "syllabusUrl":Value::Null
-                })));
-            }
+        }
+        if changed {
+            edited.insert(id.to_string(), (course, rev));
         }
     }
-    for term in &terms {
-        let term_offerings = selected
-            .iter()
-            .filter(|(candidate, _)| candidate == term)
-            .map(|(_, offering)| offering.clone())
-            .collect::<Vec<_>>();
-        if !term_offerings.is_empty() {
-            add_catalog_courses(write, current, term, term_offerings)?;
+    for pair in &diff.common {
+        let id = string(&pair["local"], "id")?;
+        let grid = pair
+            .pointer("/lms/gridMeetings")
+            .filter(|grid| !grid.is_null());
+        let (Some(grid), true) = (
+            grid,
+            pair.get("timeDiffers").and_then(Value::as_bool) == Some(true)
+                && retime.contains(&format!("local:{id}")),
+        ) else {
+            continue;
+        };
+        if let Some((mut course, rev)) = draft(&edited, id) {
+            course["meetings"] =
+                meetings_from_grid(grid, course.get("meetings").unwrap_or(&json!([])))?;
+            edited.insert(id.to_string(), (course, rev));
         }
     }
-    for course_id in unmatched_local {
-        if !keep.contains(&format!("local:{course_id}")) {
-            set_course_on_timetable(write, current, &course_id, false)?;
+    let mut edited = edited.into_iter().collect::<Vec<_>>();
+    edited.sort_by(|left, right| left.0.cmp(&right.0));
+    for (_, (course, rev)) in edited {
+        write.put("manual_courses", course, rev)?;
+    }
+
+    for entry in &diff.local_only {
+        if entry
+            .get("key")
+            .and_then(Value::as_str)
+            .is_some_and(|key| keep.contains(key))
+        {
+            continue;
         }
+        let term = string(entry, "termId")?;
+        remove_placements(write, current, string(&entry["course"], "id")?, Some(term))?;
+    }
+
+    let mut linked = linked.into_iter().collect::<Vec<_>>();
+    linked.sort();
+    for (lms_id, course_id) in linked {
+        write.relink_lms_records(lms_id, &course_id)?;
     }
     let mut status = current
         .get("importStatus")
@@ -1041,6 +1291,31 @@ fn apply_lms_merge(
         Value::String(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
     );
     write.save_setting("importStatus", &status)
+}
+
+/// A course row as stored, without the overlay the snapshot adds.
+fn stored_course(course: &Value) -> Value {
+    let mut course = course.clone();
+    if let Some(object) = course.as_object_mut() {
+        object.remove("overrides");
+    }
+    course
+}
+
+fn credit_total(credits: &Value) -> f64 {
+    ["lecture", "exercise", "lab"]
+        .into_iter()
+        .filter_map(|key| credits.get(key).and_then(Value::as_f64))
+        .sum()
+}
+
+/// The course id of a catalog offering: `{year}-{offeringId}`.
+fn offering_course_id(year: i32, offering_id: &str) -> Result<String, DataError> {
+    if offering_id.len() == 9 && offering_id.bytes().all(|byte| byte.is_ascii_digit()) {
+        crate::data::canonical_course_id(year, offering_id)
+    } else {
+        Ok(format!("{year}-{offering_id}"))
+    }
 }
 
 fn lms_terms(lms: &Value) -> Vec<String> {
@@ -1158,15 +1433,7 @@ pub fn lms_merge_preview(
                 )
             })
             .collect();
-        values.extend(
-            rows(workspace, "courses")?
-                .filter(|row| row.get("deletedAt").is_none_or(Value::is_null))
-                .filter_map(|row| {
-                    row.get("termId")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                }),
-        );
+        values.extend(crate::schedule::placement_terms(workspace).map(str::to_string));
         values.extend(
             workspace
                 .get("terms")
@@ -1182,114 +1449,15 @@ pub fn lms_merge_preview(
         values.into_iter().collect()
     };
     terms.sort();
-    let term_scope: HashSet<_> = terms.iter().cloned().collect();
-    let locale = workspace_content_locale(workspace);
-    let mut remote = Vec::<Value>::new();
-    for row in lms_courses
-        .iter()
-        .filter(|row| row.get("hidden").and_then(Value::as_bool) != Some(true))
-    {
-        let offering = row
-            .get("offeringId")
-            .and_then(Value::as_str)
-            .and_then(offering_by_id);
-        for term in lms_terms_with_offering(row, offering)
-            .into_iter()
-            .filter(|term| term_scope.contains(term))
-        {
-            let grid = row.pointer(&format!("/timetables/{term}"));
-            let slots = grid
-                .map(grid_slots)
-                .unwrap_or_else(|| offering.map(offering_slots).unwrap_or_default());
-            let title = localized(
-                offering
-                    .and_then(|row| row.get("title"))
-                    .or_else(|| row.get("title")),
-                locale,
-            );
-            let code = offering
-                .and_then(|row| row.get("code"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| {
-                    let shortname = row
-                        .get("shortname")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .trim();
-                    shortname
-                        .strip_suffix(']')
-                        .and_then(|value| value.rsplit_once('[').map(|(head, _)| head.trim()))
-                        .unwrap_or(shortname)
-                        .to_string()
-                });
-            remote.push(json!({
-                "key":format!("lms:{}:{term}", row.get("lmsId").and_then(Value::as_u64).unwrap_or_default()),
-                "termId":term, "lms":row, "offering":offering, "title":title,
-                "code":code, "slots":slots, "gridMeetings":grid
-            }));
-        }
-    }
-    let scheduled: HashSet<_> = rows(workspace, "memberships")?
-        .chain(rows(workspace, "planItems")?)
-        .filter(|row| row.get("deletedAt").is_none_or(Value::is_null))
-        .filter_map(|row| row.get("courseId").and_then(Value::as_str))
-        .collect();
-    let mut common = Vec::new();
-    let mut local_only = Vec::new();
-    let mut matched = HashSet::new();
-    for term in &terms {
-        for course in rows(workspace, "courses")?.filter(|course| {
-            course.get("termId").and_then(Value::as_str) == Some(term)
-                && course.get("deletedAt").is_none_or(Value::is_null)
-                && course
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| scheduled.contains(id))
-        }) {
-            let found = remote.iter().find(|entry| {
-                entry.get("termId").and_then(Value::as_str) == Some(term)
-                    && !matched
-                        .contains(entry.get("key").and_then(Value::as_str).unwrap_or_default())
-                    && ((course.get("offeringId").and_then(Value::as_str).is_some()
-                        && course.get("offeringId") == entry.pointer("/lms/offeringId"))
-                        || base_code(
-                            course
-                                .get("code")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default(),
-                        ) == base_code(
-                            entry
-                                .get("code")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default(),
-                        ))
-            });
-            if let Some(entry) = found {
-                matched.insert(
-                    string(entry, "key")
-                        .map_err(WorkspaceError::from)?
-                        .to_string(),
-                );
-                let time_differs = entry
-                    .get("gridMeetings")
-                    .is_some_and(|grid| !grid.is_null())
-                    && course_slots(course)
-                        != value_string_set(entry.get("slots").unwrap_or(&Value::Null));
-                common.push(
-                    json!({"termId":term,"local":course,"lms":entry,"timeDiffers":time_differs}),
-                );
-            } else {
-                local_only.push(json!({"key":format!("local:{}",string(course,"id").map_err(WorkspaceError::from)?),"termId":term,"course":course,"slots":course_slots(course)}));
-            }
-        }
-    }
-    let lms_only = remote
-        .into_iter()
-        .filter(|entry| {
-            !matched.contains(entry.get("key").and_then(Value::as_str).unwrap_or_default())
-        })
-        .collect::<Vec<_>>();
+    let diff = lms_diff(
+        workspace,
+        school_records,
+        &terms,
+        &offerings,
+        workspace_content_locale(workspace),
+    )
+    .map_err(WorkspaceError::from)?;
+    let (common, local_only, lms_only) = (diff.common, diff.local_only, diff.lms_only);
     let mut conflicts = Map::new();
     let mut group = 0_u64;
     for remote in &lms_only {
@@ -1349,6 +1517,136 @@ pub fn lms_merge_preview(
     Ok(
         json!({"terms":terms,"detailIds":detail_ids,"common":common,"localOnly":local_only,"lmsOnly":lms_only,"conflicts":conflicts,"hasDifferences":has_differences}),
     )
+}
+
+/// The LMS review diff of `terms`: matched (`common`), local-only and
+/// LMS-only entries.  Shared by the preview and the applied merge so both see
+/// the same entries.
+struct LmsDiff {
+    common: Vec<Value>,
+    local_only: Vec<Value>,
+    lms_only: Vec<Value>,
+}
+
+fn lms_diff(
+    workspace: &Value,
+    school_records: &Value,
+    terms: &[String],
+    offerings: &[Value],
+    locale: &str,
+) -> Result<LmsDiff, DataError> {
+    let lms_courses = school_records
+        .get("lmsCourses")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let term_scope: HashSet<_> = terms.iter().cloned().collect();
+    let offering_by_id = |id: &str| {
+        offerings
+            .iter()
+            .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
+    };
+    let mut remote = Vec::<Value>::new();
+    for row in lms_courses
+        .iter()
+        .filter(|row| row.get("hidden").and_then(Value::as_bool) != Some(true))
+    {
+        let offering = row
+            .get("offeringId")
+            .and_then(Value::as_str)
+            .and_then(offering_by_id);
+        for term in lms_terms_with_offering(row, offering)
+            .into_iter()
+            .filter(|term| term_scope.contains(term))
+        {
+            let grid = row.pointer(&format!("/timetables/{term}"));
+            let slots = grid
+                .map(grid_slots)
+                .unwrap_or_else(|| offering.map(offering_slots).unwrap_or_default());
+            let shortname = row
+                .get("shortname")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
+            let title = localized(
+                offering
+                    .and_then(|row| row.get("title"))
+                    .or_else(|| row.get("title")),
+                locale,
+            );
+            let title = crate::school_parser::lms::decode_entities(if title.is_empty() {
+                shortname
+            } else {
+                &title
+            });
+            let code = offering
+                .and_then(|row| row.get("code"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    shortname
+                        .strip_suffix(']')
+                        .and_then(|value| value.rsplit_once('[').map(|(head, _)| head.trim()))
+                        .unwrap_or(shortname)
+                        .to_string()
+                });
+            remote.push(json!({
+                "key":format!("lms:{}:{term}", row.get("lmsId").and_then(Value::as_u64).unwrap_or_default()),
+                "termId":term, "lms":row, "offering":offering, "title":title,
+                "code":code, "slots":slots, "gridMeetings":grid
+            }));
+        }
+    }
+    let mut common = Vec::new();
+    let mut local_only = Vec::new();
+    let mut matched = HashSet::new();
+    for term in terms {
+        // The timetable of the quarter: a 3Q–4Q course is compared in each.
+        for course in &crate::schedule::scheduled_courses(workspace, term) {
+            let found = remote.iter().find(|entry| {
+                entry.get("termId").and_then(Value::as_str) == Some(term)
+                    && !matched
+                        .contains(entry.get("key").and_then(Value::as_str).unwrap_or_default())
+                    && ((course.get("offeringId").and_then(Value::as_str).is_some()
+                        && course.get("offeringId") == entry.pointer("/lms/offeringId"))
+                        || base_code(
+                            course
+                                .get("code")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                        ) == base_code(
+                            entry
+                                .get("code")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                        ))
+            });
+            if let Some(entry) = found {
+                matched.insert(string(entry, "key")?.to_string());
+                let time_differs = entry
+                    .get("gridMeetings")
+                    .is_some_and(|grid| !grid.is_null())
+                    && course_slots(course)
+                        != value_string_set(entry.get("slots").unwrap_or(&Value::Null));
+                common.push(
+                    json!({"termId":term,"local":course,"lms":entry,"timeDiffers":time_differs}),
+                );
+            } else {
+                local_only.push(json!({"key":format!("local:{}",string(course,"id")?),"termId":term,"course":course,"slots":course_slots(course)}));
+            }
+        }
+    }
+    let lms_only = remote
+        .into_iter()
+        .filter(|entry| {
+            !matched.contains(entry.get("key").and_then(Value::as_str).unwrap_or_default())
+        })
+        .collect::<Vec<_>>();
+    Ok(LmsDiff {
+        common,
+        local_only,
+        lms_only,
+    })
 }
 
 fn lms_terms_with_offering(lms: &Value, offering: Option<&Value>) -> Vec<String> {
@@ -1465,43 +1763,82 @@ fn value_string_set(value: &Value) -> HashSet<String> {
         .collect()
 }
 
-fn grid_schedule(grid: &Value) -> Result<Value, DataError> {
-    let mut schedule = Vec::new();
+/// Meetings from the LMS timetable grid, with the syllabus room for the same
+/// weekday when known.
+fn meetings_from_grid(grid: &Value, syllabus: &Value) -> Result<Value, DataError> {
+    let mut meetings = Vec::new();
     for row in grid.as_array().into_iter().flatten() {
-        schedule.push(json!({"kind":"weekly","day":row.get("day"),"periods":row.get("periods")}));
+        let day = row
+            .get("day")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "LMS timetable slot is missing its day".to_string())?;
+        let bounds = row.get("periods").and_then(Value::as_array);
+        let start = bounds
+            .and_then(|bounds| bounds.first())
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "LMS timetable slot is missing its periods".to_string())?;
+        let end = bounds
+            .and_then(|bounds| bounds.get(1))
+            .and_then(Value::as_u64)
+            .unwrap_or(start);
+        let period = |value: u64| {
+            u8::try_from(value)
+                .ok()
+                .filter(|value| (1..=10).contains(value))
+                .ok_or_else(|| DataError::from("LMS timetable periods must be within 1..10"))
+        };
+        let (from, to) = (period(start)?, period(end)?);
+        if from > to {
+            return Err("LMS timetable periods are out of order".into());
+        }
+        let (start_time, end_time) = crate::schedule::clock_for_periods([from, to])
+            .map_err(|error| DataError::from(error.to_string()))?;
+        let twin = syllabus.as_array().into_iter().flatten().find(|meeting| {
+            meeting
+                .get("days")
+                .and_then(Value::as_array)
+                .is_some_and(|days| days.iter().any(|value| value.as_u64() == Some(day)))
+        });
+        let mut meeting = json!({
+            "days":[day], "periods":(from..=to).collect::<Vec<_>>(),
+            "startTime":start_time, "endTime":end_time,
+            "room":twin.and_then(|twin| twin.get("room")).cloned().unwrap_or_else(|| json!(""))
+        });
+        if let Some(names) = twin
+            .and_then(|twin| twin.get("roomNames"))
+            .filter(|names| !names.is_null())
+        {
+            meeting["roomNames"] = names.clone();
+        }
+        meetings.push(meeting);
     }
-    Ok(Value::Array(schedule))
+    Ok(Value::Array(meetings))
 }
 
-fn meetings_from_grid(grid: &Value) -> Result<Value, DataError> {
-    catalog_meetings(&json!({"schedule":grid_schedule(grid)?}), "ja")
-}
-
+/// Reverses the last `AddCatalogCourses` of this session: removes only the
+/// plan items it placed and brings back the ones it replaced.
 fn undo_catalog_courses(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
     term_id: &str,
-    offering_ids: Vec<String>,
+    mut offering_ids: Vec<String>,
+    receipt: Option<CatalogAddReceipt>,
 ) -> Result<(), DataError> {
     validate_term(term_id)?;
-    let offering_ids: HashSet<_> = offering_ids.into_iter().collect();
-    let course_ids: HashSet<_> = rows(current, "courses")?
-        .filter(|course| {
-            course.get("termId").and_then(Value::as_str) == Some(term_id)
-                && course
-                    .get("offeringId")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| offering_ids.contains(id))
-        })
-        .filter_map(|course| course.get("id").and_then(Value::as_str))
-        .collect();
-    for plan in rows(current, "planItems")?.filter(|row| {
-        row.get("courseId")
-            .and_then(Value::as_str)
-            .is_some_and(|id| course_ids.contains(id))
-            && row.get("deletedAt").is_none_or(Value::is_null)
-    }) {
-        write.delete("plan_items", string(plan, "id")?, revision(plan))?;
+    offering_ids.sort();
+    offering_ids.dedup();
+    let receipt = receipt
+        .filter(|receipt| receipt.term_id == term_id && receipt.offering_ids == offering_ids)
+        .ok_or_else(|| "this add can no longer be undone".to_string())?;
+    for plan in rows(current, "planItems")? {
+        let Some(id) = plan.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if is_live(plan) && receipt.placed.iter().any(|placed| placed == id) {
+            write.delete("plan_items", id, revision(plan))?;
+        } else if !is_live(plan) && receipt.replaced.iter().any(|replaced| replaced == id) {
+            write.put("plan_items", plan.clone(), revision(plan))?;
+        }
     }
     Ok(())
 }
@@ -1606,34 +1943,6 @@ fn catalog_meetings(offering: &Value, locale: &str) -> Result<Value, DataError> 
         meetings.push(json!({"days":[day],"periods":periods,"startTime":start_time,"endTime":end_time,"room":room,"roomNames":room_names}));
     }
     Ok(Value::Array(meetings))
-}
-
-fn meetings_conflict(left: &Value, right: &Value) -> bool {
-    let slots = |meetings: &Value| -> HashSet<(u64, u64)> {
-        meetings
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|meeting| {
-                let days = meeting
-                    .get("days")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_u64)
-                    .collect::<Vec<_>>();
-                meeting
-                    .get("periods")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_u64)
-                    .flat_map(move |period| days.clone().into_iter().map(move |day| (day, period)))
-            })
-            .collect()
-    };
-    let left = slots(left);
-    !left.is_disjoint(&slots(right))
 }
 
 fn localized(value: Option<&Value>, locale: &str) -> String {
@@ -2354,5 +2663,364 @@ mod tests {
         .unwrap();
         assert_eq!(cached["detailIds"], json!([]));
         assert_eq!(cached["lmsOnly"][0]["offering"]["detailed"], true);
+    }
+
+    fn run(service: &WorkspaceService, intent: WorkspaceIntent) -> Result<Value, WorkspaceError> {
+        let expected_revision = service.snapshot()?.revision;
+        service
+            .mutate(WorkspaceMutation {
+                expected_revision,
+                intent,
+            })
+            .map(|snapshot| snapshot.workspace)
+    }
+
+    fn offering(id: &str, code: &str, quarters: &[&str]) -> Value {
+        json!({
+            "id":id, "year":2026, "quarters":quarters, "code":code,
+            "title":{"en":code}, "instructors":[], "credits":{"lecture":2,"exercise":0,"lab":0},
+            "instructionLanguage":"en", "format":{"kinds":["lecture"]},
+            "schedule":[{"kind":"weekly","day":1,"periods":[1,2],"room":{"en":"W1"}}],
+            "syllabusUrl":format!("https://syllabus.s.isct.ac.jp/courses/{id}")
+        })
+    }
+
+    /// Live plan items as `(id, courseId, termId)`.
+    fn live_plans(workspace: &Value) -> Vec<(String, String, String)> {
+        let mut plans: Vec<_> = rows(workspace, "planItems")
+            .unwrap()
+            .filter(|row| is_live(row))
+            .map(|row| {
+                (
+                    row["id"].as_str().unwrap().to_string(),
+                    row["courseId"].as_str().unwrap().to_string(),
+                    row["termId"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        plans.sort_by(|a, b| (&a.1, &a.2).cmp(&(&b.1, &b.2)));
+        plans
+    }
+
+    fn placed_terms(workspace: &Value, course_id: &str) -> Vec<String> {
+        let mut terms: Vec<_> = rows(workspace, "memberships")
+            .unwrap()
+            .chain(rows(workspace, "planItems").unwrap())
+            .filter(|row| is_live(row) && row["courseId"] == course_id)
+            .map(|row| row["termId"].as_str().unwrap().to_string())
+            .collect();
+        terms.sort();
+        terms
+    }
+
+    #[test]
+    fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
+        let service = service("catalog-quarters");
+        let add = |term: &str, offering: Value| {
+            run(
+                &service,
+                WorkspaceIntent::AddCatalogCourses {
+                    term_id: term.into(),
+                    offerings: vec![offering],
+                },
+            )
+            .unwrap()
+        };
+        // A 3Q–4Q offering added outside its quarters stays in the quarter on screen.
+        let outside = add("2026-2Q", offering("202630030", "CCC.C300", &["3Q", "4Q"]));
+        assert_eq!(placed_terms(&outside, "2026-202630030"), vec!["2026-2Q"]);
+
+        add("2026-3Q", offering("202630010", "AAA.A100", &["3Q"]));
+        add("2026-4Q", offering("202630020", "BBB.B200", &["4Q"]));
+        let before = live_plans(&service.snapshot().unwrap().workspace);
+        let replaced_id = before
+            .iter()
+            .find(|plan| plan.1 == "2026-202630010")
+            .unwrap()
+            .0
+            .clone();
+        // Added in 3Q, the 3Q–4Q offering goes into both quarters; the clashing
+        // draft in 3Q leaves the timetable.
+        let added = add("2026-3Q", offering("202630020", "BBB.B200", &["3Q", "4Q"]));
+        assert_eq!(
+            placed_terms(&added, "2026-202630020"),
+            vec!["2026-3Q", "2026-4Q"]
+        );
+        assert!(placed_terms(&added, "2026-202630010").is_empty());
+        let course = rows(&added, "courses")
+            .unwrap()
+            .find(|row| row["id"] == "2026-202630020")
+            .unwrap();
+        assert_eq!(
+            course["termId"], "2026-4Q",
+            "an existing course keeps its quarter"
+        );
+
+        // Undo removes the 3Q plan item the add placed, keeps the earlier 4Q
+        // one, and brings back the replaced draft itself.
+        let undone = run(
+            &service,
+            WorkspaceIntent::UndoCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offering_ids: vec!["202630020".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(live_plans(&undone), before);
+        assert!(live_plans(&undone).iter().any(|plan| plan.0 == replaced_id));
+        assert!(matches!(
+            run(
+                &service,
+                WorkspaceIntent::UndoCatalogCourses {
+                    term_id: "2026-3Q".into(),
+                    offering_ids: vec!["202630020".into()],
+                },
+            ),
+            Err(WorkspaceError::InvalidIntent(_))
+        ));
+
+        // Off the timetable means off every quarter.
+        add("2026-3Q", offering("202630020", "BBB.B200", &["3Q", "4Q"]));
+        let off = run(
+            &service,
+            WorkspaceIntent::SetCourseOnTimetable {
+                course_id: "2026-202630020".into(),
+                on_timetable: false,
+            },
+        )
+        .unwrap();
+        assert!(placed_terms(&off, "2026-202630020").is_empty());
+
+        // Deleting a catalog course removes it and its placements.
+        let deleted = run(
+            &service,
+            WorkspaceIntent::DeleteCourseBatch {
+                course_ids: vec!["2026-202630010".into()],
+            },
+        )
+        .unwrap();
+        assert!(placed_terms(&deleted, "2026-202630010").is_empty());
+        assert!(rows(&deleted, "courses")
+            .unwrap()
+            .any(|row| row["id"] == "2026-202630010" && !is_live(row)));
+    }
+
+    fn insert_school_row(service: &WorkspaceService, table: &str, value: Value) {
+        let connection = rusqlite::Connection::open(service.store.path()).unwrap();
+        connection
+            .execute(
+                &format!(
+                    "INSERT INTO {table} (id,value,hash,updated_at,updated_by,rev)
+                     VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','lms',1)"
+                ),
+                rusqlite::params![value["id"].as_str().unwrap(), value.to_string()],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn lms_merge_adds_memberships_joins_quarters_retimes_refreshes_and_relinks() {
+        let service = service("lms-apply");
+        service
+            .store
+            .catalog_upsert_offerings(&[json!({
+                "id":"202630001", "year":2026, "quarters":["3Q","4Q"], "code":"MTH.B301",
+                "title":{"en":"Long Course"}, "instructors":[{"en":"Ada"}],
+                "instructionLanguage":"en", "format":{"kinds":["lecture"]}, "media":{},
+                "credits":{"lecture":2.0,"exercise":0.0,"lab":0.0},
+                "schedule":[{"kind":"weekly","day":1,"periods":[1,2],"room":{"en":"W1"}}],
+                "academicUnit":{"en":"Science"}, "intensive":false,
+                "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/1/202630001", "fetchedAt":{}
+            })])
+            .unwrap();
+        let lms = |id: u64, offering: Option<&str>, shortname: &str, title: &str, grid: Value| {
+            json!({
+                "id":format!("lms-course:{id}"), "kind":"lms-course", "lmsId":id,
+                "offeringId":offering, "shortname":shortname, "title":{"en":title},
+                "year":2026, "quarters":["3Q"], "timetables":{"2026-3Q":grid},
+                "rev":1, "updatedAt":"2026-10-01T00:00:00Z", "updatedBy":"lms"
+            })
+        };
+        insert_school_row(
+            &service,
+            "lms_courses",
+            lms(
+                501,
+                Some("202630001"),
+                "MTH.B301[2026]",
+                "Long Course",
+                json!([{"day":1,"periods":[1,2]}]),
+            ),
+        );
+        insert_school_row(
+            &service,
+            "lms_courses",
+            lms(
+                502,
+                None,
+                "LAH.T209-01[2026]",
+                "Humanities",
+                json!([{"day":2,"periods":[3,4]}]),
+            ),
+        );
+        insert_school_row(
+            &service,
+            "lms_courses",
+            lms(
+                503,
+                None,
+                "SEM.S100[2026]",
+                "Seminar &amp; Lab",
+                json!([{"day":4,"periods":[1,2]}]),
+            ),
+        );
+        insert_school_row(
+            &service,
+            "lms_courses",
+            lms(
+                504,
+                Some("202630002"),
+                "PHY.P200[2026]",
+                "Physics &amp; More",
+                json!([{"day":3,"periods":[1,2]}]),
+            ),
+        );
+        insert_school_row(
+            &service,
+            "assignments",
+            json!({
+                "id":"lms-assignment:9", "kind":"assignment", "courseId":"2026-lms-502", "lmsCourseId":502,
+                "title":"Essay", "details":"", "dueAt":null, "source":{"provider":"lms"},
+                "rev":1, "updatedAt":"2026-10-01T00:00:00Z", "updatedBy":"lms"
+            }),
+        );
+        let save = |code: &str, day: u64| {
+            run(
+                &service,
+                WorkspaceIntent::SaveCourse {
+                    draft: json!({"title":code,"code":code,"meetings":[{"days":[day],"periods":[5,6],"startTime":"14:20","endTime":"16:00","room":"S-1"}]}),
+                    term_id: "2026-3Q".into(),
+                    existing_id: None,
+                },
+            )
+            .unwrap();
+            let workspace = service.snapshot().unwrap().workspace;
+            let id = rows(&workspace, "courses")
+                .unwrap()
+                .find(|row| row["code"] == code)
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            id
+        };
+        let humanities = save("LAH.T209", 2);
+        let dropped = save("XYZ.A100", 5);
+
+        let snapshot = service.snapshot().unwrap();
+        let preview = lms_merge_preview(
+            &snapshot.workspace,
+            &snapshot.school_records,
+            "term",
+            "2026-3Q",
+            &service.store.catalog_search("").unwrap(),
+        )
+        .unwrap();
+        let titles: Vec<_> = preview["lmsOnly"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["title"].as_str().unwrap().to_string())
+            .collect();
+        assert!(titles.contains(&"Seminar & Lab".to_string()), "{titles:?}");
+
+        let applied = run(
+            &service,
+            WorkspaceIntent::ApplyLmsMerge {
+                terms: vec!["2026-3Q".into()],
+                add: vec!["lms:501:2026-3Q".into(), "lms:504:2026-3Q".into()],
+                keep: vec![],
+                retime: vec![format!("local:{humanities}")],
+            },
+        )
+        .unwrap();
+        // LMS courses join as LMS memberships, also in their quarter outside the review.
+        let membership = rows(&applied, "memberships")
+            .unwrap()
+            .find(|row| row["id"] == "lms-membership:501:2026-4Q")
+            .unwrap();
+        assert_eq!(membership["status"], "lms-member");
+        assert_eq!(membership["evidence"]["provider"], "lms");
+        assert_eq!(
+            placed_terms(&applied, "2026-202630001"),
+            vec!["2026-3Q", "2026-4Q"]
+        );
+        assert!(rows(&applied, "planItems")
+            .unwrap()
+            .all(|row| row["courseId"] != "2026-202630001"));
+        let course = |workspace: &Value, id: &str| {
+            rows(workspace, "courses")
+                .unwrap()
+                .find(|row| row["id"] == id)
+                .unwrap()
+                .clone()
+        };
+        let long = course(&applied, "2026-202630001");
+        assert_eq!(long["source"]["provider"], "lms");
+        assert_eq!(long["meetings"][0]["room"], "W1");
+        assert_eq!(course(&applied, "2026-202630002")["credits"], 0.0);
+        assert_eq!(
+            course(&applied, "2026-202630002")["title"],
+            "Physics & More"
+        );
+        // The matched local course takes the LMS time and keeps its room.
+        let retimed = course(&applied, &humanities);
+        assert_eq!(retimed["meetings"][0]["periods"], json!([3, 4]));
+        assert_eq!(retimed["meetings"][0]["room"], "S-1");
+        // The unchecked local course leaves the timetable.
+        assert!(placed_terms(&applied, &dropped).is_empty());
+        // LMS work follows the course it was matched with.
+        let essay = rows(&applied, "assignments")
+            .unwrap()
+            .find(|row| row["id"] == "lms-assignment:9")
+            .unwrap();
+        assert_eq!(essay["courseId"], humanities.as_str());
+
+        // Once the syllabus gives the details, the LMS course takes them.
+        service
+            .store
+            .catalog_upsert_offerings(&[json!({
+                "id":"202630002", "year":2026, "quarters":["3Q"], "code":"PHY.P200",
+                "title":{"en":"Physics"}, "instructors":[], "instructionLanguage":"en",
+                "format":{"kinds":["lecture"]}, "media":{}, "credits":{"lecture":1.0,"exercise":0.0,"lab":0.0},
+                "schedule":[{"kind":"weekly","day":3,"periods":[1,2]}], "academicUnit":{"en":"Science"},
+                "intensive":false, "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/1/202630002", "fetchedAt":{}
+            })])
+            .unwrap();
+        let refreshed = run(
+            &service,
+            WorkspaceIntent::ApplyLmsMerge {
+                terms: vec!["2026-3Q".into()],
+                add: vec![],
+                keep: vec![],
+                retime: vec![],
+            },
+        )
+        .unwrap();
+        let physics = course(&refreshed, "2026-202630002");
+        assert_eq!(physics["credits"], 1.0);
+        assert_eq!(physics["title"], "Physics");
+        assert_eq!(physics["names"]["title"]["en"], "Physics");
+
+        // Taking an LMS course off the timetable removes it from every quarter.
+        let off = run(
+            &service,
+            WorkspaceIntent::SetCourseOnTimetable {
+                course_id: "2026-202630001".into(),
+                on_timetable: false,
+            },
+        )
+        .unwrap();
+        assert!(placed_terms(&off, "2026-202630001").is_empty());
     }
 }
