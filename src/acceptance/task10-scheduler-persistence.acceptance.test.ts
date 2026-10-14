@@ -32,6 +32,7 @@ describe("Task 10 scheduled-task Core persistence boundary", () => {
     workspace.scheduledTasks = [scheduledExport()];
     const initial: CoreWorkspaceSnapshot = {
       revision: "before",
+      contentRevision: "before",
       workspace,
       schoolRecords: emptySchoolRecords,
     };
@@ -49,6 +50,7 @@ describe("Task 10 scheduled-task Core persistence boundary", () => {
       async () =>
         ({
           revision: "after",
+          contentRevision: "after",
           workspace: persisted,
           schoolRecords: emptySchoolRecords,
         }) satisfies CoreWorkspaceSnapshot,

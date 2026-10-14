@@ -569,13 +569,16 @@ export function WorkspaceApp() {
       .catch(() => setNativeCapabilities(undefined))
       .finally(() => setNativeCapabilitiesReady(true));
   }, []);
+  // Courses of the quarter on screen, a 3Q–4Q course in each of its quarters.
+  const termCourseKey = overview.value?.termCourseIds.join("\n");
   useEffect(() => {
     if (!sourceData || !desktopBridge || !nativeCapabilities?.syllabusSearch)
       return;
+    const termCourses = new Set(termCourseKey?.split("\n") ?? []);
     for (const course of sourceData.courses.filter(
       (course) =>
         !course.deletedAt &&
-        course.termId === sourceData.selectedTerm &&
+        termCourses.has(course.id) &&
         isSyllabusCourse(course) &&
         course.url,
     ))
@@ -583,7 +586,7 @@ export function WorkspaceApp() {
         .syllabusCourse(course.url!, contentLanguage(sourceData.settings))
         .catch(() => undefined);
   }, [
-    sourceData?.selectedTerm,
+    termCourseKey,
     sourceData?.settings.locale,
     sourceData?.settings.contentLanguage,
     sourceData?.courses,
@@ -1541,6 +1544,7 @@ export function WorkspaceApp() {
           progress={lmsProgress}
         />
       )}
+      {/* Editors show a failed submission inline and stay open. */}
       {mergeDiff && (
         <LmsMergeDialog
           diff={mergeDiff}
@@ -1550,19 +1554,15 @@ export function WorkspaceApp() {
           }}
           apply={async (add, keep, retime) => {
             const diff = mergeDiff;
-            try {
-              await academicIntentOrThrow({
-                kind: "applyLmsMerge",
-                terms: diff.terms,
-                add: [...add],
-                keep: [...keep],
-                retime: [...retime],
-              });
-              setMergeDiff(null);
-              notify.info("Timetable updated from LMS");
-            } catch (error) {
-              notify.error(error);
-            }
+            await academicIntentOrThrow({
+              kind: "applyLmsMerge",
+              terms: diff.terms,
+              add: [...add],
+              keep: [...keep],
+              retime: [...retime],
+            });
+            setMergeDiff(null);
+            notify.info("Timetable updated from LMS");
           }}
         />
       )}
@@ -1573,28 +1573,20 @@ export function WorkspaceApp() {
           plan={planEditor === "new" ? undefined : planEditor}
           close={() => setPlanEditor(null)}
           save={async (draft) => {
-            try {
-              await savePlan(
-                draft,
-                planEditor === "new" ? undefined : planEditor,
-              );
-              setPlanEditor(null);
-              notify.info("Plan saved");
-            } catch (error) {
-              notify.error(error);
-            }
+            await savePlan(
+              draft,
+              planEditor === "new" ? undefined : planEditor,
+            );
+            setPlanEditor(null);
+            notify.info("Plan saved");
           }}
           remove={
             planEditor === "new"
               ? undefined
               : async () => {
-                  try {
-                    await deletePlan(planEditor);
-                    setPlanEditor(null);
-                    notify.info("Plan deleted");
-                  } catch (error) {
-                    notify.error(error);
-                  }
+                  await deletePlan(planEditor);
+                  setPlanEditor(null);
+                  notify.info("Plan deleted");
                 }
           }
         />
@@ -1614,17 +1606,13 @@ export function WorkspaceApp() {
               value={existing}
               close={() => setIntensiveCourseId(null)}
               save={async (value) => {
-                try {
-                  await academicIntentOrThrow({
-                    kind: "saveIntensiveSchedule",
-                    courseId: course.id,
-                    draft: value,
-                  });
-                  setIntensiveCourseId(null);
-                  notify.info("Intensive dates saved");
-                } catch (error) {
-                  notify.error(error);
-                }
+                await academicIntentOrThrow({
+                  kind: "saveIntensiveSchedule",
+                  courseId: course.id,
+                  draft: value,
+                });
+                setIntensiveCourseId(null);
+                notify.info("Intensive dates saved");
               }}
             />
           );
@@ -1652,26 +1640,16 @@ export function WorkspaceApp() {
           }
           onClose={() => setCourseEditor(null)}
           onSave={async (draft) => {
-            try {
-              await saveCourse(draft, courseEditor.term, courseEditor.course);
-              setCourseEditor(null);
-              notify.info(
-                courseEditor.course ? "Course saved" : "Course added",
-              );
-            } catch (error) {
-              notify.error(error);
-            }
+            await saveCourse(draft, courseEditor.term, courseEditor.course);
+            setCourseEditor(null);
+            notify.info(courseEditor.course ? "Course saved" : "Course added");
           }}
           onDelete={
             courseEditor.course
               ? async () => {
-                  try {
-                    await deleteCourse(courseEditor.course!);
-                    setCourseEditor(null);
-                    notify.info("Course deleted");
-                  } catch (error) {
-                    notify.error(error);
-                  }
+                  await deleteCourse(courseEditor.course!);
+                  setCourseEditor(null);
+                  notify.info("Course deleted");
                 }
               : undefined
           }
@@ -1684,24 +1662,16 @@ export function WorkspaceApp() {
           term={eventEditor.term}
           onClose={() => setEventEditor(null)}
           onSave={async (draft) => {
-            try {
-              await saveEvent(draft, eventEditor.term, eventEditor.event);
-              setEventEditor(null);
-              notify.info("Event saved");
-            } catch (error) {
-              notify.error(error);
-            }
+            await saveEvent(draft, eventEditor.term, eventEditor.event);
+            setEventEditor(null);
+            notify.info("Event saved");
           }}
           onDelete={
             eventEditor.event
               ? async () => {
-                  try {
-                    await deleteEvent(eventEditor.event!);
-                    setEventEditor(null);
-                    notify.info("Event deleted");
-                  } catch (error) {
-                    notify.error(error);
-                  }
+                  await deleteEvent(eventEditor.event!);
+                  setEventEditor(null);
+                  notify.info("Event deleted");
                 }
               : undefined
           }

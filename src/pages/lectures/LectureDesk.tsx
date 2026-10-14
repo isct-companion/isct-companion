@@ -15,6 +15,7 @@ import { jstDate } from "../../app/shared";
 import { t } from "../../i18n";
 import type { CourseEntry } from "../../features/lms/LmsWorkspace";
 import { useFormFactor } from "../../app/form-factor";
+import { useClock } from "../../platform/use-clock";
 import {
   useScheduleQuery,
   type ScheduleView,
@@ -70,13 +71,8 @@ export function LectureDesk({
   // The list shows the quarter's lectures, or its open assignments.
   const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
   const [showHidden, setShowHidden] = useState(false);
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    if (!active) return;
-    setNow(new Date());
-    const timer = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, [active]);
+  const nowIso = useClock(active);
+  const now = useMemo(() => new Date(nowIso), [nowIso]);
   const today = jstDate(now);
   const schedule = useScheduleQuery<ScheduleView>({
     kind: "scheduleView",
@@ -89,7 +85,7 @@ export function LectureDesk({
   const courses = schedule?.courses ?? [];
   const taskView = useScheduleQuery<TaskView>({
     kind: "taskView",
-    now: now.toISOString(),
+    now: nowIso,
   }).value;
   const taskTerm = taskView?.byTerm?.[shownTerm];
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));

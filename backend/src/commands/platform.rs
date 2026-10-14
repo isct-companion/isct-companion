@@ -39,9 +39,8 @@ pub(crate) async fn recognize_matrix_image(
         );
         #[cfg(not(debug_assertions))]
         let _ = app;
-        if image.len() > (20 * 1024 * 1024usize).div_ceil(3) * 4 {
-            return Err("Choose a valid image smaller than 20 MB.".into());
-        }
+        // Tauri's JSON transport carries base64; OCR owns the size limit.
+        matrix_ocr::check_base64_image_len(image.len()).map_err(|error| error.to_string())?;
         let image = STANDARD
             .decode(image)
             .map_err(|_| "Invalid image encoding".to_string())?;

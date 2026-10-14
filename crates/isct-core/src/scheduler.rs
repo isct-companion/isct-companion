@@ -8,7 +8,7 @@ use crate::{
     pull_coordinator::PullOptions,
     reference_refresh::{ReferenceError, ReferenceService},
     school_refresh::SchoolRefresh,
-    school_service::{IngestOutcome, SchoolError, SchoolExecutor, SchoolService},
+    school_service::{IngestOutcome, IngestState, SchoolError, SchoolExecutor, SchoolService},
 };
 use chrono::{DateTime, Duration, Utc};
 use rrule::{RRuleSet, Tz};
@@ -51,11 +51,30 @@ pub enum SchedulerError {
     Export(#[from] ExportError),
 }
 
+/// Built-in scheduled task actions (`scheduled_tasks.action`). Unknown stored
+/// values fail the run with a typed message instead of being matched as text.
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScheduledAction {
+    Export,
+    ReferenceRefresh,
+    LmsRefresh,
+    SchoolRefresh,
+    Hook,
+}
+
+impl ScheduledAction {
+    fn of(task: &Value) -> Option<Self> {
+        task.get("action")
+            .cloned()
+            .and_then(|action| serde_json::from_value(action).ok())
+    }
+}
+
 pub struct Scheduler {
     started_at: DateTime<Utc>,
     running: tokio::sync::Mutex<()>,
     invalid_schedules: Mutex<HashSet<String>>,
-    seen_agent_write: Mutex<Option<String>>,
 }
 
 impl Default for Scheduler {
@@ -64,7 +83,6 @@ impl Default for Scheduler {
             started_at: Utc::now(),
             running: tokio::sync::Mutex::new(()),
             invalid_schedules: Mutex::new(HashSet::new()),
-            seen_agent_write: Mutex::new(None),
         }
     }
 }
@@ -162,7 +180,10 @@ fn due_occurrence(
 }
 
 fn task_result_problem(outcomes: &[IngestOutcome]) -> Result<(), SchedulerError> {
-    if let Some(problem) = outcomes.iter().find(|outcome| outcome.state != "ok") {
+    if let Some(problem) = outcomes
+        .iter()
+        .find(|outcome| outcome.state != IngestState::Ok)
+    {
         return Err(SchedulerError::School(SchoolError::Executor(
             problem.message.clone(),
         )));
@@ -200,33 +221,40 @@ async fn pull_site(
 
 async fn execute(
     services: &SchedulerServices,
-    action: &str,
+    action: Option<ScheduledAction>,
     force: bool,
 ) -> Result<String, SchedulerError> {
     match action {
-        "export" => services
-            .exporter
-            .export()
-            .map(|()| "Export completed".into())
-            .map_err(SchedulerError::from),
-        "reference-refresh" => Ok(services.references.refresh_all(force, false).await?),
-        "lms-refresh" => {
+        Some(ScheduledAction::Export) => {
+            // The exporter writes a file; keep it off the async executor.
+            let exporter = services.exporter.clone();
+            tokio::task::spawn_blocking(move || exporter.export())
+                .await
+                .map_err(|_| {
+                    ExportError::Failed("Scheduled export stopped unexpectedly.".into())
+                })??;
+            Ok("Export completed".into())
+        }
+        Some(ScheduledAction::ReferenceRefresh) => {
+            Ok(services.references.refresh_all(force).await?)
+        }
+        Some(ScheduledAction::LmsRefresh) => {
             if !force && !services.refresh.foreground() {
                 return Ok("Paused: app is not active".into());
             }
             pull_site(services, SchoolSite::ScienceLms, force).await?;
             Ok("LMS background refresh completed".into())
         }
-        "school-refresh" => {
+        Some(ScheduledAction::SchoolRefresh) => {
             for site in [SchoolSite::ScienceLms, SchoolSite::Kyomu] {
                 pull_site(services, site, force).await?;
             }
             Ok("School refresh completed".into())
         }
-        "hook" => Err(SchedulerError::InvalidTask(
+        Some(ScheduledAction::Hook) => Err(SchedulerError::InvalidTask(
             "Scheduled custom hooks must select a built-in action.".into(),
         )),
-        _ => Err(SchedulerError::InvalidTask(
+        None => Err(SchedulerError::InvalidTask(
             "Scheduled task action is unsupported.".into(),
         )),
     }
@@ -243,33 +271,15 @@ impl Scheduler {
                         .get("id")
                         .and_then(Value::as_str)
                         .ok_or_else(|| SchedulerError::InvalidTask("task has no id".into()))?;
-                    let _ = self.run(services, id, Some(occurrence), false).await;
+                    if let Err(error) = self.run(services, id, Some(occurrence), false).await {
+                        crate::diagnostics::report("scheduler", &error);
+                    }
                 }
                 Ok(None) => {}
                 Err(error) => self.record_invalid_schedule(services, task, now, error)?,
             }
         }
 
-        // MCP writes happen in another process; their durable audit is the
-        // cross-process signal. DataStore stores newest entries first.
-        let latest_agent_write = services
-            .store
-            .load_workspace()?
-            .pointer("/settings/agentAccess/lastWrites")
-            .and_then(Value::as_array)
-            .and_then(|writes| writes.first())
-            .and_then(|write| serde_json::to_string(write).ok());
-        let mut seen = match self.seen_agent_write.lock() {
-            Ok(seen) => seen,
-            Err(poisoned) => {
-                self.seen_agent_write.clear_poison();
-                poisoned.into_inner()
-            }
-        };
-        if latest_agent_write != *seen {
-            emit(services, WorkspaceChangeSource::Mcp);
-        }
-        *seen = latest_agent_write;
         Ok(())
     }
 
@@ -379,12 +389,7 @@ impl Scheduler {
         )?;
         emit(services, WorkspaceChangeSource::Scheduler);
 
-        let action = task
-            .get("action")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let message = execute(services, &action, force)
+        let message = execute(services, ScheduledAction::of(&task), force)
             .await
             .unwrap_or_else(|error| format!("Failed: {error}"));
         let expected = task.get("rev").and_then(Value::as_u64).unwrap_or(0);
@@ -448,7 +453,7 @@ mod tests {
                 Ok(vec![IngestOutcome {
                     site: request.site,
                     kind: "test".into(),
-                    state: "ok".into(),
+                    state: IngestState::Ok,
                     changed: 0,
                     message: String::new(),
                 }])
@@ -520,6 +525,10 @@ mod tests {
             self.gate.wait();
             Ok(())
         }
+    }
+
+    fn action(name: &str) -> Option<ScheduledAction> {
+        ScheduledAction::of(&json!({ "action": name }))
     }
 
     fn store(name: &str) -> DataStore {
@@ -805,7 +814,7 @@ mod tests {
             Arc::new(RecordingEvents::default()),
         );
         assert!(matches!(
-            execute(&services, "export", true).await,
+            execute(&services, action("export"), true).await,
             Err(SchedulerError::Export(ExportError::Failed(message)))
                 if message == "export destination unavailable"
         ));
@@ -832,41 +841,37 @@ mod tests {
         );
         services
             .refresh
-            .event(RefreshEvent {
-                kind: "background".into(),
-                profile: None,
-                course_id: None,
-                network: None,
-            })
+            .event(RefreshEvent::lifecycle(false))
             .unwrap();
         assert_eq!(
-            execute(&services, "lms-refresh", false).await.unwrap(),
+            execute(&services, action("lms-refresh"), false)
+                .await
+                .unwrap(),
             "Paused: app is not active"
         );
         services
             .refresh
-            .event(RefreshEvent {
-                kind: "foreground".into(),
-                profile: None,
-                course_id: None,
-                network: None,
-            })
+            .event(RefreshEvent::lifecycle(true))
             .unwrap();
         assert_eq!(
-            execute(&services, "lms-refresh", false).await.unwrap(),
+            execute(&services, action("lms-refresh"), false)
+                .await
+                .unwrap(),
             "LMS background refresh completed"
         );
         assert_eq!(
-            execute(&services, "school-refresh", false).await.unwrap(),
+            execute(&services, action("school-refresh"), false)
+                .await
+                .unwrap(),
             "School refresh completed"
         );
         assert!(matches!(
-            execute(&services, "hook", false).await,
+            execute(&services, action("hook"), false).await,
             Err(SchedulerError::InvalidTask(message))
                 if message == "Scheduled custom hooks must select a built-in action."
         ));
         assert!(matches!(
-            execute(&services, "unknown", false).await,
+            execute(&services, action("unknown"), false).await,
             Err(SchedulerError::InvalidTask(message))
                 if message == "Scheduled task action is unsupported."
         ));
@@ -932,47 +937,5 @@ mod tests {
             Err(SchedulerError::Storage(DataError::Conflict(_)))
         ));
         assert!(task(&store, "delete-wins")["deletedAt"].is_string());
-    }
-
-    #[tokio::test]
-    async fn mcp_event_emits_only_when_the_latest_audit_changes() {
-        let store = store("mcp-audit");
-        for mut task in store.user_rows("scheduled_tasks").unwrap() {
-            let revision = task["rev"].as_u64().unwrap();
-            task["enabled"] = json!(false);
-            store
-                .put_user_record_checked("scheduled_tasks", task, "test", Some(revision))
-                .unwrap();
-        }
-        let events = Arc::new(RecordingEvents::default());
-        let services = services(
-            &store,
-            Arc::new(CountingExporter::default()),
-            events.clone(),
-        );
-        let scheduler = Scheduler::default();
-
-        scheduler.tick(&services).await.unwrap();
-        store.record_agent_write("first").unwrap();
-        scheduler.tick(&services).await.unwrap();
-        scheduler.tick(&services).await.unwrap();
-        store.record_agent_write("second").unwrap();
-        scheduler.tick(&services).await.unwrap();
-
-        let sources = events
-            .events
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|event| {
-                matches!(
-                    event,
-                    CoreEvent::WorkspaceChanged {
-                        source: WorkspaceChangeSource::Mcp
-                    }
-                )
-            })
-            .count();
-        assert_eq!(sources, 2);
     }
 }

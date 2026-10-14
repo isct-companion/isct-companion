@@ -1,12 +1,10 @@
 //! Native cloud ports; queue, recovery and retry policy live in Core.
 use crate::{cloud::DesktopCloudService, secrets::OsSecretVault};
-use isct_core::cloud_sync::{
-    CloudFuture, CloudObserver, CloudServices, CloudSyncError, CloudTransport,
-};
+use isct_core::cloud_sync::{CloudFuture, CloudServices, CloudSyncError, CloudTransport};
 pub use isct_core::cloud_sync::{CloudProvider, CloudVersion, Direction, SyncState};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 struct NativeCloud(AppHandle);
 impl CloudTransport for NativeCloud {
@@ -69,24 +67,11 @@ impl CloudTransport for NativeCloud {
         })
     }
 }
-struct NativeObserver(AppHandle);
-impl CloudObserver for NativeObserver {
-    fn state_changed(&self, state: SyncState) -> Result<(), CloudSyncError> {
-        self.0
-            .emit("cloud-sync-state", state)
-            .map_err(|error| CloudSyncError::Event(error.to_string()))
-    }
-    fn workspace_changed(&self, source: &'static str) -> Result<(), CloudSyncError> {
-        self.0
-            .emit("workspace-changed", serde_json::json!({"source":source}))
-            .map_err(|error| CloudSyncError::Event(error.to_string()))
-    }
-}
 fn services(app: &AppHandle) -> Result<CloudServices, String> {
     Ok(CloudServices {
         backup: crate::commands::backup::service(app)?,
         transport: Arc::new(NativeCloud(app.clone())),
-        observer: Arc::new(NativeObserver(app.clone())),
+        events: Arc::new(crate::core_ports::DesktopEvents(app.clone())),
     })
 }
 

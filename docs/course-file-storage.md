@@ -96,8 +96,9 @@ metadata. It is an inactivity TTL:
 - a successful open updates the file modification time;
 - once per application launch, files whose modification time is older than
   `autoCleanDays * 24 hours` are removed;
-- cleanup ignores symbolic links, notes and deleted notes; stale `.part` files
-  in a materials directory are eligible for the same cleanup;
+- cleanup ignores symbolic links, notes and deleted notes; partial downloads
+  left by another (crashed or killed) process are removed after 6 hours
+  without writes, and the running process's partials are never touched;
 - changing the setting does not run cleanup immediately; it takes effect on
   the next launch.
 
@@ -114,8 +115,9 @@ The default root is:
 - mobile: app data directory / `IsctCompanion`.
 
 A custom desktop root is stored separately as
-`<app-data>/course-files-root.json`; changing it does not move or delete the old
-root. Under the active root:
+`<app-data>/course-files-root.json`, written atomically; changing it does not
+move or delete the old root. Only a missing file means "use the default root";
+an unreadable file is reported instead of silently falling back. Under the active root:
 
 ```text
 <term>/<course>/materials/<readable-name>-<url-digest>.<extension>
@@ -124,8 +126,10 @@ root. Under the active root:
 ```
 
 Materials are shared by all sections of a course and keyed by the full,
-allowlisted LMS attachment URL. Downloads first use a sibling `.part` file and
-are renamed only after completion. File paths coming back from JavaScript are
+allowlisted LMS attachment URL. Downloads first use a sibling
+`.part-<pid>-<n>` file and are renamed only after completion. Safe folder
+components, canonical-root checks, file descriptions and atomic writes live in
+Core's `storage` module, shared by notes, materials and assignment workspaces. File paths coming back from JavaScript are
 canonicalized and must remain inside the active root before they can be opened
 or revealed.
 

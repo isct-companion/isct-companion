@@ -1,14 +1,13 @@
 //! Versioned local course notes and their backup representation.
 
 use crate::{
-    course_materials::{component, describe, storage_dir, LocalFile, MaterialError},
     data::cloud_merge,
+    storage::{self, component, describe, storage_dir, LocalFile, StorageError},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     fs,
-    io::Write,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
 };
@@ -545,17 +544,11 @@ pub fn validate_notes(notes: &[LocalNoteBackup]) -> Result<(), NoteError> {
     Ok(())
 }
 
-impl From<MaterialError> for NoteError {
-    fn from(error: MaterialError) -> Self {
+impl From<StorageError> for NoteError {
+    fn from(error: StorageError) -> Self {
         match error {
-            MaterialError::Input(message) => Self::Input(message),
-            MaterialError::Storage(message) => Self::Storage(message),
-            MaterialError::UnsupportedResolution => {
-                Self::Storage("Course files are resolved in the desktop app".into())
-            }
-            MaterialError::UnsupportedDownload => {
-                Self::Storage("Course files are downloaded in the desktop app".into())
-            }
+            StorageError::Input(message) => Self::Input(message),
+            StorageError::Storage(message) => Self::Storage(message),
         }
     }
 }
@@ -585,53 +578,12 @@ fn write_note(path: &Path, contents: &[u8]) -> Result<(), NoteError> {
 }
 
 pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), NoteError> {
-    let temp = temporary_path(path);
-    let result = (|| {
-        let mut options = fs::OpenOptions::new();
-        options.create_new(true).write(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp).map_err(storage_error)?;
-        file.write_all(contents).map_err(storage_error)?;
-        file.sync_all().map_err(storage_error)?;
-        replace_file(&temp, path)
-    })();
-    let _ = fs::remove_file(temp);
-    result
+    Ok(storage::atomic_write(path, contents)?)
 }
 
 fn write_json_atomic(path: &Path, value: &serde_json::Value) -> Result<(), NoteError> {
     let bytes = serde_json::to_vec(value).map_err(storage_error)?;
     atomic_write(path, &bytes)
-}
-
-#[cfg(not(windows))]
-fn replace_file(source: &Path, target: &Path) -> Result<(), NoteError> {
-    fs::rename(source, target).map_err(storage_error)
-}
-
-#[cfg(windows)]
-fn replace_file(source: &Path, target: &Path) -> Result<(), NoteError> {
-    if !target.exists() {
-        return fs::rename(source, target).map_err(storage_error);
-    }
-    let backup = target.with_extension(format!("{}.bak", uuid::Uuid::new_v4()));
-    fs::rename(target, &backup).map_err(storage_error)?;
-    if let Err(error) = fs::rename(source, target) {
-        return match fs::rename(&backup, target) {
-            Ok(()) => Err(storage_error(error)),
-            Err(rollback) => Err(NoteError::Storage(format!(
-                "Could not replace {} ({error}); rollback also failed ({rollback}). The previous file is preserved at {}",
-                target.display(),
-                backup.display()
-            ))),
-        };
-    }
-    let _ = fs::remove_file(backup);
-    Ok(())
 }
 
 fn stamp_note(path: &Path, device_id: &str) -> Result<(), NoteError> {
@@ -646,10 +598,6 @@ fn stamp_note(path: &Path, device_id: &str) -> Result<(), NoteError> {
             "rev": old["rev"].as_u64().unwrap_or(0).saturating_add(1)
         }),
     )
-}
-
-fn temporary_path(path: &Path) -> PathBuf {
-    path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()))
 }
 
 fn reject_symlink(path: &Path, message: &str) -> Result<(), NoteError> {

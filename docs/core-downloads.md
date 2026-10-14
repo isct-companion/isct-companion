@@ -66,8 +66,13 @@ sync have not moved in this checkpoint.
   fresh retry. Shutdown rejects new operations and cancels network waits.
 - Download to a unique `create_new` sibling, flush/sync it, then rename to
   publish a complete file. Error, cancellation and rename failure clean the
-  temporary file. Cleanup excludes partial files, symlinks, notes and
-  assignment workspaces, including nested user directories.
+  temporary file (`<name>.part-<pid>-<n>`). Cleanup excludes this process's
+  partial files, symlinks, notes and assignment workspaces, including nested
+  user directories. Partials of another process (left by a crash or OS kill)
+  are removed once untouched for 6 hours, regardless of the retention days.
+- `CourseMaterials::open/preview/clean` run their SQLite reads, path checks,
+  file stats and descriptions on blocking workers; the `lmsfile` protocol
+  also reads served bytes on a blocking worker.
 - Resource-page parsing limits accumulated input to 1,000,000 bytes before
   declining an oversized page, including responses without Content-Length.
 

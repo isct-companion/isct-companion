@@ -5,12 +5,12 @@ use crate::{
     data::DataStore,
     downloads::{DownloadSession, Downloader, FetchError, Fetched, ResolvedResource},
     school_parser::lms::ResolvedFile,
+    storage::{component, describe, regular_file, storage_dir, LocalFile, StorageError},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime},
@@ -20,7 +20,9 @@ use url::Url;
 const MAX_AUTO_DOWNLOAD_BYTES: u64 = 1024 * 1024 * 1024;
 const DEFAULT_AUTO_DOWNLOAD_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_RETENTION_DAYS: u64 = 3650;
-const MAX_TEXT_PREVIEW_BYTES: u64 = 1_000_000;
+/// An orphaned partial download of another process is reclaimed after this
+/// long without writes; an active download keeps touching its file.
+const STALE_PARTIAL_AGE: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct CourseKey {
@@ -56,18 +58,6 @@ pub enum MaterialFailure {
     Unresolved,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalFile {
-    pub id: String,
-    pub name: String,
-    pub section: String,
-    pub path: String,
-    pub bytes: u64,
-    pub cached: bool,
-    pub text: Option<String>,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum MaterialError {
     #[error("{0}")]
@@ -78,6 +68,15 @@ pub enum MaterialError {
     UnsupportedResolution,
     #[error("Course files are downloaded in the desktop app")]
     UnsupportedDownload,
+}
+
+impl From<StorageError> for MaterialError {
+    fn from(error: StorageError) -> Self {
+        match error {
+            StorageError::Input(message) => Self::Input(message),
+            StorageError::Storage(message) => Self::Storage(message),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -124,7 +123,12 @@ impl CourseMaterials {
         explicit: bool,
         foreground: bool,
     ) -> Result<Material, MaterialError> {
-        let limit = (!explicit).then(|| self.automatic_download_limit());
+        let limit = if explicit {
+            None
+        } else {
+            let materials = self.clone();
+            Some(blocking(move || Ok(materials.automatic_download_limit())).await?)
+        };
         self.open_with_priority(context, source, true, false, limit, foreground || explicit)
             .await
     }
@@ -144,7 +148,11 @@ impl CourseMaterials {
         let url = match kind {
             LmsResourceKind::File => source_url,
             LmsResourceKind::View { module, cmid } => {
-                let stored = self.store.lms_material_for_url(&source).ok().flatten();
+                let stored = {
+                    let store = self.store.clone();
+                    let source = source.clone();
+                    blocking(move || Ok(store.lms_material_for_url(&source).ok().flatten())).await?
+                };
                 if module == "folder" {
                     if let Some(files) = stored_folder_files(stored.as_ref()) {
                         return Ok(Material::Folder { files });
@@ -178,25 +186,28 @@ impl CourseMaterials {
                             else {
                                 return Ok(failed(MaterialFailure::Invalid));
                             };
-                            let _ = self.store.update_lms_resource_url(cmid, &source, &url);
+                            self.remember_resource(cmid, &source, &url).await;
                             url_value
                         }
                         Ok(ResolvedResource::External { url }) => {
                             if !safe_external_url(&url) {
                                 return Ok(failed(MaterialFailure::Invalid));
                             }
-                            let _ = self.store.update_lms_resource_url(cmid, &source, &url);
+                            self.remember_resource(cmid, &source, &url).await;
                             return Ok(Material::External { url });
                         }
                         Ok(ResolvedResource::Folder { files }) => {
                             if !valid_folder_files(&files) {
                                 return Ok(failed(MaterialFailure::Invalid));
                             }
-                            let _ = self.store.update_lms_folder_files(
-                                cmid,
-                                &source,
-                                &folder_contract(&files),
-                            );
+                            let store = self.store.clone();
+                            let (source, contract) = (source.clone(), folder_contract(&files));
+                            // A cached folder listing is an optimization; failure is not fatal.
+                            let _ = blocking(move || {
+                                let _ = store.update_lms_folder_files(cmid, &source, &contract);
+                                Ok(())
+                            })
+                            .await;
                             return Ok(Material::Folder { files });
                         }
                         Ok(ResolvedResource::Login) => {
@@ -211,8 +222,18 @@ impl CourseMaterials {
             }
         };
 
-        let path = material_path(&self.root, &context, &url)?;
-        if !regular_file(&path)? {
+        // Path checks canonicalize and stat under a user-chosen root (possibly a
+        // network or cloud folder); keep them on a blocking worker.
+        let (path, present) = {
+            let (root, context, url) = (self.root.clone(), context.clone(), url.clone());
+            blocking(move || {
+                let path = material_path(&root, &context, &url)?;
+                let present = regular_file(&path)?;
+                Ok((path, present))
+            })
+            .await?
+        };
+        if !present {
             if !download {
                 return Ok(Material::Missing);
             }
@@ -230,19 +251,34 @@ impl CourseMaterials {
                 Ok(Fetched::TooLarge(bytes)) => return Ok(Material::TooLarge { bytes }),
                 Err(error) => return Ok(material_for_fetch_error(error)),
             }
-            if !regular_file(&path)? {
+            let downloaded = path.clone();
+            if !blocking(move || Ok(regular_file(&downloaded)?)).await? {
                 return Err(MaterialError::Storage(
                     "Downloaded course material is unavailable".into(),
                 ));
             }
         }
-        let _ = fs::File::options()
-            .write(true)
-            .open(&path)
-            .and_then(|file| file.set_modified(SystemTime::now()));
-        Ok(Material::Ready {
-            file: describe(path, url.to_string(), String::new(), true, read_text)?,
+        let url = url.to_string();
+        let file = blocking(move || {
+            let _ = fs::File::options()
+                .write(true)
+                .open(&path)
+                .and_then(|file| file.set_modified(SystemTime::now()));
+            Ok(describe(path, url, String::new(), true, read_text)?)
         })
+        .await?;
+        Ok(Material::Ready { file })
+    }
+
+    async fn remember_resource(&self, cmid: u64, source: &str, url: &str) {
+        let store = self.store.clone();
+        let (source, url) = (source.to_owned(), url.to_owned());
+        // A remembered resolution is an optimization; failure is not fatal.
+        let _ = blocking(move || {
+            let _ = store.update_lms_resource_url(cmid, &source, &url);
+            Ok(())
+        })
+        .await;
     }
 
     fn automatic_download_limit(&self) -> u64 {
@@ -258,15 +294,24 @@ impl CourseMaterials {
             .unwrap_or(DEFAULT_AUTO_DOWNLOAD_BYTES)
     }
 
-    /// Remove stale cache files from the current and legacy material layouts.
-    /// User notes, workspace files, symlinks and active partial downloads are
-    /// never traversed or removed.
+    /// Remove stale cache files from the current and legacy material layouts,
+    /// and partial downloads orphaned by another (crashed or killed) process.
+    /// User notes, workspace files, symlinks and this process's partial
+    /// downloads are never traversed or removed.
     pub async fn clean(&self, days: u64) -> Result<usize, MaterialError> {
         let root = self.root.clone();
-        tokio::task::spawn_blocking(move || clean_materials(&root, days))
-            .await
-            .map_err(|error| MaterialError::Storage(error.to_string()))?
+        blocking(move || clean_materials(&root, days)).await
     }
+}
+
+/// Filesystem and SQLite work runs on a blocking worker, never on an async
+/// executor thread.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, MaterialError> + Send + 'static,
+) -> Result<T, MaterialError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| MaterialError::Storage(error.to_string()))?
 }
 
 fn failed(reason: MaterialFailure) -> Material {
@@ -285,97 +330,6 @@ fn material_for_fetch_error(error: FetchError) -> Material {
 
 fn bounded_download_limit(limit: Option<u64>) -> Option<u64> {
     limit.map(|bytes| bytes.clamp(1, MAX_AUTO_DOWNLOAD_BYTES))
-}
-
-pub fn component(value: &str) -> Result<&str, MaterialError> {
-    if value.is_empty()
-        || value.len() > 120
-        || value == "."
-        || value == ".."
-        || !value.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
-        })
-    {
-        return Err(MaterialError::Input(
-            "Invalid course folder component".into(),
-        ));
-    }
-    Ok(value)
-}
-
-pub fn storage_dir(root: &Path, parts: &[&str]) -> Result<PathBuf, MaterialError> {
-    fs::create_dir_all(root).map_err(storage_error)?;
-    let canonical_root = root.canonicalize().map_err(storage_error)?;
-    let mut path = canonical_root.clone();
-    for name in parts {
-        path.push(component(name)?);
-        if path.exists() {
-            let metadata = fs::symlink_metadata(&path).map_err(storage_error)?;
-            if metadata.file_type().is_symlink()
-                || !path
-                    .canonicalize()
-                    .map_err(storage_error)?
-                    .starts_with(&canonical_root)
-            {
-                return Err(MaterialError::Storage(
-                    "Course folder points outside storage root".into(),
-                ));
-            }
-        }
-        fs::create_dir_all(&path).map_err(storage_error)?;
-    }
-    Ok(path)
-}
-
-pub fn describe(
-    path: PathBuf,
-    id: String,
-    section: String,
-    cached: bool,
-    read_text: bool,
-) -> Result<LocalFile, MaterialError> {
-    if fs::symlink_metadata(&path)
-        .map_err(storage_error)?
-        .file_type()
-        .is_symlink()
-    {
-        return Err(MaterialError::Storage("Cannot read symbolic link".into()));
-    }
-    let bytes = path.metadata().map_err(storage_error)?.len();
-    let text = if read_text && bytes <= MAX_TEXT_PREVIEW_BYTES {
-        fs::read_to_string(&path).ok()
-    } else {
-        None
-    };
-    let name = if uuid::Uuid::parse_str(&id).is_ok() {
-        let mut prefix = [0u8; 512];
-        let size = fs::File::open(&path)
-            .and_then(|mut file| file.read(&mut prefix))
-            .unwrap_or(0);
-        String::from_utf8_lossy(&prefix[..size])
-            .lines()
-            .next()
-            .unwrap_or("Note")
-            .trim_start_matches('#')
-            .trim()
-            .chars()
-            .take(100)
-            .collect()
-    } else {
-        path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
-    };
-    Ok(LocalFile {
-        id,
-        name,
-        section,
-        path: path.to_string_lossy().into(),
-        bytes,
-        cached,
-        text,
-    })
 }
 
 pub fn material_path(root: &Path, course: &CourseKey, url: &Url) -> Result<PathBuf, MaterialError> {
@@ -500,54 +454,6 @@ pub fn safe_external_url(raw: &str) -> bool {
     })
 }
 
-/// Validate a file selected from a material result before the shell opens it.
-pub fn stored_file(root: &Path, raw_path: &str) -> Result<PathBuf, MaterialError> {
-    let supplied_root = root;
-    let root = supplied_root.canonicalize().map_err(storage_error)?;
-    let raw = PathBuf::from(raw_path);
-    // macOS commonly reports the same temporary path as both `/tmp/...` and
-    // `/private/tmp/...`. Derive components from either spelling, then walk
-    // them below the canonical root so symlinks are still rejected.
-    let relative = raw
-        .strip_prefix(supplied_root)
-        .or_else(|_| raw.strip_prefix(&root))
-        .map_err(|_| outside_storage())?;
-    let mut checked = root.clone();
-    for component in relative.components() {
-        let std::path::Component::Normal(component) = component else {
-            return Err(outside_storage());
-        };
-        checked.push(component);
-        if fs::symlink_metadata(&checked)
-            .map_err(storage_error)?
-            .file_type()
-            .is_symlink()
-        {
-            return Err(outside_storage());
-        }
-    }
-    let path = raw.canonicalize().map_err(storage_error)?;
-    if !path.is_file() || !path.starts_with(root) {
-        return Err(outside_storage());
-    }
-    Ok(path)
-}
-
-fn outside_storage() -> MaterialError {
-    MaterialError::Storage("File is outside the course folder".into())
-}
-
-fn regular_file(path: &Path) -> Result<bool, MaterialError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(MaterialError::Storage("Cannot read symbolic link".into()))
-        }
-        Ok(metadata) => Ok(metadata.is_file()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(storage_error(error)),
-    }
-}
-
 fn storage_error(error: impl ToString) -> MaterialError {
     MaterialError::Storage(error.to_string())
 }
@@ -612,15 +518,26 @@ fn clean_material_directory(path: &Path, age: Duration) -> Result<usize, Materia
         let entry = entry.map_err(storage_error)?;
         let file_type = entry.file_type().map_err(storage_error)?;
         let path = entry.path();
-        if !file_type.is_file() || !is_material_cache_name(&path) {
+        if !file_type.is_file() {
             continue;
         }
+        let orphaned_partial = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(crate::downloads::partial_download_owner)
+            .map(|owner| owner != std::process::id());
+        let limit = match orphaned_partial {
+            Some(true) => STALE_PARTIAL_AGE,
+            Some(false) => continue,
+            None if is_material_cache_name(&path) => age,
+            None => continue,
+        };
         let stale = entry
             .metadata()
             .and_then(|metadata| metadata.modified())
             .ok()
             .and_then(|modified| modified.elapsed().ok())
-            .is_some_and(|elapsed| elapsed > age);
+            .is_some_and(|elapsed| elapsed > limit);
         if stale && fs::remove_file(path).is_ok() {
             removed += 1;
         }
@@ -653,6 +570,7 @@ fn has_digest_suffix(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::stored_file;
     use serde_json::json;
     use uuid::Uuid;
 
@@ -842,7 +760,11 @@ mod tests {
             None
         );
         let large = root.join("large.txt");
-        fs::write(&large, "x".repeat(MAX_TEXT_PREVIEW_BYTES as usize + 1)).unwrap();
+        fs::write(
+            &large,
+            "x".repeat(crate::storage::MAX_TEXT_PREVIEW_BYTES as usize + 1),
+        )
+        .unwrap();
         assert_eq!(
             describe(large, "url".into(), String::new(), true, true)
                 .unwrap()
@@ -912,5 +834,44 @@ mod tests {
         assert!(workspace_file.exists());
         assert!(nested_note.exists());
         assert!(nested_workspace.exists());
+    }
+
+    #[tokio::test]
+    async fn cleanup_reclaims_stale_partials_of_other_processes_only() {
+        let root = root("partials");
+        let materials = root.join("2026-3Q/CSC.T251/materials");
+        fs::create_dir_all(&materials).unwrap();
+        let other = std::process::id().wrapping_add(1);
+        let age = |path: &Path, modified: SystemTime| {
+            fs::write(path, "partial").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(modified))
+                .unwrap();
+        };
+        let orphaned = materials.join(format!("lecture-1234abcd.mp4.part-{other}-3"));
+        let recent = materials.join(format!("slides-1234abcd.pdf.part-{other}-4"));
+        let own = materials.join(format!("notes-1234abcd.pdf.part-{}-5", std::process::id()));
+        age(
+            &orphaned,
+            SystemTime::now() - STALE_PARTIAL_AGE - Duration::from_secs(60),
+        );
+        age(&recent, SystemTime::now());
+        age(&own, SystemTime::UNIX_EPOCH);
+        let service =
+            CourseMaterials::new(store("partials"), root.clone(), Downloader::default(), None);
+        // A long retention for cached files does not keep orphaned partials.
+        assert_eq!(service.clean(MAX_RETENTION_DAYS).await.unwrap(), 1);
+        assert!(!orphaned.exists());
+        assert!(recent.exists());
+        assert!(own.exists());
+        assert_eq!(
+            crate::downloads::partial_download_owner("a.pdf.part-42-7"),
+            Some(42)
+        );
+        assert_eq!(crate::downloads::partial_download_owner("a.pdf.part"), None);
+        assert_eq!(crate::downloads::partial_download_owner("a.part-x-1"), None);
     }
 }

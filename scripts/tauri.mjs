@@ -14,11 +14,10 @@ import { developmentVersion } from "./build-version.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const command = process.argv.slice(2);
 const development = command.includes("dev") || command.includes("--debug");
-const version = development
-  ? developmentVersion(
-      JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version,
-    )
-  : undefined;
+const packageVersion = JSON.parse(
+  readFileSync(path.join(root, "package.json"), "utf8"),
+).version;
+const version = development ? developmentVersion(packageVersion) : undefined;
 const commandPlatform = command.includes("ios")
   ? "ios"
   : command.includes("android")
@@ -51,7 +50,8 @@ const child = spawn(
     env: {
       ...process.env,
       ...nativeOAuthEnv(),
-      ...(version ? { ISCT_APP_VERSION: version } : {}),
+      // Always set, so a stale exported value cannot reach a release frontend.
+      ISCT_APP_VERSION: version ?? packageVersion,
       ISCT_BUILD_TARGET: buildTarget,
       TAURI_APP_PATH: path.join(root, "backend"),
       TAURI_FRONTEND_PATH: root,

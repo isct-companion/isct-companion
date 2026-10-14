@@ -21,16 +21,13 @@ import {
   type ScheduleView,
   type TaskView,
 } from "../../platform/core-query";
+import { useClock } from "../../platform/use-clock";
 
 const timeLabel = (value: string) => value.replace(/^0/, "");
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** Rows shown before a list folds behind "+N more". */
 const CLASS_ROWS = 6;
 const DUE_ROWS = 8;
-const isSubmitted = (assignment: Assignment) =>
-  assignment.submission === "submitted" ||
-  assignment.submission === "graded" ||
-  assignment.submissionStatus === "submitted";
 export function Today({
   data,
   term,
@@ -75,13 +72,8 @@ export function Today({
   const [allClasses, setAllClasses] = useState(false);
   const [allDue, setAllDue] = useState(false);
   const [dueScope, setDueScope] = useState<"today" | "earlier">("today");
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    if (!active) return;
-    setNow(new Date());
-    const timer = setInterval(() => setNow(new Date()), 30000);
-    return () => clearInterval(timer);
-  }, [active]);
+  const nowIso = useClock(active);
+  const now = new Date(nowIso);
   const todayIso = jstDate(now);
   // Schedule can show another day of the week; assignments stay relative to now.
   const [pickedDate, setPickedDate] = useState<string | null>(null);
@@ -133,9 +125,10 @@ export function Today({
 
   const taskView = useScheduleQuery<TaskView>({
     kind: "taskView",
-    now: now.toISOString(),
+    now: nowIso,
   }).value;
   const taskTerm = taskView?.byTerm[term];
+  const submittedIds = new Set(taskView?.submittedIds);
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
   const rows = (ids: string[] | undefined) =>
     (ids ?? []).flatMap((id) => byAssignment.get(id) ?? []);
@@ -156,7 +149,7 @@ export function Today({
     );
     const due = taskView?.deadlines?.[assignment.id];
     if (!due) return null;
-    const submitted = isSubmitted(assignment);
+    const submitted = submittedIds.has(assignment.id);
     // Past and submitted: gray; past and never submitted: red; submitted
     // ahead of the deadline: green.
     const state = due.overdue

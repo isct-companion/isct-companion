@@ -13,13 +13,25 @@ use std::sync::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
+/// The one desktop event path: every Core event reaches the main webview
+/// under its UI name. Delivery failures are logged here, so Core callers may
+/// treat events as hints without hiding the failure.
 pub(crate) struct DesktopEvents(pub(crate) AppHandle);
 impl EventSink for DesktopEvents {
     fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
-        self.0
-            .emit(event.name(), event.payload())
-            .map_err(|error| EventError::Delivery(error.to_string()))
+        let (name, payload) = wire(&event);
+        self.0.emit_to(MAIN_WINDOW, name, payload).map_err(|error| {
+            eprintln!("[events] {name} was not delivered: {error}");
+            EventError::Delivery(error.to_string())
+        })
     }
+}
+
+const MAIN_WINDOW: &str = "main";
+
+/// Name and JSON payload exactly as the webview receives them.
+fn wire(event: &CoreEvent) -> (&'static str, serde_json::Value) {
+    (event.name(), event.payload())
 }
 
 struct DesktopExport(AppHandle);
@@ -48,14 +60,40 @@ pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
     )
 }
 
-pub(crate) fn publish_conditions(app: &AppHandle) -> Result<(), String> {
-    let runtime = runtime(app);
-    tauri::async_runtime::block_on(runtime.refresh.publish_conditions(
-        &app.state::<DataStore>(),
-        &runtime.coordinator,
-        app.state::<SchoolWebController>().is_visible(),
-    ))
-    .map_err(|error| error.to_string())
+/// Republish pull conditions after a focus/visibility fact. Safe on the UI
+/// thread: Core reads storage on a blocking worker inside the spawned task.
+pub(crate) fn publish_conditions(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let visible = app.state::<SchoolWebController>().is_visible();
+        let store = app.state::<DataStore>().inner().clone();
+        if let Err(error) = runtime(&app).publish_conditions(&store, visible).await {
+            eprintln!("[school-refresh] conditions were not published: {error}");
+        }
+    });
+}
+
+/// Bound on draining owned work at exit. Drains are normally bounded by
+/// their own timeouts; this guarantees the app can always quit.
+pub(crate) const EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Logs a repeating background failure once per distinct message.
+#[derive(Default)]
+struct FailureLog(Option<String>);
+
+impl FailureLog {
+    fn record<E: std::fmt::Display>(&mut self, scope: &str, result: Result<(), E>) {
+        match result {
+            Ok(()) => self.0 = None,
+            Err(error) => {
+                let message = error.to_string();
+                if self.0.as_deref() != Some(message.as_str()) {
+                    eprintln!("[{scope}] {message}");
+                    self.0 = Some(message);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -71,14 +109,11 @@ impl DesktopRuntime {
             .get_webview_window("main")
             .and_then(|window| window.is_focused().ok())
             == Some(true);
-        let _ = runtime(app)
-            .refresh
-            .event(isct_core::school_refresh::RefreshEvent {
-                kind: if focused { "foreground" } else { "background" }.into(),
-                profile: None,
-                course_id: None,
-                network: None,
-            });
+        if let Err(error) =
+            runtime(app).refresh_event(isct_core::school_refresh::RefreshEvent::lifecycle(focused))
+        {
+            eprintln!("[school-refresh] {error}");
+        }
         let tasks = app.state::<Self>().tasks.clone();
         let app = app.clone();
         // Setup is called on the UI thread; enter Tauri's shared Tokio runtime
@@ -88,26 +123,36 @@ impl DesktopRuntime {
             let wake_tasks = tasks.clone();
             tasks.spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+                let (mut wake_failure, mut reminder_failure) =
+                    (FailureLog::default(), FailureLog::default());
                 loop {
                     tokio::select! {
                         _ = wake_tasks.closed() => break,
                         _ = interval.tick() => {}
                     }
                     crate::cloud_sync::CloudSync::tick(&wake_app);
+                    #[cfg(desktop)]
+                    crate::agent_server::AgentAccess::tick(&wake_app);
                     let visible = wake_app.state::<SchoolWebController>().is_visible();
-                    let _ = runtime(&wake_app).wake(services(&wake_app), visible).await;
-                    let _ = core(&wake_app)
+                    let woke = runtime(&wake_app).wake(services(&wake_app), visible).await;
+                    wake_failure.record("runtime", woke);
+                    let reminded = core(&wake_app)
                         .reminder_tick(
                             Arc::new(crate::commands::notifications::DesktopNotifications(
                                 wake_app.clone(),
                             )),
                             chrono::Utc::now().fixed_offset(),
                         )
-                        .await;
+                        .await
+                        .map(|_| ());
+                    reminder_failure.record("reminders", reminded);
                 }
             });
-            let mut states = runtime(&app).coordinator.subscribe();
+            // Started after the main window exists. The UI also reads
+            // `pull_state` after subscribing, so no snapshot depends on an emit.
+            let mut states = runtime(&app).subscribe_pulls();
             let event_tasks = tasks.clone();
+            let events = DesktopEvents(app.clone());
             tasks.spawn(async move {
                 loop {
                     tokio::select! {
@@ -115,7 +160,7 @@ impl DesktopRuntime {
                         changed = states.changed() => { if changed.is_err() { break; } }
                     }
                     let snapshot = states.borrow_and_update().clone();
-                    let _ = app.emit_to("main", "pull-state-changed", snapshot);
+                    let _ = events.emit(CoreEvent::PullStateChanged(snapshot));
                 }
             });
         });
@@ -132,6 +177,159 @@ impl DesktopRuntime {
         self.tasks.close();
         core.shutdown().await;
         self.tasks.wait().await;
+    }
+
+    /// Allows the next exit request through, drained or not.
+    pub(crate) fn mark_stopped(&self) {
         self.stopped.store(true, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use isct_core::{
+        cloud_sync::SyncState,
+        events::{SchoolDownloadEvent, SchoolDownloadState, WorkspaceChangeSource},
+        lifecycle::SchoolSite,
+        pull_coordinator::{PullPriority, PullSnapshot, PullState, PullTarget},
+        school_auth::SchoolAuthProfile,
+        school_browser::{
+            SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent, SchoolSessionState,
+        },
+        school_service::{IngestOutcome, IngestState},
+    };
+    use serde_json::json;
+
+    /// Exhaustive on purpose: a new variant must be added to the wire test.
+    fn sample(event: &CoreEvent) -> &'static str {
+        match event {
+            CoreEvent::WorkspaceChanged { .. } => "workspace",
+            CoreEvent::SchoolLogin(_) => "login",
+            CoreEvent::SchoolPullProgress(_) => "progress",
+            CoreEvent::SchoolSession(_) => "session",
+            CoreEvent::SchoolWebUrl { .. } => "url",
+            CoreEvent::SchoolWebOpen { .. } => "open",
+            CoreEvent::SchoolIngest(_) => "ingest",
+            CoreEvent::SchoolDownload(_) => "download",
+            CoreEvent::PullStateChanged(_) => "pull",
+            CoreEvent::CloudSyncState(_) => "cloud",
+        }
+    }
+
+    /// Names and payloads React listens for (desktop-bridge.ts). The shapes
+    /// match the events main emitted before Core owned them; school-session
+    /// gained `revision` and pull-state-changed is new with Core.
+    #[test]
+    fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
+        let url = "https://lms.s.isct.ac.jp/course/view.php?id=1".to_string();
+        let cases = [
+            (
+                CoreEvent::WorkspaceChanged {
+                    source: WorkspaceChangeSource::CloudRestore,
+                },
+                "workspace-changed",
+                json!({"source":"cloud-restore"}),
+            ),
+            (
+                CoreEvent::SchoolLogin(SchoolLoginEvent {
+                    profile: SchoolAuthProfile::TokyoTech,
+                    state: "connected".into(),
+                    message: "Connected".into(),
+                }),
+                "school-login-status",
+                json!({"profile":"tokyo-tech","state":"connected","message":"Connected"}),
+            ),
+            (
+                CoreEvent::SchoolPullProgress(SchoolPullProgress {
+                    site: SchoolSite::ScienceLms,
+                    phase: "course".into(),
+                    completed: 1,
+                    total: 3,
+                    course_id: 42,
+                    course_title: "Physics".into(),
+                    term: "2026-3Q".into(),
+                    item_title: "Week 1".into(),
+                }),
+                "school-pull-progress",
+                json!({"site":"science-lms","phase":"course","completed":1,"total":3,"courseId":42,"courseTitle":"Physics","term":"2026-3Q","itemTitle":"Week 1"}),
+            ),
+            (
+                CoreEvent::SchoolSession(SchoolSessionEvent {
+                    profile: SchoolAuthProfile::Science,
+                    state: SchoolSessionState::NotConfigured,
+                    revision: 7,
+                }),
+                "school-session",
+                json!({"profile":"science","state":"not-configured","revision":7}),
+            ),
+            (
+                CoreEvent::SchoolWebUrl {
+                    site: SchoolSite::ScienceLms,
+                    url: url.clone(),
+                },
+                "school-web-url",
+                json!({"site":"science-lms","url":url}),
+            ),
+            (
+                CoreEvent::SchoolWebOpen {
+                    site: SchoolSite::Kyomu,
+                    url: url.clone(),
+                },
+                "school-web-open",
+                json!({"site":"kyomu","url":url}),
+            ),
+            (
+                CoreEvent::SchoolIngest(IngestOutcome {
+                    site: SchoolSite::Kyomu,
+                    kind: "grades".into(),
+                    state: IngestState::ReconnectRequired,
+                    changed: 0,
+                    message: "Sign in".into(),
+                }),
+                "school-ingest",
+                json!({"site":"kyomu","kind":"grades","state":"reconnect-required","changed":0,"message":"Sign in"}),
+            ),
+            (
+                CoreEvent::SchoolDownload(SchoolDownloadEvent {
+                    site: SchoolSite::ScienceLms,
+                    state: SchoolDownloadState::Done,
+                    name: "notes.pdf".into(),
+                    url: None,
+                    path: Some("/Downloads/notes.pdf".into()),
+                }),
+                "school-download",
+                json!({"site":"science-lms","state":"done","name":"notes.pdf","path":"/Downloads/notes.pdf"}),
+            ),
+            (
+                CoreEvent::PullStateChanged(vec![PullSnapshot {
+                    id: "job".into(),
+                    target: PullTarget::School {
+                        site: SchoolSite::ScienceLms,
+                        course_id: Some(42),
+                    },
+                    priority: PullPriority::Manual,
+                    state: PullState::RetryWaiting,
+                    phase: None,
+                    blocked_by: Some("background".into()),
+                    attempt: 2,
+                    waiter_count: 1,
+                    last_error: None,
+                }]),
+                "pull-state-changed",
+                json!([{"id":"job","target":{"type":"school","site":"science-lms","courseId":42},"priority":"manual","state":"retryWaiting","phase":null,"blockedBy":"background","attempt":2,"waiterCount":1,"lastError":null}]),
+            ),
+            (
+                CoreEvent::CloudSyncState(SyncState::default()),
+                "cloud-sync-state",
+                json!({"syncing":false,"automatic":false,"localVersion":"","providers":[],"versions":[],"tasks":[],"recoveryPoints":[]}),
+            ),
+        ];
+        let mut covered = std::collections::HashSet::new();
+        for (event, name, payload) in cases {
+            covered.insert(sample(&event));
+            assert_eq!(wire(&event), (name, payload));
+        }
+        assert_eq!(covered.len(), 10);
     }
 }

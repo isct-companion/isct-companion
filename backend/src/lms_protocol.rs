@@ -300,13 +300,19 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
         .await;
     match result {
         Ok(Ok(Material::Ready { file })) => {
-            let path = Path::new(&file.path);
-            let stem = path
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("file");
-            let digest = stem.rsplit_once('-').map_or("file", |(_, digest)| digest);
-            serve(path, request.headers().get(http::header::RANGE), digest)
+            let range = request.headers().get(http::header::RANGE).cloned();
+            // Reading (possibly the whole file) blocks; keep it off the executor.
+            tauri::async_runtime::spawn_blocking(move || {
+                let path = Path::new(&file.path);
+                let stem = path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("file");
+                let digest = stem.rsplit_once('-').map_or("file", |(_, digest)| digest);
+                serve(path, range.as_ref(), digest)
+            })
+            .await
+            .unwrap_or_else(|_| error(Reason::Network, None))
         }
         Ok(Ok(Material::Folder { files })) => {
             let files = files.into_iter().map(|file| {

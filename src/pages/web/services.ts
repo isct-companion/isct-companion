@@ -8,7 +8,13 @@ export const serviceTiers: Array<{
   { frequency: "high", sites: ["science-lms", "kyomu"] },
   {
     frequency: "medium",
-    sites: ["science-portal", "tokyo-portal", "tokyo-mail", "syllabus"],
+    sites: [
+      "science-portal",
+      "tokyo-portal",
+      "tokyo-mail",
+      "syllabus",
+      "study-guide",
+    ],
   },
   { frequency: "low", sites: ["library", "tsubame"] },
 ];

@@ -13,8 +13,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const native = vi.hoisted(() => ({ finderQuery: vi.fn() }));
 vi.mock("./desktop-bridge", () => ({ getDesktopBridge: () => native }));
 vi.mock("../store/useWorkspace", () => ({
-  useWorkspace: (select: (state: { revision: string }) => unknown) =>
-    select({ revision: "fixture" }),
+  useWorkspace: (select: (state: { contentRevision: string }) => unknown) =>
+    select({ contentRevision: "fixture" }),
 }));
 
 const roots: ReturnType<typeof createRoot>[] = [];

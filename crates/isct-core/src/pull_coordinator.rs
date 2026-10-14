@@ -164,6 +164,9 @@ pub struct PullOptions {
     pub priority: PullPriority,
     pub delay: Duration,
     pub retry_limit: u32,
+    /// School pulls sign in with saved credentials before extracting. A
+    /// joining caller that asks for this upgrades the live job.
+    pub login_first: bool,
 }
 
 impl PullOptions {
@@ -172,6 +175,7 @@ impl PullOptions {
             priority: PullPriority::Manual,
             delay: Duration::ZERO,
             retry_limit: 0,
+            login_first: false,
         }
     }
 
@@ -180,6 +184,7 @@ impl PullOptions {
             priority: PullPriority::Automatic,
             delay: Duration::ZERO,
             retry_limit: 0,
+            login_first: false,
         }
     }
 }
@@ -240,6 +245,8 @@ enum PullEvent {
     Start,
     Progress,
     Apply,
+    /// One commit finished; a multi-page run leaves its write gate.
+    Applied,
     WaitRetry,
     Retry,
     Succeed,
@@ -288,22 +295,24 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Start => accepted(Running),
             Cancel => accepted(Cancelled),
             Yield => accepted(Yielding),
-            Progress | Apply | WaitRetry | Retry | Succeed | Fail | Stop => rejected(Queued),
+            Progress | Apply | Applied | WaitRetry | Retry | Succeed | Fail | Stop => {
+                rejected(Queued)
+            }
         },
         Checking => match event {
             Block => accepted(Blocked),
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Enqueue | Check | Start | Progress | Apply | WaitRetry | Retry | Succeed | Fail
-            | Stop | Yield => rejected(Checking),
+            Enqueue | Check | Start | Progress | Apply | Applied | WaitRetry | Retry | Succeed
+            | Fail | Stop | Yield => rejected(Checking),
         },
         Blocked => match event {
             Enqueue => accepted(Blocked),
             Check => accepted(Checking),
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Start | Progress | Apply | WaitRetry | Retry | Succeed | Fail | Stop | Yield
-            | Block => rejected(Blocked),
+            Start | Progress | Apply | Applied | WaitRetry | Retry | Succeed | Fail | Stop
+            | Yield | Block => rejected(Blocked),
         },
         Running => match event {
             Progress => accepted(Running),
@@ -313,11 +322,12 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Fail => accepted(Failed),
             Cancel => accepted(Cancelling),
             Yield => accepted(Yielding),
-            Enqueue | Check | Block | Ready | Start | Retry | Stop => rejected(Running),
+            Enqueue | Check | Block | Ready | Start | Applied | Retry | Stop => rejected(Running),
         },
         Applying => match event {
             Progress => accepted(Applying),
             Apply => accepted(Applying),
+            Applied => accepted(Running),
             WaitRetry => accepted(RetryWaiting),
             Succeed => accepted(Succeeded),
             Fail => accepted(Failed),
@@ -329,38 +339,38 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Enqueue => accepted(RetryWaiting),
             Retry => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Check | Block | Ready | Start | Progress | Apply | WaitRetry | Succeed | Fail
-            | Stop | Yield => rejected(RetryWaiting),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Succeed
+            | Fail | Stop | Yield => rejected(RetryWaiting),
         },
         Succeeded => match event {
             Enqueue => accepted(Queued),
-            Check | Block | Ready | Start | Progress | Apply | WaitRetry | Retry | Succeed
-            | Fail | Cancel | Stop | Yield => rejected(Succeeded),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Retry
+            | Succeed | Fail | Cancel | Stop | Yield => rejected(Succeeded),
         },
         Failed => match event {
             Enqueue => accepted(Queued),
             Retry => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Check | Block | Ready | Start | Progress | Apply | WaitRetry | Succeed | Fail
-            | Stop | Yield => rejected(Failed),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Succeed
+            | Fail | Stop | Yield => rejected(Failed),
         },
         Cancelling => match event {
             Stop | Succeed | Fail => accepted(Cancelled),
             Cancel => accepted(Cancelling),
-            Enqueue | Check | Block | Ready | Start | Progress | Apply | WaitRetry | Retry
-            | Yield => rejected(Cancelling),
+            Enqueue | Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry
+            | Retry | Yield => rejected(Cancelling),
         },
         Cancelled => match event {
             Enqueue => accepted(Queued),
-            Check | Block | Ready | Start | Progress | Apply | WaitRetry | Retry | Succeed
-            | Fail | Cancel | Stop | Yield => rejected(Cancelled),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Retry
+            | Succeed | Fail | Cancel | Stop | Yield => rejected(Cancelled),
         },
         Yielding => match event {
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
             Stop => accepted(Yielding),
-            Enqueue | Check | Block | Start | Progress | Apply | WaitRetry | Retry | Succeed
-            | Fail | Yield => rejected(Yielding),
+            Enqueue | Check | Block | Start | Progress | Apply | Applied | WaitRetry | Retry
+            | Succeed | Fail | Yield => rejected(Yielding),
         },
     }
 }
@@ -386,6 +396,7 @@ pub struct PullContext {
     run_id: u64,
     cancelled: Arc<AtomicBool>,
     priority: Arc<AtomicU8>,
+    login_first: Arc<AtomicBool>,
 }
 
 impl PullContext {
@@ -393,8 +404,16 @@ impl PullContext {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    /// Current priority. A manual join can promote a job after it started,
+    /// so executors read this again at every admission point.
     pub fn priority(&self) -> PullPriority {
         PullPriority::from_encoded(self.priority.load(Ordering::Acquire))
+    }
+
+    /// Whether any caller of this job asked to sign in first. Like the
+    /// priority, a join can set this after the job started.
+    pub fn login_first(&self) -> bool {
+        self.login_first.load(Ordering::Acquire)
     }
 
     pub async fn phase(&self, phase: impl Into<String>) -> bool {
@@ -407,6 +426,13 @@ impl PullContext {
         self.coordinator
             .progress(&self.id, self.run_id, "applying".into(), true)
             .await
+    }
+
+    /// Leaves the write gate after one commit, so a multi-page executor can
+    /// be cancelled again before its next page. Returns `false` when the run
+    /// is no longer current or shutdown cancelled it during the commit.
+    pub async fn applied(&self) -> bool {
+        self.coordinator.applied(&self.id, self.run_id).await
     }
 
     /// Records a business-level partial failure without discarding a useful
@@ -430,6 +456,7 @@ struct PullJob {
     target: PullTarget,
     priority: PullPriority,
     priority_cell: Arc<AtomicU8>,
+    login_first: Arc<AtomicBool>,
     state: PullState,
     phase: Option<String>,
     blocked_by: Option<String>,
@@ -539,7 +566,8 @@ impl PullCoordinator {
     }
 
     /// Stop admission and retries, cancel work before Applying, and drain the
-    /// executors. Applying retains its write gate until the commit completes.
+    /// executors. Applying retains its write gate until the commit completes;
+    /// a run that then leaves Applying for another page is cancelled.
     pub async fn shutdown(&self) {
         let mut waiters = Vec::new();
         {
@@ -657,6 +685,7 @@ impl PullCoordinator {
                         target,
                         priority: options.priority,
                         priority_cell: Arc::new(AtomicU8::new(options.priority.encoded())),
+                        login_first: Arc::new(AtomicBool::new(options.login_first)),
                         state: PullState::Queued,
                         phase: None,
                         blocked_by: None,
@@ -812,6 +841,7 @@ impl PullCoordinator {
                         run_id,
                         cancelled: job.cancel.clone(),
                         priority: job.priority_cell.clone(),
+                        login_first: job.login_first.clone(),
                     };
                     (lane, work, context)
                 };
@@ -864,6 +894,30 @@ impl PullCoordinator {
         changed
     }
 
+    async fn applied(&self, id: &str, run_id: u64) -> bool {
+        let mut state = self.0.state.lock().await;
+        let closed = state.closed;
+        let Some(job) = state.jobs.get_mut(id) else {
+            return false;
+        };
+        if job.run_id != run_id {
+            return false;
+        }
+        let transition = reduce(job.state, PullEvent::Applied);
+        if !transition.accepted {
+            return false;
+        }
+        job.state = transition.state;
+        job.phase = Some("running".into());
+        if closed {
+            // Shutdown let this commit finish; the rest of the run is cancelled.
+            job.cancel.store(true, Ordering::Release);
+            job.state = reduce(job.state, PullEvent::Cancel).state;
+        }
+        publish_locked(&self.0, &state);
+        !closed
+    }
+
     async fn outcome_error(&self, id: &str, run_id: u64, message: String) -> bool {
         let mut state = self.0.state.lock().await;
         let Some(job) = state.jobs.get_mut(id) else {
@@ -888,12 +942,14 @@ impl PullCoordinator {
         let mut retry = None;
         {
             let mut state = self.0.state.lock().await;
+            // The lane was occupied for this run when it started, whatever
+            // happened to its job since; never leave it held.
+            release_lane(&mut state, lane);
             if state.jobs.get(&id).is_none_or(|job| job.run_id != run_id) {
                 publish_locked(&self.0, &state);
                 self.kick();
                 return;
             }
-            release_lane(&mut state, lane);
             let closed = state.closed;
             {
                 let Some(job) = state.jobs.get_mut(&id) else {
@@ -966,6 +1022,9 @@ fn promote(job: &mut PullJob, options: &PullOptions) {
             .store(PullPriority::Manual.encoded(), Ordering::Release);
     }
     job.retry_limit = job.retry_limit.max(options.retry_limit);
+    if options.login_first {
+        job.login_first.store(true, Ordering::Release);
+    }
 }
 
 fn covering_job(state: &CoordinatorState, target: &PullTarget) -> Option<String> {
@@ -1161,6 +1220,7 @@ mod tests {
             PullEvent::Start,
             PullEvent::Progress,
             PullEvent::Apply,
+            PullEvent::Applied,
             PullEvent::WaitRetry,
             PullEvent::Retry,
             PullEvent::Succeed,
@@ -1419,6 +1479,67 @@ mod tests {
         assert_eq!(automatic.await.unwrap().unwrap(), json!("promoted"));
         assert_eq!(manual.await.unwrap().unwrap(), json!("promoted"));
         assert_eq!(*observed.lock().await, Some(PullPriority::Manual));
+    }
+
+    #[tokio::test]
+    async fn running_join_upgrades_login_first_and_priority_for_the_executor() {
+        let coordinator = PullCoordinator::default();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let saved = Arc::new(Mutex::new(None));
+        let automatic = {
+            let coordinator = coordinator.clone();
+            let started = started.clone();
+            let finish = finish.clone();
+            let saved = saved.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(lms(None), PullOptions::automatic(), move |context| {
+                        let started = started.clone();
+                        let finish = finish.clone();
+                        let saved = saved.clone();
+                        async move {
+                            *saved.lock().await = Some(context.clone());
+                            started.notify_one();
+                            finish.notified().await;
+                            Ok(json!({ "loginFirst": context.login_first() }))
+                        }
+                    })
+                    .await
+            })
+        };
+        started.notified().await;
+        let context = saved.lock().await.clone().unwrap();
+        assert!(!context.login_first());
+        assert_eq!(context.priority(), PullPriority::Automatic);
+        let forced = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(
+                        lms(None),
+                        PullOptions {
+                            login_first: true,
+                            ..PullOptions::manual()
+                        },
+                        |_| async { panic!("a join must reuse the running executor") },
+                    )
+                    .await
+            })
+        };
+        while !context.login_first() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(context.priority(), PullPriority::Manual);
+        finish.notify_one();
+        assert_eq!(
+            automatic.await.unwrap().unwrap(),
+            json!({ "loginFirst": true })
+        );
+        assert_eq!(
+            forced.await.unwrap().unwrap(),
+            json!({ "loginFirst": true })
+        );
     }
 
     #[tokio::test]
@@ -2132,6 +2253,105 @@ mod tests {
             snapshot.state,
             PullState::Succeeded | PullState::Failed | PullState::Cancelled
         )));
+    }
+
+    #[tokio::test]
+    async fn applied_page_reopens_cancellation_before_the_next_page() {
+        let coordinator = PullCoordinator::default();
+        let committed = Arc::new(tokio::sync::Notify::new());
+        let saved = Arc::new(Mutex::new(None));
+        let task = {
+            let coordinator = coordinator.clone();
+            let committed = committed.clone();
+            let saved = saved.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(lms(None), PullOptions::manual(), move |context| {
+                        let committed = committed.clone();
+                        let saved = saved.clone();
+                        async move {
+                            assert!(context.applying().await);
+                            assert!(context.applied().await);
+                            *saved.lock().await = Some(context.clone());
+                            committed.notify_one();
+                            while !context.is_cancelled() {
+                                tokio::task::yield_now().await;
+                            }
+                            assert!(!context.applying().await);
+                            Ok(json!("first page only"))
+                        }
+                    })
+                    .await
+            })
+        };
+        committed.notified().await;
+        let id = coordinator.snapshots().await[0].id.clone();
+        assert_eq!(coordinator.snapshots().await[0].state, PullState::Running);
+        assert!(coordinator.cancel(&id).await);
+        assert_eq!(task.await.unwrap(), Err(PullError::Cancelled));
+        let context = saved.lock().await.clone().unwrap();
+        assert!(!context.applied().await);
+    }
+
+    #[tokio::test]
+    async fn shutdown_during_a_page_commit_cancels_the_following_pages() {
+        let coordinator = PullCoordinator::default();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let task = {
+            let coordinator = coordinator.clone();
+            let entered = entered.clone();
+            let finish = finish.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(lms(None), PullOptions::manual(), move |context| {
+                        let entered = entered.clone();
+                        let finish = finish.clone();
+                        async move {
+                            assert!(context.applying().await);
+                            entered.notify_one();
+                            finish.notified().await;
+                            assert!(!context.is_cancelled());
+                            assert!(!context.applied().await);
+                            assert!(context.is_cancelled());
+                            Ok(json!("first page only"))
+                        }
+                    })
+                    .await
+            })
+        };
+        entered.notified().await;
+        let shutdown = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move { coordinator.shutdown().await })
+        };
+        while !coordinator.0.state.lock().await.closed {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(coordinator.snapshots().await[0].state, PullState::Applying);
+        finish.notify_one();
+        assert_eq!(task.await.unwrap(), Err(PullError::Cancelled));
+        shutdown.await.unwrap();
+        assert_eq!(coordinator.snapshots().await[0].state, PullState::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn finishing_an_unknown_run_still_releases_its_lane() {
+        let coordinator = PullCoordinator::default();
+        occupy_lane(&mut *coordinator.0.state.lock().await, PullLane::School);
+        coordinator
+            .finish("pull-missing".into(), 7, PullLane::School, Ok(Value::Null))
+            .await;
+        assert!(!coordinator.0.state.lock().await.school_running);
+        assert_eq!(
+            coordinator
+                .run(lms(None), PullOptions::manual(), |_| async {
+                    Ok(json!("ran"))
+                })
+                .await
+                .unwrap(),
+            json!("ran")
+        );
     }
 
     #[tokio::test]

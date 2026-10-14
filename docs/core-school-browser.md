@@ -36,6 +36,10 @@ The shell owns:
 
 Window visibility is a shell fact. `user_browsing(Some(site))` yields hidden
 school work to the visible page; `user_browsing(None)` lets queued work resume.
+Every hidden step (session check, sign-in, pull navigation and extraction)
+re-checks visibility after it is admitted to the lane and refuses to start while
+a page is shown, so work that waited for the lane never navigates a page the
+person has just opened.
 The shell must keep this fact aligned with native presentation.
 
 ## Port and dispatch contract
@@ -52,6 +56,12 @@ Completion and failure return through `SchoolBrowserListener`:
 - `decide_navigation` returns `Allow` or `Cancel` for every request;
 - `new_window` returns `SameView`, `OpenSchool`, `OpenExternal` or `Ignore`;
 - `closed` invalidates that logical browser generation.
+
+A shell reports `closed` when it disposes a view, cannot create one, or receives
+a command for a view that no longer exists; returning `Unavailable` from
+`dispatch` has the same effect. Core then forgets that generation, so the next
+request creates a new view. Work waiting in a closed view fails with a platform
+error naming the closed view; only engine shutdown reports `Stopped`.
 
 Callbacks carry a `BrowserId { site, generation }`. Core rejects callbacks from
 an older resident view. A `PageId` adds the native view's monotonic load
@@ -85,12 +95,19 @@ not-configured.
 The shell reports `{ kind: launch | focus, visible }`. Core owns launch
 coalescing, the 90-second session deadline and the two-minute focus gate. A
 visible page preempts a background session check; the owned check resumes after
-the page hides. Credential save and deletion call `credentials_changed`, rather
+the page hides. A manual sign-in paused by a visible page resumes the same way
+rather than failing. Every exit of a sign-in attempt clears its run, so a
+finished or abandoned attempt never blocks automatic sign-in for its profile. Credential save and deletion call `credentials_changed`, rather
 than letting the frontend infer state.
 
 A session timeout settles to `failed` and releases the lane for a later retry.
 Automatic credential reads are accepted only while their original page and
-login owner remain current. Page identity comparisons use the same sanitized
+login owner remain current. The owner is the session check, the visible page, or
+a hidden pull whose navigation landed on the identity provider. A hidden pull
+signs in with saved credentials and, once sign-in succeeds, Core loads the
+pull's target again. When the profile has no saved credentials, its automatic
+sign-in is blocked after a failure, or the attempt fails, the pull returns
+`reconnect-required` at once instead of waiting for the page timeout. Page identity comparisons use the same sanitized
 URL representation on both sides, including identity-provider query URLs.
 
 `SchoolLoginEvent` remains separate from session state. It reports automation
@@ -100,7 +117,10 @@ by the Accounts UI.
 ## Extraction lifecycle
 
 School pulls enter the shared `PullCoordinator`, then the browser's single
-hidden lane. Manual work has priority over waiting automatic work. Opening a
+hidden lane. Manual work has priority over waiting automatic work. A caller that
+joins a live job of the same key can promote it to manual and ask it to sign in
+first; the engine reads both facts again at every lane admission, and signs in
+under the same lane admission as the extraction that follows. Opening a
 visible school page invalidates an armed extraction relay; hidden work that
 observes the visibility change before its apply boundary is requeued after the
 page hides. Cancellation is checked while waiting for visibility, lane
@@ -110,7 +130,10 @@ An extraction result is accepted only for its browser generation, page, target
 and run nonce. Core then asks `PullContext` to enter `applying`. Cancellation
 before that transition discards the payload. Once the transition succeeds,
 parsing and the database transaction finish as owned work; dropping the
-original native caller does not abort the commit. Outcomes remain `ok`,
+original native caller does not abort the commit. 教務Web commits each page
+under its own gate and returns to `running` afterwards, so Cancel stops the pull
+between pages; a shutdown during a page commit cancels the remaining pages once
+that commit finishes. Outcomes remain `ok`,
 `reconnect-required` or `error`, and Core emits progress and ingest events with
 the existing wire fields.
 

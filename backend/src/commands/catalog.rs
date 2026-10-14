@@ -27,13 +27,7 @@ pub(crate) async fn catalog_offerings(
     require_local_main(&webview)?;
     let store = store.inner().clone();
     run_data_command(move || {
-        isct_core::catalog::offerings(&store, year)
-            .map(|rows| {
-                rows.into_iter()
-                    .filter_map(isct_core::course_query::normalize_offering)
-                    .collect()
-            })
-            .map_err(|e| e.to_string())
+        isct_core::catalog::finder_offerings(&store, year).map_err(|e| e.to_string())
     })
     .await
 }

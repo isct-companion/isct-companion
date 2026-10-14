@@ -80,6 +80,8 @@ const render = async (data: ReturnType<typeof seedWorkspace>) => {
       },
     },
     nearestByCourse: {},
+    // Core decides which work counts as submitted; rows only render it.
+    submittedIds: ["closed", "handed-in"],
     deadlines: Object.fromEntries(
       data.assignments.map((item) => [
         item.id,

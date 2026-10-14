@@ -156,7 +156,7 @@ export function useFinderQuery(
   refresh: unknown = 0,
   enabled = true,
 ): QueryState<FinderView> {
-  const revision = useWorkspace((state) => state.revision);
+  const revision = useWorkspace((state) => state.contentRevision);
   const requestKey = JSON.stringify(request);
   const key = JSON.stringify([revision, request, refresh]);
   const [state, setState] = useState<

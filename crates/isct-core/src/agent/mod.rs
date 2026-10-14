@@ -565,71 +565,68 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                 text(row, "id") == Some(canonical.as_str())
                     || text(row, "offeringId") == Some(offering_id)
             });
-            // The timetable lists a course only under its own quarter, so a
-            // plan for another quarter would never show up.
-            if let Some(other) = existing
-                .as_ref()
-                .and_then(|row| text(row, "termId"))
-                .filter(|other| *other != term)
-            {
-                return Err(format!(
-                    "this offering is already on the {other} timetable; plan it for {other}"
-                )
-                .into());
-            }
+            // A 3Q–4Q offering is planned into each of its quarters, like
+            // `AddCatalogCourses`.
+            let terms: Vec<String> = if quarters.is_empty() {
+                vec![term.to_string()]
+            } else {
+                quarters.iter().map(|q| format!("{year}-{q}")).collect()
+            };
             let course_value = course_from_offering(&offering, term)?;
             let details = agent_write_result(store.agent_write(name, |write| {
                 let stored_course = write
                     .rows("manual_courses")?
                     .into_iter()
                     .find(|row| text(row, "offeringId") == Some(offering_id));
-                let course = match stored_course {
-                    Some(course) if course.get("deletedAt").is_none() => course,
-                    Some(course) => write.put(
+                // A live course for the offering is reused; a deleted row is
+                // revived only when no other live course stands for it.
+                let course = match (stored_course, existing.clone()) {
+                    (Some(course), _) if course.get("deletedAt").is_none() => course,
+                    (_, Some(course)) => course,
+                    (stored, None) => write.put(
                         "manual_courses",
                         course_value,
-                        course.get("rev").and_then(Value::as_u64),
+                        Some(
+                            stored
+                                .and_then(|row| row.get("rev").and_then(Value::as_u64))
+                                .unwrap_or(0),
+                        ),
                     )?,
-                    None => match existing.clone() {
-                        Some(course) => course,
-                        None => write.put("manual_courses", course_value, Some(0))?,
-                    },
                 };
-                if let Some(other) = text(&course, "termId").filter(|other| *other != term) {
-                    return Err(DataError::InvalidInput(format!(
-                        "this offering is already on the {other} timetable; plan it for {other}"
-                    )));
-                }
                 let course_id = text(&course, "id")
                     .ok_or_else(|| {
                         DataError::InvalidInput("course identity could not be created".into())
                     })?
                     .to_string();
-                let planned = write.rows("plan_items")?.into_iter().find(|row| {
-                    text(row, "courseId") == Some(course_id.as_str())
-                        && text(row, "termId") == Some(term)
-                        && row.get("deletedAt").is_none()
-                });
-                let plan_item = match planned {
-                    Some(row) => row,
-                    None => {
-                        let plan_id = format!("mcp-plan:{term}:{offering_id}");
-                        let value = json!({"id":plan_id.clone(),"kind":"plan-item","termId":term,
-                            "offeringId":offering_id,"courseId":course_id,"state":"planned",
-                            "source":{"provider":"mcp"}});
-                        let existing = write
-                            .rows("plan_items")?
-                            .into_iter()
-                            .find(|row| text(row, "id") == Some(plan_id.as_str()));
-                        let expected = existing
-                            .as_ref()
-                            .and_then(|row| row.get("rev"))
-                            .and_then(Value::as_u64)
-                            .unwrap_or(0);
-                        write.put("plan_items", value, Some(expected))?
+                let rows = write.rows("plan_items")?;
+                let mut plan_item = Value::Null;
+                for plan_term in &terms {
+                    let planned = rows.iter().find(|row| {
+                        text(row, "courseId") == Some(course_id.as_str())
+                            && text(row, "termId") == Some(plan_term.as_str())
+                            && row.get("deletedAt").is_none()
+                    });
+                    let row = match planned {
+                        Some(row) => row.clone(),
+                        None => {
+                            let plan_id = format!("mcp-plan:{plan_term}:{offering_id}");
+                            let value = json!({"id":plan_id.clone(),"kind":"plan-item","termId":plan_term,
+                                "offeringId":offering_id,"courseId":course_id,"state":"planned",
+                                "source":{"provider":"mcp"}});
+                            let expected = rows
+                                .iter()
+                                .find(|row| text(row, "id") == Some(plan_id.as_str()))
+                                .and_then(|row| row.get("rev"))
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            write.put("plan_items", value, Some(expected))?
+                        }
+                    };
+                    if plan_term == term {
+                        plan_item = row;
                     }
-                };
-                Ok(json!({"courseId":course_id,"planItemId":plan_item.get("id")}))
+                }
+                Ok(json!({"courseId":course_id,"planItemId":plan_item.get("id"),"terms":terms}))
             }))?;
             Ok(write_result(details))
         }

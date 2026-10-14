@@ -21,7 +21,7 @@ use std::{
 
 const MODEL: &[u8] = include_bytes!("../../models/paddle/en-ppocrv5.onnx");
 const DICTIONARY: &str = include_str!("../../models/paddle/characters.json");
-const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+use crate::MAX_IMAGE_BYTES;
 
 struct Paddle {
     session: Session,
@@ -188,9 +188,7 @@ fn resize_longest(image: RgbImage, max: u32) -> RgbImage {
 
 fn decode_image(bytes: &[u8]) -> Result<RgbImage, MatrixOcrError> {
     if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
-        return Err(MatrixOcrError::InvalidImage(
-            "Choose a valid image smaller than 20 MB.".into(),
-        ));
+        return Err(crate::image_too_large());
     }
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()

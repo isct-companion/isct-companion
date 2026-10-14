@@ -5,7 +5,7 @@ mod port;
 
 pub use assets::{ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN};
 pub use engine::SchoolBrowserEngine;
-pub use policy::{sanitize_school_url, SCHOOL_HOSTS};
+pub use policy::{is_login_url, sanitize_school_url, SCHOOL_HOSTS};
 pub use port::*;
 
 use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};

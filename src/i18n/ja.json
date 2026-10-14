@@ -797,5 +797,7 @@
   "Copy URL": "URLをコピー",
   "Access token": "アクセストークン",
   "Copy token": "トークンをコピー",
-  "MCP server is unavailable.": "MCPサーバーを利用できません。"
+  "MCP server is unavailable.": "MCPサーバーを利用できません。",
+  "{{count}} items not shown": "{{count}}件を表示できません",
+  "Turn on Allow local agents to show the connection details.": "接続情報を表示するには「ローカルエージェントを許可」をオンにしてください。"
 }

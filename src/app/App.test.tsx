@@ -66,6 +66,7 @@ vi.mock("../platform/core-query", () => {
       coursesTerm: term,
       range: null,
       courses,
+      termCourseIds: courses.map((course) => course.id),
       declaredCredits: null,
       termCredits: courses.reduce((sum, course) => sum + course.credits, 0),
       colors: Object.fromEntries(
@@ -306,6 +307,7 @@ beforeEach(() => {
     workspace: data,
     status: "ready",
     revision: "fixture:ready",
+    contentRevision: "fixture:ready",
   };
   fixture.hide.mockResolvedValue(undefined);
   fixture.capabilities.mockResolvedValue({ schoolWeb: true });

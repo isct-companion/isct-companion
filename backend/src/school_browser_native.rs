@@ -12,7 +12,7 @@ use std::{
         Arc, Mutex, Weak,
     },
 };
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 use url::Url;
@@ -101,7 +101,7 @@ pub struct NativeBrowser {
     downloads: crate::school_downloads::SchoolDownloads,
 }
 impl NativeBrowser {
-    pub fn new(app: AppHandle) -> Arc<Self> {
+    pub fn new(app: AppHandle) -> Result<Arc<Self>, BrowserError> {
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let this = Arc::new(Self {
             app: Mutex::new(Some(app)),
@@ -113,7 +113,7 @@ impl NativeBrowser {
         });
         let weak = Arc::downgrade(&this);
         let tasks = this.tasks.clone();
-        this.tasks.spawn(async move {
+        let started = this.tasks.spawn(async move {
             loop {
                 let operation = tokio::select! {
                     biased;
@@ -128,7 +128,13 @@ impl NativeBrowser {
                 let _ = tokio::task::spawn_blocking(move || native.perform(operation)).await;
             }
         });
-        this
+        // Without the operation loop every command would be queued and never run.
+        if !started {
+            return Err(BrowserError::Unavailable(
+                "The school view queue could not start.".into(),
+            ));
+        }
+        Ok(this)
     }
     fn listener(&self) -> Option<Arc<dyn SchoolBrowserListener>> {
         self.listener.lock().ok()?.as_ref()?.upgrade()
@@ -148,7 +154,20 @@ impl NativeBrowser {
     }
     fn perform(self: Arc<Self>, op: Operation) {
         let (id, cause, result) = match op {
-            Operation::Ensure(id, url) => (id, None, self.create(id, url)),
+            Operation::Ensure(id, url) => {
+                if let Err(error) = self.create(id, url) {
+                    eprintln!(
+                        "[school-web] {} could not be created: {error}",
+                        id.site.webview_label()
+                    );
+                    // Core forgets this generation and creates a new view next time.
+                    self.discard(id);
+                    if let Some(listener) = self.listener() {
+                        listener.closed(id)
+                    }
+                }
+                return;
+            }
             Operation::Dispatch(command) => {
                 let id = command.browser;
                 let cause = Some(command.action);
@@ -165,16 +184,7 @@ impl NativeBrowser {
                 self.with_view(id, |view| view.navigate(url).map_err(|e| e.to_string())),
             ),
             Operation::Dispose(id) => {
-                let view = self.presentation.lock().ok().and_then(|mut state| {
-                    if state.views.get(&id.site).is_some_and(|v| v.id == id) {
-                        state.views.remove(&id.site)
-                    } else {
-                        None
-                    }
-                });
-                if let Some(view) = view {
-                    let _ = view.native.close();
-                }
+                self.discard(id);
                 if let Some(listener) = self.listener() {
                     listener.closed(id)
                 }
@@ -182,32 +192,45 @@ impl NativeBrowser {
             }
         };
         if let Err(error) = result {
-            if let Some(listener) = self.listener() {
-                listener.load_failed(LoadFailed {
-                    page: self.next_page(id),
-                    cause,
-                    url: None,
-                    message: error.to_string(),
-                })
+            let Some(listener) = self.listener() else {
+                return;
+            };
+            // A command for a view that no longer exists cannot fail a page of it.
+            match self.next_page(id) {
+                Some(page) if !matches!(error, BrowserError::Unavailable(_)) => listener
+                    .load_failed(LoadFailed {
+                        page,
+                        cause,
+                        url: None,
+                        message: error.to_string(),
+                    }),
+                _ => listener.closed(id),
             }
         }
     }
-    fn next_page(&self, id: BrowserId) -> PageId {
-        let sequence = self
-            .presentation
-            .lock()
-            .ok()
-            .and_then(|p| {
-                p.views
-                    .get(&id.site)
-                    .filter(|v| v.id == id)
-                    .map(|v| v.page.fetch_add(1, Ordering::AcqRel) + 1)
-            })
-            .unwrap_or(1);
-        PageId {
+    fn discard(&self, id: BrowserId) {
+        let view = self.presentation.lock().ok().and_then(|mut state| {
+            if state.views.get(&id.site).is_some_and(|v| v.id == id) {
+                state.views.remove(&id.site)
+            } else {
+                None
+            }
+        });
+        if let Some(view) = view {
+            let _ = view.native.close();
+        }
+    }
+    fn next_page(&self, id: BrowserId) -> Option<PageId> {
+        let sequence = self.presentation.lock().ok().and_then(|p| {
+            p.views
+                .get(&id.site)
+                .filter(|v| v.id == id)
+                .map(|v| v.page.fetch_add(1, Ordering::AcqRel) + 1)
+        })?;
+        Some(PageId {
             browser: id,
             sequence,
-        }
+        })
     }
     fn with_view(
         &self,
@@ -325,15 +348,8 @@ impl NativeBrowser {
                     NewWindowDecision::SameView(url) => {
                         let _ = native.send(Operation::SameView(id, url));
                     }
-                    NewWindowDecision::OpenSchool { site, url } => {
-                        if let Ok(app) = native.app() {
-                            let _ = app.emit_to(
-                                "main",
-                                "school-web-open",
-                                serde_json::json!({"site":site,"url":url}),
-                            );
-                        }
-                    }
+                    // Core already emitted `school-web-open` for this decision.
+                    NewWindowDecision::OpenSchool { .. } => {}
                     NewWindowDecision::OpenExternal(url) => {
                         if let Ok(app) = native.app() {
                             let _ = app.opener().open_url(url.as_str(), None::<&str>);
