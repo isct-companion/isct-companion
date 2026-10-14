@@ -1,5 +1,5 @@
 //! Backup command adapters and native file dialogs.
-use crate::{cloud_sync, core_ports, data, lms_files, require_local_main};
+use crate::{cloud_sync, data, lms_files, require_local_main};
 use isct_core::backup::BackupService;
 use tauri::Manager;
 
@@ -75,23 +75,6 @@ pub(crate) fn write_scheduled_export_inner(app: &tauri::AppHandle) -> Result<Str
         )
         .map(|path| path.display().to_string())
         .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(crate) async fn write_scheduled_export(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-) -> Result<String, String> {
-    require_local_main(&webview)?;
-    let runtime = core_ports::runtime(&app);
-    runtime
-        .run(async move {
-            tauri::async_runtime::spawn_blocking(move || write_scheduled_export_inner(&app))
-                .await
-                .map_err(|error| error.to_string())?
-        })
-        .await
-        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

@@ -1,9 +1,21 @@
 import { afterEach, expect, it, vi } from "vitest";
+const native = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  isTauri: vi.fn(() => true),
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  Channel: class<T> {
+    onmessage: (message: T) => void = () => undefined;
+  },
+  invoke: native.invoke,
+  isTauri: native.isTauri,
+}));
 import {
   matrixConfidence,
   normalizeMatrixText,
   parseMatrixText,
-  prepareMatrixCanvases,
+  prepareMatrixImage,
+  recognizeMatrixImage,
 } from "./matrix-ocr";
 
 it("keeps review bands and manual matrix normalization", () => {
@@ -39,59 +51,59 @@ vi.mock("heic-to/csp", () => heic);
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  native.invoke.mockReset();
+  native.isTauri.mockReset().mockReturnValue(true);
   heic.isHeic.mockReset();
   heic.heicTo.mockReset();
 });
-function imagePreparation() {
-  const bitmap = { width: 4000, height: 3000, close: vi.fn() };
-  const drawImage = vi.fn();
-  const context = { fillRect: vi.fn(), drawImage, fillStyle: "" };
-  vi.stubGlobal("document", {
-    createElement: () => ({
-      width: 0,
-      height: 0,
-      getContext: () => context,
-      toDataURL: () => "data:image/png;base64,prepared",
-    }),
-  });
-  return { bitmap, drawImage };
-}
-it("preserves the built-in decoder for supported images", async () => {
-  const { bitmap, drawImage } = imagePreparation();
-  vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
-  await expect(
-    prepareMatrixCanvases(new File(["png"], "photo.png")),
-  ).resolves.toEqual({ data: "prepared", preview: "prepared" });
-  expect(drawImage.mock.calls[0].slice(1)).toEqual([0, 0, 2200, 1650]);
-  expect(bitmap.close).toHaveBeenCalledOnce();
-  expect(heic.isHeic).not.toHaveBeenCalled();
-});
-it("decodes HEIC by contents when the WebView rejects it", async () => {
-  const { bitmap } = imagePreparation();
-  vi.stubGlobal(
-    "createImageBitmap",
-    vi.fn().mockRejectedValue(new Error("os error")),
-  );
-  heic.isHeic.mockResolvedValue(true);
-  heic.heicTo.mockResolvedValue(bitmap);
-  const file = new File(["heic"], "photo", { type: "" });
-  await prepareMatrixCanvases(file);
-  expect(heic.heicTo).toHaveBeenCalledWith({ blob: file, type: "bitmap" });
-  expect(bitmap.close).toHaveBeenCalledOnce();
-});
-it("reports unreadable files without leaking a codec OS error", async () => {
-  imagePreparation();
-  vi.stubGlobal(
-    "createImageBitmap",
-    vi.fn().mockRejectedValue(new Error("os error")),
-  );
+it("passes supported image bytes through without canvas preparation", async () => {
   heic.isHeic.mockResolvedValue(false);
   await expect(
-    prepareMatrixCanvases(new File(["bad"], "photo.png")),
-  ).rejects.toThrow("Cannot read this image");
+    prepareMatrixImage(new File(["png"], "photo.png")),
+  ).resolves.toBe("cG5n");
+  expect(heic.heicTo).not.toHaveBeenCalled();
+});
+it("converts HEIC by contents to shell-provided JPEG bytes", async () => {
+  heic.isHeic.mockResolvedValue(true);
+  heic.heicTo.mockResolvedValue(new Blob(["jpeg"], { type: "image/jpeg" }));
+  const file = new File(["heic"], "photo", { type: "" });
+  await expect(prepareMatrixImage(file)).resolves.toBe("anBlZw==");
+  expect(heic.heicTo).toHaveBeenCalledWith({
+    blob: file,
+    type: "image/jpeg",
+    quality: 0.95,
+  });
+});
+it("reports HEIC conversion failures and empty input without codec details", async () => {
+  await expect(prepareMatrixImage(new File([], "empty.png"))).rejects.toThrow(
+    "smaller than 20 MB",
+  );
   heic.isHeic.mockResolvedValue(true);
   heic.heicTo.mockRejectedValue(new Error("decoder failed"));
   await expect(
-    prepareMatrixCanvases(new File(["bad"], "photo.heic")),
+    prepareMatrixImage(new File(["bad"], "photo.heic")),
   ).rejects.toThrow("Cannot decode this HEIC image");
+});
+it("reports HEIC inspection failures without codec details", async () => {
+  heic.isHeic.mockRejectedValue(new Error("parser detail"));
+  await expect(
+    prepareMatrixImage(new File(["bad"], "photo.bin")),
+  ).rejects.toThrow(
+    "Cannot read this image. Choose a valid PNG, JPEG, WebP or HEIC photo.",
+  );
+});
+
+it("sends one raw image and forwards typed native progress", async () => {
+  heic.isHeic.mockResolvedValue(false);
+  native.invoke.mockImplementation(async (_command, args) => {
+    args.onProgress.onmessage({ completed: 12, total: 70 });
+    return [];
+  });
+  const progress = vi.fn();
+  await recognizeMatrixImage(new File(["raw"], "photo.jpg"), progress);
+  expect(native.invoke).toHaveBeenCalledWith("recognize_matrix_image", {
+    image: "cmF3",
+    onProgress: expect.anything(),
+  });
+  expect(progress).toHaveBeenCalledWith(12, 70);
 });

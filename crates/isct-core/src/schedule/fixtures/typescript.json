@@ -1,0 +1,327 @@
+{
+  "workspace": {
+    "schemaVersion": 3,
+    "deviceId": "c547c952-e87d-47e0-91de-0700cdfac546",
+    "selectedTerm": "2026-1Q",
+    "currentTerm": "2026-1Q",
+    "terms": [
+      "2026-3Q"
+    ],
+    "courses": [
+      {
+        "rev": 1,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "updatedBy": "golden",
+        "id": "course",
+        "kind": "course",
+        "termId": "2026-1Q",
+        "title": "授業, A; B",
+        "code": "CSC.T241-01",
+        "instructor": "",
+        "credits": 2,
+        "creditSplit": {
+          "lecture": 2,
+          "exercise": 0,
+          "lab": 0
+        },
+        "instructionLanguage": "ja",
+        "color": "#526e91",
+        "source": {
+          "provider": "manual"
+        },
+        "meetings": [
+          {
+            "days": [
+              1
+            ],
+            "periods": [
+              1,
+              2
+            ],
+            "startTime": "08:50",
+            "endTime": "10:30",
+            "room": "M-101"
+          }
+        ]
+      }
+    ],
+    "memberships": [
+      {
+        "rev": 1,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "updatedBy": "golden",
+        "id": "member",
+        "kind": "membership",
+        "termId": "2026-1Q",
+        "courseId": "course",
+        "status": "registered",
+        "evidence": {
+          "provider": "school"
+        }
+      }
+    ],
+    "assignments": [],
+    "materials": [],
+    "events": [
+      {
+        "rev": 1,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "updatedBy": "golden",
+        "id": "event",
+        "kind": "event",
+        "termId": "2026-1Q",
+        "date": "2026-04-13",
+        "title": "Event",
+        "room": "",
+        "startTime": "09:30",
+        "endTime": "10:00"
+      }
+    ],
+    "planItems": [],
+    "exceptions": [],
+    "offerings": [],
+    "intensiveSchedules": [],
+    "plans": [
+      {
+        "rev": 1,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "updatedBy": "golden",
+        "id": "plan",
+        "title": "Plan",
+        "start": "2026-03-30T09:00:00+09:00",
+        "duration": 60,
+        "rrule": "FREQ=MONTHLY;BYDAY=1MO;COUNT=3",
+        "exdates": [
+          "2026-05-04"
+        ]
+      }
+    ],
+    "academicCalendar": [
+      {
+        "rev": 1,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "updatedBy": "golden",
+        "id": "calendar:2026:quarter-start:1Q",
+        "academicYear": 2026,
+        "quarter": "1Q",
+        "date": "2026-04-07",
+        "type": "quarter-start",
+        "label": {
+          "en": "start"
+        },
+        "teachingRanges": [
+          {
+            "start": "2026-04-07",
+            "end": "2026-05-27"
+          }
+        ]
+      },
+      {
+        "rev": 1,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "updatedBy": "golden",
+        "id": "calendar:2026:quarter-end:1Q",
+        "academicYear": 2026,
+        "quarter": "1Q",
+        "date": "2026-06-09",
+        "type": "quarter-end",
+        "label": {
+          "en": "end"
+        }
+      },
+      {
+        "rev": 1,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "updatedBy": "golden",
+        "id": "holiday",
+        "academicYear": 2026,
+        "date": "2026-04-13",
+        "type": "holiday",
+        "label": {
+          "en": "Off"
+        }
+      }
+    ],
+    "gpaSummary": [],
+    "departments": [],
+    "recommendedCourses": [],
+    "importantDates": [],
+    "exams": [],
+    "scheduleOverrides": [],
+    "subscriptions": [],
+    "scheduledTasks": [
+      {
+        "id": "builtin:reference-subscriptions",
+        "rev": 1,
+        "updatedAt": "2026-10-14T07:43:24.620Z",
+        "updatedBy": "c547c952-e87d-47e0-91de-0700cdfac546",
+        "name": "Reference subscriptions",
+        "action": "reference-refresh",
+        "schedule": "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0",
+        "enabled": true
+      },
+      {
+        "id": "builtin:lms-background-refresh",
+        "rev": 1,
+        "updatedAt": "2026-10-14T07:43:24.621Z",
+        "updatedBy": "c547c952-e87d-47e0-91de-0700cdfac546",
+        "name": "LMS background refresh",
+        "action": "lms-refresh",
+        "schedule": "RRULE:FREQ=HOURLY;INTERVAL=4;BYMINUTE=0",
+        "enabled": false
+      }
+    ],
+    "settings": {
+      "autoDownloadLimitMb": 20,
+      "autoCleanDays": 30,
+      "appearance": "system",
+      "agentAccess": {
+        "enabled": false,
+        "lastWrites": []
+      },
+      "density": "comfortable",
+      "locale": "en",
+      "restoreSchoolPage": false,
+      "schoolServiceWidth": 168,
+      "schoolWebZoom": 1,
+      "showGrades": false,
+      "siteConsents": {
+        "portal": false,
+        "lms": false,
+        "syllabus": false
+      },
+      "notifications": {
+        "classes": true,
+        "assignments": true,
+        "localPermission": "default"
+      },
+      "cloud": {
+        "provider": "none",
+        "clientId": "",
+        "redirectUri": "http://127.0.0.1:42813/oauth/callback",
+        "conflict": "resolve-manually"
+      },
+      "subscriptionRefresh": {
+        "frequency": "daily",
+        "allowCellular": false
+      },
+      "customization": {
+        "background": "",
+        "sites": {
+          "portal": {
+            "css": "",
+            "js": "",
+            "enabled": false
+          },
+          "lms": {
+            "css": "",
+            "js": "",
+            "enabled": false
+          },
+          "syllabus": {
+            "css": "",
+            "js": "",
+            "enabled": false
+          }
+        },
+        "hooks": []
+      }
+    },
+    "academicProfile": {
+      "name": "Personal program",
+      "gradePath": [],
+      "years": []
+    },
+    "importStatus": {
+      "school": "not-configured"
+    },
+    "syncStatus": {
+      "state": "needs-configuration",
+      "message": "Cloud sync is off."
+    },
+    "registrations": [
+      {
+        "rev": 1,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "updatedBy": "golden",
+        "id": "declared",
+        "kind": "declared",
+        "offeringId": "202600001",
+        "quarters": [
+          1,
+          2
+        ],
+        "effectiveCredits": 2
+      }
+    ]
+  },
+  "expected": {
+    "range": {
+      "teachingRanges": [
+        {
+          "start": "2026-04-07",
+          "end": "2026-05-27"
+        }
+      ],
+      "from": "2026-04-07",
+      "to": "2026-06-09"
+    },
+    "holidayOccurrences": [
+      {
+        "key": "event-2026-04-13",
+        "id": "event",
+        "kind": "event",
+        "date": "2026-04-13",
+        "title": "Event",
+        "room": "",
+        "startTime": "09:30",
+        "endTime": "10:00",
+        "color": "#8a887f"
+      }
+    ],
+    "ordinaryAgenda": [
+      {
+        "key": "course-weekly-0-2026-04-20",
+        "id": "course",
+        "courseId": "course",
+        "kind": "course",
+        "date": "2026-04-20",
+        "title": "授業, A; B",
+        "subtitle": "CSC.T241-01",
+        "room": "M-101",
+        "startTime": "08:50",
+        "endTime": "10:30",
+        "color": "#526e91",
+        "dim": false
+      }
+    ],
+    "color": "#5c7d93",
+    "credits": 1,
+    "nextPlanOccurrences": [
+      "2026-04-06T09:00:00+09:00",
+      "2026-06-01T09:00:00+09:00"
+    ],
+    "academicYear": {
+      "year": 2026,
+      "quarters": [
+        {
+          "quarter": "1Q",
+          "from": "2026-04-07",
+          "to": "2026-06-09",
+          "origin": "official"
+        }
+      ],
+      "days": [
+        {
+          "date": "2026-04-13",
+          "type": "holiday",
+          "label": "Off",
+          "origin": "official"
+        }
+      ],
+      "importantDates": [],
+      "published": true
+    },
+    "ics": "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//IsctCompanion//EN\r\nCALSCALE:GREGORIAN\r\nBEGIN:VTIMEZONE\r\nTZID:Asia/Tokyo\r\nBEGIN:STANDARD\r\nDTSTART:19700101T000000\r\nTZOFFSETFROM:+0900\r\nTZOFFSETTO:+0900\r\nTZNAME:JST\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:course-weekly-0-2026-04-20@isctcompanion.local\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:授業\\, A\\; B\r\nDTSTART;TZID=Asia/Tokyo:20260420T085000\r\nDTEND;TZID=Asia/Tokyo:20260420T103000\r\nLOCATION:M-101\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:course-weekly-0-2026-04-27@isctcompanion.local\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:授業\\, A\\; B\r\nDTSTART;TZID=Asia/Tokyo:20260427T085000\r\nDTEND;TZID=Asia/Tokyo:20260427T103000\r\nLOCATION:M-101\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:course-weekly-0-2026-05-04@isctcompanion.local\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:授業\\, A\\; B\r\nDTSTART;TZID=Asia/Tokyo:20260504T085000\r\nDTEND;TZID=Asia/Tokyo:20260504T103000\r\nLOCATION:M-101\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:course-weekly-0-2026-05-11@isctcompanion.local\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:授業\\, A\\; B\r\nDTSTART;TZID=Asia/Tokyo:20260511T085000\r\nDTEND;TZID=Asia/Tokyo:20260511T103000\r\nLOCATION:M-101\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:course-weekly-0-2026-05-18@isctcompanion.local\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:授業\\, A\\; B\r\nDTSTART;TZID=Asia/Tokyo:20260518T085000\r\nDTEND;TZID=Asia/Tokyo:20260518T103000\r\nLOCATION:M-101\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:course-weekly-0-2026-05-25@isctcompanion.local\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:授業\\, A\\; B\r\nDTSTART;TZID=Asia/Tokyo:20260525T085000\r\nDTEND;TZID=Asia/Tokyo:20260525T103000\r\nLOCATION:M-101\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:plan-2026-06-01@isctcompanion.local\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Plan\r\nDTSTART;TZID=Asia/Tokyo:20260601T090000\r\nDTEND;TZID=Asia/Tokyo:20260601T100000\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+  }
+}

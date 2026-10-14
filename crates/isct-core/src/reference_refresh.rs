@@ -235,21 +235,7 @@ impl ReferenceService {
             if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
                 continue;
             }
-            let year = if kind == "departments" {
-                workspace
-                    .pointer("/academicProfile/admissionYear")
-                    .and_then(Value::as_i64)
-            } else {
-                workspace[if selected {
-                    "selectedTerm"
-                } else {
-                    "currentTerm"
-                }]
-                .as_str()
-                .and_then(|term| term.get(..4))
-                .and_then(|year| year.parse::<i64>().ok())
-            };
-            let Some(year) = year.and_then(|year| i32::try_from(year).ok()) else {
+            let Some(year) = subscription_year(&workspace, kind, selected) else {
                 continue;
             };
             let index_url = row
@@ -515,6 +501,59 @@ struct ReferenceRequest {
     index_url: String,
     year: i32,
     force: bool,
+}
+
+fn subscription_year(workspace: &Value, kind: &str, selected: bool) -> Option<i32> {
+    let year = if kind == "departments" {
+        workspace
+            .pointer("/academicProfile/admissionYear")
+            .and_then(Value::as_i64)
+    } else {
+        workspace[if selected {
+            "selectedTerm"
+        } else {
+            "currentTerm"
+        }]
+        .as_str()
+        .and_then(|term| term.get(..4))
+        .and_then(|year| year.parse().ok())
+    };
+    year.and_then(|year| i32::try_from(year).ok())
+        .filter(|year| *year > 0)
+}
+
+/// The settings view uses the same year selection as manual reference refresh.
+pub fn subscription_views(workspace: &Value) -> Value {
+    let mut views = serde_json::Map::new();
+    for kind in ["calendar", "departments", "important-dates", "exams"] {
+        let row = subscription_row(workspace, kind);
+        let year = subscription_year(workspace, kind, true);
+        let enabled = row.and_then(|row| row["enabled"].as_bool()).unwrap_or(true);
+        let state = if !enabled {
+            json!({"state":"off"})
+        } else if year.is_none() {
+            json!({"state":"no-year"})
+        } else if let Some(error) = row
+            .and_then(|row| row["lastError"].as_str())
+            .filter(|s| !s.is_empty())
+        {
+            json!({"state":"error", "message":error})
+        } else if let Some(fetched) = row
+            .filter(|row| row["year"].as_i64() == year.map(i64::from))
+            .and_then(|row| row["fetchedAt"].as_str())
+            .filter(|raw| timestamp(Some(raw)).is_some())
+        {
+            json!({"state":"current", "fetchedAt":fetched})
+        } else {
+            json!({"state":"pending"})
+        };
+        let url = row
+            .and_then(|row| row["url"].as_str())
+            .filter(|url| url.starts_with("https://"))
+            .unwrap_or(PUBLIC_INDEX);
+        views.insert(kind.into(), json!({"year":year,"enabled":enabled,"state":state,"url":url,"dataUrl":row.and_then(|row|row.get("dataUrl"))}));
+    }
+    Value::Object(views)
 }
 
 fn subscription_row<'a>(workspace: &'a Value, kind: &str) -> Option<&'a Value> {
@@ -1319,6 +1358,34 @@ mod tests {
         assert_eq!(
             PullError::from(ReferenceError::Coordination(PullError::RuntimeUnavailable)),
             PullError::RuntimeUnavailable
+        );
+    }
+}
+
+#[cfg(test)]
+mod subscription_view_tests {
+    use super::*;
+    #[test]
+    fn follows_admission_and_selected_year_without_accepting_bad_fetch_dates() {
+        let mut workspace = json!({"selectedTerm":"2026-3Q","currentTerm":"2025-4Q","academicProfile":{"admissionYear":2024},"subscriptions":[{"kind":"calendar","year":2026,"fetchedAt":"not-a-date"}]});
+        let views = subscription_views(&workspace);
+        assert_eq!(views["departments"]["year"], 2024);
+        assert_eq!(views["calendar"]["year"], 2026);
+        assert_eq!(views["calendar"]["state"]["state"], "pending");
+        workspace["subscriptions"][0]["fetchedAt"] = json!("2026-10-06T12:00:00Z");
+        assert_eq!(
+            subscription_views(&workspace)["calendar"]["state"]["state"],
+            "current"
+        );
+        workspace["subscriptions"][0]["year"] = json!(2025);
+        assert_eq!(
+            subscription_views(&workspace)["calendar"]["state"]["state"],
+            "pending"
+        );
+        workspace["subscriptions"][0]["enabled"] = json!(false);
+        assert_eq!(
+            subscription_views(&workspace)["calendar"]["state"]["state"],
+            "off"
         );
     }
 }

@@ -21,11 +21,10 @@ const fixture = vi.hoisted(() => ({
   urlListeners: new Set<(event: { site: string; url: string }) => void>(),
   lectureEffects: vi.fn(),
   lectureCleanup: vi.fn(),
-  retry: vi.fn(),
   pull: vi.fn(),
   refreshEvent: vi.fn().mockResolvedValue(undefined),
   nativeScheduler: false,
-  workspaceChanged: vi.fn((_callback: () => void) => () => {}),
+  workspaceChanged: vi.fn(async (_callback: () => void) => () => {}),
   platform: "native-desktop",
 }));
 vi.mock("../store/workspace", () => ({
@@ -39,12 +38,11 @@ vi.mock("../store/workspace", () => ({
     initialize: async () => {},
     reload: fixture.reload,
     flush: async () => {},
-    retrySave: fixture.retry,
   },
   workspaceActions: {
     refreshSchool: async () => {},
     pullSchool: fixture.pull,
-    updateSettings: (operation: (workspace: Workspace) => Workspace) => {
+    updateSettings: async (operation: (workspace: Workspace) => Workspace) => {
       fixture.state = {
         ...fixture.state,
         workspace: operation(structuredClone(fixture.state.workspace!)),
@@ -53,6 +51,122 @@ vi.mock("../store/workspace", () => ({
     },
   },
 }));
+vi.mock("../platform/core-query", () => {
+  const value = (query: { kind: string; term?: string; year?: number }) => {
+    const data = fixture.state.workspace!;
+    const term = query.term || "2026-3Q";
+    const courses = data.courses.filter(
+      (course) => course.termId === term && !course.deletedAt,
+    );
+    const overview = {
+      term,
+      currentTerm: "2026-3Q",
+      selectedTerm: "2026-3Q",
+      todayTerm: "2026-3Q",
+      coursesTerm: term,
+      range: null,
+      courses,
+      declaredCredits: null,
+      termCredits: courses.reduce((sum, course) => sum + course.credits, 0),
+      colors: Object.fromEntries(
+        courses.map((course) => [course.id, course.color]),
+      ),
+      enrolledCourseIds: courses.map((course) => course.id),
+      onTimetableCourseIds: courses.map((course) => course.id),
+      allTerms: ["2026-3Q", "2026-2Q"],
+      defaultFinderKeys: [],
+    };
+    switch (query.kind) {
+      case "workspaceOverview":
+        return overview;
+      case "scheduleView":
+        return { ...overview, agendas: [] };
+      case "planningWeek":
+        return {
+          courses,
+          days: Array.from({ length: 7 }, (_, day) => ({
+            day: day + 1,
+            blocks: [],
+          })),
+          conflictCount: 0,
+        };
+      case "academicYears":
+        return { currentYear: 2026, years: [2026] };
+      case "academicYear":
+        return {
+          year: query.year ?? 2026,
+          quarters: [],
+          days: [],
+          importantDates: [],
+          published: false,
+        };
+      case "courseTimeline":
+        return { lastStarted: null, next: null, classAt: null };
+      case "subscriptionViews":
+        return { byKind: {} };
+      default:
+        return null;
+    }
+  };
+  return {
+    useScheduleQuery: (query: {
+      kind: string;
+      term?: string;
+      year?: number;
+    }) => ({ value: value(query), pending: false }),
+    useScheduleQueries: (
+      queries: { kind: string; term?: string; year?: number }[],
+    ) => ({ value: queries.map(value), pending: false }),
+    scheduleQuery: async (query: {
+      kind: string;
+      term?: string;
+      year?: number;
+    }) => value(query),
+  };
+});
+vi.mock("../platform/finder-query", () => {
+  const value = (request: { keys?: string[]; input?: string }) => ({
+    context: {
+      currentQuarter: 3,
+      recommended: {},
+      departments: [],
+      busy: [],
+    },
+    courses: [],
+    factors: [],
+    duplicates: 0,
+    keys: request.keys ?? [],
+    plan: { unsupported: "empty" },
+    rows: [],
+    suggestions: [],
+    live: request.input ?? "",
+    clashes: [],
+    replacements: {},
+    credits: {},
+    onTimetable: [],
+    activeSlots: [],
+    pasteHandled: false,
+    pastedIds: [],
+    missingCodes: [],
+    detailIds: [],
+  });
+  return {
+    useFinderEditQueue: ({
+      setKeys,
+    }: {
+      setKeys: (keys: string[]) => void;
+    }) => ({
+      run: async () => undefined,
+      replace: setKeys,
+    }),
+    useFinderQuery: (request: { keys?: string[]; input?: string }) => ({
+      value: value(request),
+      pending: false,
+    }),
+    finderQuery: async (request: { keys?: string[]; input?: string }) =>
+      value(request),
+  };
+});
 vi.mock("./native", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   desktopBridge: {
@@ -82,6 +196,7 @@ vi.mock("./native", async (importOriginal) => ({
       science: { saved: false },
       tokyoTech: { saved: false },
     }),
+    bootstrapReminders: async () => false,
     pullSchool: true,
   },
   hideNativeSchoolWeb: fixture.hide,
@@ -190,8 +305,7 @@ beforeEach(() => {
   fixture.state = {
     workspace: data,
     status: "ready",
-    revision: 0,
-    persistedRevision: 0,
+    revision: "fixture:ready",
   };
   fixture.hide.mockResolvedValue(undefined);
   fixture.capabilities.mockResolvedValue({ schoolWeb: true });
@@ -202,7 +316,6 @@ beforeEach(() => {
     url: "https://portal.isct.ac.jp/resident",
   });
   fixture.pull.mockResolvedValue([{ state: "ok", message: "Updated" }]);
-  fixture.retry.mockResolvedValue(undefined);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -244,12 +357,19 @@ describe("hash-driven desktop navigation", () => {
         ...fixture.state,
         workspace: {
           ...fixture.state.workspace!,
-          academicCalendar: [{
-            id: "calendar:2026:quarter-start:3Q", academicYear: 2026,
-            quarter: "3Q", type: "quarter-start", date: "2026-09-28",
-            label: { en: "3Q starts" }, rev: 1,
-            updatedAt: "2026-10-13T03:00:00Z", updatedBy: "subscription",
-          }],
+          academicCalendar: [
+            {
+              id: "calendar:2026:quarter-start:3Q",
+              academicYear: 2026,
+              quarter: "3Q",
+              type: "quarter-start",
+              date: "2026-09-28",
+              label: { en: "3Q starts" },
+              rev: 1,
+              updatedAt: "2026-10-13T03:00:00Z",
+              updatedBy: "subscription",
+            },
+          ],
         },
       };
       fixture.listeners.forEach((listener) => listener());
@@ -257,6 +377,22 @@ describe("hash-driven desktop navigation", () => {
     await mount();
     expect(fixture.workspaceChanged).toHaveBeenCalledOnce();
     expect(fixture.state.workspace!.academicCalendar[0].quarter).toBe("3Q");
+  });
+  it("waits for native listener registration before recovering the startup snapshot", async () => {
+    fixture.nativeScheduler = true;
+    let finishRegistration!: (dispose: () => void) => void;
+    fixture.workspaceChanged.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRegistration = resolve;
+        }),
+    );
+    await mount();
+    expect(fixture.reload).not.toHaveBeenCalled();
+    await act(async () => {
+      finishRegistration(() => {});
+    });
+    await waitFor(() => expect(fixture.reload).toHaveBeenCalledOnce());
   });
   it.each([
     [paths.home("week"), "homeMain"],
@@ -582,8 +718,9 @@ describe("hash-driven desktop navigation", () => {
     const retry = [
       ...document.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent === "Retry saving")!;
+    fixture.reload.mockClear();
     await act(async () => retry.click());
-    expect(fixture.retry).toHaveBeenCalledTimes(1);
+    expect(fixture.reload).toHaveBeenCalledTimes(1);
     await act(async () => notify.error("Plain Tauri rejection"));
     expect(document.querySelector(".workspaceNotice")?.textContent).toContain(
       "Plain Tauri rejection",
@@ -641,7 +778,9 @@ describe("mobile shell", () => {
     await waitFor(() =>
       expect(window.location.hash).toBe("#" + paths.web("science-lms")),
     );
-    expect(host.querySelector(".mobileBrowserBar")).not.toBeNull();
+    await waitFor(() =>
+      expect(host.querySelector(".mobileBrowserBar")).not.toBeNull(),
+    );
     expect(host.querySelector(".mobileBrowserTitle")?.textContent).toContain(
       "LMS",
     );

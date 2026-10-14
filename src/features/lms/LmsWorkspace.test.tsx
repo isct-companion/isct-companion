@@ -8,7 +8,20 @@ import { LmsWorkspace } from "./LmsWorkspace";
 import { safeContent } from "./content";
 import { TodayWorkbench } from "./TodayWorkbench";
 
-vi.mock("./PdfDocument", () => ({ PdfDocument: () => <canvas aria-label="PDF page" /> }));
+vi.mock("./PdfDocument", () => ({
+  PdfDocument: () => <canvas aria-label="PDF page" />,
+}));
+const core = vi.hoisted(() => ({
+  timeline: undefined as
+    { classAt?: string; lastStarted?: string; next?: string } | undefined,
+  requests: [] as Array<{ now: string }>,
+}));
+vi.mock("../../platform/core-query", () => ({
+  useScheduleQuery: (request: { now: string }) => {
+    core.requests.push(request);
+    return { value: core.timeline, pending: false };
+  },
+}));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -19,6 +32,8 @@ beforeEach(() => {
   document.body.append(host);
   root = createRoot(host);
   sessionStorage.clear();
+  core.timeline = undefined;
+  core.requests = [];
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -114,6 +129,40 @@ const button = (text: string) =>
     b.textContent?.includes(text),
   )!;
 describe("LMS reading workspace", () => {
+  it("refreshes the course timeline when resumed and while active", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-08T00:00:00Z") });
+    const f = fixture();
+    await act(async () =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 1 }}
+          active={false}
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
+    await act(async () => vi.advanceTimersByTime(120_000));
+    expect(core.requests.at(-1)?.now).toBe("2026-10-08T00:00:00.000Z");
+
+    await act(async () =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 1 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
+    expect(core.requests.at(-1)?.now).toBe("2026-10-08T00:02:00.000Z");
+
+    await act(async () => vi.advanceTimersByTime(60_000));
+    expect(core.requests.at(-1)?.now).toBe("2026-10-08T00:03:00.000Z");
+  });
+
   it("renders common text activities inline without opening a document panel", async () => {
     const f = fixture();
     f.data.materials[0].module = "page";
@@ -138,9 +187,27 @@ describe("LMS reading workspace", () => {
     const f = fixture();
     f.record.sections = [
       { id: 10, number: 0, title: "一般", visible: true },
-      { id: 11, number: 1, title: "第1回", visible: true, bodyHtml: "<p>授業計画: 導入</p>" },
-      { id: 12, number: 2, title: "第2回", visible: true, bodyHtml: "<p>授業計画: Java の基本</p>" },
-      { id: 13, number: 3, title: "第3回", visible: true, bodyHtml: "<p>授業計画: クラス</p>" },
+      {
+        id: 11,
+        number: 1,
+        title: "第1回",
+        visible: true,
+        bodyHtml: "<p>授業計画: 導入</p>",
+      },
+      {
+        id: 12,
+        number: 2,
+        title: "第2回",
+        visible: true,
+        bodyHtml: "<p>授業計画: Java の基本</p>",
+      },
+      {
+        id: 13,
+        number: 3,
+        title: "第3回",
+        visible: true,
+        bodyHtml: "<p>授業計画: クラス</p>",
+      },
     ];
     const material = f.data.materials[0];
     f.data.materials = [11, 12].map((sectionId) => ({
@@ -153,21 +220,42 @@ describe("LMS reading workspace", () => {
       bodyHtml: undefined,
     }));
     await act(async () =>
-      root.render(<LmsWorkspace {...f} entry={{ courseId: f.course.id, request: 97 }} active schoolWebAvailable={false} close={() => {}} />),
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 97 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
     );
-    const rail = [...host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)")];
+    const rail = [
+      ...host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)"),
+    ];
     expect(rail.map((b) => b.textContent)).toEqual(["1", "2", "3"]);
     // The course is at 第2回, the latest lesson with material.
     expect(rail[1].getAttribute("aria-current")).toBe("step");
     // Every lesson is laid out at once, each as a page of the outline.
     const pages = [...host.querySelectorAll(".lmsLessonPage")];
-    expect(pages.map((page) => page.getAttribute("data-page"))).toEqual(["11", "12", "13"]);
+    expect(pages.map((page) => page.getAttribute("data-page"))).toEqual([
+      "11",
+      "12",
+      "13",
+    ]);
     expect(pages[0].textContent).toContain("File 11");
     expect(pages[1].textContent).toContain("File 12");
     // 一般 has no number, and the report belongs to no section: both are tabs before the numbers.
-    expect([...host.querySelectorAll(".lmsRailTab")].map((tab) => tab.textContent)).toEqual(["一般", "Activities"]);
+    expect(
+      [...host.querySelectorAll(".lmsRailTab")].map((tab) => tab.textContent),
+    ).toEqual(["一般", "Activities"]);
     // Let the arrival (which opens the course's page) finish before navigating.
-    await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+    await act(
+      async () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => resolve(undefined)),
+        ),
+    );
     await click(rail[0]);
     expect(rail[0].getAttribute("aria-current")).toBe("step");
   });
@@ -178,55 +266,202 @@ describe("LMS reading workspace", () => {
       title: "講義資料",
       module: "folder",
       url: "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9",
-      bodyHtml: '<ul><li><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_folder/content/0/20260928.zip?forcedownload=1">20260928.zip</a></li></ul>',
+      bodyHtml:
+        '<ul><li><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_folder/content/0/20260928.zip?forcedownload=1">20260928.zip</a></li></ul>',
     });
     await act(async () =>
-      root.render(<LmsWorkspace {...f} entry={{ courseId: f.course.id, request: 96 }} active schoolWebAvailable={false} close={() => {}} />),
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 96 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
     );
-    await act(async () => (host.querySelector('.lmsFolder > [aria-expanded="false"]') as HTMLButtonElement).click());
-    await vi.waitFor(() => expect(host.querySelector(".lmsFolderFile")?.textContent).toContain("20260928.zip"));
+    await act(async () =>
+      (
+        host.querySelector(
+          '.lmsFolder > [aria-expanded="false"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    await vi.waitFor(() =>
+      expect(host.querySelector(".lmsFolderFile")?.textContent).toContain(
+        "20260928.zip",
+      ),
+    );
     expect(host.querySelector(".lmsViewer")).toBeNull();
   });
 
   it("marks a lesson for the coming class on double-click, and a mark sets where the course is", async () => {
-    vi.useFakeTimers({ now: new Date("2026-10-08T00:00:00Z"), toFake: ["Date"] });
+    vi.useFakeTimers({
+      now: new Date("2026-10-08T00:00:00Z"),
+      toFake: ["Date"],
+    });
     const f = fixture();
-    f.data.academicProfile.years = [{ academicYear: 2026, quarterStarts: { "1Q": "2026-04-06", "2Q": "2026-06-10", "3Q": "2026-10-01", "4Q": "2026-12-08" } }];
-    f.course.meetings = [{ days: [4], periods: [3, 4], startTime: "10:45", endTime: "12:25", room: "M-B07" }];
-    f.data.memberships = [{ id: "mem", kind: "membership", rev: 1, updatedAt: "2026-10-05T00:00:00Z", updatedBy: "test", termId: "2026-3Q", courseId: f.course.id, status: "lms-member", evidence: { provider: "lms", externalId: "42" } }];
-    f.record.sections = [1, 2, 3].map((number) => ({ id: 10 + number, number, title: `第${number}回`, visible: true }));
+    f.data.academicProfile.years = [
+      {
+        academicYear: 2026,
+        quarterStarts: {
+          "1Q": "2026-04-06",
+          "2Q": "2026-06-10",
+          "3Q": "2026-10-01",
+          "4Q": "2026-12-08",
+        },
+      },
+    ];
+    f.course.meetings = [
+      {
+        days: [4],
+        periods: [3, 4],
+        startTime: "10:45",
+        endTime: "12:25",
+        room: "M-B07",
+      },
+    ];
+    f.data.memberships = [
+      {
+        id: "mem",
+        kind: "membership",
+        rev: 1,
+        updatedAt: "2026-10-05T00:00:00Z",
+        updatedBy: "test",
+        termId: "2026-3Q",
+        courseId: f.course.id,
+        status: "lms-member",
+        evidence: { provider: "lms", externalId: "42" },
+      },
+    ];
+    f.record.sections = [1, 2, 3].map((number) => ({
+      id: 10 + number,
+      number,
+      title: `第${number}回`,
+      visible: true,
+    }));
     f.data.materials = [];
-    f.course.overrides = { lessonLog: [{ occurrence: "2026-10-08T10:45:00+09:00", sectionId: 12 }] };
+    f.course.overrides = {
+      lessonLog: [{ occurrence: "2026-10-08T10:45:00+09:00", sectionId: 12 }],
+    };
+    core.timeline = {
+      lastStarted: "2026-10-01T10:45:00+09:00",
+      next: "2026-10-08T10:45:00+09:00",
+      classAt: "2026-10-08T10:45:00+09:00",
+    };
     const markLesson = vi.fn();
     await act(async () =>
-      root.render(<LmsWorkspace {...f} entry={{ courseId: f.course.id, request: 95 }} active schoolWebAvailable={false} close={() => {}} markLesson={markLesson} />),
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 95 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+          markLesson={markLesson}
+        />,
+      ),
     );
-    const rail = [...host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)")];
+    const rail = [
+      ...host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)"),
+    ];
     // Nothing is posted, yet the mark for today's 10:45 class puts the course at 第2回.
     expect(rail[1].getAttribute("aria-current")).toBe("step");
-    expect(rail.map((b) => b.classList.contains("held"))).toEqual([true, true, false]);
-    await act(async () => rail[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    expect(markLesson).toHaveBeenCalledWith(13, "2026-10-08T10:45:00+09:00", "Lesson 3");
+    expect(rail.map((b) => b.classList.contains("held"))).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    await act(async () =>
+      rail[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+    );
+    expect(markLesson).toHaveBeenCalledWith(
+      13,
+      "2026-10-08T10:45:00+09:00",
+      "Lesson 3",
+    );
   });
 
   it("after today's class has ended, a mark is for that class and the lesson stays current", async () => {
     // 14:00 in Japan, after the 10:45–12:25 class.
-    vi.useFakeTimers({ now: new Date("2026-10-08T05:00:00Z"), toFake: ["Date"] });
+    vi.useFakeTimers({
+      now: new Date("2026-10-08T05:00:00Z"),
+      toFake: ["Date"],
+    });
     const f = fixture();
-    f.data.academicProfile.years = [{ academicYear: 2026, quarterStarts: { "1Q": "2026-04-06", "2Q": "2026-06-10", "3Q": "2026-10-01", "4Q": "2026-12-08" } }];
-    f.course.meetings = [{ days: [4], periods: [3, 4], startTime: "10:45", endTime: "12:25", room: "M-B07" }];
-    f.data.memberships = [{ id: "mem", kind: "membership", rev: 1, updatedAt: "2026-10-05T00:00:00Z", updatedBy: "test", termId: "2026-3Q", courseId: f.course.id, status: "lms-member", evidence: { provider: "lms", externalId: "42" } }];
-    f.record.sections = [1, 2, 3, 4].map((number) => ({ id: 10 + number, number, title: `第${number}回`, visible: true }));
+    f.data.academicProfile.years = [
+      {
+        academicYear: 2026,
+        quarterStarts: {
+          "1Q": "2026-04-06",
+          "2Q": "2026-06-10",
+          "3Q": "2026-10-01",
+          "4Q": "2026-12-08",
+        },
+      },
+    ];
+    f.course.meetings = [
+      {
+        days: [4],
+        periods: [3, 4],
+        startTime: "10:45",
+        endTime: "12:25",
+        room: "M-B07",
+      },
+    ];
+    f.data.memberships = [
+      {
+        id: "mem",
+        kind: "membership",
+        rev: 1,
+        updatedAt: "2026-10-05T00:00:00Z",
+        updatedBy: "test",
+        termId: "2026-3Q",
+        courseId: f.course.id,
+        status: "lms-member",
+        evidence: { provider: "lms", externalId: "42" },
+      },
+    ];
+    f.record.sections = [1, 2, 3, 4].map((number) => ({
+      id: 10 + number,
+      number,
+      title: `第${number}回`,
+      visible: true,
+    }));
     f.data.materials = [];
-    f.course.overrides = { lessonLog: [{ occurrence: "2026-10-08T10:45:00+09:00", sectionId: 14 }] };
+    f.course.overrides = {
+      lessonLog: [{ occurrence: "2026-10-08T10:45:00+09:00", sectionId: 14 }],
+    };
+    core.timeline = {
+      lastStarted: "2026-10-08T10:45:00+09:00",
+      next: "2026-10-15T10:45:00+09:00",
+      classAt: "2026-10-08T10:45:00+09:00",
+    };
     const markLesson = vi.fn();
     await act(async () =>
-      root.render(<LmsWorkspace {...f} entry={{ courseId: f.course.id, request: 94 }} active schoolWebAvailable={false} close={() => {}} markLesson={markLesson} />),
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 94 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+          markLesson={markLesson}
+        />,
+      ),
     );
-    const rail = [...host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)")];
+    const rail = [
+      ...host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)"),
+    ];
     expect(rail[3].getAttribute("aria-current")).toBe("step");
-    await act(async () => rail[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    expect(markLesson).toHaveBeenCalledWith(13, "2026-10-08T10:45:00+09:00", "Lesson 3");
+    await act(async () =>
+      rail[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+    );
+    expect(markLesson).toHaveBeenCalledWith(
+      13,
+      "2026-10-08T10:45:00+09:00",
+      "Lesson 3",
+    );
   });
 
   it("shows a label's own text without the name Moodle derives from it", async () => {
@@ -234,10 +469,19 @@ describe("LMS reading workspace", () => {
     Object.assign(f.data.materials[0], {
       module: "label",
       title: "日付 授業回目 内容…",
-      bodyHtml: "<table><tr><td>日付</td><td>授業回目</td><td>内容</td></tr></table>",
+      bodyHtml:
+        "<table><tr><td>日付</td><td>授業回目</td><td>内容</td></tr></table>",
     });
     await act(async () =>
-      root.render(<LmsWorkspace {...f} entry={{ courseId: f.course.id, request: 98 }} active schoolWebAvailable={false} close={() => {}} />),
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 98 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
     );
     const label = host.querySelector(".lmsSectionBody .lmsInlineActivity")!;
     expect(label.querySelector("table")).not.toBeNull();
@@ -249,8 +493,19 @@ describe("LMS reading workspace", () => {
     f.data.settings.locale = "en";
     f.data.settings.contentLanguage = "ja";
     f.data.settings.lmsBilingualFilter = true;
-    f.record.sections![0].bodyHtml = '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
-    act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:700}} active schoolWebAvailable={false} close={()=>{}} />));
+    f.record.sections![0].bodyHtml =
+      '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
+    act(() =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 700 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
     const body = host.querySelector(".lmsSectionBody")?.textContent ?? "";
     expect(body).toContain("日本語の概要");
     expect(body).not.toContain("English summary");
@@ -260,14 +515,29 @@ describe("LMS reading workspace", () => {
     const f = fixture();
     f.data.settings.locale = "en";
     f.data.materials[0].module = "forum";
-    f.data.materials[0].bodyHtml = '<article id="announcement-p42" data-source-url="https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=42"><h5>Classroom change</h5><time>1 October</time><p>Please meet in W3-707. Bring your notes.</p></article>';
-    act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:600}} active schoolWebAvailable={false} close={()=>{}} />));
+    f.data.materials[0].bodyHtml =
+      '<article id="announcement-p42" data-source-url="https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=42"><h5>Classroom change</h5><time>1 October</time><p>Please meet in W3-707. Bring your notes.</p></article>';
+    act(() =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 600 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
     expect(host.querySelector(".lmsViewer")).toBeNull();
     const card = host.querySelector(".lmsAnnouncementCard")!;
     expect(card.textContent).toContain("Classroom change");
     click(card);
-    expect(host.querySelector(".lmsViewer .lmsRichContent")?.textContent).toContain("Bring your notes.");
-    expect(host.querySelector('.lmsViewerClose')?.getAttribute("aria-label")).toContain("Classroom change");
+    expect(
+      host.querySelector(".lmsViewer .lmsRichContent")?.textContent,
+    ).toContain("Bring your notes.");
+    expect(
+      host.querySelector(".lmsViewerClose")?.getAttribute("aria-label"),
+    ).toContain("Classroom change");
   });
 
   it("shows an announcement forum without posts as empty in the outline, with its official page", () => {
@@ -279,46 +549,129 @@ describe("LMS reading workspace", () => {
       bodyHtml: "",
       url: "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7",
     });
-    act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:610}} active schoolWebAvailable={false} close={()=>{}} />));
+    act(() =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 610 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
     // Nothing to read, so the outline says so in place instead of opening the reader.
-    const forum = [...host.querySelectorAll(".lmsInlineActivity")].find(item => item.textContent?.includes("アナウンスメント"))!;
+    const forum = [...host.querySelectorAll(".lmsInlineActivity")].find(
+      (item) => item.textContent?.includes("アナウンスメント"),
+    )!;
     expect(forum.textContent).toContain("No announcements yet.");
     expect(host.querySelector(".lmsViewer")).toBeNull();
     click(button("Open in LMS"));
-    expect(host.querySelector(".lmsSourceBar")?.textContent).toContain("Official LMS");
+    expect(host.querySelector(".lmsSourceBar")?.textContent).toContain(
+      "Official LMS",
+    );
   });
 
   it("hides the redundant syllabus entry and opens its dedicated right panel", () => {
     const f = fixture();
     f.course.offeringId = "20260001";
-    f.data.materials.push({ ...f.data.materials[0], id: "syllabus-item", title: "シラバス", module: "url" });
-    act(() => root.render(<LmsWorkspace {...f} entry={{courseId: f.course.id, request: 502}} active schoolWebAvailable={false} close={() => {}} />));
-    expect([...host.querySelectorAll(".lmsItemRow")].some(row => row.textContent?.includes("シラバス"))).toBe(false);
-    click([...host.querySelectorAll("button")].find(button => button.textContent?.trim() === "Syllabus")!);
-    expect(host.querySelector('.lmsViewerClose')?.getAttribute("aria-label")).toContain("Syllabus");
+    f.data.materials.push({
+      ...f.data.materials[0],
+      id: "syllabus-item",
+      title: "シラバス",
+      module: "url",
+    });
+    act(() =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 502 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
+    expect(
+      [...host.querySelectorAll(".lmsItemRow")].some((row) =>
+        row.textContent?.includes("シラバス"),
+      ),
+    ).toBe(false);
+    click(
+      [...host.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Syllabus",
+      )!,
+    );
+    expect(
+      host.querySelector(".lmsViewerClose")?.getAttribute("aria-label"),
+    ).toContain("Syllabus");
   });
 
   it("keeps unpreviewable attachments in the outline as a popover card", async () => {
     const f = fixture();
-    const url = "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/report.zip?forcedownload=1";
+    const url =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/report.zip?forcedownload=1";
     f.record.sections![0].bodyHtml = `<p><a href="${url}">Report ZIP</a></p>`;
     const popup = vi.spyOn(window, "open").mockReturnValue(null);
-    act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:601}} active schoolWebAvailable={false} close={()=>{}} />));
-    click([...host.querySelectorAll("a")].find(link => link.querySelector(".lmsAttachmentName")?.textContent === "Report ZIP")!);
-    await act(async () => { await vi.dynamicImportSettled(); });
+    act(() =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 601 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
+    click(
+      [...host.querySelectorAll("a")].find(
+        (link) =>
+          link.querySelector(".lmsAttachmentName")?.textContent ===
+          "Report ZIP",
+      )!,
+    );
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
     expect(popup).not.toHaveBeenCalled();
     expect(host.querySelector(".lmsViewer")).toBeNull();
-    expect(host.querySelector(".lmsOutline .lmsFilePopover .lmsFileCard h3")?.textContent).toBe("Report ZIP");
-    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(
+      host.querySelector(".lmsOutline .lmsFilePopover .lmsFileCard h3")
+        ?.textContent,
+    ).toBe("Report ZIP");
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
+    );
     expect(host.querySelector(".lmsFilePopover")).toBeNull();
   });
 
   it("puts consecutive image-only labels in one grid", () => {
     const f = fixture();
-    const label = (id: string, name: string) => ({ ...f.data.materials[0], id, title: name, module: "label", resourceUrl: undefined,
-      bodyHtml: `<div><p><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/${name}.png"><img src="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/s_${name}.png" alt=""></a></p></div>` });
-    f.data.materials = [label("l1", "schedule"), label("l2", "discord"), ...f.data.materials];
-    act(() => root.render(<LmsWorkspace {...f} entry={{courseId:f.course.id,request:602}} active schoolWebAvailable={false} close={()=>{}} />));
+    const label = (id: string, name: string) => ({
+      ...f.data.materials[0],
+      id,
+      title: name,
+      module: "label",
+      resourceUrl: undefined,
+      bodyHtml: `<div><p><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/${name}.png"><img src="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/s_${name}.png" alt=""></a></p></div>`,
+    });
+    f.data.materials = [
+      label("l1", "schedule"),
+      label("l2", "discord"),
+      ...f.data.materials,
+    ];
+    act(() =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 602 }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
     const grids = host.querySelectorAll(".lmsImageGrid");
     expect(grids).toHaveLength(1);
     expect(grids[0].querySelectorAll(".lmsImageCard")).toHaveLength(2);
@@ -661,6 +1014,10 @@ describe("inert course HTML", () => {
 });
 
 it("falls back to the available school language when the preferred blocks are absent", () => {
-  expect(safeContent('<p lang="en">English-only announcement</p>', "ja")).toContain("English-only announcement");
-  expect(safeContent('<p lang="ja">日本語のみ</p>', "en")).toContain("日本語のみ");
+  expect(
+    safeContent('<p lang="en">English-only announcement</p>', "ja"),
+  ).toContain("English-only announcement");
+  expect(safeContent('<p lang="ja">日本語のみ</p>', "en")).toContain(
+    "日本語のみ",
+  );
 });

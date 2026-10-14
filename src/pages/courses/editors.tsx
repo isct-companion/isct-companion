@@ -1,8 +1,9 @@
-import { COURSE_PALETTE } from "../../core/course-colors";
+import { COURSE_PALETTE } from "../../generated/persistence";
 import { tokyoDate } from "../../core/civil-date";
 import { t } from "../../i18n";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import { confirmAction } from "../../components/confirm";
+import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { SyllabusDetails } from "./syllabus-details";
 import type { SyllabusCourse } from "../../core/syllabus";
 import { useState, type FormEvent } from "react";
@@ -106,9 +107,10 @@ export function CourseEditor({
   term: TermId;
   onTimetable: boolean;
   onClose: () => void;
-  onSave: (draft: CourseDraft) => void;
-  onDelete?: () => void;
+  onSave: (draft: CourseDraft) => Promise<unknown> | void;
+  onDelete?: () => Promise<unknown> | void;
 }) {
+  const submission = useSubmissionGuard();
   const [values, setValues] = useState({
     title: course?.title ?? "",
     code: course?.code ?? "",
@@ -145,12 +147,14 @@ export function CourseEditor({
         room: row.room.trim(),
       });
     }
-    onSave({ ...values, meetings });
+    void submission.run(() => onSave({ ...values, meetings }));
   };
   return (
     <Drawer
       opened
-      onClose={onClose}
+      onClose={() => !submission.busy && onClose()}
+      closeOnClickOutside={!submission.busy}
+      closeOnEscape={!submission.busy}
       position="right"
       size="min(560px, 100%)"
       title={
@@ -164,12 +168,25 @@ export function CourseEditor({
       overlayProps={{ backgroundOpacity: 0.28, blur: 1 }}
       styles={{ body: { height: "calc(100% - 64px)", padding: 0 } }}
     >
-      <form className="sheetInner" onSubmit={submit}>
+      <form
+        className="sheetInner"
+        onSubmit={submit}
+        aria-busy={submission.busy}
+      >
         <Group className="sheetActions" justify="flex-end" py="sm">
-          <UiButton type="button" className="button" onClick={onClose}>
+          <UiButton
+            type="button"
+            className="button"
+            disabled={submission.busy}
+            onClick={onClose}
+          >
             {t("Cancel")}
           </UiButton>
-          <UiButton type="submit" className="button primary">
+          <UiButton
+            type="submit"
+            className="button primary"
+            disabled={submission.busy}
+          >
             {t("Save")}
           </UiButton>
         </Group>
@@ -362,6 +379,11 @@ export function CourseEditor({
                 {error}
               </p>
             )}
+            {submission.error && (
+              <p className="formError" role="alert">
+                {submission.error}
+              </p>
+            )}
           </section>
           <SyllabusDetails url={values.url} fetchCourse={fetchSyllabus} />
         </div>
@@ -374,6 +396,7 @@ export function CourseEditor({
             <UiButton
               type="button"
               className="button danger"
+              disabled={submission.busy}
               onClick={async () => {
                 if (
                   await confirmAction(
@@ -383,7 +406,7 @@ export function CourseEditor({
                     t("Delete"),
                   )
                 )
-                  onDelete();
+                  void submission.run(onDelete);
               }}
             >
               {t("Delete")}
@@ -410,9 +433,10 @@ export function EventEditor({
   event?: PersonalEvent;
   term: TermId;
   onClose: () => void;
-  onSave: (draft: EventDraft) => void;
-  onDelete?: () => void;
+  onSave: (draft: EventDraft) => Promise<unknown> | void;
+  onDelete?: () => Promise<unknown> | void;
 }) {
+  const submission = useSubmissionGuard();
   const [draft, setDraft] = useState<EventDraft>({
     title: event?.title ?? "",
     room: event?.room ?? "",
@@ -429,12 +453,16 @@ export function EventEditor({
       return setError("The event must end after it starts.");
     if (!draft.date && !draft.days?.length)
       return setError("Pick at least one weekday or a date.");
-    onSave({ ...draft, title: draft.title.trim(), room: draft.room.trim() });
+    void submission.run(() =>
+      onSave({ ...draft, title: draft.title.trim(), room: draft.room.trim() }),
+    );
   };
   return (
     <Drawer
       opened
-      onClose={onClose}
+      onClose={() => !submission.busy && onClose()}
+      closeOnClickOutside={!submission.busy}
+      closeOnEscape={!submission.busy}
       position="right"
       size="min(440px, 100%)"
       title={
@@ -448,12 +476,25 @@ export function EventEditor({
       overlayProps={{ backgroundOpacity: 0.28, blur: 1 }}
       styles={{ body: { height: "calc(100% - 64px)", padding: 0 } }}
     >
-      <form className="sheetInner narrow" onSubmit={submit}>
+      <form
+        className="sheetInner narrow"
+        onSubmit={submit}
+        aria-busy={submission.busy}
+      >
         <Group className="sheetActions" justify="flex-end" py="sm">
-          <UiButton type="button" className="button" onClick={onClose}>
+          <UiButton
+            type="button"
+            className="button"
+            disabled={submission.busy}
+            onClick={onClose}
+          >
             {t("Cancel")}
           </UiButton>
-          <UiButton type="submit" className="button primary">
+          <UiButton
+            type="submit"
+            className="button primary"
+            disabled={submission.busy}
+          >
             {t("Save")}
           </UiButton>
         </Group>
@@ -494,9 +535,7 @@ export function EventEditor({
                   setDraft({
                     ...draft,
                     days: undefined,
-                    date:
-                      draft.date ??
-                      tokyoDate(new Date()),
+                    date: draft.date ?? tokyoDate(new Date()),
                   });
               }}
             />
@@ -553,6 +592,11 @@ export function EventEditor({
               {error}
             </p>
           )}
+          {submission.error && (
+            <p className="formError wide" role="alert">
+              {submission.error}
+            </p>
+          )}
         </div>
         {event && onDelete && (
           <footer className="sheetDangerZone">
@@ -563,6 +607,7 @@ export function EventEditor({
             <UiButton
               type="button"
               className="button danger"
+              disabled={submission.busy}
               onClick={async () => {
                 if (
                   await confirmAction(
@@ -570,7 +615,7 @@ export function EventEditor({
                     t("Delete"),
                   )
                 )
-                  onDelete();
+                  void submission.run(onDelete);
               }}
             >
               {t("Delete")}

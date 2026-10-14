@@ -96,6 +96,14 @@ impl DesktopRuntime {
                     crate::cloud_sync::CloudSync::tick(&wake_app);
                     let visible = wake_app.state::<SchoolWebController>().is_visible();
                     let _ = runtime(&wake_app).wake(services(&wake_app), visible).await;
+                    let _ = core(&wake_app)
+                        .reminder_tick(
+                            Arc::new(crate::commands::notifications::DesktopNotifications(
+                                wake_app.clone(),
+                            )),
+                            chrono::Utc::now().fixed_offset(),
+                        )
+                        .await;
                 }
             });
             let mut states = runtime(&app).coordinator.subscribe();

@@ -1,3 +1,4 @@
+import { workspaceActions } from "../../store/workspace";
 import { notify as appNotify } from "../../app/notify";
 import { Fragment, useState } from "react";
 import { t } from "../../i18n";
@@ -13,13 +14,12 @@ import {
   PUBLIC_DATA_INDEX,
   REFERENCE_KINDS,
   subscriptionNetwork,
-  subscriptionYear,
 } from "../../platform/subscription-polling";
 import type { Platform } from "../../app/shared";
 import {
   formatDay,
   subscriptionRow,
-  subscriptionState,
+  useSubscriptionViews,
 } from "./subscription-status";
 
 type Update = (f: (d: Workspace) => Workspace) => void;
@@ -34,40 +34,10 @@ const DATASETS: Record<
   departments: { title: "Study guide", follows: "admission" },
 };
 
-function saveSubscription(
-  update: Update,
-  kind: Subscription["kind"],
-  values: Partial<Subscription>,
-) {
-  update((draft) => {
-    let row = subscriptionRow(draft, kind);
-    const now = new Date().toISOString();
-    if (!row) {
-      row = {
-        id: `subscription:public:${kind}`,
-        kind,
-        url: PUBLIC_DATA_INDEX,
-        enabled: true,
-        rev: 0,
-        updatedAt: now,
-        updatedBy: draft.deviceId,
-      };
-      draft.subscriptions.push(row);
-    }
-    Object.assign(row, values, {
-      rev: row.rev + 1,
-      updatedAt: now,
-      updatedBy: draft.deviceId,
-    });
-    return draft;
-  });
-}
-
 /** Official reference data from the public Isct-Data repository. */
 export function DataUpdatesSettings({
   data,
   update,
-  updateSubscriptions,
   platform,
   refreshReferences,
   notify,
@@ -75,13 +45,12 @@ export function DataUpdatesSettings({
   data: Workspace;
   /** Device preferences. */
   update: Update;
-  /** Subscription rows (desktop only). */
-  updateSubscriptions: Update;
   platform: Platform;
   refreshReferences?: () => Promise<string>;
   notify: (message: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const subscriptions = useSubscriptionViews();
   const locale = data.settings.locale;
   const editable = platform === "native-desktop";
   const network = subscriptionNetwork(platform);
@@ -138,9 +107,9 @@ export function DataUpdatesSettings({
       >
         {REFERENCE_KINDS.map((kind) => {
           const definition = DATASETS[kind];
-          const row = subscriptionRow(data, kind);
-          const year = subscriptionYear(data, kind);
-          const state = subscriptionState(data, kind);
+          const view = subscriptions.value?.[kind];
+          const year = view?.year;
+          const state = view?.state ?? { state: "pending" as const };
           const hint =
             state.state === "off"
               ? t("Off")
@@ -154,10 +123,17 @@ export function DataUpdatesSettings({
           return (
             <Row key={kind} id={kind} title={definition.title} hint={hint}>
               <Toggle
-                disabled={!editable}
-                checked={row?.enabled ?? true}
+                disabled={!editable || !view}
+                checked={view?.enabled ?? true}
                 onChange={(enabled) =>
-                  saveSubscription(updateSubscriptions, kind, { enabled })
+                  void workspaceActions
+                    .mutate({
+                      kind: "setSubscription",
+                      subscriptionKind: kind,
+                      enabled,
+                      resetRemote: false,
+                    })
+                    .catch(appNotify.error)
                 }
               />
             </Row>
@@ -198,13 +174,7 @@ export function DataUpdatesSettings({
 }
 
 /** Developer option: where each dataset reads its index from. */
-export function DataSourceUrls({
-  data,
-  update,
-}: {
-  data: Workspace;
-  update: Update;
-}) {
+export function DataSourceUrls({ data }: { data: Workspace }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   return (
     <>
@@ -229,14 +199,14 @@ export function DataSourceUrls({
                   if (urls[kind] === undefined || url === row?.url) return;
                   if (!url.startsWith("https://"))
                     return setUrls((prior) => ({ ...prior, [kind]: current }));
-                  saveSubscription(update, kind, {
-                    url,
-                    indexHash: undefined,
-                    dataUrl: undefined,
-                    remoteHash: undefined,
-                    year: undefined,
-                    lastError: undefined,
-                  });
+                  void workspaceActions
+                    .mutate({
+                      kind: "setSubscription",
+                      subscriptionKind: kind,
+                      url,
+                      resetRemote: true,
+                    })
+                    .catch(appNotify.error);
                 }}
               />
               {row?.dataUrl && (

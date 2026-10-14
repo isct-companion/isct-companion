@@ -1,25 +1,27 @@
 import "./lectures.css";
-import { Activity, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { dueCountdown } from "../../core/academic";
-import type { Assignment, TermId, Workspace } from "../../core/model";
-import { addDays, civilWeekday, resolveDayAgenda } from "../../core/schedule";
 import {
-  allTerms,
-  timetableCourses,
-} from "../../components/timetable/workspace";
+  Activity,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { TermId, Workspace } from "../../core/model";
+import { addCivilDays as addDays, civilWeekday } from "../../core/civil-date";
 import { UiInput, UiSelect } from "../../components/mantine";
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
 import { t } from "../../i18n";
 import type { CourseEntry } from "../../features/lms/LmsWorkspace";
 import { useFormFactor } from "../../app/form-factor";
+import {
+  useScheduleQuery,
+  type ScheduleView,
+  type TaskView,
+} from "../../platform/core-query";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const submitted = (a: Assignment) =>
-  a.submission === "submitted" ||
-  a.submission === "graded" ||
-  a.submissionStatus === "submitted";
-
 type Lecture = {
   id: string;
   title: string;
@@ -29,7 +31,7 @@ type Lecture = {
   rank: number;
   when?: string;
   room?: string;
-  due?: ReturnType<typeof dueCountdown>;
+  due?: { label: string; tone: string };
 };
 
 /** This quarter's lectures, in class order, and the open lecture's workspace. */
@@ -68,7 +70,6 @@ export function LectureDesk({
   // The list shows the quarter's lectures, or its open assignments.
   const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
   const [showHidden, setShowHidden] = useState(false);
-  const terms = allTerms(data, term);
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     if (!active) return;
@@ -76,25 +77,33 @@ export function LectureDesk({
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
   }, [active]);
+  const today = jstDate(now);
+  const schedule = useScheduleQuery<ScheduleView>({
+    kind: "scheduleView",
+    term: shownTerm,
+    from: today,
+    to: addDays(today, 7),
+    includePersonal: true,
+  }).value;
+  const terms = schedule?.allTerms.length ? schedule.allTerms : [term];
+  const courses = schedule?.courses ?? [];
+  const taskView = useScheduleQuery<TaskView>({
+    kind: "taskView",
+    now: now.toISOString(),
+  }).value;
+  const taskTerm = taskView?.byTerm?.[shownTerm];
+  const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
 
   const lectures = useMemo(() => {
-    const courses = timetableCourses(data, shownTerm);
-    const events = data.events.filter(
-      (event) => event.termId === shownTerm && !event.deletedAt,
-    );
-    const today = jstDate(now);
     const minutes = jstMinutes(now);
     const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
     const next = new Map<
       string,
       { rank: number; when: string; room?: string }
     >();
-    for (let offset = 0; offset <= 7; offset++) {
-      const date = addDays(today, offset);
-      for (const block of resolveDayAgenda(data, shownTerm, date, {
-        courses,
-        events,
-      })) {
+    for (const [offset, agenda] of (schedule?.agendas ?? []).entries()) {
+      const date = agenda.date;
+      for (const block of agenda.occurrences) {
         if (block.kind !== "course" || next.has(block.id)) continue;
         if (offset === 0 && block.endTime <= clock) continue;
         const [h, m] = block.startTime.split(":").map(Number);
@@ -108,24 +117,11 @@ export function LectureDesk({
         });
       }
     }
-    const due = new Map<string, Assignment>();
-    for (const assignment of data.assignments) {
-      if (
-        assignment.deletedAt ||
-        assignment.hidden ||
-        !assignment.dueAt ||
-        submitted(assignment) ||
-        new Date(assignment.dueAt).getTime() < now.getTime()
-      )
-        continue;
-      const nearest = due.get(assignment.courseId);
-      if (!nearest || assignment.dueAt < nearest.dueAt!)
-        due.set(assignment.courseId, assignment);
-    }
     return courses
       .map((course): Lecture => {
         const meeting = next.get(course.id);
-        const work = due.get(course.id);
+        const workId = taskView?.nearestByCourse[course.id];
+        const due = workId ? taskView?.deadlines?.[workId] : undefined;
         return {
           id: course.id,
           title: course.title,
@@ -134,48 +130,38 @@ export function LectureDesk({
           rank: meeting?.rank ?? Infinity,
           when: meeting?.when,
           room: meeting?.room,
-          due: work ? dueCountdown(work.dueAt!, now) : undefined,
+          due: due
+            ? { label: due.countdownLabel, tone: due.countdownTone }
+            : undefined,
         };
       })
       .sort(
         (left, right) =>
           left.rank - right.rank || left.title.localeCompare(right.title),
       );
-  }, [data, shownTerm, now]);
+  }, [courses, now, schedule?.agendas, taskView, today]);
   const work = useMemo(() => {
-    const courses = new Map(
-      timetableCourses(data, shownTerm).map((course) => [course.id, course]),
-    );
-    return data.assignments
-      .filter(
-        (a) =>
-          !a.deletedAt &&
-          !a.hidden &&
-          courses.has(a.courseId) &&
-          !submitted(a) &&
-          (!a.dueAt || new Date(a.dueAt).getTime() >= now.getTime()),
-      )
-      .sort((left, right) =>
-        (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999"),
-      )
-      .map((a) => ({
-        assignment: a,
-        course: courses.get(a.courseId)!,
-        due: a.dueAt ? dueCountdown(a.dueAt, now) : undefined,
-      }));
-  }, [data, shownTerm, now]);
+    const byId = new Map(courses.map((course) => [course.id, course]));
+    return (taskTerm?.lectureOpenIds ?? [])
+      .flatMap((id) => byAssignment.get(id) ?? [])
+      .map((a) => {
+        const deadline = taskView?.deadlines?.[a.id];
+        return {
+          assignment: a,
+          course: byId.get(a.courseId)!,
+          due: deadline
+            ? { label: deadline.countdownLabel, tone: deadline.countdownTone }
+            : undefined,
+        };
+      });
+  }, [byAssignment, courses, taskTerm, taskView]);
   // Hidden assignments stay with their quarter, folded under the open ones.
   const hiddenWork = useMemo(() => {
-    const courses = new Map(
-      timetableCourses(data, shownTerm).map((course) => [course.id, course]),
-    );
-    return data.assignments
-      .filter((a) => !a.deletedAt && a.hidden && courses.has(a.courseId))
-      .sort((left, right) =>
-        (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999"),
-      )
-      .map((a) => ({ assignment: a, course: courses.get(a.courseId)! }));
-  }, [data, shownTerm]);
+    const byId = new Map(courses.map((course) => [course.id, course]));
+    return (taskTerm?.lectureHiddenIds ?? [])
+      .flatMap((id) => byAssignment.get(id) ?? [])
+      .map((a) => ({ assignment: a, course: byId.get(a.courseId)! }));
+  }, [byAssignment, courses, taskTerm]);
   const needle = query.trim().toLowerCase();
   const shownWork = needle
     ? work.filter(({ assignment, course }) =>
@@ -239,7 +225,11 @@ export function LectureDesk({
             ))}
           </UiSelect>
         </header>
-        <div className="dueScope lectureMode" role="group" aria-label={t("Show")}>
+        <div
+          className="dueScope lectureMode"
+          role="group"
+          aria-label={t("Show")}
+        >
           {(["lectures", "assignments"] as const).map((item) => (
             <button
               type="button"
@@ -266,69 +256,80 @@ export function LectureDesk({
               type="button"
               key={assignment.id}
               className={`lectureRow${entry?.assignmentId === assignment.id ? " selected" : ""}`}
-              aria-current={entry?.assignmentId === assignment.id ? "true" : undefined}
+              aria-current={
+                entry?.assignmentId === assignment.id ? "true" : undefined
+              }
               style={{ "--course": course.color } as React.CSSProperties}
               onClick={() => select(course.id, assignment.id)}
             >
               <b>{assignment.title}</b>
               <small>{course.title}</small>
-              {due && <span className={`dueChip ${due.tone}`}>{due.label}</span>}
+              {due && (
+                <span className={`dueChip ${due.tone}`}>{due.label}</span>
+              )}
             </button>
           ))}
         {mode === "assignments" && !shownWork.length && (
-          <p className="quietEmpty compact">{t(work.length ? "No matching assignments." : "No open assignments.")}</p>
+          <p className="quietEmpty compact">
+            {t(
+              work.length ? "No matching assignments." : "No open assignments.",
+            )}
+          </p>
         )}
-        {mode === "assignments" && restoreAssignment && shownHidden.length > 0 && (
-          <>
+        {mode === "assignments" &&
+          restoreAssignment &&
+          shownHidden.length > 0 && (
+            <>
+              <button
+                type="button"
+                className="lectureHiddenToggle"
+                aria-expanded={showHidden}
+                onClick={() => setShowHidden((value) => !value)}
+              >
+                {showHidden ? "▾" : "▸"} {t("Hidden assignments")}
+              </button>
+              {showHidden &&
+                shownHidden.map(({ assignment, course }) => (
+                  <div
+                    key={assignment.id}
+                    className="lectureRow hidden"
+                    style={{ "--course": course.color } as React.CSSProperties}
+                  >
+                    <b>{assignment.title}</b>
+                    <small>{course.title}</small>
+                    <button
+                      type="button"
+                      className="textButton"
+                      onClick={() => restoreAssignment(assignment.id)}
+                    >
+                      {t("Restore")}
+                    </button>
+                  </div>
+                ))}
+            </>
+          )}
+        {mode === "lectures" &&
+          shown.map((lecture) => (
             <button
               type="button"
-              className="lectureHiddenToggle"
-              aria-expanded={showHidden}
-              onClick={() => setShowHidden((value) => !value)}
+              key={lecture.id}
+              className={`lectureRow${entry?.courseId === lecture.id ? " selected" : ""}${lecture.rank === 0 ? " now" : ""}`}
+              aria-current={entry?.courseId === lecture.id ? "true" : undefined}
+              style={{ "--course": lecture.color } as React.CSSProperties}
+              onClick={() => select(lecture.id)}
             >
-              {showHidden ? "▾" : "▸"} {t("Hidden assignments")}
+              <b>{lecture.title}</b>
+              <small>
+                {[lecture.when, lecture.room].filter(Boolean).join(" · ") ||
+                  lecture.code}
+              </small>
+              {lecture.due && (
+                <span className={`dueChip ${lecture.due.tone}`}>
+                  {lecture.due.label}
+                </span>
+              )}
             </button>
-            {showHidden &&
-              shownHidden.map(({ assignment, course }) => (
-                <div
-                  key={assignment.id}
-                  className="lectureRow hidden"
-                  style={{ "--course": course.color } as React.CSSProperties}
-                >
-                  <b>{assignment.title}</b>
-                  <small>{course.title}</small>
-                  <button
-                    type="button"
-                    className="textButton"
-                    onClick={() => restoreAssignment(assignment.id)}
-                  >
-                    {t("Restore")}
-                  </button>
-                </div>
-              ))}
-          </>
-        )}
-        {mode === "lectures" && shown.map((lecture) => (
-          <button
-            type="button"
-            key={lecture.id}
-            className={`lectureRow${entry?.courseId === lecture.id ? " selected" : ""}${lecture.rank === 0 ? " now" : ""}`}
-            aria-current={entry?.courseId === lecture.id ? "true" : undefined}
-            style={{ "--course": lecture.color } as React.CSSProperties}
-            onClick={() => select(lecture.id)}
-          >
-            <b>{lecture.title}</b>
-            <small>
-              {[lecture.when, lecture.room].filter(Boolean).join(" · ") ||
-                lecture.code}
-            </small>
-            {lecture.due && (
-              <span className={`dueChip ${lecture.due.tone}`}>
-                {lecture.due.label}
-              </span>
-            )}
-          </button>
-        ))}
+          ))}
         {mode === "lectures" && !shown.length && (
           <p className="quietEmpty compact">
             {t(
@@ -355,8 +356,17 @@ export function LectureDesk({
             key={item.courseId}
             hidden={entry?.courseId !== item.courseId}
           >
-            <Activity mode={active && entry?.courseId === item.courseId ? "visible" : "hidden"}>
-              {renderWorkspace(item, active && entry?.courseId === item.courseId)}
+            <Activity
+              mode={
+                active && entry?.courseId === item.courseId
+                  ? "visible"
+                  : "hidden"
+              }
+            >
+              {renderWorkspace(
+                item,
+                active && entry?.courseId === item.courseId,
+              )}
             </Activity>
           </div>
         ))}

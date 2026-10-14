@@ -14,6 +14,31 @@ pub enum CatalogError {
     InvalidInput(String),
 }
 
+/// Fetch and project one syllabus course for a shell editor.
+pub async fn syllabus_course(
+    store: &data::DataStore,
+    id: String,
+    language: String,
+) -> Result<serde_json::Value, CatalogError> {
+    if language != "en" && language != "ja" {
+        return Err(CatalogError::InvalidInput(
+            "Unsupported syllabus language.".into(),
+        ));
+    }
+    let synced = catalog_sync_offering(store, id).await?;
+    let preferred = synced
+        .content
+        .iter()
+        .find(|row| row.lang == language)
+        .or_else(|| synced.content.first());
+    let offering = serde_json::to_value(&synced.offering)?;
+    let content = preferred
+        .map(|row| serde_json::to_value(&row.content))
+        .transpose()?;
+    crate::workspace::catalog_course(&offering, &language, content.as_ref())
+        .map_err(|error| CatalogError::InvalidInput(error.to_string()))
+}
+
 pub async fn catalog_sync_offering(
     store: &data::DataStore,
     id: String,

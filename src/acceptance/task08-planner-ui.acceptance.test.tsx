@@ -10,6 +10,25 @@ import { seedWorkspace, type Course, type Workspace } from "../core/model";
 import { AcademicSummary } from "../pages/courses/AcademicSummary";
 import { Courses } from "../pages/courses/CoursesPage";
 
+const core = vi.hoisted(() => ({
+  overview: undefined as unknown,
+  planning: undefined as unknown,
+  schedule: undefined as unknown,
+}));
+vi.mock("../platform/core-query", () => ({
+  useScheduleQueries: (queries: { kind: string }[], enabled = true) => {
+    if (!enabled) return { pending: false };
+    const value = queries.map((query) =>
+      query.kind === "planningWeek"
+        ? core.planning
+        : query.kind === "scheduleView"
+          ? core.schedule
+          : core.overview,
+    );
+    return { value, pending: false };
+  },
+}));
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.ResizeObserver = class ResizeObserver {
   observe() {}
@@ -111,15 +130,17 @@ function realPlannerWorkspace(): Workspace {
   workspace.selectedTerm = "2026-2Q";
   workspace.terms = ["2026-2Q"];
   workspace.academicProfile.admissionYear = 2026;
-  workspace.academicProfile.years = [{
-    academicYear: 2026,
-    quarterStarts: {
-      "1Q": "2026-04-01",
-      "2Q": "2026-06-01",
-      "3Q": "2026-10-01",
-      "4Q": "2026-12-01",
+  workspace.academicProfile.years = [
+    {
+      academicYear: 2026,
+      quarterStarts: {
+        "1Q": "2026-04-01",
+        "2Q": "2026-06-01",
+        "3Q": "2026-10-01",
+        "4Q": "2026-12-01",
+      },
     },
-  }];
+  ];
   workspace.settings.departmentId = "cs";
   workspace.courses = [
     {
@@ -207,6 +228,80 @@ function renderPlanner(
   data: Workspace,
   props: Partial<React.ComponentProps<typeof Courses>> = {},
 ) {
+  const scheduledIds = new Set(
+    [...data.memberships, ...data.planItems]
+      .filter((row) => !row.deletedAt)
+      .map((row) => row.courseId),
+  );
+  const courses = data.courses.filter(
+    (course) => !course.deletedAt && scheduledIds.has(course.id),
+  );
+  core.overview = {
+    coursesTerm: data.selectedTerm,
+    allTerms: [data.selectedTerm],
+    range: { from: "2026-06-01", to: "2026-09-30" },
+    courses,
+  };
+  core.planning = {
+    courses,
+    conflictCount: 0,
+    days: Array.from({ length: 7 }, (_, index) => ({
+      day: index + 1,
+      blocks: courses.flatMap((course) =>
+        course.meetings
+          .filter((meeting) => meeting.days.includes(index + 1))
+          .map((meeting, meetingIndex) => ({
+            key: `${course.id}-${meetingIndex}-${index + 1}`,
+            id: course.id,
+            kind: "course",
+            date: `2000-01-0${index + 3}`,
+            title: course.title,
+            subtitle: course.code,
+            room: meeting.room,
+            startTime: meeting.startTime,
+            endTime: meeting.endTime,
+            color: course.color,
+          })),
+      ),
+    })),
+  };
+  core.schedule = {
+    ...core.overview,
+    agendas: Array.from({ length: 7 }, (_, index) => ({
+      date: `2026-06-0${index + 1}`,
+      noClasses: index === 0,
+      calendarNotice: index === 0 ? "No classes" : undefined,
+      occurrences:
+        index === 0
+          ? [
+              ...courses.map((course) => ({
+                key: `${course.id}-2026-06-01`,
+                id: course.id,
+                kind: "course",
+                date: "2026-06-01",
+                title: course.title,
+                subtitle: course.code,
+                room: "Classroom",
+                startTime: "10:45",
+                endTime: "12:25",
+                color: course.color,
+                cancelled: true,
+              })),
+              ...data.plans.map((plan) => ({
+                key: `${plan.id}-2026-06-01`,
+                id: plan.id,
+                kind: "plan",
+                date: "2026-06-01",
+                title: plan.title,
+                room: plan.room ?? "",
+                startTime: "14:00",
+                endTime: "15:00",
+                color: "#8a887f",
+              })),
+            ]
+          : [],
+    })),
+  };
   act(() => {
     root.render(
       <MantineProvider env="test" theme={appTheme} defaultColorScheme="light">
@@ -436,7 +531,9 @@ describe("Unified schedule view and editing", () => {
     expect(host.textContent).not.toContain("GPA");
     await act(async () => details().click());
     expect(document.querySelector("table")?.textContent).toContain("3.71");
-    expect(host.querySelector(".academicQuarterLabel")?.textContent).not.toContain("3.71");
+    expect(
+      host.querySelector(".academicQuarterLabel")?.textContent,
+    ).not.toContain("3.71");
     expect(document.querySelector('input[role="switch"]')).toBeNull();
     await act(async () => details().click());
     expect(document.querySelector("table")).toBeNull();

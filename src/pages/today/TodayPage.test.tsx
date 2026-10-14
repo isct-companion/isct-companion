@@ -5,6 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedWorkspace, type Assignment, type Course } from "../../core/model";
 import { Today } from "./TodayPage";
 
+const core = vi.hoisted(() => ({ tasks: undefined as unknown }));
+vi.mock("../../platform/core-query", () => ({
+  useScheduleQuery: (query: { kind: string }) => ({
+    value: query.kind === "taskView" ? core.tasks : undefined,
+    pending: false,
+  }),
+}));
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
 let root: Root;
@@ -54,6 +62,37 @@ const assignment = (
 });
 
 const render = async (data: ReturnType<typeof seedWorkspace>) => {
+  const ordered = data.assignments.map((item) => item.id);
+  core.tasks = {
+    byTerm: {
+      "2026-3Q": {
+        pendingIds: ordered.filter((id) => ["upcoming", "pinned"].includes(id)),
+        pinnedIds: ordered.filter((id) => id === "pinned"),
+        overdueIds: ordered
+          .filter((id) => ["closed", "missed"].includes(id))
+          .reverse(),
+        dueThisWeekIds: ordered.filter((id) => id === "upcoming"),
+        laterIds: [],
+        earlierDueThisWeekIds: ordered.filter((id) =>
+          ["upcoming", "handed-in"].includes(id),
+        ),
+        earlierLaterIds: [],
+      },
+    },
+    nearestByCourse: {},
+    deadlines: Object.fromEntries(
+      data.assignments.map((item) => [
+        item.id,
+        {
+          label: "Due soon",
+          tone: "normal",
+          countdownLabel: "1d",
+          countdownTone: "soon",
+          overdue: ["closed", "missed"].includes(item.id),
+        },
+      ]),
+    ),
+  };
   await act(async () =>
     root.render(
       <Today

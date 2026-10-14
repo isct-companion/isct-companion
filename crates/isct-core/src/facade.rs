@@ -2,7 +2,7 @@
 use crate::school_browser::{SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError};
 use crate::{
     agent::AgentService,
-    data::{DataError, DataStore},
+    data::DataStore,
     ports::EventSink,
     pull_coordinator::PullNetwork,
     reference_refresh::ReferenceService,
@@ -10,6 +10,7 @@ use crate::{
     scheduler::{ScheduledExporter, SchedulerServices},
     school_auth::SchoolAuthService,
     school_service::{SchoolExecutor, SchoolService},
+    workspace::{WorkspaceError, WorkspaceService},
 };
 use std::sync::{Arc, Mutex};
 
@@ -18,6 +19,8 @@ pub struct Core {
     pub runtime: Arc<CoreRuntime>,
     pub auth: Arc<SchoolAuthService>,
     pub agent: AgentService,
+    pub workspace: WorkspaceService,
+    pub reminders: crate::schedule::ReminderService,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
 }
 
@@ -25,6 +28,8 @@ impl Core {
     pub fn new(store: DataStore, auth: Arc<SchoolAuthService>, network: PullNetwork) -> Self {
         Self {
             agent: AgentService::new(store.clone()),
+            workspace: WorkspaceService::new(store.clone()),
+            reminders: crate::schedule::ReminderService::new(store.clone()),
             school_browser: Mutex::new(None),
             store,
             auth,
@@ -91,32 +96,105 @@ impl Core {
         }
     }
 
-    pub fn school_records(&self) -> Result<serde_json::Value, DataError> {
-        let mut records = serde_json::Map::new();
-        for (key, table) in [
-            ("lmsCourses", "lms_courses"),
-            ("registrations", "registrations"),
-            ("registrationStates", "registration_states"),
-            ("grades", "grades"),
-            ("gpaByTerm", "gpa_by_term"),
-            ("requirements", "requirement_progress"),
-        ] {
-            let rows = self
-                .store
-                .table_rows(table)?
-                .into_iter()
-                .filter(|row| row.get("deletedAt").is_none_or(serde_json::Value::is_null))
-                .collect();
-            records.insert(key.into(), serde_json::Value::Array(rows));
+    pub fn school_records(&self) -> Result<serde_json::Value, WorkspaceError> {
+        Ok(self.workspace.snapshot()?.school_records)
+    }
+
+    /// Evaluate a page's related queries against one coherent database snapshot.
+    pub fn schedule_query(
+        &self,
+        queries: Vec<crate::schedule::WorkspaceQuery>,
+    ) -> Result<ScheduleQuerySnapshot, ReadModelError> {
+        if queries.len() > 64 {
+            return Err(ReadModelError::InvalidInput(
+                "Too many schedule queries.".into(),
+            ));
         }
-        records.insert("lastRuns".into(), self.store.last_import_runs()?);
-        Ok(serde_json::Value::Object(records))
+        let mut snapshot = self.workspace.snapshot()?;
+        snapshot.workspace["registrations"] = snapshot.school_records["registrations"].clone();
+        let values = queries
+            .into_iter()
+            .map(|query| crate::schedule::query(&snapshot.workspace, query))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ScheduleQuerySnapshot {
+            revision: snapshot.revision,
+            values,
+        })
+    }
+
+    pub fn finder_query(
+        &self,
+        request: crate::course_query::FinderRequest,
+    ) -> Result<crate::course_query::FinderView, ReadModelError> {
+        let snapshot = self.workspace.snapshot()?;
+        let offerings = crate::catalog::offerings(&self.store, request.year)?;
+        Ok(crate::course_query::finder_view(
+            &snapshot.workspace,
+            offerings,
+            request,
+        )?)
+    }
+
+    pub fn lms_merge_preview(
+        &self,
+        scope: &str,
+        term: &str,
+    ) -> Result<serde_json::Value, ReadModelError> {
+        let snapshot = self.workspace.snapshot()?;
+        let offerings = self
+            .store
+            .catalog_search("")
+            .map_err(crate::catalog::CatalogError::from)?;
+        Ok(crate::workspace::lms_merge_preview(
+            &snapshot.workspace,
+            &snapshot.school_records,
+            scope,
+            term,
+            &offerings,
+        )?)
+    }
+
+    pub async fn reminder_tick(
+        &self,
+        sink: Arc<dyn crate::schedule::NotificationSink>,
+        now: chrono::DateTime<chrono::FixedOffset>,
+    ) -> Result<bool, crate::schedule::ReminderError> {
+        self.reminders.tick(sink, now).await
+    }
+
+    pub async fn import_legacy_reminders(
+        &self,
+        fired: serde_json::Value,
+        now: chrono::DateTime<chrono::FixedOffset>,
+    ) -> Result<bool, crate::schedule::ReminderError> {
+        self.reminders.import_legacy_fired(fired, now).await
     }
 
     pub async fn shutdown(&self) {
+        self.reminders.shutdown().await;
         if let Ok(browser) = self.school_browser() {
             browser.shutdown().await;
         }
         self.runtime.shutdown().await;
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReadModelError {
+    #[error(transparent)]
+    Workspace(#[from] WorkspaceError),
+    #[error(transparent)]
+    Schedule(#[from] crate::schedule::ScheduleError),
+    #[error(transparent)]
+    Finder(#[from] crate::course_query::FinderError),
+    #[error(transparent)]
+    Catalog(#[from] crate::catalog::CatalogError),
+    #[error("{0}")]
+    InvalidInput(String),
+}
+
+#[derive(serde::Serialize)]
+pub struct ScheduleQuerySnapshot {
+    pub revision: String,
+    pub values: Vec<crate::schedule::WorkspaceQueryResult>,
 }

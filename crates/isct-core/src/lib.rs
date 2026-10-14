@@ -20,6 +20,7 @@ pub use facade::Core;
 pub mod cloud_sync;
 pub mod contracts;
 pub mod course_materials;
+pub mod course_query;
 pub mod data;
 pub mod downloads;
 pub mod events;
@@ -35,6 +36,7 @@ pub mod pull_coordinator;
 pub mod reference_refresh;
 pub mod runtime;
 pub mod runtime_tasks;
+pub mod schedule;
 pub mod scheduler;
 pub mod school_auth;
 pub mod school_browser;
@@ -43,6 +45,7 @@ pub mod school_refresh;
 pub mod school_service;
 pub mod subscriptions;
 pub mod syllabus;
+pub mod workspace;
 
 #[cfg(feature = "desktop-workspaces")]
 pub mod workspaces;

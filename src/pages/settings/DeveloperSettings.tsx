@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { t } from "../../i18n";
 import { UiButton, UiInput, UiTextarea } from "../../components/mantine";
-import { validateAcademicProfile } from "../../core/academic-calendar";
 import type { AcademicProfile, Workspace } from "../../core/model";
+import { scheduleQuery } from "../../platform/core-query";
+import { tokyoDate } from "../../core/civil-date";
 import {
   Row,
   SettingsGroup,
@@ -94,7 +95,7 @@ export function DeveloperSettings({
             )}
           >
             <div data-setting="sources">
-              <DataSourceUrls data={data} update={calendarUpdate} />
+              <DataSourceUrls data={data} />
             </div>
           </SettingsGroup>
         </>
@@ -121,11 +122,14 @@ function ProfileEditor({
       fn(next);
       return next;
     });
-  const commit = () => {
+  const validated = async () =>
+    scheduleQuery<AcademicProfile>({
+      kind: "validateAcademicProfile",
+      profile: raw === null ? draft : JSON.parse(raw),
+    });
+  const commit = async () => {
     try {
-      const value = validateAcademicProfile(
-        raw === null ? draft : JSON.parse(raw),
-      );
+      const value = await validated();
       setDraft(value);
       setRaw(null);
       setError("");
@@ -135,7 +139,9 @@ function ProfileEditor({
     }
   };
   const nextYear = (years: number[]) =>
-    years.length ? Math.max(...years) + 1 : new Date().getFullYear();
+    years.length
+      ? Math.max(...years) + 1
+      : Number(tokyoDate(new Date()).slice(0, 4));
   return (
     <div className="profileForm">
       {raw !== null ? (
@@ -277,11 +283,16 @@ function ProfileEditor({
       <div className="actions end">
         <UiButton
           className="textButton"
-          onClick={() => {
+          onClick={async () => {
             setError("");
             if (raw === null) return setRaw(JSON.stringify(draft, null, 2));
             try {
-              setDraft(validateAcademicProfile(JSON.parse(raw)));
+              setDraft(
+                await scheduleQuery<AcademicProfile>({
+                  kind: "validateAcademicProfile",
+                  profile: JSON.parse(raw),
+                }),
+              );
               setRaw(null);
             } catch (e) {
               setError(e instanceof Error ? e.message : String(e));
@@ -290,7 +301,7 @@ function ProfileEditor({
         >
           {raw === null ? t("Edit JSON") : t("Back to form")}
         </UiButton>
-        <UiButton className="button primary" onClick={commit}>
+        <UiButton className="button primary" onClick={() => void commit()}>
           {t("Save")}
         </UiButton>
       </div>

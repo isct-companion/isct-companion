@@ -1,5 +1,6 @@
 //! Explicit local diagnostic; never logs characters, cell images, or hashes.
 use super::*;
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 fn hash(bytes: &[u8]) -> String {
@@ -8,6 +9,10 @@ fn hash(bytes: &[u8]) -> String {
 fn read(path: &std::path::Path) -> Value {
     serde_json::from_slice(&std::fs::read(path).expect("private input unavailable"))
         .expect("invalid private test input")
+}
+fn decode_prepared(value: &str) -> RgbImage {
+    decode_image(&STANDARD.decode(value).expect("invalid prepared encoding"))
+        .expect("invalid prepared image")
 }
 fn points(v: &Value) -> Vec<[geometry::Point; 4]> {
     v.as_array()
@@ -28,10 +33,8 @@ fn private_ts_native_parity() {
         std::env::var("MATRIX_PRIVATE_DIR").expect("set MATRIX_PRIVATE_DIR"),
     );
     let input = read(&root.join("prepared.json"));
-    let source =
-        decode_canvas(input["data"].as_str().unwrap(), 2200).expect("source decoding failed");
-    let small =
-        decode_canvas(input["preview"].as_str().unwrap(), 600).expect("preview decoding failed");
+    let source = decode_prepared(input["data"].as_str().unwrap());
+    let small = decode_prepared(input["preview"].as_str().unwrap());
     let cells = geometry::locate(&small);
     if std::env::var("MATRIX_PRIVATE_STAGE").as_deref() == Ok("prepare") {
         let grid = cells.as_ref().map(|cs| {

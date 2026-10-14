@@ -3,6 +3,8 @@ use crate::lms_files;
 #[cfg(matrix_ocr)]
 use crate::matrix_ocr;
 use crate::require_local_main;
+#[cfg(matrix_ocr)]
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -23,9 +25,8 @@ pub(crate) async fn recognize_matrix_image(
     webview: tauri::Webview,
     service: tauri::State<'_, matrix_ocr::MatrixOcrService>,
     app: tauri::AppHandle,
-    data: String,
-    preview: String,
-    on_progress: tauri::ipc::Channel<usize>,
+    image: String,
+    on_progress: tauri::ipc::Channel<matrix_ocr::OcrProgress>,
 ) -> Result<Vec<matrix_ocr::Recognition>, String> {
     require_local_main(&webview)?;
     let service = service.inner().clone();
@@ -38,10 +39,14 @@ pub(crate) async fn recognize_matrix_image(
         );
         #[cfg(not(debug_assertions))]
         let _ = app;
+        if image.len() > (20 * 1024 * 1024usize).div_ceil(3) * 4 {
+            return Err("Choose a valid image smaller than 20 MB.".into());
+        }
+        let image = STANDARD
+            .decode(image)
+            .map_err(|_| "Invalid image encoding".to_string())?;
         service
-            .scan(&data, &preview, |completed| {
-                let _ = on_progress.send(completed);
-            })
+            .scan(&image, |progress| on_progress.send(progress).is_ok())
             .map_err(|error| error.to_string())
     })
     .await

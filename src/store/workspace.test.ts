@@ -1,314 +1,227 @@
 import { describe, expect, it, vi } from "vitest";
 import { seedWorkspace, type Workspace } from "../core/model";
-import { createWorkspaceHooks, createWorkspaceStore } from "./workspace";
+import type {
+  CoreWorkspaceSnapshot,
+  WorkspaceMutation,
+} from "../core/workspace-intents";
+import {
+  createBrowserPreviewService,
+  createWorkspaceHooks,
+  createWorkspaceStore,
+} from "./workspace";
 
-const clone = <T>(value: T): T => structuredClone(value);
-
-function memoryRepository(initial: Workspace = seedWorkspace()) {
-  let stored = clone(initial);
-  const saves: Workspace[] = [];
+const schoolRecords = () => ({
+  lastRuns: {},
+  lmsCourses: [],
+  registrations: [],
+  registrationStates: [],
+  grades: [],
+  gpaByTerm: [],
+  requirements: [],
+});
+function coreService(initial: Workspace = seedWorkspace()) {
+  let generation = 0;
+  let workspace = structuredClone(initial);
+  const result = (): CoreWorkspaceSnapshot => ({
+    revision: `r${generation}`,
+    workspace: structuredClone(workspace),
+    schoolRecords: schoolRecords(),
+  });
   return {
-    saves,
-    load: vi.fn(async () => clone(stored)),
-    save: vi.fn(async (next: Workspace) => {
-      stored = clone(next);
-      saves.push(clone(next));
+    snapshot: vi.fn(async () => result()),
+    mutate: vi.fn(async (request: WorkspaceMutation) => {
+      if (request.expectedRevision !== `r${generation}`)
+        throw new Error("revision conflict");
+      if (request.intent.kind === "patchSettings")
+        Object.assign(workspace.settings, request.intent.patch);
+      generation++;
+      return result();
     }),
-    read: () => clone(stored),
   };
 }
 
-describe("Zustand workspace store", () => {
-  it("loads one immutable snapshot and deduplicates concurrent initialization", async () => {
-    const storage = memoryRepository();
-    const store = createWorkspaceStore(storage);
-    const first = store.initialize();
-    const second = store.initialize();
-
-    await Promise.all([first, second]);
-
-    expect(storage.load).toHaveBeenCalledTimes(1);
-    expect(store.getState()).toMatchObject({
-      status: "ready",
-      revision: 0,
-      persistedRevision: 0,
-    });
-    expect(Object.isFrozen(store.getState().workspace)).toBe(true);
-    expect(Object.isFrozen(store.getState().workspace?.settings)).toBe(true);
+describe("Zustand workspace snapshot cache", () => {
+  it("deduplicates initialization and adopts one Core snapshot", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
+    await Promise.all([store.initialize(), store.initialize()]);
+    expect(service.snapshot).toHaveBeenCalledTimes(1);
+    expect(store.getState()).toMatchObject({ status: "ready", revision: "r0" });
   });
-
-  it("publishes through Zustand subscriptions and persists an edit", async () => {
-    const storage = memoryRepository();
-    const store = createWorkspaceStore(storage);
+  it("sends coarse intents with the current revision and adopts the result", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
     await store.initialize();
-    const listener = vi.fn();
-    const unsubscribe = store.subscribe(listener);
-
-    store.update((draft) => {
-      draft.settings.appearance = "dark";
+    await store.mutate({
+      kind: "patchSettings",
+      patch: { appearance: "dark" },
     });
-    await store.flush();
-
-    expect(listener).toHaveBeenCalled();
+    expect(service.mutate).toHaveBeenCalledWith({
+      expectedRevision: "r0",
+      intent: { kind: "patchSettings", patch: { appearance: "dark" } },
+    });
+    expect(store.getState()).toMatchObject({ revision: "r1" });
     expect(store.getState().workspace?.settings.appearance).toBe("dark");
-    expect(store.getState()).toMatchObject({
-      revision: 1,
-      persistedRevision: 1,
+  });
+  it("serializes rapid mutations using the preceding Core revision", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
+    await store.initialize();
+    const first = store.mutate({
+      kind: "patchSettings",
+      patch: { appearance: "dark" },
     });
-    expect(storage.read().settings.appearance).toBe("dark");
-    unsubscribe();
+    const second = store.mutate({
+      kind: "patchSettings",
+      patch: { appearance: "light" },
+    });
+    await Promise.all([first, second]);
+    expect(
+      service.mutate.mock.calls.map(([request]) => request.expectedRevision),
+    ).toEqual(["r0", "r1"]);
+    expect(store.getState().workspace?.settings.appearance).toBe("light");
   });
-
-  it("does not create a revision for a no-op transaction", async () => {
-    const storage = memoryRepository();
-    const store = createWorkspaceStore(storage);
+  it("resolves successive form intents against the preceding committed snapshot", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
     await store.initialize();
-    store.update(() => undefined);
-    await store.flush();
-    expect(store.getState().revision).toBe(0);
-    expect(storage.save).not.toHaveBeenCalled();
+    const first = store.mutate((draft) => {
+      draft.settings.appearance = "dark";
+      return { kind: "patchSettings", patch: draft.settings };
+    });
+    const second = store.mutate((draft) => {
+      draft.settings.locale = "ja";
+      return { kind: "patchSettings", patch: draft.settings };
+    });
+    await Promise.all([first, second]);
+    expect(store.getState().workspace?.settings).toMatchObject({
+      appearance: "dark",
+      locale: "ja",
+    });
+    expect(service.mutate.mock.calls[1][0]).toMatchObject({
+      expectedRevision: "r1",
+      intent: { patch: { appearance: "dark", locale: "ja" } },
+    });
   });
-
-  it("serializes rapid saves in revision order", async () => {
-    const initial = seedWorkspace();
-    const resolvers: Array<() => void> = [];
-    const written: string[] = [];
-    const storage = {
-      load: vi.fn(async () => initial),
-      save: vi.fn(
-        (data: Workspace) =>
-          new Promise<void>((resolve) => {
-            written.push(data.settings.appearance);
-            resolvers.push(resolve);
-          }),
-      ),
+  it("keeps the cached snapshot unchanged when Core rejects an intent", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
+    await store.initialize();
+    const before = store.getState();
+    service.mutate.mockRejectedValueOnce(new Error("revision conflict"));
+    await expect(
+      store.mutate({ kind: "patchSettings", patch: { appearance: "dark" } }),
+    ).rejects.toThrow("revision conflict");
+    expect(store.getState().revision).toBe(before.revision);
+    expect(store.getState().workspace).toEqual(before.workspace);
+    expect(service.snapshot).toHaveBeenCalledTimes(2);
+  });
+  it("adopts an external write after conflict and lets the user retry explicitly", async () => {
+    const workspace = seedWorkspace();
+    let revision = "r0";
+    let rejectOnce = true;
+    const snapshot = (): CoreWorkspaceSnapshot => ({
+      revision,
+      workspace: structuredClone(workspace),
+      schoolRecords: schoolRecords(),
+    });
+    const service = {
+      snapshot: vi.fn(async () => snapshot()),
+      mutate: vi.fn(async (request: WorkspaceMutation) => {
+        if (rejectOnce) {
+          rejectOnce = false;
+          workspace.settings.locale = "ja";
+          revision = "external";
+          throw new Error("workspace revision conflict");
+        }
+        expect(request.expectedRevision).toBe("external");
+        if (request.intent.kind === "patchSettings")
+          Object.assign(workspace.settings, request.intent.patch);
+        revision = "retry";
+        return snapshot();
+      }),
     };
-    const store = createWorkspaceStore(storage);
+    const store = createWorkspaceStore(service);
     await store.initialize();
-    store.update((draft) => void (draft.settings.appearance = "dark"));
-    store.update((draft) => void (draft.settings.appearance = "light"));
+    const intent = {
+      kind: "patchSettings",
+      patch: { appearance: "dark" },
+    } as const;
+    await expect(store.mutate(intent)).rejects.toThrow("revision conflict");
+    expect(store.getState()).toMatchObject({ revision: "external" });
+    expect(store.getState().workspace?.settings).toMatchObject({
+      locale: "ja",
+      appearance: "system",
+    });
+    expect(service.mutate).toHaveBeenCalledTimes(1);
 
-    await vi.waitFor(() => expect(written).toEqual(["dark"]));
-    resolvers.shift()?.();
-    await vi.waitFor(() => expect(written).toEqual(["dark", "light"]));
-    resolvers.shift()?.();
-    await store.flush();
-    expect(store.getState().persistedRevision).toBe(2);
+    await store.mutate(intent);
+    expect(service.mutate).toHaveBeenCalledTimes(2);
+    expect(store.getState()).toMatchObject({ revision: "retry" });
+    expect(store.getState().workspace?.settings.appearance).toBe("dark");
   });
-
-  it("keeps valid in-memory state when persistence fails and can retry", async () => {
-    const storage = memoryRepository();
-    storage.save.mockRejectedValueOnce(new Error("disk full"));
-    const store = createWorkspaceStore(storage);
+  it("reload cannot replace a mutation that completes while its read is pending", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
     await store.initialize();
-    store.update((draft) => void (draft.settings.locale = "ja"));
-    await expect(store.flush()).rejects.toThrow("remain in memory");
-    expect(store.getState().workspace?.settings.locale).toBe("ja");
-
-    await store.retrySave();
-    expect(store.getState().error).toBeUndefined();
-    expect(store.getState().persistedRevision).toBe(1);
-  });
-
-  it("rejects duplicate records and non-serializable values before publish", async () => {
-    const storage = memoryRepository();
-    const store = createWorkspaceStore(storage);
-    await store.initialize();
-    const original = store.getState().workspace;
-
-    expect(() =>
-      store.update((draft) => {
-        draft.courses.push(clone(draft.courses[0]));
-      }),
-    ).toThrow("duplicate courses");
-    expect(() =>
-      store.update((draft) => {
-        (draft.settings as unknown as { invalid: bigint }).invalid = 1n;
-      }),
-    ).toThrow("non-serializable");
-    expect(store.getState().workspace).toBe(original);
-  });
-
-  it("reports load failure without overwriting storage", async () => {
-    const storage = {
-      load: vi.fn(async () => {
-        throw new Error("corrupt");
-      }),
-      save: vi.fn(),
+    let release!: (snapshot: CoreWorkspaceSnapshot) => void;
+    service.snapshot.mockImplementationOnce(
+      () => new Promise((resolve) => void (release = resolve)),
+    );
+    const reload = store.reload();
+    await Promise.resolve();
+    const stale = {
+      revision: "r0",
+      workspace: seedWorkspace(),
+      schoolRecords: schoolRecords(),
     };
-    const store = createWorkspaceStore(storage);
-    await store.initialize();
-    expect(store.getState()).toMatchObject({ status: "error" });
-    expect(store.getState().workspace).toBeUndefined();
-    expect(storage.save).not.toHaveBeenCalled();
+    await store.mutate({
+      kind: "patchSettings",
+      patch: { appearance: "dark" },
+    });
+    release(stale);
+    await reload;
+    expect(service.snapshot).toHaveBeenCalledTimes(3);
+    expect(store.getState().workspace?.settings.appearance).toBe("dark");
   });
-
-  it("exports a detached, formatted JSON snapshot", async () => {
-    const store = createWorkspaceStore(memoryRepository());
+  it("reloads the unified snapshot after a school pull", async () => {
+    const service = coreService();
+    const school = { pull: vi.fn(async () => []) };
+    const store = createWorkspaceStore(service, school);
     await store.initialize();
-    const exported = store.export();
-    expect(JSON.parse(exported)).toEqual(store.getState().workspace);
-    expect(exported).toContain('\n  "schemaVersion"');
+    await store.pullSchool("science-lms");
+    expect(school.pull).toHaveBeenCalledWith("science-lms");
+    expect(service.snapshot).toHaveBeenCalledTimes(2);
   });
 });
 
 describe("workspace action boundary", () => {
-  it("allows local preferences in browser preview", async () => {
-    const store = createWorkspaceStore(memoryRepository());
-    await store.initialize();
-    const hooks = createWorkspaceHooks(store, () => "browser-preview");
-    hooks.actions.updatePreferences({ appearance: "dark", locale: "zh" });
-    await store.flush();
-    expect(store.getState().workspace?.settings).toMatchObject({
-      appearance: "dark",
-      locale: "zh",
-    });
-  });
-
-  it("rejects invalid preference keys and values", async () => {
-    const store = createWorkspaceStore(memoryRepository());
+  it("validates preferences before sending them to Core", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
     await store.initialize();
     const hooks = createWorkspaceHooks(store, () => "native-desktop");
+    await hooks.actions.updatePreferences({ appearance: "dark", locale: "zh" });
+    expect(service.mutate).toHaveBeenCalledTimes(1);
     expect(() =>
       hooks.actions.updatePreferences({ appearance: "neon" as "dark" }),
     ).toThrow("Invalid preference");
-    expect(() =>
-      hooks.actions.updatePreferences({ density: "compact" } as never),
-    ).toThrow("Invalid preference");
   });
-
-  it("keeps academic edits inside their permitted envelope", async () => {
-    const initial = seedWorkspace();
-    initial.courses.push({
-      id: "course-1",
-      kind: "course",
-      rev: 1,
-      updatedAt: "2026-09-29T00:00:00.000Z",
-      updatedBy: initial.deviceId,
-      termId: initial.selectedTerm,
-      code: "TEST.1",
-      title: "Original title",
-      instructor: "Teacher",
-      credits: 1,
-      creditSplit: { lecture: 1, exercise: 0, lab: 0 },
-      instructionLanguage: "en",
-      color: "#000000",
-      meetings: [],
-      source: { provider: "manual" },
-    });
-    const store = createWorkspaceStore(memoryRepository(initial));
-    await store.initialize();
-    const hooks = createWorkspaceHooks(store, () => "native-desktop");
-    hooks.actions.editAcademic((draft) => {
-      draft.courses[0].title = "Updated title";
-    });
-    expect(store.getState().workspace?.courses[0].title).toBe("Updated title");
-    expect(() =>
-      hooks.actions.editAcademic((draft) => {
-        draft.settings.locale = "ja";
-      }),
-    ).toThrow("settings");
-    expect(() =>
-      hooks.actions.editAcademic((draft) => {
-        draft.deviceId = "foreign-device";
-      }),
-    ).toThrow("workspace identity");
-  });
-
-  it("blocks academic mutation in browser preview", async () => {
-    const store = createWorkspaceStore(memoryRepository());
-    await store.initialize();
-    const hooks = createWorkspaceHooks(store, () => "browser-preview");
-    expect(() => hooks.actions.editAcademic(() => undefined)).toThrow(
-      "read-only",
-    );
-  });
-});
-
-describe("shared school snapshot", () => {
-  const records = (title: string) =>
-    ({
-      lastRuns: {},
-      lmsCourses: [
-        {
-          lmsId: 42,
-          title,
-          url: "https://lms.s.isct.ac.jp/2025/course/view.php?id=42",
-        },
-      ],
-      registrations: [],
-      registrationStates: [],
-      grades: [],
-      gpaByTerm: [],
-      requirements: [],
-    }) as import("../platform/desktop-bridge").SchoolRecords;
-  it("publishes native course records and workspace together through the global action", async () => {
-    const storage = memoryRepository();
-    let schoolRows = records("Old section");
-    const school = {
-      read: vi.fn(async () => schoolRows),
-      pull: vi.fn(async () => {
-        schoolRows = records("New section");
-        return [];
-      }),
+  it("keeps browser preview read-only without a parallel mutation engine", async () => {
+    const stored = seedWorkspace();
+    const repository = {
+      load: vi.fn(async () => structuredClone(stored)),
+      export: vi.fn(async () => ""),
+      reset: vi.fn(async () => seedWorkspace()),
     };
-    const store = createWorkspaceStore(storage, school);
+    const store = createWorkspaceStore(createBrowserPreviewService(repository));
     await store.initialize();
-    const observed: string[] = [];
-    const off = store.subscribe((snapshot) =>
-      observed.push(snapshot.schoolRecords!.lmsCourses[0].title),
-    );
-    await store.pullSchool("science-lms");
-    expect(school.pull).toHaveBeenCalledWith("science-lms");
-    expect(observed).toEqual(["New section"]);
-    expect(Object.isFrozen(store.getState().schoolRecords?.lmsCourses)).toBe(
-      true,
-    );
-    off();
-  });
-  it("passes concurrent pulls to native admission and reloads committed results", async () => {
-    const storage = memoryRepository();
-    const release: Array<() => void> = [];
-    const school = {
-      read: vi.fn(async () => records("Section")),
-      pull: vi.fn(
-        () => new Promise<[]>((resolve) => release.push(() => resolve([]))),
-      ),
-    };
-    const store = createWorkspaceStore(storage, school);
-    await store.initialize();
-    const first = store.pullSchool("science-lms");
-    const second = store.pullSchool("kyomu");
-    await vi.waitFor(() => expect(school.pull).toHaveBeenCalledTimes(2));
-    store.update((draft) => {
-      draft.settings.appearance = "dark";
-    });
-    release.forEach((done) => done());
-    await Promise.all([first, second]);
-    expect(store.getState().workspace?.settings.appearance).toBe("dark");
-    expect(store.getState().schoolRecords?.lmsCourses[0].title).toBe("Section");
-  });
-  it("does not overwrite edits made while a native refresh was pending", async () => {
-    const storage = memoryRepository();
-    const store = createWorkspaceStore(storage);
-    await store.initialize();
-    let release!: (value: Workspace) => void;
-    storage.load.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          release = resolve;
-        }),
-    );
-    const refresh = store.reload();
-    await Promise.resolve();
-    await Promise.resolve();
-    const stale = storage.read();
-    store.update((draft) => {
-      draft.settings.appearance = "dark";
-    });
-    release(stale);
-    await refresh;
-    expect(store.getState().workspace?.settings.appearance).toBe("dark");
-    expect(storage.load).toHaveBeenCalledTimes(3);
+    await expect(
+      store.mutate({ kind: "patchSettings", patch: { appearance: "dark" } }),
+    ).rejects.toThrow("native app");
+    expect(stored.settings.appearance).toBe("system");
+    await expect(
+      store.mutate({ kind: "markTimetableReviewed" }),
+    ).rejects.toThrow("native app");
   });
 });

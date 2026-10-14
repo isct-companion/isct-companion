@@ -7,6 +7,16 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
+    for declaration in isct_core::schedule::declarations() {
+        output.push_str("export ");
+        output.push_str(&declaration);
+        output.push_str("\n\n");
+    }
+    for declaration in isct_core::workspace::declarations() {
+        output.push_str("export ");
+        output.push_str(&declaration);
+        output.push_str("\n\n");
+    }
     output.push_str("export const DATA_POLICY: DataPolicy = ");
     output.push_str(
         &serde_json::to_string_pretty(&isct_companion_lib::contracts::data_policy())
@@ -18,6 +28,12 @@ fn main() {
             .expect("serialize course file policy"),
     );
     output.push_str(";\n");
+    output.push_str("\nexport const COURSE_PALETTE = ");
+    output.push_str(
+        &serde_json::to_string(&isct_core::schedule::COURSE_PALETTE)
+            .expect("serialize course palette"),
+    );
+    output.push_str(" as const;\n");
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/generated/persistence.ts");
     std::fs::create_dir_all(path.parent().expect("generated directory"))

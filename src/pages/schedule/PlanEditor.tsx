@@ -1,9 +1,13 @@
 import { Button, Group, Modal, Select, Stack, TextInput } from "@mantine/core";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Plan } from "../../core/model";
 import { useEffect } from "react";
-import { nextPlanOccurrences, planCivilStart } from "../../core/user-schedule";
-import { tokyoDate } from "../../core/civil-date";
+import {
+  scheduleQuery,
+  useScheduleQuery,
+  type PlanCivilStart,
+} from "../../platform/core-query";
+import { useSubmissionGuard } from "../../components/use-submission-guard";
 
 const presets = {
   once: "",
@@ -35,33 +39,38 @@ export function PlanEditor({
   plan?: Plan;
   opened: boolean;
   close: () => void;
-  save: (draft: PlanDraft) => void;
-  remove?: () => void;
+  save: (draft: PlanDraft) => Promise<unknown> | void;
+  remove?: () => Promise<unknown> | void;
 }) {
+  const submission = useSubmissionGuard();
   const [title, setTitle] = useState(plan?.title ?? "");
-  const [start, setStart] = useState(
-    plan
-      ? `${planCivilStart(plan).date}T${planCivilStart(plan).time}`
-      : tokyoDate(new Date()) + "T09:00",
+  const [defaultStart] = useState(
+    () => plan?.start ?? new Date().toISOString(),
   );
+  const civilStart = useScheduleQuery<PlanCivilStart>({
+    kind: "planCivilStart",
+    plan: { start: defaultStart },
+  }).value;
+  const [start, setStart] = useState("");
+  const editedStart = useRef(false);
+  useEffect(() => {
+    if (civilStart && !editedStart.current)
+      setStart(`${civilStart.date}T${plan ? civilStart.time : "09:00"}`);
+  }, [civilStart, plan]);
   const [duration, setDuration] = useState(plan?.duration ?? 60);
   const [room, setRoom] = useState(plan?.room ?? "");
   const [rule, setRule] = useState(plan?.rrule ?? "");
-  const localPreview = () =>
-    nextPlanOccurrences(
-      {
-        id: plan?.id ?? "preview",
-        rev: plan?.rev ?? 1,
-        updatedAt: plan?.updatedAt ?? new Date().toISOString(),
-        updatedBy: plan?.updatedBy ?? "preview",
-        title: title || "Preview",
-        start,
-        duration,
-        rrule: rule || undefined,
-        exdates: plan?.exdates ?? [],
-      },
-      5,
-    );
+  const previewPlan = () => ({
+    id: plan?.id ?? "preview",
+    rev: plan?.rev ?? 1,
+    updatedAt: plan?.updatedAt ?? new Date().toISOString(),
+    updatedBy: plan?.updatedBy ?? "preview",
+    title: title || "Preview",
+    start,
+    duration,
+    rrule: rule || undefined,
+    exdates: plan?.exdates ?? [],
+  });
   const [preview, setPreview] = useState<string[]>([]);
   const [ruleError, setRuleError] = useState("");
   const preset = useMemo(
@@ -71,21 +80,41 @@ export function PlanEditor({
     [rule],
   );
   useEffect(() => {
-    try {
-      setPreview(start ? localPreview() : []);
-      setRuleError("");
-    } catch (error) {
+    let active = true;
+    if (!start) {
       setPreview([]);
-      setRuleError(error instanceof Error ? error.message : String(error));
+      setRuleError("");
+      return;
     }
+    void scheduleQuery<string[]>({
+      kind: "nextPlanOccurrences",
+      plan: previewPlan(),
+      limit: 5,
+    }).then(
+      (value) => {
+        if (!active) return;
+        setPreview(value);
+        setRuleError("");
+      },
+      (error) => {
+        if (!active) return;
+        setPreview([]);
+        setRuleError(error instanceof Error ? error.message : String(error));
+      },
+    );
+    return () => {
+      active = false;
+    };
   }, [rule, start, plan?.exdates]);
   return (
     <Modal
       opened={opened}
-      onClose={close}
+      onClose={() => !submission.busy && close()}
+      closeOnClickOutside={!submission.busy}
+      closeOnEscape={!submission.busy}
       title={plan ? "Edit plan" : "New plan"}
     >
-      <Stack>
+      <Stack aria-busy={submission.busy}>
         <TextInput
           required
           label="Title"
@@ -97,7 +126,10 @@ export function PlanEditor({
           type="datetime-local"
           label="Start"
           value={start}
-          onChange={(event) => setStart(event.currentTarget.value)}
+          onChange={(event) => {
+            editedStart.current = true;
+            setStart(event.currentTarget.value);
+          }}
         />
         <TextInput
           type="number"
@@ -139,6 +171,7 @@ export function PlanEditor({
           />
         )}
         {ruleError && <div role="alert">{ruleError}</div>}
+        {submission.error && <div role="alert">{submission.error}</div>}
         {preview.length > 0 && (
           <div>
             <b>Next 5 occurrences</b>
@@ -149,18 +182,28 @@ export function PlanEditor({
         )}
         <Group justify="space-between">
           {remove ? (
-            <Button color="red" variant="subtle" onClick={remove}>
+            <Button
+              color="red"
+              variant="subtle"
+              disabled={submission.busy}
+              onClick={() => void submission.run(remove)}
+            >
               Delete
             </Button>
           ) : (
             <span />
           )}
           <Group>
-            <Button variant="default" onClick={close}>
+            <Button
+              variant="default"
+              disabled={submission.busy}
+              onClick={close}
+            >
               Cancel
             </Button>
             <Button
               disabled={
+                submission.busy ||
                 !title.trim() ||
                 !start ||
                 !Number.isFinite(duration) ||
@@ -168,15 +211,17 @@ export function PlanEditor({
                 Boolean(ruleError)
               }
               onClick={() =>
-                save({
-                  title: title.trim(),
-                  start,
-                  duration,
-                  room: room.trim() || undefined,
-                  rrule: rule || undefined,
-                  exdates: plan?.exdates ?? [],
-                  reminder: plan?.reminder,
-                })
+                void submission.run(() =>
+                  save({
+                    title: title.trim(),
+                    start,
+                    duration,
+                    room: room.trim() || undefined,
+                    rrule: rule || undefined,
+                    exdates: plan?.exdates ?? [],
+                    reminder: plan?.reminder,
+                  }),
+                )
               }
             >
               Save
