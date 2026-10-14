@@ -385,6 +385,16 @@ impl SmallPool {
     }
 }
 
+/// The process that wrote a partial download temp file named
+/// `<target>.part-<pid>-<sequence>` (see `create_temp`). Partials of another
+/// process were orphaned by a crash or OS kill; cleanup reclaims them.
+pub(crate) fn partial_download_owner(name: &str) -> Option<u32> {
+    let (_, suffix) = name.rsplit_once(".part-")?;
+    let (pid, sequence) = suffix.split_once('-')?;
+    sequence.parse::<u64>().ok()?;
+    pid.parse().ok()
+}
+
 struct TempPath {
     path: PathBuf,
     armed: bool,

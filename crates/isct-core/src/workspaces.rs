@@ -1,6 +1,9 @@
 //! Desktop assignment workspace storage, archive and cleanup rules.
 
-use crate::course_materials::{self, CourseKey};
+use crate::{
+    course_materials::CourseKey,
+    storage::{self, StorageError},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -26,12 +29,11 @@ pub enum WorkspaceError {
     Archive(String),
 }
 
-impl From<course_materials::MaterialError> for WorkspaceError {
-    fn from(error: course_materials::MaterialError) -> Self {
+impl From<StorageError> for WorkspaceError {
+    fn from(error: StorageError) -> Self {
         match error {
-            course_materials::MaterialError::Input(message) => Self::Input(message),
-            course_materials::MaterialError::Storage(message) => Self::Storage(message),
-            other => Self::Storage(other.to_string()),
+            StorageError::Input(message) => Self::Input(message),
+            StorageError::Storage(message) => Self::Storage(message),
         }
     }
 }
@@ -112,7 +114,7 @@ impl Workspaces {
             .into_iter()
             .map(|attachment| {
                 Ok((
-                    course_materials::stored_file(&self.root, &attachment.path)?,
+                    storage::stored_file(&self.root, &attachment.path)?,
                     safe_name(&attachment.name, "attachment"),
                 ))
             })
@@ -225,7 +227,7 @@ impl Workspaces {
     }
 
     fn workspaces_dir(&self, course: &CourseKey) -> Result<PathBuf, WorkspaceError> {
-        course_materials::storage_dir(&self.root, &[&course.term, &course.course, "workspaces"])
+        storage::storage_dir(&self.root, &[&course.term, &course.course, "workspaces"])
             .map_err(WorkspaceError::from)
     }
 
