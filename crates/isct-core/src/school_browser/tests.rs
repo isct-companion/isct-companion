@@ -4,9 +4,7 @@ use crate::{
     events::CoreEvent,
     lifecycle::SchoolSite,
     ports::{EventError, EventSink, SecretError, SecretVault},
-    pull_coordinator::{
-        PullCoordinator, PullNetwork, PullOptions, PullPriority, PullState, PullTarget,
-    },
+    pull_coordinator::{PullCoordinator, PullNetwork, PullOptions, PullState, PullTarget},
     school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     school_refresh::SchoolRefresh,
     school_service::IngestOutcome,
@@ -52,6 +50,8 @@ struct FakeBrowser {
     listener: Mutex<Option<Weak<dyn SchoolBrowserListener>>>,
     commands: Mutex<Vec<BrowserCommand>>,
     current: Mutex<HashMap<BrowserId, Url>>,
+    /// Report the next dispatch as sent to a view that no longer exists.
+    unavailable: AtomicBool,
 }
 
 impl FakeBrowser {
@@ -82,7 +82,7 @@ impl FakeBrowser {
     }
 
     async fn navigation(&self, index: usize) -> BrowserCommand {
-        for _ in 0..1_000 {
+        for attempt in 0..6_000 {
             let commands: Vec<_> = self
                 .commands
                 .lock()
@@ -94,7 +94,7 @@ impl FakeBrowser {
             if let Some(command) = commands.get(index) {
                 return command.clone();
             }
-            tokio::task::yield_now().await;
+            settle(attempt).await;
         }
         panic!("navigation {index} was not dispatched");
     }
@@ -104,7 +104,7 @@ impl FakeBrowser {
     }
 
     async fn extraction_script_at(&self, index: usize) -> String {
-        for _ in 0..1_000 {
+        for attempt in 0..6_000 {
             let scripts: Vec<_> = self
                 .commands
                 .lock()
@@ -120,13 +120,13 @@ impl FakeBrowser {
             if let Some(script) = scripts.get(index) {
                 return script.clone();
             }
-            tokio::task::yield_now().await;
+            settle(attempt).await;
         }
         panic!("extraction {index} was not dispatched");
     }
 
     async fn eval(&self, index: usize) -> String {
-        for _ in 0..1_000 {
+        for attempt in 0..6_000 {
             let scripts: Vec<_> = self
                 .commands
                 .lock()
@@ -140,13 +140,23 @@ impl FakeBrowser {
             if let Some(script) = scripts.get(index) {
                 return script.clone();
             }
-            tokio::task::yield_now().await;
+            settle(attempt).await;
         }
         panic!("eval {index} was not dispatched");
     }
 
     fn set_current_url(&self, browser: BrowserId, url: Url) {
         self.current.lock().unwrap().insert(browser, url);
+    }
+}
+
+/// Yields first, then sleeps briefly so blocking work (vault reads, SQLite
+/// commits) can finish on a loaded machine.
+async fn settle(attempt: usize) {
+    if attempt < 1_000 {
+        tokio::task::yield_now().await;
+    } else {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     }
 }
 
@@ -162,6 +172,11 @@ impl SchoolBrowser for FakeBrowser {
     }
 
     fn dispatch(&self, command: BrowserCommand) -> Result<(), BrowserError> {
+        if self.unavailable.swap(false, Ordering::AcqRel) {
+            return Err(BrowserError::Unavailable(
+                "School view is unavailable.".into(),
+            ));
+        }
         if let BrowserAction::Navigate(url) = &command.command {
             self.current
                 .lock()
@@ -774,7 +789,7 @@ async fn coordinator_pull_accepts_native_cause_none_and_commits_lms_payload() {
                         let engine = engine.clone();
                         async move {
                             engine
-                                .pull(SchoolSite::ScienceLms, None, context, PullPriority::Manual)
+                                .pull(SchoolSite::ScienceLms, None, None, context)
                                 .await
                                 .map(|outcomes| serde_json::to_value(outcomes).unwrap())
                                 .map_err(|error| {
@@ -854,7 +869,7 @@ async fn full_lms_pull_rejects_the_preempted_relay_and_resumes_the_same_caller()
                         let engine = engine.clone();
                         async move {
                             engine
-                                .pull(SchoolSite::ScienceLms, None, context, PullPriority::Manual)
+                                .pull(SchoolSite::ScienceLms, None, None, context)
                                 .await
                                 .map(|outcomes| serde_json::to_value(outcomes).unwrap())
                                 .map_err(|error| {
@@ -996,12 +1011,7 @@ async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails(
                         let engine = engine.clone();
                         async move {
                             let outcomes = engine
-                                .pull(
-                                    SchoolSite::Kyomu,
-                                    None,
-                                    context.clone(),
-                                    PullPriority::Manual,
-                                )
+                                .pull(SchoolSite::Kyomu, None, None, context.clone())
                                 .await
                                 .map_err(|error| {
                                     crate::pull_coordinator::PullError::Execution(error.to_string())
@@ -1124,7 +1134,7 @@ async fn cancellation_before_applying_keeps_the_lms_database_unchanged() {
                         let engine = engine.clone();
                         async move {
                             engine
-                                .pull(SchoolSite::ScienceLms, None, context, PullPriority::Manual)
+                                .pull(SchoolSite::ScienceLms, None, None, context)
                                 .await
                                 .map(|outcomes| serde_json::to_value(outcomes).unwrap())
                                 .map_err(|error| {
@@ -1176,5 +1186,611 @@ async fn cancellation_before_applying_keeps_the_lms_database_unchanged() {
         .unwrap();
     assert_eq!(count, 0);
     coordinator.shutdown().await;
+    engine.shutdown().await;
+}
+
+fn spawn_pull(
+    engine: &Arc<SchoolBrowserEngine>,
+    coordinator: &PullCoordinator,
+    site: SchoolSite,
+    options: PullOptions,
+) -> tokio::task::JoinHandle<Result<serde_json::Value, crate::pull_coordinator::PullError>> {
+    let engine = engine.clone();
+    let coordinator = coordinator.clone();
+    tokio::spawn(async move {
+        coordinator
+            .run(
+                PullTarget::School {
+                    site,
+                    course_id: None,
+                },
+                options,
+                move |context| {
+                    let engine = engine.clone();
+                    async move {
+                        engine
+                            .pull(site, None, None, context)
+                            .await
+                            .map(|outcomes| serde_json::to_value(outcomes).unwrap())
+                            .map_err(|error| match error {
+                                SchoolBrowserError::Cancelled => {
+                                    crate::pull_coordinator::PullError::Cancelled
+                                }
+                                error => {
+                                    crate::pull_coordinator::PullError::Execution(error.to_string())
+                                }
+                            })
+                    }
+                },
+            )
+            .await
+    })
+}
+
+fn kyomu_gpa_relay(script: &str) -> Url {
+    extraction_relay(
+        script,
+        serde_json::json!({
+            "status": "ok",
+            "sourceUrl": "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
+            "kind": "gpa",
+            "data": {
+                "overall": [[[], ["GPA", "GPT", "修得済単位", "合格率"], ["3.20", "100", "10", "90"]]],
+                "terms": []
+            }
+        }),
+    )
+}
+
+#[tokio::test]
+async fn kyomu_pull_can_be_cancelled_between_committed_pages() {
+    let (engine, browser, _, store) = engine();
+    let coordinator = PullCoordinator::default();
+    let request = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::Kyomu,
+        PullOptions::manual(),
+    );
+    let landing = browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: landing.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/").unwrap(),
+    });
+    let gpa = browser.navigation(1).await;
+    let BrowserAction::Navigate(gpa_url) = gpa.command.clone() else {
+        panic!("GPA page was not navigated");
+    };
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: gpa.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: gpa_url,
+    });
+    let relay = kyomu_gpa_relay(&browser.extraction_script().await);
+    browser.listener().decide_navigation(
+        PageId {
+            browser: gpa.browser,
+            sequence: 2,
+        },
+        relay,
+        true,
+    );
+    // The second page starts only after the first commit left the write gate.
+    browser.navigation(2).await;
+    let id = coordinator.snapshots().await[0].id.clone();
+    assert!(coordinator.cancel(&id).await);
+    assert_eq!(
+        request.await.unwrap(),
+        Err(crate::pull_coordinator::PullError::Cancelled)
+    );
+    assert_eq!(coordinator.snapshots().await[0].state, PullState::Cancelled);
+    let navigations = browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+        .count();
+    assert_eq!(navigations, 3);
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    let committed: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM gpa_summary WHERE id='kyomu-gpa:all'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(committed, 1);
+    coordinator.shutdown().await;
+    engine.shutdown().await;
+}
+
+fn saved_science_vault() -> BlockingVault {
+    let (started_send, _started_receive) = mpsc::channel();
+    let (_release_send, release_receive) = mpsc::channel();
+    let vault = BlockingVault {
+        value: Arc::new(Mutex::new(None)),
+        block: Arc::new(AtomicBool::new(false)),
+        started: started_send,
+        release: Arc::new(Mutex::new(release_receive)),
+    };
+    SchoolAuthService::new(vault.clone())
+        .save(
+            SchoolAuthProfile::Science,
+            SchoolCredentials {
+                username: "student".into(),
+                password: "password".into(),
+                otp_secret: "JBSWY3DPEHPK3PXP".into(),
+                matrix: String::new(),
+            },
+        )
+        .unwrap();
+    vault
+}
+
+async fn wait_for_snapshot(
+    coordinator: &PullCoordinator,
+    accept: impl Fn(&crate::pull_coordinator::PullSnapshot) -> bool,
+) {
+    for _ in 0..10_000 {
+        if coordinator.snapshots().await.iter().any(&accept) {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("pull snapshot did not reach the expected state");
+}
+
+#[tokio::test]
+async fn running_pull_signs_in_first_when_a_join_asks_for_login() {
+    let (engine, browser, _, _) =
+        engine_with_auth(Arc::new(SchoolAuthService::new(saved_science_vault())));
+    let coordinator = PullCoordinator::default();
+    engine.user_browsing(Some(SchoolSite::Kyomu)).unwrap();
+    let automatic = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::automatic(),
+    );
+    wait_for_snapshot(&coordinator, |row| row.state == PullState::Running).await;
+    let forced = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions {
+            login_first: true,
+            ..PullOptions::manual()
+        },
+    );
+    wait_for_snapshot(&coordinator, |row| row.waiter_count == 2).await;
+    engine.user_browsing(None).unwrap();
+
+    let login = browser.navigation(0).await;
+    assert_eq!(login.browser.site, SchoolSite::SciencePortal);
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: login.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/auth").unwrap(),
+    });
+    assert!(login_config(&browser.eval(0).await)["username"] == "student");
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: login.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/idm/user/portal/").unwrap(),
+    });
+    let pull = browser.navigation(1).await;
+    assert_eq!(pull.browser.site, SchoolSite::ScienceLms);
+    assert_eq!(
+        engine.session_snapshot().unwrap().states.science,
+        SchoolSessionState::Active
+    );
+    coordinator.shutdown().await;
+    assert!(automatic.await.unwrap().is_err());
+    assert!(forced.await.unwrap().is_err());
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn manual_join_while_waiting_for_the_lane_registers_a_manual_waiter() {
+    let (engine, browser, _, _) = engine();
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    browser.navigation(0).await;
+    let coordinator = PullCoordinator::default();
+    let automatic = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::automatic(),
+    );
+    wait_for_snapshot(&coordinator, |row| row.state == PullState::Running).await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(engine.manual_waiters(), 0);
+    let manual = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::manual(),
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while engine.manual_waiters() == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    coordinator.shutdown().await;
+    assert!(automatic.await.unwrap().is_err());
+    assert!(manual.await.unwrap().is_err());
+    engine.shutdown().await;
+    assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+fn navigated_to(browser: &FakeBrowser, prefix: &str) -> usize {
+    browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| {
+            matches!(&command.command, BrowserAction::Navigate(url) if url.as_str().starts_with(prefix))
+        })
+        .count()
+}
+
+#[tokio::test]
+async fn pull_waiting_for_the_lane_does_not_navigate_a_page_the_user_just_opened() {
+    let (engine, browser, _, _) = engine();
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    browser.navigation(0).await;
+    let coordinator = PullCoordinator::default();
+    let pull = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::manual(),
+    );
+    wait_for_snapshot(&coordinator, |row| row.state == PullState::Running).await;
+    // The session check yields its lane to the visible page; the waiting pull
+    // must not take that lane and load its target into the shown view.
+    engine.user_browsing(Some(SchoolSite::ScienceLms)).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(navigated_to(&browser, "https://lms.s.isct.ac.jp/"), 0);
+    assert!(!pull.is_finished());
+    assert!(!check.is_finished());
+
+    engine.user_browsing(None).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while navigated_to(&browser, "https://lms.s.isct.ac.jp/") == 0
+            && navigated_to(&browser, "https://isct.ex-tic.com/") < 2
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    coordinator.shutdown().await;
+    assert!(pull.await.unwrap().is_err());
+    engine.shutdown().await;
+    assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+fn lms_courses_relay(script: &str, id: u64) -> Url {
+    extraction_relay(
+        script,
+        serde_json::json!({
+            "status": "ok",
+            "sourceUrl": "https://lms.s.isct.ac.jp/2025/my/",
+            "language": "en",
+            "coursesComplete": true,
+            "courses": [{
+                "id": id,
+                "fullname": "Recovered course",
+                "shortname": "RECOVER",
+                "viewurl": format!("https://lms.s.isct.ac.jp/2025/course/view.php?id={id}")
+            }]
+        }),
+    )
+}
+
+#[tokio::test]
+async fn hidden_pull_signs_in_with_saved_credentials_and_resumes_at_its_target() {
+    let (engine, browser, _, store) =
+        engine_with_auth(Arc::new(SchoolAuthService::new(saved_science_vault())));
+    let coordinator = PullCoordinator::default();
+    let request = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::automatic(),
+    );
+    let first = browser.navigation(0).await;
+    let listener = browser.listener();
+    // The expired LMS session redirects the hidden view to the identity provider.
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: first.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/auth").unwrap(),
+    });
+    let config = login_config(&browser.eval(0).await);
+    assert_eq!(config["username"], "student");
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: first.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/").unwrap(),
+    });
+    let resumed = browser.navigation(1).await;
+    assert_eq!(resumed.browser, first.browser);
+    assert_eq!(
+        resumed.command,
+        BrowserAction::Navigate(Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap())
+    );
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: first.browser,
+            sequence: 3,
+        },
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap(),
+    });
+    let relay = lms_courses_relay(&browser.extraction_script().await, 333333333);
+    listener.decide_navigation(
+        PageId {
+            browser: first.browser,
+            sequence: 3,
+        },
+        relay,
+        true,
+    );
+    let outcomes: Vec<IngestOutcome> =
+        serde_json::from_value(request.await.unwrap().unwrap()).unwrap();
+    assert_eq!(outcomes[0].state, "ok");
+    assert_eq!(
+        engine.session_snapshot().unwrap().states.science,
+        SchoolSessionState::Active
+    );
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM lms_courses WHERE id='lms-course:333333333'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    coordinator.shutdown().await;
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn hidden_pulls_without_saved_credentials_report_sign_in_required_promptly() {
+    for (site, sign_in, kind) in [
+        (
+            SchoolSite::ScienceLms,
+            "https://isct.ex-tic.com/auth",
+            "lms",
+        ),
+        (
+            SchoolSite::Kyomu,
+            "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login?Template=userpass_key",
+            "session",
+        ),
+    ] {
+        let (engine, browser, _, _) = engine();
+        let coordinator = PullCoordinator::default();
+        let request = spawn_pull(&engine, &coordinator, site, PullOptions::manual());
+        let navigation = browser.navigation(0).await;
+        browser.listener().page_loaded(PageLoaded {
+            page: PageId {
+                browser: navigation.browser,
+                sequence: 1,
+            },
+            cause: None,
+            url: Url::parse(sign_in).unwrap(),
+        });
+        let value = tokio::time::timeout(std::time::Duration::from_secs(5), request)
+            .await
+            .expect("a sign-in landing must not wait for the page timeout")
+            .unwrap()
+            .unwrap();
+        let outcomes: Vec<IngestOutcome> = serde_json::from_value(value).unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(
+            (outcomes[0].kind.as_str(), outcomes[0].state.as_str()),
+            (kind, "reconnect-required")
+        );
+        coordinator.shutdown().await;
+        engine.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn a_closed_view_fails_its_session_check_and_is_recreated_next_time() {
+    let (engine, browser, _, _) = engine();
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    let first = browser.navigation(0).await;
+    browser.listener().closed(first.browser);
+    let error = tokio::time::timeout(std::time::Duration::from_secs(5), check)
+        .await
+        .expect("a closed view must not wait for the session timeout")
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error,
+        SchoolBrowserError::Platform("The school view was closed.".into())
+    );
+    assert_eq!(
+        engine.session_snapshot().unwrap().states.science,
+        SchoolSessionState::Failed
+    );
+    let retry = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    let second = browser.navigation(1).await;
+    assert_eq!(second.browser.site, first.browser.site);
+    assert!(second.browser.generation > first.browser.generation);
+    engine.shutdown().await;
+    assert_eq!(retry.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+#[tokio::test]
+async fn a_view_reported_unavailable_is_replaced_instead_of_kept_as_a_zombie() {
+    let (engine, browser, _, _) = engine();
+    let target = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+    browser.unavailable.store(true, Ordering::Release);
+    assert!(engine.navigate(SchoolSite::Kyomu, target).is_err());
+    assert!(engine.navigate(SchoolSite::Kyomu, target).unwrap());
+    let commands = browser.commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    let ensured: Vec<_> = browser.current.lock().unwrap().keys().copied().collect();
+    assert_eq!(
+        ensured.len(),
+        2,
+        "the second navigation must create a new view"
+    );
+    assert!(ensured.contains(&commands[0].browser));
+    engine.shutdown().await;
+}
+
+fn manual_credentials() -> SchoolCredentials {
+    SchoolCredentials {
+        username: "typed-in-settings".into(),
+        password: "password".into(),
+        otp_secret: "JBSWY3DPEHPK3PXP".into(),
+        matrix: String::new(),
+    }
+}
+
+#[tokio::test]
+async fn sign_in_ended_by_a_credential_change_leaves_no_stale_run() {
+    let (engine, browser, _, _) =
+        engine_with_auth(Arc::new(SchoolAuthService::new(saved_science_vault())));
+    let login = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .login(SchoolAuthProfile::Science, manual_credentials())
+                .await
+        })
+    };
+    browser.navigation(0).await;
+    engine
+        .credentials_changed(SchoolAuthProfile::Science, false)
+        .unwrap();
+    assert_eq!(
+        login.await.unwrap(),
+        Err(SchoolBrowserError::Auth("School sign-in failed.".into()))
+    );
+    // The next sign-in page must be answered by a fresh automatic sign-in with
+    // the saved credentials, not by the abandoned manual run.
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    let navigation = browser.navigation(1).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/auth").unwrap(),
+    });
+    assert_eq!(login_config(&browser.eval(0).await)["username"], "student");
+    engine.shutdown().await;
+    assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+#[tokio::test]
+async fn manual_sign_in_paused_by_a_visible_page_resumes_after_it_hides() {
+    let (engine, browser, events, _) = engine();
+    let login = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .login(SchoolAuthProfile::Science, manual_credentials())
+                .await
+        })
+    };
+    browser.navigation(0).await;
+    engine.user_browsing(Some(SchoolSite::Kyomu)).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(!login.is_finished());
+    engine.user_browsing(None).unwrap();
+    let resumed = browser.navigation(1).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: resumed.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/idm/user/portal/").unwrap(),
+    });
+    assert_eq!(login.await.unwrap().unwrap().phase, "sessionRestored");
+    assert!(!events.0.lock().unwrap().iter().any(|event| matches!(
+        event,
+        CoreEvent::SchoolLogin(SchoolLoginEvent { state, .. }) if state == "error"
+    )));
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
+    let (engine, browser, _, _) = engine();
+    let listener = browser.listener();
+    // Poison the engine state from a panicking native callback thread.
+    let poisoned = std::thread::spawn({
+        let engine = engine.clone();
+        move || engine.poison_state_for_test()
+    })
+    .join();
+    assert!(poisoned.is_err());
+    assert!(engine.session_snapshot().is_ok());
+    assert!(engine
+        .navigate(
+            SchoolSite::Kyomu,
+            "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx"
+        )
+        .unwrap());
+    let navigation = browser.navigation(0).await;
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx").unwrap(),
+    });
     engine.shutdown().await;
 }

@@ -1,4 +1,4 @@
-use super::sanitize_school_url;
+use super::policy::{is_identity_login, is_login_step, sanitize_school_url};
 use super::{
     assets::SCHOOL_LOGIN, ActionId, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     LoadFailed, NavigationDecision, NewWindowDecision, PageId, PageLoaded, SchoolBrowser,
@@ -16,7 +16,8 @@ use crate::{
     pull_coordinator::{PullContext, PullPriority},
     runtime_tasks::RuntimeTasks,
     school_auth::{
-        upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
+        upcoming_otps, OtpWindow, SchoolAuthError, SchoolAuthProfile, SchoolAuthService,
+        SchoolCredentials,
     },
     school_parser::{
         kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
@@ -31,30 +32,43 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
-        Arc, Mutex, Weak,
+        Arc, Mutex, MutexGuard, PoisonError, Weak,
     },
     time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
 use url::Url;
 
-const KYOMU_ROOT: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/";
-const KYOMU_PULL_PAGES: [&str; 5] = [
-    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
-    "Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx",
-    "Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx",
-    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx",
-    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx",
-];
-const KYOMU_PULL_KINDS: [&str; 5] = ["gpa", "registrations", "declared", "grades", "requirements"];
+mod extraction;
+mod history;
+mod lane;
+mod login;
+mod restore;
+
+use self::{extraction::*, history::*, login::*};
+
 const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
 const LAUNCH_INTERVAL: Duration = Duration::from_secs(90);
-const OPEN_TIMEOUT: Duration = Duration::from_secs(150);
-const PAGE_TIMEOUT: Duration = Duration::from_secs(60);
 const FOCUS_INTERVAL: Duration = Duration::from_secs(120);
 
 #[derive(Clone)]
 pub struct SchoolBrowserEngine(Arc<Inner>);
+
+/// Engine state is plain data that every critical section leaves consistent,
+/// so a panic elsewhere while a lock was held must not turn into a permanent
+/// "stopped" browser. Every lock in the engine recovers the guard instead.
+trait Guarded<T> {
+    fn guard(&self) -> MutexGuard<'_, T>;
+    fn with<R>(&self, work: impl FnOnce(&mut T) -> R) -> R {
+        work(&mut self.guard())
+    }
+}
+
+impl<T> Guarded<T> for Mutex<T> {
+    fn guard(&self) -> MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 struct Inner {
     store: DataStore,
@@ -84,6 +98,7 @@ struct State {
     login: Option<ActiveLogin>,
     auto_blocked: HashSet<SchoolAuthProfile>,
     extraction: Option<Extraction>,
+    hidden: Option<HiddenWork>,
     sessions: HashMap<SchoolAuthProfile, SchoolSessionState>,
     revision: u64,
     last_focus: Option<Instant>,
@@ -111,70 +126,6 @@ struct ViewState {
     actions: HashMap<ActionId, bool>,
 }
 
-#[derive(Default)]
-struct PageHistory {
-    pages: Vec<String>,
-    forward: Vec<String>,
-}
-
-#[derive(Clone)]
-struct PopupReturn {
-    opener: String,
-    popup: String,
-}
-
-impl PageHistory {
-    fn push(&mut self, url: String) {
-        if self.pages.last() == Some(&url) {
-            return;
-        }
-        self.pages.push(url);
-        self.forward.clear();
-        if self.pages.len() > 50 {
-            self.pages.remove(0);
-        }
-    }
-    fn back_target(&mut self, current: Option<&str>) -> Option<String> {
-        let index = self
-            .pages
-            .iter()
-            .rposition(|page| Some(page.as_str()) != current)?;
-        if let Some(left) = self.pages.drain(index + 1..).next_back() {
-            self.forward.push(left);
-        }
-        self.pages.last().cloned()
-    }
-    fn forward_target(&mut self) -> Option<String> {
-        let next = self.forward.pop()?;
-        self.pages.push(next.clone());
-        Some(next)
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-struct RestoreRecord {
-    site: SchoolSite,
-    url: String,
-}
-
-#[derive(Clone)]
-struct ActiveLogin {
-    profile: SchoolAuthProfile,
-    credentials: SchoolCredentials,
-    run: String,
-}
-
-#[derive(Clone)]
-struct Extraction {
-    browser: BrowserId,
-    run: String,
-    course_id: Option<u64>,
-    full: bool,
-    baseline: u64,
-    target: String,
-    visible: bool,
-}
-
 #[derive(Clone, Debug)]
 enum Trace {
     Loaded(PageLoaded),
@@ -188,31 +139,13 @@ enum Trace {
         profile: SchoolAuthProfile,
         state: SchoolSessionState,
     },
-    Browsing,
+    /// The visible site changed. `Some` preempts hidden work.
+    Browsing(Option<SchoolSite>),
     Closed(BrowserId),
     Stopped,
 }
 
 struct Listener(Weak<Inner>);
-
-struct ManualWaiter<'a> {
-    count: &'a AtomicUsize,
-    changed: &'a Notify,
-}
-
-impl<'a> ManualWaiter<'a> {
-    fn new(count: &'a AtomicUsize, changed: &'a Notify) -> Self {
-        count.fetch_add(1, Ordering::AcqRel);
-        Self { count, changed }
-    }
-}
-
-impl Drop for ManualWaiter<'_> {
-    fn drop(&mut self) {
-        self.count.fetch_sub(1, Ordering::AcqRel);
-        self.changed.notify_waiters();
-    }
-}
 
 impl SchoolBrowserEngine {
     pub fn new(
@@ -248,53 +181,26 @@ impl SchoolBrowserEngine {
         });
         let listener: Arc<dyn SchoolBrowserListener> = Arc::new(Listener(Arc::downgrade(&inner)));
         browser.attach(Arc::downgrade(&listener))?;
-        inner
-            .listener
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .replace(listener);
+        inner.listener.guard().replace(listener);
         Ok(Arc::new(Self(inner)))
     }
 
     pub fn session_snapshot(&self) -> Result<SchoolSessionSnapshot, SchoolBrowserError> {
-        let state = self
-            .0
-            .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?;
+        let state = self.0.state.guard();
         Ok(snapshot(&state))
     }
 
     pub fn user_browsing(&self, site: Option<SchoolSite>) -> Result<(), SchoolBrowserError> {
-        let mut state = self
-            .0
-            .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?;
+        let mut state = self.0.state.guard();
         state.browsing = site;
         if site.is_some() {
             state.extraction = None;
+            state.hidden = None;
         }
         drop(state);
-        let _ = self.0.traces.send(Trace::Browsing);
+        let _ = self.0.traces.send(Trace::Browsing(site));
         self.0.browsing_changed.notify_waiters();
         Ok(())
-    }
-
-    pub fn credentials_changed(
-        &self,
-        profile: SchoolAuthProfile,
-        configured: bool,
-    ) -> Result<SchoolSessionSnapshot, SchoolBrowserError> {
-        self.set_session(
-            profile,
-            if configured {
-                SchoolSessionState::Pending
-            } else {
-                SchoolSessionState::NotConfigured
-            },
-        );
-        self.session_snapshot()
     }
 
     pub async fn open(
@@ -305,8 +211,7 @@ impl SchoolBrowserEngine {
         let current = self
             .0
             .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
+            .guard()
             .views
             .get(&site)
             .map(|view| view.url.clone());
@@ -357,65 +262,10 @@ impl SchoolBrowserEngine {
         }
         self.0
             .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
+            .guard()
             .customizations
             .insert(site, customization);
         Ok(())
-    }
-
-    pub fn configure_restore(
-        &self,
-        enabled: bool,
-        path: std::path::PathBuf,
-    ) -> Result<bool, SchoolBrowserError> {
-        let _restore_io = self
-            .0
-            .restore_io
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?;
-        if !enabled {
-            match std::fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(SchoolBrowserError::Storage(error.to_string())),
-            }
-        }
-        let current = {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            state.restore_epoch = state.restore_epoch.saturating_add(1);
-            let epoch = state.restore_epoch;
-            state.restore = enabled.then_some((path.clone(), epoch));
-            state.browsing.and_then(|site| {
-                state
-                    .views
-                    .get(&site)
-                    .and_then(|view| sanitize_school_url(&view.url).map(|url| (site, url)))
-            })
-        };
-        if enabled {
-            if let Some((site, url)) = current {
-                let bytes = serde_json::to_vec(&RestoreRecord { site, url })
-                    .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
-                crate::notes::atomic_write(&path, &bytes)
-                    .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
-            }
-        }
-        Ok(true)
-    }
-
-    fn restored_target(&self, site: SchoolSite) -> Option<String> {
-        let path = self.0.state.lock().ok()?.restore.clone()?.0;
-        let bytes = std::fs::read(path).ok()?;
-        let record: RestoreRecord = serde_json::from_slice(&bytes).ok()?;
-        (record.site == site)
-            .then(|| sanitize_school_url(&record.url))
-            .flatten()
-            .filter(|url| SchoolSite::for_url(url) == Some(site))
     }
 
     pub fn navigate(&self, site: SchoolSite, raw: &str) -> Result<bool, SchoolBrowserError> {
@@ -433,252 +283,25 @@ impl SchoolBrowserEngine {
         Ok(true)
     }
 
-    pub fn back(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
-        let Ok(browser) = self.browser_for(site) else {
-            return Ok(false);
-        };
-        let target = {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            let current = state.views.get(&site).map(|view| view.url.clone());
-            let target = state
-                .history
-                .entry(site)
-                .or_default()
-                .back_target(current.as_deref());
-            if target.is_some() {
-                state.suppress_history.insert(site);
-            }
-            target
-        };
-        let Some(target) = target else {
-            return Ok(false);
-        };
-        self.dispatch(browser, BrowserAction::Navigate(site_url(site, &target)?))?;
-        Ok(true)
-    }
-
-    pub fn forward(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
-        let Ok(browser) = self.browser_for(site) else {
-            return Ok(false);
-        };
-        let target = self
-            .0
-            .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .history
-            .entry(site)
-            .or_default()
-            .forward_target();
-        let Some(target) = target else {
-            return Ok(false);
-        };
-        self.dispatch(browser, BrowserAction::Navigate(site_url(site, &target)?))?;
-        Ok(true)
-    }
-
     pub fn set_guide(
         &self,
         items: Vec<crate::kyomu_guide::GuideItem>,
     ) -> Result<bool, SchoolBrowserError> {
         let items = crate::kyomu_guide::validate(items)
             .map_err(|error| SchoolBrowserError::InvalidInput(error.to_string()))?;
-        self.0
-            .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .guide = items;
+        self.0.state.guard().guide = items;
         Ok(true)
     }
 
-    pub async fn login(
-        &self,
-        profile: SchoolAuthProfile,
-        credentials: SchoolCredentials,
-    ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        let _lane = self.acquire_lane().await?;
-        self.login_locked(profile, credentials).await
+    #[cfg(test)]
+    pub(super) fn poison_state_for_test(&self) {
+        let _state = self.0.state.guard();
+        panic!("simulated panic while the school state was locked");
     }
 
-    pub async fn ensure_session(
-        &self,
-        profile: SchoolAuthProfile,
-    ) -> Result<bool, SchoolBrowserError> {
-        loop {
-            self.wait_until_hidden_without_context().await?;
-            let lane = self.acquire_lane().await?;
-            let result = self.ensure_session_once(profile).await;
-            drop(lane);
-            match result {
-                Err(SchoolBrowserError::Preempted) => continue,
-                result => return result,
-            }
-        }
-    }
-
-    /// Admit a background session check without making the native caller own
-    /// its lifetime. Repeated requests for the same active or pending profile
-    /// coalesce into the existing check.
-    pub fn request_session(
-        self: &Arc<Self>,
-        profile: SchoolAuthProfile,
-    ) -> Result<bool, SchoolBrowserError> {
-        {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            if !state.pending_profiles.insert(profile) {
-                return Ok(false);
-            }
-        }
-        let engine = self.clone();
-        let _entered = self.0.runtime.enter();
-        if !self.0.tasks.spawn(async move {
-            let _ = engine.ensure_session(profile).await;
-            if let Ok(mut state) = engine.0.state.lock() {
-                state.pending_profiles.remove(&profile);
-            }
-        }) {
-            if let Ok(mut state) = self.0.state.lock() {
-                state.pending_profiles.remove(&profile);
-            }
-            return Err(SchoolBrowserError::Stopped);
-        }
-        Ok(true)
-    }
-
-    pub async fn launch_sessions(&self) -> Result<SchoolSessionSnapshot, SchoolBrowserError> {
-        let epoch = self
-            .0
-            .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .lifecycle_epoch;
-        let _run = self.0.lifecycle.lock().await;
-        if self
-            .0
-            .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .lifecycle_epoch
-            != epoch
-        {
-            return self.session_snapshot();
-        }
-        {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            let now = Instant::now();
-            if state
-                .last_launch
-                .is_some_and(|last| now.duration_since(last) < LAUNCH_INTERVAL)
-            {
-                return Ok(snapshot(&state));
-            }
-            state.last_launch = Some(now);
-        }
-        for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
-            let _ = self.ensure_session(profile).await;
-        }
-        if let Ok(mut state) = self.0.state.lock() {
-            state.lifecycle_epoch = state.lifecycle_epoch.saturating_add(1);
-        }
-        self.session_snapshot()
-    }
-
-    pub async fn focus_sessions(
-        &self,
-    ) -> Result<Option<SchoolSessionSnapshot>, SchoolBrowserError> {
-        {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            let now = Instant::now();
-            if state
-                .last_focus
-                .is_some_and(|last| now.duration_since(last) < FOCUS_INTERVAL)
-            {
-                return Ok(None);
-            }
-            state.last_focus = Some(now);
-        }
-        self.launch_sessions().await.map(Some)
-    }
-
-    pub async fn lifecycle(&self, event: SchoolSessionLifecycle) -> Result<(), SchoolBrowserError> {
-        match event.kind {
-            SchoolSessionLifecycleKind::Launch => {
-                self.launch_sessions().await?;
-            }
-            SchoolSessionLifecycleKind::Focus if event.visible => {
-                self.focus_sessions().await?;
-            }
-            SchoolSessionLifecycleKind::Focus => {}
-        }
-        Ok(())
-    }
-
-    pub async fn pull(
-        &self,
-        site: SchoolSite,
-        course_id: Option<u64>,
-        context: PullContext,
-        priority: PullPriority,
-    ) -> Result<Vec<IngestOutcome>, SchoolBrowserError> {
-        if !matches!(site, SchoolSite::ScienceLms | SchoolSite::Kyomu) {
-            return Err(SchoolBrowserError::InvalidInput(
-                "Only LMS and 教務Web can be pulled.".into(),
-            ));
-        }
-        if course_id == Some(0) || (course_id.is_some() && site != SchoolSite::ScienceLms) {
-            return Err(SchoolBrowserError::InvalidInput(
-                "LMS course ID must be positive and use the LMS site.".into(),
-            ));
-        }
-        loop {
-            self.wait_until_hidden(&context).await?;
-            let manual = priority == PullPriority::Manual;
-            let _manual_waiter =
-                manual.then(|| ManualWaiter::new(&self.0.manual_waiters, &self.0.priority_changed));
-            let lane = loop {
-                if context.is_cancelled() {
-                    return Err(SchoolBrowserError::Cancelled);
-                }
-                if self.0.tasks.is_closed() {
-                    return Err(SchoolBrowserError::Stopped);
-                }
-                if manual || self.0.manual_waiters.load(Ordering::Acquire) == 0 {
-                    if let Ok(lane) = self.0.lane.try_lock() {
-                        break lane;
-                    }
-                }
-                tokio::select! {
-                    _ = self.0.priority_changed.notified() => {}
-                    _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-                    _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
-                }
-            };
-            if context.is_cancelled() {
-                return Err(SchoolBrowserError::Cancelled);
-            }
-            let result = self.pull_once(site, course_id, &context).await;
-            drop(lane);
-            match result {
-                Err(SchoolBrowserError::Preempted) if !context.is_cancelled() => continue,
-                result => return result,
-            }
-        }
+    #[cfg(test)]
+    pub(super) fn manual_waiters(&self) -> usize {
+        self.0.manual_waiters.load(Ordering::Acquire)
     }
 
     pub async fn shutdown(&self) {
@@ -687,465 +310,7 @@ impl SchoolBrowserEngine {
         self.0.browsing_changed.notify_waiters();
         self.0.tasks.wait().await;
         let _ = self.0.browser.shutdown().await;
-        if let Ok(mut listener) = self.0.listener.lock() {
-            listener.take();
-        }
-    }
-
-    async fn login_locked(
-        &self,
-        profile: SchoolAuthProfile,
-        credentials: SchoolCredentials,
-    ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        self.wait_until_hidden_without_context().await?;
-        let site = profile.start_site();
-        let url = safe_url(site.start_url())?;
-        let browser = self.ensure_browser(site, url.clone())?;
-        let run = new_id();
-        {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            state.auto_blocked.remove(&profile);
-            state.login = Some(ActiveLogin {
-                profile,
-                credentials,
-                run: run.clone(),
-            });
-        }
-        self.set_session(profile, SchoolSessionState::Pending);
-        let mut traces = self.0.traces.subscribe();
-        if let Err(error) = self.dispatch(browser, BrowserAction::Navigate(url)) {
-            self.fail_login(profile, &run, &error);
-            return Err(error);
-        }
-        let state = tokio::time::timeout(SESSION_TIMEOUT, async {
-            loop {
-                match traces.recv().await {
-                    Ok(Trace::Session {
-                        profile: found,
-                        state,
-                    }) if found == profile => return Ok(state),
-                    Ok(Trace::Browsing) => return Err(SchoolBrowserError::Preempted),
-                    Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => {
-                        return Err(SchoolBrowserError::Stopped)
-                    }
-                }
-            }
-        })
-        .await
-        .map_err(|_| {
-            SchoolBrowserError::Timeout("The queued school sign-in did not start in time.".into())
-        });
-        let state = match state {
-            Ok(Ok(state)) => state,
-            Ok(Err(error)) => {
-                if !matches!(
-                    error,
-                    SchoolBrowserError::Preempted | SchoolBrowserError::Stopped
-                ) {
-                    self.fail_login(profile, &run, &error);
-                } else {
-                    self.clear_login(&run);
-                }
-                return Err(error);
-            }
-            Err(error) => {
-                self.fail_login(profile, &run, &error);
-                return Err(error);
-            }
-        };
-        if state != SchoolSessionState::Active {
-            return Err(SchoolBrowserError::Auth("School sign-in failed.".into()));
-        }
-        Ok(SchoolWebResult {
-            site,
-            url: site.start_url().into(),
-            phase: "sessionRestored",
-        })
-    }
-
-    fn clear_login(&self, run: &str) -> bool {
-        if let Ok(mut state) = self.0.state.lock() {
-            if state.login.as_ref().is_some_and(|login| login.run == run) {
-                state.login = None;
-                return true;
-            }
-        }
-        false
-    }
-
-    fn fail_login(&self, profile: SchoolAuthProfile, run: &str, error: &SchoolBrowserError) {
-        if !self.clear_login(run) {
-            return;
-        }
-        let _ = self.0.events.emit(CoreEvent::SchoolLogin(SchoolLoginEvent {
-            profile,
-            state: "error".into(),
-            message: error.to_string(),
-        }));
-        self.set_session(profile, SchoolSessionState::Failed);
-    }
-
-    async fn ensure_session_once(
-        &self,
-        profile: SchoolAuthProfile,
-    ) -> Result<bool, SchoolBrowserError> {
-        let site = profile.start_site();
-        let url = safe_url(site.start_url())?;
-        let browser = self.ensure_browser(site, url.clone())?;
-        {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            state.heartbeat = Some(profile);
-        }
-        self.set_session(profile, SchoolSessionState::Pending);
-        let mut traces = self.0.traces.subscribe();
-        if let Err(error) = self.dispatch(browser, BrowserAction::Navigate(url)) {
-            self.fail_heartbeat(profile);
-            return Err(error);
-        }
-        let result = tokio::time::timeout(SESSION_TIMEOUT, async {
-            loop {
-                match traces.recv().await {
-                    Ok(Trace::Session {
-                        profile: found,
-                        state,
-                    }) if found == profile => return Ok(state == SchoolSessionState::Active),
-                    Ok(Trace::Browsing) => return Err(SchoolBrowserError::Preempted),
-                    Ok(Trace::Stopped) | Err(broadcast::error::RecvError::Closed) => {
-                        return Err(SchoolBrowserError::Stopped)
-                    }
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                }
-            }
-        })
-        .await
-        .map_err(|_| {
-            SchoolBrowserError::Timeout("The queued school sign-in did not start in time.".into())
-        });
-        let result = match result {
-            Ok(result) => result,
-            Err(error) => {
-                self.fail_heartbeat(profile);
-                return Err(error);
-            }
-        };
-        if let Err(error) = &result {
-            if matches!(
-                error,
-                SchoolBrowserError::Preempted | SchoolBrowserError::Stopped
-            ) {
-                self.clear_heartbeat(profile);
-            } else {
-                self.fail_heartbeat(profile);
-            }
-        }
-        result
-    }
-
-    fn clear_heartbeat(&self, profile: SchoolAuthProfile) -> bool {
-        if let Ok(mut state) = self.0.state.lock() {
-            if state.heartbeat == Some(profile) {
-                state.heartbeat = None;
-                if state
-                    .login
-                    .as_ref()
-                    .is_some_and(|login| login.profile == profile)
-                {
-                    state.login = None;
-                }
-                return true;
-            }
-        }
-        false
-    }
-
-    fn fail_heartbeat(&self, profile: SchoolAuthProfile) {
-        if self.clear_heartbeat(profile) {
-            self.set_session(profile, SchoolSessionState::Failed);
-        }
-    }
-
-    async fn acquire_lane(&self) -> Result<tokio::sync::MutexGuard<'_, ()>, SchoolBrowserError> {
-        tokio::select! {
-            lane = self.0.lane.lock() => Ok(lane),
-            _ = self.0.tasks.closed() => Err(SchoolBrowserError::Stopped),
-        }
-    }
-
-    async fn wait_until_hidden(&self, context: &PullContext) -> Result<(), SchoolBrowserError> {
-        loop {
-            if self.0.tasks.is_closed() {
-                return Err(SchoolBrowserError::Stopped);
-            }
-            if context.is_cancelled() {
-                return Err(SchoolBrowserError::Cancelled);
-            }
-            let visible = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?
-                .browsing
-                .is_some();
-            if !visible {
-                return Ok(());
-            }
-            tokio::select! {
-                _ = self.0.browsing_changed.notified() => {}
-                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
-                _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
-            }
-        }
-    }
-
-    async fn wait_until_hidden_without_context(&self) -> Result<(), SchoolBrowserError> {
-        loop {
-            if self.0.tasks.is_closed() {
-                return Err(SchoolBrowserError::Stopped);
-            }
-            let visible = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?
-                .browsing
-                .is_some();
-            if !visible {
-                return Ok(());
-            }
-            tokio::select! {
-                _ = self.0.browsing_changed.notified() => {}
-                _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
-            }
-        }
-    }
-
-    async fn pull_once(
-        &self,
-        site: SchoolSite,
-        course_id: Option<u64>,
-        context: &PullContext,
-    ) -> Result<Vec<IngestOutcome>, SchoolBrowserError> {
-        match site {
-            SchoolSite::ScienceLms => {
-                let outcome = self
-                    .extract_page(
-                        site,
-                        "https://lms.s.isct.ac.jp/2025/my/",
-                        course_id,
-                        course_id.is_none(),
-                        OPEN_TIMEOUT,
-                        context,
-                    )
-                    .await?;
-                Ok(vec![outcome])
-            }
-            SchoolSite::Kyomu => {
-                self.navigate_and_wait(
-                    site,
-                    &format!("{KYOMU_ROOT}Default.aspx"),
-                    Some(&format!("{KYOMU_ROOT}Student/")),
-                    OPEN_TIMEOUT,
-                    context,
-                )
-                .await?;
-                let mut outcomes = Vec::new();
-                for (page, kind) in KYOMU_PULL_PAGES.into_iter().zip(KYOMU_PULL_KINDS) {
-                    let outcome = self
-                        .extract_page(
-                            site,
-                            &format!("{KYOMU_ROOT}{page}"),
-                            None,
-                            false,
-                            PAGE_TIMEOUT,
-                            context,
-                        )
-                        .await;
-                    let outcome = match outcome {
-                        Ok(outcome) => outcome,
-                        Err(
-                            error @ (SchoolBrowserError::Cancelled
-                            | SchoolBrowserError::Preempted
-                            | SchoolBrowserError::Stopped),
-                        ) => return Err(error),
-                        Err(error) if outcomes.is_empty() => return Err(error),
-                        Err(error) => {
-                            outcomes.push(IngestOutcome {
-                                site,
-                                kind: kind.into(),
-                                state: "error".into(),
-                                changed: 0,
-                                message: error.to_string(),
-                            });
-                            break;
-                        }
-                    };
-                    let stop = outcome.state == "reconnect-required";
-                    outcomes.push(outcome);
-                    if stop {
-                        break;
-                    }
-                }
-                Ok(outcomes)
-            }
-            _ => Err(SchoolBrowserError::InvalidInput(
-                "Only LMS and 教務Web can be pulled.".into(),
-            )),
-        }
-    }
-
-    async fn navigate_and_wait(
-        &self,
-        site: SchoolSite,
-        raw: &str,
-        prefix: Option<&str>,
-        timeout: Duration,
-        context: &PullContext,
-    ) -> Result<PageLoaded, SchoolBrowserError> {
-        let url = safe_url(raw)?;
-        let browser = self.ensure_browser(site, url.clone())?;
-        let baseline = self
-            .0
-            .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .views
-            .get(&site)
-            .map(|view| view.last_page)
-            .unwrap_or_default();
-        let mut traces = self.0.traces.subscribe();
-        self.dispatch(browser, BrowserAction::Navigate(url))?;
-        tokio::time::timeout(timeout, async {
-            loop {
-                if context.is_cancelled() {
-                    return Err(SchoolBrowserError::Cancelled);
-                }
-                let received = tokio::select! {
-                    value = traces.recv() => value,
-                    _ = tokio::time::sleep(Duration::from_millis(250)) => continue,
-                };
-                match received {
-                    Ok(Trace::Loaded(event))
-                        if event.page.browser == browser
-                            && event.page.sequence > baseline
-                            && prefix
-                                .is_none_or(|prefix| event.url.as_str().starts_with(prefix)) =>
-                    {
-                        return Ok(event)
-                    }
-                    Ok(Trace::Failed(event)) if event.page.browser == browser => {
-                        return Err(SchoolBrowserError::Platform(event.message))
-                    }
-                    Ok(Trace::Browsing) => return Err(SchoolBrowserError::Preempted),
-                    Ok(Trace::Closed(id)) if id == browser => {
-                        return Err(SchoolBrowserError::Stopped)
-                    }
-                    Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => {
-                        return Err(SchoolBrowserError::Stopped)
-                    }
-                }
-            }
-        })
-        .await
-        .map_err(|_| {
-            SchoolBrowserError::Timeout(
-                "The school page did not answer in time. Check the account in Settings.".into(),
-            )
-        })?
-    }
-
-    async fn extract_page(
-        &self,
-        site: SchoolSite,
-        url: &str,
-        course_id: Option<u64>,
-        full: bool,
-        timeout: Duration,
-        context: &PullContext,
-    ) -> Result<IngestOutcome, SchoolBrowserError> {
-        let parsed = safe_url(url)?;
-        let browser = self.ensure_browser(site, parsed.clone())?;
-        let run = new_id();
-        {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            let baseline = state
-                .views
-                .get(&site)
-                .map(|view| view.last_page)
-                .unwrap_or_default();
-            state.extraction = Some(Extraction {
-                browser,
-                run: run.clone(),
-                course_id,
-                full,
-                baseline,
-                target: parsed.to_string(),
-                visible: false,
-            });
-        }
-        let mut traces = self.0.traces.subscribe();
-        self.dispatch(browser, BrowserAction::Navigate(parsed))?;
-        let raw = tokio::time::timeout(timeout, async {
-            loop {
-                if context.is_cancelled() {
-                    return Err(SchoolBrowserError::Cancelled);
-                }
-                let received = tokio::select! {
-                    value = traces.recv() => value,
-                    _ = tokio::time::sleep(Duration::from_millis(250)) => continue,
-                };
-                match received {
-                    Ok(Trace::Extraction {
-                        browser: found,
-                        run: found_run,
-                        raw,
-                    }) if found == browser && found_run == run => return Ok(raw),
-                    Ok(Trace::Browsing) => return Err(SchoolBrowserError::Preempted),
-                    Ok(Trace::Failed(event)) if event.page.browser == browser => {
-                        return Err(SchoolBrowserError::Platform(event.message))
-                    }
-                    Ok(Trace::Closed(id)) if id == browser => {
-                        return Err(SchoolBrowserError::Stopped)
-                    }
-                    Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => {
-                        return Err(SchoolBrowserError::Stopped)
-                    }
-                }
-            }
-        })
-        .await
-        .map_err(|_| {
-            SchoolBrowserError::Timeout(
-                "The school page did not answer in time. Check the account in Settings.".into(),
-            )
-        })??;
-        if !context.applying().await {
-            return Err(SchoolBrowserError::Cancelled);
-        }
-        let store = self.0.store.clone();
-        let raw_for_apply = raw.clone();
-        let outcome = tokio::task::spawn_blocking(move || apply_raw(&store, site, &raw_for_apply))
-            .await
-            .map_err(|_| SchoolBrowserError::Stopped)??;
-        let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
-        Ok(outcome)
+        self.0.listener.guard().take();
     }
 
     fn ensure_browser(
@@ -1154,11 +319,7 @@ impl SchoolBrowserEngine {
         initial: Url,
     ) -> Result<BrowserId, SchoolBrowserError> {
         let created = {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
+            let mut state = self.0.state.guard();
             if let Some(view) = state.views.get(&site) {
                 return Ok(view.id);
             }
@@ -1183,7 +344,8 @@ impl SchoolBrowserEngine {
             id
         };
         if let Err(error) = self.0.browser.ensure(created, initial) {
-            if let Ok(mut state) = self.0.state.lock() {
+            {
+                let mut state = self.0.state.guard();
                 state.views.remove(&site);
             }
             return Err(error.into());
@@ -1194,8 +356,7 @@ impl SchoolBrowserEngine {
     fn browser_for(&self, site: SchoolSite) -> Result<BrowserId, SchoolBrowserError> {
         self.0
             .state
-            .lock()
-            .map_err(|_| SchoolBrowserError::Stopped)?
+            .guard()
             .views
             .get(&site)
             .map(|view| view.id)
@@ -1207,41 +368,7 @@ impl SchoolBrowserEngine {
         browser: BrowserId,
         command: BrowserAction,
     ) -> Result<ActionId, SchoolBrowserError> {
-        let action = ActionId(self.0.next_action.fetch_add(1, Ordering::Relaxed));
-        if matches!(command, BrowserAction::Navigate(_)) {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            if let Some(view) = state.views.get_mut(&browser.site) {
-                if view.id == browser {
-                    view.navigation = Some(action);
-                    if view.actions.len() >= 64 {
-                        view.actions.clear();
-                    }
-                    view.actions.insert(action, true);
-                }
-            }
-        } else if matches!(command, BrowserAction::Reload) {
-            let mut state = self
-                .0
-                .state
-                .lock()
-                .map_err(|_| SchoolBrowserError::Stopped)?;
-            if let Some(view) = state.views.get_mut(&browser.site) {
-                if view.id == browser {
-                    view.navigation = Some(action);
-                    view.actions.insert(action, true);
-                }
-            }
-        }
-        self.0.browser.dispatch(BrowserCommand {
-            browser,
-            action,
-            command,
-        })?;
-        Ok(action)
+        self.0.dispatch(browser, command)
     }
 
     fn set_session(&self, profile: SchoolAuthProfile, value: SchoolSessionState) {
@@ -1257,15 +384,13 @@ impl SchoolExecutor for SchoolBrowserEngine {
     ) -> crate::school_service::SchoolExecutorFuture<'_> {
         let service = self.clone();
         Box::pin(async move {
-            let priority = context.priority();
-            if let Some((profile, credentials)) = request.credentials {
-                service
-                    .login(profile, credentials)
-                    .await
-                    .map_err(map_executor)?;
-            }
             service
-                .pull(request.site, request.course_id, context, priority)
+                .pull(
+                    request.site,
+                    request.course_id,
+                    request.credentials,
+                    context,
+                )
                 .await
                 .map_err(map_executor)
         })
@@ -1288,39 +413,6 @@ fn map_executor(error: SchoolBrowserError) -> SchoolExecutorError {
         SchoolBrowserError::Preempted => {
             SchoolExecutorError::Execution("School job paused for visible navigation.".into())
         }
-    }
-}
-
-#[cfg(test)]
-mod error_tests {
-    use super::*;
-
-    #[test]
-    fn browser_errors_keep_actionable_executor_categories() {
-        assert_eq!(
-            map_executor(SchoolBrowserError::Timeout("portal timed out".into())),
-            SchoolExecutorError::Timeout("portal timed out".into())
-        );
-        assert_eq!(
-            map_executor(SchoolBrowserError::Auth("sign-in expired".into())),
-            SchoolExecutorError::Authentication("sign-in expired".into())
-        );
-        assert_eq!(
-            map_executor(SchoolBrowserError::Storage("database unavailable".into())),
-            SchoolExecutorError::Storage("database unavailable".into())
-        );
-        assert_eq!(
-            map_executor(SchoolBrowserError::SiteChanged("portal changed".into())),
-            SchoolExecutorError::SiteChanged("portal changed".into())
-        );
-        assert_eq!(
-            map_executor(SchoolBrowserError::Stopped),
-            SchoolExecutorError::Stopped("The school browser has stopped.".into())
-        );
-        assert_eq!(
-            map_executor(SchoolBrowserError::Cancelled),
-            SchoolExecutorError::Cancelled
-        );
     }
 }
 
@@ -1369,9 +461,7 @@ impl Inner {
             return false;
         }
         self.state
-            .lock()
-            .ok()
-            .and_then(|state| {
+            .with(|state| {
                 state
                     .views
                     .get(&browser.site)
@@ -1398,9 +488,7 @@ impl Inner {
             popup_return,
             restore,
         ) = {
-            let Ok(mut state) = self.state.lock() else {
-                return;
-            };
+            let mut state = self.state.guard();
             let Some(view) = state.views.get_mut(&event.page.browser.site) else {
                 return;
             };
@@ -1491,31 +579,7 @@ impl Inner {
             url: safe_loaded.clone(),
         });
         if let Some((path, epoch)) = restore {
-            let record = RestoreRecord {
-                site: event.page.browser.site,
-                url: safe_loaded,
-            };
-            if let Ok(bytes) = serde_json::to_vec(&record) {
-                let owner = self.clone();
-                let tasks = self.tasks.clone();
-                let _entered = self.runtime.enter();
-                tasks.spawn(async move {
-                    let _ = tokio::task::spawn_blocking(move || {
-                        let Ok(_io) = owner.restore_io.lock() else {
-                            return;
-                        };
-                        let current = owner
-                            .state
-                            .lock()
-                            .ok()
-                            .and_then(|state| state.restore.clone());
-                        if current == Some((path.clone(), epoch)) {
-                            let _ = crate::notes::atomic_write(&path, &bytes);
-                        }
-                    })
-                    .await;
-                });
-            }
+            self.write_restore(path, epoch, event.page.browser.site, safe_loaded);
         }
         if !customization.css.trim().is_empty() {
             if let Ok(css) = serde_json::to_string(&customization.css) {
@@ -1539,7 +603,8 @@ impl Inner {
         }
         if let Some(active) = login {
             if login_succeeded(event.url.as_str(), active.profile) {
-                if let Ok(mut state) = self.state.lock() {
+                {
+                    let mut state = self.state.guard();
                     if state
                         .login
                         .as_ref()
@@ -1555,6 +620,21 @@ impl Inner {
                     message: "Connected".into(),
                 }));
                 self.set_session_from_inner(active.profile, SchoolSessionState::Active);
+                // A hidden pull that was sent through sign-in continues at its target.
+                let resume = self.state.with(|state| {
+                    state
+                        .hidden
+                        .as_ref()
+                        .filter(|work| {
+                            work.browser == event.page.browser
+                                && state.browsing.is_none()
+                                && !work.reached(&event.url)
+                        })
+                        .map(|work| work.target.clone())
+                });
+                if let Some(target) = resume {
+                    let _ = self.dispatch(event.page.browser, BrowserAction::Navigate(target));
+                }
             } else if let Some(script) = login_script(event.url.as_str(), &active, &auth_relay) {
                 let _ = self.dispatch_eval(event.page.browser, script, true);
             }
@@ -1562,7 +642,7 @@ impl Inner {
             heartbeat.filter(|profile| login_succeeded(event.url.as_str(), *profile))
         {
             self.set_session_from_inner(profile, SchoolSessionState::Active);
-        } else if is_login_url(&event.url) {
+        } else if is_identity_login(&event.url) {
             self.arm_saved_login(event.page, event.url.clone(), auth_relay);
         }
         if let Some(extraction) = extraction.filter(|run| {
@@ -1580,7 +660,7 @@ impl Inner {
                 let quoted_run =
                     serde_json::to_string(&extraction.run).unwrap_or_else(|_| "\"\"".into());
                 let setup = format!("{course}globalThis.__ISCT_COMPANION_LMS_FULL__={};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>{{if(v&&typeof v==='object')v._isctExtractionRun={quoted_run};document.title='{progress_relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}};", extraction.full);
-                let relay = self.state.lock().ok().and_then(|state| {
+                let relay = self.state.with(|state| {
                     state
                         .views
                         .get(&event.page.browser.site)
@@ -1596,7 +676,7 @@ impl Inner {
     }
 
     fn load_failed(&self, event: LoadFailed) {
-        let relevant = self.state.lock().ok().is_some_and(|mut state| {
+        let relevant = self.state.with(|state| {
             let Some(view) = state.views.get_mut(&event.page.browser.site) else {
                 return false;
             };
@@ -1610,12 +690,12 @@ impl Inner {
             } else if event.page.sequence <= view.last_page {
                 return false;
             }
-            view.last_page = event.page.sequence;
+            view.last_page = view.last_page.max(event.page.sequence);
             view.navigation = None;
             true
         });
         if relevant {
-            let heartbeat = self.state.lock().ok().and_then(|state| {
+            let heartbeat = self.state.with(|state| {
                 state
                     .heartbeat
                     .filter(|profile| profile.start_site() == event.page.browser.site)
@@ -1631,7 +711,7 @@ impl Inner {
         if !self.current(page.browser) {
             return;
         }
-        let prefixes = self.state.lock().ok().and_then(|state| {
+        let prefixes = self.state.with(|state| {
             state
                 .views
                 .get(&page.browser.site)
@@ -1651,7 +731,7 @@ impl Inner {
         if !self.current(page.browser) {
             return NavigationDecision::Cancel;
         }
-        let relay = self.state.lock().ok().and_then(|state| {
+        let relay = self.state.with(|state| {
             state
                 .views
                 .get(&page.browser.site)
@@ -1676,7 +756,7 @@ impl Inner {
                                 .map(str::to_string)
                         });
                     if let Some(run) = run {
-                        let accepted = self.state.lock().ok().and_then(|mut state| {
+                        let accepted = self.state.with(|state| {
                             if state.extraction.as_ref().is_some_and(|active| {
                                 active.browser == page.browser && active.run == run
                             }) {
@@ -1730,7 +810,8 @@ impl Inner {
             .and_then(|safe| SchoolSite::for_url(safe.as_str()).map(|site| (site, safe)));
         match school_url {
             Some((site, safe)) if site == page.browser.site => {
-                if let Ok(mut state) = self.state.lock() {
+                {
+                    let mut state = self.state.guard();
                     if let Some(opener) = state.views.get(&site).map(|view| view.url.clone()) {
                         if !same_page(&opener, safe.as_str()) {
                             state.popup_return.insert(
@@ -1762,8 +843,11 @@ impl Inner {
         }
     }
 
+    /// Forgets a view generation the shell closed or could not create, so the
+    /// next request creates a new view instead of dispatching into nothing.
     fn closed(&self, browser: BrowserId) {
-        if let Ok(mut state) = self.state.lock() {
+        {
+            let mut state = self.state.guard();
             if state
                 .views
                 .get(&browser.site)
@@ -1775,6 +859,54 @@ impl Inner {
         let _ = self.traces.send(Trace::Closed(browser));
     }
 
+    fn sent(
+        &self,
+        browser: BrowserId,
+        result: Result<(), BrowserError>,
+    ) -> Result<(), BrowserError> {
+        if let Err(BrowserError::Unavailable(_)) = &result {
+            self.closed(browser);
+        }
+        result
+    }
+
+    fn dispatch(
+        &self,
+        browser: BrowserId,
+        command: BrowserAction,
+    ) -> Result<ActionId, SchoolBrowserError> {
+        let action = ActionId(self.next_action.fetch_add(1, Ordering::Relaxed));
+        if matches!(command, BrowserAction::Navigate(_)) {
+            let mut state = self.state.guard();
+            if let Some(view) = state.views.get_mut(&browser.site) {
+                if view.id == browser {
+                    view.navigation = Some(action);
+                    if view.actions.len() >= 64 {
+                        view.actions.clear();
+                    }
+                    view.actions.insert(action, true);
+                }
+            }
+        } else if matches!(command, BrowserAction::Reload) {
+            let mut state = self.state.guard();
+            if let Some(view) = state.views.get_mut(&browser.site) {
+                if view.id == browser {
+                    view.navigation = Some(action);
+                    view.actions.insert(action, true);
+                }
+            }
+        }
+        self.sent(
+            browser,
+            self.browser.dispatch(BrowserCommand {
+                browser,
+                action,
+                command,
+            }),
+        )?;
+        Ok(action)
+    }
+
     fn dispatch_eval(
         &self,
         browser: BrowserId,
@@ -1782,7 +914,8 @@ impl Inner {
         critical: bool,
     ) -> Result<(), BrowserError> {
         let action = ActionId(self.next_action.fetch_add(1, Ordering::Relaxed));
-        if let Ok(mut state) = self.state.lock() {
+        {
+            let mut state = self.state.guard();
             if let Some(view) = state.views.get_mut(&browser.site) {
                 if view.id == browser {
                     if view.actions.len() >= 64 {
@@ -1792,382 +925,23 @@ impl Inner {
                 }
             }
         }
-        self.browser.dispatch(BrowserCommand {
+        self.sent(
             browser,
-            action,
-            command: BrowserAction::Eval(script),
-        })
-    }
-
-    fn arm_saved_login(self: &Arc<Self>, page: PageId, url: Url, relay: String) {
-        let Some(profile) = url.host_str().and_then(SchoolAuthProfile::for_auth_host) else {
-            return;
-        };
-        let Some(expected_url) = sanitize_school_url(url.as_str()) else {
-            return;
-        };
-        let (allowed, blocked_heartbeat) = self.state.lock().ok().map_or((false, false), |state| {
-            (
-                state.login.is_none() && !state.auto_blocked.contains(&profile),
-                state.heartbeat == Some(profile) && state.auto_blocked.contains(&profile),
-            )
-        });
-        if blocked_heartbeat {
-            self.set_session_from_inner(profile, SchoolSessionState::Failed);
-            return;
-        }
-        if !allowed {
-            return;
-        }
-        let auth = self.auth.clone();
-        let weak = Arc::downgrade(self);
-        self.tasks.spawn(async move {
-            let loaded = tokio::task::spawn_blocking(move || auth.load(profile)).await;
-            let Some(inner) = weak.upgrade() else { return };
-            let owned = inner.state.lock().ok().is_some_and(|state| {
-                (state.heartbeat == Some(profile) || state.browsing == Some(page.browser.site))
-                    && state.views.get(&page.browser.site).is_some_and(|view| {
-                        view.id == page.browser
-                            && view.last_page == page.sequence
-                            && view.url == expected_url
-                    })
-            });
-            if !owned {
-                return;
-            }
-            let credentials = match loaded {
-                Ok(Ok(Some(credentials))) => credentials,
-                Ok(Ok(None)) => {
-                    inner.set_session_from_inner(profile, SchoolSessionState::NotConfigured);
-                    return;
-                }
-                Ok(Err(_)) | Err(_) => {
-                    inner.set_session_from_inner(profile, SchoolSessionState::Failed);
-                    return;
-                }
-            };
-            let login = ActiveLogin {
-                profile,
-                credentials,
-                run: new_id(),
-            };
-            let accepted = inner.state.lock().ok().is_some_and(|mut state| {
-                if state.login.is_none()
-                    && (state.heartbeat == Some(profile)
-                        || state.browsing == Some(page.browser.site))
-                    && state.views.get(&page.browser.site).is_some_and(|view| {
-                        view.id == page.browser
-                            && view.last_page == page.sequence
-                            && view.url == expected_url
-                    })
-                {
-                    state.login = Some(login.clone());
-                    true
-                } else {
-                    false
-                }
-            });
-            if accepted {
-                if let Some(script) = login_script(url.as_str(), &login, &relay) {
-                    let _ = inner.dispatch_eval(page.browser, script, true);
-                }
-            }
-        });
-    }
-
-    fn login_relay(&self, encoded: &str) {
-        if encoded.len() > 4 * 1024 {
-            return;
-        }
-        let Some(relay) = URL_SAFE_NO_PAD
-            .decode(encoded)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<LoginRelay>(&bytes).ok())
-        else {
-            return;
-        };
-        if !valid_login_relay(&relay.state, &relay.message) {
-            return;
-        }
-        let mut failed = false;
-        let matched = self.state.lock().ok().is_some_and(|mut state| {
-            let matched = state
-                .login
-                .as_ref()
-                .is_some_and(|active| active.profile == relay.profile && active.run == relay.run);
-            if matched && relay.state != "progress" && relay.state != "needs-user" {
-                state.login = None;
-                state.auto_blocked.insert(relay.profile);
-                failed = true;
-            }
-            matched
-        });
-        if matched {
-            let message = clean_message(&relay.message);
-            let _ = self.events.emit(CoreEvent::SchoolLogin(SchoolLoginEvent {
-                profile: relay.profile,
-                state: relay.state,
-                message,
-            }));
-        }
-        if failed {
-            self.set_session_from_inner(relay.profile, SchoolSessionState::Failed);
-        }
-    }
-
-    fn progress_relay(&self, browser: BrowserId, encoded: &str) {
-        if encoded.len() > 4 * 1024 {
-            return;
-        }
-        let Some(progress) = URL_SAFE_NO_PAD
-            .decode(encoded)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<ProgressRelay>(&bytes).ok())
-        else {
-            return;
-        };
-        let active = self.state.lock().ok().is_some_and(|state| {
-            state
-                .extraction
-                .as_ref()
-                .is_some_and(|run| run.browser == browser && run.run == progress.extraction_run)
-        });
-        if active
-            && matches!(
-                progress.phase.as_str(),
-                "catalog" | "course" | "material" | "assignment"
-            )
-            && progress.completed <= progress.total
-            && progress.total <= 10_000
-        {
-            let _ = self
-                .events
-                .emit(CoreEvent::SchoolPullProgress(SchoolPullProgress {
-                    site: SchoolSite::ScienceLms,
-                    phase: progress.phase,
-                    completed: progress.completed,
-                    total: progress.total,
-                    course_id: progress.course_id,
-                    course_title: truncate(progress.course_title, 512),
-                    term: truncate(progress.term, 16),
-                    item_title: truncate(progress.item_title, 512),
-                }));
-        }
-    }
-
-    fn set_session_from_inner(&self, profile: SchoolAuthProfile, value: SchoolSessionState) {
-        let event = self.state.lock().ok().map(|mut state| {
-            if value != SchoolSessionState::Pending && state.heartbeat == Some(profile) {
-                state.heartbeat = None;
-                if state
-                    .login
-                    .as_ref()
-                    .is_some_and(|login| login.profile == profile)
-                {
-                    state.login = None;
-                }
-            }
-            state.sessions.insert(profile, value);
-            state.revision = state.revision.saturating_add(1);
-            SchoolSessionEvent {
-                profile,
-                state: value,
-                revision: state.revision,
-            }
-        });
-        if let Some(event) = event {
-            if value == SchoolSessionState::Active {
-                let _ = self.refresh.event(RefreshEvent {
-                    kind: crate::school_refresh::RefreshKind::AccountActive,
-                    profile: Some(profile),
-                    course_id: None,
-                    network: None,
-                });
-            }
-            let _ = self.events.emit(CoreEvent::SchoolSession(event));
-            let _ = self.traces.send(Trace::Session {
-                profile,
-                state: value,
-            });
-        }
+            self.browser.dispatch(BrowserCommand {
+                browser,
+                action,
+                command: BrowserAction::Eval(script),
+            }),
+        )
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LoginRelay {
-    profile: SchoolAuthProfile,
-    run: String,
-    state: String,
-    message: String,
+/// A per-view close is a platform failure for the work in that view, not a
+/// shutdown of the whole school browser.
+fn view_closed() -> SchoolBrowserError {
+    SchoolBrowserError::Platform("The school view was closed.".into())
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProgressRelay {
-    #[serde(default, rename = "_isctExtractionRun")]
-    extraction_run: String,
-    phase: String,
-    completed: usize,
-    total: usize,
-    #[serde(default)]
-    course_id: u64,
-    #[serde(default)]
-    course_title: String,
-    #[serde(default)]
-    term: String,
-    #[serde(default)]
-    item_title: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LoginConfig<'a> {
-    profile: &'static str,
-    run: &'a str,
-    username: &'a str,
-    password: &'a str,
-    otp: Vec<OtpWindow>,
-    matrix: &'a str,
-    auth_relay: &'a str,
-    debug_relay: Option<&'a str>,
-}
-
-fn login_script(raw: &str, login: &ActiveLogin, relay: &str) -> Option<String> {
-    let url = Url::parse(raw).ok()?;
-    if url.scheme() != "https"
-        || url.host_str().and_then(SchoolAuthProfile::for_auth_host) != Some(login.profile)
-        || !is_login_step(&url)
-    {
-        return None;
-    }
-    let credentials = &login.credentials;
-    let otp = if credentials.otp_secret.is_empty() {
-        Vec::new()
-    } else {
-        upcoming_otps(&credentials.otp_secret).ok()?
-    };
-    let profile = match login.profile {
-        SchoolAuthProfile::Science => "science",
-        SchoolAuthProfile::TokyoTech => "tokyo-tech",
-    };
-    let config = serde_json::to_string(&LoginConfig {
-        profile,
-        run: &login.run,
-        username: &credentials.username,
-        password: &credentials.password,
-        otp,
-        matrix: &credentials.matrix,
-        auth_relay: relay,
-        debug_relay: None,
-    })
-    .ok()?
-    .replace('<', "\\u003c")
-    .replace('>', "\\u003e");
-    Some(SCHOOL_LOGIN.replace("__ISCT_COMPANION_LOGIN_CONFIG__", &config))
-}
-
-fn extraction_script(setup: &str, script: &str, relay: &str, run: &str) -> String {
-    let run = serde_json::to_string(run).unwrap_or_else(|_| "\"\"".into());
-    format!("{setup}Promise.resolve({script}).then(v=>{{if(v&&typeof v==='object')v._isctExtractionRun={run};return v}}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))")
-}
-
-fn ingestion_script(raw: &str) -> Option<&'static str> {
-    let url = Url::parse(raw).ok()?;
-    if url.host_str() == Some("lms.s.isct.ac.jp")
-        && url.path().starts_with("/2025/")
-        && !url.path().contains("/pluginfile.php/")
-    {
-        return Some(LMS_EXTRACT_SCRIPT);
-    }
-    (url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
-        && KYOMU_PULL_PAGES
-            .iter()
-            .any(|page| url.path() == format!("/Titech/{page}")))
-    .then_some(KYOMU_EXTRACT_SCRIPT)
-}
-
-fn apply_raw(
-    store: &DataStore,
-    site: SchoolSite,
-    raw: &str,
-) -> Result<IngestOutcome, SchoolBrowserError> {
-    let mut connection = rusqlite::Connection::open(store.path())
-        .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
-    let applied = if site == SchoolSite::ScienceLms {
-        match parse_lms_payload(raw) {
-            Ok((LmsStage::Ready, Some(payload))) => apply_lms_payload(&mut connection, &payload)
-                .map(|changed| ("lms".to_string(), changed))
-                .map_err(|error| ("lms".to_string(), error.to_string())),
-            Ok(_) => Err(("lms".into(), "reconnect-required".into())),
-            Err(error) => Err((
-                "lms".into(),
-                serde_json::from_str::<serde_json::Value>(raw)
-                    .ok()
-                    .and_then(|value| value.get("error")?.as_str().map(str::to_string))
-                    .map(|reason| truncate(reason, 1_024))
-                    .map(|reason| format!("{error}: {reason}"))
-                    .unwrap_or_else(|| error.to_string()),
-            )),
-        }
-    } else {
-        match parse_kyomu_payload(raw) {
-            Ok((KyomuStage::Ready, Some(payload))) => {
-                let kind = payload.kind.clone();
-                apply_kyomu_payload(&mut connection, &payload)
-                    .map(|changed| (kind.clone(), changed))
-                    .map_err(|error| (kind, error.to_string()))
-            }
-            Ok((_, payload)) => Err((
-                payload
-                    .map(|value| value.kind)
-                    .unwrap_or_else(|| "session".into()),
-                "reconnect-required".into(),
-            )),
-            Err(error) => Err(("unknown".into(), error.to_string())),
-        }
-    };
-    Ok(match applied {
-        Ok((kind, changed)) => IngestOutcome {
-            site,
-            kind,
-            state: "ok".into(),
-            changed,
-            message: format!("{changed} rows changed"),
-        },
-        Err((kind, message)) if message == "reconnect-required" => IngestOutcome {
-            site,
-            kind,
-            state: "reconnect-required".into(),
-            changed: 0,
-            message: "Sign-in required".into(),
-        },
-        Err((kind, message)) => IngestOutcome {
-            site,
-            kind,
-            state: "error".into(),
-            changed: 0,
-            message,
-        },
-    })
-}
-
-fn snapshot(state: &State) -> SchoolSessionSnapshot {
-    let get = |profile| {
-        state
-            .sessions
-            .get(&profile)
-            .copied()
-            .unwrap_or(SchoolSessionState::Pending)
-    };
-    SchoolSessionSnapshot {
-        revision: state.revision,
-        states: SchoolSessionStates {
-            science: get(SchoolAuthProfile::Science),
-            tokyo_tech: get(SchoolAuthProfile::TokyoTech),
-        },
-    }
-}
 fn safe_url(raw: &str) -> Result<Url, SchoolBrowserError> {
     let safe = sanitize_school_url(raw).ok_or_else(|| {
         SchoolBrowserError::InvalidInput(
@@ -2185,100 +959,42 @@ fn site_url(site: SchoolSite, raw: &str) -> Result<Url, SchoolBrowserError> {
     }
     Ok(url)
 }
-fn history_entry(site: SchoolSite, raw: &str) -> Option<String> {
-    let safe = sanitize_school_url(raw)?;
-    if SchoolSite::for_url(&safe) != Some(site) {
-        return None;
-    }
-    let url = Url::parse(&safe).ok()?;
-    match url.host_str().and_then(SchoolAuthProfile::for_auth_host) {
-        Some(profile) if !login_succeeded(&safe, profile) => None,
-        _ => Some(safe),
-    }
-}
-fn same_page(left: &str, right: &str) -> bool {
-    let (Ok(left), Ok(right)) = (Url::parse(left), Url::parse(right)) else {
-        return false;
-    };
-    left.scheme() == right.scheme()
-        && left.host_str() == right.host_str()
-        && left.port_or_known_default() == right.port_or_known_default()
-        && left.path() == right.path()
-}
 fn new_id() -> String {
     uuid::Uuid::now_v7().simple().to_string()
-}
-fn is_login_url(url: &Url) -> bool {
-    url.host_str()
-        .and_then(SchoolAuthProfile::for_auth_host)
-        .is_some()
-        && is_login_step(url)
-}
-fn is_login_step(url: &Url) -> bool {
-    let path = url.path().trim_end_matches('/');
-    match url.host_str() {
-        Some("isct.ex-tic.com") => matches!(
-            path,
-            "/auth" | "/auth/session" | "/auth/session/second_factor"
-        ),
-        Some("portal.nap.gsic.titech.ac.jp" | "portal.titech.ac.jp") => {
-            matches!(path, "" | "/portal.pl" | "/GetAccess/Login")
-        }
-        _ => false,
-    }
-}
-fn login_succeeded(raw: &str, profile: SchoolAuthProfile) -> bool {
-    let Ok(url) = Url::parse(raw) else {
-        return false;
-    };
-    let host = url.host_str().unwrap_or_default();
-    match profile {
-        SchoolAuthProfile::Science => {
-            (host == "isct.ex-tic.com" && url.path().starts_with("/idm/user/portal"))
-                || (host == "lms.s.isct.ac.jp"
-                    && !url.path().contains("/login")
-                    && !url.path().contains("saml"))
-        }
-        SchoolAuthProfile::TokyoTech => {
-            (host == "portal.nap.gsic.titech.ac.jp" && url.path().contains("ResourceList"))
-                || host == "kyomu0.gakumu.titech.ac.jp"
-                || (host == "portal.t4.gsic.titech.ac.jp"
-                    && url.path().starts_with("/ptl/")
-                    && !matches!(url.path(), "/ptl/" | "/ptl/requestLogin")
-                    && !url.path().starts_with("/ptl/ga/"))
-        }
-    }
-}
-fn valid_login_relay(state: &str, message: &str) -> bool {
-    match state {
-        "progress" => matches!(
-            message,
-            "agree" | "identifier" | "password" | "method" | "otp" | "matrix"
-        ),
-        "needs-user"
-        | "error"
-        | "invalid-credentials"
-        | "invalid-otp"
-        | "invalid-matrix"
-        | "locked"
-        | "maintenance" => true,
-        _ => false,
-    }
 }
 fn truncate(value: String, max: usize) -> String {
     value.chars().take(max).collect()
 }
-fn clean_message(message: &str) -> String {
-    let cleaned: String = message
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(300)
-        .collect();
-    if cleaned.trim().is_empty() {
-        "The school portal did not provide an error message.".into()
-    } else {
-        cleaned
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn browser_errors_keep_actionable_executor_categories() {
+        assert_eq!(
+            map_executor(SchoolBrowserError::Timeout("portal timed out".into())),
+            SchoolExecutorError::Timeout("portal timed out".into())
+        );
+        assert_eq!(
+            map_executor(SchoolBrowserError::Auth("sign-in expired".into())),
+            SchoolExecutorError::Authentication("sign-in expired".into())
+        );
+        assert_eq!(
+            map_executor(SchoolBrowserError::Storage("database unavailable".into())),
+            SchoolExecutorError::Storage("database unavailable".into())
+        );
+        assert_eq!(
+            map_executor(SchoolBrowserError::SiteChanged("portal changed".into())),
+            SchoolExecutorError::SiteChanged("portal changed".into())
+        );
+        assert_eq!(
+            map_executor(SchoolBrowserError::Stopped),
+            SchoolExecutorError::Stopped("The school browser has stopped.".into())
+        );
+        assert_eq!(
+            map_executor(SchoolBrowserError::Cancelled),
+            SchoolExecutorError::Cancelled
+        );
     }
 }

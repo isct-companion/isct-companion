@@ -3,6 +3,7 @@
 pub use crate::school_parser::lms::ResolvedResource;
 use crate::{
     runtime_tasks::RuntimeTasks,
+    school_browser::is_login_url,
     school_parser::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page},
 };
 use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, RANGE};
@@ -687,11 +688,6 @@ fn checked_response_url(response: &reqwest::Response) -> Result<Url, FetchError>
     is_lms_origin(&url)
         .then_some(url)
         .ok_or(FetchError::Invalid)
-}
-
-fn is_login_url(url: &Url) -> bool {
-    url.path_segments()
-        .is_some_and(|mut segments| segments.any(|segment| segment == "login" || segment == "auth"))
 }
 
 #[cfg(test)]
