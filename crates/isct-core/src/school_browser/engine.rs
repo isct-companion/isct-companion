@@ -1141,9 +1141,12 @@ impl SchoolBrowserEngine {
         }
         let store = self.0.store.clone();
         let raw_for_apply = raw.clone();
-        let outcome = tokio::task::spawn_blocking(move || apply_raw(&store, site, &raw_for_apply))
-            .await
-            .map_err(|_| SchoolBrowserError::Stopped)??;
+        let applied =
+            tokio::task::spawn_blocking(move || apply_raw(&store, site, &raw_for_apply)).await;
+        // The write gate covers this page's commit only; the next 教務Web page
+        // can be cancelled again.
+        context.applied().await;
+        let outcome = applied.map_err(|_| SchoolBrowserError::Stopped)??;
         let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
         Ok(outcome)
     }

@@ -240,6 +240,8 @@ enum PullEvent {
     Start,
     Progress,
     Apply,
+    /// One commit finished; a multi-page run leaves its write gate.
+    Applied,
     WaitRetry,
     Retry,
     Succeed,
@@ -288,22 +290,24 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Start => accepted(Running),
             Cancel => accepted(Cancelled),
             Yield => accepted(Yielding),
-            Progress | Apply | WaitRetry | Retry | Succeed | Fail | Stop => rejected(Queued),
+            Progress | Apply | Applied | WaitRetry | Retry | Succeed | Fail | Stop => {
+                rejected(Queued)
+            },
         },
         Checking => match event {
             Block => accepted(Blocked),
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Enqueue | Check | Start | Progress | Apply | WaitRetry | Retry | Succeed | Fail
-            | Stop | Yield => rejected(Checking),
+            Enqueue | Check | Start | Progress | Apply | Applied | WaitRetry | Retry | Succeed
+            | Fail | Stop | Yield => rejected(Checking),
         },
         Blocked => match event {
             Enqueue => accepted(Blocked),
             Check => accepted(Checking),
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Start | Progress | Apply | WaitRetry | Retry | Succeed | Fail | Stop | Yield
-            | Block => rejected(Blocked),
+            Start | Progress | Apply | Applied | WaitRetry | Retry | Succeed | Fail | Stop
+            | Yield | Block => rejected(Blocked),
         },
         Running => match event {
             Progress => accepted(Running),
@@ -313,11 +317,12 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Fail => accepted(Failed),
             Cancel => accepted(Cancelling),
             Yield => accepted(Yielding),
-            Enqueue | Check | Block | Ready | Start | Retry | Stop => rejected(Running),
+            Enqueue | Check | Block | Ready | Start | Applied | Retry | Stop => rejected(Running),
         },
         Applying => match event {
             Progress => accepted(Applying),
             Apply => accepted(Applying),
+            Applied => accepted(Running),
             WaitRetry => accepted(RetryWaiting),
             Succeed => accepted(Succeeded),
             Fail => accepted(Failed),
@@ -329,38 +334,38 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Enqueue => accepted(RetryWaiting),
             Retry => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Check | Block | Ready | Start | Progress | Apply | WaitRetry | Succeed | Fail
-            | Stop | Yield => rejected(RetryWaiting),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Succeed
+            | Fail | Stop | Yield => rejected(RetryWaiting),
         },
         Succeeded => match event {
             Enqueue => accepted(Queued),
-            Check | Block | Ready | Start | Progress | Apply | WaitRetry | Retry | Succeed
-            | Fail | Cancel | Stop | Yield => rejected(Succeeded),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Retry
+            | Succeed | Fail | Cancel | Stop | Yield => rejected(Succeeded),
         },
         Failed => match event {
             Enqueue => accepted(Queued),
             Retry => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Check | Block | Ready | Start | Progress | Apply | WaitRetry | Succeed | Fail
-            | Stop | Yield => rejected(Failed),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Succeed
+            | Fail | Stop | Yield => rejected(Failed),
         },
         Cancelling => match event {
             Stop | Succeed | Fail => accepted(Cancelled),
             Cancel => accepted(Cancelling),
-            Enqueue | Check | Block | Ready | Start | Progress | Apply | WaitRetry | Retry
-            | Yield => rejected(Cancelling),
+            Enqueue | Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry
+            | Retry | Yield => rejected(Cancelling),
         },
         Cancelled => match event {
             Enqueue => accepted(Queued),
-            Check | Block | Ready | Start | Progress | Apply | WaitRetry | Retry | Succeed
-            | Fail | Cancel | Stop | Yield => rejected(Cancelled),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Retry
+            | Succeed | Fail | Cancel | Stop | Yield => rejected(Cancelled),
         },
         Yielding => match event {
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
             Stop => accepted(Yielding),
-            Enqueue | Check | Block | Start | Progress | Apply | WaitRetry | Retry | Succeed
-            | Fail | Yield => rejected(Yielding),
+            Enqueue | Check | Block | Start | Progress | Apply | Applied | WaitRetry | Retry
+            | Succeed | Fail | Yield => rejected(Yielding),
         },
     }
 }
@@ -407,6 +412,13 @@ impl PullContext {
         self.coordinator
             .progress(&self.id, self.run_id, "applying".into(), true)
             .await
+    }
+
+    /// Leaves the write gate after one commit, so a multi-page executor can
+    /// be cancelled again before its next page. Returns `false` when the run
+    /// is no longer current or shutdown cancelled it during the commit.
+    pub async fn applied(&self) -> bool {
+        self.coordinator.applied(&self.id, self.run_id).await
     }
 
     /// Records a business-level partial failure without discarding a useful
@@ -539,7 +551,8 @@ impl PullCoordinator {
     }
 
     /// Stop admission and retries, cancel work before Applying, and drain the
-    /// executors. Applying retains its write gate until the commit completes.
+    /// executors. Applying retains its write gate until the commit completes;
+    /// a run that then leaves Applying for another page is cancelled.
     pub async fn shutdown(&self) {
         let mut waiters = Vec::new();
         {
@@ -864,6 +877,30 @@ impl PullCoordinator {
         changed
     }
 
+    async fn applied(&self, id: &str, run_id: u64) -> bool {
+        let mut state = self.0.state.lock().await;
+        let closed = state.closed;
+        let Some(job) = state.jobs.get_mut(id) else {
+            return false;
+        };
+        if job.run_id != run_id {
+            return false;
+        }
+        let transition = reduce(job.state, PullEvent::Applied);
+        if !transition.accepted {
+            return false;
+        }
+        job.state = transition.state;
+        job.phase = Some("running".into());
+        if closed {
+            // Shutdown let this commit finish; the rest of the run is cancelled.
+            job.cancel.store(true, Ordering::Release);
+            job.state = reduce(job.state, PullEvent::Cancel).state;
+        }
+        publish_locked(&self.0, &state);
+        !closed
+    }
+
     async fn outcome_error(&self, id: &str, run_id: u64, message: String) -> bool {
         let mut state = self.0.state.lock().await;
         let Some(job) = state.jobs.get_mut(id) else {
@@ -1163,6 +1200,7 @@ mod tests {
             PullEvent::Start,
             PullEvent::Progress,
             PullEvent::Apply,
+            PullEvent::Applied,
             PullEvent::WaitRetry,
             PullEvent::Retry,
             PullEvent::Succeed,
@@ -2134,6 +2172,86 @@ mod tests {
             snapshot.state,
             PullState::Succeeded | PullState::Failed | PullState::Cancelled
         )));
+    }
+
+    #[tokio::test]
+    async fn applied_page_reopens_cancellation_before_the_next_page() {
+        let coordinator = PullCoordinator::default();
+        let committed = Arc::new(tokio::sync::Notify::new());
+        let saved = Arc::new(Mutex::new(None));
+        let task = {
+            let coordinator = coordinator.clone();
+            let committed = committed.clone();
+            let saved = saved.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(lms(None), PullOptions::manual(), move |context| {
+                        let committed = committed.clone();
+                        let saved = saved.clone();
+                        async move {
+                            assert!(context.applying().await);
+                            assert!(context.applied().await);
+                            *saved.lock().await = Some(context.clone());
+                            committed.notify_one();
+                            while !context.is_cancelled() {
+                                tokio::task::yield_now().await;
+                            }
+                            assert!(!context.applying().await);
+                            Ok(json!("first page only"))
+                        }
+                    })
+                    .await
+            })
+        };
+        committed.notified().await;
+        let id = coordinator.snapshots().await[0].id.clone();
+        assert_eq!(coordinator.snapshots().await[0].state, PullState::Running);
+        assert!(coordinator.cancel(&id).await);
+        assert_eq!(task.await.unwrap(), Err(PullError::Cancelled));
+        let context = saved.lock().await.clone().unwrap();
+        assert!(!context.applied().await);
+    }
+
+    #[tokio::test]
+    async fn shutdown_during_a_page_commit_cancels_the_following_pages() {
+        let coordinator = PullCoordinator::default();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let task = {
+            let coordinator = coordinator.clone();
+            let entered = entered.clone();
+            let finish = finish.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(lms(None), PullOptions::manual(), move |context| {
+                        let entered = entered.clone();
+                        let finish = finish.clone();
+                        async move {
+                            assert!(context.applying().await);
+                            entered.notify_one();
+                            finish.notified().await;
+                            assert!(!context.is_cancelled());
+                            assert!(!context.applied().await);
+                            assert!(context.is_cancelled());
+                            Ok(json!("first page only"))
+                        }
+                    })
+                    .await
+            })
+        };
+        entered.notified().await;
+        let shutdown = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move { coordinator.shutdown().await })
+        };
+        while !coordinator.0.state.lock().await.closed {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(coordinator.snapshots().await[0].state, PullState::Applying);
+        finish.notify_one();
+        assert_eq!(task.await.unwrap(), Err(PullError::Cancelled));
+        shutdown.await.unwrap();
+        assert_eq!(coordinator.snapshots().await[0].state, PullState::Cancelled);
     }
 
     #[tokio::test]

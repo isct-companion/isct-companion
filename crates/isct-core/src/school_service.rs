@@ -184,8 +184,15 @@ impl SchoolService {
                                 },
                                 context.clone(),
                             )
-                            .await
-                            .map_err(map_executor_error)?;
+                            .await;
+                        // 教務Web commits per page, so a run cancelled between pages
+                        // may already have changed rows.
+                        if matches!(result, Ok(_) | Err(SchoolExecutorError::Cancelled)) {
+                            let _ = service.events.emit(CoreEvent::WorkspaceChanged {
+                                source: WorkspaceChangeSource::SchoolPull,
+                            });
+                        }
+                        let result = result.map_err(map_executor_error)?;
                         if context.is_cancelled() {
                             return Err(PullError::Cancelled);
                         }
@@ -194,9 +201,6 @@ impl SchoolService {
                         if let Some(problem) = result.iter().find(|row| row.state != "ok") {
                             context.outcome_error(problem.message.clone()).await;
                         }
-                        let _ = service.events.emit(CoreEvent::WorkspaceChanged {
-                            source: WorkspaceChangeSource::SchoolPull,
-                        });
                         serde_json::to_value(result)
                             .map_err(|error| PullError::Execution(error.to_string()))
                     }

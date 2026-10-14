@@ -110,7 +110,10 @@ An extraction result is accepted only for its browser generation, page, target
 and run nonce. Core then asks `PullContext` to enter `applying`. Cancellation
 before that transition discards the payload. Once the transition succeeds,
 parsing and the database transaction finish as owned work; dropping the
-original native caller does not abort the commit. Outcomes remain `ok`,
+original native caller does not abort the commit. 教務Web commits each page
+under its own gate and returns to `running` afterwards, so Cancel stops the pull
+between pages; a shutdown during a page commit cancels the remaining pages once
+that commit finishes. Outcomes remain `ok`,
 `reconnect-required` or `error`, and Core emits progress and ingest events with
 the existing wire fields.
 

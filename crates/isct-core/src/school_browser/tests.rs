@@ -1178,3 +1178,122 @@ async fn cancellation_before_applying_keeps_the_lms_database_unchanged() {
     coordinator.shutdown().await;
     engine.shutdown().await;
 }
+
+fn spawn_pull(
+    engine: &Arc<SchoolBrowserEngine>,
+    coordinator: &PullCoordinator,
+    site: SchoolSite,
+    options: PullOptions,
+) -> tokio::task::JoinHandle<Result<serde_json::Value, crate::pull_coordinator::PullError>> {
+    let engine = engine.clone();
+    let coordinator = coordinator.clone();
+    tokio::spawn(async move {
+        coordinator
+            .run(
+                PullTarget::School {
+                    site,
+                    course_id: None,
+                },
+                options,
+                move |context| {
+                    let engine = engine.clone();
+                    async move {
+                        let priority = context.priority();
+                        engine
+                            .pull(site, None, context, priority)
+                            .await
+                            .map(|outcomes| serde_json::to_value(outcomes).unwrap())
+                            .map_err(|error| match error {
+                                SchoolBrowserError::Cancelled => {
+                                    crate::pull_coordinator::PullError::Cancelled
+                                }
+                                error => {
+                                    crate::pull_coordinator::PullError::Execution(error.to_string())
+                                }
+                            })
+                    }
+                },
+            )
+            .await
+    })
+}
+
+fn kyomu_gpa_relay(script: &str) -> Url {
+    extraction_relay(
+        script,
+        serde_json::json!({
+            "status": "ok",
+            "sourceUrl": "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
+            "kind": "gpa",
+            "data": {
+                "overall": [[[], ["GPA", "GPT", "修得済単位", "合格率"], ["3.20", "100", "10", "90"]]],
+                "terms": []
+            }
+        }),
+    )
+}
+
+#[tokio::test]
+async fn kyomu_pull_can_be_cancelled_between_committed_pages() {
+    let (engine, browser, _, store) = engine();
+    let coordinator = PullCoordinator::default();
+    let request = spawn_pull(&engine, &coordinator, SchoolSite::Kyomu, PullOptions::manual());
+    let landing = browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: landing.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/").unwrap(),
+    });
+    let gpa = browser.navigation(1).await;
+    let BrowserAction::Navigate(gpa_url) = gpa.command.clone() else {
+        panic!("GPA page was not navigated");
+    };
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: gpa.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: gpa_url,
+    });
+    let relay = kyomu_gpa_relay(&browser.extraction_script().await);
+    browser.listener().decide_navigation(
+        PageId {
+            browser: gpa.browser,
+            sequence: 2,
+        },
+        relay,
+        true,
+    );
+    // The second page starts only after the first commit left the write gate.
+    browser.navigation(2).await;
+    let id = coordinator.snapshots().await[0].id.clone();
+    assert!(coordinator.cancel(&id).await);
+    assert_eq!(
+        request.await.unwrap(),
+        Err(crate::pull_coordinator::PullError::Cancelled)
+    );
+    assert_eq!(coordinator.snapshots().await[0].state, PullState::Cancelled);
+    let navigations = browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+        .count();
+    assert_eq!(navigations, 3);
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    let committed: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM gpa_summary WHERE id='kyomu-gpa:all'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(committed, 1);
+    coordinator.shutdown().await;
+    engine.shutdown().await;
+}
