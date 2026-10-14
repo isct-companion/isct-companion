@@ -164,6 +164,9 @@ pub struct PullOptions {
     pub priority: PullPriority,
     pub delay: Duration,
     pub retry_limit: u32,
+    /// School pulls sign in with saved credentials before extracting. A
+    /// joining caller that asks for this upgrades the live job.
+    pub login_first: bool,
 }
 
 impl PullOptions {
@@ -172,6 +175,7 @@ impl PullOptions {
             priority: PullPriority::Manual,
             delay: Duration::ZERO,
             retry_limit: 0,
+            login_first: false,
         }
     }
 
@@ -180,6 +184,7 @@ impl PullOptions {
             priority: PullPriority::Automatic,
             delay: Duration::ZERO,
             retry_limit: 0,
+            login_first: false,
         }
     }
 }
@@ -292,7 +297,7 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Yield => accepted(Yielding),
             Progress | Apply | Applied | WaitRetry | Retry | Succeed | Fail | Stop => {
                 rejected(Queued)
-            },
+            }
         },
         Checking => match event {
             Block => accepted(Blocked),
@@ -391,6 +396,7 @@ pub struct PullContext {
     run_id: u64,
     cancelled: Arc<AtomicBool>,
     priority: Arc<AtomicU8>,
+    login_first: Arc<AtomicBool>,
 }
 
 impl PullContext {
@@ -398,8 +404,16 @@ impl PullContext {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    /// Current priority. A manual join can promote a job after it started,
+    /// so executors read this again at every admission point.
     pub fn priority(&self) -> PullPriority {
         PullPriority::from_encoded(self.priority.load(Ordering::Acquire))
+    }
+
+    /// Whether any caller of this job asked to sign in first. Like the
+    /// priority, a join can set this after the job started.
+    pub fn login_first(&self) -> bool {
+        self.login_first.load(Ordering::Acquire)
     }
 
     pub async fn phase(&self, phase: impl Into<String>) -> bool {
@@ -442,6 +456,7 @@ struct PullJob {
     target: PullTarget,
     priority: PullPriority,
     priority_cell: Arc<AtomicU8>,
+    login_first: Arc<AtomicBool>,
     state: PullState,
     phase: Option<String>,
     blocked_by: Option<String>,
@@ -670,6 +685,7 @@ impl PullCoordinator {
                         target,
                         priority: options.priority,
                         priority_cell: Arc::new(AtomicU8::new(options.priority.encoded())),
+                        login_first: Arc::new(AtomicBool::new(options.login_first)),
                         state: PullState::Queued,
                         phase: None,
                         blocked_by: None,
@@ -825,6 +841,7 @@ impl PullCoordinator {
                         run_id,
                         cancelled: job.cancel.clone(),
                         priority: job.priority_cell.clone(),
+                        login_first: job.login_first.clone(),
                     };
                     (lane, work, context)
                 };
@@ -1005,6 +1022,9 @@ fn promote(job: &mut PullJob, options: &PullOptions) {
             .store(PullPriority::Manual.encoded(), Ordering::Release);
     }
     job.retry_limit = job.retry_limit.max(options.retry_limit);
+    if options.login_first {
+        job.login_first.store(true, Ordering::Release);
+    }
 }
 
 fn covering_job(state: &CoordinatorState, target: &PullTarget) -> Option<String> {
@@ -1459,6 +1479,67 @@ mod tests {
         assert_eq!(automatic.await.unwrap().unwrap(), json!("promoted"));
         assert_eq!(manual.await.unwrap().unwrap(), json!("promoted"));
         assert_eq!(*observed.lock().await, Some(PullPriority::Manual));
+    }
+
+    #[tokio::test]
+    async fn running_join_upgrades_login_first_and_priority_for_the_executor() {
+        let coordinator = PullCoordinator::default();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let saved = Arc::new(Mutex::new(None));
+        let automatic = {
+            let coordinator = coordinator.clone();
+            let started = started.clone();
+            let finish = finish.clone();
+            let saved = saved.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(lms(None), PullOptions::automatic(), move |context| {
+                        let started = started.clone();
+                        let finish = finish.clone();
+                        let saved = saved.clone();
+                        async move {
+                            *saved.lock().await = Some(context.clone());
+                            started.notify_one();
+                            finish.notified().await;
+                            Ok(json!({ "loginFirst": context.login_first() }))
+                        }
+                    })
+                    .await
+            })
+        };
+        started.notified().await;
+        let context = saved.lock().await.clone().unwrap();
+        assert!(!context.login_first());
+        assert_eq!(context.priority(), PullPriority::Automatic);
+        let forced = {
+            let coordinator = coordinator.clone();
+            tokio::spawn(async move {
+                coordinator
+                    .run(
+                        lms(None),
+                        PullOptions {
+                            login_first: true,
+                            ..PullOptions::manual()
+                        },
+                        |_| async { panic!("a join must reuse the running executor") },
+                    )
+                    .await
+            })
+        };
+        while !context.login_first() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(context.priority(), PullPriority::Manual);
+        finish.notify_one();
+        assert_eq!(
+            automatic.await.unwrap().unwrap(),
+            json!({ "loginFirst": true })
+        );
+        assert_eq!(
+            forced.await.unwrap().unwrap(),
+            json!({ "loginFirst": true })
+        );
     }
 
     #[tokio::test]

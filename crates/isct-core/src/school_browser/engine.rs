@@ -16,7 +16,8 @@ use crate::{
     pull_coordinator::{PullContext, PullPriority},
     runtime_tasks::RuntimeTasks,
     school_auth::{
-        upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
+        upcoming_otps, OtpWindow, SchoolAuthError, SchoolAuthProfile, SchoolAuthService,
+        SchoolCredentials,
     },
     school_parser::{
         kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
@@ -629,12 +630,15 @@ impl SchoolBrowserEngine {
         Ok(())
     }
 
+    /// Runs one coordinated pull in the hidden lane. Sign-in happens under the
+    /// same lane admission, either with `credentials` supplied at the start or
+    /// with saved credentials when a join later asks for `login_first`.
     pub async fn pull(
         &self,
         site: SchoolSite,
         course_id: Option<u64>,
+        credentials: Option<(SchoolAuthProfile, SchoolCredentials)>,
         context: PullContext,
-        priority: PullPriority,
     ) -> Result<Vec<IngestOutcome>, SchoolBrowserError> {
         if !matches!(site, SchoolSite::ScienceLms | SchoolSite::Kyomu) {
             return Err(SchoolBrowserError::InvalidInput(
@@ -646,38 +650,102 @@ impl SchoolBrowserEngine {
                 "LMS course ID must be positive and use the LMS site.".into(),
             ));
         }
+        let mut signed_in = false;
         loop {
             self.wait_until_hidden(&context).await?;
-            let manual = priority == PullPriority::Manual;
-            let _manual_waiter =
-                manual.then(|| ManualWaiter::new(&self.0.manual_waiters, &self.0.priority_changed));
-            let lane = loop {
-                if context.is_cancelled() {
-                    return Err(SchoolBrowserError::Cancelled);
-                }
-                if self.0.tasks.is_closed() {
-                    return Err(SchoolBrowserError::Stopped);
-                }
-                if manual || self.0.manual_waiters.load(Ordering::Acquire) == 0 {
-                    if let Ok(lane) = self.0.lane.try_lock() {
-                        break lane;
-                    }
-                }
-                tokio::select! {
-                    _ = self.0.priority_changed.notified() => {}
-                    _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-                    _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
-                }
-            };
+            let lane = self.acquire_pull_lane(&context).await?;
             if context.is_cancelled() {
                 return Err(SchoolBrowserError::Cancelled);
             }
-            let result = self.pull_once(site, course_id, &context).await;
+            let result = if !signed_in && (credentials.is_some() || context.login_first()) {
+                let (profile, saved) = match credentials.clone() {
+                    Some(credentials) => credentials,
+                    None => {
+                        let profile = pull_profile(site);
+                        (profile, self.saved_credentials(profile).await?)
+                    }
+                };
+                if context.is_cancelled() {
+                    return Err(SchoolBrowserError::Cancelled);
+                }
+                match self.login_locked(profile, saved).await {
+                    Ok(_) => {
+                        signed_in = true;
+                        self.pull_once(site, course_id, &context).await
+                    }
+                    Err(error) => Err(error),
+                }
+            } else {
+                self.pull_once(site, course_id, &context).await
+            };
             drop(lane);
             match result {
-                Err(SchoolBrowserError::Preempted) if !context.is_cancelled() => continue,
+                Err(SchoolBrowserError::Preempted) if context.is_cancelled() => {
+                    return Err(SchoolBrowserError::Cancelled)
+                }
+                Err(SchoolBrowserError::Preempted) => continue,
                 result => return result,
             }
+        }
+    }
+
+    /// Waits for the hidden lane. The job's priority is read on every pass:
+    /// a manual join promotes a job that is already waiting here.
+    async fn acquire_pull_lane(
+        &self,
+        context: &PullContext,
+    ) -> Result<tokio::sync::MutexGuard<'_, ()>, SchoolBrowserError> {
+        let mut manual_waiter = None;
+        loop {
+            if context.is_cancelled() {
+                return Err(SchoolBrowserError::Cancelled);
+            }
+            if self.0.tasks.is_closed() {
+                return Err(SchoolBrowserError::Stopped);
+            }
+            let manual = context.priority() == PullPriority::Manual;
+            if manual && manual_waiter.is_none() {
+                manual_waiter = Some(ManualWaiter::new(
+                    &self.0.manual_waiters,
+                    &self.0.priority_changed,
+                ));
+            }
+            if manual || self.0.manual_waiters.load(Ordering::Acquire) == 0 {
+                if let Ok(lane) = self.0.lane.try_lock() {
+                    return Ok(lane);
+                }
+            }
+            tokio::select! {
+                _ = self.0.priority_changed.notified() => {}
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+                _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn manual_waiters(&self) -> usize {
+        self.0.manual_waiters.load(Ordering::Acquire)
+    }
+
+    async fn saved_credentials(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<SchoolCredentials, SchoolBrowserError> {
+        let auth = self.0.auth.clone();
+        match tokio::task::spawn_blocking(move || auth.load(profile))
+            .await
+            .map_err(|_| SchoolBrowserError::Stopped)?
+        {
+            Ok(Some(credentials)) => Ok(credentials),
+            Ok(None) => Err(SchoolBrowserError::Auth(
+                "School credentials are not configured.".into(),
+            )),
+            Err(SchoolAuthError::Storage(message)) => Err(SchoolBrowserError::Storage(message)),
+            Err(SchoolAuthError::InvalidInput(message)) => {
+                Err(SchoolBrowserError::InvalidInput(message))
+            }
+            Err(error) => Err(SchoolBrowserError::Auth(error.to_string())),
         }
     }
 
@@ -1260,15 +1328,13 @@ impl SchoolExecutor for SchoolBrowserEngine {
     ) -> crate::school_service::SchoolExecutorFuture<'_> {
         let service = self.clone();
         Box::pin(async move {
-            let priority = context.priority();
-            if let Some((profile, credentials)) = request.credentials {
-                service
-                    .login(profile, credentials)
-                    .await
-                    .map_err(map_executor)?;
-            }
             service
-                .pull(request.site, request.course_id, context, priority)
+                .pull(
+                    request.site,
+                    request.course_id,
+                    request.credentials,
+                    context,
+                )
                 .await
                 .map_err(map_executor)
         })
@@ -2207,6 +2273,13 @@ fn same_page(left: &str, right: &str) -> bool {
         && left.host_str() == right.host_str()
         && left.port_or_known_default() == right.port_or_known_default()
         && left.path() == right.path()
+}
+fn pull_profile(site: SchoolSite) -> SchoolAuthProfile {
+    if site == SchoolSite::ScienceLms {
+        SchoolAuthProfile::Science
+    } else {
+        SchoolAuthProfile::TokyoTech
+    }
 }
 fn new_id() -> String {
     uuid::Uuid::now_v7().simple().to_string()

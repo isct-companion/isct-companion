@@ -26,6 +26,8 @@ pub struct IngestOutcome {
 pub struct SchoolExecution {
     pub site: SchoolSite,
     pub course_id: Option<u64>,
+    /// Saved credentials when the job asked to sign in before it started.
+    /// A join after the start is visible through `PullContext::login_first`.
     pub credentials: Option<(SchoolAuthProfile, SchoolCredentials)>,
 }
 
@@ -127,10 +129,13 @@ impl SchoolService {
         executor: Arc<dyn SchoolExecutor>,
         site: SchoolSite,
         course_id: Option<u64>,
-        options: PullOptions,
+        mut options: PullOptions,
         login_first: bool,
     ) -> Result<Vec<IngestOutcome>, SchoolError> {
         validate_request(site, course_id)?;
+        // A caller joining a live job of the same key upgrades it, so the flag
+        // travels with the job rather than with this caller's closure.
+        options.login_first |= login_first;
         let service = self.clone();
         let value = self
             .coordinator
@@ -147,7 +152,9 @@ impl SchoolService {
                         if context.is_cancelled() {
                             return Err(PullError::Cancelled);
                         }
-                        let credentials = if login_first {
+                        // A later join can still ask for sign-in; the executor reads
+                        // the job's flag again before each extraction.
+                        let credentials = if context.login_first() {
                             let auth = service.auth.clone();
                             let profile = profile_for_site(site);
                             let loaded = tokio::task::spawn_blocking(move || auth.load(profile))

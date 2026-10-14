@@ -100,7 +100,10 @@ by the Accounts UI.
 ## Extraction lifecycle
 
 School pulls enter the shared `PullCoordinator`, then the browser's single
-hidden lane. Manual work has priority over waiting automatic work. Opening a
+hidden lane. Manual work has priority over waiting automatic work. A caller that
+joins a live job of the same key can promote it to manual and ask it to sign in
+first; the engine reads both facts again at every lane admission, and signs in
+under the same lane admission as the extraction that follows. Opening a
 visible school page invalidates an armed extraction relay; hidden work that
 observes the visibility change before its apply boundary is requeued after the
 page hides. Cancellation is checked while waiting for visibility, lane

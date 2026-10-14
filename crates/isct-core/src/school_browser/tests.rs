@@ -4,9 +4,7 @@ use crate::{
     events::CoreEvent,
     lifecycle::SchoolSite,
     ports::{EventError, EventSink, SecretError, SecretVault},
-    pull_coordinator::{
-        PullCoordinator, PullNetwork, PullOptions, PullPriority, PullState, PullTarget,
-    },
+    pull_coordinator::{PullCoordinator, PullNetwork, PullOptions, PullState, PullTarget},
     school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     school_refresh::SchoolRefresh,
     school_service::IngestOutcome,
@@ -774,7 +772,7 @@ async fn coordinator_pull_accepts_native_cause_none_and_commits_lms_payload() {
                         let engine = engine.clone();
                         async move {
                             engine
-                                .pull(SchoolSite::ScienceLms, None, context, PullPriority::Manual)
+                                .pull(SchoolSite::ScienceLms, None, None, context)
                                 .await
                                 .map(|outcomes| serde_json::to_value(outcomes).unwrap())
                                 .map_err(|error| {
@@ -854,7 +852,7 @@ async fn full_lms_pull_rejects_the_preempted_relay_and_resumes_the_same_caller()
                         let engine = engine.clone();
                         async move {
                             engine
-                                .pull(SchoolSite::ScienceLms, None, context, PullPriority::Manual)
+                                .pull(SchoolSite::ScienceLms, None, None, context)
                                 .await
                                 .map(|outcomes| serde_json::to_value(outcomes).unwrap())
                                 .map_err(|error| {
@@ -996,12 +994,7 @@ async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails(
                         let engine = engine.clone();
                         async move {
                             let outcomes = engine
-                                .pull(
-                                    SchoolSite::Kyomu,
-                                    None,
-                                    context.clone(),
-                                    PullPriority::Manual,
-                                )
+                                .pull(SchoolSite::Kyomu, None, None, context.clone())
                                 .await
                                 .map_err(|error| {
                                     crate::pull_coordinator::PullError::Execution(error.to_string())
@@ -1124,7 +1117,7 @@ async fn cancellation_before_applying_keeps_the_lms_database_unchanged() {
                         let engine = engine.clone();
                         async move {
                             engine
-                                .pull(SchoolSite::ScienceLms, None, context, PullPriority::Manual)
+                                .pull(SchoolSite::ScienceLms, None, None, context)
                                 .await
                                 .map(|outcomes| serde_json::to_value(outcomes).unwrap())
                                 .map_err(|error| {
@@ -1198,9 +1191,8 @@ fn spawn_pull(
                 move |context| {
                     let engine = engine.clone();
                     async move {
-                        let priority = context.priority();
                         engine
-                            .pull(site, None, context, priority)
+                            .pull(site, None, None, context)
                             .await
                             .map(|outcomes| serde_json::to_value(outcomes).unwrap())
                             .map_err(|error| match error {
@@ -1237,7 +1229,12 @@ fn kyomu_gpa_relay(script: &str) -> Url {
 async fn kyomu_pull_can_be_cancelled_between_committed_pages() {
     let (engine, browser, _, store) = engine();
     let coordinator = PullCoordinator::default();
-    let request = spawn_pull(&engine, &coordinator, SchoolSite::Kyomu, PullOptions::manual());
+    let request = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::Kyomu,
+        PullOptions::manual(),
+    );
     let landing = browser.navigation(0).await;
     browser.listener().page_loaded(PageLoaded {
         page: PageId {
@@ -1296,4 +1293,136 @@ async fn kyomu_pull_can_be_cancelled_between_committed_pages() {
     assert_eq!(committed, 1);
     coordinator.shutdown().await;
     engine.shutdown().await;
+}
+
+fn saved_science_vault() -> BlockingVault {
+    let (started_send, _started_receive) = mpsc::channel();
+    let (_release_send, release_receive) = mpsc::channel();
+    let vault = BlockingVault {
+        value: Arc::new(Mutex::new(None)),
+        block: Arc::new(AtomicBool::new(false)),
+        started: started_send,
+        release: Arc::new(Mutex::new(release_receive)),
+    };
+    SchoolAuthService::new(vault.clone())
+        .save(
+            SchoolAuthProfile::Science,
+            SchoolCredentials {
+                username: "student".into(),
+                password: "password".into(),
+                otp_secret: "JBSWY3DPEHPK3PXP".into(),
+                matrix: String::new(),
+            },
+        )
+        .unwrap();
+    vault
+}
+
+async fn wait_for_snapshot(
+    coordinator: &PullCoordinator,
+    accept: impl Fn(&crate::pull_coordinator::PullSnapshot) -> bool,
+) {
+    for _ in 0..10_000 {
+        if coordinator.snapshots().await.iter().any(&accept) {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("pull snapshot did not reach the expected state");
+}
+
+#[tokio::test]
+async fn running_pull_signs_in_first_when_a_join_asks_for_login() {
+    let (engine, browser, _, _) =
+        engine_with_auth(Arc::new(SchoolAuthService::new(saved_science_vault())));
+    let coordinator = PullCoordinator::default();
+    engine.user_browsing(Some(SchoolSite::Kyomu)).unwrap();
+    let automatic = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::automatic(),
+    );
+    wait_for_snapshot(&coordinator, |row| row.state == PullState::Running).await;
+    let forced = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions {
+            login_first: true,
+            ..PullOptions::manual()
+        },
+    );
+    wait_for_snapshot(&coordinator, |row| row.waiter_count == 2).await;
+    engine.user_browsing(None).unwrap();
+
+    let login = browser.navigation(0).await;
+    assert_eq!(login.browser.site, SchoolSite::SciencePortal);
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: login.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/auth").unwrap(),
+    });
+    assert!(login_config(&browser.eval(0).await)["username"] == "student");
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: login.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/idm/user/portal/").unwrap(),
+    });
+    let pull = browser.navigation(1).await;
+    assert_eq!(pull.browser.site, SchoolSite::ScienceLms);
+    assert_eq!(
+        engine.session_snapshot().unwrap().states.science,
+        SchoolSessionState::Active
+    );
+    coordinator.shutdown().await;
+    assert!(automatic.await.unwrap().is_err());
+    assert!(forced.await.unwrap().is_err());
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn manual_join_while_waiting_for_the_lane_registers_a_manual_waiter() {
+    let (engine, browser, _, _) = engine();
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    browser.navigation(0).await;
+    let coordinator = PullCoordinator::default();
+    let automatic = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::automatic(),
+    );
+    wait_for_snapshot(&coordinator, |row| row.state == PullState::Running).await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(engine.manual_waiters(), 0);
+    let manual = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::manual(),
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while engine.manual_waiters() == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    coordinator.shutdown().await;
+    assert!(automatic.await.unwrap().is_err());
+    assert!(manual.await.unwrap().is_err());
+    engine.shutdown().await;
+    assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
 }
