@@ -5,6 +5,10 @@ recovery points retain earlier content even when deletes have already synced.
 School data is a refetchable cache; only user records, overlays, preferences
 allowed by `data-ownership.md`, and local notes enter this protocol.
 
+The queue, notes, backup contract and cloud document policy are implemented in
+Rust Core. See the [service API and lifecycle reference](core-backup-sync.md)
+for shell integration and durable replay requirements.
+
 ## Triggers
 
 The Backup settings page has an **Auto** switch, off by default, and separate

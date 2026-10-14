@@ -36,7 +36,7 @@ Task 1 first. Then 2–5 in parallel. Then 6–10 (7 and 9 share ICS export: do 
 - **Failure keeps data.** A login page, a changed layout or an empty result never deletes rows; follow "Validation and reconciliation" in `docs/data-architecture.md`.
 - **No personal data in fixtures or logs.** Fixtures are synthetic; ids and course codes are fine, names and grades must be invented.
 - **UI:** Mantine components, pages fit the window without page scroll, minimal text (see `docs/product-definition.md` → Visual thesis).
-- **Login automation is off limits:** do not change `backend/scripts/school-login.js` or the sign-in parts of `backend/src/school_web.rs` (`login_script`, `is_login_step`, `login_succeeded`, `session_outcome`, relay handling, auto sign-in). Adding extractor injection to its `on_page_load` hook is expected.
+- **Login automation is off limits:** do not change `crates/isct-core/src/school_browser/assets/school-login.js` or the sign-in logic in `crates/isct-core/src/school_browser/engine.rs` (login scripts, session decisions, relay handling, auto sign-in). Adding extractor injection to its `page_loaded` hook is expected.
 
 ## Tools
 
