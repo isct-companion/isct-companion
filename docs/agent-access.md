@@ -48,9 +48,11 @@ account/cloud settings.
 ## Write tools
 
 - `plan_add(offeringId, term)` / `plan_remove(offeringId, term)`: `term` is
-  `YYYY-nQ` and must be one of the offering's quarters. A course already on
-  the timetable is reused, never replaced; one that sits in another quarter is
-  refused, because the timetable lists a course only under its own quarter.
+  `YYYY-nQ` and must be one of the offering's quarters. `plan_add` plans an
+  offering running over several quarters (e.g. 3Q–4Q) into each of them and
+  returns those `terms`; `plan_remove` removes one quarter's plan. A course
+  already in the workspace is reused, never replaced, whichever quarter it was
+  added in.
 - `plan_event_create(title, start, duration, rrule?, room?)`
 - `plan_event_update(id, …)` / `plan_event_delete(id)`: deleted plans can
   be neither changed nor deleted again
