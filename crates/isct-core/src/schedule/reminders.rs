@@ -20,6 +20,9 @@ use super::{
 };
 
 const REMINDER_GRACE_SECONDS: i64 = 5 * 60;
+/// How long delivery waits for a shell's one-time legacy log import. A shell
+/// that has no legacy log need not call the import at all.
+const LEGACY_IMPORT_WAIT: StdDuration = StdDuration::from_secs(60);
 const FIRED_TTL_SECONDS: i64 = 3 * 24 * 60 * 60;
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
@@ -59,6 +62,7 @@ struct ReminderInner {
     tasks: crate::runtime_tasks::RuntimeTasks,
     pass: Arc<tokio::sync::Semaphore>,
     next_tick: Mutex<tokio::time::Instant>,
+    legacy_import_until: tokio::time::Instant,
     fired_path: PathBuf,
 }
 
@@ -70,6 +74,7 @@ impl ReminderService {
             tasks: crate::runtime_tasks::RuntimeTasks::default(),
             pass: Arc::new(tokio::sync::Semaphore::new(1)),
             next_tick: Mutex::new(tokio::time::Instant::now()),
+            legacy_import_until: tokio::time::Instant::now() + LEGACY_IMPORT_WAIT,
             fired_path,
         }))
     }
@@ -102,6 +107,9 @@ impl ReminderService {
             return Ok(false);
         };
         let inner = self.0.clone();
+        // Until the legacy import runs or its wait ends, a startup tick must
+        // not deliver reminders the previous runtime already showed.
+        let awaiting_import = tokio::time::Instant::now() < self.0.legacy_import_until;
         self.0
             .tasks
             .run(async move {
@@ -110,15 +118,20 @@ impl ReminderService {
                 let fired_path = inner.fired_path.clone();
                 let (initialized, permission, plan) = tokio::task::spawn_blocking(move || {
                     if !fired_path.is_file() {
-                        return Ok((
-                            false,
-                            false,
-                            NotificationPlan {
-                                from: now.to_rfc3339(),
-                                through: now.to_rfc3339(),
-                                items: Vec::new(),
-                            },
-                        ));
+                        if awaiting_import {
+                            return Ok((
+                                false,
+                                false,
+                                NotificationPlan {
+                                    from: now.to_rfc3339(),
+                                    through: now.to_rfc3339(),
+                                    items: Vec::new(),
+                                },
+                            ));
+                        }
+                        // No legacy log arrived: start with an empty one.
+                        // A later import still merges into it.
+                        write_fired(&fired_path, &BTreeMap::new())?;
                     }
                     let workspace = store.load_workspace()?;
                     let permission = workspace
@@ -152,7 +165,8 @@ impl ReminderService {
     }
 
     /// Imports the legacy browser fired-log, or confirms an empty legacy log.
-    /// The durable sidecar is created before reminder delivery can begin.
+    /// Delivery waits for this for up to a minute after start, then begins
+    /// with an empty log; a later import still merges its entries.
     pub async fn import_legacy_fired(
         &self,
         legacy: Value,

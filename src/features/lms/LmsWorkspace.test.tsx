@@ -14,12 +14,16 @@ vi.mock("./PdfDocument", () => ({
 const core = vi.hoisted(() => ({
   timeline: undefined as
     { classAt?: string; lastStarted?: string; next?: string } | undefined,
+  tasks: undefined as unknown,
   requests: [] as Array<{ now: string }>,
 }));
 vi.mock("../../platform/core-query", () => ({
-  useScheduleQuery: (request: { now: string }) => {
+  useScheduleQuery: (request: { kind: string; now: string }) => {
     core.requests.push(request);
-    return { value: core.timeline, pending: false };
+    return {
+      value: request.kind === "taskView" ? core.tasks : core.timeline,
+      pending: false,
+    };
   },
 }));
 
@@ -33,6 +37,7 @@ beforeEach(() => {
   root = createRoot(host);
   sessionStorage.clear();
   core.timeline = undefined;
+  core.tasks = undefined;
   core.requests = [];
 });
 afterEach(async () => {
@@ -732,6 +737,43 @@ describe("LMS reading workspace", () => {
     expect(host.querySelector(".lmsSectionBody")?.textContent).toContain(
       "searchable tail",
     );
+  });
+  it("shows an assignment as submitted when Core says so, whatever field the LMS used", () => {
+    const f = fixture();
+    // LMS reported only `submissionStatus`; Core's TaskView owns the rule.
+    f.data.assignments[0].submissionStatus = "submitted";
+    core.tasks = {
+      submittedIds: ["a1"],
+      deadlines: {
+        a1: {
+          at: "2026-10-10T09:00:00+09:00",
+          label: "Due 10 Oct, 09:00",
+          tone: "normal",
+          countdownLabel: "2d",
+          countdownTone: "soon",
+          overdue: false,
+        },
+      },
+      nearestByCourse: {},
+      byTerm: {},
+    };
+    act(() =>
+      root.render(
+        <LmsWorkspace
+          {...f}
+          entry={{ courseId: f.course.id, request: 3, assignmentId: "a1" }}
+          active
+          schoolWebAvailable={false}
+          close={() => {}}
+        />,
+      ),
+    );
+    const card = host.querySelector(".lmsAssignmentCard")!;
+    expect(card.className).toContain("done");
+    expect(card.querySelector(".lmsAssignmentState")?.textContent).toBe(
+      "Submitted",
+    );
+    expect(card.querySelector(".dueChip")).toBeNull();
   });
   it("opens exact assignment requirements first, and official LMS only after Submit", () => {
     const f = fixture();

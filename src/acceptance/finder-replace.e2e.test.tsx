@@ -191,7 +191,12 @@ const finderView = (request: Record<string, unknown>) => ({
   invoke: async (command: string, args: Record<string, unknown>) => {
     switch (command) {
       case "workspace_snapshot":
-        return { revision, workspace: structuredClone(saved), schoolRecords };
+        return {
+          revision,
+          contentRevision: revision,
+          workspace: structuredClone(saved),
+          schoolRecords,
+        };
       case "mutate_workspace": {
         const mutation = args.mutation as {
           expectedRevision: string;
@@ -206,7 +211,12 @@ const finderView = (request: Record<string, unknown>) => ({
           saved = before;
           revision = "fixture:undo";
         }
-        return { revision, workspace: structuredClone(saved), schoolRecords };
+        return {
+          revision,
+          contentRevision: revision,
+          workspace: structuredClone(saved),
+          schoolRecords,
+        };
       }
       case "schedule_query":
         return {
@@ -219,7 +229,7 @@ const finderView = (request: Record<string, unknown>) => ({
                 : query.kind === "planningWeek"
                   ? planningWeek()
                   : query.kind === "scheduleView"
-                    ? { ...overview(), agendas: [] }
+                    ? { ...overview(), agendas: [], problems: [] }
                     : null,
           })),
         };

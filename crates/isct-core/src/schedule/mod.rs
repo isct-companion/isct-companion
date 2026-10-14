@@ -30,9 +30,10 @@ pub use ics::{export_quarter_ics, CalendarExportScope};
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
     course_terms, course_timeline, intensive_days, next_plan_occurrences, occurrences_on_date,
-    plan_start, planning_week, resolve_day_agenda, scheduled_courses, term_courses,
-    validate_academic_profile, AgendaOptions, CourseTimeline, Occurrence, OccurrenceKind,
-    PlanCivilStart, PlanningDay, PlanningWeek,
+    plan_start, planning_week, resolve_day_agenda, schedule_problems, scheduled_courses,
+    term_courses, validate_academic_profile, AgendaOptions, CourseTimeline, Occurrence,
+    OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek, ScheduleProblem,
+    ScheduleProblemKind,
 };
 pub use reminders::{
     glance, notification_plan, GlanceSnapshot, NotificationItem, NotificationLocale,
@@ -196,6 +197,8 @@ pub struct ScheduleView {
     pub enrolled_course_ids: Vec<String>,
     pub on_timetable_course_ids: Vec<String>,
     pub all_terms: Vec<String>,
+    /// Stored plans and overrides left out of `agendas`.
+    pub problems: Vec<ScheduleProblem>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -371,9 +374,8 @@ pub fn query(
                 let mut notices = Vec::new();
                 if let Some(state) = calendar_state.as_ref() {
                     let label = calendar::localized(state.get("label"), locale, "");
-                    let label = label.strip_prefix("No classes due to ").unwrap_or(&label);
                     if !label.is_empty() {
-                        notices.push(label.to_owned());
+                        notices.push(label);
                     }
                 }
                 let important_dates: Vec<_> = array(workspace, "importantDates")
@@ -427,6 +429,7 @@ pub fn query(
                 on_timetable_course_ids: overview.on_timetable_course_ids,
                 all_terms: overview.all_terms,
                 declared_credits: overview.declared_credits,
+                problems: schedule_problems(workspace),
             }))
         }
         WorkspaceQuery::DayAgenda {
@@ -686,6 +689,8 @@ pub fn declarations() -> Vec<String> {
         CalendarExportScope::decl(),
         OccurrenceKind::decl(),
         Occurrence::decl(),
+        ScheduleProblemKind::decl(),
+        ScheduleProblem::decl(),
         NotificationLocale::decl(),
         NotificationPriority::decl(),
         NotificationItem::decl(),

@@ -2,13 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { seedWorkspace, type Workspace } from "../core/model";
 import type {
   CoreWorkspaceSnapshot,
+  WorkspaceIntent,
   WorkspaceMutation,
 } from "../core/workspace-intents";
-import {
-  createBrowserPreviewService,
-  createWorkspaceHooks,
-  createWorkspaceStore,
-} from "./workspace";
+import { createBrowserPreviewService, createWorkspaceStore } from "./workspace";
 
 const schoolRecords = () => ({
   lastRuns: {},
@@ -19,11 +16,19 @@ const schoolRecords = () => ({
   gpaByTerm: [],
   requirements: [],
 });
+/** A settings-form intent changing one preference of the seed settings. */
+const appearance = (
+  value: Workspace["settings"]["appearance"],
+): WorkspaceIntent => ({
+  kind: "replaceSettings",
+  settings: { ...seedWorkspace().settings, appearance: value },
+});
 function coreService(initial: Workspace = seedWorkspace()) {
   let generation = 0;
   let workspace = structuredClone(initial);
   const result = (): CoreWorkspaceSnapshot => ({
     revision: `r${generation}`,
+    contentRevision: `r${generation}`,
     workspace: structuredClone(workspace),
     schoolRecords: schoolRecords(),
   });
@@ -32,8 +37,8 @@ function coreService(initial: Workspace = seedWorkspace()) {
     mutate: vi.fn(async (request: WorkspaceMutation) => {
       if (request.expectedRevision !== `r${generation}`)
         throw new Error("revision conflict");
-      if (request.intent.kind === "patchSettings")
-        Object.assign(workspace.settings, request.intent.patch);
+      if (request.intent.kind === "replaceSettings")
+        workspace.settings = structuredClone(request.intent.settings);
       generation++;
       return result();
     }),
@@ -52,13 +57,10 @@ describe("Zustand workspace snapshot cache", () => {
     const service = coreService();
     const store = createWorkspaceStore(service);
     await store.initialize();
-    await store.mutate({
-      kind: "patchSettings",
-      patch: { appearance: "dark" },
-    });
+    await store.mutate(appearance("dark"));
     expect(service.mutate).toHaveBeenCalledWith({
       expectedRevision: "r0",
-      intent: { kind: "patchSettings", patch: { appearance: "dark" } },
+      intent: appearance("dark"),
     });
     expect(store.getState()).toMatchObject({ revision: "r1" });
     expect(store.getState().workspace?.settings.appearance).toBe("dark");
@@ -67,14 +69,8 @@ describe("Zustand workspace snapshot cache", () => {
     const service = coreService();
     const store = createWorkspaceStore(service);
     await store.initialize();
-    const first = store.mutate({
-      kind: "patchSettings",
-      patch: { appearance: "dark" },
-    });
-    const second = store.mutate({
-      kind: "patchSettings",
-      patch: { appearance: "light" },
-    });
+    const first = store.mutate(appearance("dark"));
+    const second = store.mutate(appearance("light"));
     await Promise.all([first, second]);
     expect(
       service.mutate.mock.calls.map(([request]) => request.expectedRevision),
@@ -87,11 +83,11 @@ describe("Zustand workspace snapshot cache", () => {
     await store.initialize();
     const first = store.mutate((draft) => {
       draft.settings.appearance = "dark";
-      return { kind: "patchSettings", patch: draft.settings };
+      return { kind: "replaceSettings", settings: draft.settings };
     });
     const second = store.mutate((draft) => {
       draft.settings.locale = "ja";
-      return { kind: "patchSettings", patch: draft.settings };
+      return { kind: "replaceSettings", settings: draft.settings };
     });
     await Promise.all([first, second]);
     expect(store.getState().workspace?.settings).toMatchObject({
@@ -100,7 +96,7 @@ describe("Zustand workspace snapshot cache", () => {
     });
     expect(service.mutate.mock.calls[1][0]).toMatchObject({
       expectedRevision: "r1",
-      intent: { patch: { appearance: "dark", locale: "ja" } },
+      intent: { settings: { appearance: "dark", locale: "ja" } },
     });
   });
   it("keeps the cached snapshot unchanged when Core rejects an intent", async () => {
@@ -109,9 +105,9 @@ describe("Zustand workspace snapshot cache", () => {
     await store.initialize();
     const before = store.getState();
     service.mutate.mockRejectedValueOnce(new Error("revision conflict"));
-    await expect(
-      store.mutate({ kind: "patchSettings", patch: { appearance: "dark" } }),
-    ).rejects.toThrow("revision conflict");
+    await expect(store.mutate(appearance("dark"))).rejects.toThrow(
+      "revision conflict",
+    );
     expect(store.getState().revision).toBe(before.revision);
     expect(store.getState().workspace).toEqual(before.workspace);
     expect(service.snapshot).toHaveBeenCalledTimes(2);
@@ -122,6 +118,7 @@ describe("Zustand workspace snapshot cache", () => {
     let rejectOnce = true;
     const snapshot = (): CoreWorkspaceSnapshot => ({
       revision,
+      contentRevision: revision,
       workspace: structuredClone(workspace),
       schoolRecords: schoolRecords(),
     });
@@ -135,18 +132,19 @@ describe("Zustand workspace snapshot cache", () => {
           throw new Error("workspace revision conflict");
         }
         expect(request.expectedRevision).toBe("external");
-        if (request.intent.kind === "patchSettings")
-          Object.assign(workspace.settings, request.intent.patch);
+        if (request.intent.kind === "replaceSettings")
+          workspace.settings = structuredClone(request.intent.settings);
         revision = "retry";
         return snapshot();
       }),
     };
     const store = createWorkspaceStore(service);
     await store.initialize();
-    const intent = {
-      kind: "patchSettings",
-      patch: { appearance: "dark" },
-    } as const;
+    // A form intent resolves against the snapshot adopted after the conflict.
+    const intent = (draft: Workspace): WorkspaceIntent => ({
+      kind: "replaceSettings",
+      settings: { ...draft.settings, appearance: "dark" },
+    });
     await expect(store.mutate(intent)).rejects.toThrow("revision conflict");
     expect(store.getState()).toMatchObject({ revision: "external" });
     expect(store.getState().workspace?.settings).toMatchObject({
@@ -158,7 +156,10 @@ describe("Zustand workspace snapshot cache", () => {
     await store.mutate(intent);
     expect(service.mutate).toHaveBeenCalledTimes(2);
     expect(store.getState()).toMatchObject({ revision: "retry" });
-    expect(store.getState().workspace?.settings.appearance).toBe("dark");
+    expect(store.getState().workspace?.settings).toMatchObject({
+      locale: "ja",
+      appearance: "dark",
+    });
   });
   it("reload cannot replace a mutation that completes while its read is pending", async () => {
     const service = coreService();
@@ -172,13 +173,11 @@ describe("Zustand workspace snapshot cache", () => {
     await Promise.resolve();
     const stale = {
       revision: "r0",
+      contentRevision: "r0",
       workspace: seedWorkspace(),
       schoolRecords: schoolRecords(),
     };
-    await store.mutate({
-      kind: "patchSettings",
-      patch: { appearance: "dark" },
-    });
+    await store.mutate(appearance("dark"));
     release(stale);
     await reload;
     expect(service.snapshot).toHaveBeenCalledTimes(3);
@@ -196,17 +195,6 @@ describe("Zustand workspace snapshot cache", () => {
 });
 
 describe("workspace action boundary", () => {
-  it("validates preferences before sending them to Core", async () => {
-    const service = coreService();
-    const store = createWorkspaceStore(service);
-    await store.initialize();
-    const hooks = createWorkspaceHooks(store, () => "native-desktop");
-    await hooks.actions.updatePreferences({ appearance: "dark", locale: "zh" });
-    expect(service.mutate).toHaveBeenCalledTimes(1);
-    expect(() =>
-      hooks.actions.updatePreferences({ appearance: "neon" as "dark" }),
-    ).toThrow("Invalid preference");
-  });
   it("keeps browser preview read-only without a parallel mutation engine", async () => {
     const stored = seedWorkspace();
     const repository = {
@@ -216,9 +204,9 @@ describe("workspace action boundary", () => {
     };
     const store = createWorkspaceStore(createBrowserPreviewService(repository));
     await store.initialize();
-    await expect(
-      store.mutate({ kind: "patchSettings", patch: { appearance: "dark" } }),
-    ).rejects.toThrow("native app");
+    await expect(store.mutate(appearance("dark"))).rejects.toThrow(
+      "native app",
+    );
     expect(stored.settings.appearance).toBe("system");
     await expect(
       store.mutate({ kind: "markTimetableReviewed" }),

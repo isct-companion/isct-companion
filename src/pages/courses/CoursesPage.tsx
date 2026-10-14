@@ -333,6 +333,22 @@ export function Courses({
               {conflictCount} conflict{conflictCount > 1 ? "s" : ""}
             </Badge>
           )}
+          {!editing && Boolean(schedule?.problems.length) && (
+            <Badge
+              variant="light"
+              color="orange"
+              title={schedule!.problems
+                .map(
+                  (problem) =>
+                    `${problem.title || problem.id}: ${problem.message}`,
+                )
+                .join("\n")}
+            >
+              {t("{{count}} items not shown", {
+                count: schedule!.problems.length,
+              })}
+            </Badge>
+          )}
           {removable && canEdit && (
             <UiButton
               className="button"

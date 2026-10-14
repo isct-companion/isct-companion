@@ -173,6 +173,44 @@ fn plan_tools_share_civil_jst_time_and_invalid_updates_do_not_commit() {
 }
 
 #[test]
+fn plan_writes_accept_civil_until_and_the_contract_rejects_unusable_recurrence() {
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    service
+        .call(
+            "plan_event_create",
+            &json!({"title":"Until","start":"2026-10-14T09:00","duration":30,"rrule":"FREQ=DAILY;UNTIL=20261016"}),
+            WRITES,
+        )
+        .unwrap();
+    let schedule = service
+        .call(
+            "schedule",
+            &json!({"from":"2026-10-16","to":"2026-10-17"}),
+            WRITES,
+        )
+        .unwrap();
+    assert_eq!(schedule["plans"].as_array().unwrap().len(), 1);
+
+    // Writers that bypass the editor canonicalization meet the same contract.
+    let before = fixture.store.user_rows("plans").unwrap();
+    for plan in [
+        json!({"title":"Rule","start":"2026-10-14T09:00:00+09:00","duration":30,"rrule":"FREQ=DAILY;INTERVAL=x","exdates":[]}),
+        json!({"title":"Start","start":"14 Oct","duration":30,"exdates":[]}),
+    ] {
+        let error = fixture
+            .store
+            .agent_write("plan_event_create", |write| write.put("plans", plan, None))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            AgentWriteError::Data(DataError::InvalidInput(_))
+        ));
+    }
+    assert_eq!(fixture.store.user_rows("plans").unwrap(), before);
+}
+
+#[test]
 fn authorization_and_write_policy_fail_before_mutation() {
     let fixture = Fixture::new();
     let service = fixture.service();

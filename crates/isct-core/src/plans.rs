@@ -216,17 +216,61 @@ pub fn validate_rrule(raw: &str) -> Result<String, PlanError> {
     Ok(upper)
 }
 
+/// rrule requires a UTC UNTIL beside a zoned DTSTART and reads any other form
+/// in the machine's zone. Plans use Japan civil time like the previous app: a
+/// date-only UNTIL includes that whole JST day and a floating one is JST.
+fn utc_until(rule: &str) -> Result<String, PlanError> {
+    let invalid =
+        || PlanError::InvalidRule("UNTIL must be YYYYMMDD or YYYYMMDDTHHMMSS[Z].".into());
+    let parts = rule
+        .split(';')
+        .map(|part| {
+            let Some(value) = part.strip_prefix("UNTIL=") else {
+                return Ok(part.to_owned());
+            };
+            let civil = |value: &str| {
+                NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S").map_err(|_| invalid())
+            };
+            let until = match value.len() {
+                16 if value.ends_with('Z') => civil(&value[..15])?.and_utc(),
+                15 => jst()?
+                    .from_local_datetime(&civil(value)?)
+                    .single()
+                    .ok_or_else(invalid)?
+                    .with_timezone(&chrono::Utc),
+                8 => jst()?
+                    .from_local_datetime(&civil(&format!("{value}T235959"))?)
+                    .single()
+                    .ok_or_else(invalid)?
+                    .with_timezone(&chrono::Utc),
+                _ => return Err(invalid()),
+            };
+            Ok(format!("UNTIL={}", until.format("%Y%m%dT%H%M%SZ")))
+        })
+        .collect::<Result<Vec<_>, PlanError>>()?;
+    Ok(parts.join(";"))
+}
+
 fn recurrence_set(start: &str, raw: &str) -> Result<(String, RRuleSet), PlanError> {
     let normalized = validate_rrule(raw)?;
     let calendar = format!(
         "DTSTART;TZID=Asia/Tokyo:{}\nRRULE:{}",
         local_start(start)?,
-        normalized
+        utc_until(&normalized)?
     );
     let set = calendar
         .parse::<RRuleSet>()
         .map_err(|error| PlanError::InvalidRule(error.to_string()))?;
     Ok((normalized, set))
+}
+
+/// Checks that a stored or drafted plan can produce its occurrences.
+pub fn validate_plan_recurrence(start: &str, rule: Option<&str>) -> Result<(), PlanError> {
+    parse_plan_timestamp(start)?;
+    if let Some(rule) = rule {
+        recurrence_set(start, rule)?;
+    }
+    Ok(())
 }
 
 pub fn preview_rrule(
@@ -369,6 +413,50 @@ mod tests {
             canonicalize_plan_draft(&mut invalid_rule),
             Err(PlanError::InvalidRule(_))
         ));
+    }
+
+    #[test]
+    fn until_uses_japan_civil_time_in_every_accepted_form() {
+        let dates = |rule: &str| {
+            occurrences_between(
+                "2026-12-29T23:30:00+09:00",
+                rule,
+                &[],
+                NaiveDate::from_ymd_opt(2026, 12, 29).unwrap(),
+                NaiveDate::from_ymd_opt(2027, 1, 5).unwrap(),
+            )
+            .unwrap()
+            .iter()
+            .map(|value| plan_civil_start(value).unwrap().0.to_string())
+            .collect::<Vec<_>>()
+        };
+        // Date-only: the whole JST day, including a late-evening start.
+        assert_eq!(
+            dates("FREQ=DAILY;UNTIL=20261231"),
+            ["2026-12-29", "2026-12-30", "2026-12-31"]
+        );
+        // Floating: JST, independent of the machine's zone.
+        assert_eq!(
+            dates("FREQ=DAILY;UNTIL=20261230T233000"),
+            ["2026-12-29", "2026-12-30"]
+        );
+        // UTC: 2026-12-30T14:30Z is 23:30 JST on 30 December.
+        assert_eq!(
+            dates("FREQ=DAILY;UNTIL=20261230T143000Z"),
+            ["2026-12-29", "2026-12-30"]
+        );
+        for invalid in ["FREQ=DAILY;UNTIL=2026-12-31", "FREQ=DAILY;UNTIL=20261331"] {
+            assert!(matches!(
+                validate_plan_recurrence("2026-12-29T09:00", Some(invalid)),
+                Err(PlanError::InvalidRule(_))
+            ));
+        }
+        let mut draft = json!({
+            "title":"Until", "start":"2026-12-29T09:00", "duration":30,
+            "rrule":"freq=daily;until=20261231", "exdates":[]
+        });
+        canonicalize_plan_draft(&mut draft).unwrap();
+        assert_eq!(draft["rrule"], "FREQ=DAILY;UNTIL=20261231");
     }
 
     #[test]

@@ -268,6 +268,7 @@ function renderPlanner(
   };
   core.schedule = {
     ...core.overview,
+    problems: [],
     agendas: Array.from({ length: 7 }, (_, index) => ({
       date: `2026-06-0${index + 1}`,
       noClasses: index === 0,

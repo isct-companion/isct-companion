@@ -19,7 +19,13 @@ use uuid::Uuid;
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
+    /// Baseline for `WorkspaceMutation::expected_revision`. It covers only
+    /// user-owned state, so school and reference ingests do not cause
+    /// conflicts.
     pub revision: String,
+    /// Changes whenever any part of the snapshot changes; read-model caches
+    /// key on it.
+    pub content_revision: String,
     #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub workspace: Value,
     #[cfg_attr(feature = "ts", ts(type = "unknown"))]
@@ -42,9 +48,12 @@ pub struct WorkspaceMutation {
     rename_all_fields = "camelCase"
 )]
 pub enum WorkspaceIntent {
-    PatchSettings {
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        patch: Value,
+    /// The complete settings object from a settings form. Absent optional
+    /// keys are cleared; Core keeps the fields it owns (poll clock, agent
+    /// write history) and validates every value.
+    ReplaceSettings {
+        #[cfg_attr(feature = "ts", ts(type = "Settings"))]
+        settings: Value,
     },
     SetAdmissionYear {
         #[cfg_attr(feature = "ts", ts(type = "number | null"))]
@@ -279,8 +288,8 @@ impl WorkspaceService {
     }
 
     pub fn snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceError> {
-        let (workspace, school_records) = self.store.workspace_snapshot_parts()?;
-        snapshot(workspace, school_records).map_err(WorkspaceError::from)
+        let (workspace, school_records, revision) = self.store.workspace_snapshot_parts()?;
+        snapshot(workspace, school_records, revision).map_err(WorkspaceError::from)
     }
 
     pub fn mutate(&self, mutation: WorkspaceMutation) -> Result<WorkspaceSnapshot, WorkspaceError> {
@@ -293,8 +302,8 @@ impl WorkspaceService {
             &mutation.expected_revision,
             |write, current, school_records| {
                 apply_intent(write, current, school_records, mutation.intent, &mut undo)?;
-                let (workspace, school_records) = write.snapshot_parts()?;
-                snapshot(workspace, school_records)
+                let (workspace, school_records, revision) = write.snapshot_parts()?;
+                snapshot(workspace, school_records, revision)
             },
         )?;
         // Only a committed add or undo changes what Undo reverses.
@@ -306,21 +315,18 @@ impl WorkspaceService {
     }
 }
 
-fn snapshot(workspace: Value, school_records: Value) -> Result<WorkspaceSnapshot, DataError> {
-    let revision = snapshot_revision(&workspace, &school_records)?;
+fn snapshot(
+    workspace: Value,
+    school_records: Value,
+    revision: String,
+) -> Result<WorkspaceSnapshot, DataError> {
+    let bytes = serde_json::to_vec(&(&workspace, &school_records)).map_err(DataError::from)?;
     Ok(WorkspaceSnapshot {
         revision,
+        content_revision: format!("{:x}", Sha256::digest(bytes)),
         workspace,
         school_records,
     })
-}
-
-pub(crate) fn snapshot_revision(
-    workspace: &Value,
-    school_records: &Value,
-) -> Result<String, DataError> {
-    let bytes = serde_json::to_vec(&(workspace, school_records)).map_err(DataError::from)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
 fn apply_intent(
@@ -331,19 +337,25 @@ fn apply_intent(
     catalog_undo: &mut Option<CatalogAddReceipt>,
 ) -> Result<(), DataError> {
     match intent {
-        WorkspaceIntent::PatchSettings { patch } => {
-            require_object(&patch, "settings patch")?;
-            let mut settings = current
-                .get("settings")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            merge_patch(&mut settings, patch);
+        WorkspaceIntent::ReplaceSettings { mut settings } => {
+            require_object(&settings, "settings")?;
+            for (parent, field) in [
+                ("/subscriptionRefresh", "lastCheckedAt"),
+                ("/agentAccess", "lastWrites"),
+            ] {
+                let owned = current
+                    .pointer(&format!("/settings{parent}/{field}"))
+                    .cloned();
+                if let Some(parent) = settings.pointer_mut(parent).and_then(Value::as_object_mut) {
+                    match owned {
+                        Some(value) => parent.insert(field.into(), value),
+                        None => parent.remove(field),
+                    };
+                }
+            }
             write.save_settings(&settings)
         }
         WorkspaceIntent::SetAdmissionYear { admission_year } => {
-            if admission_year.is_some_and(|year| year < 2000) {
-                return Err("admission year must be 2000 or later".into());
-            }
             let mut profile = current
                 .get("academicProfile")
                 .cloned()
@@ -607,26 +619,11 @@ fn save_course(
     if let Some(existing) = existing
         .filter(|row| row.pointer("/source/provider").and_then(Value::as_str) != Some("manual"))
     {
-        let source_key = existing
-            .get("sourceKey")
-            .and_then(Value::as_str)
-            .unwrap_or_else(|| {
-                existing
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-            });
-        write.put(
-            "course_overrides",
-            json!({
-                "sourceKey": source_key,
-                "courseId": existing.get("id"),
-                "title": draft.get("title"),
-                "instructor": draft.get("instructor"),
-                "color": draft.get("color"),
-                "lessonLog": existing.pointer("/overrides/lessonLog")
-            }),
-            None,
+        put_course_override(
+            write,
+            existing,
+            ["title", "instructor", "color"]
+                .map(|key| (key, draft.get(key).cloned().unwrap_or(Value::Null))),
         )?;
         return set_course_on_timetable(
             write,
@@ -750,46 +747,85 @@ fn edit_course_batch(
     {
         return Err("credits must be between 0 and 20".into());
     }
-    if changes
+    let language = changes
         .language
         .as_deref()
-        .is_some_and(|language| !matches!(language, "ja" | "en" | "ja-en" | "other"))
-    {
+        .map(str::trim)
+        .filter(|language| !language.is_empty());
+    if language.is_some_and(|language| !matches!(language, "ja" | "en" | "ja-en" | "other")) {
         return Err("instruction language is invalid".into());
     }
+    let instructor = changes
+        .instructor
+        .as_deref()
+        .map(str::trim)
+        .filter(|instructor| !instructor.is_empty());
     let ids: HashSet<_> = course_ids.into_iter().collect();
     for course in rows(current, "courses")?.filter(|row| {
         row.get("id")
             .and_then(Value::as_str)
-            .is_some_and(|id| ids.contains(id))
+            .is_some_and(|id| ids.contains(id) && row.get("deletedAt").is_none_or(Value::is_null))
     }) {
+        let id = string(course, "id")?;
+        let manual = course.pointer("/source/provider").and_then(Value::as_str) == Some("manual");
+        // Catalog and LMS courses keep their source instructor; the person's
+        // name for it is an overlay like the course editor writes.
+        if let Some(instructor) = instructor.filter(|_| !manual) {
+            put_course_override(write, course, [("instructor", Value::from(instructor))])?;
+        }
+        if language.is_none() && changes.credits.is_none() && (instructor.is_none() || !manual) {
+            continue;
+        }
+        if !write.has_user_row("manual_courses", id)? {
+            return Err("credits and language of a school timetable course cannot be edited".into());
+        }
         let mut updated = course.clone();
         let object = object_mut(&mut updated, "course")?;
-        if let Some(language) = &changes.language {
-            object.insert(
-                "instructionLanguage".into(),
-                Value::String(language.clone()),
-            );
+        // The read model embeds the overlay; the stored row never contains it.
+        object.remove("overrides");
+        if let Some(language) = language {
+            object.insert("instructionLanguage".into(), Value::from(language));
         }
-        if let Some(instructor) = changes
-            .instructor
-            .as_ref()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-        {
-            object.insert("instructor".into(), Value::String(instructor.into()));
+        if let Some(instructor) = instructor.filter(|_| manual) {
+            object.insert("instructor".into(), Value::from(instructor));
         }
         if let Some(credits) = changes.credits {
             object.insert("credits".into(), Value::from(credits));
         }
-        if course.pointer("/source/provider").and_then(Value::as_str) == Some("manual") {
-            write.put("manual_courses", updated, revision(course))?;
-        } else {
-            let overlay = json!({"sourceKey": course.get("sourceKey").or_else(|| course.get("id")), "courseId":course.get("id"), "title":Value::Null, "instructor":changes.instructor, "color":Value::Null, "lessonLog":Value::Null});
-            write.put("course_overrides", overlay, None)?;
-        }
+        write.put("manual_courses", updated, revision(course))?;
     }
     Ok(())
+}
+
+/// One overlay row holds every personal change to a non-manual course. Each
+/// edit replaces only its own fields and keeps the others.
+fn put_course_override<const N: usize>(
+    write: &WorkspaceWrite<'_, '_>,
+    course: &Value,
+    changes: [(&str, Value); N],
+) -> Result<(), DataError> {
+    let id = string(course, "id")?;
+    let mut overlay = course
+        .get("overrides")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (key, value) in changes {
+        overlay.insert(key.into(), value);
+    }
+    overlay.insert(
+        "sourceKey".into(),
+        Value::from(
+            course
+                .get("sourceKey")
+                .and_then(Value::as_str)
+                .unwrap_or(id),
+        ),
+    );
+    overlay.insert("courseId".into(), Value::from(id));
+    write
+        .put("course_overrides", Value::Object(overlay), None)
+        .map(|_| ())
 }
 
 fn set_course_on_timetable(
@@ -2006,6 +2042,14 @@ where
         "id".into(),
         Value::String(existing_id.unwrap_or_else(|| Uuid::now_v7().to_string())),
     );
+    // Run and fetch bookkeeping belongs to Core; a form built from an older
+    // snapshot must not roll it back.
+    for field in crate::data::bookkeeping_fields(table) {
+        match existing.and_then(|row| row.get(*field)) {
+            Some(value) => object.insert((*field).into(), value.clone()),
+            None => object.remove(*field),
+        };
+    }
     enrich(object)?;
     write
         .put(table, row, existing.and_then(revision))
@@ -2242,10 +2286,6 @@ fn record_lesson(
         .map_err(|_| DataError::from("lesson occurrence must be RFC 3339"))?;
     let course = visible_row(current, "courses", course_id)
         .ok_or_else(|| "course was not found".to_string())?;
-    let source_key = course
-        .get("sourceKey")
-        .and_then(Value::as_str)
-        .unwrap_or(course_id);
     let mut log = course
         .pointer("/overrides/lessonLog")
         .and_then(Value::as_array)
@@ -2256,28 +2296,7 @@ fn record_lesson(
     if log.len() > 60 {
         log.drain(..log.len() - 60);
     }
-    write
-        .put(
-            "course_overrides",
-            json!({"sourceKey":source_key,"courseId":course_id,"lessonLog":log}),
-            None,
-        )
-        .map(|_| ())
-}
-
-fn merge_patch(target: &mut Value, patch: Value) {
-    let (Some(target), Value::Object(patch)) = (target.as_object_mut(), patch) else {
-        return;
-    };
-    for (key, value) in patch {
-        if value.is_object() && target.get(&key).is_some_and(Value::is_object) {
-            if let Some(child) = target.get_mut(&key) {
-                merge_patch(child, value);
-            }
-        } else {
-            target.insert(key, value);
-        }
-    }
+    put_course_override(write, course, [("lessonLog", Value::Array(log))])
 }
 
 fn rows<'a>(
@@ -2334,6 +2353,12 @@ mod tests {
         WorkspaceService::new(DataStore::initialize(path).unwrap().0)
     }
 
+    fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) -> Value {
+        let mut settings = snapshot.workspace["settings"].clone();
+        edit(&mut settings);
+        settings
+    }
+
     #[test]
     fn stale_revision_cannot_overwrite_a_newer_settings_change() {
         let service = service("conflict");
@@ -2341,8 +2366,8 @@ mod tests {
         let changed = service
             .mutate(WorkspaceMutation {
                 expected_revision: original.revision.clone(),
-                intent: WorkspaceIntent::PatchSettings {
-                    patch: json!({"appearance":"dark"}),
+                intent: WorkspaceIntent::ReplaceSettings {
+                    settings: settings_with(&original, |s| s["appearance"] = json!("dark")),
                 },
             })
             .unwrap();
@@ -2351,9 +2376,9 @@ mod tests {
 
         let error = service
             .mutate(WorkspaceMutation {
-                expected_revision: original.revision,
-                intent: WorkspaceIntent::PatchSettings {
-                    patch: json!({"density":"compact"}),
+                expected_revision: original.revision.clone(),
+                intent: WorkspaceIntent::ReplaceSettings {
+                    settings: settings_with(&original, |s| s["density"] = json!("compact")),
                 },
             })
             .unwrap_err();
@@ -2362,6 +2387,99 @@ mod tests {
             service.snapshot().unwrap().workspace["settings"]["density"],
             changed.workspace["settings"]["density"]
         );
+    }
+
+    #[test]
+    fn settings_replacement_clears_keys_and_core_validates_every_value() {
+        let service = service("settings");
+        let original = service.snapshot().unwrap();
+        let chosen = mutate(
+            &service,
+            WorkspaceIntent::ReplaceSettings {
+                settings: settings_with(&original, |s| {
+                    s["departmentId"] = json!("cs");
+                    s["textSize"] = json!("large");
+                }),
+            },
+        );
+        assert_eq!(chosen.workspace["settings"]["departmentId"], "cs");
+        service.store.record_reference_poll().unwrap();
+        let polled = service.snapshot().unwrap();
+        let checked = polled.workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"].clone();
+        assert!(checked.is_string());
+
+        // A form built from the earlier snapshot clears the department and
+        // cannot roll the Core-owned poll clock back.
+        let cleared = mutate(
+            &service,
+            WorkspaceIntent::ReplaceSettings {
+                settings: settings_with(&chosen, |s| {
+                    s.as_object_mut().unwrap().remove("departmentId");
+                }),
+            },
+        );
+        assert!(cleared.workspace["settings"].get("departmentId").is_none());
+        assert_eq!(cleared.workspace["settings"]["textSize"], "large");
+        assert_eq!(
+            cleared.workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"],
+            checked
+        );
+
+        let before = service.snapshot().unwrap();
+        for (pointer, value) in [
+            ("/locale", json!("xx")),
+            ("/appearance", json!("blue")),
+            ("/textSize", json!("huge")),
+            ("/contentLanguage", json!("fr")),
+            ("/density", json!(3)),
+            ("/cloud/provider", json!("dropbox")),
+        ] {
+            let error = service
+                .mutate(WorkspaceMutation {
+                    expected_revision: before.revision.clone(),
+                    intent: WorkspaceIntent::ReplaceSettings {
+                        settings: settings_with(&before, |s| {
+                            let (parent, key) = pointer.rsplit_once('/').unwrap();
+                            s.pointer_mut(parent).unwrap()[key] = value;
+                        }),
+                    },
+                })
+                .unwrap_err();
+            assert!(matches!(error, WorkspaceError::InvalidIntent(_)), "{pointer}");
+        }
+        for intent in [
+            WorkspaceIntent::SetAdmissionYear {
+                admission_year: Some(1999),
+            },
+            WorkspaceIntent::EditAcademicCalendar {
+                academic_profile: json!({"name":"Mine","admissionYear":1990,"gradePath":[],"years":[]}),
+                exceptions: vec![],
+            },
+        ] {
+            let error = service
+                .mutate(WorkspaceMutation {
+                    expected_revision: before.revision.clone(),
+                    intent,
+                })
+                .unwrap_err();
+            assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        }
+        assert!(matches!(
+            service.store.put_workspace_setting(
+                "devicePreferences",
+                json!({"locale":"xx"}),
+                "test"
+            ),
+            Err(DataError::InvalidInput(_))
+        ));
+        assert_eq!(service.snapshot().unwrap().revision, before.revision);
+        let year = mutate(
+            &service,
+            WorkspaceIntent::SetAdmissionYear {
+                admission_year: Some(2024),
+            },
+        );
+        assert_eq!(year.workspace["academicProfile"]["admissionYear"], 2024);
     }
 
     #[test]
@@ -2449,6 +2567,23 @@ mod tests {
     }
 
     #[test]
+    fn schedule_override_periods_must_name_a_class_slot() {
+        let service = service("override-periods");
+        let original = service.snapshot().unwrap();
+        let error = service
+            .mutate(WorkspaceMutation {
+                expected_revision: original.revision.clone(),
+                intent: WorkspaceIntent::SaveScheduleOverride {
+                    draft: json!({"targetKey":"course-weekly-0-2026-10-14","targetKind":"course","periods":[5,3],"hidden":false}),
+                    existing_id: None,
+                },
+            })
+            .unwrap_err();
+        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        assert_eq!(service.snapshot().unwrap().revision, original.revision);
+    }
+
+    #[test]
     fn course_batch_validation_happens_before_any_row_is_changed() {
         let service = service("course-batch");
         let original = service.snapshot().unwrap();
@@ -2466,6 +2601,129 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
         assert_eq!(service.snapshot().unwrap().revision, original.revision);
+    }
+
+    fn mutate(service: &WorkspaceService, intent: WorkspaceIntent) -> WorkspaceSnapshot {
+        let expected_revision = service.snapshot().unwrap().revision;
+        service
+            .mutate(WorkspaceMutation {
+                expected_revision,
+                intent,
+            })
+            .unwrap()
+    }
+
+    fn course<'a>(snapshot: &'a WorkspaceSnapshot, id: &str) -> &'a Value {
+        snapshot.workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["id"] == id)
+            .unwrap()
+    }
+
+    #[test]
+    fn course_edits_merge_into_one_overlay_and_batch_credits_reach_every_course() {
+        let service = service("course-overlay");
+        let added = mutate(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![json!({
+                    "id":"202600002", "year":2026, "quarters":["3Q"],
+                    "code":"CSC.T364", "title":{"en":"Systems"},
+                    "instructors":[{"en":"Teacher One"}],
+                    "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202600002",
+                    "credits":{"lecture":2,"exercise":0,"lab":0},
+                    "instructionLanguage":"ja",
+                    "schedule":[{"kind":"weekly","day":1,"periods":[1,2]}]
+                })],
+            },
+        );
+        let catalog_id = added.workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["offeringId"] == "202600002")
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let manual = mutate(
+            &service,
+            WorkspaceIntent::SaveCourse {
+                draft: json!({"code":"X.1","title":"Own","instructor":"Me","credits":1,"meetings":[]}),
+                term_id: "2026-3Q".into(),
+                existing_id: None,
+            },
+        );
+        let manual_id = manual.workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["title"] == "Own")
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        mutate(
+            &service,
+            WorkspaceIntent::SaveCourse {
+                draft: json!({"title":"Renamed","instructor":"Teacher A","color":"#123456"}),
+                term_id: "2026-3Q".into(),
+                existing_id: Some(catalog_id.clone()),
+            },
+        );
+        let marked = mutate(
+            &service,
+            WorkspaceIntent::RecordLesson {
+                course_id: catalog_id.clone(),
+                occurrence: "2026-10-05T08:50:00+09:00".into(),
+                section_id: 3,
+            },
+        );
+        let overrides = &course(&marked, &catalog_id)["overrides"];
+        assert_eq!(overrides["title"], "Renamed");
+        assert_eq!(overrides["color"], "#123456");
+        assert_eq!(overrides["lessonLog"][0]["sectionId"], 3);
+
+        let edited = mutate(
+            &service,
+            WorkspaceIntent::EditCourseBatch {
+                course_ids: vec![catalog_id.clone(), manual_id.clone()],
+                changes: CourseBatchChanges {
+                    credits: Some(4.0),
+                    ..CourseBatchChanges::default()
+                },
+            },
+        );
+        let catalog = course(&edited, &catalog_id);
+        assert_eq!(catalog["credits"], 4.0);
+        assert_eq!(catalog["overrides"]["title"], "Renamed");
+        assert_eq!(catalog["overrides"]["instructor"], "Teacher A");
+        assert_eq!(catalog["overrides"]["lessonLog"][0]["sectionId"], 3);
+        assert_eq!(course(&edited, &manual_id)["credits"], 4.0);
+        assert_eq!(course(&edited, &manual_id)["instructor"], "Me");
+
+        let renamed = mutate(
+            &service,
+            WorkspaceIntent::EditCourseBatch {
+                course_ids: vec![catalog_id.clone(), manual_id.clone()],
+                changes: CourseBatchChanges {
+                    instructor: Some(" Teacher B ".into()),
+                    language: Some("en".into()),
+                    ..CourseBatchChanges::default()
+                },
+            },
+        );
+        let catalog = course(&renamed, &catalog_id);
+        assert_eq!(catalog["overrides"]["instructor"], "Teacher B");
+        assert_eq!(catalog["overrides"]["color"], "#123456");
+        assert_eq!(catalog["instructionLanguage"], "en");
+        assert_eq!(catalog["credits"], 4.0);
+        assert_eq!(course(&renamed, &manual_id)["instructor"], "Teacher B");
+        assert_eq!(course(&renamed, &manual_id)["instructionLanguage"], "en");
     }
 
     #[test]
@@ -2580,7 +2838,10 @@ mod tests {
                 },
             })
             .unwrap();
-        assert_ne!(next.revision, original.revision);
+        // Run bookkeeping is Core-owned: it changes the content, not the
+        // baseline user edits are checked against.
+        assert_ne!(next.content_revision, original.content_revision);
+        assert_eq!(next.revision, original.revision);
         let task = next.workspace["scheduledTasks"]
             .as_array()
             .unwrap()
@@ -2590,7 +2851,82 @@ mod tests {
         assert_eq!(task["lastOccurrenceAt"], "2026-09-29T12:00:00.000Z");
         assert_eq!(task["lastRunAt"], "2026-09-29T12:00:01.000Z");
         assert_eq!(task["lastResult"], "Export completed");
-        assert_eq!(service.snapshot().unwrap().revision, next.revision);
+        assert_eq!(
+            service.snapshot().unwrap().content_revision,
+            next.content_revision
+        );
+    }
+
+    #[test]
+    fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
+        let service = service("ingest-revision");
+        let before = service.snapshot().unwrap();
+        // A school ingest, a reference poll and a scheduler run land between
+        // the person's snapshot and their edit.
+        service
+            .store
+            .catalog_upsert_offerings(&[json!({
+                "id":"202600009", "year":2026, "quarters":["3Q"], "code":"X.9",
+                "title":{"en":"Ingested"}, "instructors":[], "instructionLanguage":"en",
+                "format":{"kinds":["lecture"]}, "media":{},
+                "credits":{"lecture":1.0,"exercise":0.0,"lab":0.0}, "schedule":[],
+                "academicUnit":{"en":"Unit"}, "intensive":false,
+                "syllabusUrl":"https://example.invalid/202600009", "fetchedAt":{}
+            })])
+            .unwrap();
+        service.store.record_reference_poll().unwrap();
+        let mut task = service.store.user_rows("scheduled_tasks").unwrap()[0].clone();
+        let rev = task["rev"].as_u64();
+        task["lastRunAt"] = json!("2026-10-14T00:00:00Z");
+        task["lastResult"] = json!("Done");
+        service
+            .store
+            .put_user_record_checked("scheduled_tasks", task, "scheduler", rev)
+            .unwrap();
+        let ingested = service.snapshot().unwrap();
+        assert_ne!(ingested.content_revision, before.content_revision);
+        assert_eq!(ingested.revision, before.revision);
+
+        let edited = service
+            .mutate(WorkspaceMutation {
+                expected_revision: before.revision.clone(),
+                intent: WorkspaceIntent::SelectTerm {
+                    term_id: "2026-4Q".into(),
+                },
+            })
+            .unwrap();
+        assert_ne!(edited.revision, before.revision);
+        // A toggle built from the older snapshot keeps the newer run record.
+        let stale_task = before.workspace["scheduledTasks"][0].clone();
+        let toggled = mutate(
+            &service,
+            WorkspaceIntent::SaveScheduledTask {
+                existing_id: stale_task["id"].as_str().map(str::to_owned),
+                draft: json!({
+                    "name": stale_task["name"], "action": stale_task["action"],
+                    "schedule": stale_task["schedule"],
+                    "enabled": !stale_task["enabled"].as_bool().unwrap()
+                }),
+            },
+        );
+        let saved = toggled.workspace["scheduledTasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == stale_task["id"])
+            .unwrap();
+        assert_eq!(saved["enabled"], !stale_task["enabled"].as_bool().unwrap());
+        assert_eq!(saved["lastResult"], "Done");
+        // A user edit still conflicts with another user edit.
+        let error = service
+            .mutate(WorkspaceMutation {
+                expected_revision: edited.revision,
+                intent: WorkspaceIntent::SelectTerm {
+                    term_id: "2026-3Q".into(),
+                },
+            })
+            .unwrap_err();
+        assert!(matches!(error, WorkspaceError::Conflict(_)));
     }
 
     #[test]

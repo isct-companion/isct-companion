@@ -84,11 +84,51 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
     assert_eq!(friday.occurrences.len(), 1);
     assert_eq!(friday.occurrences[0].cancelled, Some(true));
     assert!(friday.no_classes);
-    assert_eq!(friday.calendar_notice.as_deref(), Some("Campus Festival"));
+    assert_eq!(
+        friday.calendar_notice.as_deref(),
+        Some("No classes due to Campus Festival")
+    );
     assert!(
         occurrences_on_date(&data, "2026-3Q", "2026-10-09", AgendaOptions::default())
             .unwrap()
             .is_empty()
+    );
+}
+
+#[test]
+fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
+    let mut data = workspace();
+    data["plans"] = json!([
+        {"id":"good","title":"Study","start":"2026-04-13T18:00:00+09:00","duration":60,"rrule":"FREQ=DAILY;UNTIL=20260420","exdates":[]},
+        {"id":"bad-rule","title":"Broken","start":"2026-04-13T19:00:00+09:00","duration":60,"rrule":"FREQ=DAILY;INTERVAL=garbage","exdates":[]},
+        {"id":"bad-start","title":"No start","start":"tomorrow","duration":60,"exdates":[]}
+    ]);
+    data["scheduleOverrides"] = json!([
+        {"id":"descending","targetKey":"course-weekly-0-2026-04-13","targetKind":"course","periods":[5,3],"room":"Elsewhere","hidden":false},
+        {"id":"wrapped","targetKey":"elsewhere","targetKind":"course","periods":[257,258],"hidden":false}
+    ]);
+    let day = resolve_day_agenda(&data, "2026-1Q", "2026-04-13", AgendaOptions::default())
+        .unwrap();
+    assert_eq!(
+        day.iter().map(|block| block.id.as_str()).collect::<Vec<_>>(),
+        ["course", "good"]
+    );
+    // The class stays as scheduled instead of disappearing.
+    assert_eq!(day[0].start_time, "08:50");
+    assert_eq!(day[0].room, "M-101");
+    assert_eq!(day[0].overridden, None);
+    let problems = schedule_problems(&data);
+    assert_eq!(
+        problems
+            .iter()
+            .map(|problem| (problem.kind, problem.id.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (ScheduleProblemKind::Plan, "bad-rule"),
+            (ScheduleProblemKind::Plan, "bad-start"),
+            (ScheduleProblemKind::ScheduleOverride, "descending"),
+            (ScheduleProblemKind::ScheduleOverride, "wrapped"),
+        ]
     );
 }
 
@@ -599,7 +639,9 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         {"id":"done","courseId":"course","title":"Done","dueAt":"2026-04-14T10:00:00+09:00","submission":"submitted"},
         {"id":"hidden","courseId":"course","title":"Hidden","dueAt":null,"hidden":true},
         {"id":"invalid","courseId":"course","title":"Invalid","dueAt":"yesterday"},
-        {"id":"undated","courseId":"course","title":"Undated","dueAt":null}
+        {"id":"undated","courseId":"course","title":"Undated","dueAt":null},
+        {"id":"lms-done","courseId":"course","title":"LMS done","dueAt":"2026-04-15T10:00:00+09:00","submissionStatus":"submitted"},
+        {"id":"graded","courseId":"course","title":"Graded","dueAt":"2026-04-01T10:00:00+09:00","submission":"graded","deletedAt":"2026-04-02T00:00:00Z"}
     ]);
     let view = task_view(
         &data,
@@ -611,7 +653,9 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert_eq!(term.pinned_ids, vec!["later"]);
     assert_eq!(term.overdue_ids, vec!["past"]);
     assert_eq!(term.due_this_week_ids, vec!["soon"]);
-    assert_eq!(term.earlier_due_this_week_ids, vec!["soon", "done"]);
+    assert_eq!(term.earlier_due_this_week_ids, vec!["soon", "done", "lms-done"]);
+    // One submitted rule for every shell, including the LMS status field.
+    assert_eq!(view.submitted_ids, vec!["done", "lms-done"]);
     assert_eq!(term.lecture_open_ids, vec!["soon", "later", "undated"]);
     assert_eq!(term.lecture_hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");
@@ -888,6 +932,35 @@ async fn legacy_fired_history_is_merged_before_delivery_starts() {
             .unwrap()
             .contains_key("assignment:one")
     );
+    service.shutdown().await;
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges() {
+    let root = std::env::temp_dir().join(format!("isct-reminders-no-import-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let store = crate::data::DataStore::initialize(root.join("workspace.db"))
+        .unwrap()
+        .0;
+    let path = super::reminders::fired_path(store.path());
+    let service = ReminderService::new(store);
+    let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
+
+    assert!(!service.tick(Arc::new(NoopSink), now).await.unwrap());
+    assert!(!path.is_file());
+    tokio::time::advance(std::time::Duration::from_secs(61)).await;
+    service.tick(Arc::new(NoopSink), now).await.unwrap();
+    assert!(path.is_file());
+    assert!(super::reminders::read_fired(&path).unwrap().is_empty());
+
+    assert!(!service
+        .import_legacy_fired(json!({"assignment:one": now.timestamp_millis()}), now)
+        .await
+        .unwrap());
+    assert!(super::reminders::read_fired(&path)
+        .unwrap()
+        .contains_key("assignment:one"));
     service.shutdown().await;
     std::fs::remove_dir_all(root).unwrap();
 }

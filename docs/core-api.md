@@ -165,24 +165,24 @@ and task state. Adapters map typed errors to existing Tauri string responses.
 
 ## Service map
 
-| Service | Rust entry points | Shell responsibility |
-|---|---|---|
-| Workspace | `Core::workspace.snapshot/mutate` | Render snapshots; forward typed intents with expected revision |
-| Schedule / calendar | `Core::schedule_query`, `schedule::{glance,notification_plan}` | Supply explicit dates/times; render views and export bytes |
-| Course finder / LMS review | `Core::finder_query`, `Core::lms_merge_preview` | Input, selection, progress and review confirmation |
-| Reminders | `Core::reminder_tick`, `Core::import_legacy_reminders` | Wakeups, migration bytes and `NotificationSink` |
-| School | `Core::school_browser()`, `Core::services(...).school`, `Core::school_records` | Native views, presentation, callbacks and downloads |
-| Pull state | `Core::runtime.coordinator`: snapshots, subscribe, cancel | Forward intents and publish snapshots |
-| References | `Core::services(...).references` | Supply lifecycle/network facts |
-| Scheduler | `Core::runtime`: wake, run_scheduled, suspend, resume | Periodic wakeups and scheduled exporter port |
-| Catalog | `catalog::{offerings,catalog_query,catalog_sync_offering,catalog_sync_offerings,catalog_sync_department,syllabus_course}` | Call through the runtime's owned operation scope |
-| Downloads | `Core::runtime.downloads`, `course_materials::CourseMaterials` | Cookie acquisition, native URL handlers and opening files |
-| Notes / backups / cloud | `notes::NoteStore`, `BackupService`, `CloudSync` | Selected root, dialogs, transport and events |
-| School credentials | `Core::auth` / `SchoolAuthService` | `SecretVault`, native login surface |
-| Encrypted credential backup | `cloud_credentials::{validate_password,encrypt,decrypt,supports_provider}` | Fetch/store encrypted bytes; vault access |
-| Assignment workspaces | `workspaces::Workspaces` | Selected root, Finder/editor opening; desktop feature only |
-| Agent operations | `Core::agent.call(name,args,AgentPolicy)` | MCP schema/HTTP transport and local authentication |
-| OCR | Separate `isct-ocr` crate | Supported platform setup and progress delivery |
+| Service                     | Rust entry points                                                                                                         | Shell responsibility                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Workspace                   | `Core::workspace.snapshot/mutate`                                                                                         | Render snapshots; forward typed intents with expected revision |
+| Schedule / calendar         | `Core::schedule_query`, `schedule::{glance,notification_plan}`                                                            | Supply explicit dates/times; render views and export bytes     |
+| Course finder / LMS review  | `Core::finder_query`, `Core::lms_merge_preview`                                                                           | Input, selection, progress and review confirmation             |
+| Reminders                   | `Core::reminder_tick`, `Core::import_legacy_reminders`                                                                    | Wakeups, migration bytes and `NotificationSink`                |
+| School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::school_records`                                            | Native views, presentation, callbacks and downloads            |
+| Pull state                  | `Core::runtime.coordinator`: snapshots, subscribe, cancel                                                                 | Forward intents and publish snapshots                          |
+| References                  | `Core::services(...).references`                                                                                          | Supply lifecycle/network facts                                 |
+| Scheduler                   | `Core::runtime`: wake, run_scheduled, suspend, resume                                                                     | Periodic wakeups and scheduled exporter port                   |
+| Catalog                     | `catalog::{offerings,catalog_query,catalog_sync_offering,catalog_sync_offerings,catalog_sync_department,syllabus_course}` | Call through the runtime's owned operation scope               |
+| Downloads                   | `Core::runtime.downloads`, `course_materials::CourseMaterials`                                                            | Cookie acquisition, native URL handlers and opening files      |
+| Notes / backups / cloud     | `notes::NoteStore`, `BackupService`, `CloudSync`                                                                          | Selected root, dialogs, transport and events                   |
+| School credentials          | `Core::auth` / `SchoolAuthService`                                                                                        | `SecretVault`, native login surface                            |
+| Encrypted credential backup | `cloud_credentials::{validate_password,encrypt,decrypt,supports_provider}`                                                | Fetch/store encrypted bytes; vault access                      |
+| Assignment workspaces       | `workspaces::Workspaces`                                                                                                  | Selected root, Finder/editor opening; desktop feature only     |
+| Agent operations            | `Core::agent.call(name,args,AgentPolicy)`                                                                                 | MCP schema/HTTP transport and local authentication             |
+| OCR                         | Separate `isct-ocr` crate                                                                                                 | Supported platform setup and progress delivery                 |
 
 Catalog caching preserves the bilingual freshness threshold and stored detail
 content. Batch fetches are ordered futures held by the calling operation; no
@@ -192,9 +192,15 @@ admitted work. The underlying syllabus transport still owns request pacing.
 
 ## Workspace transactions and read models
 
-`Core::workspace.snapshot()` returns `{revision, workspace, schoolRecords}`.
-All three are assembled from one SQLite read transaction. The revision is an
-opaque SHA-256 fingerprint of the canonical workspace and school records.
+`Core::workspace.snapshot()` returns
+`{revision, contentRevision, workspace, schoolRecords}`, all assembled from one
+SQLite read transaction. `revision` is an opaque SHA-256 fingerprint of the
+user-owned rows and settings intents are checked against; school, catalog and
+reference caches and Core bookkeeping (scheduler run fields, subscription fetch
+state, the subscription poll clock) are excluded, so a background ingest never
+turns a person's edit into a conflict. Intents keep that bookkeeping from the
+stored row. `contentRevision` fingerprints the whole snapshot; read-model caches
+key on it.
 
 Send `WorkspaceMutation { expected_revision, intent }` to
 `Core::workspace.mutate`. Core starts an IMMEDIATE transaction, rechecks the
@@ -203,6 +209,14 @@ snapshot. Course replacement, LMS review, plan/event edits, subscriptions,
 automations, lesson records and assignment marks use this path. IDs, timestamps,
 row revisions and derived changes belong to Core. Shells keep editable form
 values and a disposable snapshot cache.
+
+Settings forms send `replaceSettings` with the complete settings object; a key
+the form cleared stays cleared. Core validates every enumerated preference
+(locale, appearance, density, text size, content language, notification
+permission, cloud provider/conflict) and the admission year (2000–9999) on every
+settings path, including `setAdmissionYear`, the calendar editor and
+`DataStore::put_workspace_setting`, and keeps the fields it owns (subscription
+poll clock, agent write history). Shells keep only their option lists.
 
 A stale revision returns `WorkspaceError::Conflict`; reread before retrying or
 asking the person to review changed data. Invalid input returns `InvalidIntent`,
@@ -223,9 +237,15 @@ request per timetable cell:
 
 ```json
 [
-  {"kind":"workspaceOverview","term":""},
-  {"kind":"scheduleView","term":"2026-3Q","from":"2026-10-12","to":"2026-10-18","includePersonal":true},
-  {"kind":"glance","now":"2026-10-14T08:00:00+09:00"}
+  { "kind": "workspaceOverview", "term": "" },
+  {
+    "kind": "scheduleView",
+    "term": "2026-3Q",
+    "from": "2026-10-12",
+    "to": "2026-10-18",
+    "includePersonal": true
+  },
+  { "kind": "glance", "now": "2026-10-14T08:00:00+09:00" }
 ]
 ```
 
@@ -240,8 +260,16 @@ generated TypeScript contract is the complete request list.
 Dates are strict `YYYY-MM-DD`; clock/wakeup timestamps require an ISO offset.
 Plan inputs also accept ISO civil dates and minute/second date-times for editor
 and stored-data compatibility, interpreted in JST. Core canonicalizes new plan
-writes to RFC 3339 with an explicit offset. Desktop and MCP share this parser,
-recurrence and civil-date exclusions. Academic dates use JST independently of
+writes to RFC 3339 with an explicit offset. RRULE `UNTIL` accepts a date
+(through the end of that JST day), a floating date-time (JST) or a UTC `...Z`
+value; Core converts it to UTC before evaluation, so nothing depends on the
+machine's zone. Every local writer, including MCP, stores only plans whose
+start and recurrence evaluate, and schedule overrides whose periods name a class
+slot (`InvalidIntent` / MCP `InvalidInput` otherwise). Desktop and MCP share this parser,
+recurrence and civil-date exclusions. A stored plan or override that still cannot
+be evaluated (for example synced from elsewhere) is skipped, or left unapplied,
+without failing the other queries; `scheduleView.problems` lists it for the
+person to repair. Academic dates use JST independently of
 the device language/timezone. Invalid inputs return
 `ScheduleError` through `ReadModelError`; shells display the error without
 substituting an independent calendar calculation. The frontend discards responses
@@ -276,9 +304,13 @@ back the ones it replaced. `SetCourseOnTimetable` off and `DeleteCourseBatch`
 remove a course's placements in every quarter, whatever added them. `catalog::syllabus_course`
 returns the localized editor projection, including period times and rooms.
 
-`taskView(now)` returns deadline presentation, nearest assignment per course,
-and per-term pending/pinned/overdue/this-week/later and lecture groups as ordered
-IDs. Today, Lecture Desk and course readers render those IDs and labels. Malformed
+`taskView(now)` returns deadline presentation, the IDs Core treats as
+submitted, nearest assignment per course, and per-term
+pending/pinned/overdue/this-week/later and lecture groups as ordered IDs. Today,
+Lecture Desk and course readers render those IDs and labels; they do not apply
+their own submitted rule. Shells pass `now` from the shared minute clock
+(`src/platform/use-clock.ts`), so pages issuing the same query within a minute
+share one request. Malformed
 or locale-formatted timestamps are excluded from deadline calculations; they
 cannot reach an `Intl` formatter as an invalid date.
 
@@ -305,7 +337,10 @@ Before the first delivery, the Tauri shell forwards the old
 `isct-reminders-fired` localStorage value to `Core::import_legacy_reminders`.
 Core merges it once and persists completion. The shell deletes the old value
 only after success. Delivery waits for this migration barrier, preventing a
-startup tick from racing migration. New shells pass an empty legacy log.
+startup tick from racing migration. The wait lasts at most one minute after
+the reminder service starts; then Core creates an empty log and delivers, so a
+shell without a legacy log need not call the import. A later import still
+merges its entries.
 Shutdown closes admission and drains reminder tasks.
 
 ## OCR input boundary
@@ -449,12 +484,12 @@ cancellation errors, with remaining coordinator errors retained as a typed
 `CoreRuntime::run` and `run_scheduled` return `RuntimeTaskError` for the owned
 operation itself, separately from the operation's domain result:
 
-| Variant | Meaning | Recovery |
-|---|---|---|
-| `Stopped` | Admission has closed or its lock is unavailable | Use an active Core instance; do not retry on a stopped scope |
-| `Unavailable` | No Tokio runtime is entered | Enter the host-owned runtime before invoking the operation |
-| `Panicked` | The admitted worker unwound | Report failure and re-read affected state before deciding whether to retry |
-| `Interrupted` | The admitted worker was cancelled by its runtime | Recover the runtime and re-read state before retrying |
+| Variant       | Meaning                                          | Recovery                                                                   |
+| ------------- | ------------------------------------------------ | -------------------------------------------------------------------------- |
+| `Stopped`     | Admission has closed or its lock is unavailable  | Use an active Core instance; do not retry on a stopped scope               |
+| `Unavailable` | No Tokio runtime is entered                      | Enter the host-owned runtime before invoking the operation                 |
+| `Panicked`    | The admitted worker unwound                      | Report failure and re-read affected state before deciding whether to retry |
+| `Interrupted` | The admitted worker was cancelled by its runtime | Recover the runtime and re-read state before retrying                      |
 
 Dropping a caller does not cancel admitted work. The tracked worker remains
 owned until completion, and shutdown drains it. A worker panic is returned as an

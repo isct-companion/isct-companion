@@ -52,8 +52,8 @@ const native = vi.hoisted(() => ({
 }));
 vi.mock("./desktop-bridge", () => ({ getDesktopBridge: () => native }));
 vi.mock("../store/useWorkspace", () => ({
-  useWorkspace: (select: (state: { revision: string }) => unknown) =>
-    select({ revision: native.revision }),
+  useWorkspace: (select: (state: { contentRevision: string }) => unknown) =>
+    select({ contentRevision: native.revision }),
 }));
 function deferred<T>() {
   let resolve!: (value: T) => void;

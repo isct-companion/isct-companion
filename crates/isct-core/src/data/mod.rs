@@ -72,6 +72,81 @@ pub(crate) const USER_BACKUP_TABLES: &[&str] = &[
     "subscriptions",
 ];
 
+/// Core-owned bookkeeping that background work (scheduler, reference
+/// refresh) updates inside user-owned rows. Shells never supply it, so it is
+/// not part of the user-intent revision.
+const BOOKKEEPING_FIELDS: &[(&str, &[&str])] = &[
+    (
+        "scheduled_tasks",
+        &["lastOccurrenceAt", "lastRunAt", "lastResult"],
+    ),
+    (
+        "subscriptions",
+        &[
+            "fetchedAt",
+            "lastError",
+            "indexHash",
+            "remoteHash",
+            "dataUrl",
+            "sourceTs",
+            "year",
+        ],
+    ),
+];
+pub(crate) fn bookkeeping_fields(table: &str) -> &'static [&'static str] {
+    BOOKKEEPING_FIELDS
+        .iter()
+        .find(|(name, _)| *name == table)
+        .map_or(&[], |(_, fields)| fields)
+}
+
+/// Settings rows a user intent reads as its baseline.
+const INTENT_SETTINGS: &[&str] = &[
+    "selectedTerm",
+    "terms",
+    "academicProfile",
+    "settings",
+    "userPreferences",
+    "devicePreferences",
+    "cloud",
+    "importStatus",
+];
+
+/// Fingerprint of the user-owned state intents are checked against. School
+/// and reference caches and Core bookkeeping are excluded, so a background
+/// ingest does not turn a person's edit into a conflict.
+fn intent_revision(connection: &Connection) -> Result<String, DataError> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for table in USER_BACKUP_TABLES.iter().chain(&["scheduled_tasks"]) {
+        let bookkeeping = bookkeeping_fields(table);
+        hasher.update(table.as_bytes());
+        for row in read_rows(connection, table)? {
+            let mut content = content_value(&row);
+            if let Some(object) = content.as_object_mut() {
+                // `source` is stamped on a row's first Core write; real edits
+                // always change other content as well.
+                for field in bookkeeping.iter().chain(&["source"]) {
+                    object.remove(*field);
+                }
+            }
+            hasher.update(serde_json::to_vec(&(content, row.get("deletedAt")))?);
+        }
+    }
+    for key in INTENT_SETTINGS {
+        let mut value = read_setting(connection, key)?.unwrap_or(Value::Null);
+        if let Some(refresh) = value
+            .pointer_mut("/subscriptionRefresh")
+            .and_then(Value::as_object_mut)
+        {
+            refresh.remove("lastCheckedAt");
+        }
+        hasher.update(key.as_bytes());
+        hasher.update(serde_json::to_vec(&value)?);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 pub(crate) const USER_BACKUP_SETTINGS: &[&str] = &["userPreferences", "academicProfile", "terms"];
 const BACKUP_KIND: &str = "IsctCompanion.local-backup";
 const BACKUP_SCHEMA_VERSION: u64 = 6;
@@ -143,6 +218,94 @@ fn settings_parts(settings: &Value) -> (Value, Value, Value) {
     });
     let cloud = settings.get("cloud").cloned().unwrap_or_else(|| json!({}));
     (user, device, cloud)
+}
+
+/// Enumerated preference values. Settings forms render their own option lists;
+/// Core is the one owner of which values may be stored.
+const PREFERENCE_CHOICES: &[(&str, &[&str])] = &[
+    ("/appearance", &["system", "light", "dark"]),
+    ("/density", &["comfortable", "compact"]),
+    ("/textSize", &["small", "medium", "large"]),
+    ("/locale", &["en", "ja", "zh"]),
+    ("/contentLanguage", &["auto", "ja", "en"]),
+    ("/notifications/localPermission", &["default", "denied", "granted"]),
+    ("/subscriptionRefresh/frequency", &["daily"]),
+];
+const CLOUD_CHOICES: &[(&str, &[&str])] = &[
+    ("/provider", &["none", "google-drive", "onedrive", "icloud"]),
+    ("/conflict", &["keep-current", "use-latest", "resolve-manually"]),
+];
+/// Study-guide cohorts are four-digit years from the 2000 curriculum onwards.
+pub(crate) const ADMISSION_YEARS: std::ops::RangeInclusive<i64> = 2000..=9999;
+
+fn validate_choices(value: &Value, choices: &[(&str, &[&str])]) -> Result<(), DataError> {
+    for (pointer, allowed) in choices {
+        let Some(stored) = value.pointer(pointer).filter(|value| !value.is_null()) else {
+            continue;
+        };
+        if !stored.as_str().is_some_and(|stored| allowed.contains(&stored)) {
+            return Err(DataError::InvalidInput(format!(
+                "setting {} must be one of {}",
+                &pointer[1..],
+                allowed.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Checks the values present in whole settings or in one stored part of them.
+fn validate_preference_values(settings: &Value) -> Result<(), DataError> {
+    validate_choices(settings, PREFERENCE_CHOICES)?;
+    settings
+        .get("cloud")
+        .map_or(Ok(()), |cloud| validate_choices(cloud, CLOUD_CHOICES))
+}
+
+fn validate_settings(settings: &Value) -> Result<(), DataError> {
+    validate_contract::<crate::contracts::Settings>("settings", settings)?;
+    validate_preference_values(settings)
+}
+
+pub(crate) fn validate_admission_year(profile: &Value) -> Result<(), DataError> {
+    match profile.get("admissionYear").filter(|value| !value.is_null()) {
+        None => Ok(()),
+        Some(year) if year.as_i64().is_some_and(|year| ADMISSION_YEARS.contains(&year)) => Ok(()),
+        Some(_) => Err(DataError::InvalidInput(format!(
+            "admission year must be between {} and {}",
+            ADMISSION_YEARS.start(),
+            ADMISSION_YEARS.end()
+        ))),
+    }
+}
+
+/// Every writer of a settings row meets the same value rules.
+fn validate_setting(key: &str, value: &Value) -> Result<(), DataError> {
+    match key {
+        "userPreferences" | "devicePreferences" => validate_preference_values(value),
+        "cloud" => validate_choices(value, CLOUD_CHOICES),
+        "academicProfile" => validate_admission_year(value),
+        _ => Ok(()),
+    }
+}
+
+/// Stored preference parts are complete snapshots of their fields: a null
+/// field was cleared and removes any default or legacy value beneath it.
+fn apply_preferences(target: &mut Value, part: Value) {
+    let (Some(target), Value::Object(part)) = (target.as_object_mut(), part) else {
+        return;
+    };
+    for (key, value) in part {
+        if value.is_null() {
+            target.remove(&key);
+        } else if value.is_object() && target.get(&key).is_some_and(Value::is_object) {
+            if let Some(child) = target.get_mut(&key) {
+                apply_preferences(child, value);
+            }
+        } else {
+            target.insert(key, value);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -354,6 +517,26 @@ fn validate_contract<T: DeserializeOwned>(table: &str, value: &Value) -> Result<
     serde_json::from_value::<T>(value.clone())
         .map(|_| ())
         .map_err(|error| DataError::from(format!("{table} validation failed: {error}")))
+}
+
+/// Domain rules every local writer (workspace intents, MCP, scheduler) must
+/// meet beyond the wire shape. Synced and imported rows are only shape-checked;
+/// read models skip and report a stored record they cannot evaluate.
+fn validate_local_record(table: &str, value: &Value) -> Result<(), DataError> {
+    let invalid = |error: &dyn std::fmt::Display| DataError::from(format!("{table}: {error}"));
+    match table {
+        "plans" => serde_json::from_value::<crate::contracts::Plan>(value.clone())
+            .map_err(|error| invalid(&error))?
+            .validate()
+            .map_err(|error| invalid(&error)),
+        "schedule_overrides" => {
+            serde_json::from_value::<crate::contracts::ScheduleOverride>(value.clone())
+                .map_err(|error| invalid(&error))?
+                .validate()
+                .map_err(|error| invalid(&error))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn validate_user_record(table: &str, value: &Value) -> Result<(), DataError> {
@@ -919,6 +1102,7 @@ fn put_user_record_in_transaction(
     }
     normalize_optional_nulls(&mut value);
     validate_user_record(table, &value)?;
+    validate_local_record(table, &value)?;
     let unchanged = previous
         .as_ref()
         .and_then(|(raw, _)| serde_json::from_str::<Value>(raw).ok())
@@ -1043,10 +1227,12 @@ pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
 }
 
 impl WorkspaceWrite<'_, '_> {
-    pub(crate) fn snapshot_parts(&self) -> Result<(Value, Value), DataError> {
+    /// `(workspace, school records, user-intent revision)` as written so far.
+    pub(crate) fn snapshot_parts(&self) -> Result<(Value, Value, String), DataError> {
         Ok((
             DataStore::load_workspace_from(self.transaction)?,
             DataStore::school_records_from(self.transaction)?,
+            intent_revision(self.transaction)?,
         ))
     }
 
@@ -1068,6 +1254,22 @@ impl WorkspaceWrite<'_, '_> {
         delete_user_record_in_transaction(self.transaction, table, id, "workspace", expected_rev)
     }
 
+    /// Whether a live row with this ID is stored in the given user table.
+    pub(crate) fn has_user_row(&self, table: &str, id: &str) -> Result<bool, DataError> {
+        if !DataStore::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        self.transaction
+            .query_row(
+                &format!("SELECT 1 FROM {table} WHERE id=?1 AND deleted_at IS NULL"),
+                [id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map(|row| row.is_some())
+            .map_err(DataError::from)
+    }
+
     pub(crate) fn save_setting(&self, key: &str, value: &Value) -> Result<(), DataError> {
         if !matches!(
             key,
@@ -1083,6 +1285,7 @@ impl WorkspaceWrite<'_, '_> {
         ) {
             return Err("setting key is not writable".into());
         }
+        validate_setting(key, value)?;
         let actor = read_setting(self.transaction, "deviceId")?
             .and_then(|value| value.as_str().map(str::to_string))
             .unwrap_or_else(|| "workspace".to_string());
@@ -1124,6 +1327,7 @@ impl WorkspaceWrite<'_, '_> {
     }
 
     pub(crate) fn save_settings(&self, settings: &Value) -> Result<(), DataError> {
+        validate_settings(settings)?;
         let (user, device, cloud) = settings_parts(settings);
         self.save_setting("userPreferences", &user)?;
         self.save_setting("devicePreferences", &device)?;
@@ -1489,6 +1693,7 @@ impl DataStore {
         ) {
             return Err("setting key is not writable".into());
         }
+        validate_setting(key, &value)?;
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -1505,16 +1710,18 @@ impl DataStore {
 
     pub fn load_workspace(&self) -> Result<Value, DataError> {
         self.workspace_snapshot_parts()
-            .map(|(workspace, _)| workspace)
+            .map(|(workspace, _, _)| workspace)
     }
 
-    pub(crate) fn workspace_snapshot_parts(&self) -> Result<(Value, Value), DataError> {
+    /// `(workspace, school records, user-intent revision)` from one read.
+    pub(crate) fn workspace_snapshot_parts(&self) -> Result<(Value, Value, String), DataError> {
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(DataError::from)?;
         let workspace = Self::load_workspace_from(&transaction)?;
         let school_records = Self::school_records_from(&transaction)?;
+        let revision = intent_revision(&transaction)?;
         transaction.commit().map_err(DataError::from)?;
-        Ok((workspace, school_records))
+        Ok((workspace, school_records, revision))
     }
 
     pub(crate) fn workspace_write<T>(
@@ -1526,14 +1733,14 @@ impl DataStore {
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DataError::from)?;
-        let current = Self::load_workspace_from(&transaction)?;
-        let school_records = Self::school_records_from(&transaction)?;
-        let actual = crate::workspace::snapshot_revision(&current, &school_records)?;
+        let actual = intent_revision(&transaction)?;
         if actual != expected_revision {
             return Err(DataError::conflict(format!(
                 "workspace revision conflict: expected {expected_revision}, actual {actual}"
             )));
         }
+        let current = Self::load_workspace_from(&transaction)?;
+        let school_records = Self::school_records_from(&transaction)?;
         let result = operation(
             &WorkspaceWrite {
                 transaction: &transaction,
@@ -1638,7 +1845,7 @@ impl DataStore {
         }
         for key in ["userPreferences", "devicePreferences"] {
             if let Some(value) = read_setting(connection, key)? {
-                merge_object(&mut workspace["settings"], value);
+                apply_preferences(&mut workspace["settings"], value);
             }
         }
         if let Some(value) = read_setting(connection, "cloud")? {
