@@ -772,3 +772,37 @@ async fn maximum_remote_generation_restore_is_rejected_before_enqueue_or_apply()
     assert_eq!(plans.len(), 1);
     assert_eq!(plans[0]["title"], "keep-local");
 }
+
+#[tokio::test]
+async fn idle_pass_neither_rewrites_the_journal_nor_publishes() {
+    let fixture = Fixture::new("idle-pass");
+    let path = fixture.sync.0.journal.path.clone();
+    let sentinel = || {
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute("UPDATE journal SET value='sentinel' WHERE id=1", [])
+            .unwrap();
+    };
+    let stored = || -> String {
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .query_row("SELECT value FROM journal WHERE id=1", [], |row| row.get(0))
+            .unwrap()
+    };
+    sentinel();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(stored(), "sentinel");
+    assert!(fixture.observer.states.lock().unwrap().is_empty());
+
+    fixture
+        .sync
+        .0
+        .journal
+        .change(|journal| {
+            journal.state.automatic = true;
+            Ok(())
+        })
+        .unwrap();
+    assert_ne!(stored(), "sentinel");
+}
