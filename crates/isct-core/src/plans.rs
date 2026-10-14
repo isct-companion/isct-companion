@@ -220,8 +220,7 @@ pub fn validate_rrule(raw: &str) -> Result<String, PlanError> {
 /// in the machine's zone. Plans use Japan civil time like the previous app: a
 /// date-only UNTIL includes that whole JST day and a floating one is JST.
 fn utc_until(rule: &str) -> Result<String, PlanError> {
-    let invalid =
-        || PlanError::InvalidRule("UNTIL must be YYYYMMDD or YYYYMMDDTHHMMSS[Z].".into());
+    let invalid = || PlanError::InvalidRule("UNTIL must be YYYYMMDD or YYYYMMDDTHHMMSS[Z].".into());
     let parts = rule
         .split(';')
         .map(|part| {

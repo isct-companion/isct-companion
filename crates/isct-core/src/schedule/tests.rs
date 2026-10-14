@@ -107,10 +107,11 @@ fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
         {"id":"descending","targetKey":"course-weekly-0-2026-04-13","targetKind":"course","periods":[5,3],"room":"Elsewhere","hidden":false},
         {"id":"wrapped","targetKey":"elsewhere","targetKind":"course","periods":[257,258],"hidden":false}
     ]);
-    let day = resolve_day_agenda(&data, "2026-1Q", "2026-04-13", AgendaOptions::default())
-        .unwrap();
+    let day = resolve_day_agenda(&data, "2026-1Q", "2026-04-13", AgendaOptions::default()).unwrap();
     assert_eq!(
-        day.iter().map(|block| block.id.as_str()).collect::<Vec<_>>(),
+        day.iter()
+            .map(|block| block.id.as_str())
+            .collect::<Vec<_>>(),
         ["course", "good"]
     );
     // The class stays as scheduled instead of disappearing.
@@ -653,7 +654,10 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert_eq!(term.pinned_ids, vec!["later"]);
     assert_eq!(term.overdue_ids, vec!["past"]);
     assert_eq!(term.due_this_week_ids, vec!["soon"]);
-    assert_eq!(term.earlier_due_this_week_ids, vec!["soon", "done", "lms-done"]);
+    assert_eq!(
+        term.earlier_due_this_week_ids,
+        vec!["soon", "done", "lms-done"]
+    );
     // One submitted rule for every shell, including the LMS status field.
     assert_eq!(view.submitted_ids, vec!["done", "lms-done"]);
     assert_eq!(term.lecture_open_ids, vec!["soon", "later", "undated"]);
@@ -938,7 +942,8 @@ async fn legacy_fired_history_is_merged_before_delivery_starts() {
 
 #[tokio::test(start_paused = true)]
 async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges() {
-    let root = std::env::temp_dir().join(format!("isct-reminders-no-import-{}", uuid::Uuid::new_v4()));
+    let root =
+        std::env::temp_dir().join(format!("isct-reminders-no-import-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let store = crate::data::DataStore::initialize(root.join("workspace.db"))
         .unwrap()

@@ -228,12 +228,18 @@ const PREFERENCE_CHOICES: &[(&str, &[&str])] = &[
     ("/textSize", &["small", "medium", "large"]),
     ("/locale", &["en", "ja", "zh"]),
     ("/contentLanguage", &["auto", "ja", "en"]),
-    ("/notifications/localPermission", &["default", "denied", "granted"]),
+    (
+        "/notifications/localPermission",
+        &["default", "denied", "granted"],
+    ),
     ("/subscriptionRefresh/frequency", &["daily"]),
 ];
 const CLOUD_CHOICES: &[(&str, &[&str])] = &[
     ("/provider", &["none", "google-drive", "onedrive", "icloud"]),
-    ("/conflict", &["keep-current", "use-latest", "resolve-manually"]),
+    (
+        "/conflict",
+        &["keep-current", "use-latest", "resolve-manually"],
+    ),
 ];
 /// Study-guide cohorts are four-digit years from the 2000 curriculum onwards.
 pub(crate) const ADMISSION_YEARS: std::ops::RangeInclusive<i64> = 2000..=9999;
@@ -243,7 +249,10 @@ fn validate_choices(value: &Value, choices: &[(&str, &[&str])]) -> Result<(), Da
         let Some(stored) = value.pointer(pointer).filter(|value| !value.is_null()) else {
             continue;
         };
-        if !stored.as_str().is_some_and(|stored| allowed.contains(&stored)) {
+        if !stored
+            .as_str()
+            .is_some_and(|stored| allowed.contains(&stored))
+        {
             return Err(DataError::InvalidInput(format!(
                 "setting {} must be one of {}",
                 &pointer[1..],
@@ -268,9 +277,18 @@ fn validate_settings(settings: &Value) -> Result<(), DataError> {
 }
 
 pub(crate) fn validate_admission_year(profile: &Value) -> Result<(), DataError> {
-    match profile.get("admissionYear").filter(|value| !value.is_null()) {
+    match profile
+        .get("admissionYear")
+        .filter(|value| !value.is_null())
+    {
         None => Ok(()),
-        Some(year) if year.as_i64().is_some_and(|year| ADMISSION_YEARS.contains(&year)) => Ok(()),
+        Some(year)
+            if year
+                .as_i64()
+                .is_some_and(|year| ADMISSION_YEARS.contains(&year)) =>
+        {
+            Ok(())
+        }
         Some(_) => Err(DataError::InvalidInput(format!(
             "admission year must be between {} and {}",
             ADMISSION_YEARS.start(),

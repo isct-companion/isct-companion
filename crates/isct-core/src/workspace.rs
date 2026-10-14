@@ -777,7 +777,9 @@ fn edit_course_batch(
             continue;
         }
         if !write.has_user_row("manual_courses", id)? {
-            return Err("credits and language of a school timetable course cannot be edited".into());
+            return Err(
+                "credits and language of a school timetable course cannot be edited".into(),
+            );
         }
         let mut updated = course.clone();
         let object = object_mut(&mut updated, "course")?;
@@ -2445,7 +2447,10 @@ mod tests {
                     },
                 })
                 .unwrap_err();
-            assert!(matches!(error, WorkspaceError::InvalidIntent(_)), "{pointer}");
+            assert!(
+                matches!(error, WorkspaceError::InvalidIntent(_)),
+                "{pointer}"
+            );
         }
         for intent in [
             WorkspaceIntent::SetAdmissionYear {
