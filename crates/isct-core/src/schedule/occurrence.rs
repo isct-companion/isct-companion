@@ -987,7 +987,11 @@ pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError
         .trim();
     if input
         .get("admissionYear")
-        .is_some_and(|v| !v.is_null() && (v.as_i64().is_none_or(|y| y < 2000)))
+        .is_some_and(|v| {
+            !v.is_null()
+                && v.as_i64()
+                    .is_none_or(|y| !crate::data::ADMISSION_YEARS.contains(&y))
+        })
     {
         return Err(ScheduleError::InvalidInput(
             "Academic profile has an invalid admission year".into(),

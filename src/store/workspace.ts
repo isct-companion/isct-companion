@@ -223,51 +223,6 @@ export const workspaceStore = {
   flush: internalWorkspaceStore.flush,
 };
 
-/** Guarded domain actions shared by React and non-React callers. */
-export function createWorkspaceHooks(
-  store: ReturnType<typeof createWorkspaceStore>,
-  platform = detectPlatform,
-) {
-  return {
-    getState: store.getState,
-    subscribe: store.subscribe,
-    actions: {
-      updatePreferences(
-        preferences: Partial<
-          Pick<
-            Workspace["settings"],
-            "appearance" | "locale" | "contentLanguage" | "textSize"
-          >
-        >,
-      ) {
-        requireAction("change-local-preference", platform());
-        const choices = {
-          appearance: ["system", "light", "dark"],
-          locale: ["en", "ja", "zh"],
-          contentLanguage: ["auto", "ja", "en"],
-          textSize: ["small", "medium", "large"],
-        };
-        if (
-          !preferences ||
-          typeof preferences !== "object" ||
-          Array.isArray(preferences)
-        )
-          throw new Error("Invalid preferences.");
-        for (const [key, value] of Object.entries(preferences)) {
-          if (
-            !(key in choices) ||
-            typeof value !== "string" ||
-            !choices[key as keyof typeof choices].includes(value)
-          )
-            throw new Error("Invalid preference value.");
-        }
-        return store.mutate({ kind: "patchSettings", patch: preferences });
-      },
-    },
-  };
-}
-export const workspaceHooks = createWorkspaceHooks(internalWorkspaceStore);
-
 export const workspaceActions = {
   /** Refresh canonical workspace and parsed school records in one publication. */
   refreshSchool() {
@@ -296,8 +251,6 @@ export const workspaceActions = {
    * the academic profile stays behind the advanced calendar editor. */
   setAdmissionYear(year: number | undefined) {
     requireAction("change-local-preference", detectPlatform());
-    if (year !== undefined && (!Number.isInteger(year) || year < 2000))
-      throw new Error("Invalid admission year.");
     return internalWorkspaceStore.mutate({
       kind: "setAdmissionYear",
       admissionYear: year ?? null,
@@ -307,9 +260,11 @@ export const workspaceActions = {
     requireAction("change-local-preference", detectPlatform());
     // Resolve form edits inside the transport queue, after adopting the preceding
     // Core result. Two immediate preference edits must not copy the same old snapshot.
+    // The whole object replaces the stored one, so cleared keys stay cleared;
+    // Core validates the values.
     return internalWorkspaceStore.mutate((draft) => ({
-      kind: "patchSettings",
-      patch: (edit(draft) ?? draft).settings,
+      kind: "replaceSettings",
+      settings: (edit(draft) ?? draft).settings,
     }));
   },
   /** The timetable was compared with LMS; its cache TTL restarts now. */

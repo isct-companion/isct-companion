@@ -41,9 +41,12 @@ pub struct WorkspaceMutation {
     rename_all_fields = "camelCase"
 )]
 pub enum WorkspaceIntent {
-    PatchSettings {
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        patch: Value,
+    /// The complete settings object from a settings form. Absent optional
+    /// keys are cleared; Core keeps the fields it owns (poll clock, agent
+    /// write history) and validates every value.
+    ReplaceSettings {
+        #[cfg_attr(feature = "ts", ts(type = "Settings"))]
+        settings: Value,
     },
     SetAdmissionYear {
         #[cfg_attr(feature = "ts", ts(type = "number | null"))]
@@ -301,19 +304,25 @@ fn apply_intent(
     intent: WorkspaceIntent,
 ) -> Result<(), DataError> {
     match intent {
-        WorkspaceIntent::PatchSettings { patch } => {
-            require_object(&patch, "settings patch")?;
-            let mut settings = current
-                .get("settings")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            merge_patch(&mut settings, patch);
+        WorkspaceIntent::ReplaceSettings { mut settings } => {
+            require_object(&settings, "settings")?;
+            for (parent, field) in [
+                ("/subscriptionRefresh", "lastCheckedAt"),
+                ("/agentAccess", "lastWrites"),
+            ] {
+                let owned = current
+                    .pointer(&format!("/settings{parent}/{field}"))
+                    .cloned();
+                if let Some(parent) = settings.pointer_mut(parent).and_then(Value::as_object_mut) {
+                    match owned {
+                        Some(value) => parent.insert(field.into(), value),
+                        None => parent.remove(field),
+                    };
+                }
+            }
             write.save_settings(&settings)
         }
         WorkspaceIntent::SetAdmissionYear { admission_year } => {
-            if admission_year.is_some_and(|year| year < 2000) {
-                return Err("admission year must be 2000 or later".into());
-            }
             let mut profile = current
                 .get("academicProfile")
                 .cloned()
@@ -1970,21 +1979,6 @@ fn record_lesson(
     put_course_override(write, course, [("lessonLog", Value::Array(log))])
 }
 
-fn merge_patch(target: &mut Value, patch: Value) {
-    let (Some(target), Value::Object(patch)) = (target.as_object_mut(), patch) else {
-        return;
-    };
-    for (key, value) in patch {
-        if value.is_object() && target.get(&key).is_some_and(Value::is_object) {
-            if let Some(child) = target.get_mut(&key) {
-                merge_patch(child, value);
-            }
-        } else {
-            target.insert(key, value);
-        }
-    }
-}
-
 fn rows<'a>(
     workspace: &'a Value,
     field: &str,
@@ -2039,6 +2033,12 @@ mod tests {
         WorkspaceService::new(DataStore::initialize(path).unwrap().0)
     }
 
+    fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) -> Value {
+        let mut settings = snapshot.workspace["settings"].clone();
+        edit(&mut settings);
+        settings
+    }
+
     #[test]
     fn stale_revision_cannot_overwrite_a_newer_settings_change() {
         let service = service("conflict");
@@ -2046,8 +2046,8 @@ mod tests {
         let changed = service
             .mutate(WorkspaceMutation {
                 expected_revision: original.revision.clone(),
-                intent: WorkspaceIntent::PatchSettings {
-                    patch: json!({"appearance":"dark"}),
+                intent: WorkspaceIntent::ReplaceSettings {
+                    settings: settings_with(&original, |s| s["appearance"] = json!("dark")),
                 },
             })
             .unwrap();
@@ -2056,9 +2056,9 @@ mod tests {
 
         let error = service
             .mutate(WorkspaceMutation {
-                expected_revision: original.revision,
-                intent: WorkspaceIntent::PatchSettings {
-                    patch: json!({"density":"compact"}),
+                expected_revision: original.revision.clone(),
+                intent: WorkspaceIntent::ReplaceSettings {
+                    settings: settings_with(&original, |s| s["density"] = json!("compact")),
                 },
             })
             .unwrap_err();
@@ -2067,6 +2067,99 @@ mod tests {
             service.snapshot().unwrap().workspace["settings"]["density"],
             changed.workspace["settings"]["density"]
         );
+    }
+
+    #[test]
+    fn settings_replacement_clears_keys_and_core_validates_every_value() {
+        let service = service("settings");
+        let original = service.snapshot().unwrap();
+        let chosen = mutate(
+            &service,
+            WorkspaceIntent::ReplaceSettings {
+                settings: settings_with(&original, |s| {
+                    s["departmentId"] = json!("cs");
+                    s["textSize"] = json!("large");
+                }),
+            },
+        );
+        assert_eq!(chosen.workspace["settings"]["departmentId"], "cs");
+        service.store.record_reference_poll().unwrap();
+        let polled = service.snapshot().unwrap();
+        let checked = polled.workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"].clone();
+        assert!(checked.is_string());
+
+        // A form built from the earlier snapshot clears the department and
+        // cannot roll the Core-owned poll clock back.
+        let cleared = mutate(
+            &service,
+            WorkspaceIntent::ReplaceSettings {
+                settings: settings_with(&chosen, |s| {
+                    s.as_object_mut().unwrap().remove("departmentId");
+                }),
+            },
+        );
+        assert!(cleared.workspace["settings"].get("departmentId").is_none());
+        assert_eq!(cleared.workspace["settings"]["textSize"], "large");
+        assert_eq!(
+            cleared.workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"],
+            checked
+        );
+
+        let before = service.snapshot().unwrap();
+        for (pointer, value) in [
+            ("/locale", json!("xx")),
+            ("/appearance", json!("blue")),
+            ("/textSize", json!("huge")),
+            ("/contentLanguage", json!("fr")),
+            ("/density", json!(3)),
+            ("/cloud/provider", json!("dropbox")),
+        ] {
+            let error = service
+                .mutate(WorkspaceMutation {
+                    expected_revision: before.revision.clone(),
+                    intent: WorkspaceIntent::ReplaceSettings {
+                        settings: settings_with(&before, |s| {
+                            let (parent, key) = pointer.rsplit_once('/').unwrap();
+                            s.pointer_mut(parent).unwrap()[key] = value;
+                        }),
+                    },
+                })
+                .unwrap_err();
+            assert!(matches!(error, WorkspaceError::InvalidIntent(_)), "{pointer}");
+        }
+        for intent in [
+            WorkspaceIntent::SetAdmissionYear {
+                admission_year: Some(1999),
+            },
+            WorkspaceIntent::EditAcademicCalendar {
+                academic_profile: json!({"name":"Mine","admissionYear":1990,"gradePath":[],"years":[]}),
+                exceptions: vec![],
+            },
+        ] {
+            let error = service
+                .mutate(WorkspaceMutation {
+                    expected_revision: before.revision.clone(),
+                    intent,
+                })
+                .unwrap_err();
+            assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        }
+        assert!(matches!(
+            service.store.put_workspace_setting(
+                "devicePreferences",
+                json!({"locale":"xx"}),
+                "test"
+            ),
+            Err(DataError::InvalidInput(_))
+        ));
+        assert_eq!(service.snapshot().unwrap().revision, before.revision);
+        let year = mutate(
+            &service,
+            WorkspaceIntent::SetAdmissionYear {
+                admission_year: Some(2024),
+            },
+        );
+        assert_eq!(year.workspace["academicProfile"]["admissionYear"], 2024);
     }
 
     #[test]

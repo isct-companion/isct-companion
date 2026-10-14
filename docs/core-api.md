@@ -204,6 +204,14 @@ automations, lesson records and assignment marks use this path. IDs, timestamps,
 row revisions and derived changes belong to Core. Shells keep editable form
 values and a disposable snapshot cache.
 
+Settings forms send `replaceSettings` with the complete settings object; a key
+the form cleared stays cleared. Core validates every enumerated preference
+(locale, appearance, density, text size, content language, notification
+permission, cloud provider/conflict) and the admission year (2000–9999) on every
+settings path, including `setAdmissionYear`, the calendar editor and
+`DataStore::put_workspace_setting`, and keeps the fields it owns (subscription
+poll clock, agent write history). Shells keep only their option lists.
+
 A stale revision returns `WorkspaceError::Conflict`; reread before retrying or
 asking the person to review changed data. Invalid input returns `InvalidIntent`,
 I/O failure returns `Storage`. No partial intent is published. The desktop

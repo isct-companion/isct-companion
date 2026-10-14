@@ -954,7 +954,7 @@ export type WorkspaceMutation = {
 };
 
 export type WorkspaceIntent =
-  | { kind: "patchSettings"; patch: unknown }
+  | { kind: "replaceSettings"; settings: Settings }
   | { kind: "setAdmissionYear"; admissionYear: number | null }
   | {
       kind: "editAcademicCalendar";

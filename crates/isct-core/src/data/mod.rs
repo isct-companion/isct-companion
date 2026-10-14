@@ -145,6 +145,94 @@ fn settings_parts(settings: &Value) -> (Value, Value, Value) {
     (user, device, cloud)
 }
 
+/// Enumerated preference values. Settings forms render their own option lists;
+/// Core is the one owner of which values may be stored.
+const PREFERENCE_CHOICES: &[(&str, &[&str])] = &[
+    ("/appearance", &["system", "light", "dark"]),
+    ("/density", &["comfortable", "compact"]),
+    ("/textSize", &["small", "medium", "large"]),
+    ("/locale", &["en", "ja", "zh"]),
+    ("/contentLanguage", &["auto", "ja", "en"]),
+    ("/notifications/localPermission", &["default", "denied", "granted"]),
+    ("/subscriptionRefresh/frequency", &["daily"]),
+];
+const CLOUD_CHOICES: &[(&str, &[&str])] = &[
+    ("/provider", &["none", "google-drive", "onedrive", "icloud"]),
+    ("/conflict", &["keep-current", "use-latest", "resolve-manually"]),
+];
+/// Study-guide cohorts are four-digit years from the 2000 curriculum onwards.
+pub(crate) const ADMISSION_YEARS: std::ops::RangeInclusive<i64> = 2000..=9999;
+
+fn validate_choices(value: &Value, choices: &[(&str, &[&str])]) -> Result<(), DataError> {
+    for (pointer, allowed) in choices {
+        let Some(stored) = value.pointer(pointer).filter(|value| !value.is_null()) else {
+            continue;
+        };
+        if !stored.as_str().is_some_and(|stored| allowed.contains(&stored)) {
+            return Err(DataError::InvalidInput(format!(
+                "setting {} must be one of {}",
+                &pointer[1..],
+                allowed.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Checks the values present in whole settings or in one stored part of them.
+fn validate_preference_values(settings: &Value) -> Result<(), DataError> {
+    validate_choices(settings, PREFERENCE_CHOICES)?;
+    settings
+        .get("cloud")
+        .map_or(Ok(()), |cloud| validate_choices(cloud, CLOUD_CHOICES))
+}
+
+fn validate_settings(settings: &Value) -> Result<(), DataError> {
+    validate_contract::<crate::contracts::Settings>("settings", settings)?;
+    validate_preference_values(settings)
+}
+
+pub(crate) fn validate_admission_year(profile: &Value) -> Result<(), DataError> {
+    match profile.get("admissionYear").filter(|value| !value.is_null()) {
+        None => Ok(()),
+        Some(year) if year.as_i64().is_some_and(|year| ADMISSION_YEARS.contains(&year)) => Ok(()),
+        Some(_) => Err(DataError::InvalidInput(format!(
+            "admission year must be between {} and {}",
+            ADMISSION_YEARS.start(),
+            ADMISSION_YEARS.end()
+        ))),
+    }
+}
+
+/// Every writer of a settings row meets the same value rules.
+fn validate_setting(key: &str, value: &Value) -> Result<(), DataError> {
+    match key {
+        "userPreferences" | "devicePreferences" => validate_preference_values(value),
+        "cloud" => validate_choices(value, CLOUD_CHOICES),
+        "academicProfile" => validate_admission_year(value),
+        _ => Ok(()),
+    }
+}
+
+/// Stored preference parts are complete snapshots of their fields: a null
+/// field was cleared and removes any default or legacy value beneath it.
+fn apply_preferences(target: &mut Value, part: Value) {
+    let (Some(target), Value::Object(part)) = (target.as_object_mut(), part) else {
+        return;
+    };
+    for (key, value) in part {
+        if value.is_null() {
+            target.remove(&key);
+        } else if value.is_object() && target.get(&key).is_some_and(Value::is_object) {
+            if let Some(child) = target.get_mut(&key) {
+                apply_preferences(child, value);
+            }
+        } else {
+            target.insert(key, value);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct DataStore {
     path: PathBuf,
@@ -1120,6 +1208,7 @@ impl WorkspaceWrite<'_, '_> {
         ) {
             return Err("setting key is not writable".into());
         }
+        validate_setting(key, value)?;
         let actor = read_setting(self.transaction, "deviceId")?
             .and_then(|value| value.as_str().map(str::to_string))
             .unwrap_or_else(|| "workspace".to_string());
@@ -1127,6 +1216,7 @@ impl WorkspaceWrite<'_, '_> {
     }
 
     pub(crate) fn save_settings(&self, settings: &Value) -> Result<(), DataError> {
+        validate_settings(settings)?;
         let (user, device, cloud) = settings_parts(settings);
         self.save_setting("userPreferences", &user)?;
         self.save_setting("devicePreferences", &device)?;
@@ -1465,6 +1555,7 @@ impl DataStore {
         ) {
             return Err("setting key is not writable".into());
         }
+        validate_setting(key, &value)?;
         let mut connection = self.open()?;
         let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -1614,7 +1705,7 @@ impl DataStore {
         }
         for key in ["userPreferences", "devicePreferences"] {
             if let Some(value) = read_setting(connection, key)? {
-                merge_object(&mut workspace["settings"], value);
+                apply_preferences(&mut workspace["settings"], value);
             }
         }
         if let Some(value) = read_setting(connection, "cloud")? {
