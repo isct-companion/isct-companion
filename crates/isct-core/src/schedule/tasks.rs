@@ -40,6 +40,10 @@ pub struct TermTaskView {
 #[serde(rename_all = "camelCase")]
 pub struct TaskView {
     pub deadlines: BTreeMap<String, TaskDeadlineView>,
+    /// Visible assignments Core treats as submitted (`submission` submitted
+    /// or graded, or LMS `submissionStatus` submitted). Shells render this
+    /// instead of applying their own rule.
+    pub submitted_ids: Vec<String>,
     pub nearest_by_course: BTreeMap<String, String>,
     pub by_term: BTreeMap<String, TermTaskView>,
 }
@@ -65,6 +69,13 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
         matches!(text(row, "submission"), Some("submitted" | "graded"))
             || text(row, "submissionStatus") == Some("submitted")
     };
+    let submitted_ids = array(workspace, "assignments")
+        .iter()
+        .filter(|row| visible(row) && submitted(row))
+        .filter_map(|row| text(row, "id").map(str::to_owned))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let mut nearest_by_course = BTreeMap::<String, (DateTime<FixedOffset>, String)>::new();
     for row in array(workspace, "assignments").iter().filter(|row| {
         visible(row) && row.get("hidden").and_then(Value::as_bool) != Some(true) && !submitted(row)
@@ -177,6 +188,7 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
     }
     Ok(TaskView {
         deadlines,
+        submitted_ids,
         nearest_by_course: nearest_by_course
             .into_iter()
             .map(|(k, (_, v))| (k, v))

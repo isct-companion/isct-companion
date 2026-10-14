@@ -639,7 +639,9 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         {"id":"done","courseId":"course","title":"Done","dueAt":"2026-04-14T10:00:00+09:00","submission":"submitted"},
         {"id":"hidden","courseId":"course","title":"Hidden","dueAt":null,"hidden":true},
         {"id":"invalid","courseId":"course","title":"Invalid","dueAt":"yesterday"},
-        {"id":"undated","courseId":"course","title":"Undated","dueAt":null}
+        {"id":"undated","courseId":"course","title":"Undated","dueAt":null},
+        {"id":"lms-done","courseId":"course","title":"LMS done","dueAt":"2026-04-15T10:00:00+09:00","submissionStatus":"submitted"},
+        {"id":"graded","courseId":"course","title":"Graded","dueAt":"2026-04-01T10:00:00+09:00","submission":"graded","deletedAt":"2026-04-02T00:00:00Z"}
     ]);
     let view = task_view(
         &data,
@@ -651,7 +653,9 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert_eq!(term.pinned_ids, vec!["later"]);
     assert_eq!(term.overdue_ids, vec!["past"]);
     assert_eq!(term.due_this_week_ids, vec!["soon"]);
-    assert_eq!(term.earlier_due_this_week_ids, vec!["soon", "done"]);
+    assert_eq!(term.earlier_due_this_week_ids, vec!["soon", "done", "lms-done"]);
+    // One submitted rule for every shell, including the LMS status field.
+    assert_eq!(view.submitted_ids, vec!["done", "lms-done"]);
     assert_eq!(term.lecture_open_ids, vec!["soon", "later", "undated"]);
     assert_eq!(term.lecture_hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");

@@ -23,6 +23,7 @@ import type {
 import { t } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import { detectPlatform } from "../../platform/capabilities";
+import { useClock } from "../../platform/use-clock";
 import { AssignmentWorkspaceFooter } from "./AssignmentWorkspaceCard";
 import { assignmentBrief } from "./assignment-workspace";
 import {
@@ -595,18 +596,7 @@ export function LmsWorkspace({
   );
   const frontier = frontierLesson(lessons);
   const labels = railLabels(lessons);
-  const [timelineNow, setTimelineNow] = useState(() =>
-    new Date().toISOString(),
-  );
-  useEffect(() => {
-    if (!active) return;
-    setTimelineNow(new Date().toISOString());
-    const timer = window.setInterval(
-      () => setTimelineNow(new Date().toISOString()),
-      60_000,
-    );
-    return () => window.clearInterval(timer);
-  }, [active, course.id]);
+  const timelineNow = useClock(active);
   const timeline = useScheduleQuery<CourseTimeline>({
     kind: "courseTimeline",
     term: course.termId,
@@ -622,6 +612,10 @@ export function LmsWorkspace({
   const pendingAssignmentIds = useMemo(
     () => new Set(taskView?.byTerm?.[course.termId]?.pendingIds ?? []),
     [course.termId, taskView],
+  );
+  const submittedIds = useMemo(
+    () => new Set(taskView?.submittedIds),
+    [taskView],
   );
   // This course's class meetings around now: the latest one that has begun,
   // and the one a mark is recorded against (the class in progress or held
@@ -1109,7 +1103,7 @@ export function LmsWorkspace({
     const source = data.materials.find(
       (m) => a.lmsCmid != null && m.cmid === a.lmsCmid,
     );
-    const done = ["submitted", "graded"].includes(a.submission ?? "");
+    const done = submittedIds.has(a.id);
     const deadline = taskView?.deadlines?.[a.id];
     const due = deadline ? new Date(deadline.at) : undefined;
     const past = deadline?.overdue ?? false;

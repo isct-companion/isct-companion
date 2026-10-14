@@ -282,9 +282,13 @@ preview, then forwards the person's choices as `ApplyLmsMerge`. Core recomputes
 and applies the chosen changes in its transaction. `catalog::syllabus_course`
 returns the localized editor projection, including period times and rooms.
 
-`taskView(now)` returns deadline presentation, nearest assignment per course,
-and per-term pending/pinned/overdue/this-week/later and lecture groups as ordered
-IDs. Today, Lecture Desk and course readers render those IDs and labels. Malformed
+`taskView(now)` returns deadline presentation, the IDs Core treats as
+submitted, nearest assignment per course, and per-term
+pending/pinned/overdue/this-week/later and lecture groups as ordered IDs. Today,
+Lecture Desk and course readers render those IDs and labels; they do not apply
+their own submitted rule. Shells pass `now` from the shared minute clock
+(`src/platform/use-clock.ts`), so pages issuing the same query within a minute
+share one request. Malformed
 or locale-formatted timestamps are excluded from deadline calculations; they
 cannot reach an `Intl` formatter as an invalid date.
 

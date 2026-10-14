@@ -820,6 +820,12 @@ export type TermTaskView = {
 
 export type TaskView = {
   deadlines: { [key in string]?: TaskDeadlineView };
+  /**
+   * Visible assignments Core treats as submitted (`submission` submitted
+   * or graded, or LMS `submissionStatus` submitted). Shells render this
+   * instead of applying their own rule.
+   */
+  submittedIds: Array<string>;
   nearestByCourse: { [key in string]?: string };
   byTerm: { [key in string]?: TermTaskView };
 };
