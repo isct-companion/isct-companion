@@ -64,12 +64,9 @@ pub(crate) fn display_root(path: &Path) -> String {
     #[cfg(not(windows))]
     value.into_owned()
 }
-#[cfg(debug_assertions)]
+#[cfg(all(matrix_ocr, debug_assertions))]
 pub(crate) fn debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    storage_dir(app, &["debug"])
-}
-pub(crate) fn storage_dir(app: &AppHandle, parts: &[&str]) -> Result<PathBuf, String> {
-    course_materials::storage_dir(&root(app)?.0, parts).map_err(|error| error.to_string())
+    course_materials::storage_dir(&root(app)?.0, &["debug"]).map_err(|error| error.to_string())
 }
 pub(crate) fn materials(app: &AppHandle) -> Result<CourseMaterials, String> {
     #[cfg(desktop)]

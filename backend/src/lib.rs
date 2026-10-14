@@ -370,14 +370,25 @@ pub fn run() {
                         let app = app.clone();
                         let code = code.unwrap_or(0);
                         tauri::async_runtime::spawn(async move {
-                            cloud_sync::CloudSync::changed(&app).await;
-                            #[cfg(desktop)]
-                            if let Some(server) = app.try_state::<agent_server::AgentServer>() {
-                                server.shutdown().await;
+                            let drained = tokio::time::timeout(core_ports::EXIT_TIMEOUT, async {
+                                cloud_sync::CloudSync::changed(&app).await;
+                                #[cfg(desktop)]
+                                if let Some(server) = app.try_state::<agent_server::AgentServer>() {
+                                    server.shutdown().await;
+                                }
+                                app.state::<core_ports::DesktopRuntime>()
+                                    .shutdown(&core_ports::core(&app))
+                                    .await;
+                            })
+                            .await;
+                            if drained.is_err() {
+                                eprintln!(
+                                    "[shutdown] owned work did not finish within {:?}; exiting",
+                                    core_ports::EXIT_TIMEOUT
+                                );
                             }
-                            app.state::<core_ports::DesktopRuntime>()
-                                .shutdown(&core_ports::core(&app))
-                                .await;
+                            let runtime = app.state::<core_ports::DesktopRuntime>();
+                            runtime.mark_stopped();
                             app.exit(code);
                         });
                     }
@@ -421,20 +432,13 @@ pub fn run() {
                 _ => None,
             };
             if let Some(foreground) = foreground {
-                let _ = core_ports::runtime(app)
+                if let Err(error) = core_ports::runtime(app)
                     .refresh
-                    .event(school_refresh::RefreshEvent {
-                        kind: if foreground {
-                            "foreground"
-                        } else {
-                            "background"
-                        }
-                        .into(),
-                        profile: None,
-                        course_id: None,
-                        network: None,
-                    });
-                let _ = core_ports::publish_conditions(app);
+                    .event(school_refresh::RefreshEvent::lifecycle(foreground))
+                {
+                    eprintln!("[school-refresh] {error}");
+                }
+                core_ports::publish_conditions(app);
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     cloud_sync::CloudSync::changed(&app).await;

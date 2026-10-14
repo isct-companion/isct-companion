@@ -60,14 +60,40 @@ pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
     )
 }
 
-pub(crate) fn publish_conditions(app: &AppHandle) -> Result<(), String> {
-    let runtime = runtime(app);
-    tauri::async_runtime::block_on(runtime.refresh.publish_conditions(
-        &app.state::<DataStore>(),
-        &runtime.coordinator,
-        app.state::<SchoolWebController>().is_visible(),
-    ))
-    .map_err(|error| error.to_string())
+/// Republish pull conditions after a focus/visibility fact. Safe on the UI
+/// thread: Core reads storage on a blocking worker inside the spawned task.
+pub(crate) fn publish_conditions(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let visible = app.state::<SchoolWebController>().is_visible();
+        let store = app.state::<DataStore>().inner().clone();
+        if let Err(error) = runtime(&app).publish_conditions(&store, visible).await {
+            eprintln!("[school-refresh] conditions were not published: {error}");
+        }
+    });
+}
+
+/// Bound on draining owned work at exit. Drains are normally bounded by
+/// their own timeouts; this guarantees the app can always quit.
+pub(crate) const EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Logs a repeating background failure once per distinct message.
+#[derive(Default)]
+struct FailureLog(Option<String>);
+
+impl FailureLog {
+    fn record<E: std::fmt::Display>(&mut self, scope: &str, result: Result<(), E>) {
+        match result {
+            Ok(()) => self.0 = None,
+            Err(error) => {
+                let message = error.to_string();
+                if self.0.as_deref() != Some(message.as_str()) {
+                    eprintln!("[{scope}] {message}");
+                    self.0 = Some(message);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -83,14 +109,12 @@ impl DesktopRuntime {
             .get_webview_window("main")
             .and_then(|window| window.is_focused().ok())
             == Some(true);
-        let _ = runtime(app)
+        if let Err(error) = runtime(app)
             .refresh
-            .event(isct_core::school_refresh::RefreshEvent {
-                kind: if focused { "foreground" } else { "background" }.into(),
-                profile: None,
-                course_id: None,
-                network: None,
-            });
+            .event(isct_core::school_refresh::RefreshEvent::lifecycle(focused))
+        {
+            eprintln!("[school-refresh] {error}");
+        }
         let tasks = app.state::<Self>().tasks.clone();
         let app = app.clone();
         // Setup is called on the UI thread; enter Tauri's shared Tokio runtime
@@ -100,6 +124,8 @@ impl DesktopRuntime {
             let wake_tasks = tasks.clone();
             tasks.spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+                let (mut wake_failure, mut reminder_failure) =
+                    (FailureLog::default(), FailureLog::default());
                 loop {
                     tokio::select! {
                         _ = wake_tasks.closed() => break,
@@ -107,15 +133,18 @@ impl DesktopRuntime {
                     }
                     crate::cloud_sync::CloudSync::tick(&wake_app);
                     let visible = wake_app.state::<SchoolWebController>().is_visible();
-                    let _ = runtime(&wake_app).wake(services(&wake_app), visible).await;
-                    let _ = core(&wake_app)
+                    let woke = runtime(&wake_app).wake(services(&wake_app), visible).await;
+                    wake_failure.record("runtime", woke);
+                    let reminded = core(&wake_app)
                         .reminder_tick(
                             Arc::new(crate::commands::notifications::DesktopNotifications(
                                 wake_app.clone(),
                             )),
                             chrono::Utc::now().fixed_offset(),
                         )
-                        .await;
+                        .await
+                        .map(|_| ());
+                    reminder_failure.record("reminders", reminded);
                 }
             });
             // Started after the main window exists. The UI also reads
@@ -147,6 +176,10 @@ impl DesktopRuntime {
         self.tasks.close();
         core.shutdown().await;
         self.tasks.wait().await;
+    }
+
+    /// Allows the next exit request through, drained or not.
+    pub(crate) fn mark_stopped(&self) {
         self.stopped.store(true, Ordering::Release);
     }
 }

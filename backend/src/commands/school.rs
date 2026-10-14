@@ -5,6 +5,7 @@ use crate::{
     school_web::{self, SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds},
 };
 use isct_core::school_browser::sanitize_school_url;
+use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
 /// School pages keep their sanitized form; any other link must be plain
@@ -228,7 +229,7 @@ pub(crate) async fn refresh_reference_subscriptions(
     require_local_main(&webview)?;
     let references = core_ports::services(&app).references;
     core_ports::runtime(&app)
-        .run(async move { references.refresh_all(force, true).await })
+        .run(async move { references.refresh_all(force).await })
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
@@ -247,18 +248,26 @@ pub(crate) fn set_kyomu_guide(
         .map_err(|e| e.to_string())
 }
 
+/// Async: conditions are republished without blocking the main thread on
+/// the storage read they need.
 #[tauri::command]
-pub(crate) fn school_refresh_event(
+pub(crate) async fn school_refresh_event(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     event: school_refresh::RefreshEvent,
 ) -> Result<(), String> {
     require_local_main(&webview)?;
-    core_ports::runtime(&app)
+    let runtime = core_ports::runtime(&app);
+    runtime
         .refresh
         .event(event)
         .map_err(|error| error.to_string())?;
-    core_ports::publish_conditions(&app)
+    let visible = app.state::<SchoolWebController>().is_visible();
+    let store = app.state::<crate::data::DataStore>().inner().clone();
+    runtime
+        .publish_conditions(&store, visible)
+        .await
+        .map_err(|error| error.to_string())
 }
 #[cfg(test)]
 mod external_url_tests {

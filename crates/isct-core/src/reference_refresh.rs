@@ -225,7 +225,8 @@ impl ReferenceService {
         self
     }
 
-    pub async fn refresh_all(&self, force: bool, selected: bool) -> Result<String, ReferenceError> {
+    /// Automatic and manual runs use the same year rule as the Settings view.
+    pub async fn refresh_all(&self, force: bool) -> Result<String, ReferenceError> {
         let workspace = self.store.load_workspace()?;
         let probes: Probes = Arc::new(Mutex::new(HashMap::new()));
         let mut changed = 0u64;
@@ -235,7 +236,7 @@ impl ReferenceService {
             if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
                 continue;
             }
-            let Some(year) = subscription_year(&workspace, kind, selected) else {
+            let Some(year) = subscription_year(&workspace, kind) else {
                 continue;
             };
             let index_url = row
@@ -503,31 +504,29 @@ struct ReferenceRequest {
     force: bool,
 }
 
-fn subscription_year(workspace: &Value, kind: &str, selected: bool) -> Option<i32> {
+/// Departments follow the admission year; term-based references follow the
+/// term the person is viewing (`selectedTerm`), for every kind of run.
+fn subscription_year(workspace: &Value, kind: &str) -> Option<i32> {
     let year = if kind == "departments" {
         workspace
             .pointer("/academicProfile/admissionYear")
             .and_then(Value::as_i64)
     } else {
-        workspace[if selected {
-            "selectedTerm"
-        } else {
-            "currentTerm"
-        }]
-        .as_str()
-        .and_then(|term| term.get(..4))
-        .and_then(|year| year.parse().ok())
+        workspace["selectedTerm"]
+            .as_str()
+            .and_then(|term| term.get(..4))
+            .and_then(|year| year.parse().ok())
     };
     year.and_then(|year| i32::try_from(year).ok())
         .filter(|year| *year > 0)
 }
 
-/// The settings view uses the same year selection as manual reference refresh.
+/// The settings view uses the same year selection as every reference refresh.
 pub fn subscription_views(workspace: &Value) -> Value {
     let mut views = serde_json::Map::new();
     for kind in ["calendar", "departments", "important-dates", "exams"] {
         let row = subscription_row(workspace, kind);
-        let year = subscription_year(workspace, kind, true);
+        let year = subscription_year(workspace, kind);
         let enabled = row.and_then(|row| row["enabled"].as_bool()).unwrap_or(true);
         let state = if !enabled {
             json!({"state":"off"})
@@ -903,7 +902,7 @@ mod tests {
         put_subscription(&store, "exams", true, json!({}));
         let transport = Arc::new(FakeTransport::default());
         service(&store, transport.clone())
-            .refresh_all(true, true)
+            .refresh_all(true)
             .await
             .unwrap();
 
@@ -913,11 +912,47 @@ mod tests {
         assert!(!calls.iter().any(|call| call.0 == "important-dates"));
 
         service(&store, transport.clone())
-            .refresh_all(true, true)
+            .refresh_all(true)
             .await
             .unwrap();
         assert_eq!(transport.probes.load(Ordering::Relaxed), 2);
         assert_eq!(transport.calls().len(), 6);
+    }
+
+    #[tokio::test]
+    async fn automatic_and_manual_runs_use_the_selected_term_year() {
+        let store = store("selected-year");
+        // A 2026 calendar makes currentTerm a 2026 quarter.
+        service(&store, Arc::new(FakeTransport::default()))
+            .apply_fetch(calendar_fetch(2026))
+            .unwrap();
+        store
+            .put_workspace_setting("selectedTerm", json!("2031-1Q"), "test")
+            .unwrap();
+        let workspace = store.load_workspace().unwrap();
+        assert!(workspace["currentTerm"]
+            .as_str()
+            .unwrap()
+            .starts_with("2026"));
+        disable(&store, &["departments", "important-dates", "exams"]);
+        put_subscription(&store, "calendar", true, json!({}));
+        let transport = Arc::new(FakeTransport::default());
+        for force in [false, true] {
+            service(&store, transport.clone())
+                .refresh_all(force)
+                .await
+                .unwrap();
+        }
+        let years = transport
+            .calls()
+            .into_iter()
+            .map(|(_, year, _)| year)
+            .collect::<Vec<_>>();
+        assert_eq!(years, [2031, 2031]);
+        assert_eq!(
+            subscription_views(&store.load_workspace().unwrap())["calendar"]["year"],
+            2031
+        );
     }
 
     #[tokio::test]
@@ -1182,7 +1217,7 @@ mod tests {
         );
 
         let error = service(&store, transport)
-            .refresh_all(true, true)
+            .refresh_all(true)
             .await
             .unwrap_err();
         assert!(matches!(error, ReferenceError::PartialFailure(1)));

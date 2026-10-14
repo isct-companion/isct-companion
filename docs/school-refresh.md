@@ -21,6 +21,10 @@ session completion also reports directly, including before the UI subscribes.
   session; a failed fill can be requested again on reentry.
 - Manual pulls enter ahead of queued background pulls. A running full pull
   coalesces another full refresh; course-detail requests stay queued.
+- Automatic work is admitted as one batch at a time and submitted in order:
+  the LMS full pull, then 教務Web, then ready lecture details. Each pull is
+  submitted after the previous one settles, so the coordinator's FIFO order
+  is the policy order. Failures of automatic pulls are logged.
 - Visible navigation wakes an interrupted extractor by dropping its waiters.
   The worker requeues its original completion channel, then resumes after
   `hide_all`; preemption is never returned as an error to the caller.
@@ -66,8 +70,8 @@ Reference refreshes share Core's `ReferenceService` for probing, cache validatio
 fetching, applying and metadata writes. Startup always checks the built-in
 reference task immediately. Calendar hashes count as usable cache only when
 all eight valid quarter boundaries exist for the requested year. Automatic
-reference tasks use the current academic year; the Sources action uses the
-selected year, and department recommendations use the admission year.
+reference tasks, the Sources action and the Settings view all use the
+selected term's year; department recommendations use the admission year.
 Other reference caches use local materialization fingerprints that are excluded
 from backups; this distinguishes a valid empty feed from a missing cache after
 restore. An error in one source does not prevent checking the remaining sources.
@@ -90,6 +94,9 @@ WebView navigation/session preemption until its separate migration.
 - Losing main-window focus updates the foreground fact. Actual OS suspension
   stops new execution in both coordinator lanes; resume reopens admission and
   wakes due-work checking. Wake/suspend/resume transitions are serialized.
+  Wake reads its stored facts on a blocking worker before taking that lock,
+  and focus/visibility facts republish conditions from a spawned task, so the
+  UI thread never waits on a workspace read.
 - Shutdown permanently closes operation admission, cancels queued/delayed and
   pre-commit pulls, and waits for their executors. It never aborts Applying.
   Delayed retry timers wake on shutdown instead of retaining the runtime.
@@ -97,8 +104,8 @@ WebView navigation/session preemption until its separate migration.
   events after a pull settles. A dropped UI request does not detach that work.
   Completed job history retains snapshots, not executor closures or native
   handles. Repeated shutdown is safe; resume cannot reopen a closed runtime.
-- Desktop owns and closes its wake/event loops, then exits only after Core
-  has drained. School/native transport waits retain their existing bounded
+- Desktop owns and closes its wake/event loops, then exits after Core has
+  drained, or after 15 seconds with a logged warning if a port never settles. School/native transport waits retain their existing bounded
   timeouts; shutdown uses cooperative cancellation, not forced task abortion.
 - Scheduler claims precede side effects. Automatic tasks recheck whether they
   are still enabled/due, and final writes cannot overwrite a concurrent user
