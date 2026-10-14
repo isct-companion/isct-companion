@@ -7,7 +7,7 @@ use crate::{
     pull_coordinator::{PullCoordinator, PullNetwork, PullOptions, PullState, PullTarget},
     school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     school_refresh::SchoolRefresh,
-    school_service::IngestOutcome,
+    school_service::{IngestOutcome, IngestState},
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::{
@@ -966,7 +966,7 @@ async fn full_lms_pull_rejects_the_preempted_relay_and_resumes_the_same_caller()
     let value = request.await.unwrap().unwrap();
     let outcomes: Vec<IngestOutcome> = serde_json::from_value(value).unwrap();
     assert_eq!(outcomes.len(), 1);
-    assert_eq!(outcomes[0].state, "ok");
+    assert_eq!(outcomes[0].state, IngestState::Ok);
 
     let completed = coordinator.snapshots().await[0].clone();
     assert_eq!(completed.id, admitted.id);
@@ -1016,7 +1016,9 @@ async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails(
                                 .map_err(|error| {
                                     crate::pull_coordinator::PullError::Execution(error.to_string())
                                 })?;
-                            if let Some(problem) = outcomes.iter().find(|row| row.state != "ok") {
+                            if let Some(problem) =
+                                outcomes.iter().find(|row| row.state != IngestState::Ok)
+                            {
                                 context.outcome_error(problem.message.clone()).await;
                             }
                             serde_json::to_value(outcomes).map_err(|error| {
@@ -1094,12 +1096,12 @@ async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails(
     let outcomes: Vec<IngestOutcome> = serde_json::from_value(value).unwrap();
     assert_eq!(outcomes.len(), 2);
     assert_eq!(
-        (outcomes[0].kind.as_str(), outcomes[0].state.as_str()),
-        ("gpa", "ok")
+        (outcomes[0].kind.as_str(), outcomes[0].state),
+        ("gpa", IngestState::Ok)
     );
     assert_eq!(
-        (outcomes[1].kind.as_str(), outcomes[1].state.as_str()),
-        ("registrations", "error")
+        (outcomes[1].kind.as_str(), outcomes[1].state),
+        ("registrations", IngestState::Error)
     );
     assert_eq!(coordinator.snapshots().await[0].state, PullState::Failed);
     let connection = rusqlite::Connection::open(store.path()).unwrap();
@@ -1571,7 +1573,7 @@ async fn hidden_pull_signs_in_with_saved_credentials_and_resumes_at_its_target()
     );
     let outcomes: Vec<IngestOutcome> =
         serde_json::from_value(request.await.unwrap().unwrap()).unwrap();
-    assert_eq!(outcomes[0].state, "ok");
+    assert_eq!(outcomes[0].state, IngestState::Ok);
     assert_eq!(
         engine.session_snapshot().unwrap().states.science,
         SchoolSessionState::Active
@@ -1623,8 +1625,8 @@ async fn hidden_pulls_without_saved_credentials_report_sign_in_required_promptly
         let outcomes: Vec<IngestOutcome> = serde_json::from_value(value).unwrap();
         assert_eq!(outcomes.len(), 1);
         assert_eq!(
-            (outcomes[0].kind.as_str(), outcomes[0].state.as_str()),
-            (kind, "reconnect-required")
+            (outcomes[0].kind.as_str(), outcomes[0].state),
+            (kind, IngestState::ReconnectRequired)
         );
         coordinator.shutdown().await;
         engine.shutdown().await;

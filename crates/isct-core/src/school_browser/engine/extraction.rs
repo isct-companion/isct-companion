@@ -143,14 +143,14 @@ impl SchoolBrowserEngine {
                             outcomes.push(IngestOutcome {
                                 site,
                                 kind: kind.into(),
-                                state: "error".into(),
+                                state: IngestState::Error,
                                 changed: 0,
                                 message: error.to_string(),
                             });
                             break;
                         }
                     };
-                    let stop = outcome.state == "reconnect-required";
+                    let stop = outcome.state == IngestState::ReconnectRequired;
                     outcomes.push(outcome);
                     if stop {
                         break;
@@ -480,16 +480,18 @@ pub(super) fn apply_raw(
         match parse_lms_payload(raw) {
             Ok((LmsStage::Ready, Some(payload))) => apply_lms_payload(&mut connection, &payload)
                 .map(|changed| ("lms".to_string(), changed))
-                .map_err(|error| ("lms".to_string(), error.to_string())),
-            Ok(_) => Err(("lms".into(), "reconnect-required".into())),
+                .map_err(|error| ("lms".to_string(), Some(error.to_string()))),
+            Ok(_) => Err(("lms".into(), None)),
             Err(error) => Err((
                 "lms".into(),
-                serde_json::from_str::<serde_json::Value>(raw)
-                    .ok()
-                    .and_then(|value| value.get("error")?.as_str().map(str::to_string))
-                    .map(|reason| truncate(reason, 1_024))
-                    .map(|reason| format!("{error}: {reason}"))
-                    .unwrap_or_else(|| error.to_string()),
+                Some(
+                    serde_json::from_str::<serde_json::Value>(raw)
+                        .ok()
+                        .and_then(|value| value.get("error")?.as_str().map(str::to_string))
+                        .map(|reason| truncate(reason, 1_024))
+                        .map(|reason| format!("{error}: {reason}"))
+                        .unwrap_or_else(|| error.to_string()),
+                ),
             )),
         }
     } else {
@@ -498,30 +500,31 @@ pub(super) fn apply_raw(
                 let kind = payload.kind.clone();
                 apply_kyomu_payload(&mut connection, &payload)
                     .map(|changed| (kind.clone(), changed))
-                    .map_err(|error| (kind, error.to_string()))
+                    .map_err(|error| (kind, Some(error.to_string())))
             }
             Ok((_, payload)) => Err((
                 payload
                     .map(|value| value.kind)
                     .unwrap_or_else(|| "session".into()),
-                "reconnect-required".into(),
+                None,
             )),
-            Err(error) => Err(("unknown".into(), error.to_string())),
+            Err(error) => Err(("unknown".into(), Some(error.to_string()))),
         }
     };
     Ok(match applied {
         Ok((kind, changed)) => IngestOutcome {
             site,
             kind,
-            state: "ok".into(),
+            state: IngestState::Ok,
             changed,
             message: format!("{changed} rows changed"),
         },
-        Err((kind, message)) if message == "reconnect-required" => sign_in_required(site, &kind),
-        Err((kind, message)) => IngestOutcome {
+        // No message: the page asked for sign-in instead of returning data.
+        Err((kind, None)) => sign_in_required(site, &kind),
+        Err((kind, Some(message))) => IngestOutcome {
             site,
             kind,
-            state: "error".into(),
+            state: IngestState::Error,
             changed: 0,
             message,
         },
@@ -532,7 +535,7 @@ pub(super) fn sign_in_required(site: SchoolSite, kind: &str) -> IngestOutcome {
     IngestOutcome {
         site,
         kind: kind.into(),
-        state: "reconnect-required".into(),
+        state: IngestState::ReconnectRequired,
         changed: 0,
         message: "Sign-in required".into(),
     }

@@ -24,7 +24,9 @@ use crate::{
         lms::{parse_payload as parse_lms_payload, LmsStage},
     },
     school_refresh::{RefreshEvent, SchoolRefresh},
-    school_service::{IngestOutcome, SchoolExecution, SchoolExecutor, SchoolExecutorError},
+    school_service::{
+        IngestOutcome, IngestState, SchoolExecution, SchoolExecutor, SchoolExecutorError,
+    },
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};

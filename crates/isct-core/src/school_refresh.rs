@@ -7,7 +7,7 @@ use crate::{
     pull_coordinator::{PullConditions, PullCoordinator, PullNetwork, PullOptions},
     runtime_tasks::RuntimeTasks,
     school_auth::SchoolAuthProfile,
-    school_service::{SchoolError, SchoolExecutor, SchoolService},
+    school_service::{IngestState, SchoolError, SchoolExecutor, SchoolService},
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -231,7 +231,7 @@ impl SchoolRefresh {
                     crate::diagnostics::report("school-refresh", error);
                 }
                 if result.as_ref().map_or(true, |rows| {
-                    rows.is_empty() || rows.iter().any(|row| row.state != "ok")
+                    rows.is_empty() || rows.iter().any(|row| row.state != IngestState::Ok)
                 }) {
                     let _ = refresh.retry_detail(course_id);
                 }
@@ -603,7 +603,7 @@ mod tests {
                 Ok(vec![IngestOutcome {
                     site: SchoolSite::ScienceLms,
                     kind: "course-detail".into(),
-                    state: "ok".into(),
+                    state: IngestState::Ok,
                     changed: 1,
                     message: "Updated".into(),
                 }]),
@@ -682,7 +682,7 @@ mod tests {
                 Ok(vec![IngestOutcome {
                     site: request.site,
                     kind: "lms".into(),
-                    state: "ok".into(),
+                    state: IngestState::Ok,
                     changed: 0,
                     message: "Updated".into(),
                 }])

@@ -16,10 +16,18 @@ use std::{future::Future, pin::Pin, sync::Arc};
 pub struct IngestOutcome {
     pub site: SchoolSite,
     pub kind: String,
-    /// `ok`, `reconnect-required` or `error`.
-    pub state: String,
+    pub state: IngestState,
     pub changed: usize,
     pub message: String,
+}
+
+/// How one extractor result ended.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IngestState {
+    Ok,
+    ReconnectRequired,
+    Error,
 }
 
 /// One coordinated request consumed by the Core school browser engine.
@@ -205,7 +213,9 @@ impl SchoolService {
                         }
                         // Partial outcomes already committed useful rows. Preserve the
                         // result while marking the coordinator snapshot as failed.
-                        if let Some(problem) = result.iter().find(|row| row.state != "ok") {
+                        if let Some(problem) =
+                            result.iter().find(|row| row.state != IngestState::Ok)
+                        {
                             context.outcome_error(problem.message.clone()).await;
                         }
                         serde_json::to_value(result)
@@ -356,7 +366,7 @@ mod tests {
         ) -> SchoolExecutorFuture<'_> {
             Box::pin(async move {
                 self.0.fetch_add(1, Ordering::Relaxed);
-                Ok(vec![outcome("ok")])
+                Ok(vec![outcome(IngestState::Ok)])
             })
         }
     }
@@ -394,13 +404,13 @@ mod tests {
         }
     }
 
-    fn outcome(state: &str) -> IngestOutcome {
+    fn outcome(state: IngestState) -> IngestOutcome {
         IngestOutcome {
             site: SchoolSite::Kyomu,
             kind: "grades".into(),
-            state: state.into(),
-            changed: usize::from(state == "ok"),
-            message: if state == "ok" {
+            state,
+            changed: usize::from(state == IngestState::Ok),
+            message: if state == IngestState::Ok {
                 "Updated".into()
             } else {
                 "Sign in".into()
@@ -419,7 +429,10 @@ mod tests {
             coordinator.clone(),
             Arc::new(SchoolAuthService::new(MemoryVault::default())),
         );
-        let expected = vec![outcome("ok"), outcome("reconnect-required")];
+        let expected = vec![
+            outcome(IngestState::Ok),
+            outcome(IngestState::ReconnectRequired),
+        ];
         let rows = service
             .pull(
                 Arc::new(FakeExecutor::new(Behavior::Outcomes(expected.clone()))),
@@ -447,7 +460,9 @@ mod tests {
             },
         )
         .unwrap();
-        let executor = Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome("ok")])));
+        let executor = Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome(
+            IngestState::Ok,
+        )])));
         service(PullCoordinator::default(), auth)
             .pull(
                 executor.clone(),
@@ -488,7 +503,9 @@ mod tests {
                 .is_err());
             let rows = service
                 .pull(
-                    Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome("ok")]))),
+                    Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome(
+                        IngestState::Ok,
+                    )]))),
                     SchoolSite::Kyomu,
                     None,
                     PullOptions::manual(),
@@ -496,7 +513,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(rows, [outcome("ok")]);
+            assert_eq!(rows, [outcome(IngestState::Ok)]);
         }
     }
 
@@ -544,7 +561,9 @@ mod tests {
 
             let rows = service
                 .pull(
-                    Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome("ok")]))),
+                    Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome(
+                        IngestState::Ok,
+                    )]))),
                     SchoolSite::Kyomu,
                     None,
                     PullOptions::manual(),
@@ -552,7 +571,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(rows, vec![outcome("ok")]);
+            assert_eq!(rows, vec![outcome(IngestState::Ok)]);
         }
     }
 
@@ -580,7 +599,9 @@ mod tests {
 
         let rows = service
             .pull(
-                Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome("ok")]))),
+                Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome(
+                    IngestState::Ok,
+                )]))),
                 SchoolSite::Kyomu,
                 None,
                 PullOptions::manual(),
@@ -588,7 +609,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(rows, vec![outcome("ok")]);
+        assert_eq!(rows, vec![outcome(IngestState::Ok)]);
     }
 
     #[tokio::test]

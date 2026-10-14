@@ -197,7 +197,7 @@ mod tests {
         school_browser::{
             SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent, SchoolSessionState,
         },
-        school_service::IngestOutcome,
+        school_service::{IngestOutcome, IngestState},
     };
     use serde_json::json;
 
@@ -283,7 +283,7 @@ mod tests {
                 CoreEvent::SchoolIngest(IngestOutcome {
                     site: SchoolSite::Kyomu,
                     kind: "grades".into(),
-                    state: "reconnect-required".into(),
+                    state: IngestState::ReconnectRequired,
                     changed: 0,
                     message: "Sign in".into(),
                 }),

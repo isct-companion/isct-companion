@@ -8,7 +8,7 @@ use crate::{
     pull_coordinator::PullOptions,
     reference_refresh::{ReferenceError, ReferenceService},
     school_refresh::SchoolRefresh,
-    school_service::{IngestOutcome, SchoolError, SchoolExecutor, SchoolService},
+    school_service::{IngestOutcome, IngestState, SchoolError, SchoolExecutor, SchoolService},
 };
 use chrono::{DateTime, Duration, Utc};
 use rrule::{RRuleSet, Tz};
@@ -180,7 +180,10 @@ fn due_occurrence(
 }
 
 fn task_result_problem(outcomes: &[IngestOutcome]) -> Result<(), SchedulerError> {
-    if let Some(problem) = outcomes.iter().find(|outcome| outcome.state != "ok") {
+    if let Some(problem) = outcomes
+        .iter()
+        .find(|outcome| outcome.state != IngestState::Ok)
+    {
         return Err(SchedulerError::School(SchoolError::Executor(
             problem.message.clone(),
         )));
@@ -450,7 +453,7 @@ mod tests {
                 Ok(vec![IngestOutcome {
                     site: request.site,
                     kind: "test".into(),
-                    state: "ok".into(),
+                    state: IngestState::Ok,
                     changed: 0,
                     message: String::new(),
                 }])
