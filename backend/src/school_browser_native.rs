@@ -12,7 +12,7 @@ use std::{
         Arc, Mutex, Weak,
     },
 };
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 use url::Url;
@@ -325,15 +325,8 @@ impl NativeBrowser {
                     NewWindowDecision::SameView(url) => {
                         let _ = native.send(Operation::SameView(id, url));
                     }
-                    NewWindowDecision::OpenSchool { site, url } => {
-                        if let Ok(app) = native.app() {
-                            let _ = app.emit_to(
-                                "main",
-                                "school-web-open",
-                                serde_json::json!({"site":site,"url":url}),
-                            );
-                        }
-                    }
+                    // Core already emitted `school-web-open` for this decision.
+                    NewWindowDecision::OpenSchool { .. } => {}
                     NewWindowDecision::OpenExternal(url) => {
                         if let Ok(app) = native.app() {
                             let _ = app.opener().open_url(url.as_str(), None::<&str>);
