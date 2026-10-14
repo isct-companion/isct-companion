@@ -557,7 +557,14 @@ impl SchoolBrowserEngine {
         credentials: SchoolCredentials,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
         let _lane = self.acquire_lane().await?;
-        self.login_locked(profile, credentials).await
+        loop {
+            match self.login_locked(profile, credentials.clone()).await {
+                // A visible page paused this sign-in. Resume it once the page
+                // hides instead of reporting the pause as a sign-in failure.
+                Err(SchoolBrowserError::Preempted) => continue,
+                result => return result,
+            }
+        }
     }
 
     pub async fn ensure_session(
@@ -822,12 +829,25 @@ impl SchoolBrowserEngine {
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
+        let run = new_id();
+        let result = self.login_attempt(profile, credentials, &run).await;
+        // No exit may leave this run active: a stale run blocks automatic
+        // sign-in for the profile. A completed sign-in has already cleared it.
+        self.clear_login(&run);
+        result
+    }
+
+    async fn login_attempt(
+        &self,
+        profile: SchoolAuthProfile,
+        credentials: SchoolCredentials,
+        run: &str,
+    ) -> Result<SchoolWebResult, SchoolBrowserError> {
         self.wait_until_hidden_without_context().await?;
         let site = profile.start_site();
         let url = safe_url(site.start_url())?;
         let mut traces = self.hidden_traces()?;
         let browser = self.ensure_browser(site, url.clone())?;
-        let run = new_id();
         {
             let mut state = self
                 .0
@@ -841,12 +861,12 @@ impl SchoolBrowserEngine {
             state.login = Some(ActiveLogin {
                 profile,
                 credentials,
-                run: run.clone(),
+                run: run.into(),
             });
         }
         self.set_session(profile, SchoolSessionState::Pending);
         if let Err(error) = self.dispatch(browser, BrowserAction::Navigate(url)) {
-            self.fail_login(profile, &run, &error);
+            self.fail_login(profile, run, &error);
             return Err(error);
         }
         let state = tokio::time::timeout(SESSION_TIMEOUT, async {
@@ -880,14 +900,12 @@ impl SchoolBrowserEngine {
                     error,
                     SchoolBrowserError::Preempted | SchoolBrowserError::Stopped
                 ) {
-                    self.fail_login(profile, &run, &error);
-                } else {
-                    self.clear_login(&run);
+                    self.fail_login(profile, run, &error);
                 }
                 return Err(error);
             }
             Err(error) => {
-                self.fail_login(profile, &run, &error);
+                self.fail_login(profile, run, &error);
                 return Err(error);
             }
         };

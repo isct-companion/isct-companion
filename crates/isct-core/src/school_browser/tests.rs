@@ -1682,3 +1682,85 @@ async fn a_view_reported_unavailable_is_replaced_instead_of_kept_as_a_zombie() {
     assert!(ensured.contains(&commands[0].browser));
     engine.shutdown().await;
 }
+
+fn manual_credentials() -> SchoolCredentials {
+    SchoolCredentials {
+        username: "typed-in-settings".into(),
+        password: "password".into(),
+        otp_secret: "JBSWY3DPEHPK3PXP".into(),
+        matrix: String::new(),
+    }
+}
+
+#[tokio::test]
+async fn sign_in_ended_by_a_credential_change_leaves_no_stale_run() {
+    let (engine, browser, _, _) =
+        engine_with_auth(Arc::new(SchoolAuthService::new(saved_science_vault())));
+    let login = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .login(SchoolAuthProfile::Science, manual_credentials())
+                .await
+        })
+    };
+    browser.navigation(0).await;
+    engine
+        .credentials_changed(SchoolAuthProfile::Science, false)
+        .unwrap();
+    assert_eq!(
+        login.await.unwrap(),
+        Err(SchoolBrowserError::Auth("School sign-in failed.".into()))
+    );
+    // The next sign-in page must be answered by a fresh automatic sign-in with
+    // the saved credentials, not by the abandoned manual run.
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    let navigation = browser.navigation(1).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/auth").unwrap(),
+    });
+    assert_eq!(login_config(&browser.eval(0).await)["username"], "student");
+    engine.shutdown().await;
+    assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+#[tokio::test]
+async fn manual_sign_in_paused_by_a_visible_page_resumes_after_it_hides() {
+    let (engine, browser, events, _) = engine();
+    let login = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .login(SchoolAuthProfile::Science, manual_credentials())
+                .await
+        })
+    };
+    browser.navigation(0).await;
+    engine.user_browsing(Some(SchoolSite::Kyomu)).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(!login.is_finished());
+    engine.user_browsing(None).unwrap();
+    let resumed = browser.navigation(1).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: resumed.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/idm/user/portal/").unwrap(),
+    });
+    assert_eq!(login.await.unwrap().unwrap().phase, "sessionRestored");
+    assert!(!events.0.lock().unwrap().iter().any(|event| matches!(
+        event,
+        CoreEvent::SchoolLogin(SchoolLoginEvent { state, .. }) if state == "error"
+    )));
+    engine.shutdown().await;
+}

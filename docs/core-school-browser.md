@@ -95,7 +95,9 @@ not-configured.
 The shell reports `{ kind: launch | focus, visible }`. Core owns launch
 coalescing, the 90-second session deadline and the two-minute focus gate. A
 visible page preempts a background session check; the owned check resumes after
-the page hides. Credential save and deletion call `credentials_changed`, rather
+the page hides. A manual sign-in paused by a visible page resumes the same way
+rather than failing. Every exit of a sign-in attempt clears its run, so a
+finished or abandoned attempt never blocks automatic sign-in for its profile. Credential save and deletion call `credentials_changed`, rather
 than letting the frontend infer state.
 
 A session timeout settles to `failed` and releases the lane for a later retry.
