@@ -1,4 +1,4 @@
-import type { Subscription, Workspace } from "../core/model";
+import type { Subscription } from "../core/model";
 
 export const PUBLIC_DATA_INDEX =
   "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
@@ -38,10 +38,4 @@ export function subscriptionNetwork(
     return "cellular";
   if (["wifi", "ethernet"].includes(connection?.type ?? "")) return "wifi";
   return platform === "native-mobile" ? "cellular" : "wifi";
-}
-
-export function subscriptionYear(data: Workspace, kind: Subscription["kind"]) {
-  return kind === "departments"
-    ? data.academicProfile.admissionYear
-    : Number(data.selectedTerm.slice(0, 4));
 }

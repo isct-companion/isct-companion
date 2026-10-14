@@ -140,133 +140,40 @@ fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 /// Courses on the timetable of `term`: registered at school or planned.
-/// Mirrors `scheduledCourses` in src/core/schedule.ts.
+/// Uses the shared schedule read model for the agent's course list.
 fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
-    let ids = ["memberships", "planItems"]
-        .into_iter()
-        .flat_map(|key| visible_rows(workspace, key))
-        .filter(|row| text(row, "termId") == Some(term))
-        .filter_map(|row| text(&row, "courseId").map(str::to_string))
-        .collect::<std::collections::HashSet<_>>();
-    visible_rows(workspace, "courses")
-        .into_iter()
-        .filter(|row| {
-            text(row, "termId") == Some(term) && text(row, "id").is_some_and(|id| ids.contains(id))
-        })
-        .collect()
+    crate::schedule::scheduled_courses(workspace, term)
 }
 
 /// The school-calendar row for a date: a personal exception first, then a
 /// holiday, no-class, break or replacement day. Mirrors `calendarState`.
 fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
-    visible_rows(workspace, "exceptions")
-        .into_iter()
-        .find(|row| text(row, "date") == Some(date))
-        .or_else(|| {
-            visible_rows(workspace, "academicCalendar")
-                .into_iter()
-                .find(|row| {
-                    text(row, "date") == Some(date)
-                        && matches!(
-                            text(row, "type"),
-                            Some("holiday" | "no-class" | "break" | "replacement")
-                        )
-                })
-        })
+    crate::schedule::calendar_state(workspace, date)
 }
 
 /// Classes actually held on `date`, after holidays, replacement days and the
 /// quarter's teaching ranges. Mirrors `occurrencesOnDate` (courses only); the
 /// TypeScript version runs in the webview, which this binary cannot reach.
 fn classes_on(workspace: &Value, term: &str, date: chrono::NaiveDate) -> Vec<Value> {
-    use chrono::Datelike;
-    let iso = date.to_string();
-    let state = calendar_state(workspace, &iso);
-    let kind = state.as_ref().and_then(|row| text(row, "type"));
-    let civil = u64::from(date.weekday().number_from_monday());
-    let teaching_day = match kind {
-        Some("replacement") => state
-            .as_ref()
-            .and_then(|row| row.get("replacementDay"))
-            .and_then(Value::as_u64)
-            .unwrap_or(civil),
-        Some("holiday" | "no-class" | "break") => 0,
-        _ => civil,
-    };
-    let outside_teaching = parse_term(term).ok().is_some_and(|(year, quarter)| {
-        let start = format!("calendar:{year}:quarter-start:{quarter}");
-        kind != Some("replacement")
-            && visible_rows(workspace, "academicCalendar")
-                .into_iter()
-                .find(|row| text(row, "id") == Some(start.as_str()))
-                .and_then(|row| row.get("teachingRanges").and_then(Value::as_array).cloned())
-                .is_some_and(|ranges| {
-                    !ranges.iter().any(|range| {
-                        text(range, "start").is_some_and(|start| start <= iso.as_str())
-                            && text(range, "end").is_some_and(|end| iso.as_str() <= end)
-                    })
-                })
-    });
-    let intensive = visible_rows(workspace, "intensiveSchedules");
-    let mut classes = Vec::new();
-    for course in scheduled_courses(workspace, term) {
-        let title = course
-            .pointer("/overrides/title")
-            .and_then(Value::as_str)
-            .filter(|title| !title.is_empty())
-            .or_else(|| text(&course, "title"))
-            .unwrap_or_default();
-        let class = |start: &str, end: &str, room: Option<&Value>| {
-            json!({
-                "courseId": course.get("id"), "code": course.get("code"), "title": title,
-                "startTime": start, "endTime": end, "room": room
-            })
-        };
-        if teaching_day != 0 && !outside_teaching {
-            for meeting in course
-                .get("meetings")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                let held = meeting
-                    .get("days")
-                    .and_then(Value::as_array)
-                    .is_some_and(|days| days.iter().any(|day| day.as_u64() == Some(teaching_day)))
-                    && text(meeting, "validFrom").is_none_or(|from| from <= iso.as_str())
-                    && text(meeting, "validTo").is_none_or(|to| iso.as_str() <= to);
-                if let (true, Some(start), Some(end)) =
-                    (held, text(meeting, "startTime"), text(meeting, "endTime"))
-                {
-                    classes.push(class(start, end, meeting.get("room")));
-                }
-            }
-        }
-        for row in intensive.iter().filter(|row| {
-            row.get("courseId") == course.get("id")
-                && text(row, "from").is_some_and(|from| from <= iso.as_str())
-                && text(row, "to").is_some_and(|to| iso.as_str() <= to)
-        }) {
-            let periods = row
-                .get("days")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .find(|day| text(day, "date") == Some(iso.as_str()))
-                .and_then(|day| day.get("periods").and_then(Value::as_array).cloned());
-            let clocks = periods.as_ref().and_then(|periods| {
-                Some((
-                    clock(periods.first()?.as_u64()?, false)?,
-                    clock(periods.get(1)?.as_u64()?, true)?,
-                ))
-            });
-            if let Some((start, end)) = clocks {
-                classes.push(class(start, end, row.get("room")));
-            }
-        }
-    }
-    classes.sort_by(|a, b| text(a, "startTime").cmp(&text(b, "startTime")));
-    classes
+    crate::schedule::occurrences_on_date(
+        workspace,
+        term,
+        &date.to_string(),
+        crate::schedule::AgendaOptions {
+            include_personal: false,
+            ..crate::schedule::AgendaOptions::default()
+        },
+    )
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|row| row.kind == crate::schedule::OccurrenceKind::Course)
+    .map(|row| {
+        json!({
+            "courseId": row.course_id, "code": row.subtitle, "title": row.title,
+            "startTime": row.start_time, "endTime": row.end_time, "room": row.room
+        })
+    })
+    .collect()
 }
 
 /// Personal plans with at least one occurrence in the inclusive range.
@@ -292,8 +199,11 @@ fn plans_between(workspace: &Value, from: chrono::NaiveDate, to: chrono::NaiveDa
                 row["occurrences"] = json!(occurrences);
                 Some(row)
             } else {
-                chrono::DateTime::parse_from_rfc3339(&start)
-                    .ok()
+                crate::schedule::next_plan_occurrences(&row, 1)
+                    .ok()?
+                    .into_iter()
+                    .next()
+                    .and_then(|value| crate::plans::parse_plan_timestamp(&value).ok())
                     .filter(|value| value.date_naive() >= from && value.date_naive() <= to)
                     .map(|_| row)
             }
@@ -441,21 +351,17 @@ fn live_plan(store: &DataStore, id: &str) -> Result<Value, AgentError> {
         .ok_or_else(|| AgentError::InvalidInput("plan was not found".into()))
 }
 
-fn valid_plan_time(value: &str) -> Result<(), AgentError> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .map(|_| ())
-        .map_err(|_| AgentError::InvalidInput("start must be an RFC 3339 timestamp".into()))
-}
-
-fn duration(args: &Value, required: bool) -> Result<Option<u64>, AgentError> {
-    let value = args.get("duration").and_then(Value::as_u64);
-    if required && value.is_none() {
-        return Err("duration is required".into());
-    }
-    if value.is_some_and(|minutes| !(1..=10_080).contains(&minutes)) {
-        return Err("duration must be between 1 and 10080 minutes".into());
-    }
-    Ok(value)
+fn canonicalize_plan(plan: &mut Value) -> Result<(), AgentError> {
+    crate::plans::canonicalize_plan_draft(plan).map_err(|error| {
+        let message = match error {
+            crate::plans::PlanError::InvalidStart => "start must be an RFC 3339 timestamp".into(),
+            crate::plans::PlanError::InvalidDuration => {
+                "duration must be between 1 and 10080 minutes".into()
+            }
+            error => error.to_string(),
+        };
+        AgentError::InvalidInput(message)
+    })
 }
 
 fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, AgentError> {
@@ -758,21 +664,19 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
             Ok(write_result(json!({"removed": removed})))
         }
         "plan_event_create" => {
-            let start = required(args, "start")?;
-            valid_plan_time(start)?;
-            let duration = duration(args, true)?
+            let duration = args
+                .get("duration")
+                .cloned()
                 .ok_or_else(|| AgentError::InvalidInput("duration is required".into()))?;
-            let rule = args.get("rrule").and_then(Value::as_str);
-            if let Some(rule) = rule {
-                crate::plans::validate_rrule(rule)
-                    .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
-            }
-            let value = json!({
+            let mut value = json!({
             "title": required(args, "title")?,
-            "start": start, "duration": duration,
-            "rrule": rule, "room": args.get("room").cloned().unwrap_or(Value::Null),
+            "start": required(args, "start")?,
+            "duration": duration,
+            "rrule": args.get("rrule").cloned().unwrap_or(Value::Null),
+            "room": args.get("room").cloned().unwrap_or(Value::Null),
             "exdates": [], "source": {"provider":"mcp"}
             });
+            canonicalize_plan(&mut value)?;
             let plan = agent_write_result(
                 store.agent_write(name, |write| write.put("plans", value, None)),
             )?;
@@ -781,19 +685,12 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
         "plan_event_update" => {
             let id = required(args, "id")?;
             let mut row = live_plan(store, id)?;
-            if let Some(start) = args.get("start").and_then(Value::as_str) {
-                valid_plan_time(start)?;
-            }
-            duration(args, false)?;
-            if let Some(rule) = args.get("rrule").and_then(Value::as_str) {
-                crate::plans::validate_rrule(rule)
-                    .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
-            }
             for key in ["title", "start", "duration", "rrule", "room"] {
                 if let Some(value) = args.get(key) {
                     row[key] = value.clone();
                 }
             }
+            canonicalize_plan(&mut row)?;
             let expected = row.get("rev").and_then(Value::as_u64);
             agent_write_result(
                 store.agent_write(name, |write| write.put("plans", row, expected).map(|_| ())),

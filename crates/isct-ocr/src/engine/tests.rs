@@ -140,7 +140,7 @@ fn decode_limits_alpha_and_busy_scan() {
     );
     let service = MatrixOcrService::default();
     let _lock = service.0.lock().unwrap();
-    assert_eq!(service.scan("", "", |_| {}), Err(MatrixOcrError::Busy));
+    assert_eq!(service.scan(b"", |_| true), Err(MatrixOcrError::Busy));
 }
 
 #[test]
@@ -154,15 +154,13 @@ fn poisoned_scan_state_is_cleared_for_the_next_call() {
     assert!(stopped.join().is_err());
 
     assert!(matches!(
-        service.scan("not base64", "not base64", |_| {}),
+        service.scan(b"not an image", |_| true),
         Err(MatrixOcrError::Model(message)) if message.contains("recovered")
     ));
-    assert_eq!(
-        service.scan("not base64", "not base64", |_| {}),
-        Err(MatrixOcrError::InvalidImage(
-            "Invalid image encoding".into()
-        ))
-    );
+    assert!(matches!(
+        service.scan(b"not an image", |_| true),
+        Err(MatrixOcrError::InvalidImage(_))
+    ));
 }
 
 #[test]
@@ -241,16 +239,15 @@ fn real_crops_native_model() {
 fn full_photo_native_pipeline() {
     let file = std::env::var("MATRIX_PHOTO").expect("Set MATRIX_PHOTO");
     let bytes = std::fs::read(file).unwrap();
-    let preview =
-        std::fs::read(std::env::var("MATRIX_PREVIEW").expect("Set MATRIX_PREVIEW")).unwrap();
     let service = MatrixOcrService::default();
     let mut previous_session = 0;
     for pass in 0..2 {
         let progress = std::sync::atomic::AtomicUsize::new(0);
         let start = std::time::Instant::now();
         let result = service
-            .scan(&STANDARD.encode(&bytes), &STANDARD.encode(&preview), |n| {
-                progress.store(n, std::sync::atomic::Ordering::Relaxed);
+            .scan(&bytes, |state| {
+                progress.store(state.completed, std::sync::atomic::Ordering::Relaxed);
+                true
             })
             .unwrap();
         assert_eq!(result.len(), 70);
@@ -330,41 +327,58 @@ fn filter_matches_frozen_typescript_reference_pixel_for_pixel() {
 }
 
 #[test]
-fn prepared_canvas_pixels_are_never_resampled() {
-    // Fine alternating strokes are changed by a reducing triangle kernel.
-    // The native transport must preserve even these pixels exactly.
-    let source = RgbImage::from_fn(73, 41, |x, y| {
-        Rgb([(x % 2 * 255) as u8, (y % 2 * 255) as u8, 150])
-    });
+fn raw_image_is_bounded_and_resampled_at_both_core_sizes() {
+    let source = RgbImage::from_pixel(2400, 1200, Rgb([17, 29, 41]));
     let mut png = Cursor::new(vec![]);
     source.write_to(&mut png, image::ImageFormat::Png).unwrap();
-    let encoded = STANDARD.encode(png.into_inner());
-    assert_eq!(decode_canvas(&encoded, 2200).unwrap(), source);
-    assert!(decode_canvas(&encoded, 64).is_err());
-    assert!(decode_canvas("not base64", 600).is_err());
-    assert!(decode_canvas(&STANDARD.encode(b"not PNG"), 600).is_err());
-    let service = MatrixOcrService::default();
-    let preview = RgbImage::from_pixel(10, 10, Rgb([255; 3]));
+    let decoded = decode_image(png.get_ref()).unwrap();
+    let prepared = resize_longest(decoded, 2200);
+    let preview = resize_longest(prepared.clone(), 600);
+    assert_eq!(prepared.dimensions(), (2200, 1100));
+    assert_eq!(preview.dimensions(), (600, 300));
+    assert_eq!(prepared.get_pixel(0, 0).0, [17, 29, 41]);
+    assert!(matches!(
+        decode_image(&vec![0; MAX_IMAGE_BYTES + 1]),
+        Err(MatrixOcrError::InvalidImage(_))
+    ));
+}
+
+#[test]
+fn core_resampling_preserves_the_detected_card_grid() {
+    let large = image::imageops::resize(&card(), 2400, 1840, image::imageops::FilterType::Nearest);
     let mut png = Cursor::new(vec![]);
-    preview.write_to(&mut png, image::ImageFormat::Png).unwrap();
-    assert!(service
-        .scan(&encoded, &STANDARD.encode(png.into_inner()), |_| {})
-        .unwrap_err()
-        .to_string()
-        .contains("dimensions"));
+    large.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let (source, preview) = prepare_images(png.get_ref()).unwrap();
+    assert_eq!(source.dimensions(), (2200, 1687));
+    assert_eq!(preview.dimensions(), (600, 460));
+    let cells = geometry::locate(&preview).expect("resampled card grid");
+    assert_eq!(cells.len(), MATRIX_CELLS);
+    assert!((cells[0][0].x - 140.).abs() < 5.);
+    assert!((cells[69][2].y - 300.).abs() < 5.);
 }
 
 #[test]
 fn invalid_input_does_not_poison_the_service() {
     let service = MatrixOcrService::default();
     for _ in 0..2 {
-        assert_eq!(
-            service.scan("not base64", "not base64", |_| {}),
-            Err(MatrixOcrError::InvalidImage(
-                "Invalid image encoding".into()
-            ))
-        );
+        assert!(matches!(
+            service.scan(b"not an image", |_| true),
+            Err(MatrixOcrError::InvalidImage(_))
+        ));
     }
+}
+
+#[test]
+fn cancellation_releases_the_service_for_a_later_scan() {
+    let service = MatrixOcrService::default();
+    assert_eq!(
+        service.scan(b"not decoded", |_| false),
+        Err(MatrixOcrError::Cancelled)
+    );
+    assert!(matches!(
+        service.scan(b"not decoded", |_| true),
+        Err(MatrixOcrError::InvalidImage(_))
+    ));
 }
 
 #[test]
@@ -386,21 +400,9 @@ fn white_header_letters_may_split_the_dark_band() {
 }
 
 #[test]
-#[ignore = "requires explicitly supplied prepared WebView PNGs and optional private ground truth"]
+#[ignore = "requires an explicitly supplied private full-card image and optional ground truth"]
 fn supplied_photo_pipeline() {
-    let source = decode_image(
-        &std::fs::read(std::env::var("MATRIX_PHOTO").expect("Set MATRIX_PHOTO")).unwrap(),
-    )
-    .unwrap();
-    let small = decode_image(
-        &std::fs::read(std::env::var("MATRIX_PREVIEW").expect("Set MATRIX_PREVIEW")).unwrap(),
-    )
-    .unwrap();
-    let encode = |image: &RgbImage| {
-        let mut png = Cursor::new(Vec::new());
-        image.write_to(&mut png, image::ImageFormat::Png).unwrap();
-        STANDARD.encode(png.into_inner())
-    };
+    let source = std::fs::read(std::env::var("MATRIX_PHOTO").expect("Set MATRIX_PHOTO")).unwrap();
     let service = MatrixOcrService::default();
     #[cfg(debug_assertions)]
     let service = service.with_debug_dir(Some(std::path::PathBuf::from(
@@ -410,11 +412,10 @@ fn supplied_photo_pipeline() {
     // Recognition and all progress events must still be delivered.
     let progress = std::sync::atomic::AtomicUsize::new(0);
     let results = service
-        .scan(&encode(&source), &encode(&small), |n| {
-            assert_eq!(
-                n,
-                progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
-            );
+        .scan(&source, |state| {
+            progress.store(state.completed, std::sync::atomic::Ordering::Relaxed);
+            assert_eq!(state.total, MATRIX_CELLS);
+            true
         })
         .unwrap();
     assert_eq!(progress.load(std::sync::atomic::Ordering::Relaxed), 70);

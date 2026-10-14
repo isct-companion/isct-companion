@@ -24,7 +24,6 @@ use isct_core::lifecycle;
 mod lms_downloader;
 mod lms_files;
 mod lms_protocol;
-pub use isct_core::plans;
 use isct_core::pull_coordinator;
 #[cfg(matrix_ocr)]
 use isct_ocr as matrix_ocr;
@@ -215,7 +214,6 @@ pub fn run() {
             commands::school::pull_state,
             commands::school::cancel_pull,
             commands::school::refresh_reference_subscriptions,
-            commands::school::school_records,
             commands::school::set_kyomu_guide,
             commands::school_auth::school_credential_status,
             commands::school_auth::save_school_credentials,
@@ -226,6 +224,8 @@ pub fn run() {
             commands::school_auth::school_session_snapshot,
             commands::school_auth::school_session_lifecycle,
             commands::notifications::request_notification_permission,
+            commands::notifications::bootstrap_reminders,
+            commands::read_models::lms_merge_preview,
             commands::notifications::notify,
             commands::school::school_refresh_event,
             commands::cloud::cloud_lifecycle,
@@ -244,24 +244,22 @@ pub fn run() {
             commands::cloud::sync_cloud_credentials,
             commands::cloud::clear_cloud_credential_sync_password,
             commands::workspace::load_workspace,
-            commands::workspace::new_user_record_id,
-            commands::workspace::put_user_record,
-            commands::workspace::delete_user_record,
+            commands::workspace::workspace_snapshot,
+            commands::read_models::schedule_query,
+            commands::read_models::finder_query,
+            commands::workspace::mutate_workspace,
             commands::workspace::run_scheduled_task,
-            commands::workspace::put_workspace_setting,
             commands::workspace::reset_workspace,
             commands::backup::export_data,
             commands::backup::save_file,
-            commands::backup::write_scheduled_export,
             commands::backup::import_data,
             commands::catalog::catalog_upsert_offerings,
             commands::catalog::catalog_offering,
             commands::catalog::catalog_offerings,
-            commands::catalog::catalog_sync_offering,
+            commands::catalog::syllabus_course,
             commands::catalog::catalog_sync_department,
             commands::catalog::catalog_query,
             commands::catalog::catalog_sync_offerings,
-            commands::catalog::preview_plan_recurrence,
             commands::agent::agent_connection,
             #[cfg(target_os = "macos")]
             campus_wifi::campus_wifi_connect,

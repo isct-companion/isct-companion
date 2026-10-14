@@ -1035,6 +1035,68 @@ pub(crate) struct AgentWriteTransaction<'transaction, 'connection> {
     transaction: &'transaction rusqlite::Transaction<'connection>,
 }
 
+/// Narrow database capabilities used by the workspace domain service.  The
+/// service owns policy; this type only provides revision-checked persistence
+/// inside the service's single IMMEDIATE transaction.
+pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
+    transaction: &'transaction rusqlite::Transaction<'connection>,
+}
+
+impl WorkspaceWrite<'_, '_> {
+    pub(crate) fn snapshot_parts(&self) -> Result<(Value, Value), DataError> {
+        Ok((
+            DataStore::load_workspace_from(self.transaction)?,
+            DataStore::school_records_from(self.transaction)?,
+        ))
+    }
+
+    pub(crate) fn put(
+        &self,
+        table: &str,
+        value: Value,
+        expected_rev: Option<u64>,
+    ) -> Result<Value, DataError> {
+        put_user_record_in_transaction(self.transaction, table, value, "workspace", expected_rev)
+    }
+
+    pub(crate) fn delete(
+        &self,
+        table: &str,
+        id: &str,
+        expected_rev: Option<u64>,
+    ) -> Result<bool, DataError> {
+        delete_user_record_in_transaction(self.transaction, table, id, "workspace", expected_rev)
+    }
+
+    pub(crate) fn save_setting(&self, key: &str, value: &Value) -> Result<(), DataError> {
+        if !matches!(
+            key,
+            "selectedTerm"
+                | "terms"
+                | "academicProfile"
+                | "userPreferences"
+                | "devicePreferences"
+                | "cloud"
+                | "importStatus"
+                | "syncStatus"
+                | "logs"
+        ) {
+            return Err("setting key is not writable".into());
+        }
+        let actor = read_setting(self.transaction, "deviceId")?
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_else(|| "workspace".to_string());
+        save_setting(self.transaction, key, value, &actor).map(|_| ())
+    }
+
+    pub(crate) fn save_settings(&self, settings: &Value) -> Result<(), DataError> {
+        let (user, device, cloud) = settings_parts(settings);
+        self.save_setting("userPreferences", &user)?;
+        self.save_setting("devicePreferences", &device)?;
+        self.save_setting("cloud", &cloud)
+    }
+}
+
 impl AgentWriteTransaction<'_, '_> {
     pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         if !DataStore::user_table(table) {
@@ -1381,21 +1443,62 @@ impl DataStore {
     }
 
     pub fn load_workspace(&self) -> Result<Value, DataError> {
-        let connection = self.open()?;
+        self.workspace_snapshot_parts()
+            .map(|(workspace, _)| workspace)
+    }
+
+    pub(crate) fn workspace_snapshot_parts(&self) -> Result<(Value, Value), DataError> {
+        let mut connection = self.open()?;
+        let transaction = connection.transaction().map_err(DataError::from)?;
+        let workspace = Self::load_workspace_from(&transaction)?;
+        let school_records = Self::school_records_from(&transaction)?;
+        transaction.commit().map_err(DataError::from)?;
+        Ok((workspace, school_records))
+    }
+
+    pub(crate) fn workspace_write<T>(
+        &self,
+        expected_revision: &str,
+        operation: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value, &Value) -> Result<T, DataError>,
+    ) -> Result<T, DataError> {
+        let mut connection = self.open()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(DataError::from)?;
+        let current = Self::load_workspace_from(&transaction)?;
+        let school_records = Self::school_records_from(&transaction)?;
+        let actual = crate::workspace::snapshot_revision(&current, &school_records)?;
+        if actual != expected_revision {
+            return Err(DataError::conflict(format!(
+                "workspace revision conflict: expected {expected_revision}, actual {actual}"
+            )));
+        }
+        let result = operation(
+            &WorkspaceWrite {
+                transaction: &transaction,
+            },
+            &current,
+            &school_records,
+        )?;
+        transaction.commit().map_err(DataError::from)?;
+        Ok(result)
+    }
+
+    fn load_workspace_from(connection: &Connection) -> Result<Value, DataError> {
         let mut workspace = empty_workspace();
         for (field, table) in COLLECTIONS {
-            workspace[*field] = Value::Array(read_visible_rows(&connection, table)?);
+            workspace[*field] = Value::Array(read_visible_rows(connection, table)?);
         }
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
-            courses.extend(read_rows(&connection, "manual_courses")?);
+            courses.extend(read_rows(connection, "manual_courses")?);
         }
         if let Some(memberships) = workspace
             .get_mut("memberships")
             .and_then(Value::as_array_mut)
         {
-            memberships.extend(read_rows(&connection, "manual_memberships")?);
+            memberships.extend(read_rows(connection, "manual_memberships")?);
         }
-        let marks = read_rows(&connection, "assignment_marks")?;
+        let marks = read_rows(connection, "assignment_marks")?;
         if let Some(assignments) = workspace
             .get_mut("assignments")
             .and_then(Value::as_array_mut)
@@ -1429,7 +1532,7 @@ impl DataStore {
                 }
             }
         }
-        let overrides = read_rows(&connection, "course_overrides")?;
+        let overrides = read_rows(connection, "course_overrides")?;
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
             for course in courses {
                 let Some(id) = course.get("id").and_then(Value::as_str) else {
@@ -1468,16 +1571,16 @@ impl DataStore {
             "syncStatus",
             "logs",
         ] {
-            if let Some(value) = read_setting(&connection, key)? {
+            if let Some(value) = read_setting(connection, key)? {
                 workspace[key] = value;
             }
         }
         for key in ["userPreferences", "devicePreferences"] {
-            if let Some(value) = read_setting(&connection, key)? {
+            if let Some(value) = read_setting(connection, key)? {
                 merge_object(&mut workspace["settings"], value);
             }
         }
-        if let Some(value) = read_setting(&connection, "cloud")? {
+        if let Some(value) = read_setting(connection, "cloud")? {
             workspace["settings"]["cloud"] = value;
         }
         let today_jst = (Utc::now() + chrono::Duration::hours(9)).date_naive();
@@ -1486,9 +1589,53 @@ impl DataStore {
                 .ok_or_else(|| "current academic term is not configured".to_string())?,
         );
         normalize_optional_nulls(&mut workspace);
+        normalize_meeting_clocks(&mut workspace);
         let _: crate::contracts::Workspace = serde_json::from_value(workspace.clone())
             .map_err(|error| format!("workspace validation failed: {error}"))?;
         Ok(workspace)
+    }
+
+    fn school_records_from(connection: &Connection) -> Result<Value, DataError> {
+        let mut records = Map::new();
+        for (key, table) in [
+            ("lmsCourses", "lms_courses"),
+            ("registrations", "registrations"),
+            ("registrationStates", "registration_states"),
+            ("grades", "grades"),
+            ("gpaByTerm", "gpa_by_term"),
+            ("requirements", "requirement_progress"),
+        ] {
+            records.insert(
+                key.into(),
+                Value::Array(read_visible_rows(connection, table)?),
+            );
+        }
+        records.insert("lastRuns".into(), Self::last_import_runs_from(connection)?);
+        Ok(Value::Object(records))
+    }
+
+    fn last_import_runs_from(connection: &Connection) -> Result<Value, DataError> {
+        let mut statement = connection
+            .prepare(
+                "SELECT provider, scope, MAX(finished_at) FROM import_runs
+                 WHERE state='complete' AND finished_at IS NOT NULL GROUP BY provider, scope",
+            )
+            .map_err(DataError::from)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(DataError::from)?;
+        let mut runs = Map::new();
+        for row in rows {
+            let (provider, scope, finished) = row.map_err(DataError::from)?;
+            runs.insert(format!("{provider}:{scope}"), Value::String(finished));
+        }
+        Ok(Value::Object(runs))
     }
 
     pub fn reset_workspace(&self) -> Result<Value, DataError> {
@@ -2116,31 +2263,60 @@ impl DataStore {
     /// complete run: the cache age the app compares with its TTLs.
     pub fn last_import_runs(&self) -> Result<Value, DataError> {
         let connection = self.open()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT provider, scope, MAX(finished_at) FROM import_runs
-                 WHERE state='complete' AND finished_at IS NOT NULL GROUP BY provider, scope",
-            )
-            .map_err(DataError::from)?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(DataError::from)?;
-        let mut runs = Map::new();
-        for row in rows {
-            let (provider, scope, finished) = row.map_err(DataError::from)?;
-            runs.insert(format!("{provider}:{scope}"), Value::String(finished));
-        }
-        Ok(Value::Object(runs))
+        Self::last_import_runs_from(&connection)
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+}
+
+fn normalize_meeting_clocks(workspace: &mut Value) {
+    let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for meeting in courses
+        .iter_mut()
+        .filter_map(|course| course.get_mut("meetings"))
+        .filter_map(Value::as_array_mut)
+        .flatten()
+    {
+        let valid_clock = |key: &str| {
+            meeting
+                .get(key)
+                .and_then(Value::as_str)
+                .is_some_and(|clock| {
+                    let bytes = clock.as_bytes();
+                    matches!(bytes.len(), 4 | 5)
+                        && bytes[bytes.len() - 3] == b':'
+                        && bytes
+                            .iter()
+                            .enumerate()
+                            .all(|(index, byte)| index == bytes.len() - 3 || byte.is_ascii_digit())
+                })
+        };
+        if valid_clock("startTime") && valid_clock("endTime") {
+            continue;
+        }
+        let Some(periods) = meeting.get("periods").and_then(Value::as_array) else {
+            continue;
+        };
+        let mut periods = periods.iter().filter_map(Value::as_u64);
+        let Some(first) = periods.next() else {
+            continue;
+        };
+        let (minimum, maximum) = periods.fold((first, first), |(minimum, maximum), value| {
+            (minimum.min(value), maximum.max(value))
+        });
+        let (Ok(minimum), Ok(maximum)) = (u8::try_from(minimum), u8::try_from(maximum)) else {
+            continue;
+        };
+        if let Ok((start, end)) = crate::schedule::clock_for_periods([minimum, maximum]) {
+            if let Some(object) = meeting.as_object_mut() {
+                object.insert("startTime".into(), Value::String(start.into()));
+                object.insert("endTime".into(), Value::String(end.into()));
+            }
+        }
     }
 }
 
@@ -2174,6 +2350,16 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("isct-companion-{name}-{}.db", Uuid::new_v4()));
         DataStore::initialize(path).unwrap().0
+    }
+
+    #[test]
+    fn legacy_meeting_periods_receive_the_shared_core_clock() {
+        let mut workspace = json!({"courses":[{"meetings":[{
+            "periods":[5,6,7,8], "startTime":"", "endTime":""
+        }]}]});
+        normalize_meeting_clocks(&mut workspace);
+        assert_eq!(workspace["courses"][0]["meetings"][0]["startTime"], "13:30");
+        assert_eq!(workspace["courses"][0]["meetings"][0]["endTime"], "17:05");
     }
 
     #[test]

@@ -668,6 +668,354 @@ export type CourseFilePolicy = {
   retentionDays: IntegerPolicy;
 };
 
+export type Term = { year: number; quarter: number };
+
+export type TeachingRange = { start: string; end: string };
+
+export type QuarterRange = {
+  teachingRanges: Array<TeachingRange> | null;
+  from: string;
+  to: string;
+};
+
+export type CalendarDayView = {
+  date: string;
+  type: string;
+  replacementDay: number | null;
+  label: string;
+  origin: string;
+  official: unknown | null;
+  exception: unknown | null;
+};
+
+export type QuarterView = {
+  quarter: string;
+  from: string;
+  to: string;
+  origin: string;
+};
+
+export type AcademicYearCalendar = {
+  year: number;
+  quarters: Array<QuarterView>;
+  days: Array<CalendarDayView>;
+  importantDates: unknown[];
+  published: boolean;
+};
+
+export type CalendarExportScope = "courses" | "courses-and-plans";
+
+export type OccurrenceKind = "course" | "event" | "plan" | "exam";
+
+export type Occurrence = {
+  key: string;
+  id: string;
+  kind: OccurrenceKind;
+  courseId: string | null;
+  date: string;
+  title: string;
+  subtitle: string | null;
+  room: string;
+  startTime: string;
+  endTime: string;
+  endDate: string | null;
+  color: string;
+  conflict: boolean | null;
+  dim: boolean | null;
+  cancelled: boolean | null;
+  timeLabel: string | null;
+  conflictWith: Array<string> | null;
+  overridden: boolean | null;
+};
+
+export type NotificationLocale = "ja" | "en";
+
+export type NotificationPriority = "class" | "exam" | "deadline";
+
+export type NotificationItem = {
+  key: string;
+  at: string;
+  title: string;
+  body: string;
+  deepLink: string;
+  priority: NotificationPriority;
+};
+
+export type NotificationPlan = {
+  from: string;
+  through: string;
+  items: Array<NotificationItem>;
+};
+
+export type GlanceSnapshot = {
+  term: string;
+  date: string;
+  agenda: Array<Occurrence>;
+  next: Occurrence | null;
+  remaining: Array<Occurrence>;
+  deadlines: unknown[];
+};
+
+export type AgendaRequestOptions = {
+  includePersonal: boolean | null;
+  includeCancelledCourses: boolean;
+  courses: unknown[];
+  events: unknown[];
+};
+
+export type DatedAgenda = {
+  date: string;
+  occurrences: Array<Occurrence>;
+  calendarState: unknown | null;
+  importantDates: unknown[];
+  noClasses: boolean;
+  calendarNotice: string | null;
+};
+
+export type PlanningDay = { day: number; blocks: Array<Occurrence> };
+
+export type PlanningWeek = {
+  courses: unknown[];
+  days: Array<PlanningDay>;
+  conflictCount: number;
+};
+
+export type PlanCivilStart = { date: string; time: string };
+
+export type CourseTimeline = {
+  lastStarted: string | null;
+  next: string | null;
+  classAt: string | null;
+};
+
+export type TaskDeadlineView = {
+  at: string;
+  label: string;
+  tone: string;
+  countdownLabel: string;
+  countdownTone: string;
+  overdue: boolean;
+};
+
+export type TermTaskView = {
+  pendingIds: Array<string>;
+  pinnedIds: Array<string>;
+  overdueIds: Array<string>;
+  dueThisWeekIds: Array<string>;
+  laterIds: Array<string>;
+  earlierDueThisWeekIds: Array<string>;
+  earlierLaterIds: Array<string>;
+  lectureOpenIds: Array<string>;
+  lectureHiddenIds: Array<string>;
+};
+
+export type TaskView = {
+  deadlines: { [key in string]?: TaskDeadlineView };
+  nearestByCourse: { [key in string]?: string };
+  byTerm: { [key in string]?: TermTaskView };
+};
+
+export type AcademicYearIndex = { currentYear: number; years: Array<number> };
+
+export type WorkspaceOverview = {
+  term: string;
+  currentTerm: string;
+  selectedTerm: string;
+  todayTerm: string;
+  coursesTerm: string;
+  range: QuarterRange | null;
+  courses: unknown[];
+  declaredCredits: number | null;
+  termCredits: number;
+  colors: { [key in string]?: string };
+  enrolledCourseIds: Array<string>;
+  onTimetableCourseIds: Array<string>;
+  allTerms: Array<string>;
+  defaultFinderKeys: Array<string>;
+};
+
+export type ScheduleView = {
+  term: string;
+  range: QuarterRange | null;
+  courses: unknown[];
+  agendas: Array<DatedAgenda>;
+  declaredCredits: number | null;
+  colors: { [key in string]?: string };
+  enrolledCourseIds: Array<string>;
+  onTimetableCourseIds: Array<string>;
+  allTerms: Array<string>;
+};
+
+export type ScheduleIntensiveDay = { date: string; periods: [number, number] };
+
+export type WorkspaceQuery =
+  | { kind: "workspaceOverview"; term: string }
+  | { kind: "subscriptionViews" }
+  | { kind: "planningWeek"; term: string }
+  | { kind: "academicYears"; date: string; selectedYear: number }
+  | { kind: "planCivilStart"; plan: unknown }
+  | {
+      kind: "courseTimeline";
+      term: string;
+      courseId: string;
+      now: string;
+      beforeDays: number;
+      afterDays: number;
+    }
+  | { kind: "taskView"; now: string }
+  | {
+      kind: "scheduleView";
+      term: string;
+      from: string;
+      to: string;
+      includePersonal: boolean;
+    }
+  | {
+      kind: "dayAgenda";
+      term: string;
+      date: string;
+      options: AgendaRequestOptions;
+    }
+  | { kind: "calendarState"; date: string }
+  | { kind: "quarterRange"; term: string }
+  | { kind: "scheduledCourses"; term: string }
+  | { kind: "academicYear"; year: number }
+  | {
+      kind: "quarterIcs";
+      term: string;
+      scope: CalendarExportScope;
+      generatedAt: string;
+    }
+  | { kind: "declaredCredits"; term: string }
+  | { kind: "displayColor"; course: unknown }
+  | {
+      kind: "intensiveDays";
+      from: string;
+      to: string;
+      periods: [number, number];
+    }
+  | { kind: "nextPlanOccurrences"; plan: unknown; limit: number }
+  | { kind: "validateAcademicProfile"; profile: unknown }
+  | { kind: "academicTermForDate"; date: string; profile: unknown }
+  | { kind: "glance"; now: string }
+  | {
+      kind: "notificationPlan";
+      now: string;
+      horizon: string;
+      locale: NotificationLocale | null;
+    };
+
+export type WorkspaceQueryResult =
+  | { kind: "workspaceOverview"; value: WorkspaceOverview }
+  | { kind: "subscriptionViews"; value: unknown }
+  | { kind: "planningWeek"; value: PlanningWeek }
+  | { kind: "academicYears"; value: AcademicYearIndex }
+  | { kind: "planCivilStart"; value: PlanCivilStart }
+  | { kind: "courseTimeline"; value: CourseTimeline }
+  | { kind: "taskView"; value: TaskView }
+  | { kind: "scheduleView"; value: ScheduleView }
+  | { kind: "dayAgenda"; value: Array<Occurrence> }
+  | { kind: "calendarState"; value: unknown | null }
+  | { kind: "quarterRange"; value: QuarterRange | null }
+  | { kind: "scheduledCourses"; value: unknown[] }
+  | { kind: "academicYear"; value: AcademicYearCalendar }
+  | { kind: "quarterIcs"; value: string }
+  | { kind: "declaredCredits"; value: number | null }
+  | { kind: "displayColor"; value: string }
+  | { kind: "intensiveDays"; value: Array<ScheduleIntensiveDay> }
+  | { kind: "nextPlanOccurrences"; value: Array<string> }
+  | { kind: "academicProfile"; value: unknown }
+  | { kind: "academicTerm"; value: string | null }
+  | { kind: "glance"; value: GlanceSnapshot }
+  | { kind: "notificationPlan"; value: NotificationPlan };
+
+export type WorkspaceSnapshot = {
+  revision: string;
+  workspace: unknown;
+  schoolRecords: unknown;
+};
+
+export type WorkspaceMutation = {
+  expectedRevision: string;
+  intent: WorkspaceIntent;
+};
+
+export type WorkspaceIntent =
+  | { kind: "patchSettings"; patch: unknown }
+  | { kind: "setAdmissionYear"; admissionYear: number | null }
+  | {
+      kind: "editAcademicCalendar";
+      academicProfile: unknown;
+      exceptions: unknown[];
+    }
+  | { kind: "selectTerm"; termId: string }
+  | { kind: "addTerm"; termId: string }
+  | { kind: "removeTerm"; termId: string }
+  | { kind: "saveCourse"; draft: unknown; termId: string; existingId?: string }
+  | { kind: "deleteCourseBatch"; courseIds: Array<string> }
+  | {
+      kind: "editCourseBatch";
+      courseIds: Array<string>;
+      changes: CourseBatchChanges;
+    }
+  | { kind: "setCourseOnTimetable"; courseId: string; onTimetable: boolean }
+  | { kind: "addCatalogCourses"; termId: string; offerings: unknown[] }
+  | { kind: "undoCatalogCourses"; termId: string; offeringIds: Array<string> }
+  | {
+      kind: "applyLmsMerge";
+      terms: Array<string>;
+      add: Array<string>;
+      keep: Array<string>;
+      retime: Array<string>;
+    }
+  | { kind: "saveEvent"; draft: unknown; termId: string; existingId?: string }
+  | { kind: "deleteEvent"; eventId: string }
+  | { kind: "savePlan"; draft: unknown; existingId?: string }
+  | { kind: "deletePlan"; planId: string }
+  | { kind: "saveCalendarException"; draft: unknown; existingId?: string }
+  | { kind: "deleteCalendarException"; exceptionId: string }
+  | { kind: "saveSubscription"; draft: unknown; existingId?: string }
+  | {
+      kind: "setSubscription";
+      subscriptionKind: string;
+      enabled?: boolean;
+      url?: string;
+      resetRemote: boolean;
+    }
+  | { kind: "deleteSubscription"; subscriptionId: string }
+  | { kind: "saveScheduleOverride"; draft: unknown; existingId?: string }
+  | { kind: "deleteScheduleOverride"; overrideId: string }
+  | { kind: "saveScheduledTask"; draft: unknown; existingId?: string }
+  | { kind: "deleteScheduledTask"; taskId: string }
+  | {
+      kind: "recordScheduledTaskRun";
+      taskId: string;
+      occurrenceAt: string;
+      runAt: string;
+      result: string;
+    }
+  | { kind: "saveIntensiveSchedule"; courseId: string; draft: unknown }
+  | {
+      kind: "setAssignmentMark";
+      assignmentId: string;
+      hidden?: boolean;
+      pinned?: boolean;
+      completedAt?: string;
+    }
+  | {
+      kind: "recordLesson";
+      courseId: string;
+      occurrence: string;
+      sectionId: number;
+    }
+  | { kind: "markTimetableReviewed" };
+
+export type CourseBatchChanges = {
+  language?: string;
+  instructor?: string;
+  credits?: number;
+};
+
 export const DATA_POLICY: DataPolicy = {
   lms: {
     staleAfterSeconds: 43200,
@@ -703,3 +1051,14 @@ export const COURSE_FILE_POLICY: CourseFilePolicy = {
     max: 3650,
   },
 };
+
+export const COURSE_PALETTE = [
+  "#355ba7",
+  "#4f8a8b",
+  "#668879",
+  "#7b8f3a",
+  "#b0713f",
+  "#a34e5d",
+  "#806a9d",
+  "#5c7d93",
+] as const;

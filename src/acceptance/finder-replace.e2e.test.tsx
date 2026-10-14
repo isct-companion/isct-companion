@@ -3,8 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { seedWorkspace } from "../core/model";
-import { addSyllabusDraft } from "../core/syllabus";
-import { catalogCourse } from "../platform/desktop-bridge";
+import type { WorkspaceIntent } from "../core/workspace-intents";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.ResizeObserver = class {
@@ -39,29 +38,192 @@ const offering = (id: string, code: string, title: string) => ({
 const placed = offering("202602421", "CSC.T252", "Placed");
 const clashing = offering("202600009", "CSC.T999", "Clashing");
 
-let saved = (() => {
+const before = (() => {
   const workspace = seedWorkspace();
   workspace.selectedTerm = "2026-3Q";
   workspace.terms = ["2026-3Q"];
-  addSyllabusDraft(workspace, {
-    ...catalogCourse(placed, "en"),
-    quarter: "3Q",
-  }, { course: "018f0000-0000-7000-8000-000000000001", planItem: "018f0000-0000-7000-8000-000000000002" });
+  workspace.courses.push({
+    id: "2026-202602421",
+    kind: "course",
+    rev: 1,
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    updatedBy: workspace.deviceId,
+    termId: "2026-3Q",
+    offeringId: placed.id,
+    names: { title: placed.title, instructor: placed.instructors[0] },
+    code: placed.code,
+    title: "Placed",
+    instructor: "Teacher",
+    credits: 2,
+    creditSplit: placed.credits,
+    instructionLanguage: "ja",
+    color: "#556b8d",
+    meetings: [
+      {
+        days: [2],
+        periods: [7, 8],
+        startTime: "15:25",
+        endTime: "17:05",
+        room: "",
+      },
+    ],
+    url: placed.syllabusUrl,
+    source: { provider: "syllabus", externalId: placed.id },
+  });
+  workspace.planItems.push({
+    id: "018f0000-0000-7000-8000-000000000002",
+    kind: "plan-item",
+    rev: 1,
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    updatedBy: workspace.deviceId,
+    termId: "2026-3Q",
+    courseId: "2026-202602421",
+    offeringId: placed.id,
+    state: "planned",
+  });
   return workspace;
 })();
+const after = structuredClone(before);
+after.courses = [
+  {
+    ...before.courses[0],
+    id: "2026-202600009",
+    offeringId: clashing.id,
+    names: { title: clashing.title, instructor: clashing.instructors[0] },
+    code: clashing.code,
+    title: "Clashing",
+    url: clashing.syllabusUrl,
+    source: { provider: "syllabus", externalId: clashing.id },
+  },
+];
+after.planItems = [
+  {
+    ...before.planItems[0],
+    courseId: "2026-202600009",
+    offeringId: clashing.id,
+  },
+];
+
+let saved = before;
+let revision = "fixture:before";
+const intents: WorkspaceIntent[] = [];
+const schoolRecords = {
+  lastRuns: {},
+  lmsCourses: [],
+  registrations: [],
+  registrationStates: [],
+  grades: [],
+  gpaByTerm: [],
+  requirements: [],
+};
+const activeCourse = () => saved.courses[0];
+const overview = () => ({
+  term: "2026-3Q",
+  currentTerm: "2026-3Q",
+  selectedTerm: "2026-3Q",
+  todayTerm: "2026-3Q",
+  coursesTerm: "2026-3Q",
+  range: { from: "2026-09-28", to: "2026-12-02" },
+  courses: [activeCourse()],
+  declaredCredits: null,
+  termCredits: 2,
+  colors: { [activeCourse().id]: activeCourse().color },
+  enrolledCourseIds: [activeCourse().id],
+  onTimetableCourseIds: [activeCourse().id],
+  allTerms: ["2026-3Q"],
+  defaultFinderKeys: [],
+});
+const planningWeek = () => ({
+  courses: [activeCourse()],
+  days: Array.from({ length: 7 }, (_, index) => ({
+    day: index + 1,
+    blocks:
+      index === 1
+        ? [
+            {
+              key: `${activeCourse().id}-fixture`,
+              id: activeCourse().id,
+              courseId: activeCourse().id,
+              kind: "course",
+              date: "",
+              title: activeCourse().title,
+              subtitle: activeCourse().code,
+              room: "",
+              startTime: "15:25",
+              endTime: "17:05",
+              color: activeCourse().color,
+            },
+          ]
+        : [],
+  })),
+  conflictCount: 0,
+});
+const finderView = (request: Record<string, unknown>) => ({
+  context: {
+    currentQuarter: 3,
+    recommended: {},
+    departments: [],
+    busy: [{ day: 2, from: 7, to: 8 }],
+  },
+  courses: [placed, clashing],
+  factors: [],
+  duplicates: 0,
+  keys: request.keys ?? [],
+  plan: { unsupported: "empty" },
+  rows: [placed, clashing].map((course) => ({ course, matched: [] })),
+  suggestions: [],
+  live: String(request.input ?? ""),
+  clashes: saved === before ? [clashing.id] : [],
+  replacements:
+    saved === before ? { [clashing.id]: [before.courses[0].id] } : {},
+  credits: { [placed.id]: 2, [clashing.id]: 2 },
+  onTimetable: [activeCourse().code],
+  activeSlots: ["火7-8"],
+  pasteHandled: false,
+  pastedIds: [],
+  missingCodes: [],
+  detailIds: [],
+});
 (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
   transformCallback: () => 1,
   unregisterCallback: () => {},
   invoke: async (command: string, args: Record<string, unknown>) => {
     switch (command) {
-      case "load_workspace":
-        return structuredClone(saved);
-      case "new_user_record_id":
-        return crypto.randomUUID();
-      case "put_user_record":
-      case "delete_user_record":
-      case "put_workspace_setting":
-        return 1;
+      case "workspace_snapshot":
+        return { revision, workspace: structuredClone(saved), schoolRecords };
+      case "mutate_workspace": {
+        const mutation = args.mutation as {
+          expectedRevision: string;
+          intent: WorkspaceIntent;
+        };
+        expect(mutation.expectedRevision).toBe(revision);
+        intents.push(mutation.intent);
+        if (mutation.intent.kind === "addCatalogCourses") {
+          saved = after;
+          revision = "fixture:after";
+        } else if (mutation.intent.kind === "undoCatalogCourses") {
+          saved = before;
+          revision = "fixture:undo";
+        }
+        return { revision, workspace: structuredClone(saved), schoolRecords };
+      }
+      case "schedule_query":
+        return {
+          revision,
+          values: (args.queries as { kind: string }[]).map((query) => ({
+            kind: query.kind,
+            value:
+              query.kind === "workspaceOverview"
+                ? overview()
+                : query.kind === "planningWeek"
+                  ? planningWeek()
+                  : query.kind === "scheduleView"
+                    ? { ...overview(), agendas: [] }
+                    : null,
+          })),
+        };
+      case "finder_query":
+        return finderView(args.request as Record<string, unknown>);
       case "catalog_offerings":
         return [placed, clashing];
       case "catalog_query":
@@ -73,8 +235,6 @@ let saved = (() => {
         };
       case "catalog_sync_offerings":
         return [];
-      case "school_records":
-        return { lastRuns: {}, lmsCourses: [], registrations: [], registrationStates: [], grades: [], gpaByTerm: [], requirements: [] };
       case "runtime_capabilities":
         return {};
       case "school_credential_status":
@@ -150,6 +310,18 @@ it("adds a clashing course as a replacement, and Undo brings the old one back", 
   );
   await act(async () => undo!.click());
   await vi.waitFor(() => expect(titles(host)).toEqual(["Placed"]));
+  expect(intents).toEqual([
+    {
+      kind: "addCatalogCourses",
+      termId: "2026-3Q",
+      offerings: [clashing],
+    },
+    {
+      kind: "undoCatalogCourses",
+      termId: "2026-3Q",
+      offeringIds: [clashing.id],
+    },
+  ]);
   await wait(50);
   expect(host.querySelector(".pageError")).toBeNull();
   // React's "not wrapped in act" notices come from async polling, not from the app.

@@ -1,7 +1,6 @@
 import { intlLocale } from "../../i18n/locale";
 import { t } from "../../i18n";
 import { useState, type ReactNode } from "react";
-import { detectConflicts } from "../../core/academic";
 import {
   ActionIcon,
   Badge,
@@ -23,24 +22,21 @@ import {
 import type { PersonalEvent, Plan, TermId, Workspace } from "../../core/model";
 
 import {
-  timetableCourses,
-  allTerms,
-  templateWeekColumns,
-  weekColumnsAt,
+  agendaColumns,
+  planningColumns,
 } from "../../components/timetable/workspace";
-import type { CalendarExportScope } from "../../core/calendar-ics";
+import type { CalendarExportScope } from "../../generated/persistence";
 import { UiButton } from "../../components/mantine";
-import { addDays, quarterRange, tokyoDate } from "../../core/schedule";
+import { addCivilDays as addDays, tokyoDate } from "../../core/civil-date";
 import { YearQuarterPicker } from "./YearQuarterPicker";
 import { PullRing } from "../../components/PullRing";
-import { newUserRecordId } from "../../storage/ids";
-
-/** The term the unified Schedule workspace shows: the selected one when it exists, else the current one. */
-export function coursesTerm(data: Workspace, currentTerm: TermId): TermId {
-  return allTerms(data, currentTerm).includes(data.selectedTerm)
-    ? data.selectedTerm
-    : currentTerm;
-}
+import type { WorkspaceIntent } from "../../core/workspace-intents";
+import {
+  useScheduleQueries,
+  type PlanningWeek,
+  type ScheduleView,
+  type WorkspaceOverview,
+} from "../../platform/core-query";
 
 /**
  * Timetable on the left, syllabus search on the right. Clicking a course opens
@@ -51,7 +47,7 @@ export function Courses({
   data,
   currentTerm,
   readOnly,
-  update,
+  mutate,
   open,
   openEvent,
   addTerm,
@@ -80,7 +76,7 @@ export function Courses({
   data: Workspace;
   currentTerm: TermId;
   readOnly: boolean;
-  update: (f: (d: Workspace) => Workspace) => void;
+  mutate: (intent: WorkspaceIntent) => Promise<unknown>;
   /** Shows a course's details over the search panel. */
   open: (courseId: string) => void;
   openEvent: (event: PersonalEvent | undefined, term: TermId) => void;
@@ -109,15 +105,21 @@ export function Courses({
   /** Mobile: one header row, viewing only; extras move into a menu. */
   compact?: boolean;
 }) {
-  const terms = allTerms(data, currentTerm);
-  const term = coursesTerm(data, currentTerm);
+  const selection = useScheduleQueries<[WorkspaceOverview]>([
+    { kind: "workspaceOverview", term: currentTerm },
+  ]).value?.[0];
+  const term = selection?.coursesTerm ?? currentTerm;
   const canEdit = editing && !readOnly;
   const [weekAnchor, setWeekAnchor] = useState<{
     term: TermId;
     date: string;
   }>();
   const today = tokyoDate(new Date());
-  const range = quarterRange(data, term);
+  const overview = useScheduleQueries<[WorkspaceOverview]>([
+    { kind: "workspaceOverview", term },
+  ]).value?.[0];
+  const terms = overview?.allTerms ?? selection?.allTerms ?? [currentTerm];
+  const range = overview?.range;
   const anchorDate =
     weekAnchor?.term === term
       ? weekAnchor.date
@@ -126,28 +128,37 @@ export function Courses({
         : (range?.from ?? today);
   const moveWeek = (days: number) =>
     setWeekAnchor({ term, date: addDays(anchorDate, days) });
+  const anchorDay = new Date(`${anchorDate}T12:00:00Z`).getUTCDay();
+  const weekFrom = addDays(anchorDate, anchorDay === 0 ? -6 : 1 - anchorDay);
+  const schedule = useScheduleQueries<[ScheduleView]>(
+    [
+      {
+        kind: "scheduleView",
+        term,
+        from: weekFrom,
+        to: addDays(weekFrom, 6),
+        includePersonal: true,
+      },
+    ],
+    !editing,
+  ).value?.[0];
+  const planning = useScheduleQueries<[PlanningWeek]>(
+    [{ kind: "planningWeek", term }],
+    editing,
+  ).value?.[0];
   const courses = data.courses.filter((c) => c.termId === term && !c.deletedAt);
   const events = data.events.filter((e) => e.termId === term && !e.deletedAt);
-  const scheduled = timetableCourses(data, term);
+  const scheduled = (editing ? planning?.courses : overview?.courses) ?? [];
   // Intensive or unpublished times have no grid cell; they get their own lane.
   const unscheduled = scheduled.filter((course) => !course.meetings.length);
-  const conflictList = editing ? detectConflicts(scheduled, events) : [];
-  const conflicts = new Set(conflictList.flatMap((c) => [c.leftId, c.rightId]));
+  const conflictCount = editing ? (planning?.conflictCount ?? 0) : 0;
   const [weekLength, setWeekLength] = useLocalStorage<"5" | "7">({
     key: "isct-companion-courses-week-length",
     defaultValue: "5",
   });
   const allColumns = editing
-    ? templateWeekColumns(scheduled, events, conflicts)
-    : weekColumnsAt(
-        data,
-        scheduled,
-        events,
-        new Date(`${anchorDate}T12:00:00+09:00`),
-        undefined,
-        undefined,
-        term,
-      );
+    ? planningColumns(planning)
+    : agendaColumns(schedule?.agendas ?? []);
   const dateFormat = new Intl.DateTimeFormat(intlLocale(data.settings.locale), {
     day: "numeric",
     month: "short",
@@ -155,7 +166,9 @@ export function Courses({
   });
   const weekLabel = editing
     ? ""
-    : `${dateFormat.format(new Date(`${allColumns[0].date}T12:00:00+09:00`))} – ${dateFormat.format(new Date(`${allColumns[6].date}T12:00:00+09:00`))}`;
+    : allColumns.length === 7
+      ? `${dateFormat.format(new Date(`${allColumns[0].date}T12:00:00+09:00`))} – ${dateFormat.format(new Date(`${allColumns[6].date}T12:00:00+09:00`))}`
+      : t("Loading…");
   // Weekdays only, unless a weekend day actually has something on it.
   const columns =
     !editing || weekLength === "7"
@@ -208,7 +221,9 @@ export function Courses({
         terms={terms}
         selected={term}
         current={currentTerm}
-        onSelect={(selectedTerm) => update((d) => ({ ...d, selectedTerm }))}
+        onSelect={(termId) =>
+          void mutate({ kind: "selectTerm", termId }).catch(() => undefined)
+        }
       />
       {exportMenu(
         <ActionIcon
@@ -247,7 +262,9 @@ export function Courses({
           terms={terms}
           selected={term}
           current={currentTerm}
-          onSelect={(selectedTerm) => update((d) => ({ ...d, selectedTerm }))}
+          onSelect={(termId) =>
+            void mutate({ kind: "selectTerm", termId }).catch(() => undefined)
+          }
           onAdd={canEdit ? addTerm : undefined}
         />
         <div className="pageBarRight">
@@ -310,20 +327,18 @@ export function Courses({
               {t("Read only")}
             </Badge>
           )}
-          {conflictList.length > 0 && (
+          {conflictCount > 0 && (
             <Badge variant="light" color="red">
-              {conflictList.length} conflict{conflictList.length > 1 ? "s" : ""}
+              {conflictCount} conflict{conflictCount > 1 ? "s" : ""}
             </Badge>
           )}
           {removable && canEdit && (
             <UiButton
               className="button"
               onClick={() =>
-                update((d) => ({
-                  ...d,
-                  terms: (d.terms ?? []).filter((item) => item !== term),
-                  selectedTerm: currentTerm,
-                }))
+                void mutate({ kind: "removeTerm", termId: term }).catch(
+                  () => undefined,
+                )
               }
             >
               {t("Remove empty quarter")}
@@ -396,7 +411,10 @@ export function Courses({
                   <UiButton
                     type="button"
                     onClick={() => {
-                      update((d) => ({ ...d, selectedTerm: currentTerm }));
+                      void mutate({
+                        kind: "selectTerm",
+                        termId: currentTerm,
+                      }).catch(() => undefined);
                       setWeekAnchor({ term: currentTerm, date: today });
                     }}
                   >
@@ -513,42 +531,31 @@ export function Courses({
                     onSubmit={async (event) => {
                       event.preventDefault();
                       const values = new FormData(event.currentTarget);
-                      const id = existing?.id ?? (await newUserRecordId());
-                      const now = new Date().toISOString();
-                      update((draft) => {
-                        let row = draft.scheduleOverrides.find(
-                          (item) => item.id === id,
-                        );
-                        if (!row) {
-                          row = {
-                            id,
+                      try {
+                        await mutate({
+                          kind: "saveScheduleOverride",
+                          existingId: existing?.id,
+                          draft: {
                             targetKey: preview.key,
                             targetKind: "exam",
                             courseId: preview.id,
+                            date: String(
+                              values.get("date") || preview.date || "",
+                            ),
+                            startTime: String(
+                              values.get("startTime") || preview.startTime,
+                            ),
+                            endTime: String(
+                              values.get("endTime") || preview.endTime,
+                            ),
+                            room: String(values.get("room") ?? preview.room),
                             hidden: false,
-                            rev: 0,
-                            updatedAt: now,
-                            updatedBy: draft.deviceId,
-                          };
-                          draft.scheduleOverrides.push(row);
-                        }
-                        row.date = String(
-                          values.get("date") || preview.date || "",
-                        );
-                        row.startTime = String(
-                          values.get("startTime") || preview.startTime,
-                        );
-                        row.endTime = String(
-                          values.get("endTime") || preview.endTime,
-                        );
-                        row.room = String(values.get("room") ?? preview.room);
-                        row.hidden = false;
-                        row.rev += 1;
-                        row.updatedAt = now;
-                        row.updatedBy = draft.deviceId;
-                        return draft;
-                      });
-                      setPreview(null);
+                          },
+                        });
+                        setPreview(null);
+                      } catch {
+                        // The app-level mutation boundary reports the error.
+                      }
                     }}
                   >
                     <TextInput
@@ -582,31 +589,21 @@ export function Courses({
                         variant="subtle"
                         type="button"
                         onClick={async () => {
-                          const id = existing?.id ?? (await newUserRecordId());
-                          const now = new Date().toISOString();
-                          update((draft) => {
-                            let row = draft.scheduleOverrides.find(
-                              (item) => item.id === id,
-                            );
-                            if (!row) {
-                              row = {
-                                id,
+                          try {
+                            await mutate({
+                              kind: "saveScheduleOverride",
+                              existingId: existing?.id,
+                              draft: {
                                 targetKey: preview.key,
                                 targetKind: "exam",
                                 courseId: preview.id,
                                 hidden: true,
-                                rev: 0,
-                                updatedAt: now,
-                                updatedBy: draft.deviceId,
-                              };
-                              draft.scheduleOverrides.push(row);
-                            }
-                            row.hidden = true;
-                            row.rev += 1;
-                            row.updatedAt = now;
-                            return draft;
-                          });
-                          setPreview(null);
+                              },
+                            });
+                            setPreview(null);
+                          } catch {
+                            // The app-level mutation boundary reports the error.
+                          }
                         }}
                       >
                         {t("Hide exam")}

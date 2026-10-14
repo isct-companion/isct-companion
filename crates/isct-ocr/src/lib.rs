@@ -17,9 +17,19 @@ mod recognition;
 mod engine;
 
 pub use recognition::Recognition;
+use serde::Serialize;
 #[cfg(not(matrix_ocr))]
 use std::path::PathBuf;
 use thiserror::Error;
+
+pub const MATRIX_CELLS: usize = 70;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrProgress {
+    pub completed: usize,
+    pub total: usize,
+}
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum MatrixOcrError {
@@ -33,6 +43,8 @@ pub enum MatrixOcrError {
     GridNotFound,
     #[error("{0}")]
     Model(String),
+    #[error("Matrix scan cancelled.")]
+    Cancelled,
     #[error("Matrix scanner is unavailable in this build.")]
     Unavailable,
 }
@@ -53,9 +65,8 @@ impl MatrixOcrService {
 
     pub fn scan(
         &self,
-        _data: &str,
-        _preview: &str,
-        _progress: impl Fn(usize),
+        _image: &[u8],
+        _progress: impl Fn(OcrProgress) -> bool,
     ) -> Result<Vec<Recognition>, MatrixOcrError> {
         Err(MatrixOcrError::Unavailable)
     }
@@ -70,7 +81,7 @@ mod tests {
         let service = MatrixOcrService;
         for _ in 0..2 {
             assert_eq!(
-                service.scan("", "", |_| {}),
+                service.scan(b"", |_| true),
                 Err(MatrixOcrError::Unavailable)
             );
         }

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { seedWorkspace } from "../core/model";
-import { subscriptionNetwork, subscriptionYear } from "./subscription-polling";
+import { subscriptionNetwork } from "./subscription-polling";
 
 const onlineDescriptor = Object.getOwnPropertyDescriptor(navigator, "onLine");
 const connectionDescriptor = Object.getOwnPropertyDescriptor(
@@ -36,16 +35,6 @@ afterEach(() => {
 });
 
 describe("reference subscription shell policy", () => {
-  it("selects the admission year only for department data", () => {
-    const data = seedWorkspace();
-    data.selectedTerm = "2026-3Q";
-    data.academicProfile.admissionYear = 2024;
-
-    expect(subscriptionYear(data, "departments")).toBe(2024);
-    for (const kind of ["calendar", "important-dates", "exams"] as const)
-      expect(subscriptionYear(data, kind)).toBe(2026);
-  });
-
   it("pauses offline and metered connections", () => {
     setNetwork(false);
     expect(subscriptionNetwork("native-desktop")).toBe("offline");

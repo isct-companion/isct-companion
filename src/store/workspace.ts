@@ -5,127 +5,33 @@ import type {
   SchoolRecords,
 } from "../platform/desktop-bridge";
 import type { Workspace } from "../core/model";
-import { seedWorkspace } from "../core/model";
-import {
-  USER_RECORD_COLLECTIONS,
-  repository,
-  type WorkspaceRepository,
-} from "../storage/repository";
+import { repository } from "../storage/repository";
+import type {
+  CoreWorkspaceSnapshot,
+  WorkspaceIntent,
+  WorkspaceMutation,
+} from "../core/workspace-intents";
 import { requireAction } from "../platform/actions";
 import { detectPlatform } from "../platform/capabilities";
 import { createStore } from "zustand/vanilla";
-import { publishSchoolImport } from "../connectors/school";
-import type { SchoolImportResult } from "../platform/capabilities";
 
 export type WorkspaceSnapshot = {
   readonly workspace?: Workspace;
   readonly schoolRecords?: SchoolRecords;
   readonly status: "idle" | "loading" | "ready" | "error";
-  readonly revision: number;
-  readonly persistedRevision: number;
+  readonly revision: string;
   readonly error?: string;
 };
 export type WorkspaceEdit = (draft: Workspace) => Workspace | void;
 
-function freeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) freeze(child);
-  }
-  return value;
-}
-function validate(value: Workspace) {
-  if (
-    value.schemaVersion !== 3 ||
-    !value.deviceId ||
-    !value.settings ||
-    !value.academicProfile ||
-    !value.importStatus ||
-    !value.syncStatus
-  )
-    throw new Error("Invalid workspace. The previous workspace was preserved.");
-  for (const key of [
-    "courses",
-    "memberships",
-    "assignments",
-    "materials",
-    "events",
-    "planItems",
-    "exceptions",
-    "offerings",
-    "intensiveSchedules",
-    "plans",
-    "academicCalendar",
-    "gpaSummary",
-    "departments",
-    "recommendedCourses",
-    "importantDates",
-    "exams",
-    "scheduleOverrides",
-    "subscriptions",
-    "scheduledTasks",
-  ] as const) {
-    if (!Array.isArray(value[key]))
-      throw new Error(`Invalid workspace ${key}.`);
-    const ids = new Set<string>();
-    for (const item of value[key]) {
-      if (!item || typeof item.id !== "string" || ids.has(item.id))
-        throw new Error(`Invalid or duplicate ${key} record.`);
-      ids.add(item.id);
-    }
-  }
-  // Persistence is JSON; reject cycles, non-serializable payloads, and invalid numbers before publishing.
-  JSON.stringify(value, (_key, entry) => {
-    if (
-      typeof entry === "function" ||
-      typeof entry === "symbol" ||
-      typeof entry === "bigint" ||
-      (typeof entry === "number" && !Number.isFinite(entry))
-    )
-      throw new Error("Workspace contains non-serializable data.");
-    return entry;
-  });
-}
-
-/**
- * Adopts the rows the repository stored (server rev/updatedAt/updatedBy and
- * defaults) into the live workspace, skipping any record edited again while
- * the save was in flight. Returns undefined when nothing changed.
- */
-function adoptStoredRecords(
-  live: Workspace,
-  sent: Workspace,
-  stored: Workspace,
-): Workspace | undefined {
-  let next: Workspace | undefined;
-  for (const [field] of USER_RECORD_COLLECTIONS) {
-    if (JSON.stringify(sent[field]) === JSON.stringify(stored[field])) continue;
-    const sentById = new Map<string, object>(
-      sent[field].map((record) => [record.id, record]),
-    );
-    const storedById = new Map<string, object>(
-      stored[field].map((record) => [record.id, record]),
-    );
-    let records: object[] | undefined;
-    live[field].forEach((record: object & { id: string }, index) => {
-      const before = sentById.get(record.id);
-      const after = storedById.get(record.id);
-      if (!before || !after) return;
-      const json = JSON.stringify(record);
-      if (json !== JSON.stringify(before) || json === JSON.stringify(after))
-        return;
-      records ??= [...live[field]];
-      records[index] = after;
-    });
-    if (records) (next ??= { ...live })[field] = records as never;
-  }
-  return next && freeze(structuredClone(next));
-}
+type WorkspaceService = {
+  snapshot(): Promise<CoreWorkspaceSnapshot>;
+  mutate(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
+};
 
 export function createWorkspaceStore(
-  storage: Pick<WorkspaceRepository, "load" | "save">,
+  service: WorkspaceService,
   school?: {
-    read(): Promise<SchoolRecords>;
     pull?(
       site: "science-lms" | "kyomu",
       options?: SchoolPullOptions,
@@ -135,53 +41,56 @@ export function createWorkspaceStore(
   const state = createStore<WorkspaceSnapshot>(() =>
     Object.freeze({
       status: "idle",
-      revision: 0,
-      persistedRevision: 0,
+      revision: "",
     }),
   );
   let loading: Promise<void> | undefined;
-  let writes = Promise.resolve();
+  let writes: Promise<unknown> = Promise.resolve();
   let refreshing: Promise<SchoolRecords | undefined> | undefined;
   let refreshRequest = 0;
   const publish = (next: WorkspaceSnapshot) => {
     state.setState(Object.freeze(next), true);
   };
-  const persist = (workspace: Workspace, revision: number) => {
-    writes = writes.then(async () => {
-      try {
-        const stored = structuredClone(workspace);
-        await storage.save(stored);
-        const current = state.getState();
-        publish({
-          ...current,
-          workspace:
-            (current.workspace &&
-              adoptStoredRecords(current.workspace, workspace, stored)) ??
-            current.workspace,
-          persistedRevision: revision,
-          error: undefined,
-        });
-      } catch (reason) {
-        const cause = reason instanceof Error ? reason.message : String(reason);
-        publish({
-          ...state.getState(),
-          error: `Workspace could not be saved. Your changes remain in memory; retry saving. ${cause}`,
-        });
-      }
+  const adopt = (snapshot: CoreWorkspaceSnapshot) => {
+    publish({
+      workspace: snapshot.workspace,
+      schoolRecords: snapshot.schoolRecords,
+      status: "ready",
+      revision: snapshot.revision,
+      error: undefined,
     });
   };
-  const update = (edit: WorkspaceEdit) => {
-    const current = state.getState();
-    if (!current.workspace) throw new Error("Workspace is not ready.");
-    const draft = structuredClone(current.workspace);
-    const next = edit(draft) ?? draft;
-    validate(next);
-    if (JSON.stringify(next) === JSON.stringify(current.workspace)) return;
-    // Copy again so a caller retaining its draft cannot mutate the published snapshot.
-    const workspace = freeze(structuredClone(next));
-    const revision = current.revision + 1;
-    publish({ ...current, workspace, revision });
-    persist(workspace, revision);
+  const mutate = (
+    intent: WorkspaceIntent | ((workspace: Workspace) => WorkspaceIntent),
+  ) => {
+    const operation = writes.then(async () => {
+      const current = state.getState();
+      if (!current.workspace || !current.revision)
+        throw new Error("Workspace is not ready.");
+      try {
+        const snapshot = await service.mutate({
+          expectedRevision: current.revision,
+          intent:
+            typeof intent === "function"
+              ? intent(structuredClone(current.workspace))
+              : intent,
+        });
+        adopt(snapshot);
+        return snapshot;
+      } catch (error) {
+        // The intent may have lost a race with school, cloud, or another
+        // native writer. Recover the authoritative state for user review;
+        // never replay the failed intent automatically.
+        try {
+          adopt(await service.snapshot());
+        } catch {
+          // Preserve the original mutation error and the last valid cache.
+        }
+        throw error;
+      }
+    });
+    writes = operation.catch(() => undefined);
+    return operation;
   };
   const reload = () => {
     refreshRequest++;
@@ -192,30 +101,14 @@ export function createWorkspaceStore(
         const before = state.getState();
         if (before.error && before.workspace) throw new Error(before.error);
         const request = refreshRequest;
-        const [data, records] = await Promise.all([
-          storage.load(),
-          school?.read(),
-        ]);
-        validate(data);
-        // An edit or another import arrived while IPC was pending. Read the
-        // persisted latest state rather than replacing a newer in-memory draft.
+        const snapshot = await service.snapshot();
         if (
           state.getState().revision !== before.revision ||
           request !== refreshRequest
         )
           continue;
-        const revision = before.revision + 1;
-        publish({
-          workspace: freeze(structuredClone(data)),
-          schoolRecords: records
-            ? freeze(structuredClone(records))
-            : before.schoolRecords,
-          status: "ready",
-          revision,
-          persistedRevision: revision,
-          error: undefined,
-        });
-        return records;
+        adopt(snapshot);
+        return snapshot.schoolRecords;
       }
     })().finally(() => {
       refreshing = undefined;
@@ -230,19 +123,9 @@ export function createWorkspaceStore(
       if (state.getState().workspace) return Promise.resolve();
       if (loading) return loading;
       publish({ ...state.getState(), status: "loading", error: undefined });
-      loading = Promise.all([storage.load(), school?.read()])
-        .then(([data, records]) => {
-          validate(data);
-          publish({
-            workspace: freeze(structuredClone(data)),
-            schoolRecords: records
-              ? freeze(structuredClone(records))
-              : undefined,
-            status: "ready",
-            revision: 0,
-            persistedRevision: 0,
-          });
-        })
+      loading = service
+        .snapshot()
+        .then(adopt)
         .catch(() => {
           publish({
             ...state.getState(),
@@ -271,11 +154,7 @@ export function createWorkspaceStore(
         return outcomes;
       })();
     },
-    // Application services use this transaction after their own command capability checks.
-    update,
-    reset() {
-      update(() => seedWorkspace());
-    },
+    mutate,
     export() {
       const workspace = state.getState().workspace;
       if (!workspace) throw new Error("Workspace is not ready.");
@@ -286,25 +165,51 @@ export function createWorkspaceStore(
       const error = state.getState().error;
       if (error) throw new Error(error);
     },
-    retrySave() {
-      const current = state.getState();
-      if (current.workspace) persist(current.workspace, current.revision);
-      return writes;
-    },
   };
 }
 
 const desktopBridge =
   typeof window === "undefined" ? undefined : getDesktopBridge();
+const emptySchoolRecords = (): SchoolRecords => ({
+  lmsCourses: [],
+  registrations: [],
+  registrationStates: [],
+  grades: [],
+  gpaByTerm: [],
+  requirements: [],
+  lastRuns: {},
+});
+
+/** Browser preview has no Core process and exposes a read-only sample. */
+export function createBrowserPreviewService(
+  previewRepository: typeof repository,
+): WorkspaceService {
+  let workspace: Workspace | undefined;
+  const snapshot = (): CoreWorkspaceSnapshot => ({
+    revision: `preview:${JSON.stringify(workspace).length}`,
+    workspace: structuredClone(workspace!),
+    schoolRecords: emptySchoolRecords(),
+  });
+  return {
+    async snapshot() {
+      workspace ??= await previewRepository.load();
+      return snapshot();
+    },
+    async mutate() {
+      throw new Error("Workspace edits need the native app.");
+    },
+  };
+}
+const browserPreviewService = createBrowserPreviewService(repository);
 const internalWorkspaceStore = createWorkspaceStore(
-  repository,
-  desktopBridge?.schoolRecords
+  desktopBridge
     ? {
-        read: () => desktopBridge!.schoolRecords!(),
-        pull: desktopBridge.pullSchool
-          ? (site, options) => desktopBridge!.pullSchool!(site, options)
-          : undefined,
+        snapshot: () => desktopBridge.workspaceSnapshot(),
+        mutate: (mutation) => desktopBridge.mutateWorkspace(mutation),
       }
+    : browserPreviewService,
+  desktopBridge?.pullSchool
+    ? { pull: (site, options) => desktopBridge.pullSchool!(site, options) }
     : undefined,
 );
 
@@ -316,7 +221,6 @@ export const workspaceStore = {
   initialize: internalWorkspaceStore.initialize,
   reload: internalWorkspaceStore.reload,
   flush: internalWorkspaceStore.flush,
-  retrySave: internalWorkspaceStore.retrySave,
 };
 
 /** Guarded domain actions shared by React and non-React callers. */
@@ -328,59 +232,6 @@ export function createWorkspaceHooks(
     getState: store.getState,
     subscribe: store.subscribe,
     actions: {
-      editAcademic(edit: WorkspaceEdit) {
-        requireAction("edit-academic-data", platform());
-        store.update((draft) => {
-          const envelope = (value: Workspace) => {
-            const {
-              courses,
-              memberships,
-              assignments,
-              materials,
-              events,
-              planItems,
-              selectedTerm,
-              terms,
-              academicProfile,
-              exceptions,
-              offerings,
-              intensiveSchedules,
-              plans,
-              academicCalendar,
-              gpaSummary,
-              departments,
-              recommendedCourses,
-              importantDates,
-              exams,
-              scheduleOverrides,
-              subscriptions,
-              scheduledTasks,
-              settings: _settings,
-              ...rest
-            } = value;
-            return JSON.stringify(rest);
-          };
-          const originalEnvelope = envelope(draft);
-          const settings = JSON.stringify(draft.settings);
-          const profile = JSON.stringify(draft.academicProfile);
-          const exceptions = JSON.stringify(draft.exceptions);
-          const next = edit(draft) ?? draft;
-          if (envelope(next) !== originalEnvelope)
-            throw new Error(
-              "Academic actions cannot modify workspace identity, settings or connection status.",
-            );
-          if (JSON.stringify(next.settings) !== settings)
-            throw new Error(
-              "Use a settings action to change preferences or native configuration.",
-            );
-          if (
-            JSON.stringify(next.academicProfile) !== profile ||
-            JSON.stringify(next.exceptions) !== exceptions
-          )
-            requireAction("edit-calendar-advanced", platform());
-          return next;
-        });
-      },
       updatePreferences(
         preferences: Partial<
           Pick<
@@ -410,34 +261,12 @@ export function createWorkspaceHooks(
           )
             throw new Error("Invalid preference value.");
         }
-        store.update((draft) => {
-          for (const key of [
-            "appearance",
-            "locale",
-            "contentLanguage",
-            "textSize",
-          ] as const) {
-            if (preferences[key] !== undefined)
-              Object.assign(draft.settings, { [key]: preferences[key] });
-          }
-        });
+        return store.mutate({ kind: "patchSettings", patch: preferences });
       },
     },
   };
 }
 export const workspaceHooks = createWorkspaceHooks(internalWorkspaceStore);
-
-const protectedWorkspaceEnvelope = (workspace: Workspace) => {
-  const {
-    settings: _settings,
-    syncStatus: _syncStatus,
-    scheduledTasks: _scheduledTasks,
-    importantDates: _importantDates,
-    exams: _exams,
-    ...protectedData
-  } = workspace;
-  return JSON.stringify(protectedData);
-};
 
 export const workspaceActions = {
   /** Refresh canonical workspace and parsed school records in one publication. */
@@ -448,10 +277,20 @@ export const workspaceActions = {
     requireAction("import-school", detectPlatform());
     return internalWorkspaceStore.pullSchool(site, options);
   },
-  editAcademic: workspaceHooks.actions.editAcademic,
+  mutate(intent: WorkspaceIntent) {
+    return internalWorkspaceStore.mutate(intent);
+  },
   editCalendar(edit: WorkspaceEdit) {
     requireAction("edit-calendar-advanced", detectPlatform());
-    internalWorkspaceStore.update(edit);
+    const current = internalWorkspaceStore.getState().workspace;
+    if (!current) return Promise.reject(new Error("Workspace is not ready."));
+    const draft = structuredClone(current);
+    const next = edit(draft) ?? draft;
+    return internalWorkspaceStore.mutate({
+      kind: "editAcademicCalendar",
+      academicProfile: next.academicProfile,
+      exceptions: next.exceptions,
+    });
   },
   /** The study-guide cohort is a basic choice on every platform; the rest of
    * the academic profile stays behind the advanced calendar editor. */
@@ -459,63 +298,27 @@ export const workspaceActions = {
     requireAction("change-local-preference", detectPlatform());
     if (year !== undefined && (!Number.isInteger(year) || year < 2000))
       throw new Error("Invalid admission year.");
-    internalWorkspaceStore.update((draft) => {
-      draft.academicProfile = { ...draft.academicProfile, admissionYear: year };
-      return draft;
+    return internalWorkspaceStore.mutate({
+      kind: "setAdmissionYear",
+      admissionYear: year ?? null,
     });
   },
   updateSettings(edit: WorkspaceEdit) {
     requireAction("change-local-preference", detectPlatform());
-    internalWorkspaceStore.update((draft) => {
-      const protectedBefore = protectedWorkspaceEnvelope(draft);
-      const next = edit(draft) ?? draft;
-      if (protectedWorkspaceEnvelope(next) !== protectedBefore)
-        throw new Error("Settings actions cannot modify core workspace data.");
-      return next;
-    });
+    // Resolve form edits inside the transport queue, after adopting the preceding
+    // Core result. Two immediate preference edits must not copy the same old snapshot.
+    return internalWorkspaceStore.mutate((draft) => ({
+      kind: "patchSettings",
+      patch: (edit(draft) ?? draft).settings,
+    }));
   },
   /** The timetable was compared with LMS; its cache TTL restarts now. */
-  markTimetableReviewed(at = new Date().toISOString()) {
-    internalWorkspaceStore.update((draft) => {
-      draft.importStatus = { ...draft.importStatus, timetableReviewedAt: at };
-      return draft;
-    });
-  },
-  recordScheduledTaskRun(
-    taskId: string,
-    occurrenceAt: string,
-    runAt: string,
-    result: string,
-  ) {
-    requireAction("change-local-preference", detectPlatform());
-    internalWorkspaceStore.update((draft) => {
-      const task = draft.scheduledTasks.find(
-        (candidate) => candidate.id === taskId && !candidate.deletedAt,
-      );
-      if (!task) throw new Error("Scheduled task no longer exists.");
-      task.lastOccurrenceAt = occurrenceAt;
-      task.lastRunAt = runAt;
-      task.lastResult = result;
-      task.rev += 1;
-      task.updatedAt = runAt;
-      task.updatedBy = draft.deviceId;
-    });
-    return internalWorkspaceStore.flush();
-  },
-  applySchoolImport(result: SchoolImportResult) {
-    requireAction("import-school", detectPlatform());
-    internalWorkspaceStore.update((draft) =>
-      publishSchoolImport(draft, result),
-    );
-  },
-  replaceWorkspace(workspace: Workspace) {
-    requireAction("resolve-cloud-manually", detectPlatform());
-    internalWorkspaceStore.update(() => workspace);
+  markTimetableReviewed() {
+    return internalWorkspaceStore.mutate({ kind: "markTimetableReviewed" });
   },
   async reset() {
-    const workspace = await repository.reset();
-    internalWorkspaceStore.update(() => workspace);
-    await internalWorkspaceStore.flush();
+    await repository.reset();
+    await internalWorkspaceStore.reload();
   },
   exportData() {
     return repository.export();
@@ -523,8 +326,7 @@ export const workspaceActions = {
   async importData(document: string) {
     if (!repository.import)
       throw new Error("This repository cannot import an export document.");
-    const workspace = await repository.import(document);
-    internalWorkspaceStore.update(() => workspace);
-    await internalWorkspaceStore.flush();
+    await repository.import(document);
+    await internalWorkspaceStore.reload();
   },
 };

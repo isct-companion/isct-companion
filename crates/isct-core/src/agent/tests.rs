@@ -93,6 +93,86 @@ fn trace_keeps_validation_write_audit_and_read_shape_together() {
 }
 
 #[test]
+fn plan_tools_share_civil_jst_time_and_invalid_updates_do_not_commit() {
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    let civil = service
+        .call(
+            "plan_event_create",
+            &json!({"title":"Civil","start":"2026-10-14T09:00","duration":45}),
+            WRITES,
+        )
+        .unwrap();
+    let offset = service
+        .call(
+            "plan_event_create",
+            &json!({"title":"Offset","start":"2026-10-13T18:00:00-04:00","duration":45}),
+            WRITES,
+        )
+        .unwrap();
+    let plans = fixture.store.user_rows("plans").unwrap();
+    assert!(plans
+        .iter()
+        .any(|row| { row["id"] == civil["id"] && row["start"] == "2026-10-14T09:00:00+09:00" }));
+    assert!(plans
+        .iter()
+        .any(|row| { row["id"] == offset["id"] && row["start"] == "2026-10-14T07:00:00+09:00" }));
+    let schedule = service
+        .call(
+            "schedule",
+            &json!({"from":"2026-10-14","to":"2026-10-14"}),
+            WRITES,
+        )
+        .unwrap();
+    assert_eq!(schedule["plans"].as_array().unwrap().len(), 2);
+
+    fixture
+        .store
+        .put_user_record(
+            "plans",
+            json!({
+                "title":"Excluded legacy", "start":"2026-10-14T11:00", "duration":30,
+                "exdates":["2026-10-14"]
+            }),
+            "test",
+        )
+        .unwrap();
+    let schedule = service
+        .call(
+            "schedule",
+            &json!({"from":"2026-10-14","to":"2026-10-14"}),
+            WRITES,
+        )
+        .unwrap();
+    assert_eq!(schedule["plans"].as_array().unwrap().len(), 2);
+
+    let before_invalid_create = fixture.store.user_rows("plans").unwrap();
+    let error = service
+        .call(
+            "plan_event_create",
+            &json!({"title":"Loose","start":"2026-10-4T9:00","duration":30}),
+            WRITES,
+        )
+        .unwrap_err();
+    assert!(matches!(error, AgentError::InvalidInput(_)));
+    assert_eq!(
+        fixture.store.user_rows("plans").unwrap(),
+        before_invalid_create
+    );
+
+    let before = fixture.store.user_rows("plans").unwrap();
+    let error = service
+        .call(
+            "plan_event_update",
+            &json!({"id":civil["id"],"start":"not-a-date"}),
+            WRITES,
+        )
+        .unwrap_err();
+    assert!(matches!(error, AgentError::InvalidInput(_)));
+    assert_eq!(fixture.store.user_rows("plans").unwrap(), before);
+}
+
+#[test]
 fn authorization_and_write_policy_fail_before_mutation() {
     let fixture = Fixture::new();
     let service = fixture.service();

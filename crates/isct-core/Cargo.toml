@@ -25,6 +25,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "cookies"] }
 sha2 = "0.10"
 regex = "1"
+unicode-normalization = "0.1"
 scraper = "0.24"
 ring = "0.17"
 percent-encoding = "2"

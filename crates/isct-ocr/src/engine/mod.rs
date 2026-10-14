@@ -8,9 +8,8 @@ mod private_parity;
 #[cfg(test)]
 mod tests;
 
-use crate::{recognition, MatrixOcrError, Recognition};
-use base64::{engine::general_purpose::STANDARD, Engine};
-use image::{DynamicImage, ImageDecoder, ImageReader, Rgb, RgbImage};
+use crate::{recognition, MatrixOcrError, OcrProgress, Recognition, MATRIX_CELLS};
+use image::{imageops::FilterType, DynamicImage, ImageDecoder, ImageReader, Rgb, RgbImage};
 use ort::{
     session::{builder::GraphOptimizationLevel, Session},
     value::Tensor,
@@ -80,9 +79,8 @@ impl MatrixOcrService {
     }
     pub fn scan(
         &self,
-        data: &str,
-        preview: &str,
-        progress: impl Fn(usize),
+        image: &[u8],
+        progress: impl Fn(OcrProgress) -> bool,
     ) -> Result<Vec<Recognition>, MatrixOcrError> {
         // Reject overlapping scans instead of accumulating photos and blocking jobs.
         let mut model = match self.0.try_lock() {
@@ -100,20 +98,15 @@ impl MatrixOcrService {
                 ));
             }
         };
-        let image = decode_canvas(data, 2200)?;
-        let small = decode_canvas(preview, 600)?;
-        let scale = (600. / image.width().max(image.height()) as f64).min(1.);
-        let expected = (
-            (image.width() as f64 * scale).round().max(1.) as u32,
-            (image.height() as f64 * scale).round().max(1.) as u32,
-        );
-        if small.dimensions() != expected {
-            return Err(MatrixOcrError::InvalidImage(
-                "Matrix preview dimensions do not match the source.".into(),
-            ));
+        if !progress(OcrProgress {
+            completed: 0,
+            total: MATRIX_CELLS,
+        }) {
+            return Err(MatrixOcrError::Cancelled);
         }
+        let (image, small) = prepare_images(image)?;
         let cells = geometry::locate(&small).ok_or(MatrixOcrError::GridNotFound)?;
-        let mut results = Vec::with_capacity(70);
+        let mut results = Vec::with_capacity(MATRIX_CELLS);
         #[cfg(debug_assertions)]
         let mut red = vec![];
         for (i, corners) in cells.iter().enumerate() {
@@ -158,7 +151,12 @@ impl MatrixOcrService {
                 }
             }
             results.push(result);
-            progress(i + 1);
+            if !progress(OcrProgress {
+                completed: i + 1,
+                total: MATRIX_CELLS,
+            }) {
+                return Err(MatrixOcrError::Cancelled);
+            }
         }
         #[cfg(debug_assertions)]
         if let Some(directory) = self.1.as_ref().filter(|_| !red.is_empty()) {
@@ -170,29 +168,24 @@ impl MatrixOcrService {
         Ok(results)
     }
 }
-// Decode only: using image::resize here changes Canvas pixels and OCR geometry.
-fn decode_canvas(data: &str, max: u32) -> Result<RgbImage, MatrixOcrError> {
-    if data.len() > MAX_IMAGE_BYTES.div_ceil(3) * 4 {
-        return Err(MatrixOcrError::InvalidImage(
-            "Prepared image exceeds the size limit.".into(),
-        ));
-    }
-    let bytes = STANDARD
-        .decode(data)
-        .map_err(|_| MatrixOcrError::InvalidImage("Invalid image encoding".into()))?;
-    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Err(MatrixOcrError::InvalidImage(
-            "Expected a prepared PNG image.".into(),
-        ));
-    }
-    let image = decode_image(&bytes)?;
-    if image.width().max(image.height()) > max {
-        return Err(MatrixOcrError::InvalidImage(
-            "Prepared image dimensions exceed the size limit.".into(),
-        ));
-    }
-    Ok(image)
+
+fn prepare_images(bytes: &[u8]) -> Result<(RgbImage, RgbImage), MatrixOcrError> {
+    let image = resize_longest(decode_image(bytes)?, 2200);
+    let preview = resize_longest(image.clone(), 600);
+    Ok((image, preview))
 }
+
+fn resize_longest(image: RgbImage, max: u32) -> RgbImage {
+    let longest = image.width().max(image.height());
+    if longest <= max {
+        return image;
+    }
+    let scale = max as f64 / longest as f64;
+    let width = (image.width() as f64 * scale).round().max(1.) as u32;
+    let height = (image.height() as f64 * scale).round().max(1.) as u32;
+    image::imageops::resize(&image, width, height, FilterType::Triangle)
+}
+
 fn decode_image(bytes: &[u8]) -> Result<RgbImage, MatrixOcrError> {
     if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
         return Err(MatrixOcrError::InvalidImage(

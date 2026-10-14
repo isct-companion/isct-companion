@@ -13,6 +13,7 @@ use crate::{
 use chrono::{DateTime, Duration, Utc};
 use rrule::{RRuleSet, Tz};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
@@ -53,6 +54,7 @@ pub enum SchedulerError {
 pub struct Scheduler {
     started_at: DateTime<Utc>,
     running: tokio::sync::Mutex<()>,
+    invalid_schedules: Mutex<HashSet<String>>,
     seen_agent_write: Mutex<Option<String>>,
 }
 
@@ -61,6 +63,7 @@ impl Default for Scheduler {
         Self {
             started_at: Utc::now(),
             running: tokio::sync::Mutex::new(()),
+            invalid_schedules: Mutex::new(HashSet::new()),
             seen_agent_write: Mutex::new(None),
         }
     }
@@ -74,6 +77,38 @@ fn timestamp(value: Option<&str>) -> Option<DateTime<Utc>> {
 
 fn deleted(task: &Value) -> bool {
     task.get("deletedAt").is_some_and(|value| !value.is_null())
+}
+
+fn reject_subhour_schedule(schedule: &str) -> Result<(), SchedulerError> {
+    let normalized = schedule.trim().to_ascii_uppercase();
+    let body = normalized.strip_prefix("RRULE:").unwrap_or(&normalized);
+    let mut frequency = None;
+    for field in body.split(';') {
+        let Some((name, value)) = field.split_once('=') else {
+            continue;
+        };
+        match name {
+            "FREQ" => frequency = Some(value),
+            "BYSECOND" => {
+                return Err(SchedulerError::InvalidTask(
+                    "scheduled tasks support hourly, daily, or weekly recurrence".into(),
+                ));
+            }
+            // Multiple minutes in one hour are another sub-hour recurrence.
+            "BYMINUTE" if value.contains(',') => {
+                return Err(SchedulerError::InvalidTask(
+                    "scheduled tasks support at most one occurrence per hour".into(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    if frequency.is_some_and(|value| matches!(value, "MINUTELY" | "SECONDLY")) {
+        return Err(SchedulerError::InvalidTask(
+            "scheduled tasks support hourly, daily, or weekly recurrence".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn due_occurrence(
@@ -97,6 +132,7 @@ fn due_occurrence(
             .is_none_or(|last| last < started_at)
             .then(|| started_at.to_rfc3339()));
     }
+    reject_subhour_schedule(schedule)?;
     let updated = timestamp(task.get("updatedAt").and_then(Value::as_str)).ok_or_else(|| {
         SchedulerError::InvalidTask("scheduled task has an invalid updatedAt".into())
     })?;
@@ -201,12 +237,16 @@ impl Scheduler {
         let tasks = services.store.user_rows("scheduled_tasks")?;
         let now = Utc::now();
         for task in tasks {
-            if let Some(occurrence) = due_occurrence(&task, now, self.started_at)? {
-                let id = task
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| SchedulerError::InvalidTask("task has no id".into()))?;
-                let _ = self.run(services, id, Some(occurrence), false).await;
+            match due_occurrence(&task, now, self.started_at) {
+                Ok(Some(occurrence)) => {
+                    let id = task
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| SchedulerError::InvalidTask("task has no id".into()))?;
+                    let _ = self.run(services, id, Some(occurrence), false).await;
+                }
+                Ok(None) => {}
+                Err(error) => self.record_invalid_schedule(services, task, now, error)?,
             }
         }
 
@@ -230,6 +270,51 @@ impl Scheduler {
             emit(services, WorkspaceChangeSource::Mcp);
         }
         *seen = latest_agent_write;
+        Ok(())
+    }
+
+    fn record_invalid_schedule(
+        &self,
+        services: &SchedulerServices,
+        mut task: Value,
+        now: DateTime<Utc>,
+        error: SchedulerError,
+    ) -> Result<(), SchedulerError> {
+        let id = task
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| SchedulerError::InvalidTask("task has no id".into()))?;
+        let schedule = task
+            .get("schedule")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let key = format!("{id}:{schedule}");
+        let mut invalid = match self.invalid_schedules.lock() {
+            Ok(invalid) => invalid,
+            Err(poisoned) => {
+                self.invalid_schedules.clear_poison();
+                poisoned.into_inner()
+            }
+        };
+        if !invalid.insert(key.clone()) {
+            return Ok(());
+        }
+        let expected = task.get("rev").and_then(Value::as_u64).unwrap_or(0);
+        let occurrence = now.to_rfc3339();
+        task["lastOccurrenceAt"] = Value::String(occurrence.clone());
+        task["lastRunAt"] = Value::String(occurrence);
+        task["lastResult"] = Value::String(format!("Failed: {error}"));
+        if let Err(error) = services.store.put_user_record_checked(
+            "scheduled_tasks",
+            task,
+            "scheduler",
+            Some(expected),
+        ) {
+            invalid.remove(&key);
+            return Err(error.into());
+        }
+        drop(invalid);
+        emit(services, WorkspaceChangeSource::Scheduler);
         Ok(())
     }
 
@@ -508,6 +593,39 @@ mod tests {
     }
 
     #[test]
+    fn legacy_runtime_boundaries_do_not_catch_up_or_run_disabled_and_subhour_tasks() {
+        let started = "2026-09-29T12:05:00Z".parse().unwrap();
+        let now = "2026-09-29T12:05:01Z".parse().unwrap();
+        let daily = json!({
+            "enabled":true,
+            "updatedAt":"2026-09-29T01:00:00Z",
+            "schedule":"FREQ=DAILY;BYHOUR=12;BYMINUTE=0"
+        });
+        assert!(due_occurrence(&daily, now, started).unwrap().is_none());
+
+        let mut disabled = daily.clone();
+        disabled["enabled"] = json!(false);
+        assert!(due_occurrence(&disabled, now, started).unwrap().is_none());
+
+        for schedule in [
+            "FREQ=MINUTELY;INTERVAL=30",
+            "FREQ=SECONDLY",
+            "FREQ=DAILY;BYHOUR=21;BYSECOND=30",
+            "FREQ=HOURLY;BYMINUTE=0,30",
+        ] {
+            let task = json!({
+                "enabled":true,
+                "updatedAt":"2026-09-29T01:00:00Z",
+                "schedule":schedule
+            });
+            assert!(matches!(
+                due_occurrence(&task, now, started),
+                Err(SchedulerError::InvalidTask(message)) if message.contains("hour")
+            ));
+        }
+    }
+
+    #[test]
     fn launch_tasks_are_claimed_only_once_per_process_start() {
         let started = "2026-10-13T03:15:00Z".parse().unwrap();
         let now = "2026-10-13T03:15:01Z".parse().unwrap();
@@ -589,6 +707,37 @@ mod tests {
         assert_eq!(result, "Skipped: scheduled task is no longer due");
         assert_eq!(exporter.0.load(Ordering::Relaxed), 0);
         assert!(task(&store, "stale-auto")["lastResult"].is_null());
+    }
+
+    #[tokio::test]
+    async fn invalid_subhour_schedule_is_recorded_once_without_blocking_other_tasks() {
+        let store = store("invalid-schedule");
+        let mut invalid = add_task(&store, "a-invalid", "export", true);
+        let revision = invalid["rev"].as_u64().unwrap();
+        invalid["schedule"] = json!("FREQ=MINUTELY;INTERVAL=30");
+        store
+            .put_user_record_checked("scheduled_tasks", invalid, "test", Some(revision))
+            .unwrap();
+        add_task(&store, "z-valid", "export", true);
+        let exporter = Arc::new(CountingExporter::default());
+        let services = services(
+            &store,
+            exporter.clone(),
+            Arc::new(RecordingEvents::default()),
+        );
+        let scheduler = Scheduler::default();
+
+        scheduler.tick(&services).await.unwrap();
+        let recorded = task(&store, "a-invalid");
+        assert!(recorded["lastResult"]
+            .as_str()
+            .is_some_and(|result| result.starts_with("Failed:") && result.contains("hourly")));
+        let recorded_revision = recorded["rev"].as_u64().unwrap();
+        assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
+
+        scheduler.tick(&services).await.unwrap();
+        assert_eq!(task(&store, "a-invalid")["rev"], recorded_revision);
+        assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

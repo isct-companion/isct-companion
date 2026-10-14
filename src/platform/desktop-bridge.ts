@@ -1,7 +1,10 @@
-import { clockForPeriods } from "../core/user-schedule";
+import type {
+  CoreWorkspaceSnapshot,
+  WorkspaceMutation,
+} from "../core/workspace-intents";
+import type { FinderRequest, FinderView } from "./finder-query";
 import type { FinderCourse } from "../core/course-query";
-import { validSyllabusContent } from "../core/syllabus-content";
-import { pickLocalized, type Localized } from "../core/model";
+import type { Localized } from "../core/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type { SyllabusCourse } from "../core/syllabus";
@@ -317,6 +320,13 @@ export type ListenNative = <T>(
 ) => Promise<() => void>;
 
 export interface DesktopBridge {
+  workspaceSnapshot(): Promise<CoreWorkspaceSnapshot>;
+  mutateWorkspace(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
+  finderQuery(request: FinderRequest): Promise<FinderView>;
+  scheduleQuery(queries: readonly unknown[]): Promise<{
+    revision: string;
+    values: { kind: string; value: unknown }[];
+  }>;
   runtime: DesktopRuntime;
   target: NativeTarget;
   /** The build's operating system; see `nativeOs`. */
@@ -324,10 +334,15 @@ export interface DesktopBridge {
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
   resolveSchoolUrl(url: string): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
+  bootstrapReminders(fired: unknown): Promise<boolean>;
+  lmsMergePreview(
+    scope: "all" | "term",
+    term: string,
+  ): Promise<import("../core/lms-merge").CoreLmsPreview>;
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
   runScheduledTask(id: string): Promise<string>;
-  onWorkspaceChanged(callback: () => void): () => void;
+  onWorkspaceChanged(callback: () => void): Promise<() => void>;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
   saveSchoolCredentials(
     profile: SchoolAuthProfile,
@@ -410,7 +425,6 @@ export interface DesktopBridge {
   onPullState?(callback: (states: PullSnapshot[]) => void): () => void;
   cancelPull?(id: string): Promise<boolean>;
   refreshReferenceSubscriptions?(force: boolean): Promise<string>;
-  schoolRecords?(): Promise<SchoolRecords>;
   /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
   setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
   /** An extractor finished while the person browsed LMS / 教務Web. */
@@ -420,7 +434,6 @@ export interface DesktopBridge {
     callback: (progress: SchoolPullProgress) => void,
   ): () => void;
   /** Saves a validated workspace export under app-owned local storage. */
-  writeScheduledExport(): Promise<string>;
   /** Asks where to save an exported file; false when the person cancels. */
   saveFile(name: string, contents: string): Promise<boolean>;
   connectCloud(
@@ -495,95 +508,6 @@ const requireObject = <T>(command: string, value: unknown): T => {
     throw new Error(`${command} returned an invalid result.`);
   return value as T;
 };
-type CatalogItem = {
-  id: string;
-  year: number;
-  quarters: SyllabusCourse["quarter"][];
-  code: string;
-  title: Localized;
-  instructors: Localized[];
-  syllabusUrl: string;
-};
-type CatalogOffering = CatalogItem & {
-  credits: { lecture: number; exercise: number; lab: number };
-  instructionLanguage: string;
-  schedule: {
-    kind: string;
-    day?: number;
-    periods?: [number, number];
-    room?: Localized;
-  }[];
-  sourceUpdated?: string;
-};
-// Any period range (e.g. 5-8 → 13:30–17:05), not only the standard two-period slots.
-const periodTimes = (periods: [number, number]) => {
-  const clock = clockForPeriods(periods);
-  return [clock.start, clock.end] as const;
-};
-export const catalogCourse = (
-  value: unknown,
-  locale: "en" | "ja",
-  content?: unknown,
-): SyllabusCourse => {
-  const row = requireObject<CatalogItem>("catalog offering", value);
-  if (
-    typeof row.id !== "string" ||
-    typeof row.year !== "number" ||
-    !Array.isArray(row.quarters) ||
-    typeof row.code !== "string" ||
-    typeof row.syllabusUrl !== "string"
-  )
-    throw new Error("catalog offering returned an invalid result.");
-  const full = row as CatalogOffering;
-  const meetings = Array.isArray(full.schedule)
-    ? full.schedule.flatMap((entry) => {
-        if (
-          entry.kind !== "weekly" ||
-          typeof entry.day !== "number" ||
-          !Array.isArray(entry.periods)
-        )
-          return [];
-        const [startTime, endTime] = periodTimes(entry.periods);
-        return [
-          {
-            days: [entry.day],
-            periods: Array.from(
-              { length: entry.periods[1] - entry.periods[0] + 1 },
-              (_, index) => entry.periods![0] + index,
-            ),
-            startTime,
-            endTime,
-            room: pickLocalized(entry.room, locale),
-            roomNames: entry.room,
-          },
-        ];
-      })
-    : [];
-  return {
-    externalId: row.id,
-    year: row.year,
-    quarter: row.quarters[0] ?? "1Q",
-    quarters: row.quarters,
-    code: row.code,
-    title: pickLocalized(row.title, locale),
-    instructor: Array.isArray(row.instructors)
-      ? row.instructors
-          .map((name) => pickLocalized(name, locale))
-          .filter(Boolean)
-          .join(" / ")
-      : "",
-    credits: full.credits
-      ? full.credits.lecture + full.credits.exercise + full.credits.lab
-      : undefined,
-    language: full.instructionLanguage,
-    meetings,
-    url: row.syllabusUrl,
-    updated: full.sourceUpdated,
-    content:
-      content != null && validSyllabusContent(content) ? content : undefined,
-  };
-};
-
 export function createTauriDesktopBridge(
   invoke: InvokeNative,
   listen: ListenNative,
@@ -614,11 +538,19 @@ export function createTauriDesktopBridge(
     runtime: "tauri",
     target,
     os: nativeOs(),
+    workspaceSnapshot: () => result("workspace_snapshot"),
+    mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
+    finderQuery: (request) => result("finder_query", { request }),
+    scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
     resolveSchoolUrl: (url) => result("resolve_school_url", { url }),
     openExternal: async (url) => {
       await invokeCommand("open_external", { url });
     },
+    bootstrapReminders: (fired) =>
+      booleanCommand("bootstrap_reminders", { fired }),
+    lmsMergePreview: (scope, term) =>
+      result("lms_merge_preview", { scope, term }),
     notify: (title, body) => booleanCommand("notify", { title, body }),
     requestNotificationPermission: async () => {
       const value = await invokeCommand("request_notification_permission");
@@ -629,19 +561,9 @@ export function createTauriDesktopBridge(
       return value;
     },
     runScheduledTask: (id) => invokeCommand("run_scheduled_task", { id }),
-    onWorkspaceChanged: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen("workspace-changed", () => {
-        if (!disposed) callback();
-      }).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
+    onWorkspaceChanged: async (callback) => {
+      const unlisten = await listen("workspace-changed", () => callback());
+      return () => quietly(unlisten);
     },
     schoolCredentialStatus: () => result("school_credential_status"),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
@@ -873,37 +795,6 @@ export function createTauriDesktopBridge(
         throw new Error("Reference refresh returned an invalid result.");
       return value;
     },
-    schoolRecords: async () => {
-      const value = requireObject<Partial<SchoolRecords>>(
-        "school_records",
-        await invokeCommand("school_records"),
-      );
-      const rows = <T>(list: unknown): T[] =>
-        Array.isArray(list)
-          ? (list.filter((row) => row && typeof row === "object") as T[])
-          : [];
-      const lastRuns =
-        value.lastRuns && typeof value.lastRuns === "object"
-          ? Object.fromEntries(
-              Object.entries(value.lastRuns).filter(
-                (entry): entry is [string, string] =>
-                  typeof entry[1] === "string",
-              ),
-            )
-          : {};
-      return {
-        lastRuns,
-        lmsCourses: rows<LmsCourseRecord>(value.lmsCourses).filter(
-          (row) =>
-            typeof row.lmsId === "number" && typeof row.shortname === "string",
-        ),
-        registrations: rows(value.registrations),
-        registrationStates: rows(value.registrationStates),
-        grades: rows(value.grades),
-        gpaByTerm: rows(value.gpaByTerm),
-        requirements: rows(value.requirements),
-      };
-    },
     setKyomuGuide: (items) => booleanCommand("set_kyomu_guide", { items }),
     onSchoolIngest: (callback) => {
       let disposed = false;
@@ -961,12 +852,7 @@ export function createTauriDesktopBridge(
     },
     configureSchoolWebPolicy: (policy) =>
       booleanCommand("configure_school_web_policy", { policy }),
-    writeScheduledExport: async () => {
-      const value = await invokeCommand("write_scheduled_export");
-      if (typeof value !== "string" || !value)
-        throw new Error("write_scheduled_export returned an invalid result.");
-      return value;
-    },
+
     saveFile: (name, contents) =>
       booleanCommand("save_file", { name, contents }),
     connectCloud: (provider, clientId, redirectUri) =>
@@ -1014,19 +900,8 @@ export function createTauriDesktopBridge(
       booleanCommand("sync_cloud_credentials", { provider, restoreExisting }),
     clearCloudCredentialSyncPassword: () =>
       booleanCommand("clear_cloud_credential_sync_password"),
-    syllabusCourse: async (url, language) => {
-      const synced = requireObject<{
-        offering: unknown;
-        content: { lang: string; content: unknown }[];
-      }>(
-        "catalog_sync_offering",
-        await invokeCommand("catalog_sync_offering", { id: url }),
-      );
-      const preferred =
-        synced.content.find((row) => row.lang === language) ??
-        synced.content.find((row) => row.lang !== language);
-      return catalogCourse(synced.offering, language, preferred?.content);
-    },
+    syllabusCourse: (url, language) =>
+      result("syllabus_course", { id: url, language }),
     catalogSyncDepartment: (year, scopePath, quarter) =>
       result("catalog_sync_department", { year, scopePath, quarter }),
     catalogQuery: async (year, { q, scope, code, groups }) => {
@@ -1056,36 +931,7 @@ export function createTauriDesktopBridge(
       const rows = await invokeCommand("catalog_offerings", { year });
       if (!Array.isArray(rows))
         throw new Error("catalog_offerings returned an invalid result.");
-      // Rows that do not have the finder's shape are skipped, not fatal. A row
-      // stored from a search result has no schedule or credits yet.
-      return rows
-        .filter(
-          (row): row is FinderCourse =>
-            Boolean(row) &&
-            typeof row.id === "string" &&
-            typeof row.code === "string" &&
-            Array.isArray(row.quarters) &&
-            typeof row.title === "object",
-        )
-        .map((row) => ({
-          ...row,
-          detailed:
-            Array.isArray(row.schedule) && typeof row.credits === "object",
-          schedule: Array.isArray(row.schedule) ? row.schedule : [],
-          credits:
-            typeof row.credits === "object" && row.credits
-              ? row.credits
-              : { lecture: 0, exercise: 0, lab: 0 },
-          instructors: Array.isArray(row.instructors) ? row.instructors : [],
-          format:
-            row.format && Array.isArray(row.format.kinds)
-              ? row.format
-              : { kinds: [] },
-          instructionLanguage:
-            typeof row.instructionLanguage === "string"
-              ? row.instructionLanguage
-              : "other",
-        }));
+      return rows as FinderCourse[];
     },
   };
 }

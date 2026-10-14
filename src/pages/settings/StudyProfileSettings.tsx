@@ -1,10 +1,17 @@
 import { t } from "../../i18n";
-import { contentLanguage, pickLocalized, type Workspace } from "../../core/model";
+import {
+  contentLanguage,
+  pickLocalized,
+  type Workspace,
+} from "../../core/model";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "../../core/departments";
-import { academicYearOf } from "../../core/calendar-view";
-import { tokyoDate } from "../../core/schedule";
 import { UiButton, UiSelect } from "../../components/mantine";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
+import { jstDate } from "../../app/shared";
+import {
+  useScheduleQuery,
+  type AcademicYearIndex,
+} from "../../platform/core-query";
 
 export function StudyProfileSettings({
   data,
@@ -22,7 +29,13 @@ export function StudyProfileSettings({
 }) {
   const department = departmentById(data.settings.departmentId);
   const admissionYear = data.academicProfile.admissionYear;
-  const thisYear = academicYearOf(tokyoDate(new Date()));
+  const yearIndex = useScheduleQuery<AcademicYearIndex>({
+    kind: "academicYears",
+    date: jstDate(new Date()),
+    selectedYear: Number(data.selectedTerm.slice(0, 4)),
+  }).value;
+  const thisYear =
+    yearIndex?.currentYear ?? Number(data.selectedTerm.slice(0, 4));
   const years = Array.from({ length: 10 }, (_, index) => thisYear + 1 - index);
   if (admissionYear && !years.includes(admissionYear))
     years.push(admissionYear);
@@ -44,7 +57,11 @@ export function StudyProfileSettings({
             <option value="">{t("Not selected")}</option>
             {SYLLABUS_DEPARTMENTS.map((item) => (
               <option key={item.id} value={item.id}>
-                {pickLocalized(item.name, contentLanguage(data.settings), item.id)}
+                {pickLocalized(
+                  item.name,
+                  contentLanguage(data.settings),
+                  item.id,
+                )}
               </option>
             ))}
           </UiSelect>

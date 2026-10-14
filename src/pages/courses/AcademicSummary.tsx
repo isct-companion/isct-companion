@@ -1,7 +1,8 @@
 import { Button, Paper, Popover } from "@mantine/core";
 import { useState } from "react";
 import { PullRing } from "../../components/PullRing";
-import { t } from "../../i18n";
+import i18n, { t, intlLocale } from "../../i18n";
+import { formatTimestamp } from "../../core/civil-date";
 import type { GpaSummary } from "../../core/model";
 
 const SCOPES: { scope: GpaSummary["scope"]; label: string }[] = [
@@ -99,9 +100,10 @@ export function AcademicSummary({
                 </table>
                 <small>
                   {all
-                    ? new Date(all.fetchedAt).toLocaleString(undefined, {
-                        timeZone: "Asia/Tokyo",
-                      })
+                    ? (formatTimestamp(
+                        all.fetchedAt,
+                        intlLocale(i18n.language),
+                      ) ?? t("Not fetched yet"))
                     : t("Not fetched yet")}
                 </small>
               </div>

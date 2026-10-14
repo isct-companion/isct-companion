@@ -2,8 +2,9 @@
 
 IsctCompanion is a local-first desktop workspace for Science Tokyo schedules,
 courses, LMS content and school portals. React renders the interface; the
-Tauri/Rust backend owns SQLite, school sessions, credentials, imports, files,
-scheduling and cloud synchronization. The browser build is a read-only preview.
+shared Rust Core owns SQLite, domain rules and mutations, school sessions,
+credentials, imports, files, scheduling and cloud synchronization. Tauri supplies
+native platform adapters and the desktop MCP transport. The browser build is a read-only preview.
 
 ## Development
 
@@ -35,9 +36,35 @@ desktop app.
 - `src/pages`: Today, Courses, Web and Settings screens.
 - `src/components`: shared UI.
 - `src/store` and `src/storage`: frontend read model and native repository bridge.
-- `backend/src`: authoritative Rust services and Tauri commands.
-- `backend/subscriptions`: bundled public reference data.
+- `crates/isct-core`: shared domain services, mutations, read models and task ownership.
+- `crates/isct-ocr`: independent image preparation and optional OCR engine.
+- `backend/src`: Tauri commands, native platform ports and local HTTP MCP.
+- `src/generated`: TypeScript contracts generated from Rust.
+- `crates/isct-core/tests/fixtures/subscriptions`: frozen reference-data test fixtures.
 - `docs`: maintained architecture, storage and provider notes.
+
+## Desktop Core checkpoint
+
+Desktop consolidation through Phase 5 is complete. The frontend renders Core
+read models, caches snapshots and forwards typed intents; Rust owns validation,
+revisions and domain state. Academic date calculations use JST, and stored
+plan timestamps use explicit offsets. The signed macOS checkpoint and its
+verification coverage are recorded in
+[Core consolidation checkpoints](docs/verification/core-consolidation.md).
+
+[Shared Core API and protocol](docs/core-api.md) documents desktop/native transport
+mapping, records, initialization, services, ports, read models, mutations, errors
+and shutdown. See the [documentation index](docs/README.md). The desktop MCP adapter
+shares those services at `http://127.0.0.1:47832/mcp` while the app is open; authentication
+is configured in Settings → AI agent access.
+
+Phase 6 (Swift/Kotlin bindings, native packages and mobile smoke tests) is deferred.
+It is not a prerequisite for the current desktop checkpoint. Native mobile UI
+redesign and distribution/release checks remain separate work.
+
+Debug builds display the base version plus a UTC build timestamp and Git revision.
+`dirty` records uncommitted working-tree changes at build time, including documents.
+The displayed version stays fixed after the build is committed.
 
 ## Data and security boundaries
 

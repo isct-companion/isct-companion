@@ -1,4 +1,4 @@
-use crate::{core_ports, data, plans, require_local_main, run_data_command, syllabus};
+use crate::{core_ports, data, require_local_main, run_data_command, syllabus};
 
 #[tauri::command]
 pub(crate) async fn catalog_upsert_offerings(
@@ -26,8 +26,16 @@ pub(crate) async fn catalog_offerings(
 ) -> Result<Vec<serde_json::Value>, String> {
     require_local_main(&webview)?;
     let store = store.inner().clone();
-    run_data_command(move || isct_core::catalog::offerings(&store, year).map_err(|e| e.to_string()))
-        .await
+    run_data_command(move || {
+        isct_core::catalog::offerings(&store, year)
+            .map(|rows| {
+                rows.into_iter()
+                    .filter_map(isct_core::course_query::normalize_offering)
+                    .collect()
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -47,16 +55,17 @@ pub(crate) async fn catalog_offering(
 }
 
 #[tauri::command]
-pub(crate) async fn catalog_sync_offering(
+pub(crate) async fn syllabus_course(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     id: String,
-) -> Result<syllabus::SyncOfferingResult, String> {
+    language: String,
+) -> Result<serde_json::Value, String> {
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
     let runtime = core.runtime.clone();
     runtime
-        .run(async move { isct_core::catalog::catalog_sync_offering(&core.store, id).await })
+        .run(async move { isct_core::catalog::syllabus_course(&core.store, id, language).await })
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -112,17 +121,4 @@ pub(crate) async fn catalog_sync_offerings(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub(crate) fn preview_plan_recurrence(
-    webview: tauri::Webview,
-    start: String,
-    rrule: String,
-    exdates: Vec<String>,
-    limit: Option<u16>,
-) -> Result<plans::RecurrencePreview, String> {
-    require_local_main(&webview)?;
-    plans::preview_rrule(&start, &rrule, &exdates, limit.unwrap_or(5))
-        .map_err(|error| error.to_string())
 }

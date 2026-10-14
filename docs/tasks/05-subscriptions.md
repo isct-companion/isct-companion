@@ -122,7 +122,7 @@ Calendar rules:
 ### Exam feed v1: separate contract, app adapter not implemented
 
 The exam format is defined by
-`backend/subscriptions/schema/exams.schema.json`. A future public repository
+`crates/isct-core/tests/fixtures/subscriptions/schema/exams.schema.json`. A future public repository
 copies it to `schema/exams.schema.json` and publishes `data/<academicYear>/exams.json`.
 It contains exact per-course exams. Broad exam periods do not generate individual
 exams and are outside this feed's v1 scope.

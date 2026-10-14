@@ -3,6 +3,7 @@ import { settingsSection } from "../../app/routes";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../core/model";
+import type { WorkspaceIntent } from "../../core/workspace-intents";
 import type { Platform, Section } from "../../app/shared";
 import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
 import { performAction } from "../../platform/actions";
@@ -75,6 +76,7 @@ function searchSettings(
 export function Settings({
   platform,
   data,
+  mutate,
   update,
   advancedCalendarUpdate,
   caps,
@@ -91,6 +93,7 @@ export function Settings({
 }: {
   platform: Platform;
   data: Workspace;
+  mutate: (intent: WorkspaceIntent) => Promise<unknown>;
   /** Preferences and device state. */
   update: Update;
   /** Calendar overrides, academic profile and subscription rows. */
@@ -169,7 +172,7 @@ export function Settings({
 
   const setAdmissionYear = (year: number | undefined) => {
     try {
-      workspaceActions.setAdmissionYear(year);
+      void workspaceActions.setAdmissionYear(year).catch(appNotify.error);
     } catch (error) {
       appNotify.error(error);
     }
@@ -208,7 +211,7 @@ export function Settings({
     ) : current === "calendar" ? (
       <AcademicCalendarSettings
         data={data}
-        update={advancedCalendarUpdate}
+        mutate={mutate}
         notify={notify}
         readOnly={!desktop}
         refreshReferences={refreshReferences}
@@ -224,7 +227,6 @@ export function Settings({
       <DataUpdatesSettings
         data={data}
         update={update}
-        updateSubscriptions={advancedCalendarUpdate}
         platform={platform}
         refreshReferences={refreshReferences}
         notify={notify}
@@ -232,7 +234,7 @@ export function Settings({
     ) : current === "automation" ? (
       <AutomationSettings
         data={data}
-        update={update}
+        mutate={mutate}
         runScheduledTask={runScheduledTask}
       />
     ) : current === "developer" ? (
