@@ -144,7 +144,9 @@ pub(crate) async fn get(mut url: Url) -> Result<Page, SyllabusError> {
             String::from_utf8(bytes).map_err(|_| "Syllabus response was not valid UTF-8 text.")?;
         return Ok(Page { url, html });
     }
-    unreachable!()
+    Err(SyllabusError::network(
+        "Syllabus returned too many redirects.",
+    ))
 }
 
 #[cfg(test)]

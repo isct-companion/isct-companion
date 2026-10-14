@@ -341,9 +341,11 @@ mod tests {
             &self,
             _request: SchoolExecution,
             _context: PullContext,
-        ) -> Result<Vec<IngestOutcome>, SchoolExecutorError> {
-            self.calls.fetch_add(1, Ordering::Relaxed);
-            self.results.lock().unwrap().pop_front().unwrap()
+        ) -> crate::school_service::SchoolExecutorFuture<'_> {
+            Box::pin(async move {
+                self.calls.fetch_add(1, Ordering::Relaxed);
+                self.results.lock().unwrap().pop_front().unwrap()
+            })
         }
     }
 

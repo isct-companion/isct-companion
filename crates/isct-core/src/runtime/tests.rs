@@ -7,9 +7,7 @@ use crate::{
     reference_refresh::ReferenceService,
     scheduler::{ExportError, ScheduledExporter},
     school_auth::SchoolAuthService,
-    school_service::{
-        IngestOutcome, SchoolExecution, SchoolExecutor, SchoolExecutorError, SchoolService,
-    },
+    school_service::{IngestOutcome, SchoolExecution, SchoolExecutor, SchoolService},
 };
 use serde_json::{json, Value};
 use std::sync::{
@@ -53,14 +51,16 @@ impl SchoolExecutor for NoopExecutor {
         &self,
         request: SchoolExecution,
         _context: PullContext,
-    ) -> Result<Vec<IngestOutcome>, SchoolExecutorError> {
-        Ok(vec![IngestOutcome {
-            site: request.site,
-            kind: "test".into(),
-            state: "ok".into(),
-            changed: 0,
-            message: String::new(),
-        }])
+    ) -> crate::school_service::SchoolExecutorFuture<'_> {
+        Box::pin(async move {
+            Ok(vec![IngestOutcome {
+                site: request.site,
+                kind: "test".into(),
+                state: "ok".into(),
+                changed: 0,
+                message: String::new(),
+            }])
+        })
     }
 }
 
@@ -290,10 +290,13 @@ async fn shutdown_is_final_and_idempotent() {
     runtime.shutdown().await;
     runtime.resume().await;
 
-    assert_eq!(runtime.run(async { 42 }).await, Err(RuntimeStopped));
+    assert_eq!(
+        runtime.run(async { 42 }).await,
+        Err(RuntimeTaskError::Stopped)
+    );
     assert!(matches!(
         runtime.wake(services, false).await,
-        Err(RuntimeError::Stopped(RuntimeStopped))
+        Err(RuntimeError::Task(RuntimeTaskError::Stopped))
     ));
     runtime.shutdown().await;
 }

@@ -1,7 +1,14 @@
 //! Shared domain rules and state, independent of UI and platform frameworks.
 #![cfg_attr(
     not(test),
-    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::unreachable
+    )
 )]
 
 pub mod agent;

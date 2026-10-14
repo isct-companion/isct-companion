@@ -1,7 +1,14 @@
 //! Optional matrix-card OCR with no UI or platform-framework dependencies.
 #![cfg_attr(
     not(test),
-    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::unreachable
+    )
 )]
 
 mod recognition;

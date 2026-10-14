@@ -5,7 +5,7 @@ mod journal;
 use crate::{
     backup::{BackupError, BackupService},
     data::cloud_merge,
-    runtime_tasks::RuntimeTasks,
+    runtime_tasks::{RuntimeTaskError, RuntimeTasks},
 };
 use journal::{version, Job, Journal, JournalStore};
 use serde::{Deserialize, Serialize};
@@ -126,6 +126,19 @@ pub enum CloudSyncError {
     Interrupted,
     #[error("The cloud sync service has stopped.")]
     Stopped,
+    #[error("Cloud sync worker failed; the saved task will retry.")]
+    Task(#[source] RuntimeTaskError),
+    #[error("Cloud storage worker failed; the saved task will retry.")]
+    StorageTask(#[source] RuntimeTaskError),
+}
+
+impl From<RuntimeTaskError> for CloudSyncError {
+    fn from(error: RuntimeTaskError) -> Self {
+        match error {
+            RuntimeTaskError::Stopped => Self::Stopped,
+            other => Self::Task(other),
+        }
+    }
 }
 
 pub type CloudFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CloudSyncError>> + Send + 'a>>;
@@ -235,7 +248,7 @@ impl CloudSync {
                 Ok(())
             })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     pub async fn provider_result(
@@ -253,7 +266,7 @@ impl CloudSync {
                 service.provider_result_inner(&services, provider, enabled, error)
             })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     pub async fn set_enabled(
@@ -271,7 +284,7 @@ impl CloudSync {
                     .await
             })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     pub async fn set_automatic(
@@ -292,7 +305,7 @@ impl CloudSync {
                 service.state()
             })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     pub async fn sync(
@@ -317,7 +330,7 @@ impl CloudSync {
                 service.resume_inner(&services).await
             })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     /// Replay pending work after startup or a native lifecycle wake.
@@ -327,7 +340,7 @@ impl CloudSync {
             .tasks
             .run(async move { service.resume_inner(&services).await })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     pub async fn prepare_reset(&self, services: CloudServices) -> Result<(), CloudSyncError> {
@@ -336,7 +349,7 @@ impl CloudSync {
             .tasks
             .run(async move { service.prepare_reset_inner(&services).await })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     pub async fn restore(
@@ -349,7 +362,7 @@ impl CloudSync {
             .tasks
             .run(async move { service.restore_inner(&services, &id).await })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     /// Import an already decoded backup through the same durable restore path
@@ -364,7 +377,7 @@ impl CloudSync {
             .tasks
             .run(async move { service.restore_document_inner(&services, document).await })
             .await
-            .map_err(|_| CloudSyncError::Stopped)?
+            .map_err(CloudSyncError::from)?
     }
 
     pub fn recovery_document(&self, id: &str) -> Result<String, CloudSyncError> {
@@ -547,9 +560,7 @@ impl CloudSync {
         let result =
             match tokio::spawn(async move { worker.run_queue(&worker_services).await }).await {
                 Ok(result) => result,
-                Err(_) => Err(CloudSyncError::Transport(
-                    "Cloud sync worker failed; the saved task will retry.".into(),
-                )),
+                Err(error) => Err(CloudSyncError::Task(error.into())),
             };
         let settled = self.0.journal.change(|journal| {
             journal.state.syncing = false;
@@ -1068,9 +1079,9 @@ async fn snapshot(backup: &BackupService) -> Result<Value, CloudSyncError> {
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, CloudSyncError> + Send + 'static,
 ) -> Result<T, CloudSyncError> {
-    tokio::task::spawn_blocking(work).await.map_err(|_| {
-        CloudSyncError::Storage("Cloud storage worker failed; the saved task will retry.".into())
-    })?
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| CloudSyncError::StorageTask(error.into()))?
 }
 
 #[cfg(test)]

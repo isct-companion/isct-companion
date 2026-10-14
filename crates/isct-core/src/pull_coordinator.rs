@@ -24,10 +24,26 @@ use url::Url;
 pub enum PullError {
     #[error("{0}")]
     InvalidTarget(String),
+    #[error("{0}")]
+    InvalidInput(String),
+    #[error("{0}")]
+    Authentication(String),
+    #[error("{0}")]
+    Network(String),
+    #[error("{0}")]
+    Storage(String),
+    #[error("{0}")]
+    Timeout(String),
+    #[error("{0}")]
+    ServiceStopped(String),
+    #[error("{0}")]
+    SiteChanged(String),
     #[error("Pull cancelled.")]
     Cancelled,
     #[error("Pull coordinator stopped unexpectedly.")]
     CoordinatorStopped,
+    #[error("The async runtime is unavailable.")]
+    RuntimeUnavailable,
     #[error("Pull executor panicked.")]
     ExecutorPanicked,
     #[error("Pull executor was cancelled unexpectedly.")]
@@ -585,6 +601,7 @@ impl PullCoordinator {
         F: Fn(PullContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Value, PullError>> + Send + 'static,
     {
+        tokio::runtime::Handle::try_current().map_err(|_| PullError::RuntimeUnavailable)?;
         let target = target.normalized()?;
         let work: PullWork = Arc::new(move |context| Box::pin(work(context)));
         let (sender, receiver) = oneshot::channel();
@@ -1098,8 +1115,13 @@ fn settle_waiters(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::task::noop_waker_ref;
     use serde_json::json;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{
+        future::Future,
+        sync::atomic::{AtomicUsize, Ordering},
+        task::{Context, Poll},
+    };
 
     fn reference(kind: &str) -> PullTarget {
         PullTarget::Reference {
@@ -1154,6 +1176,25 @@ mod tests {
                 assert!(!transition.diagnostic.is_empty());
             }
         }
+    }
+
+    #[test]
+    fn run_without_an_async_runtime_fails_before_admission() {
+        let coordinator = PullCoordinator::default();
+        let mut request = Box::pin(coordinator.run(
+            reference("no-runtime"),
+            PullOptions::manual(),
+            |_| async { Ok(json!(true)) },
+        ));
+        let mut context = Context::from_waker(noop_waker_ref());
+        assert_eq!(
+            Future::poll(request.as_mut(), &mut context),
+            Poll::Ready(Err(PullError::RuntimeUnavailable))
+        );
+        drop(request);
+        let state = coordinator.0.state.try_lock().unwrap();
+        assert!(state.jobs.is_empty());
+        assert!(state.queue.is_empty());
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Shared refresh lifetime. Shells supply facts, adapters and periodic wakeups.
 use crate::{
     pull_coordinator::{PullCoordinator, PullNetwork},
-    runtime_tasks::{RuntimeStopped, RuntimeTasks},
+    runtime_tasks::{RuntimeTaskError, RuntimeTasks},
     scheduler::{Scheduler, SchedulerError, SchedulerServices},
     school_refresh::SchoolRefresh,
     school_service::SchoolError,
@@ -18,7 +18,7 @@ use std::{
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error(transparent)]
-    Stopped(#[from] RuntimeStopped),
+    Task(#[from] RuntimeTaskError),
     #[error(transparent)]
     School(#[from] SchoolError),
     #[error("Refresh clock is unavailable.")]
@@ -76,7 +76,7 @@ impl CoreRuntime {
     ) -> Result<(), RuntimeError> {
         let _lifecycle = self.lifecycle.lock().await;
         if self.tasks.is_closed() {
-            return Err(RuntimeStopped.into());
+            return Err(RuntimeTaskError::Stopped.into());
         }
         if self.suspended.load(Ordering::Acquire) {
             return Ok(());
@@ -122,7 +122,7 @@ impl CoreRuntime {
     pub async fn run<T: Send + 'static>(
         &self,
         work: impl Future<Output = T> + Send + 'static,
-    ) -> Result<T, RuntimeStopped> {
+    ) -> Result<T, RuntimeTaskError> {
         self.tasks.run(work).await
     }
 
@@ -130,7 +130,7 @@ impl CoreRuntime {
         self: &Arc<Self>,
         services: SchedulerServices,
         id: String,
-    ) -> Result<Result<String, SchedulerError>, RuntimeStopped> {
+    ) -> Result<Result<String, SchedulerError>, RuntimeTaskError> {
         let runtime = self.clone();
         self.run(async move { runtime.scheduler.run_now(&services, &id).await })
             .await
