@@ -888,12 +888,14 @@ impl PullCoordinator {
         let mut retry = None;
         {
             let mut state = self.0.state.lock().await;
+            // The lane was occupied for this run when it started, whatever
+            // happened to its job since; never leave it held.
+            release_lane(&mut state, lane);
             if state.jobs.get(&id).is_none_or(|job| job.run_id != run_id) {
                 publish_locked(&self.0, &state);
                 self.kick();
                 return;
             }
-            release_lane(&mut state, lane);
             let closed = state.closed;
             {
                 let Some(job) = state.jobs.get_mut(&id) else {
@@ -2132,6 +2134,25 @@ mod tests {
             snapshot.state,
             PullState::Succeeded | PullState::Failed | PullState::Cancelled
         )));
+    }
+
+    #[tokio::test]
+    async fn finishing_an_unknown_run_still_releases_its_lane() {
+        let coordinator = PullCoordinator::default();
+        occupy_lane(&mut *coordinator.0.state.lock().await, PullLane::School);
+        coordinator
+            .finish("pull-missing".into(), 7, PullLane::School, Ok(Value::Null))
+            .await;
+        assert!(!coordinator.0.state.lock().await.school_running);
+        assert_eq!(
+            coordinator
+                .run(lms(None), PullOptions::manual(), |_| async {
+                    Ok(json!("ran"))
+                })
+                .await
+                .unwrap(),
+            json!("ran")
+        );
     }
 
     #[tokio::test]
