@@ -9,7 +9,7 @@ use super::{
 use crate::{
     data::DataStore,
     events::CoreEvent,
-    kyomu_ingest::{apply_kyomu_payload, KYOMU_EXTRACT_SCRIPT},
+    kyomu_ingest::{apply_kyomu_payload, record_kyomu_unavailable, KYOMU_EXTRACT_SCRIPT},
     lifecycle::SchoolSite,
     lms_ingest::{apply_lms_payload, LMS_EXTRACT_SCRIPT},
     ports::EventSink,

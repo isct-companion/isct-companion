@@ -194,10 +194,38 @@ export function CourseFinder({
   const duplicates = view?.duplicates ?? 0;
   const onTimetable = new Set(view?.onTimetable ?? []);
   const ineligible = new Set(view?.ineligibleIds ?? []);
+  const eligibilityLabel = (id: string) => {
+    switch (view?.eligibility[id]?.reason) {
+      case "undergraduateFirstYearUpperLevel":
+        return t("Not available to regular first-year undergraduate students");
+      case "masterFirstSemesterHumanitiesUpperLevel":
+        return t("Available to master's students from their second semester");
+      case "graduateCourseApprovalRequired":
+        return t(
+          "Course approval after the research proposal presentation must be confirmed",
+        );
+      case "leadershipWorkshopGradeRequired":
+        return t(
+          "A Leadership Workshop grade of 80 or higher must be confirmed",
+        );
+      case "doctoralFirstSemesterGenerallyRestricted":
+        return t(
+          "Generally unavailable during the first six months; confirm any exception",
+        );
+      case "doctoralFirstSemesterRestricted":
+        return t("Not available during the first six months of doctoral study");
+      case "separateApplicationRequired":
+        return t("A separate course application must be confirmed");
+      case "ruleYearUnsupported":
+        return t(
+          "This rule is not yet verified for the selected academic year",
+        );
+      default:
+        return undefined;
+    }
+  };
   const unavailableLabel = (id: string) =>
-    view?.eligibility[id]?.reason === "undergraduateFirstYearUpperLevel"
-      ? t("Not available to regular first-year undergraduate students")
-      : t("Not available for this study profile");
+    eligibilityLabel(id) ?? t("Not available for this study profile");
 
   // Pills the syllabus understands become one search (no paging, ≤100 rows);
   // detail pages are then fetched for those rows only, a few at a time.
@@ -705,6 +733,10 @@ export function CourseFinder({
         {shown.map(({ course, matched }) => {
           const placed = onTimetable.has(course.code);
           const unavailable = ineligible.has(course.id);
+          const eligibilityNote = eligibilityLabel(course.id);
+          const eligibilityUnknown =
+            view?.eligibility[course.id]?.status === "unknown" &&
+            Boolean(eligibilityNote);
           const rec = view?.context.recommended[course.code];
           const clash = !placed && Boolean(view?.clashes.includes(course.id));
           const replacing =
@@ -755,6 +787,9 @@ export function CourseFinder({
                   {clash && <i className="clash">{t("Conflict")}</i>}
                   {unavailable && (
                     <i className="clash">{unavailableLabel(course.id)}</i>
+                  )}
+                  {eligibilityUnknown && (
+                    <i className="eligibilityUnknown">{eligibilityNote}</i>
                   )}
                 </span>
               </button>

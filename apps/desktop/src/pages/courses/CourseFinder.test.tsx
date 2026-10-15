@@ -169,3 +169,41 @@ it("shows first-year upper-level courses but disables every add path", async () 
   );
   expect(add).not.toHaveBeenCalled();
 });
+
+it("shows an actionable unknown rule without disabling planning", async () => {
+  finder.useQuery.mockReturnValue({
+    value: {
+      ...view,
+      eligibility: {
+        [course.id]: {
+          status: "unknown",
+          reason: "graduateCourseApprovalRequired",
+        },
+      },
+    },
+    pending: false,
+  });
+  await act(async () =>
+    root.render(
+      <MantineProvider>
+        <CourseFinder
+          year={2026}
+          term="2026-3Q"
+          language="en"
+          keys={[]}
+          edit={async () => view}
+          replaceKeys={() => {}}
+          add={async () => {}}
+          undo={async () => {}}
+        />
+      </MantineProvider>,
+    ),
+  );
+
+  expect(host.querySelector<HTMLButtonElement>(".finderAdd")?.disabled).toBe(
+    false,
+  );
+  expect(host.textContent).toContain(
+    "Course approval after the research proposal presentation must be confirmed",
+  );
+});

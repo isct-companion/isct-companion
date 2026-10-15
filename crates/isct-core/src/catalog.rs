@@ -35,7 +35,10 @@ pub async fn syllabus_course(
     let content = preferred
         .map(|row| serde_json::to_value(&row.content))
         .transpose()?;
-    crate::workspace::catalog_course(&offering, &language, content.as_ref())
+    let workspace = store.load_workspace()?;
+    let teaching_periods = crate::schedule::teaching_periods(&workspace)
+        .map_err(|error| CatalogError::InvalidInput(error.to_string()))?;
+    crate::workspace::catalog_course(&offering, &language, content.as_ref(), &teaching_periods)
         .map_err(|error| CatalogError::InvalidInput(error.to_string()))
 }
 

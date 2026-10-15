@@ -109,6 +109,7 @@ let revision = "fixture:before";
 const intents: WorkspaceIntent[] = [];
 const schoolRecords = {
   lastRuns: {},
+  pageAvailability: {},
   lmsCourses: [],
   registrations: [],
   registrationStates: [],

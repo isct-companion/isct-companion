@@ -7,144 +7,9 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-/// App-owned, read-only reader for the four approved 教務 pages. It only
+/// App-owned, read-only reader for the five approved 教務 pages. It only
 /// inspects the current document and returns plain data through the relay.
-pub const KYOMU_EXTRACT_SCRIPT: &str = r#"(() => {
-  const clean = value => String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
-  const text = (root, selector) => clean(root.querySelector(selector)?.textContent);
-  const cells = row => [...row.querySelectorAll(':scope > th, :scope > td')].map(cell => clean(cell.textContent));
-  const sourceUrl = location.href;
-  const allowed = new Map([
-    ['/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx','registrations'],
-    ['/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx','declared'],
-    ['/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx','grades'],
-    ['/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx','requirements'],
-    ['/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx','gpa']
-  ]);
-  const kind = allowed.get(location.pathname);
-  const login = location.hostname !== 'kyomu0.gakumu.titech.ac.jp' || !kind
-    || Boolean(document.querySelector('input[type=password], form[action*="login" i]'));
-  if (login) return {status:'login', sourceUrl, kind:kind || 'unknown', data:{}};
-  const requirement = raw => {
-    const match = clean(raw).match(/^([A-Z])\s*\((◎|○|選択)\)$/);
-    return match ? {category:match[1], mark:match[2] === '◎' ? 'required'
-      : match[2] === '○' ? 'recommended' : 'elective'} : {raw:clean(raw)};
-  };
-  // One meeting per <br> line: `3Q：火3-4`, `3～4Q：金7-8` (once per quarter).
-  const lines = el => {
-    if (!el) return [];
-    const copy = el.cloneNode(true);
-    copy.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-    return copy.textContent.split('\n').map(clean).filter(Boolean);
-  };
-  const schedule = rows => rows.flatMap(part => {
-    const match = part.match(/^([1-4])(?:\s*[~〜-]\s*([1-4]))?Q[:：]\s*([月火水木金土日])\s*(\d+)\s*[-–〜~]\s*(\d+)/);
-    if (!match) return [{raw:part}];
-    const from = Number(match[1]), to = Number(match[2] || match[1]);
-    const first = Number(match[4]), last = Number(match[5]);
-    const periods = Array.from({length:last-first+1},(_,i)=>first+i);
-    return Array.from({length:to-from+1},(_,i)=>({quarter:(from+i)+'Q', day:match[3], periods}));
-  });
-  if (kind === 'registrations') {
-    const rawState = text(document,'#ctl00_ContentPlaceHolder1_ctl00_lblStatus2');
-    const stateMap = {'一時保存':'saved','要エラーチェック':'needs-check','本登録可能':'registrable',
-      '承認待ち':'needs-approval','要承認申請':'needs-approval','承認待ち / 要承認申請':'needs-approval',
-      '承認待ち/要承認申請':'needs-approval','本登録不可':'rejected',
-      '本登録':'registered','本登録済':'registered'};
-    const seen = new Set(), courses = [];
-    for (const block of document.querySelectorAll('table#timetable [data-jwc]')) {
-      const offeringId = clean(block.getAttribute('data-jwc'));
-      if (!/^\d{9}$/.test(offeringId) || seen.has(offeringId)) continue;
-      seen.add(offeringId);
-      const classes = [...block.classList, ...(block.closest('td')?.classList || [])];
-      const courseState = classes.includes('timetableError') ? 'rejected'
-        : classes.some(c => c === 'timetableAlert1' || c === 'timetableAlert2' || c === 'timetableAlert3' || c === 'timetableAlert22') ? 'needs-approval'
-        : classes.includes('timetableUnchecked') ? 'needs-check' : 'registrable';
-      // .ttYoubi2 is .ttYoubi without the rooms.
-      const times = lines(block.querySelector('.ttYoubi2') || block.querySelector('.ttYoubi'));
-      courses.push({offeringId,title:text(block,'.ttKamokuName a'),code:text(block,'.ttSinkokuNo'),
-        instructor:text(block,'.ttKyoin'),schedule:schedule(times),requirement:requirement(text(block,'.ttSuisho')),
-        courseState,declaredOnly:false});
-    }
-    for (const table of document.querySelectorAll('table[id^="kamokuUnit_"][id$="_gvKamoku"]')) {
-      const headers = [...table.querySelectorAll('tr:first-child th')].map(th => clean(th.textContent));
-      for (const row of [...table.querySelectorAll('tr')].slice(1)) {
-        if (clean(row.textContent).includes('対象データはありません')) continue;
-        const link = row.querySelector('a.kamokuGridKamokuName');
-        const offeringId = new URL(link?.href || location.href).searchParams.get('jwc') || '';
-        if (!/^\d{9}$/.test(offeringId) || seen.has(offeringId)) continue;
-        seen.add(offeringId);
-        const values = cells(row), at = label => values[headers.findIndex(h => h.includes(label))] || '';
-        const creditRaw = text(row,'span.resultUnitKamokuTaniSP');
-        const credit = creditRaw.match(/\[\s*([\d.]+)-([\d.]+)-([\d.]+)\s*\]/);
-        const rawSchedule = text(row,'td.tdYoubi');
-        const times = lines(row.querySelector('td.tdYoubi'));
-        courses.push({offeringId,title:clean(link?.textContent),code:text(row,'span.resultUnitKamokuCodeSP'),
-          instructor:at('授業担当教員'),schedule:schedule(times),declaredOnly:rawSchedule === '申告専用',
-          requirement:requirement(at('備考')),credits:credit ? {lecture:Number(credit[1]),exercise:Number(credit[2]),lab:Number(credit[3])}:null});
-      }
-    }
-    const savedRaw = text(document,'#ctl00_ContentPlaceHolder1_ctl00_lblStatus3');
-    const savedMatch = savedRaw.match(/(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
-    const savedAt = savedMatch ? `${savedMatch[1]}-${savedMatch[2]}-${savedMatch[3]}T${savedMatch[4]}:${savedMatch[5]}:${savedMatch[6]}+09:00` : null;
-    return {status:document.querySelector('#divSinkokuStatus')?'ok':'login',sourceUrl,kind,
-      data:{state:{state:stateMap[rawState]||'unknown',raw:rawState,savedAt},courses}};
-  }
-  if (kind === 'declared') {
-    // 科目から: every declared course with its quarter and credit split. Each
-    // category table states its own total (#…_{unit}_spanSum); that total is
-    // authoritative (e.g. two 0-0-1 PE rows that total 1.0).
-    const courses = [];
-    for (const table of document.querySelectorAll('table[id^="kamokuUnit_"][id$="_gvKamoku"]')) {
-      const unit = table.id.replace(/_gvKamoku$/, '');
-      const sumText = text(document, '#ctl00_ContentPlaceHolder1_' + unit + '_spanSum');
-      const sum = Number((sumText.match(/([\d.]+)/) || [])[1]);
-      for (const row of table.querySelectorAll('tr')) {
-        const link = row.querySelector('a.kamokuGridKamokuName');
-        if (!link) continue;
-        const offeringId = new URL(link.href, location.href).searchParams.get('jwc') || '';
-        if (!/^\d{9}$/.test(offeringId)) continue;
-        const range = text(row, 'td.tdQ').match(/^([1-4])(?:\s*-\s*([1-4]))?$/);
-        const credit = text(row, 'span.resultUnitKamokuTaniSP').match(/\[\s*([\d.]+)-([\d.]+)-([\d.]+)\s*\]/);
-        courses.push({offeringId, unit, unitTotal:Number.isFinite(sum) ? sum : null,
-          code:text(row, 'span.resultUnitKamokuCodeSP'), title:clean(link.textContent),
-          quarters:range ? Array.from({length:Number(range[2] || range[1]) - Number(range[1]) + 1}, (_, i) => Number(range[1]) + i) : [],
-          credits:credit ? {lecture:Number(credit[1]), exercise:Number(credit[2]), lab:Number(credit[3])} : null});
-      }
-    }
-    return {status:document.querySelector('table[id^="kamokuUnit_"]') ? 'ok' : 'login', sourceUrl, kind, data:{courses}};
-  }
-  if (kind === 'grades') {
-    const groups = [], nodes = document.querySelectorAll('h3[id$="_h3"], table[id$="_grid"]');
-    let category = '';
-    for (const node of nodes) {
-      if (node.matches('h3')) { category = clean(node.textContent); continue; }
-      const rows = [];
-      for (const row of node.querySelectorAll('tr')) {
-        const title = text(row,'td.resultUnitKamokuName');
-        if (!title) continue;
-        rows.push({title,code:text(row,'td.resultUnitSuisho + td.mediaPC') || text(row,'span.resultUnitKamokuCodeSP'),
-          recommended:text(row,'td.resultUnitSuisho'),credits:text(row,'td.resultUnitTani'),result:text(row,'td.resultUnitSeiseki'),
-          quarter:[...row.querySelectorAll('[class*="tdQuarter"]')].map(x=>clean(x.textContent)).join(' '),completed:text(row,'td.resultUnitYG span.mediaPC')});
-      }
-      if (category && rows.length) groups.push({category,rows});
-    }
-    return {status:'ok',sourceUrl,kind,data:{groups}};
-  }
-  if (kind === 'requirements') {
-    const tables = [...document.querySelectorAll('div.tableSet02Tbl table.tblYouken')].map(table => {
-      const rows = [...table.querySelectorAll('tr')].map(cells).filter(row => row.length);
-      return {headers:rows[0] || [],rows:rows.slice(1).map(row=>({label:row[0]||'',values:row.slice(1)}))};
-    });
-    return {status:tables.length===2?'ok':'error',sourceUrl,kind,data:{tables}};
-  }
-  const categories = [...document.querySelectorAll('h3[id$="_h3"]')].map(h => {
-    const match = h.id.match(/resultUnit_(\d+)_h3$/); return match ? {code:match[1],name:clean(h.textContent)} : null;
-  }).filter(Boolean);
-  const overall = [...document.querySelectorAll('table.tblGPASummary.mediaPC')].map(table=>[...table.querySelectorAll('tr')].map(cells));
-  const terms = [...document.querySelectorAll('table.tblQ tr')].map(cells).filter(row=>row.length);
-  return {status:'ok',sourceUrl,kind,data:{categories,overall,terms}};
-})()"#;
+pub const KYOMU_EXTRACT_SCRIPT: &str = include_str!("school_browser/assets/kyomu-extract.js");
 
 fn upsert(
     tx: &Transaction<'_>,
@@ -400,6 +265,32 @@ pub fn declared_credits(data: &Value) -> Vec<Value> {
         .collect()
 }
 
+fn grade_row_id(
+    graduate_flat: bool,
+    section: &str,
+    row: &Value,
+    index: usize,
+) -> Result<String, IngestError> {
+    let code = row.get("code").and_then(Value::as_str).unwrap_or("");
+    let completed = row.get("completed").and_then(Value::as_str).unwrap_or("");
+    if !graduate_flat {
+        return Ok(format!("kyomu-grade:{code}:{completed}:{index}"));
+    }
+    let normalized = |value: &str| value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let section = normalized(section);
+    let title = normalized(row.get("title").and_then(Value::as_str).unwrap_or(""));
+    let completed = normalized(completed);
+    if section.is_empty() || title.is_empty() || completed.is_empty() {
+        return Err("graduate grade identity is incomplete".into());
+    }
+    let identity = content_hash(&json!({
+        "section": section,
+        "title": title,
+        "completed": completed,
+    }))?;
+    Ok(format!("kyomu-grade:flat:{identity}"))
+}
+
 pub fn apply_kyomu_payload(
     connection: &mut Connection,
     payload: &KyomuPayload,
@@ -482,6 +373,8 @@ pub fn apply_kyomu_payload(
         }
         "grades" => {
             let mut live = HashSet::new();
+            let graduate_flat =
+                payload.data.get("shape").and_then(Value::as_str) == Some("graduate-flat");
             for group in payload
                 .data
                 .get("groups")
@@ -490,6 +383,7 @@ pub fn apply_kyomu_payload(
                 .flatten()
             {
                 let category = group.get("category").and_then(Value::as_str).unwrap_or("");
+                let section = group.get("section").and_then(Value::as_str).unwrap_or("");
                 for (index, row) in group
                     .get("rows")
                     .and_then(Value::as_array)
@@ -497,10 +391,10 @@ pub fn apply_kyomu_payload(
                     .flatten()
                     .enumerate()
                 {
-                    let code = row.get("code").and_then(Value::as_str).unwrap_or("");
-                    let completed = row.get("completed").and_then(Value::as_str).unwrap_or("");
-                    let id = format!("kyomu-grade:{code}:{completed}:{index}");
-                    live.insert(id.clone());
+                    let id = grade_row_id(graduate_flat, section, row, index)?;
+                    if !live.insert(id.clone()) {
+                        return Err("duplicate graduate grade identity".into());
+                    }
                     let mut value = row.clone();
                     if let Some(o) = value.as_object_mut() {
                         o.insert("id".into(), id.clone().into());
@@ -598,4 +492,78 @@ pub fn apply_kyomu_payload(
     .map_err(IngestError::from)?;
     tx.commit().map_err(IngestError::from)?;
     Ok(changed)
+}
+
+/// Persists a positive observation that an approved 教務 page is not offered
+/// to this account. Existing page-owned rows remain untouched, while refresh
+/// freshness and the UI can distinguish retained data from a current result.
+pub fn record_kyomu_unavailable(
+    connection: &Connection,
+    payload: &KyomuPayload,
+) -> Result<(), IngestError> {
+    let now = Utc::now().to_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO import_runs(id,provider,scope,state,started_at,finished_at,message)
+             VALUES(?1,'kyomu',?2,'unavailable',?3,?3,?4)",
+            params![
+                Uuid::new_v4().to_string(),
+                payload.kind,
+                now,
+                payload.message
+            ],
+        )
+        .map_err(IngestError::from)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graduate_grade_identity_survives_reordering_and_display_value_changes() {
+        let original = json!({
+            "title":" 先端システム論 ","instructor":"架空 教員",
+            "result":"B","completed":"2026年度 1Q"
+        });
+        let changed = json!({
+            "title":"先端システム論","instructor":"別の 教員",
+            "result":"A","completed":"2026年度 1Q"
+        });
+        assert_eq!(
+            grade_row_id(true, "graduate", &original, 7).unwrap(),
+            grade_row_id(true, "graduate", &changed, 0).unwrap()
+        );
+        assert_ne!(
+            grade_row_id(true, "graduate", &changed, 0).unwrap(),
+            grade_row_id(
+                true,
+                "graduate",
+                &json!({"title":"別科目","completed":"2026年度 1Q"}),
+                0
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn duplicate_graduate_grade_identity_rolls_back_the_page() {
+        let path = std::env::temp_dir().join(format!("isct-grade-id-{}.db", Uuid::new_v4()));
+        let store = crate::data::DataStore::initialize(path).unwrap().0;
+        let row = json!({"title":"先端システム論","completed":"2026年度 1Q","result":"A"});
+        let payload = KyomuPayload {
+            status: "ok".into(),
+            source_url: "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx".into(),
+            kind: "grades".into(),
+            data: json!({
+                "complete":true,"shape":"graduate-flat","empty":false,
+                "groups":[{"section":"graduate","category":"大学院科目","rows":[row.clone(),row]}]
+            }),
+            message: String::new(),
+        };
+        let mut connection = Connection::open(store.path()).unwrap();
+        assert!(apply_kyomu_payload(&mut connection, &payload).is_err());
+        assert!(store.table_rows("grades").unwrap().is_empty());
+    }
 }

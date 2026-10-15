@@ -54,6 +54,46 @@ Change size, separating embedded Rust test modules: production +1,076 / -145
 lines; tests +1,063 / -55; generated types +34 / -1. This follow-up adds study
 history and its editor, so it is a net addition rather than a reduction phase.
 
+## Graduate compatibility and teaching periods — 2026-10-15
+
+The [shared API](../core-api.md) now describes source-linked graduate planning
+rules, explicit professional-degree identity, page availability, and the typed
+`teachingPeriods` query. School registrations, grades and requirement results
+remain authoritative; missing approval or prerequisite facts produce `unknown`.
+
+Targeted checks at this checkpoint:
+
+- Core: 177 distinct tests across study profile, schedule, workspace, agent,
+  finder, catalog, ingestion/parsers, browser orchestration, refresh, scheduler,
+  subscriptions and persistence. This includes empty/unavailable preservation,
+  duplicate-grade rollback, stable graduate row identity, cross-quarter rules,
+  evening classes, custom clocks, ICS and reminders.
+- FFI: 16 tests, including professional identity, configured teaching periods,
+  the typed query, malformed foreign pair rejection and atomic rollback.
+- Desktop: 13 affected files / 106 tests. Thirteen tests execute the production
+  教務 extraction script against DOM fixtures; four exercise course-editor
+  preservation of period ranges and explicit custom time.
+- TypeScript and production frontend build, desktop `cargo check`, Rust format,
+  and Core/FFI strict Clippy passed. The existing Vite large-chunk advisory and
+  warnings in UniFFI-generated Kotlin remain.
+- Newly generated Swift 6 and Kotlin/JVM clients passed against the real Core,
+  including the default `teachingPeriods` query and 11–12 evening block. This
+  host run uses the default SDK features.
+
+The graduate DOM fixture is derived from the public 教務 student manual linked
+by the school, whose PDF was produced in 2017. It exercises the manual's separate
+graduate/undergraduate grade tables with synthetic data; it does not establish
+the current live DOM. No graduate account was available. Unknown or incomplete
+structures are rejected before page reconciliation. Without a server-provided
+manifest, a wholly absent table cannot be distinguished from an account-specific
+page shape; recognized sections must each have rows or explicit scoped empty
+evidence.
+
+Line accounting separates embedded Rust test modules and fixture files:
+production +1,969 / -470; tests +1,322 / -16; generated types +77 / -3. This phase
+adds graduate support and stricter import contracts, so it is a net addition.
+It removes independent clock tables and the mirrored private rule enum.
+
 ## Packaged-target CI
 
 [The iOS SDK job](https://github.com/isct-companion/isct-companion/actions/runs/38689356250/job/116271429048)

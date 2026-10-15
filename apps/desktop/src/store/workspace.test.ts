@@ -9,6 +9,7 @@ import { createBrowserPreviewService, createWorkspaceStore } from "./workspace";
 
 const schoolRecords = () => ({
   lastRuns: {},
+  pageAvailability: {},
   lmsCourses: [],
   registrations: [],
   registrationStates: [],

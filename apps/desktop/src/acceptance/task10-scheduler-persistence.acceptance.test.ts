@@ -5,6 +5,7 @@ import { createWorkspaceStore } from "../store/workspace";
 
 const emptySchoolRecords = {
   lastRuns: {},
+  pageAvailability: {},
   lmsCourses: [],
   registrations: [],
   registrationStates: [],

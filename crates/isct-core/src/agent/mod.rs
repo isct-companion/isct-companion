@@ -259,19 +259,11 @@ fn localized(value: Option<&Value>) -> String {
         .to_string()
 }
 
-fn clock(period: u64, end: bool) -> Option<&'static str> {
-    let pair = match period {
-        1 | 2 => ("08:50", "10:30"),
-        3 | 4 => ("10:45", "12:25"),
-        5 | 6 => ("13:30", "15:10"),
-        7 | 8 => ("15:25", "17:05"),
-        9 | 10 => ("17:15", "18:55"),
-        _ => return None,
-    };
-    Some(if end { pair.1 } else { pair.0 })
-}
-
-fn course_from_offering(offering: &Value, term: &str) -> Result<Value, AgentError> {
+fn course_from_offering(
+    offering: &Value,
+    term: &str,
+    teaching_periods: &[crate::schedule::TeachingPeriod],
+) -> Result<Value, AgentError> {
     let offering_id = offering
         .get("id")
         .and_then(Value::as_str)
@@ -298,10 +290,13 @@ fn course_from_offering(offering: &Value, term: &str) -> Result<Value, AgentErro
             let periods = entry.get("periods")?.as_array()?;
             let from = periods.first()?.as_u64()?;
             let to = periods.get(1)?.as_u64()?;
+            let bounds = [u8::try_from(from).ok()?, u8::try_from(to).ok()?];
+            let (start_time, end_time) =
+                crate::schedule::clock_for_periods(teaching_periods, bounds).ok()?;
             Some(json!({
                 "days":[entry.get("day")?.as_u64()?],
                 "periods":(from..=to).collect::<Vec<_>>(),
-                "startTime":clock(from, false)?, "endTime":clock(to, true)?,
+                "startTime":start_time, "endTime":end_time,
                 "room":localized(entry.get("room")), "roomNames":entry.get("room")
             }))
         })
@@ -599,7 +594,9 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                         text(row, "id") == Some(canonical.as_str())
                             || text(row, "offeringId") == Some(offering_id)
                     });
-                let course_value = course_from_offering(&offering, term)
+                let teaching_periods = crate::schedule::teaching_periods(&latest_workspace)
+                    .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+                let course_value = course_from_offering(&offering, term, &teaching_periods)
                     .map_err(|error| DataError::InvalidInput(error.to_string()))?;
                 let stored_course = write
                     .rows("manual_courses")?

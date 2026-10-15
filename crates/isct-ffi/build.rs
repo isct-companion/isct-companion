@@ -53,6 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "workspace.rs",
         "study_profile.rs",
         "schedule/mod.rs",
+        "schedule/timing.rs",
         "schedule/calendar.rs",
         "schedule/occurrence.rs",
         "schedule/tasks.rs",

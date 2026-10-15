@@ -14,7 +14,11 @@ import type {
   PersonalEvent,
   TermId,
 } from "../../lib/model";
-import { classSlots } from "../../lib/timetable-layout";
+import {
+  classSlots as teachingClassSlots,
+  type ClassSlot,
+} from "../../lib/timetable-layout";
+import type { TeachingPeriod } from "../../generated/persistence";
 import { dayNames } from "../../components/timetable/timetable";
 import {
   Checkbox,
@@ -30,6 +34,7 @@ const palette = COURSE_PALETTE;
 
 type MeetingRow = {
   days: number[];
+  periods: number[];
   slot: string;
   startTime: string;
   endTime: string;
@@ -48,21 +53,36 @@ export type CourseDraft = {
   onTimetable: boolean;
 };
 
-const slotFor = (meeting: Meeting) =>
+const periodRangeSlot = (periods: readonly number[]) =>
+  `periods:${periods.join(",")}`;
+
+const slotFor = (meeting: Meeting, classSlots: readonly ClassSlot[]) =>
   classSlots.find(
-    (slot) => slot.start === meeting.startTime && slot.end === meeting.endTime,
-  )?.label ?? "custom";
+    (slot) =>
+      meeting.periods.length === slot.periods.length &&
+      meeting.periods.every((period, index) => period === slot.periods[index]),
+  )?.label ??
+  (meeting.periods.length ? periodRangeSlot(meeting.periods) : "custom");
 
-const rowFromMeeting = (meeting: Meeting): MeetingRow => ({
-  days: [...meeting.days],
-  slot: slotFor(meeting),
-  startTime: meeting.startTime,
-  endTime: meeting.endTime,
-  room: meeting.room,
-});
+const rowFromMeeting = (
+  meeting: Meeting,
+  classSlots: readonly ClassSlot[],
+): MeetingRow => {
+  const slot = slotFor(meeting, classSlots);
+  const teachingSlot = classSlots.find((candidate) => candidate.label === slot);
+  return {
+    days: [...meeting.days],
+    periods: [...meeting.periods],
+    slot,
+    startTime: teachingSlot?.start ?? meeting.startTime,
+    endTime: teachingSlot?.end ?? meeting.endTime,
+    room: meeting.room,
+  };
+};
 
-const blankRow = (): MeetingRow => ({
+const blankRow = (classSlots: readonly ClassSlot[]): MeetingRow => ({
   days: [],
+  periods: [...classSlots[0].periods],
   slot: classSlots[0].label,
   startTime: classSlots[0].start,
   endTime: classSlots[0].end,
@@ -101,6 +121,7 @@ export function CourseEditor({
   onClose,
   onSave,
   onDelete,
+  teachingPeriods,
 }: {
   course?: Course;
   fetchSyllabus?: (url: string) => Promise<SyllabusCourse>;
@@ -109,8 +130,10 @@ export function CourseEditor({
   onClose: () => void;
   onSave: (draft: CourseDraft) => Promise<unknown> | void;
   onDelete?: () => Promise<unknown> | void;
+  teachingPeriods: readonly TeachingPeriod[];
 }) {
   const submission = useSubmissionGuard();
+  const classSlots = teachingClassSlots(teachingPeriods);
   const [values, setValues] = useState({
     title: course?.title ?? "",
     code: course?.code ?? "",
@@ -123,8 +146,8 @@ export function CourseEditor({
   });
   const [rows, setRows] = useState<MeetingRow[]>(() =>
     course?.meetings.length
-      ? course.meetings.map(rowFromMeeting)
-      : [blankRow()],
+      ? course.meetings.map((meeting) => rowFromMeeting(meeting, classSlots))
+      : [blankRow(classSlots)],
   );
   const [error, setError] = useState("");
   const setRow = (index: number, patch: Partial<MeetingRow>) =>
@@ -138,10 +161,9 @@ export function CourseEditor({
       if (!row.days.length) continue;
       if (row.startTime >= row.endTime)
         return setError("A meeting must end after it starts.");
-      const slot = classSlots.find((s) => s.label === row.slot);
       meetings.push({
         days: row.days,
-        periods: slot ? [...slot.periods] : [],
+        periods: [...row.periods],
         startTime: row.startTime,
         endTime: row.endTime,
         room: row.room.trim(),
@@ -301,7 +323,7 @@ export function CourseEditor({
               <UiButton
                 type="button"
                 className="button small"
-                onClick={() => setRows([...rows, blankRow()])}
+                onClick={() => setRows([...rows, blankRow(classSlots)])}
               >
                 {t("＋ Add")}
               </UiButton>
@@ -322,6 +344,11 @@ export function CourseEditor({
                       );
                       setRow(index, {
                         slot: e.target.value,
+                        periods: slot
+                          ? [...slot.periods]
+                          : e.target.value === "custom"
+                            ? []
+                            : row.periods,
                         startTime: slot?.start ?? row.startTime,
                         endTime: slot?.end ?? row.endTime,
                       });
@@ -332,6 +359,13 @@ export function CourseEditor({
                         {slot.label} · {slot.start}–{slot.end}
                       </option>
                     ))}
+                    {row.periods.length > 0 &&
+                      !classSlots.some((slot) => slot.label === row.slot) && (
+                        <option value={row.slot}>
+                          {row.periods[0]}-{row.periods.at(-1)} ·{" "}
+                          {row.startTime}–{row.endTime}
+                        </option>
+                      )}
                     <option value="custom">Custom time</option>
                   </UiSelect>
                   {row.slot === "custom" && (

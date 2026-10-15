@@ -9,6 +9,8 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{future::Future, pin::Pin, sync::Arc};
+#[cfg(feature = "ts")]
+use ts_rs::TS;
 
 /// One extractor result. The wire contract is shared by desktop and mobile.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -26,8 +28,42 @@ pub struct IngestOutcome {
 #[serde(rename_all = "kebab-case")]
 pub enum IngestState {
     Ok,
+    Unavailable,
     ReconnectRequired,
     Error,
+}
+
+impl IngestState {
+    /// Unavailable is a complete capability observation, not a failed pull.
+    pub fn is_problem(self) -> bool {
+        matches!(self, Self::ReconnectRequired | Self::Error)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "kebab-case")]
+pub enum SchoolPageAvailabilityState {
+    Available,
+    Unavailable,
+}
+
+/// Latest authoritative capability observation for one school page.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolPageAvailability {
+    pub state: SchoolPageAvailabilityState,
+    pub checked_at: String,
+    pub message: String,
+}
+
+#[cfg(feature = "ts")]
+pub fn declarations() -> Vec<String> {
+    vec![
+        SchoolPageAvailabilityState::decl(),
+        SchoolPageAvailability::decl(),
+    ]
 }
 
 /// One coordinated request consumed by the Core school browser engine.
@@ -214,9 +250,7 @@ impl SchoolService {
                         }
                         // Partial outcomes already committed useful rows. Preserve the
                         // result while marking the coordinator snapshot as failed.
-                        if let Some(problem) =
-                            result.iter().find(|row| row.state != IngestState::Ok)
-                        {
+                        if let Some(problem) = result.iter().find(|row| row.state.is_problem()) {
                             context.outcome_error(problem.message.clone()).await;
                         }
                         serde_json::to_value(result)

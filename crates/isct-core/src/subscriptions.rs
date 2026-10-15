@@ -656,7 +656,7 @@ pub fn validate_exam_feed(
             _ => return Err(format!("exam {} has an incomplete exact time", entry.id).into()),
         };
         let periods = entry.periods.as_ref().is_some_and(|p| {
-            p.len() == 2 && (1..=10).contains(&p[0]) && p[0] <= p[1] && p[1] <= 10
+            p.len() == 2 && crate::schedule::validate_period_range([p[0], p[1]]).is_ok()
         });
         if !ids.insert(entry.id.as_str())
             || entry.id.trim().is_empty()

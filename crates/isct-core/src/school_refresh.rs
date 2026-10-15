@@ -7,7 +7,7 @@ use crate::{
     pull_coordinator::{PullConditions, PullCoordinator, PullNetwork, PullOptions},
     runtime_tasks::RuntimeTasks,
     school_auth::SchoolAuthProfile,
-    school_service::{IngestState, SchoolError, SchoolExecutor, SchoolService},
+    school_service::{SchoolError, SchoolExecutor, SchoolService},
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -231,7 +231,7 @@ impl SchoolRefresh {
                     crate::diagnostics::report("school-refresh", error);
                 }
                 if result.as_ref().map_or(true, |rows| {
-                    rows.is_empty() || rows.iter().any(|row| row.state != IngestState::Ok)
+                    rows.is_empty() || rows.iter().any(|row| row.state.is_problem())
                 }) {
                     let _ = refresh.retry_detail(course_id);
                 }
@@ -399,7 +399,7 @@ mod tests {
         ports::{EventError, EventSink, SecretError, SecretVault},
         pull_coordinator::PullContext,
         school_auth::SchoolAuthService,
-        school_service::{IngestOutcome, SchoolExecution, SchoolExecutorError},
+        school_service::{IngestOutcome, IngestState, SchoolExecution, SchoolExecutorError},
     };
     use serde_json::json;
     use std::{

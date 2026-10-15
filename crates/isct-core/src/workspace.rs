@@ -433,6 +433,13 @@ fn apply_intent(
                     academic_profile["studyEnrollments"] = history.clone();
                 }
             }
+            // Older calendar editors also predate configurable teaching
+            // periods and must not erase a newer profile's complete table.
+            if academic_profile.get("teachingPeriods").is_none() {
+                if let Some(periods) = current.pointer("/academicProfile/teachingPeriods") {
+                    academic_profile["teachingPeriods"] = periods.clone();
+                }
+            }
             write.save_setting("academicProfile", &academic_profile)?;
             replace_records(
                 write,
@@ -948,6 +955,8 @@ fn add_catalog_courses(
     offerings: Vec<Value>,
 ) -> Result<CatalogAddReceipt, DataError> {
     validate_term(term_id)?;
+    let teaching_periods = crate::schedule::teaching_periods(current)
+        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
     let offerings = offerings
         .iter()
         .map(|submitted| {
@@ -1068,7 +1077,7 @@ fn add_catalog_courses(
                         "title":localized(offering.get("title"), locale), "instructor":instructor, "credits":total,
                         "creditSplit":credits,
                         "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
-                        "color":"#556b8d", "meetings":catalog_meetings(&offering, locale)?,
+                        "color":"#556b8d", "meetings":catalog_meetings(&offering, locale, &teaching_periods)?,
                         "url":offering.get("syllabusUrl"),
                         "source":{"provider":"syllabus","externalId":offering_id}
                     }),
@@ -1145,6 +1154,8 @@ fn apply_lms_merge(
         .filter_map(crate::course_query::normalize_offering)
         .collect::<Vec<_>>();
     let locale = workspace_content_locale(current);
+    let teaching_periods = crate::schedule::teaching_periods(current)
+        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
     let diff = lms_diff(current, school_records, &terms, &offerings, locale)?;
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let lms_id_of = |entry: &Value| {
@@ -1205,11 +1216,11 @@ fn apply_lms_merge(
             }
             None => {
                 let syllabus = offering
-                    .map(|offering| catalog_meetings(offering, locale))
+                    .map(|offering| catalog_meetings(offering, locale, &teaching_periods))
                     .transpose()?
                     .unwrap_or_else(|| json!([]));
                 let meetings = match entry.get("gridMeetings").filter(|grid| !grid.is_null()) {
-                    Some(grid) => meetings_from_grid(grid, &syllabus)?,
+                    Some(grid) => meetings_from_grid(grid, &syllabus, &teaching_periods)?,
                     None => syllabus,
                 };
                 let credits = offering
@@ -1380,8 +1391,11 @@ fn apply_lms_merge(
             continue;
         };
         if let Some((mut course, rev)) = draft(&edited, id) {
-            course["meetings"] =
-                meetings_from_grid(grid, course.get("meetings").unwrap_or(&json!([])))?;
+            course["meetings"] = meetings_from_grid(
+                grid,
+                course.get("meetings").unwrap_or(&json!([])),
+                &teaching_periods,
+            )?;
             edited.insert(id.to_string(), (course, rev));
         }
     }
@@ -1891,7 +1905,11 @@ fn value_string_set(value: &Value) -> HashSet<String> {
 
 /// Meetings from the LMS timetable grid, with the syllabus room for the same
 /// weekday when known.
-fn meetings_from_grid(grid: &Value, syllabus: &Value) -> Result<Value, DataError> {
+fn meetings_from_grid(
+    grid: &Value,
+    syllabus: &Value,
+    teaching_periods: &[crate::schedule::TeachingPeriod],
+) -> Result<Value, DataError> {
     let mut meetings = Vec::new();
     for row in grid.as_array().into_iter().flatten() {
         let day = row
@@ -1910,15 +1928,16 @@ fn meetings_from_grid(grid: &Value, syllabus: &Value) -> Result<Value, DataError
         let period = |value: u64| {
             u8::try_from(value)
                 .ok()
-                .filter(|value| (1..=10).contains(value))
-                .ok_or_else(|| DataError::from("LMS timetable periods must be within 1..10"))
+                .filter(|value| (1..=12).contains(value))
+                .ok_or_else(|| DataError::from("LMS timetable periods must be within 1..12"))
         };
         let (from, to) = (period(start)?, period(end)?);
         if from > to {
             return Err("LMS timetable periods are out of order".into());
         }
-        let (start_time, end_time) = crate::schedule::clock_for_periods([from, to])
-            .map_err(|error| DataError::from(error.to_string()))?;
+        let (start_time, end_time) =
+            crate::schedule::clock_for_periods(teaching_periods, [from, to])
+                .map_err(|error| DataError::from(error.to_string()))?;
         let twin = syllabus.as_array().into_iter().flatten().find(|meeting| {
             meeting
                 .get("days")
@@ -1976,6 +1995,7 @@ pub fn catalog_course(
     offering: &Value,
     locale: &str,
     content: Option<&Value>,
+    teaching_periods: &[crate::schedule::TeachingPeriod],
 ) -> Result<Value, WorkspaceError> {
     let offering_id = string(offering, "id").map_err(WorkspaceError::from)?;
     let year = offering
@@ -2014,7 +2034,7 @@ pub fn catalog_course(
         "title":localized(offering.get("title"), locale),
         "instructor":instructors,
         "language":offering.get("instructionLanguage"),
-        "meetings":catalog_meetings(offering, locale).map_err(WorkspaceError::from)?,
+        "meetings":catalog_meetings(offering, locale, teaching_periods).map_err(WorkspaceError::from)?,
         "url":string(offering, "syllabusUrl").map_err(WorkspaceError::from)?,
         "updated":offering.get("sourceUpdated")
     });
@@ -2027,7 +2047,11 @@ pub fn catalog_course(
     Ok(result)
 }
 
-fn catalog_meetings(offering: &Value, locale: &str) -> Result<Value, DataError> {
+fn catalog_meetings(
+    offering: &Value,
+    locale: &str,
+    teaching_periods: &[crate::schedule::TeachingPeriod],
+) -> Result<Value, DataError> {
     let mut meetings = Vec::new();
     for entry in offering
         .get("schedule")
@@ -2054,15 +2078,15 @@ fn catalog_meetings(offering: &Value, locale: &str) -> Result<Value, DataError> 
             .get(1)
             .and_then(Value::as_u64)
             .ok_or_else(|| "weekly schedule end is invalid".to_string())?;
-        if start == 0 || end > 10 || start > end {
-            return Err("weekly periods must be within 1..10".into());
+        if start == 0 || end > 12 || start > end {
+            return Err("weekly periods must be within 1..12".into());
         }
         let periods: Vec<_> = (start..=end).map(Value::from).collect();
         let bounds = [
-            u8::try_from(start).map_err(|_| DataError::from("period is outside 1..10"))?,
-            u8::try_from(end).map_err(|_| DataError::from("period is outside 1..10"))?,
+            u8::try_from(start).map_err(|_| DataError::from("period is outside 1..12"))?,
+            u8::try_from(end).map_err(|_| DataError::from("period is outside 1..12"))?,
         ];
-        let (start_time, end_time) = crate::schedule::clock_for_periods(bounds)
+        let (start_time, end_time) = crate::schedule::clock_for_periods(teaching_periods, bounds)
             .map_err(|error| DataError::from(error.to_string()))?;
         let room_names = entry.get("room").cloned();
         let room = localized(room_names.as_ref(), locale);
@@ -2637,6 +2661,21 @@ mod tests {
             Err(DataError::InvalidInput(_))
         ));
         assert_eq!(service.snapshot().unwrap().revision, before.revision);
+        let mut invalid_periods = crate::schedule::default_teaching_periods();
+        invalid_periods[1].start_time = "08:00".into();
+        let mut profile = before.workspace["academicProfile"].clone();
+        profile["teachingPeriods"] = serde_json::to_value(invalid_periods).unwrap();
+        let error = service
+            .mutate(WorkspaceMutation {
+                expected_revision: before.revision.clone(),
+                intent: WorkspaceIntent::EditAcademicCalendar {
+                    academic_profile: profile,
+                    exceptions: vec![],
+                },
+            })
+            .unwrap_err();
+        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        assert_eq!(service.snapshot().unwrap().revision, before.revision);
         let year = mutate(
             &service,
             WorkspaceIntent::SetAdmissionYear {
@@ -3071,6 +3110,7 @@ mod tests {
             }),
             "ja",
             Some(&json!({"summary":{"ja":"内容"}})),
+            &crate::schedule::default_teaching_periods(),
         )
         .unwrap();
         assert_eq!(converted["title"], "演習");

@@ -8,7 +8,7 @@ use crate::{
     pull_coordinator::PullOptions,
     reference_refresh::{ReferenceError, ReferenceService},
     school_refresh::SchoolRefresh,
-    school_service::{IngestOutcome, IngestState, SchoolError, SchoolExecutor, SchoolService},
+    school_service::{IngestOutcome, SchoolError, SchoolExecutor, SchoolService},
 };
 use chrono::{DateTime, Duration, Utc};
 use rrule::{RRuleSet, Tz};
@@ -180,10 +180,7 @@ fn due_occurrence(
 }
 
 fn task_result_problem(outcomes: &[IngestOutcome]) -> Result<(), SchedulerError> {
-    if let Some(problem) = outcomes
-        .iter()
-        .find(|outcome| outcome.state != IngestState::Ok)
-    {
+    if let Some(problem) = outcomes.iter().find(|outcome| outcome.state.is_problem()) {
         return Err(SchedulerError::School(SchoolError::Executor(
             problem.message.clone(),
         )));
@@ -417,7 +414,7 @@ mod tests {
         pull_coordinator::{PullContext, PullCoordinator, PullNetwork},
         school_auth::SchoolAuthService,
         school_refresh::RefreshEvent,
-        school_service::SchoolExecution,
+        school_service::{IngestState, SchoolExecution},
     };
     use serde_json::json;
     use std::sync::{
