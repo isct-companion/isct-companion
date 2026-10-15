@@ -194,6 +194,10 @@ export function CourseFinder({
   const duplicates = view?.duplicates ?? 0;
   const onTimetable = new Set(view?.onTimetable ?? []);
   const ineligible = new Set(view?.ineligibleIds ?? []);
+  const unavailableLabel = (id: string) =>
+    view?.eligibility[id]?.reason === "undergraduateFirstYearUpperLevel"
+      ? t("Not available to regular first-year undergraduate students")
+      : t("Not available for this study profile");
 
   // Pills the syllabus understands become one search (no paging, ≤100 rows);
   // detail pages are then fetched for those rows only, a few at a time.
@@ -404,9 +408,16 @@ export function CourseFinder({
         }
         setSelected((current) => new Set([...current, ...next.pastedIds]));
         setError(
-          next.missingCodes.length
-            ? `${t("Not found")}: ${next.missingCodes.join(", ")}`
-            : "",
+          [
+            next.ineligibleCodes.length
+              ? `${t("Not eligible")}: ${next.ineligibleCodes.join(", ")}`
+              : "",
+            next.missingCodes.length
+              ? `${t("Not found")}: ${next.missingCodes.join(", ")}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
         );
       })
       .catch((reason) => setError(message(reason)));
@@ -449,15 +460,17 @@ export function CourseFinder({
           </span>
         </div>
         <div className="courseListTools">
-          <UiButton
-            type="button"
-            aria-pressed={showUnavailable}
-            onClick={() => setShowUnavailable((show) => !show)}
-          >
-            {showUnavailable
-              ? t("Hide unavailable courses")
-              : t("Show unavailable courses")}
-          </UiButton>
+          {(showUnavailable || Boolean(view?.ineligibleIds.length)) && (
+            <UiButton
+              type="button"
+              aria-pressed={showUnavailable}
+              onClick={() => setShowUnavailable((show) => !show)}
+            >
+              {showUnavailable
+                ? t("Hide unavailable courses")
+                : t("Show unavailable courses")}
+            </UiButton>
+          )}
           {manual && (
             <UiButton type="button" onClick={manual}>
               {t("Manual")}
@@ -707,11 +720,7 @@ export function CourseFinder({
                 aria-label={t("Select")}
                 checked={selected.has(course.id)}
                 disabled={placed || unavailable || readOnly}
-                title={
-                  unavailable
-                    ? t("Not available in the admission year")
-                    : undefined
-                }
+                title={unavailable ? unavailableLabel(course.id) : undefined}
                 onChange={() => toggle(course)}
               />
               <button
@@ -745,9 +754,7 @@ export function CourseFinder({
                   )}
                   {clash && <i className="clash">{t("Conflict")}</i>}
                   {unavailable && (
-                    <i className="clash">
-                      {t("Not available in the admission year")}
-                    </i>
+                    <i className="clash">{unavailableLabel(course.id)}</i>
                   )}
                 </span>
               </button>
@@ -760,7 +767,7 @@ export function CourseFinder({
                   disabled={readOnly || mutating || unavailable}
                   title={
                     unavailable
-                      ? t("Not available in the admission year")
+                      ? unavailableLabel(course.id)
                       : replacing
                         ? t("Replaces the course in the same periods")
                         : undefined

@@ -176,6 +176,7 @@ const finderView = (request: Record<string, unknown>) => ({
   live: String(request.input ?? ""),
   clashes: saved === before ? [clashing.id] : [],
   ineligibleIds: [],
+  eligibility: {},
   replacements:
     saved === before ? { [clashing.id]: [before.courses[0].id] } : {},
   credits: { [placed.id]: 2, [clashing.id]: 2 },
@@ -184,6 +185,7 @@ const finderView = (request: Record<string, unknown>) => ({
   pasteHandled: false,
   pastedIds: [],
   missingCodes: [],
+  ineligibleCodes: [],
   detailIds: [],
 });
 (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {

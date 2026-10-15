@@ -37,6 +37,7 @@ vi.mock("../store/workspace", () => ({
     },
     initialize: async () => {},
     reload: fixture.reload,
+    handleWorkspaceChanged: fixture.reload,
     flush: async () => {},
   },
   workspaceActions: {
@@ -143,6 +144,7 @@ vi.mock("../platform/finder-query", () => {
     live: request.input ?? "",
     clashes: [],
     ineligibleIds: [],
+    eligibility: {},
     replacements: {},
     credits: {},
     onTimetable: [],
@@ -150,6 +152,7 @@ vi.mock("../platform/finder-query", () => {
     pasteHandled: false,
     pastedIds: [],
     missingCodes: [],
+    ineligibleCodes: [],
     detailIds: [],
   });
   return {

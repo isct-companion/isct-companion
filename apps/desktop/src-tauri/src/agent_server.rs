@@ -465,6 +465,7 @@ impl AgentHandler {
                 let _ = crate::core_ports::DesktopEvents(app.clone()).emit(
                     CoreEvent::WorkspaceChanged {
                         source: WorkspaceChangeSource::Mcp,
+                        revision: None,
                     },
                 );
             }

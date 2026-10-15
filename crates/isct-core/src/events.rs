@@ -52,6 +52,9 @@ pub struct SchoolDownloadEvent {
 pub enum CoreEvent {
     WorkspaceChanged {
         source: WorkspaceChangeSource,
+        /// Present for user intents so the initiating shell can correlate the
+        /// event with the authoritative snapshot returned by the mutation.
+        revision: Option<String>,
     },
     OcrProgress {
         operation_id: u64,
@@ -96,7 +99,13 @@ impl CoreEvent {
     /// The existing desktop event payload is also the portable event contract.
     pub fn payload(&self) -> Value {
         match self {
-            Self::WorkspaceChanged { source } => json!({ "source": source }),
+            Self::WorkspaceChanged { source, revision } => {
+                let mut payload = json!({ "source": source });
+                if let Some(revision) = revision {
+                    payload["revision"] = json!(revision);
+                }
+                payload
+            }
             Self::OcrProgress {
                 operation_id,
                 completed,
@@ -137,9 +146,21 @@ mod tests {
             (WorkspaceChangeSource::CloudRestore, "cloud-restore"),
             (WorkspaceChangeSource::LocalRestore, "local-restore"),
         ] {
-            let event = CoreEvent::WorkspaceChanged { source };
+            let event = CoreEvent::WorkspaceChanged {
+                source,
+                revision: None,
+            };
             assert_eq!(event.name(), "workspace-changed");
             assert_eq!(event.payload(), json!({ "source": expected }));
         }
+
+        let event = CoreEvent::WorkspaceChanged {
+            source: WorkspaceChangeSource::UserIntent,
+            revision: Some("r1".into()),
+        };
+        assert_eq!(
+            event.payload(),
+            json!({"source":"user-intent","revision":"r1"})
+        );
     }
 }

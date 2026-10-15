@@ -22,6 +22,9 @@ library: UniFFI checks signatures at load time. The native-sdk workflow runs
 both device builds and simulator clients, and uploads the complete SDK folders
 as explicitly named `dev-ci` acceptance artifacts. These debug artifacts are not
 an app-store or Maven release; release packaging is a separate workflow concern.
+The workflow intentionally runs for matching pull requests and again when a
+matching SDK/Core path lands on `main`. The latter packages and exercises the
+exact merged revision; path filters keep unrelated main-branch changes out.
 
 The Swift package supports iOS 17 and newer. It does not declare macOS support:
 the host smoke links generated source directly to a host dynamic library and is
@@ -181,7 +184,9 @@ shutdown failures, stale callback rejection and native-port release.
 The foreign smoke clients use a temporary real SQLite store and fake platform
 ports. They exercise writes, conflicts, read models, parser/backup access,
 subscriptions, optional OCR, suspension/resume and repeated shutdown. Device-side
-CI uses the packaged native targets. Real school sign-in, real cloud-provider
+CI uses the packaged native targets. The Swift client cancels a task after its
+operation wait begins, confirms that the waiter detaches, and verifies that the
+admitted write still completes. Real school sign-in, real cloud-provider
 mutations and complete native UI flows remain native-shell acceptance work.
 
 Commands and packaged-target CI evidence are recorded in the

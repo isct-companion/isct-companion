@@ -130,8 +130,15 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "study",
     id: "admission-year",
-    title: "Year you started",
+    title: "Study-guide cohort year",
     terms: "admission entry cohort guide 入学 年度 学修案内",
+  },
+  {
+    section: "study",
+    id: "study-stages",
+    title: "Study stages",
+    terms:
+      "undergraduate master doctoral transfer grade 学士 修士 博士 編入 年次",
   },
   {
     section: "notifications",

@@ -46,6 +46,7 @@ pub mod school_parser;
 pub mod school_refresh;
 pub mod school_service;
 pub mod storage;
+pub mod study_profile;
 pub mod subscriptions;
 pub mod syllabus;
 pub mod workspace;

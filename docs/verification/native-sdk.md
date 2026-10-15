@@ -10,10 +10,14 @@ the next integration stage. See [SDK integration](../core-ffi.md) and
 | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `cargo test -p isct-core -p isct-ffi -p isct-companion --features isct-ffi/ocr --locked -j2`              | 373 passed, including 23 desktop integration tests                   |
 | `cargo clippy -p isct-ffi -p isct-core --all-targets --features isct-ffi/ocr --locked -j2 -- -D warnings` | Passed                                                               |
-| Desktop frontend                                                                                          | 47 files / 267 tests passed                                          |
+| Desktop frontend                                                                                          | 47 files / 267 frontend tests passed                                 |
 | `yarn desktop:build --debug --no-bundle -- --locked -j2`                                                  | Passed; desktop binary retained                                      |
-| Root script tests                                                                                         | 3 files / 9 tests passed                                             |
+| Root script tests                                                                                         | 3 files / 9 script tests passed                                      |
 | Swift 6 and Kotlin/JVM clients                                                                            | Real Core, SQLite, native callback exception recovery and OCR passed |
+
+The JavaScript/TypeScript total is 276 tests: 267 desktop frontend tests plus
+9 root script tests. The rows keep those suites separate so the frontend count
+is not mistaken for the combined total.
 
 Rust ownership tests exercise detachment without aborting a commit, cooperative
 cancellation, bounded shutdown waits that retain draining work, queue overflow
@@ -25,6 +29,30 @@ The review-fix checkpoint additionally covers admission-year catalog eligibility
 atomic rejection of an ineligible course batch, single Core-owned user-intent
 events, local-restore event semantics, independent wake-service outcomes and
 native event-port release.
+
+## Study-profile and review follow-up — 2026-10-15
+
+Targeted checks for the subsequent study-profile, event-recovery and SDK fixes:
+
+- Core: 78 tests across study profile, finder, workspace, agent, persistence,
+  events and facade; FFI: 15 tests, including typed study-history round-trip
+  and invalid-input rollback.
+- Desktop: 6 affected test files / 76 tests; TypeScript and production frontend
+  build passed. The existing large-chunk advisory remains.
+- Core/FFI strict Clippy, Rust formatting and desktop `cargo check` passed.
+- Newly generated Swift 6 and Kotlin host clients passed. Swift cancellation
+  now deterministically covers an active waiter detaching; a separate real-Core
+  check proves the admitted write completes after detachment.
+
+The checks cover legacy profiles and backups, graduate/transfer admission,
+historical stages, class suffixes, authoritative catalog lookup, atomic
+multi-quarter eligibility, paste diagnostics and cross-client event recovery.
+These are local targeted results; the packaged-device CI evidence below is the
+earlier SDK checkpoint.
+
+Change size, separating embedded Rust test modules: production +1,076 / -145
+lines; tests +1,063 / -55; generated types +34 / -1. This follow-up adds study
+history and its editor, so it is a net addition rather than a reduction phase.
 
 ## Packaged-target CI
 

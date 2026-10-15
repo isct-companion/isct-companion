@@ -62,7 +62,18 @@ the full committed snapshot; it never returns an optimistic local patch.
 ```json
 {
   "expectedRevision": "<revision from workspace_snapshot>",
-  "intent": { "kind": "setAdmissionYear", "admissionYear": 2026 }
+  "intent": {
+    "kind": "setStudyProfile",
+    "admissionYear": 2026,
+    "studyEnrollments": [
+      {
+        "stage": "undergraduate",
+        "entryKind": "regular",
+        "entryGrade": 1,
+        "admittedTerm": "2026-1Q"
+      }
+    ]
+  }
 }
 ```
 
@@ -70,7 +81,7 @@ Intent groups (the generated `WorkspaceIntent` is the complete field schema):
 
 | Group                  | `kind` values                                                                                                                                                     |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Preferences / terms    | `replaceSettings`, `setAdmissionYear`, `editAcademicCalendar`, `selectTerm`, `addTerm`, `removeTerm`                                                              |
+| Preferences / terms    | `replaceSettings`, `setAdmissionYear`, `setStudyProfile`, `editAcademicCalendar`, `selectTerm`, `addTerm`, `removeTerm`                                           |
 | Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `applyLmsMerge`, `markTimetableReviewed` |
 | Events / plans         | `saveEvent`, `deleteEvent`, `savePlan`, `deletePlan`                                                                                                              |
 | Calendar / sources     | `saveCalendarException`, `deleteCalendarException`, `saveSubscription`, `setSubscription`, `deleteSubscription`                                                   |
@@ -161,8 +172,12 @@ links to [the native SDK reference](core-ffi.md) for foreign method signatures.
 application owner containing `store`, `auth`, `agent`, `workspace`, `reminders` and `Arc<CoreRuntime>`.
 Production shells use `Core::with_events(..., EventSink)` and call
 `Core::start(&Handle)` once; Core owns the pull-event forwarding task. Successful
-workspace mutations emit `user-intent` after commit. Delivery failures do not
-turn an accepted write into a failed transaction. Shutdown drains the forwarding
+workspace mutations emit `workspace-changed` with `source: "user-intent"` and
+the committed workspace `revision` after commit. The initiating shell uses that
+revision to associate the event with the snapshot returned by its command and
+avoid a redundant reload. Other workspace-change sources omit `revision`; they
+still require snapshot recovery and must not be ignored, including MCP writes.
+Delivery failures do not turn an accepted write into a failed transaction. Shutdown drains the forwarding
 task and releases the native event sink. `Core::new` remains useful for headless
 clients without event delivery.
 The desktop manages one `Arc<Core>`. Its compatibility `DataStore` and auth state
@@ -238,9 +253,20 @@ Settings forms send `replaceSettings` with the complete settings object; a key
 the form cleared stays cleared. Core validates every enumerated preference
 (locale, appearance, density, text size, content language, notification
 permission, cloud provider/conflict) and the admission year (2000–9999) on every
-settings path, including `setAdmissionYear`, the calendar editor and
+settings path, including `setAdmissionYear`, `setStudyProfile`, the calendar editor and
 `DataStore::put_workspace_setting`, and keeps the fields it owns (subscription
 poll clock, agent write history). Shells keep only their option lists.
+
+`academicProfile.admissionYear` is the cohort used to select study-guide and
+recommendation reference data. It does not imply an undergraduate identity.
+`academicProfile.studyEnrollments` is the optional, ordered study history. Each
+row records `stage` (`undergraduate`, `master`, `doctoral`, or `unknown`),
+`entryKind` (`regular`, `transfer`, or `unknown`), optional `entryGrade`, and an
+`admittedTerm` (`YYYY-nQ`). The most recent row admitted on or before a queried
+term supplies that term's identity, so a graduate admission in a later quarter
+does not rewrite earlier undergraduate terms. Duplicate admission terms and
+malformed rows are rejected atomically. Profiles stored before this field was
+introduced remain valid and unknown; Core never fills in undergraduate status.
 
 A stale revision returns `WorkspaceError::Conflict`; reread before retrying or
 asking the person to review changed data. Invalid input returns `InvalidIntent`,
@@ -307,16 +333,34 @@ are read-only finder actions; changing the timetable requires a workspace intent
 remote search. The shell executes the returned syllabus plan and reports progress.
 
 The [2026 undergraduate guide, pp. 2–3](https://www.titech.ac.jp/guide/guide_2026/gakubu1/pdf/01.pdf)
-prohibits 200-level and higher enrollment in the admission year; 100-level
-introductory specialist courses remain eligible. Core compares the **planned
-term's academic year** to `academicProfile.admissionYear`, not the current date
-or the catalog year. Unknown admission years or unrecognized codes do not create
-a restriction. Recommended marks, candidate rows and pasted selections respect
-this rule. `includeIneligible` exposes unavailable rows for inspection, while
-`ineligibleIds` tells shells which add controls to disable. `AddCatalogCourses`
-rechecks the entire batch before writing. Existing courses, recognized credits
-and later-year planning are preserved. External English-test credit recognition
-is distinct from enrollment and does not waive this gate.
+prohibits 200-level and higher enrollment for regular first-year undergraduate
+students; 100-level introductory specialist courses remain eligible. Core's
+shared `catalog_course_eligibility` returns a typed `status`
+(`allowed`, `ineligible`, or `unknown`) and `reason`. `allowed` means that no
+implemented, evidence-backed rule restricts the known identity and course; it
+is not an official enrollment approval. Only an explicit undergraduate,
+regular-entry, grade-1 stage in its admission academic year can produce the
+current hard block. Transfer entry, higher entry grade, and later known stages
+do not match that rule. Missing identity, entry details, historical stage, or a
+recognizable course code returns `unknown` and does not hard-block. Course-code
+parsing accepts class suffixes such as `LAH.T209-01` and `LAW.W221-12`.
+
+No master's humanities restriction is encoded yet because Core cannot identify
+its exact official applicability from the catalog fields with enough precision;
+it does not generalize the policy to all 400- or 500-level courses. Recommended
+marks, candidate rows and pasted selections use the shared result.
+`includeIneligible` exposes unavailable rows for inspection;
+`eligibility` exposes every row's typed status and reason while
+`ineligibleIds` drives disabled controls, and
+`ineligibleCodes` reports rejected pasted codes separately from `missingCodes`.
+The unavailable-course toggle is omitted when no row is ineligible.
+`AddCatalogCourses` rechecks the entire batch before writing. MCP `plan_add`
+performs the same check against the latest profile inside its IMMEDIATE write
+transaction, preventing a profile-change race and returning the same diagnostic.
+Already synchronized school courses are preserved; the gate controls only new
+local planning. Existing courses, recognized credits and later-year planning
+are preserved. External English-test credit recognition is distinct from
+enrollment and does not waive this gate.
 
 `Core::lms_merge_preview(scope, term)` returns review rows, conflict groups and
 missing syllabus detail IDs. The shell fetches those details, requests the final

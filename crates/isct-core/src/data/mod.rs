@@ -297,12 +297,41 @@ pub(crate) fn validate_admission_year(profile: &Value) -> Result<(), DataError> 
     }
 }
 
+fn validate_study_enrollments(profile: &Value) -> Result<(), DataError> {
+    let Some(value) = profile.get("studyEnrollments") else {
+        return Ok(());
+    };
+    let mut enrollments: Vec<crate::study_profile::StudyEnrollment> =
+        serde_json::from_value(value.clone()).map_err(|error| {
+            DataError::InvalidInput(format!("study stages are invalid: {error}"))
+        })?;
+    let original_terms = enrollments
+        .iter()
+        .map(|enrollment| enrollment.admitted_term.clone())
+        .collect::<Vec<_>>();
+    crate::study_profile::canonicalize_study_enrollments(&mut enrollments)
+        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+    if enrollments
+        .iter()
+        .map(|enrollment| &enrollment.admitted_term)
+        .ne(original_terms.iter())
+    {
+        return Err(DataError::InvalidInput(
+            "study stages must be ordered by admission term".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Every writer of a settings row meets the same value rules.
 fn validate_setting(key: &str, value: &Value) -> Result<(), DataError> {
     match key {
         "userPreferences" | "devicePreferences" => validate_preference_values(value),
         "cloud" => validate_choices(value, CLOUD_CHOICES),
-        "academicProfile" => validate_admission_year(value),
+        "academicProfile" => {
+            validate_admission_year(value)?;
+            validate_study_enrollments(value)
+        }
         _ => Ok(()),
     }
 }
@@ -861,6 +890,9 @@ fn setting_version(row: &Value) -> Result<VersionedValue, DataError> {
 fn import_setting(transaction: &Transaction<'_>, row: &Value) -> Result<(), DataError> {
     let key = string_field(row, "key")?;
     let incoming = setting_version(row)?;
+    if incoming.deleted_at.is_none() {
+        validate_setting(key, &incoming.value)?;
+    }
     transaction
         .execute(
             "INSERT INTO settings
@@ -1288,6 +1320,10 @@ impl WorkspaceWrite<'_, '_> {
             .map_err(DataError::from)
     }
 
+    pub(crate) fn catalog_row(&self, id: &str) -> Result<Option<Value>, DataError> {
+        catalog_row_in(self.transaction, id)
+    }
+
     pub(crate) fn save_setting(&self, key: &str, value: &Value) -> Result<(), DataError> {
         if !matches!(
             key,
@@ -1354,6 +1390,17 @@ impl WorkspaceWrite<'_, '_> {
 }
 
 impl AgentWriteTransaction<'_, '_> {
+    /// Latest workspace assembled under the agent write transaction's
+    /// IMMEDIATE lock. Domain gates must use this snapshot rather than the
+    /// preflight read made before the transaction began.
+    pub(crate) fn workspace(&self) -> Result<Value, DataError> {
+        DataStore::load_workspace_from(self.transaction)
+    }
+
+    pub(crate) fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
+        catalog_offering_in(self.transaction, id)
+    }
+
     pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         if !DataStore::user_table(table) {
             return Err("table is not user-owned".into());
@@ -1405,6 +1452,43 @@ fn catalog_list(connection: &Connection) -> Result<Vec<Value>, DataError> {
         })
         .collect();
     rows
+}
+
+fn catalog_offering_in(connection: &Connection, id: &str) -> Result<Option<Value>, DataError> {
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT value FROM offerings
+             WHERE id=?1 AND deleted_at IS NULL AND missing_since IS NULL",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(DataError::from)?;
+    raw.map(|raw| {
+        serde_json::from_str(&raw).map_err(|_| DataError::storage("offering contains invalid JSON"))
+    })
+    .transpose()
+}
+
+fn catalog_row_in(connection: &Connection, id: &str) -> Result<Option<Value>, DataError> {
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT COALESCE(
+                (SELECT value FROM offerings
+                 WHERE id=?1 AND deleted_at IS NULL AND missing_since IS NULL),
+                (SELECT value FROM catalog_search_items WHERE id=?1)
+             )",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(DataError::from)?
+        .flatten();
+    raw.map(|raw| {
+        serde_json::from_str(&raw)
+            .map_err(|_| DataError::storage("catalog row contains invalid JSON"))
+    })
+    .transpose()
 }
 
 fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
@@ -2334,19 +2418,7 @@ impl DataStore {
 
     pub fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
         let connection = self.open()?;
-        let raw: Option<String> = connection
-            .query_row(
-                "SELECT value FROM offerings WHERE id=?1 AND deleted_at IS NULL AND missing_since IS NULL",
-                [id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(DataError::from)?;
-        raw.map(|raw| {
-            serde_json::from_str(&raw)
-                .map_err(|_| DataError::storage("offering contains invalid JSON"))
-        })
-        .transpose()
+        catalog_offering_in(&connection, id)
     }
 
     /// A syllabus search row stored before its offering's details are read.
@@ -3142,6 +3214,111 @@ mod tests {
             1
         );
         let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn invalid_study_history_rolls_back_local_restore() {
+        let store = store("restore-study-history");
+        store
+            .put_user_record(
+                "plans",
+                json!({
+                    "title":"Keep me", "start":"2026-10-06T10:00:00+09:00",
+                    "duration":60, "exdates":[]
+                }),
+                "test",
+            )
+            .unwrap();
+        let before = store.load_workspace().unwrap();
+        let backup: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        for invalid in [
+            Value::Null,
+            json!({"admittedTerm":"2026-1Q"}),
+            json!([{
+                "stage":"undergraduate", "entryKind":"regular", "entryGrade":1,
+                "admittedTerm":"2026-spring"
+            }]),
+            json!([
+                {"stage":"undergraduate", "entryKind":"regular", "entryGrade":1,
+                 "admittedTerm":"2026-1Q"},
+                {"stage":"master", "entryKind":"regular", "entryGrade":1,
+                 "admittedTerm":"2026-1Q"}
+            ]),
+        ] {
+            let mut document = backup.clone();
+            let profile = document["tables"]["settings"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|row| row["key"] == "academicProfile")
+                .unwrap();
+            profile["value"]["studyEnrollments"] = invalid;
+            let parsed = parse_import(&document.to_string()).unwrap();
+            assert!(matches!(
+                store.import_data(&parsed),
+                Err(DataError::InvalidInput(_))
+            ));
+            let after = store.load_workspace().unwrap();
+            assert_eq!(after["academicProfile"], before["academicProfile"]);
+            assert_eq!(after["plans"], before["plans"]);
+        }
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn invalid_study_history_rolls_back_cloud_replacement() {
+        let store = store("cloud-study-history");
+        store
+            .put_user_record(
+                "plans",
+                json!({
+                    "title":"Keep me", "start":"2026-10-06T10:00:00+09:00",
+                    "duration":60, "exdates":[]
+                }),
+                "test",
+            )
+            .unwrap();
+        let before = store.load_workspace().unwrap();
+        let mut remote: Value =
+            serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+        remote["sync"] =
+            json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"remote"}});
+        let profile = remote["tables"]["settings"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|row| row["key"] == "academicProfile")
+            .unwrap();
+        profile["value"]["studyEnrollments"] = Value::Null;
+        assert!(matches!(
+            store.merge_cloud_data(&remote),
+            Err(DataError::InvalidInput(_))
+        ));
+        let after = store.load_workspace().unwrap();
+        assert_eq!(after["academicProfile"], before["academicProfile"]);
+        assert_eq!(after["plans"], before["plans"]);
+        let _ = fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn legacy_backup_without_study_history_still_restores() {
+        let source = store("legacy-study-source");
+        source
+            .put_workspace_setting(
+                "academicProfile",
+                json!({"name":"Legacy","admissionYear":2024,"gradePath":[],"years":[]}),
+                "test",
+            )
+            .unwrap();
+        let document = parse_import(&source.export_data(json!([])).unwrap()).unwrap();
+        let target = store("legacy-study-target");
+        let restored = target.import_data(&document).unwrap();
+        assert_eq!(restored["academicProfile"]["name"], "Legacy");
+        assert!(restored["academicProfile"]
+            .get("studyEnrollments")
+            .is_none());
+        let _ = fs::remove_file(source.path());
+        let _ = fs::remove_file(target.path());
     }
 
     #[test]

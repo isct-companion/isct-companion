@@ -2,18 +2,85 @@ import Foundation
 import IsctCore
 
 final class MemoryVault: NativeVault, @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = NSCondition()
     private var values: [String: String] = [:]
     private var failStore = false
+    private var blockStore = false
+    private var storeBlocked = false
     func failNextStore() { lock.withLock { failStore = true } }
+    func blockNextStore() { lock.withLock { blockStore = true } }
+    func waitUntilStoreBlocked() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !storeBlocked {
+            if !lock.wait(until: deadline) { return false }
+        }
+        return true
+    }
+    func releaseBlockedStore() {
+        lock.withLock {
+            blockStore = false
+            lock.broadcast()
+        }
+    }
     func load(account: String) throws -> String? { lock.withLock { values[account] } }
     func store(account: String, secret: String) throws {
-        try lock.withLock {
-            if failStore { failStore = false; throw NSError(domain: "native-vault-fixture", code: 1) }
+        lock.lock()
+        defer { lock.unlock() }
+        if blockStore {
+            storeBlocked = true
+            lock.broadcast()
+            while blockStore { lock.wait() }
+            storeBlocked = false
+        }
+        if failStore {
+            failStore = false
+            throw NSError(domain: "native-vault-fixture", code: 1)
+        } else {
             values[account] = secret
         }
     }
     func delete(account: String) throws { _ = lock.withLock { values.removeValue(forKey: account) } }
+}
+final class WaitingOperation: IsctCore.Operation, @unchecked Sendable {
+    private let lock = NSCondition()
+    private var waiting = false
+    private var detached = false
+    private var continuation: CheckedContinuation<OperationResult, any Error>?
+    init() { super.init(noHandle: .init()) }
+    required init(unsafeFromHandle handle: UInt64) { fatalError("unused test initializer") }
+    override func awaitResult() async throws -> OperationResult {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.withLock {
+                waiting = true
+                self.continuation = continuation
+                lock.broadcast()
+            }
+        }
+    }
+    override func detach() throws {
+        let continuation = lock.withLock {
+            detached = true
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.resume(throwing: SdkError.Cancelled)
+    }
+    func waitUntilWaiting() async -> Bool {
+        await Task.detached { [self] in waitUntilWaitingBlocking() }.value
+    }
+    private func waitUntilWaitingBlocking() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !waiting {
+            if !lock.wait(until: deadline) { return false }
+        }
+        return true
+    }
+    func wasDetached() -> Bool { lock.withLock { detached } }
 }
 func require(_ condition: Bool, _ detail: String) throws {
     if !condition { throw NSError(domain: "SdkSmoke", code: 1, userInfo: [NSLocalizedDescriptionKey: detail]) }
@@ -24,26 +91,55 @@ func require(_ condition: Bool, _ detail: String) throws {
         let config = SessionConfig(dataDirectory: directory.appendingPathComponent("data").path, filesDirectory: directory.appendingPathComponent("files").path, initialNetwork: .offline, cloudProviders: [], authorizedCloudProviders: [])
         let vault = MemoryVault()
         let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, downloads: nil)
-        let cancelledOperation = try session.snapshot()
-        let cancelledWait = Task {
-            withUnsafeCurrentTask { $0?.cancel() }
-            return try await cancelledOperation.value()
-        }
+        let waitingOperation = WaitingOperation()
+        let cancelledWait = Task { try await waitingOperation.value() }
+        try require(await waitingOperation.waitUntilWaiting(), "Swift value() did not enter its native wait")
+        cancelledWait.cancel()
         do {
             _ = try await cancelledWait.value
             throw NSError(domain: "expected-swift-cancellation", code: 1)
         } catch is CancellationError { }
+        try require(waitingOperation.wasDetached(), "Swift cancellation did not detach the active waiter")
+
+        let credentials = SchoolCredentials(username: "fixture", password: "not-a-real-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
+        vault.blockNextStore()
+        let cancelledOperation = try session.saveCredentials(profile: .tokyoTech, credentials: credentials)
+        try require(vault.waitUntilStoreBlocked(), "Credential save did not reach the vault")
+        try cancelledOperation.detach()
+        do {
+            _ = try await cancelledOperation.awaitResult()
+            throw NSError(domain: "expected-detached-operation", code: 1)
+        } catch SdkError.Cancelled { }
+        guard case .pending = try cancelledOperation.status() else {
+            throw NSError(domain: "swift-cancellation-aborted-operation", code: 1)
+        }
+        vault.releaseBlockedStore()
+        let completionClock = ContinuousClock()
+        let completionDeadline = completionClock.now.advanced(by: .seconds(5))
+        operationCompletion: while true {
+            switch try cancelledOperation.status() {
+            case .pending:
+                try require(completionClock.now < completionDeadline, "Detached credential save did not settle")
+                await Task.yield()
+            case let .completed(result):
+                guard case let .flag(value) = result else { throw NSError(domain: "cancelled-operation-result", code: 1) }
+                try require(value, "Detached credential save did not complete")
+                break operationCompletion
+            case let .failed(error):
+                throw error
+            }
+        }
         if CommandLine.arguments.contains("--require-ocr") {
             try require(try session.capabilities().ocr, "Packaged iOS SDK must expose OCR")
         }
         try require(try !schoolBrowserInitialization().isEmpty, "Missing document-start scripts")
-        let credentials = SchoolCredentials(username: "fixture", password: "not-a-real-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
+        let updatedCredentials = SchoolCredentials(username: "fixture", password: "changed-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
         vault.failNextStore()
         do {
-            _ = try await session.saveCredentials(profile: .tokyoTech, credentials: credentials).value()
+            _ = try await session.saveCredentials(profile: .tokyoTech, credentials: updatedCredentials).value()
             throw NSError(domain: "missing-callback-error", code: 1)
         } catch SdkError.Callback { }
-        _ = try await session.saveCredentials(profile: .tokyoTech, credentials: credentials).value()
+        _ = try await session.saveCredentials(profile: .tokyoTech, credentials: updatedCredentials).value()
         _ = try await session.deleteCredentials(profile: .tokyoTech).value()
         let stream = try session.subscribe()
         guard case let .workspace(first) = try await session.snapshot().value() else { throw NSError(domain:"snapshot",code:1) }

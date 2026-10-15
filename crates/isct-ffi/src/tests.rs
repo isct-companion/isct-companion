@@ -102,7 +102,10 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
         panic!("missing mutation event")
     };
     assert_eq!(event.name, "workspace-changed");
-    assert_eq!(event.payload.0, json!({"source":"user-intent"}));
+    assert_eq!(
+        event.payload.0,
+        json!({"source":"user-intent","revision":snapshot.revision})
+    );
     assert!(matches!(
         f.session.mutate(mutation).unwrap().await_result().await,
         Err(SdkError::Conflict { .. })
@@ -135,6 +138,69 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
     assert_eq!(result.values.len(), 2);
     f.finish().await;
 }
+
+#[tokio::test]
+async fn typed_study_profile_round_trips_and_rejects_invalid_terms_atomically() {
+    let f = Fixture::new().await;
+    let first = f.snapshot().await;
+    let saved = f
+        .session
+        .mutate(WorkspaceMutation {
+            expected_revision: first.revision,
+            intent: WorkspaceIntent::SetStudyProfile {
+                admission_year: Some(2026),
+                study_enrollments: vec![StudyEnrollment {
+                    stage: StudyStage::Master,
+                    entry_kind: StudyEntryKind::Regular,
+                    entry_grade: Some(1),
+                    admitted_term: "2026-3Q".into(),
+                }],
+            },
+        })
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap();
+    let OperationResult::Workspace { snapshot: saved } = saved else {
+        panic!("wrong result")
+    };
+    assert_eq!(saved.workspace.0["academicProfile"]["admissionYear"], 2026);
+    assert_eq!(
+        saved.workspace.0["academicProfile"]["studyEnrollments"],
+        json!([{
+            "stage":"master",
+            "entryKind":"regular",
+            "entryGrade":1,
+            "admittedTerm":"2026-3Q"
+        }])
+    );
+    let committed_workspace = saved.workspace.0.clone();
+    let committed_revision = saved.revision.clone();
+
+    let invalid = f
+        .session
+        .mutate(WorkspaceMutation {
+            expected_revision: saved.revision,
+            intent: WorkspaceIntent::SetStudyProfile {
+                admission_year: Some(2027),
+                study_enrollments: vec![StudyEnrollment {
+                    stage: StudyStage::Doctoral,
+                    entry_kind: StudyEntryKind::Regular,
+                    entry_grade: Some(1),
+                    admitted_term: "2027-spring".into(),
+                }],
+            },
+        })
+        .unwrap()
+        .await_result()
+        .await;
+    assert!(matches!(invalid, Err(SdkError::InvalidInput { .. })));
+    let after = f.snapshot().await;
+    assert_eq!(after.revision, committed_revision);
+    assert_eq!(after.workspace.0, committed_workspace);
+    f.finish().await;
+}
+
 #[tokio::test]
 async fn dropping_foreign_wait_does_not_abort_an_admitted_transaction() {
     let f = Fixture::new().await;

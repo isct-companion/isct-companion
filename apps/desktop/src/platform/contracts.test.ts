@@ -362,4 +362,31 @@ describe("Tauri bridge contract", () => {
     dispose();
     expect(unlisten).toHaveBeenCalledOnce();
   });
+
+  it("forwards correlated workspace changes and filters malformed payloads", async () => {
+    let handler: ((value: unknown) => void) | undefined;
+    const unlisten = vi.fn();
+    const listen = vi.fn(
+      async (_event: string, callback: (value: unknown) => void) => {
+        handler = callback;
+        return unlisten;
+      },
+    );
+    const bridge = createTauriDesktopBridge(vi.fn(), listen, "native-desktop");
+    const callback = vi.fn();
+    const dispose = await bridge.onWorkspaceChanged(callback);
+    handler?.({ source: "user-intent", revision: "r1" });
+    handler?.({ source: "mcp" });
+    handler?.({ source: "future-source" });
+    handler?.({ source: 1 });
+    handler?.({ source: "user-intent", revision: 1 });
+    handler?.(null);
+    expect(callback.mock.calls.map(([event]) => event)).toEqual([
+      { source: "user-intent", revision: "r1" },
+      { source: "mcp" },
+      { source: "future-source" },
+    ]);
+    dispose();
+    expect(unlisten).toHaveBeenCalledOnce();
+  });
 });
