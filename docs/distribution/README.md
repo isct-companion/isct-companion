@@ -13,25 +13,12 @@ Get the 1.0 release candidate from [Releases](https://github.com/isct-companion/
 | Mac with Apple Silicon | `aarch64-apple-darwin.dmg` | macOS 14 or later |
 | Mac with Intel processor | `x86_64-apple-darwin.dmg` | macOS 14 or later |
 | Windows PC | `x86_64-pc-windows-msvc.exe` | Windows 10/11, x64; WebView2 |
-| Android | `aarch64-android.apk` | Android 14 or later, arm64 |
-| iPhone / iPad | TestFlight; `ios-ipados.ipa` also provided in Releases | iOS / iPadOS 17 or later |
 
 On Mac, open the disk image and drag the app to Applications. On Windows, run
 the installer; it installs WebView2 if needed (an internet connection may be
 required). Intel Mac builds currently omit campus-card OCR.
-On Android, download the signed APK and allow installation from the app used
-to open it.
-
-### iOS and iPadOS — TestFlight
-
-Install [TestFlight from the App Store](https://apps.apple.com/app/testflight/id899247664),
-then [join the IsctCompanion public beta](https://testflight.apple.com/join/kUZNQHG6).
-The first 1.0 RC build becomes installable after Apple processes the upload
-and approves external testing.
-
-The IPA in Releases is signed for App Store distribution. Use TestFlight to
-install it on an iPhone or iPad; downloading that IPA alone does not install
-the app on an arbitrary device.
+Native iOS and Android applications are being prepared. New desktop releases
+no longer build the retired Tauri mobile packages.
 
 The 1.0 release candidates are prereleases. Each Release states its signing
 and notarization status; unsigned installers may display security prompts.

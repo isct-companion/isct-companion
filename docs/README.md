@@ -16,7 +16,11 @@
 
 ## Release and providers
 
-- [Desktop release](desktop-release.md), [mobile release](mobile-release.md), [distribution](distribution/README.md).
+- [Desktop release](desktop-release.md) and [distribution](distribution/README.md).
+- [Retired Tauri mobile implementation](../deprecated/tauri-mobile/README.md): archived adapters and release notes; native mobile apps remain planned.
 - [Cloud provider setup](cloud-provider-setup.md) and [subscription repository](subscription-repository.md).
+
+See the root [repository map](../README.md#repository-map) for current paths.
+Historical consolidation plans and verification receipts retain their original paths.
 
 Local research/build evidence belongs under ignored `artifacts/`, outside Git tracking.

@@ -33,15 +33,44 @@ desktop app.
 
 ## Repository map
 
-- `src/pages`: Today, Courses, Web and Settings screens.
-- `src/components`: shared UI.
-- `src/store` and `src/storage`: frontend read model and native repository bridge.
-- `crates/isct-core`: shared domain services, mutations, read models and task ownership.
-- `crates/isct-ocr`: independent image preparation and optional OCR engine.
-- `backend/src`: Tauri commands, native platform ports and local HTTP MCP.
-- `src/generated`: TypeScript contracts generated from Rust.
-- `crates/isct-core/tests/fixtures/subscriptions`: frozen reference-data test fixtures.
-- `docs`: maintained architecture, storage and provider notes.
+```text
+apps/desktop/
+  src/                     React application and disposable view caches
+    app/                   application composition, routes and lifecycle
+    pages/                 desktop screens
+    layouts/compact/       responsive layout for narrow desktop windows
+    features/              feature UI and document viewers
+    platform/              Tauri client, query hooks and platform presentation
+    lib/                   desktop presentation helpers and preview fixtures
+    generated/             contracts generated from Rust
+  src-tauri/               Tauri host, native ports, commands and HTTP MCP
+  public/                  desktop web assets
+crates/isct-core/           authoritative domain state, services and storage
+crates/isct-ocr/            independent optional OCR engine and model
+resources/locales/         shared UI translation resources
+resources/design/          original icon artwork; future shared visual tokens
+config/                    cross-platform build configuration (OAuth clients)
+scripts/                   desktop, bindings, checks, data and shared build tools
+deprecated/tauri-mobile/   retired Tauri mobile adapters, plugins and build notes
+docs/                      contracts, design and verification records
+```
+
+Future SwiftUI and Compose applications belong in `apps/ios/` and
+`apps/android/`. Their shared Rust facade belongs in `crates/isct-ffi/`, with
+Swift/Kotlin packages under `bindings/`. These directories are created when
+implemented; native application bindings are not available yet.
+
+Platform manifests and build configuration stay beside the owning app. The
+root Yarn/Cargo workspaces retain one lockfile each and the Rust build output
+remains at root `target/`. Root commands delegate to the desktop workspace.
+Generate desktop TypeScript contracts with `yarn core:types`; the exporter
+belongs to Core and does not require compiling Tauri. Subscription test data
+remains in `crates/isct-core/tests/fixtures/subscriptions/`.
+
+The retired mobile release workflows are archived outside GitHub's active
+workflow directory. Desktop releases build independently; platform checks
+continue to compile shared Core for iOS and Android. Historical plans and
+verification records may use paths from before this directory move.
 
 ## Desktop Core checkpoint
 

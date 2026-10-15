@@ -1,0 +1,372 @@
+import "./lectures.css";
+import {
+  Activity,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { TermId, Workspace } from "../../lib/model";
+import { addCivilDays as addDays, civilWeekday } from "../../lib/civil-date";
+import { UiInput, UiSelect } from "../../components/mantine";
+import { jstMinutes } from "../../components/timetable/timetable";
+import { jstDate } from "../../app/shared";
+import { t } from "../../i18n";
+import type { CourseEntry } from "../../features/lms/LmsWorkspace";
+import { useFormFactor } from "../../app/form-factor";
+import { useClock } from "../../platform/use-clock";
+import {
+  useScheduleQuery,
+  type ScheduleView,
+  type TaskView,
+} from "../../platform/core-query";
+
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+type Lecture = {
+  id: string;
+  title: string;
+  code: string;
+  color: string;
+  /** Minutes from now to the next meeting within a week; 0 while in class. */
+  rank: number;
+  when?: string;
+  room?: string;
+  due?: { label: string; tone: string };
+};
+
+/** This quarter's lectures, in class order, and the open lecture's workspace. */
+export function LectureDesk({
+  data,
+  term,
+  entry,
+  select,
+  clear,
+  active,
+  renderWorkspace,
+  restoreAssignment,
+}: {
+  data: Workspace;
+  term: TermId;
+  entry: CourseEntry | null;
+  select: (courseId: string, assignmentId?: string) => void;
+  clear: () => void;
+  active: boolean;
+  renderWorkspace: (entry: CourseEntry, active: boolean) => ReactNode;
+  /** Brings a hidden assignment back to Today and this list. */
+  restoreAssignment?: (assignmentId: string) => void;
+}) {
+  // Single-column layouts open the lecture as a dialog over the list.
+  const stacked = useFormFactor() === "mobile";
+  // The quarter shown here is browsed on its own; it starts at the current one.
+  const [shownTerm, setShownTerm] = useState(term);
+  const lastTerm = useRef(term);
+  useEffect(() => {
+    if (lastTerm.current !== term) {
+      lastTerm.current = term;
+      setShownTerm(term);
+    }
+  }, [term]);
+  const [query, setQuery] = useState("");
+  // The list shows the quarter's lectures, or its open assignments.
+  const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
+  const [showHidden, setShowHidden] = useState(false);
+  const nowIso = useClock(active);
+  const now = useMemo(() => new Date(nowIso), [nowIso]);
+  const today = jstDate(now);
+  const schedule = useScheduleQuery<ScheduleView>({
+    kind: "scheduleView",
+    term: shownTerm,
+    from: today,
+    to: addDays(today, 7),
+    includePersonal: true,
+  }).value;
+  const terms = schedule?.allTerms.length ? schedule.allTerms : [term];
+  const courses = schedule?.courses ?? [];
+  const taskView = useScheduleQuery<TaskView>({
+    kind: "taskView",
+    now: nowIso,
+  }).value;
+  const taskTerm = taskView?.byTerm?.[shownTerm];
+  const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
+
+  const lectures = useMemo(() => {
+    const minutes = jstMinutes(now);
+    const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    const next = new Map<
+      string,
+      { rank: number; when: string; room?: string }
+    >();
+    for (const [offset, agenda] of (schedule?.agendas ?? []).entries()) {
+      const date = agenda.date;
+      for (const block of agenda.occurrences) {
+        if (block.kind !== "course" || next.has(block.id)) continue;
+        if (offset === 0 && block.endTime <= clock) continue;
+        const [h, m] = block.startTime.split(":").map(Number);
+        const inClass = offset === 0 && block.startTime <= clock;
+        next.set(block.id, {
+          rank: inClass ? 0 : offset * 1440 + h * 60 + m - minutes,
+          when: inClass
+            ? t("Now")
+            : `${offset === 0 ? t("Today") : offset === 1 ? t("Tomorrow") : t(DAY_NAMES[civilWeekday(date) - 1])} ${block.startTime.replace(/^0/, "")}`,
+          room: block.room || undefined,
+        });
+      }
+    }
+    return courses
+      .map((course): Lecture => {
+        const meeting = next.get(course.id);
+        const workId = taskView?.nearestByCourse[course.id];
+        const due = workId ? taskView?.deadlines?.[workId] : undefined;
+        return {
+          id: course.id,
+          title: course.title,
+          code: course.code,
+          color: course.color,
+          rank: meeting?.rank ?? Infinity,
+          when: meeting?.when,
+          room: meeting?.room,
+          due: due
+            ? { label: due.countdownLabel, tone: due.countdownTone }
+            : undefined,
+        };
+      })
+      .sort(
+        (left, right) =>
+          left.rank - right.rank || left.title.localeCompare(right.title),
+      );
+  }, [courses, now, schedule?.agendas, taskView, today]);
+  const work = useMemo(() => {
+    const byId = new Map(courses.map((course) => [course.id, course]));
+    return (taskTerm?.lectureOpenIds ?? [])
+      .flatMap((id) => byAssignment.get(id) ?? [])
+      .map((a) => {
+        const deadline = taskView?.deadlines?.[a.id];
+        return {
+          assignment: a,
+          course: byId.get(a.courseId)!,
+          due: deadline
+            ? { label: deadline.countdownLabel, tone: deadline.countdownTone }
+            : undefined,
+        };
+      });
+  }, [byAssignment, courses, taskTerm, taskView]);
+  // Hidden assignments stay with their quarter, folded under the open ones.
+  const hiddenWork = useMemo(() => {
+    const byId = new Map(courses.map((course) => [course.id, course]));
+    return (taskTerm?.lectureHiddenIds ?? [])
+      .flatMap((id) => byAssignment.get(id) ?? [])
+      .map((a) => ({ assignment: a, course: byId.get(a.courseId)! }));
+  }, [byAssignment, courses, taskTerm]);
+  const needle = query.trim().toLowerCase();
+  const shownWork = needle
+    ? work.filter(({ assignment, course }) =>
+        `${assignment.title} ${course.title} ${course.code}`
+          .toLowerCase()
+          .includes(needle),
+      )
+    : work;
+  const shownHidden = needle
+    ? hiddenWork.filter(({ assignment, course }) =>
+        `${assignment.title} ${course.title} ${course.code}`
+          .toLowerCase()
+          .includes(needle),
+      )
+    : hiddenWork;
+  const shown = needle
+    ? lectures.filter((lecture) =>
+        `${lecture.title} ${lecture.code}`.toLowerCase().includes(needle),
+      )
+    : lectures;
+
+  // The two most recent lectures stay mounted so switching back is instant.
+  const [recent, setRecent] = useState<CourseEntry[]>([]);
+  useEffect(() => {
+    if (entry)
+      setRecent((previous) =>
+        [
+          ...previous.filter((item) => item.courseId !== entry.courseId),
+          entry,
+        ].slice(-2),
+      );
+  }, [entry]);
+  const retained = entry
+    ? [
+        ...recent.filter((item) => item.courseId !== entry.courseId),
+        entry,
+      ].slice(-2)
+    : recent;
+
+  return (
+    <div className={`page lectureDesk${entry ? " open" : ""}`}>
+      <nav className="lectureList" aria-label={t("Lectures")}>
+        <header>
+          <h1>{t("Lecture Desk")}</h1>
+          <UiSelect
+            className="lectureTerm"
+            aria-label={t("Quarter")}
+            value={shownTerm}
+            onChange={(event) => setShownTerm(event.target.value as TermId)}
+          >
+            {[...new Set(terms.map((item) => item.slice(0, 4)))].map((year) => (
+              <optgroup key={year} label={year}>
+                {terms
+                  .filter((item) => item.startsWith(`${year}-`))
+                  .map((item) => (
+                    <option key={item} value={item}>
+                      {item.replace("-", " ")}
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
+          </UiSelect>
+        </header>
+        <div
+          className="dueScope lectureMode"
+          role="group"
+          aria-label={t("Show")}
+        >
+          {(["lectures", "assignments"] as const).map((item) => (
+            <button
+              type="button"
+              key={item}
+              aria-pressed={mode === item}
+              onClick={() => setMode(item)}
+            >
+              {t(item === "lectures" ? "Lectures" : "Assignments")}
+            </button>
+          ))}
+        </div>
+        <UiInput
+          className="lectureFilter"
+          type="search"
+          aria-label={t("Filter")}
+          placeholder={t("Filter…")}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => event.key === "Escape" && setQuery("")}
+        />
+        {mode === "assignments" &&
+          shownWork.map(({ assignment, course, due }) => (
+            <button
+              type="button"
+              key={assignment.id}
+              className={`lectureRow${entry?.assignmentId === assignment.id ? " selected" : ""}`}
+              aria-current={
+                entry?.assignmentId === assignment.id ? "true" : undefined
+              }
+              style={{ "--course": course.color } as React.CSSProperties}
+              onClick={() => select(course.id, assignment.id)}
+            >
+              <b>{assignment.title}</b>
+              <small>{course.title}</small>
+              {due && (
+                <span className={`dueChip ${due.tone}`}>{due.label}</span>
+              )}
+            </button>
+          ))}
+        {mode === "assignments" && !shownWork.length && (
+          <p className="quietEmpty compact">
+            {t(
+              work.length ? "No matching assignments." : "No open assignments.",
+            )}
+          </p>
+        )}
+        {mode === "assignments" &&
+          restoreAssignment &&
+          shownHidden.length > 0 && (
+            <>
+              <button
+                type="button"
+                className="lectureHiddenToggle"
+                aria-expanded={showHidden}
+                onClick={() => setShowHidden((value) => !value)}
+              >
+                {showHidden ? "▾" : "▸"} {t("Hidden assignments")}
+              </button>
+              {showHidden &&
+                shownHidden.map(({ assignment, course }) => (
+                  <div
+                    key={assignment.id}
+                    className="lectureRow hidden"
+                    style={{ "--course": course.color } as React.CSSProperties}
+                  >
+                    <b>{assignment.title}</b>
+                    <small>{course.title}</small>
+                    <button
+                      type="button"
+                      className="textButton"
+                      onClick={() => restoreAssignment(assignment.id)}
+                    >
+                      {t("Restore")}
+                    </button>
+                  </div>
+                ))}
+            </>
+          )}
+        {mode === "lectures" &&
+          shown.map((lecture) => (
+            <button
+              type="button"
+              key={lecture.id}
+              className={`lectureRow${entry?.courseId === lecture.id ? " selected" : ""}${lecture.rank === 0 ? " now" : ""}`}
+              aria-current={entry?.courseId === lecture.id ? "true" : undefined}
+              style={{ "--course": lecture.color } as React.CSSProperties}
+              onClick={() => select(lecture.id)}
+            >
+              <b>{lecture.title}</b>
+              <small>
+                {[lecture.when, lecture.room].filter(Boolean).join(" · ") ||
+                  lecture.code}
+              </small>
+              {lecture.due && (
+                <span className={`dueChip ${lecture.due.tone}`}>
+                  {lecture.due.label}
+                </span>
+              )}
+            </button>
+          ))}
+        {mode === "lectures" && !shown.length && (
+          <p className="quietEmpty compact">
+            {t(
+              lectures.length
+                ? "No matching lectures."
+                : "No lectures on this quarter's timetable.",
+            )}
+          </p>
+        )}
+      </nav>
+      <div
+        className="lectureContent"
+        role={stacked && entry ? "dialog" : undefined}
+        aria-modal={stacked && entry ? true : undefined}
+      >
+        {entry && (
+          <button type="button" className="lectureBack" onClick={clear}>
+            ‹ {t("Lectures")}
+          </button>
+        )}
+        {retained.map((item) => (
+          <div
+            className="lectureSlot"
+            key={item.courseId}
+            hidden={entry?.courseId !== item.courseId}
+          >
+            <Activity
+              mode={
+                active && entry?.courseId === item.courseId
+                  ? "visible"
+                  : "hidden"
+              }
+            >
+              {renderWorkspace(
+                item,
+                active && entry?.courseId === item.courseId,
+              )}
+            </Activity>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
