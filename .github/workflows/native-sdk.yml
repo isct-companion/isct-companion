@@ -111,17 +111,21 @@ jobs:
           key: native-sdk-android
       - name: Build AAR and both native ABIs
         run: node scripts/bindings/build-android.mjs
-      - name: Boot Android emulator
+      - name: Enable Android emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          echo no | avdmanager create avd --name isct-sdk --package "system-images;android-34;google_apis;x86_64" --force
-          "$ANDROID_HOME/emulator/emulator" -avd isct-sdk -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
-          adb wait-for-device
-          timeout 180 bash -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do sleep 2; done'
       - name: Load AAR on Android ART
-        run: node scripts/bindings/android-smoke.mjs
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        timeout-minutes: 12
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          emulator-boot-timeout: 300
+          emulator-options: -no-window -gpu software -no-snapshot -noaudio -no-boot-anim
+          script: node scripts/bindings/android-smoke.mjs
       - uses: actions/upload-artifact@v7
         with:
           name: isct-core-android-sdk
