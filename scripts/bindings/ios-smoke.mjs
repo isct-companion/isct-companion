@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, copyFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, copyFileSync, readFileSync } from "node:fs";
 import { run, capture, root, output } from "./common.mjs";
 // CI supplies the runtime. No simulator download occurs on a developer's host.
 const devices = JSON.parse(
@@ -37,4 +37,13 @@ const options = [
 ];
 run("swift", ["build", ...options]);
 const binaries = capture("swift", ["build", ...options, "--show-bin-path"]);
-run("xcrun", ["simctl", "spawn", device.udid, join(binaries, "SdkSmoke")]);
+const manifest = JSON.parse(
+  readFileSync(join(root, "bindings/swift/artifacts/sdk-build.json"), "utf8"),
+);
+run("xcrun", [
+  "simctl",
+  "spawn",
+  device.udid,
+  join(binaries, "SdkSmoke"),
+  ...(manifest.ocr ? ["--require-ocr"] : []),
+]);

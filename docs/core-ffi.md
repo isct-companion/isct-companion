@@ -112,7 +112,9 @@ generated `close()` resource method. Session shutdown closes subscriptions.
 Native ports are mechanisms:
 
 - `NativeVault`: blocking Keychain/Keystore operations, called on workers.
-- `NativeBrowser`: promptly enqueue UI work. `BrowserEvents` reports completion
+- `NativeBrowser`: promptly enqueue UI work. Install the SDK's `schoolBrowserInitialization()` scripts at document start in each
+  view/frame; those assets come from Core, including Android frame support.
+  `BrowserEvents` reports completion
   using browser generation, page sequence and action ID. Never synchronously
   wait for the main thread from a callback. Shutdown disables native admission.
 - `NativeDownloadSession`: async authenticated cookie access for Core downloads.
@@ -130,7 +132,7 @@ lands; no Tauri adapter is imported into the SDK.
 Scanner initialization is lazy. `prepareScanner()` loads the model and performs
 an inference warmup, which also allows device-side verification without private
 images. Model failure affects only this capability. Scan progress arrives as
-`ocr-progress`; the shell converts HEIC to a supported image format before calling.
+`ocr-progress` with the operation ID; the shell converts HEIC to a supported image format before calling.
 
 The pinned ONNX distribution supports Android arm64 and iOS device/simulator.
 Intel macOS and Android x86_64 build the unavailable backend, including when the

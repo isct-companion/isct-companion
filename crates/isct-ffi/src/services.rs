@@ -238,16 +238,18 @@ impl Session {
     pub fn scan_matrix(&self, image: Vec<u8>) -> Result<Arc<Operation>, SdkError> {
         #[cfg(feature = "ocr")]
         {
-            self.start(true,move|i,cancel|async move{
-            if cancel.is_cancelled(){return Err(SdkError::Cancelled)}
-            tokio::task::spawn_blocking(move||{
-                let cells=i.scanner.scan(&image,|progress|{
-                    let _=i.events.publish("ocr-progress",serde_json::json!({"completed":progress.completed,"total":progress.total}));
-                    !cancel.is_cancelled()
-                }).map_err(ocr_error)?;
-                Ok(OperationResult::Recognitions{cells:project(cells)?})
-            }).await.map_err(isct_core::runtime_tasks::RuntimeTaskError::from)?
-        })
+            self.start_identified(true, move |inner, operation_id, cancel| async move {
+                if cancel.is_cancelled() { return Err(SdkError::Cancelled); }
+                tokio::task::spawn_blocking(move || {
+                    let cells = inner.scanner.scan(&image, |progress| {
+                        let _ = inner.events.publish("ocr-progress", serde_json::json!({
+                            "operationId": operation_id, "completed": progress.completed, "total": progress.total
+                        }));
+                        !cancel.is_cancelled()
+                    }).map_err(ocr_error)?;
+                    Ok(OperationResult::Recognitions { cells: project(cells)? })
+                }).await.map_err(isct_core::runtime_tasks::RuntimeTaskError::from)?
+            })
         }
         #[cfg(not(feature = "ocr"))]
         {

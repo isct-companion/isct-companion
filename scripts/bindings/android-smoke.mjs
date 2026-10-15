@@ -1,10 +1,11 @@
 import { join, dirname } from "node:path";
-import { mkdirSync, rmSync, copyFileSync, realpathSync } from "node:fs";
+import { mkdirSync, rmSync, readdirSync, realpathSync } from "node:fs";
 import {
   run,
   capture,
   javaDependencies,
   androidJna,
+  androidAnnotations,
   root,
   output,
 } from "./common.mjs";
@@ -24,6 +25,7 @@ run("unzip", [
 const aar = await androidJna();
 run("unzip", ["-q", aar, "-d", join(stage, "jna")]);
 const { coroutines } = await javaDependencies();
+const annotations = await androidAnnotations();
 const kotlinRoot = dirname(
   dirname(realpathSync(capture("which", ["kotlinc"]))),
 );
@@ -54,6 +56,7 @@ run(join(sdk, "build-tools", buildTools, "d8"), [
   jna,
   coroutines,
   kotlinStdlib,
+  annotations,
 ]);
 run("adb", ["wait-for-device"]);
 const abi = capture("adb", ["shell", "getprop", "ro.product.cpu.abi"]).trim();
@@ -64,7 +67,9 @@ run("adb", ["shell", "mkdir", "-p", remote]);
 try {
   for (const [local, name] of [
     [join(stage, "smoke.zip"), "smoke.zip"],
-    [join(stage, "sdk/jni", abi, "libisct_ffi.so"), "libisct_ffi.so"],
+    ...readdirSync(join(stage, "sdk/jni", abi))
+      .filter((name) => name.endsWith(".so"))
+      .map((name) => [join(stage, "sdk/jni", abi, name), name]),
     [join(stage, "jna/jni", abi, "libjnidispatch.so"), "libjnidispatch.so"],
   ])
     run("adb", ["push", local, `${remote}/${name}`]);

@@ -390,3 +390,25 @@ impl isct_core::cloud_sync::CloudTransport for Cloud {
         })
     }
 }
+
+/// Install these shared scripts at document start before navigating a school view.
+#[uniffi::export]
+pub fn school_browser_initialization() -> Result<Vec<String>, SdkError> {
+    let scripts = vec![
+        isct_core::school_browser::KYOMU_POPUP.to_owned(),
+        isct_core::school_browser::SCHOOL_LINKS.to_owned(),
+    ];
+    #[cfg(target_os = "android")]
+    {
+        let json = serde_json::to_string(&scripts).map_err(|e| SdkError::Internal {
+            detail: e.to_string(),
+        })?;
+        Ok(vec![
+            isct_core::school_browser::ANDROID_SUPPORT.replace("__ISCT_SUPPORT_SCRIPTS__", &json)
+        ])
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(scripts)
+    }
+}

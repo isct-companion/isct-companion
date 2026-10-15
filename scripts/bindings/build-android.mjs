@@ -1,10 +1,9 @@
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import {
   mkdirSync,
   copyFileSync,
   rmSync,
   writeFileSync,
-  readdirSync,
   readFileSync,
 } from "node:fs";
 import {
@@ -12,6 +11,7 @@ import {
   generate,
   javaDependencies,
   androidJna,
+  androidAnnotations,
   capture,
   root,
   target,
@@ -92,12 +92,13 @@ for (const [triple, abi, clang] of [
     );
 }
 const { jna, coroutines } = await javaDependencies();
+const annotations = await androidAnnotations();
 const android = join(sdk, "platforms/android-34/android.jar");
 run("kotlinc", [
   join(generated, "app/isctcompanion/core/isct_ffi.kt"),
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/OperationValue.kt",
   "-classpath",
-  [jna, coroutines, android].join(":"),
+  [jna, coroutines, android, annotations].join(":"),
   "-jvm-target",
   "1.8",
   "-d",
@@ -129,7 +130,7 @@ const version = JSON.parse(
 ).version;
 writeFileSync(
   join(artifacts, "isct-core.pom"),
-  `<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>app.isctcompanion</groupId><artifactId>isct-core</artifactId><version>${version}</version><packaging>aar</packaging><dependencies><dependency><groupId>net.java.dev.jna</groupId><artifactId>jna</artifactId><version>5.17.0</version><type>aar</type></dependency><dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-android</artifactId><version>1.10.2</version></dependency></dependencies></project>`,
+  `<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>app.isctcompanion</groupId><artifactId>isct-core</artifactId><version>${version}</version><packaging>aar</packaging><dependencies><dependency><groupId>net.java.dev.jna</groupId><artifactId>jna</artifactId><version>5.17.0</version><type>aar</type></dependency><dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-android</artifactId><version>1.10.2</version></dependency><dependency><groupId>androidx.annotation</groupId><artifactId>annotation-jvm</artifactId><version>1.9.1</version></dependency></dependencies></project>`,
 );
 await androidJna();
 writeFileSync(

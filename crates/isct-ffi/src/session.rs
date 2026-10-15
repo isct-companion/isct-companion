@@ -162,6 +162,17 @@ impl Session {
         F: FnOnce(Arc<Inner>, CancellationToken) -> Fut + Send + 'static,
         Fut: Future<Output = Result<OperationResult, SdkError>> + Send + 'static,
     {
+        self.start_identified(cancellable, move |inner, _, cancel| work(inner, cancel))
+    }
+    pub(crate) fn start_identified<F, Fut>(
+        &self,
+        cancellable: bool,
+        work: F,
+    ) -> Result<Arc<Operation>, SdkError>
+    where
+        F: FnOnce(Arc<Inner>, u64, CancellationToken) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<OperationResult, SdkError>> + Send + 'static,
+    {
         let closed = self.inner.gate.lock().map_err(|_| SdkError::Closed)?;
         if *closed {
             return Err(SdkError::Closed);
@@ -177,7 +188,7 @@ impl Session {
         let cancel = operation.cancellation.clone();
         let _entered = self.inner.handle.enter();
         if !self.inner.tasks.spawn(async move {
-            let result = std::panic::AssertUnwindSafe(async move { work(inner, cancel).await })
+            let result = std::panic::AssertUnwindSafe(async move { work(inner, id, cancel).await })
                 .catch_unwind()
                 .await
                 .unwrap_or_else(|_| {

@@ -5,7 +5,8 @@ produces `artifacts/isct-core.aar` for arm64-v8a and x86_64, a dependency POM an
 `artifacts/sdk-build.json`. Keep the generated library and Kotlin source in sync.
 
 Consume the AAR as a local file and declare `net.java.dev.jna:jna:5.17.0@aar`
-and `org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2`, or publish the AAR
+and `org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2`, plus
+`androidx.annotation:annotation-jvm:1.9.1`, or publish the AAR
 with its generated POM to a private Maven repository. Generated bindings and the
 `Operation.value()` coroutine helper are compiled into `classes.jar`; do not also
 compile the generated source in the consuming app. Keep consumer R8 rules.

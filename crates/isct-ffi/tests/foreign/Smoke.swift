@@ -4,8 +4,15 @@ import IsctCore
 final class MemoryVault: NativeVault, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: String] = [:]
+    private var failStore = false
+    func failNextStore() { lock.withLock { failStore = true } }
     func load(account: String) throws -> String? { lock.withLock { values[account] } }
-    func store(account: String, secret: String) throws { lock.withLock { values[account] = secret } }
+    func store(account: String, secret: String) throws {
+        try lock.withLock {
+            if failStore { failStore = false; throw NSError(domain: "native-vault-fixture", code: 1) }
+            values[account] = secret
+        }
+    }
     func delete(account: String) throws { _ = lock.withLock { values.removeValue(forKey: account) } }
 }
 func require(_ condition: Bool, _ detail: String) throws {
@@ -15,7 +22,20 @@ func require(_ condition: Bool, _ detail: String) throws {
     static func main() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("isct-swift-\(UUID().uuidString)")
         let config = SessionConfig(dataDirectory: directory.appendingPathComponent("data").path, filesDirectory: directory.appendingPathComponent("files").path, initialNetwork: .offline, cloudProviders: [], authorizedCloudProviders: [])
-        let session = try await Session.open(config: config, vault: MemoryVault(), browser: nil, cloud: nil, notifications: nil, downloads: nil)
+        let vault = MemoryVault()
+        let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, downloads: nil)
+        if CommandLine.arguments.contains("--require-ocr") {
+            try require(try session.capabilities().ocr, "Packaged iOS SDK must expose OCR")
+        }
+        try require(try !schoolBrowserInitialization().isEmpty, "Missing document-start scripts")
+        let credentials = SchoolCredentials(username: "fixture", password: "not-a-real-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
+        vault.failNextStore()
+        do {
+            _ = try await session.saveCredentials(profile: .tokyoTech, credentials: credentials).value()
+            throw NSError(domain: "missing-callback-error", code: 1)
+        } catch SdkError.Callback { }
+        _ = try await session.saveCredentials(profile: .tokyoTech, credentials: credentials).value()
+        _ = try await session.deleteCredentials(profile: .tokyoTech).value()
         let stream = try session.subscribe()
         guard case let .workspace(first) = try await session.snapshot().value() else { throw NSError(domain:"snapshot",code:1) }
         let write = try session.mutate(mutation: WorkspaceMutation(expectedRevision: first.revision, intent: .setAdmissionYear(admissionYear: 2026)))

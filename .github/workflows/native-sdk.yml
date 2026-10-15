@@ -58,6 +58,7 @@ jobs:
       - name: Rust contracts and lint
         run: |
           cargo test -p isct-core -p isct-ffi --locked -j 2
+          cargo test -p isct-ffi --features ocr --locked -j 2
           cargo clippy -p isct-core -p isct-ffi --all-targets --locked -j 2 -- -D warnings
       - name: Swift 6 and Kotlin host clients with OCR
         run: node scripts/bindings/host-smoke.mjs --ocr

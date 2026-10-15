@@ -8,7 +8,8 @@ let package = Package(
         .binaryTarget(name: "IsctCoreFFI", path: "artifacts/IsctCore.xcframework"),
         .target(name: "IsctCore", dependencies: ["IsctCoreFFI"], swiftSettings: [.swiftLanguageMode(.v5)], linkerSettings: [
             .linkedFramework("Security"), .linkedFramework("SystemConfiguration"),
-            .linkedFramework("CoreFoundation"), .linkedFramework("CoreML")
+            .linkedFramework("CoreFoundation"), .linkedFramework("CoreML"),
+            .linkedLibrary("c++")
         ])
     ]
 )

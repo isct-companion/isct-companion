@@ -93,3 +93,24 @@ export async function androidJna() {
     throw new Error("JNA AAR checksum mismatch");
   return file;
 }
+
+export async function androidAnnotations() {
+  const file = join(output, "annotation-jvm-1.9.1.jar");
+  mkdirSync(output, { recursive: true });
+  if (!existsSync(file)) {
+    const response = await fetch(
+      "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.9.1/annotation-jvm-1.9.1.jar",
+    );
+    if (!response.ok)
+      throw new Error(
+        `AndroidX annotations download failed: ${response.status}`,
+      );
+    writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+  }
+  if (
+    createHash("sha256").update(readFileSync(file)).digest("hex") !==
+    "1e343917ebf27ba96fe4dc52b1cad7fd32b738fbc6355bb6cd5b3b305d7212d0"
+  )
+    throw new Error("AndroidX annotations checksum mismatch");
+  return file;
+}

@@ -47,6 +47,8 @@ apps/desktop/
   public/                  desktop web assets
 crates/isct-core/           authoritative domain state, services and storage
 crates/isct-ocr/            independent optional OCR engine and model
+crates/isct-ffi/            native Core facade and generated contract bridge
+bindings/                  Swift package and Kotlin/AAR packaging
 resources/locales/         shared UI translation resources
 resources/design/          original icon artwork; future shared visual tokens
 config/                    cross-platform build configuration (OAuth clients)
@@ -56,8 +58,8 @@ docs/                      contracts, design and verification records
 ```
 
 Future SwiftUI and Compose applications belong in `apps/ios/` and
-`apps/android/`. Their shared Rust facade belongs in `crates/isct-ffi/`, with
-Swift/Kotlin packages live under `bindings/`, backed by `crates/isct-ffi/`.
+`apps/android/`. Swift/Kotlin SDK packages live under `bindings/`, backed by
+the shared Rust facade in `crates/isct-ffi/`.
 The native UI projects are created when implemented.
 
 Platform manifests and build configuration stay beside the owning app. The

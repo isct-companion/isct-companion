@@ -4,14 +4,27 @@ import kotlinx.coroutines.runBlocking
 
 class MemoryVault : NativeVault {
     private val values = mutableMapOf<String,String>()
+    private var failStore = false
+    @Synchronized fun failNextStore() { failStore = true }
     @Synchronized override fun load(account:String):String? = values[account]
-    @Synchronized override fun store(account:String,secret:String) { values[account]=secret }
+    @Synchronized override fun store(account:String,secret:String) {
+        if(failStore) { failStore=false; throw IllegalStateException("native-vault-fixture") }
+        values[account]=secret
+    }
     @Synchronized override fun delete(account:String) { values.remove(account) }
 }
 fun main(args:Array<String>) = runBlocking {
     val directory=if(args.isNotEmpty())File(args[0]) else File(System.getProperty("java.io.tmpdir"),"isct-kotlin-${System.nanoTime()}")
     val config=SessionConfig(File(directory,"data").absolutePath,File(directory,"files").absolutePath,PullNetwork.OFFLINE,listOf(),listOf())
-    val session=Session.open(config,MemoryVault(),null,null,null,null)
+    val vault=MemoryVault()
+    val session=Session.open(config,vault,null,null,null,null)
+    check(schoolBrowserInitialization().isNotEmpty())
+    val credentials=SchoolCredentials("fixture","not-a-real-password","","A".repeat(70))
+    vault.failNextStore()
+    try {session.saveCredentials(SchoolAuthProfile.TOKYO_TECH,credentials).value();error("Missing callback error")}
+    catch(_:SdkException.Callback) {}
+    session.saveCredentials(SchoolAuthProfile.TOKYO_TECH,credentials).value()
+    session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value()
     val stream=session.subscribe()
     val first=(session.snapshot().value() as OperationResult.Workspace).snapshot
     val op=session.mutate(WorkspaceMutation(first.revision,WorkspaceIntent.SetAdmissionYear(2026)))

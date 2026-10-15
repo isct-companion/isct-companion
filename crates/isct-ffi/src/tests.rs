@@ -513,3 +513,21 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
     drop(browser);
     f.finish().await;
 }
+#[cfg(feature = "ocr")]
+#[tokio::test]
+async fn ocr_progress_correlates_to_the_operation_and_bad_images_leave_core_usable() {
+    let f = Fixture::new().await;
+    let events = f.session.subscribe().unwrap();
+    let operation = f.session.scan_matrix(vec![1, 2, 3]).unwrap();
+    assert!(matches!(
+        operation.await_result().await,
+        Err(SdkError::InvalidInput { .. })
+    ));
+    let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+        panic!("missing progress")
+    };
+    assert_eq!(event.name, "ocr-progress");
+    assert_eq!(event.payload.0["operationId"], operation.id());
+    let _ = f.snapshot().await;
+    f.finish().await;
+}
