@@ -381,7 +381,7 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                 .into_iter()
                 .filter(|row| {
                     row.get("hidden") != Some(&Value::Bool(true))
-                        && text(row, "submission") != Some("submitted")
+                        && !crate::schedule::assignment_submitted(row)
                 })
                 .collect::<Vec<_>>();
             open.sort_by_key(|row| due(row));

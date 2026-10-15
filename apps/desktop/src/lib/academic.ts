@@ -1,4 +1,4 @@
-import type { Quarter, TermId } from "./model";
+import type { Assignment, Quarter, TermId } from "./model";
 import { JST, tokyoDate } from "./civil-date";
 export { JST } from "./civil-date";
 export function termForDate(date: Date): TermId {
@@ -13,4 +13,19 @@ export function termForDate(date: Date): TermId {
           ? "3Q"
           : "4Q";
   return `${academic}-${q}`;
+}
+
+/** Render Core's submitted state and the grade displayed by the LMS. */
+export function submissionLabel(
+  assignment: Assignment,
+  translate: (key: string) => string,
+  submitted: boolean,
+): string {
+  if (assignment.submission === "graded")
+    return assignment.grade
+      ? `${translate("graded")} ${assignment.grade}`
+      : translate("graded");
+  return translate(
+    submitted ? "submitted" : (assignment.submission ?? "unknown"),
+  );
 }

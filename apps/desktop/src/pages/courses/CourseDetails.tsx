@@ -1,3 +1,4 @@
+import { submissionLabel } from "../../lib/academic";
 import { Badge, Button, ScrollArea, Tabs } from "@mantine/core";
 import { useState } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
@@ -318,7 +319,11 @@ export function CourseDetails({
                     }
                   >
                     {due?.label ?? "—"} ·{" "}
-                    {t(assignment.submission ?? "unknown")}
+                    {submissionLabel(
+                      assignment,
+                      t,
+                      tasks?.submittedIds.includes(assignment.id) ?? false,
+                    )}
                   </small>
                 </div>
               );

@@ -51,6 +51,11 @@ pub struct TaskView {
     pub by_term: BTreeMap<String, TermTaskView>,
 }
 
+pub(crate) fn assignment_submitted(row: &Value) -> bool {
+    matches!(text(row, "submission"), Some("submitted" | "graded"))
+        || text(row, "submissionStatus") == Some("submitted")
+}
+
 pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskView, ScheduleError> {
     let mut parsed = BTreeMap::new();
     let mut deadlines = BTreeMap::new();
@@ -68,20 +73,18 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
         parsed.insert(id.to_owned(), due);
         deadlines.insert(id.to_owned(), deadline_view(due, now));
     }
-    let submitted = |row: &Value| {
-        matches!(text(row, "submission"), Some("submitted" | "graded"))
-            || text(row, "submissionStatus") == Some("submitted")
-    };
     let submitted_ids = array(workspace, "assignments")
         .iter()
-        .filter(|row| visible(row) && submitted(row))
+        .filter(|row| visible(row) && assignment_submitted(row))
         .filter_map(|row| text(row, "id").map(str::to_owned))
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
     let mut nearest_by_course = BTreeMap::<String, (DateTime<FixedOffset>, String)>::new();
     for row in array(workspace, "assignments").iter().filter(|row| {
-        visible(row) && row.get("hidden").and_then(Value::as_bool) != Some(true) && !submitted(row)
+        visible(row)
+            && row.get("hidden").and_then(Value::as_bool) != Some(true)
+            && !assignment_submitted(row)
     }) {
         let (Some(id), Some(course), Some(due)) = (
             text(row, "id"),
@@ -139,7 +142,7 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
             if in_course {
                 if hidden {
                     view.lecture_hidden_ids.push(id.into());
-                } else if !submitted(row)
+                } else if !assignment_submitted(row)
                     && text(row, "dueAt")
                         .is_none_or(|_| parsed.get(id).is_some_and(|due| *due >= now))
                 {
@@ -159,7 +162,7 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
         today.sort_by_key(|(due, id, _)| (*due, id.clone()));
         let week = now + Duration::days(7);
         for (due, id, row) in &today {
-            let is_submitted = submitted(row);
+            let is_submitted = assignment_submitted(row);
             let pinned = row.get("pinned").and_then(Value::as_bool) == Some(true);
             if !is_submitted && *due >= now {
                 view.pending_ids.push(id.clone());

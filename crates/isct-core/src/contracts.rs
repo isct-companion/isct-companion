@@ -129,6 +129,8 @@ contract!(Assignment {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub lms_cmid: Option<u64>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub lms_course_id: Option<u64>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"unknown\" | \"open\" | \"submitted\" | \"graded\""))] pub submission: Option<String>,
+    /// The grade as displayed by the LMS.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub grade: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"unknown\" | \"draft\" | \"submitted\" | \"late\" | \"not-submitted\""))] pub submission_status: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub hidden: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub pinned: Option<bool>,

@@ -40,6 +40,7 @@ pub use reminders::{
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
     ReminderService,
 };
+pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, TaskDeadlineView, TaskView, TermTaskView};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]

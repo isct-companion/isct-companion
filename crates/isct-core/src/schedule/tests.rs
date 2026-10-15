@@ -989,3 +989,15 @@ async fn reminder_service_owns_shutdown_and_permission_gate() {
     ));
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn assignment_completion_is_shared_by_mcp_tasks_and_reminders() {
+    for row in [
+        json!({"submission":"graded"}),
+        json!({"submission":"submitted"}),
+        json!({"submission":"unknown","submissionStatus":"submitted"}),
+    ] {
+        assert!(super::assignment_submitted(&row));
+    }
+    assert!(!super::assignment_submitted(&json!({"submission":"open"})));
+}

@@ -61,7 +61,7 @@ pub struct LmsPayload {
     #[serde(default)]
     pub dated_events: Vec<Value>,
     #[serde(default)]
-    pub assign_status: HashMap<u64, String>,
+    pub assign_status: HashMap<u64, AssignState>,
     #[serde(default)]
     pub timetable: Option<LmsTimetable>,
     #[serde(default, skip_deserializing)]
@@ -97,6 +97,13 @@ pub struct LmsTimetable {
     pub term: String,
     pub meetings: HashMap<u64, Vec<Value>>,
     pub unscheduled: Vec<u64>,
+}
+
+/// What an assignment or quiz page showed about one's own work.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AssignState {
+    pub submission: String,
+    pub grade: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -450,7 +457,19 @@ pub fn parse_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), School
             if !matches!(state, "open" | "submitted" | "graded") {
                 return None;
             }
-            Some((id_of(row.get("cmid"))?, state.to_string()))
+            let grade = row
+                .get("grade")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|grade| !grade.is_empty() && grade.chars().count() <= 80)
+                .map(str::to_string);
+            Some((
+                id_of(row.get("cmid"))?,
+                AssignState {
+                    submission: state.to_string(),
+                    grade,
+                },
+            ))
         })
         .collect();
     Ok((
