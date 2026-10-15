@@ -142,6 +142,7 @@ vi.mock("../platform/finder-query", () => {
     suggestions: [],
     live: request.input ?? "",
     clashes: [],
+    ineligibleIds: [],
     replacements: {},
     credits: {},
     onTimetable: [],

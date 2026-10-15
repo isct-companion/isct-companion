@@ -1,5 +1,9 @@
 //! Native callbacks implement OS mechanisms, never domain state machines.
-use crate::{json::project, types::*, JsonValue, SdkError};
+use crate::{
+    json::{project, project_input},
+    types::*,
+    JsonValue, SdkError,
+};
 use isct_core::{ports as core, school_browser as browser};
 use std::sync::{Arc, Mutex, Weak};
 use url::Url;
@@ -90,7 +94,7 @@ impl BrowserEvents {
         url: String,
     ) -> Result<(), SdkError> {
         self.listener()?.page_loaded(browser::PageLoaded {
-            page: project(page)?,
+            page: project_input(page)?,
             cause: cause.map(browser::ActionId),
             url: parse_url(&url)?,
         });
@@ -104,7 +108,7 @@ impl BrowserEvents {
         detail: String,
     ) -> Result<(), SdkError> {
         self.listener()?.load_failed(browser::LoadFailed {
-            page: project(page)?,
+            page: project_input(page)?,
             cause: cause.map(browser::ActionId),
             url: url.map(|v| parse_url(&v)).transpose()?,
             message: detail,
@@ -112,7 +116,7 @@ impl BrowserEvents {
         Ok(())
     }
     pub fn title_changed(&self, page: PageId, title: String) -> Result<(), SdkError> {
-        self.listener()?.title_changed(project(page)?, title);
+        self.listener()?.title_changed(project_input(page)?, title);
         Ok(())
     }
     pub fn navigation(
@@ -122,10 +126,11 @@ impl BrowserEvents {
         main_frame: bool,
     ) -> Result<NavigationDecision, SdkError> {
         Ok(
-            match self
-                .listener()?
-                .decide_navigation(project(page)?, parse_url(&url)?, main_frame)
-            {
+            match self.listener()?.decide_navigation(
+                project_input(page)?,
+                parse_url(&url)?,
+                main_frame,
+            ) {
                 browser::NavigationDecision::Allow => NavigationDecision::Allow,
                 browser::NavigationDecision::Cancel => NavigationDecision::Cancel,
             },
@@ -135,7 +140,7 @@ impl BrowserEvents {
         Ok(
             match self
                 .listener()?
-                .new_window(project(page)?, parse_url(&url)?)
+                .new_window(project_input(page)?, parse_url(&url)?)
             {
                 browser::NewWindowDecision::SameView(url) => {
                     NewWindowDecision::SameView { url: url.into() }
@@ -154,7 +159,7 @@ impl BrowserEvents {
         )
     }
     pub fn closed(&self, browser: BrowserId) -> Result<(), SdkError> {
-        self.listener()?.closed(project(browser)?);
+        self.listener()?.closed(project_input(browser)?);
         Ok(())
     }
 }
@@ -279,6 +284,70 @@ pub trait NativeDownloadSession: Send + Sync {
     async fn cookie_header(&self, url: String) -> Result<String, SdkError>;
 }
 pub(crate) struct DownloadSession(pub Arc<dyn NativeDownloadSession>);
+fn download_session_error(error: SdkError) -> isct_core::downloads::FetchError {
+    use isct_core::downloads::FetchError as E;
+    match error {
+        SdkError::Authentication { .. } => E::Login,
+        SdkError::InvalidInput { .. } => E::Invalid,
+        SdkError::Timeout { .. } => E::Timeout,
+        SdkError::Cancelled | SdkError::Closed => E::Cancelled,
+        // Cookie access failures must not ask the user to sign in again.
+        _ => E::Network,
+    }
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::*;
+    use isct_core::downloads::{DownloadSession as _, FetchError};
+
+    struct SessionFailure(SdkError);
+    #[async_trait::async_trait]
+    impl NativeDownloadSession for SessionFailure {
+        async fn cookie_header(&self, _: String) -> Result<String, SdkError> {
+            Err(self.0.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn cookie_access_errors_do_not_masquerade_as_missing_login() {
+        for (error, expected) in [
+            (
+                SdkError::Callback {
+                    detail: "vault inaccessible".into(),
+                },
+                FetchError::Network,
+            ),
+            (
+                SdkError::Network {
+                    detail: "offline".into(),
+                },
+                FetchError::Network,
+            ),
+            (
+                SdkError::Authentication {
+                    detail: "expired".into(),
+                },
+                FetchError::Login,
+            ),
+            (
+                SdkError::Timeout {
+                    detail: "cookie read".into(),
+                },
+                FetchError::Timeout,
+            ),
+            (SdkError::Cancelled, FetchError::Cancelled),
+        ] {
+            let session = DownloadSession(Arc::new(SessionFailure(error)));
+            assert_eq!(
+                session
+                    .cookie_header(&Url::parse("https://lms.s.isct.ac.jp/").unwrap())
+                    .await,
+                Err(expected)
+            );
+        }
+    }
+}
 impl isct_core::downloads::DownloadSession for DownloadSession {
     fn cookie_header<'a>(
         &'a self,
@@ -294,7 +363,7 @@ impl isct_core::downloads::DownloadSession for DownloadSession {
             self.0
                 .cookie_header(url.to_string())
                 .await
-                .map_err(|_| isct_core::downloads::FetchError::Login)
+                .map_err(download_session_error)
         })
     }
 }
@@ -366,7 +435,7 @@ impl isct_core::cloud_sync::CloudTransport for Cloud {
         p: isct_core::cloud_sync::CloudProvider,
     ) -> isct_core::cloud_sync::CloudFuture<'a, Vec<isct_core::cloud_sync::CloudVersion>> {
         Box::pin(async move {
-            project(
+            project_input(
                 self.0
                     .versions(project(p).map_err(cloud_error)?)
                     .await

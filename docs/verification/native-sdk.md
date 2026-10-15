@@ -8,10 +8,9 @@ the next integration stage. See [SDK integration](../core-ffi.md) and
 
 | Check                                                                                                     | Result                                                               |
 | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `cargo test --workspace --locked -j2`                                                                     | 378 passed; 4 private OCR image tests explicitly ignored             |
-| `cargo test -p isct-ffi --features ocr --locked -j2`                                                      | 11 passed                                                            |
+| `cargo test -p isct-core -p isct-ffi -p isct-companion --features isct-ffi/ocr --locked -j2`              | 373 passed, including 23 desktop integration tests                   |
 | `cargo clippy -p isct-ffi -p isct-core --all-targets --features isct-ffi/ocr --locked -j2 -- -D warnings` | Passed                                                               |
-| Desktop frontend                                                                                          | 47 files / 266 tests passed                                          |
+| Desktop frontend                                                                                          | 47 files / 267 tests passed                                          |
 | `yarn desktop:build --debug --no-bundle -- --locked -j2`                                                  | Passed; desktop binary retained                                      |
 | Root script tests                                                                                         | 3 files / 9 tests passed                                             |
 | Swift 6 and Kotlin/JVM clients                                                                            | Real Core, SQLite, native callback exception recovery and OCR passed |
@@ -21,6 +20,12 @@ cancellation, bounded shutdown waits that retain draining work, queue overflow
 and snapshot recovery, stale browser callbacks, foreign-port release and worker
 panic containment. Both foreign clients recover from an unexpected native vault
 exception, then successfully save/delete credentials and continue Core calls.
+
+The review-fix checkpoint additionally covers admission-year catalog eligibility,
+atomic rejection of an ineligible course batch, single Core-owned user-intent
+events, local-restore event semantics, independent wake-service outcomes and
+native event-port release. The packaged-target evidence below predates these
+fixes; current device acceptance requires a fresh CI run.
 
 ## Packaged-target CI
 
@@ -35,6 +40,10 @@ passed at checkpoint `3503b8d`: both ABI libraries built, the Kotlin consumer
 loaded the actual AAR on Android API 34, and `KOTLIN_CORE_SDK_SMOKE_PASSED`
 completed. The AAR and dependency metadata are uploaded as `isct-core-android-sdk`.
 
+The current workflow names new uploads `isct-core-swift-sdk-dev-ci` and
+`isct-core-android-sdk-dev-ci`. Both use the dev profile for CI speed; they are
+verification evidence rather than release builds.
+
 The iOS consumer loads the shipped Swift package/XCFramework, compiles in Swift
 6 and requires OCR capability before model warmup/inference. Android builds
 arm64 and x86_64 AAR libraries, then loads the AAR on an API 34 x86_64 emulator
@@ -45,6 +54,11 @@ OS authorization UI, cloud-provider writes, full native screen flows and physica
 device acceptance belong to native-shell integration.
 
 ## Cleanup accounting
+
+The review fix removes the separate desktop/FFI pull-event forwarding loops
+and moves credential notification and periodic domain wake orchestration behind
+Core. New eligibility checks and boundary contracts add production code; the
+regression tests and generated bindings are not counted as production reduction.
 
 The runtime spike was replaced by production-facade tests: 369 lines of isolated
 Rust/Swift/Kotlin test code and its runner, a 14-line manifest and a duplicate

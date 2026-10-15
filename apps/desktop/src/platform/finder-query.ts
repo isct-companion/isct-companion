@@ -18,6 +18,7 @@ export type FinderAction =
 export type FinderRequest = {
   year: number;
   term: string;
+  includeIneligible?: boolean;
   keys: string[];
   input?: string;
   remoteIds?: string[];
@@ -39,6 +40,7 @@ export type FinderView = {
   suggestions: Suggestion[];
   live: string;
   clashes: string[];
+  ineligibleIds: string[];
   replacements: Record<string, string[]>;
   credits: Record<string, number>;
   onTimetable: string[];

@@ -799,5 +799,8 @@
   "Copy token": "复制令牌",
   "MCP server is unavailable.": "MCP 服务器不可用。",
   "{{count}} items not shown": "{{count}} 项无法显示",
-  "Turn on Allow local agents to show the connection details.": "开启“允许本地智能体”后即可显示连接信息。"
+  "Turn on Allow local agents to show the connection details.": "开启“允许本地智能体”后即可显示连接信息。",
+  "Not available in the admission year": "入学年度不可修读",
+  "Show unavailable courses": "显示不可修读的课程",
+  "Hide unavailable courses": "隐藏不可修读的课程"
 }

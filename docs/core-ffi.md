@@ -19,14 +19,29 @@ Builders default to release; `ISCT_SDK_PROFILE=dev` selects a faster debug SDK
 and is recorded in `artifacts/sdk-build.json`. Generated sources and binaries
 are ignored. Swift/Kotlin packages must be regenerated together with the Rust
 library: UniFFI checks signatures at load time. The native-sdk workflow runs
-both device builds and simulator clients, and uploads the complete SDK folders.
-An artifact build is not an app-store release.
+both device builds and simulator clients, and uploads the complete SDK folders
+as explicitly named `dev-ci` acceptance artifacts. These debug artifacts are not
+an app-store or Maven release; release packaging is a separate workflow concern.
 
-Swift requires Xcode and installed iOS device/simulator SDKs. The simulator
-smoke additionally requires an installed runtime, supplied by CI. Android needs
+The Swift package supports iOS 17 and newer. It does not declare macOS support:
+the host smoke links generated source directly to a host dynamic library and is
+only a binding-contract check. Swift requires Xcode and installed iOS
+device/simulator SDKs. The simulator smoke additionally requires an installed
+runtime, supplied by CI. Android needs
 `ANDROID_HOME`, `NDK_HOME`, Android API 34/build tools 36, Java and a Kotlin
 compiler. `scripts/bindings/android-smoke.mjs` loads the AAR's Kotlin and native
 library on Android ART using a running emulator. It does not use a school account.
+
+Android API 34 is the current product `minSdk`, independently of the API 34 CI
+emulator used for packaged acceptance. The build scripts keep the native Clang
+target, AAR manifest and D8 output on that single floor. Android's
+[NDK build documentation](https://developer.android.com/ndk/guides/other_build_systems)
+defines the API suffix on a Clang target triple as `minSdkVersion`, while the
+[D8 documentation](https://developer.android.com/tools/d8) defines `--min-api`
+as the output DEX compatibility floor. A lower product floor needs a complete
+AAR test on that API, including JNA and the arm64 OCR runtime; the API 34 value is
+therefore retained pending that decision. The `ort` Cargo feature `api-24` selects
+ONNX Runtime 1.24's C API and is unrelated to Android API level 24.
 
 The Swift wrapper target uses Swift 5 language mode because this pinned UniFFI
 version's async foreign-callback template fails Swift 6 region-isolation
@@ -51,6 +66,8 @@ before work is admitted. `awaitResult()` returns a typed `OperationResult`;
 
 - A Swift/Kotlin task stopping its wait does not abort admitted work.
 - The supplied `value()` helpers detach when their native task is cancelled.
+  Swift reports this as `CancellationError`; `SdkError.Cancelled` remains a Core
+  cooperative-cancellation result when the Swift task itself is still active.
 - `detach()` stops this handle's waiters; the underlying operation continues.
 - `cancel()` cooperates with cancellable capabilities such as OCR and returns
   false for transactions/shared pulls. Use `cancelPull(id)` for domain pull
@@ -88,21 +105,35 @@ maintained. The dynamic `serde_json::Value` fields are represented by `JsonValue
 (valid JSON text); service methods and intent/query/result discriminants remain
 typed. Arrays become foreign lists and Core's deserializer rechecks fixed lengths.
 Business validation, timestamps, revision checking and commits remain in Core.
+Foreign callers supply complete records, including default field values; Core's
+custom serde defaults are not automatically foreign constructor defaults.
+`openSchool` returns `SchoolWeb { result: SchoolWebResult }`; `pullSchool`
+returns `SchoolPull { outcomes: List<IngestOutcome> }`. Dynamic document fields
+do not erase these result or outcome discriminants.
 
 `SdkError` distinguishes InvalidInput, Conflict, Storage, Compatibility,
-Authentication, Network, Timeout, Unavailable, Callback, Cancelled, Closed and
+Authentication, Network, Timeout, Busy, Unavailable, Callback, Cancelled, Closed and
 Internal. Match variants, not diagnostic text. Unexpected native vault callback
 exceptions retain Callback; denied vault access remains Unavailable. Browser and
 cloud service errors retain their existing Core platform/transport categories.
 After an Internal failure, recover a snapshot before deciding whether to retry;
-the SDK never automatically replays a mutation.
+the SDK never automatically replays a mutation. Invalid foreign input maps to
+InvalidInput; an impossible Core-to-SDK projection maps to Internal. OCR Busy
+means retry after the active scan, while Unavailable means the capability cannot
+currently run. Cookie access failures retain network/timeout/cancellation rather
+than being mislabeled as missing login. Reminder errors retain storage, input,
+compatibility, task and native-delivery categories.
 
 ## Subscriptions and native callbacks
 
 Call `subscribe()` before reading initial snapshots, then consume queued
 `next()` updates. Events retain Core's existing event names and full payloads,
 with a per-session sequence. Workspace writes also emit `workspace-changed`
-with source `user-intent`. Snapshots are authoritative; events are hints.
+with source `user-intent`, emitted by Core after a successful commit in every
+shell. Delivery failure does not turn that committed mutation into an operation
+failure. Local `applyBackup` emits source `local-restore`; cloud recovery retains
+`cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
+Snapshots are authoritative; events are hints.
 
 The bounded queue holds 128 events. A slow consumer receives `SnapshotRequired`
 and must reread relevant snapshots. `unsubscribe()` wakes pending next calls and

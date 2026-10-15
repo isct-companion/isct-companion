@@ -9,7 +9,8 @@ fn attrs(attrs: &mut Vec<Attribute>) {
         a.path().is_ident("serde") || a.path().is_ident("doc") || a.path().is_ident("default")
     });
     // Defaults affect deserializing the transport, not domain validation. Generated
-    // records receive their complete fields from UniFFI; Core applies its own defaults.
+    // records receive complete fields from UniFFI, so callers must supply domain
+    // defaults explicitly; this does not preserve Core's custom serde defaults.
     for attr in attrs.iter_mut() {
         if attr.path().is_ident("serde") {
             let text = attr.to_token_stream().to_string();
@@ -58,6 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schedule/ics.rs",
         "course_query/mod.rs",
         "school_auth.rs",
+        "school_service.rs",
         "school_browser/mod.rs",
         "school_browser/port.rs",
         "lifecycle.rs",

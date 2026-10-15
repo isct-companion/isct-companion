@@ -262,6 +262,7 @@ pub fn declarations() -> Vec<String> {
 #[derive(Clone)]
 pub struct WorkspaceService {
     store: DataStore,
+    events: Option<Arc<dyn crate::ports::EventSink>>,
     /// What the last `AddCatalogCourses` placed and replaced, so
     /// `UndoCatalogCourses` reverses exactly that add.  Like the finder's undo
     /// toast it lasts for this session only.
@@ -283,6 +284,15 @@ impl WorkspaceService {
     pub fn new(store: DataStore) -> Self {
         Self {
             store,
+            events: None,
+            catalog_undo: Arc::default(),
+        }
+    }
+
+    pub fn with_events(store: DataStore, events: Arc<dyn crate::ports::EventSink>) -> Self {
+        Self {
+            store,
+            events: Some(events),
             catalog_undo: Arc::default(),
         }
     }
@@ -311,6 +321,11 @@ impl WorkspaceService {
             .catalog_undo
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = undo;
+        if let Some(events) = &self.events {
+            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged {
+                source: crate::events::WorkspaceChangeSource::UserIntent,
+            });
+        }
         Ok(result)
     }
 }
@@ -865,6 +880,17 @@ fn add_catalog_courses(
     offerings: Vec<Value>,
 ) -> Result<CatalogAddReceipt, DataError> {
     validate_term(term_id)?;
+    if let Some(offering) = offerings.iter().find(|offering| {
+        !crate::course_query::catalog_course_is_eligible(current, term_id, offering)
+    }) {
+        return Err(DataError::InvalidInput(format!(
+            "{} is not available in the admission year.",
+            offering
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or("This course")
+        )));
+    }
     let locale = workspace_content_locale(current);
     let (plan_year, quarter) = (&term_id[..4], &term_id[5..]);
     let mut offering_ids = offerings
@@ -2348,11 +2374,81 @@ fn object_mut<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{EventError, EventSink};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct MutationEvents {
+        count: AtomicUsize,
+        fail: bool,
+    }
+
+    impl EventSink for MutationEvents {
+        fn emit(&self, event: crate::events::CoreEvent) -> Result<(), EventError> {
+            assert!(matches!(
+                event,
+                crate::events::CoreEvent::WorkspaceChanged {
+                    source: crate::events::WorkspaceChangeSource::UserIntent
+                }
+            ));
+            self.count.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                Err(EventError::Delivery("synthetic delivery failure".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     fn service(name: &str) -> WorkspaceService {
         let path =
             std::env::temp_dir().join(format!("isct-workspace-{name}-{}.db", Uuid::new_v4()));
         WorkspaceService::new(DataStore::initialize(path).unwrap().0)
+    }
+
+    #[test]
+    fn committed_mutations_emit_once_and_delivery_does_not_change_the_result() {
+        let path =
+            std::env::temp_dir().join(format!("isct-workspace-events-{}.db", Uuid::new_v4()));
+        let store = DataStore::initialize(path).unwrap().0;
+        let events = Arc::new(MutationEvents {
+            count: AtomicUsize::new(0),
+            fail: false,
+        });
+        let service = WorkspaceService::with_events(store, events.clone());
+        let initial = service.snapshot().unwrap();
+        let committed = service
+            .mutate(WorkspaceMutation {
+                expected_revision: initial.revision,
+                intent: WorkspaceIntent::SetAdmissionYear {
+                    admission_year: Some(2026),
+                },
+            })
+            .unwrap();
+        assert_eq!(events.count.load(Ordering::Relaxed), 1);
+
+        let failed = service.mutate(WorkspaceMutation {
+            expected_revision: "stale".into(),
+            intent: WorkspaceIntent::SetAdmissionYear {
+                admission_year: Some(2025),
+            },
+        });
+        assert!(matches!(failed, Err(WorkspaceError::Conflict(_))));
+        assert_eq!(events.count.load(Ordering::Relaxed), 1);
+
+        let failing_events = Arc::new(MutationEvents {
+            count: AtomicUsize::new(0),
+            fail: true,
+        });
+        let service = WorkspaceService::with_events(service.store.clone(), failing_events.clone());
+        assert!(service
+            .mutate(WorkspaceMutation {
+                expected_revision: committed.revision,
+                intent: WorkspaceIntent::SetAdmissionYear {
+                    admission_year: Some(2027),
+                },
+            })
+            .is_ok());
+        assert_eq!(failing_events.count.load(Ordering::Relaxed), 1);
     }
 
     fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) -> Value {
@@ -3024,6 +3120,71 @@ mod tests {
             "schedule":[{"kind":"weekly","day":1,"periods":[1,2],"room":{"en":"W1"}}],
             "syllabusUrl":format!("https://syllabus.s.isct.ac.jp/courses/{id}")
         })
+    }
+
+    #[test]
+    fn catalog_add_enforces_first_year_eligibility_atomically_and_preserves_existing_data() {
+        let service = service("catalog-first-year");
+        run(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![offering("202630300", "CSC.T301", &["3Q"])],
+            },
+        )
+        .unwrap();
+        run(
+            &service,
+            WorkspaceIntent::SetAdmissionYear {
+                admission_year: Some(2026),
+            },
+        )
+        .unwrap();
+        let before = service.snapshot().unwrap();
+        let error = run(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![
+                    offering("202630100", "CSC.T101", &["3Q"]),
+                    offering("202630200", "LAE.E201", &["3Q"]),
+                ],
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        let rejected = service.snapshot().unwrap();
+        assert_eq!(rejected.revision, before.revision);
+        assert!(rows(&rejected.workspace, "courses")
+            .unwrap()
+            .any(|course| is_live(course) && course["code"] == "CSC.T301"));
+        assert!(!rows(&rejected.workspace, "courses")
+            .unwrap()
+            .any(|course| course["code"] == "CSC.T101"));
+
+        let first_year = run(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![offering("202630100", "CSC.T101", &["3Q"])],
+            },
+        )
+        .unwrap();
+        assert!(rows(&first_year, "courses")
+            .unwrap()
+            .any(|course| is_live(course) && course["code"] == "CSC.T101"));
+
+        let second_year = run(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2027-3Q".into(),
+                offerings: vec![offering("202630200", "CSC.T201", &["3Q"])],
+            },
+        )
+        .unwrap();
+        assert!(rows(&second_year, "courses")
+            .unwrap()
+            .any(|course| is_live(course) && course["code"] == "CSC.T201"));
     }
 
     /// Live plan items as `(id, courseId, termId)`.

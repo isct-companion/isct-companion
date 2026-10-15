@@ -16,6 +16,8 @@ pub enum OperationResult {
     Finder { view: FinderView },
     Credentials { status: SchoolCredentialStatus },
     SchoolSession { snapshot: SchoolSessionSnapshot },
+    SchoolWeb { result: SchoolWebResult },
+    SchoolPull { outcomes: Vec<IngestOutcome> },
     Pulls { snapshots: Vec<PullSnapshot> },
     Cloud { state: SyncState },
     File { file: LocalFile },

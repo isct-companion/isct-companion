@@ -175,6 +175,7 @@ const finderView = (request: Record<string, unknown>) => ({
   suggestions: [],
   live: String(request.input ?? ""),
   clashes: saved === before ? [clashing.id] : [],
+  ineligibleIds: [],
   replacements:
     saved === before ? { [clashing.id]: [before.courses[0].id] } : {},
   credits: { [placed.id]: 2, [clashing.id]: 2 },

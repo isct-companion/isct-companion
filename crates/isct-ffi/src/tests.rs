@@ -75,6 +75,7 @@ impl Fixture {
 #[tokio::test]
 async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
     let f = Fixture::new().await;
+    let events = f.session.subscribe().unwrap();
     let first = f.snapshot().await;
     let mutation = WorkspaceMutation {
         expected_revision: first.revision.clone(),
@@ -97,10 +98,20 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
         snapshot.workspace.0["academicProfile"]["admissionYear"],
         2026
     );
+    let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+        panic!("missing mutation event")
+    };
+    assert_eq!(event.name, "workspace-changed");
+    assert_eq!(event.payload.0, json!({"source":"user-intent"}));
     assert!(matches!(
         f.session.mutate(mutation).unwrap().await_result().await,
         Err(SdkError::Conflict { .. })
     ));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), events.next())
+            .await
+            .is_err()
+    );
     let result = f
         .session
         .schedule_query(vec![
@@ -324,14 +335,81 @@ async fn notes_parser_backup_and_disabled_ocr_share_the_real_core() {
 fn generated_contract_preserves_intents_fixed_arrays_and_unknown_payloads() {
     let value = json!({"kind":"savePlan","draft":{"title":"future field","unknown":{"keep":true}},"existingId":null});
     let ffi: WorkspaceIntent = serde_json::from_value(value.clone()).unwrap();
-    let core: isct_core::workspace::WorkspaceIntent = crate::json::project(ffi).unwrap();
+    let core: isct_core::workspace::WorkspaceIntent = crate::json::project_input(ffi).unwrap();
     assert_eq!(serde_json::to_value(core).unwrap(), value);
     let bad = WorkspaceQuery::IntensiveDays {
         from: "2026-10-15".into(),
         to: "2026-10-16".into(),
         periods: vec![1, 2, 3],
     };
-    assert!(crate::json::project::<_, isct_core::schedule::WorkspaceQuery>(bad).is_err());
+    assert!(crate::json::project_input::<_, isct_core::schedule::WorkspaceQuery>(bad).is_err());
+}
+
+#[test]
+fn school_outcomes_and_reminder_failures_remain_typed() {
+    let outcome = isct_core::school_service::IngestOutcome {
+        site: isct_core::lifecycle::SchoolSite::ScienceLms,
+        kind: "courses".into(),
+        state: isct_core::school_service::IngestState::ReconnectRequired,
+        changed: 2,
+        message: "partial result".into(),
+    };
+    let outcomes: Vec<IngestOutcome> = crate::json::project(vec![outcome]).unwrap();
+    assert!(matches!(outcomes[0].state, IngestState::ReconnectRequired));
+    assert_eq!(outcomes[0].changed, 2);
+
+    use isct_core::schedule::{ReminderError as E, ScheduleError};
+    assert!(matches!(
+        SdkError::from(E::Storage("disk".into())),
+        SdkError::Storage { .. }
+    ));
+    assert!(matches!(
+        SdkError::from(E::Data(isct_core::data::DataError::Storage("db".into()))),
+        SdkError::Storage { .. }
+    ));
+    assert!(matches!(
+        SdkError::from(E::Policy(ScheduleError::Compatibility("schema".into()))),
+        SdkError::Compatibility { .. }
+    ));
+    assert!(matches!(
+        SdkError::from(E::Task(isct_core::runtime_tasks::RuntimeTaskError::Stopped)),
+        SdkError::Closed
+    ));
+    assert!(matches!(
+        SdkError::from(E::Delivery(
+            isct_core::schedule::NotificationSinkError::Delivery("OS".into())
+        )),
+        SdkError::Callback { .. }
+    ));
+}
+
+#[tokio::test]
+async fn local_backup_application_emits_its_own_source_and_keeps_the_session_usable() {
+    let f = Fixture::new().await;
+    let OperationResult::Text { value } = f
+        .session
+        .export_backup()
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong backup result")
+    };
+    let events = f.session.subscribe().unwrap();
+    f.session
+        .apply_backup(JsonValue(serde_json::from_str(&value).unwrap()))
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap();
+    let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+        panic!("missing restore event")
+    };
+    assert_eq!(event.name, "workspace-changed");
+    assert_eq!(event.payload.0, json!({"source":"local-restore"}));
+    let _ = f.snapshot().await;
+    f.finish().await;
 }
 struct BrokenVault;
 impl NativeVault for BrokenVault {

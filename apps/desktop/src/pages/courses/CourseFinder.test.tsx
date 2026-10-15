@@ -41,6 +41,7 @@ const view: FinderView = {
   suggestions: [],
   live: "",
   clashes: [],
+  ineligibleIds: [],
   replacements: {},
   credits: { [course.id]: 2 },
   onTimetable: [],
@@ -66,6 +67,7 @@ let host: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  finder.useQuery.mockClear();
   finder.useQuery.mockReturnValue({ value: view, pending: false });
   host = document.createElement("div");
   document.body.append(host);
@@ -111,4 +113,44 @@ it("keeps selected courses and withholds Undo when adding fails", async () => {
     "write failed",
   );
   expect(host.querySelector(".finderFoot .textButton")).toBeNull();
+});
+
+it("shows first-year upper-level courses but disables every add path", async () => {
+  const add = vi.fn();
+  finder.useQuery.mockReturnValue({
+    value: { ...view, ineligibleIds: [course.id] },
+    pending: false,
+  });
+  await act(async () =>
+    root.render(
+      <MantineProvider>
+        <CourseFinder
+          year={2026}
+          term="2026-3Q"
+          language="en"
+          keys={[]}
+          edit={async () => view}
+          replaceKeys={() => {}}
+          add={add}
+          undo={async () => {}}
+        />
+      </MantineProvider>,
+    ),
+  );
+
+  expect(
+    host.querySelector<HTMLInputElement>(`#finder-${course.id}`)?.disabled,
+  ).toBe(true);
+  expect(host.querySelector<HTMLButtonElement>(".finderAdd")?.disabled).toBe(
+    true,
+  );
+  expect(host.textContent).toContain("Not available in the admission year");
+  const showUnavailable = [...host.querySelectorAll("button")].find(
+    (button) => button.textContent === "Show unavailable courses",
+  )!;
+  await act(async () => showUnavailable.click());
+  expect(finder.useQuery).toHaveBeenCalledWith(
+    expect.objectContaining({ includeIneligible: true }),
+  );
+  expect(add).not.toHaveBeenCalled();
 });

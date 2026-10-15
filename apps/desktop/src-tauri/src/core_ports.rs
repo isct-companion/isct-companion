@@ -119,48 +119,55 @@ impl DesktopRuntime {
         // Setup is called on the UI thread; enter Tauri's shared Tokio runtime
         // before registering either owned loop.
         tauri::async_runtime::block_on(async move {
+            if let Err(error) = core(&app).start(&tokio::runtime::Handle::current()) {
+                eprintln!("[events] pull state forwarding did not start: {error}");
+            }
             let wake_app = app.clone();
             let wake_tasks = tasks.clone();
             tasks.spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-                let (mut wake_failure, mut reminder_failure) =
-                    (FailureLog::default(), FailureLog::default());
+                let (mut wake_failure, mut cloud_failure, mut reminder_failure) = (
+                    FailureLog::default(),
+                    FailureLog::default(),
+                    FailureLog::default(),
+                );
                 loop {
                     tokio::select! {
                         _ = wake_tasks.closed() => break,
                         _ = interval.tick() => {}
                     }
-                    crate::cloud_sync::CloudSync::tick(&wake_app);
                     #[cfg(desktop)]
                     crate::agent_server::AgentAccess::tick(&wake_app);
                     let visible = wake_app.state::<SchoolWebController>().is_visible();
-                    let woke = runtime(&wake_app).wake(services(&wake_app), visible).await;
-                    wake_failure.record("runtime", woke);
-                    let reminded = core(&wake_app)
-                        .reminder_tick(
-                            Arc::new(crate::commands::notifications::DesktopNotifications(
-                                wake_app.clone(),
-                            )),
-                            chrono::Utc::now().fixed_offset(),
-                        )
-                        .await
-                        .map(|_| ());
-                    reminder_failure.record("reminders", reminded);
-                }
-            });
-            // Started after the main window exists. The UI also reads
-            // `pull_state` after subscribing, so no snapshot depends on an emit.
-            let mut states = runtime(&app).subscribe_pulls();
-            let event_tasks = tasks.clone();
-            let events = DesktopEvents(app.clone());
-            tasks.spawn(async move {
-                loop {
-                    tokio::select! {
-                        _ = event_tasks.closed() => break,
-                        changed = states.changed() => { if changed.is_err() { break; } }
+                    let cloud = match crate::cloud_sync::services(&wake_app) {
+                        Ok(services) => Some(services),
+                        Err(error) => {
+                            cloud_failure.record("cloud", Err(error));
+                            None
+                        }
+                    };
+                    let report = core(&wake_app)
+                        .wake(isct_core::facade::WakeServices {
+                            scheduler: services(&wake_app),
+                            school_visible: visible,
+                            cloud,
+                            reminders: Some(isct_core::facade::ReminderWake {
+                                sink: Arc::new(
+                                    crate::commands::notifications::DesktopNotifications(
+                                        wake_app.clone(),
+                                    ),
+                                ),
+                                now: chrono::Utc::now().fixed_offset(),
+                            }),
+                        })
+                        .await;
+                    wake_failure.record("runtime", report.runtime);
+                    if let Some(result) = report.cloud {
+                        cloud_failure.record("cloud", result.map(|_| ()));
                     }
-                    let snapshot = states.borrow_and_update().clone();
-                    let _ = events.emit(CoreEvent::PullStateChanged(snapshot));
+                    if let Some(result) = report.reminders {
+                        reminder_failure.record("reminders", result.map(|_| ()));
+                    }
                 }
             });
         });
@@ -205,6 +212,7 @@ mod tests {
     fn sample(event: &CoreEvent) -> &'static str {
         match event {
             CoreEvent::WorkspaceChanged { .. } => "workspace",
+            CoreEvent::OcrProgress { .. } => "ocr",
             CoreEvent::SchoolLogin(_) => "login",
             CoreEvent::SchoolPullProgress(_) => "progress",
             CoreEvent::SchoolSession(_) => "session",
@@ -226,10 +234,19 @@ mod tests {
         let cases = [
             (
                 CoreEvent::WorkspaceChanged {
-                    source: WorkspaceChangeSource::CloudRestore,
+                    source: WorkspaceChangeSource::LocalRestore,
                 },
                 "workspace-changed",
-                json!({"source":"cloud-restore"}),
+                json!({"source":"local-restore"}),
+            ),
+            (
+                CoreEvent::OcrProgress {
+                    operation_id: 42,
+                    completed: 7,
+                    total: 70,
+                },
+                "ocr-progress",
+                json!({"operationId":42,"completed":7,"total":70}),
             ),
             (
                 CoreEvent::SchoolLogin(SchoolLoginEvent {
@@ -330,6 +347,6 @@ mod tests {
             covered.insert(sample(&event));
             assert_eq!(wire(&event), (name, payload));
         }
-        assert_eq!(covered.len(), 10);
+        assert_eq!(covered.len(), 11);
     }
 }

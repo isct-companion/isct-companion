@@ -3,6 +3,9 @@
 Run `yarn sdk:android` with `ANDROID_HOME` and `NDK_HOME` configured. The builder
 produces `artifacts/isct-core.aar` for arm64-v8a and x86_64, a dependency POM and
 `artifacts/sdk-build.json`. Keep the generated library and Kotlin source in sync.
+The current product compatibility floor is Android API 34 and is recorded in the
+build metadata. API 34 is deliberately retained until the complete AAR, including
+JNA and the arm64 OCR runtime, passes acceptance on a lower API level.
 
 Consume the AAR as a local file and declare `net.java.dev.jna:jna:5.17.0@aar`
 and `org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2`, plus

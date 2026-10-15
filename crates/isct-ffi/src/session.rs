@@ -1,6 +1,6 @@
 use crate::{
     events::{Events, Subscription},
-    json::project,
+    json::{project, project_input},
     operation::{Operation, OperationResult, ScheduleSnapshot},
     ports::*,
     types::*,
@@ -186,8 +186,7 @@ impl Session {
         drop(operations);
         let inner = self.inner.clone();
         let cancel = operation.cancellation.clone();
-        let _entered = self.inner.handle.enter();
-        if !self.inner.tasks.spawn(async move {
+        if !self.inner.tasks.spawn_on(&self.inner.handle, async move {
             let result = std::panic::AssertUnwindSafe(async move { work(inner, id, cancel).await })
                 .catch_unwind()
                 .await
@@ -282,16 +281,7 @@ impl Session {
     }
     pub fn mutate(&self, mutation: WorkspaceMutation) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let snapshot = i.core.workspace.mutate(project(mutation)?)?;
-            isct_core::ports::EventSink::emit(
-                &*i.events,
-                isct_core::events::CoreEvent::WorkspaceChanged {
-                    source: isct_core::events::WorkspaceChangeSource::UserIntent,
-                },
-            )
-            .map_err(|e| SdkError::Internal {
-                detail: e.to_string(),
-            })?;
+            let snapshot = i.core.workspace.mutate(project_input(mutation)?)?;
             Ok(OperationResult::Workspace {
                 snapshot: project(snapshot)?,
             })
@@ -299,7 +289,7 @@ impl Session {
     }
     pub fn schedule_query(&self, queries: Vec<WorkspaceQuery>) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let snapshot = i.core.schedule_query(project(queries)?)?;
+            let snapshot = i.core.schedule_query(project_input(queries)?)?;
             Ok(OperationResult::Schedule {
                 snapshot: ScheduleSnapshot {
                     revision: snapshot.revision,
@@ -311,7 +301,7 @@ impl Session {
     pub fn finder_query(&self, request: FinderRequest) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Finder {
-                view: project(i.core.finder_query(project(request)?)?)?,
+                view: project(i.core.finder_query(project_input(request)?)?)?,
             })
         })
     }
@@ -339,11 +329,10 @@ impl Session {
         credentials: SchoolCredentials,
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let profile = project(profile)?;
-            let value = i.core.auth.save(profile, project(credentials)?)?;
-            if let Ok(browser) = i.core.school_browser() {
-                browser.credentials_changed(profile, true)?;
-            }
+            let profile = project_input(profile)?;
+            let value = i
+                .core
+                .save_credentials(profile, project_input(credentials)?)?;
             Ok(OperationResult::Flag { value })
         })
     }
@@ -352,11 +341,8 @@ impl Session {
         profile: SchoolAuthProfile,
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let profile = project(profile)?;
-            let value = i.core.auth.delete(profile)?;
-            if let Ok(browser) = i.core.school_browser() {
-                browser.credentials_changed(profile, false)?;
-            }
+            let profile = project_input(profile)?;
+            let value = i.core.delete_credentials(profile)?;
             Ok(OperationResult::Flag { value })
         })
     }
@@ -387,18 +373,13 @@ impl Session {
         target: Option<String>,
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            Ok(OperationResult::Document {
-                value: JsonValue(
-                    serde_json::to_value(
-                        i.core
-                            .school_browser()?
-                            .open(project(site)?, target)
-                            .await?,
-                    )
-                    .map_err(|e| SdkError::Internal {
-                        detail: e.to_string(),
-                    })?,
-                ),
+            Ok(OperationResult::SchoolWeb {
+                result: project(
+                    i.core
+                        .school_browser()?
+                        .open(project_input(site)?, target)
+                        .await?,
+                )?,
             })
         })
     }
@@ -423,18 +404,14 @@ impl Session {
                 .school
                 .pull(
                     executor,
-                    project(site)?,
+                    project_input(site)?,
                     course_id,
                     isct_core::pull_coordinator::PullOptions::manual(),
                     login_first,
                 )
                 .await?;
-            Ok(OperationResult::Document {
-                value: JsonValue(
-                    serde_json::to_value(result).map_err(|e| SdkError::Internal {
-                        detail: e.to_string(),
-                    })?,
-                ),
+            Ok(OperationResult::SchoolPull {
+                outcomes: project(result)?,
             })
         })
     }
@@ -483,24 +460,28 @@ impl Session {
     }
     pub fn wake(&self, school_visible: bool) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            i.core
-                .runtime
-                .wake(services(&i)?, school_visible)
-                .await
-                .map_err(runtime_error)?;
-            if let Some((sync, services)) = &i.cloud {
-                sync.tick(services.clone())?;
+            let report = i
+                .core
+                .wake(isct_core::facade::WakeServices {
+                    scheduler: services(&i)?,
+                    school_visible,
+                    cloud: i.cloud.as_ref().map(|(_, services)| services.clone()),
+                    reminders: i.notifications.as_ref().map(|sink| {
+                        isct_core::facade::ReminderWake {
+                            sink: Arc::new(Notifications(sink.clone())),
+                            now: chrono::Utc::now().fixed_offset(),
+                        }
+                    }),
+                })
+                .await;
+            // All services have run even when one failed; return the first
+            // typed error and let snapshots expose any successful work.
+            report.runtime.map_err(runtime_error)?;
+            if let Some(result) = report.cloud {
+                result?;
             }
-            if let Some(sink) = &i.notifications {
-                i.core
-                    .reminder_tick(
-                        Arc::new(Notifications(sink.clone())),
-                        chrono::Utc::now().fixed_offset(),
-                    )
-                    .await
-                    .map_err(|e| SdkError::Unavailable {
-                        detail: e.to_string(),
-                    })?;
+            if let Some(result) = report.reminders {
+                result?;
             }
             Ok(OperationResult::Done)
         })
@@ -515,10 +496,12 @@ impl Session {
     pub fn apply_backup(&self, document: JsonValue) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             i.backup.apply(&document.0).map_err(backup_error)?;
-            i.events.publish(
-                "workspace-changed",
-                serde_json::json!({"source":"cloud-restore"}),
-            )?;
+            let _ = isct_core::ports::EventSink::emit(
+                &*i.events,
+                isct_core::events::CoreEvent::WorkspaceChanged {
+                    source: isct_core::events::WorkspaceChangeSource::LocalRestore,
+                },
+            );
             Ok(OperationResult::Done)
         })
     }
@@ -540,7 +523,10 @@ impl Session {
                 .as_ref()
                 .ok_or_else(|| unavailable("Cloud transport"))?;
             Ok(OperationResult::Cloud {
-                state: project(sync.sync(services.clone(), project(direction)?).await?)?,
+                state: project(
+                    sync.sync(services.clone(), project_input(direction)?)
+                        .await?,
+                )?,
             })
         })
     }
@@ -556,7 +542,7 @@ impl Session {
                 .ok_or_else(|| unavailable("Cloud transport"))?;
             Ok(OperationResult::Cloud {
                 state: project(
-                    sync.set_enabled(services.clone(), project(provider)?, enabled)
+                    sync.set_enabled(services.clone(), project_input(provider)?, enabled)
                         .await?,
                 )?,
             })
@@ -668,8 +654,10 @@ async fn initialize(
         let sync = if cloud.is_some() {
             Some(CloudSync::new(
                 data.join("cloud-sync-state.json"),
-                &project::<_, Vec<isct_core::cloud_sync::CloudProvider>>(config.cloud_providers)?,
-                &project::<_, Vec<isct_core::cloud_sync::CloudProvider>>(
+                &project_input::<_, Vec<isct_core::cloud_sync::CloudProvider>>(
+                    config.cloud_providers,
+                )?,
+                &project_input::<_, Vec<isct_core::cloud_sync::CloudProvider>>(
                     config.authorized_cloud_providers,
                 )?,
             )?)
@@ -680,8 +668,13 @@ async fn initialize(
     })
     .await
     .map_err(isct_core::runtime_tasks::RuntimeTaskError::from)??;
-    let core = Arc::new(Core::new(store, auth, initial_network));
     let events = Events::new();
+    let core = Arc::new(Core::with_events(
+        store,
+        auth,
+        initial_network,
+        events.clone(),
+    ));
     let browser_shutdown_error = if let Some(native) = browser {
         let browser = Arc::new(Browser::new(native));
         let errors = browser.shutdown_error.clone();
@@ -727,21 +720,6 @@ async fn initialize(
         #[cfg(feature = "ocr")]
         scanner: isct_ocr::MatrixOcrService::default(),
     });
-    let mut pulls = inner.core.runtime.subscribe_pulls();
-    let weak = Arc::downgrade(&inner);
-    let stopped = inner.closed.clone();
-    inner.tasks.spawn(async move {
-        loop {
-            tokio::select! {
-                _ = stopped.cancelled() => break,
-                result = pulls.changed() => {
-                    if result.is_err() { break; }
-                    if let Some(inner) = weak.upgrade() {
-                        let _ = inner.events.publish("pull-state-changed", serde_json::json!(pulls.borrow_and_update().clone()));
-                    } else { break; }
-                }
-            }
-        }
-    });
+    inner.core.start(&Handle::current())?;
     Ok(inner)
 }
