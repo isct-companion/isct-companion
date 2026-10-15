@@ -1,7 +1,9 @@
 //! Service adapters share the session's Core, operation scope and platform ports.
 use crate::{
-    json::project, session::unavailable, types::*, JsonValue, Operation, OperationResult, SdkError,
-    Session,
+    json::{project, project_input},
+    session::unavailable,
+    types::*,
+    JsonValue, Operation, OperationResult, SdkError, Session,
 };
 use std::sync::Arc;
 fn note_error(e: isct_core::notes::NoteError) -> SdkError {
@@ -39,7 +41,7 @@ impl Session {
             Ok(OperationResult::File {
                 file: project(
                     notes
-                        .save(project(context)?, id, text, &device)
+                        .save(project_input(context)?, id, text, &device)
                         .map_err(note_error)?,
                 )?,
             })
@@ -53,7 +55,7 @@ impl Session {
                         .runtime
                         .notes
                         .at(i.files.clone())
-                        .read(project(context)?, id)
+                        .read(project_input(context)?, id)
                         .map_err(note_error)?,
                 )?,
             })
@@ -71,7 +73,7 @@ impl Session {
                         .runtime
                         .notes
                         .at(i.files.clone())
-                        .list(project(context)?, sections)
+                        .list(project_input(context)?, sections)
                         .map_err(note_error)?,
                 )?,
             })
@@ -99,7 +101,7 @@ impl Session {
             Ok(OperationResult::Material {
                 material: project(
                     service
-                        .open(project(context)?, source, download, read_text, limit)
+                        .open(project_input(context)?, source, download, read_text, limit)
                         .await
                         .map_err(material_error)?,
                 )?,
@@ -125,7 +127,10 @@ impl Session {
         event: SchoolSessionLifecycle,
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            i.core.school_browser()?.lifecycle(project(event)?).await?;
+            i.core
+                .school_browser()?
+                .lifecycle(project_input(event)?)
+                .await?;
             Ok(OperationResult::Done)
         })
     }
@@ -138,14 +143,16 @@ impl Session {
                 value: i
                     .core
                     .school_browser()?
-                    .ensure_session(project(profile)?)
+                    .ensure_session(project_input(profile)?)
                     .await?,
             })
         })
     }
     pub fn school_browsing(&self, site: Option<SchoolSite>) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            i.core.school_browser()?.user_browsing(project(site)?)?;
+            i.core
+                .school_browser()?
+                .user_browsing(project_input(site)?)?;
             Ok(OperationResult::Done)
         })
     }
@@ -156,28 +163,31 @@ impl Session {
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Flag {
-                value: i.core.school_browser()?.navigate(project(site)?, &url)?,
+                value: i
+                    .core
+                    .school_browser()?
+                    .navigate(project_input(site)?, &url)?,
             })
         })
     }
     pub fn reload_school(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Flag {
-                value: i.core.school_browser()?.reload(project(site)?)?,
+                value: i.core.school_browser()?.reload(project_input(site)?)?,
             })
         })
     }
     pub fn back_school(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Flag {
-                value: i.core.school_browser()?.back(project(site)?)?,
+                value: i.core.school_browser()?.back(project_input(site)?)?,
             })
         })
     }
     pub fn forward_school(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Flag {
-                value: i.core.school_browser()?.forward(project(site)?)?,
+                value: i.core.school_browser()?.forward(project_input(site)?)?,
             })
         })
     }
@@ -214,10 +224,8 @@ impl Session {
             let url = crate::ports::parse_url(&response_url)?;
             let value = isct_core::school_parser::lms::parse_resource_page(&html, &url, &module);
             Ok(OperationResult::Document {
-                value: JsonValue(serde_json::to_value(value).map_err(|e| {
-                    SdkError::InvalidInput {
-                        detail: e.to_string(),
-                    }
+                value: JsonValue(serde_json::to_value(value).map_err(|e| SdkError::Internal {
+                    detail: e.to_string(),
                 })?),
             })
         })
@@ -239,16 +247,30 @@ impl Session {
         #[cfg(feature = "ocr")]
         {
             self.start_identified(true, move |inner, operation_id, cancel| async move {
-                if cancel.is_cancelled() { return Err(SdkError::Cancelled); }
+                if cancel.is_cancelled() {
+                    return Err(SdkError::Cancelled);
+                }
                 tokio::task::spawn_blocking(move || {
-                    let cells = inner.scanner.scan(&image, |progress| {
-                        let _ = inner.events.publish("ocr-progress", serde_json::json!({
-                            "operationId": operation_id, "completed": progress.completed, "total": progress.total
-                        }));
-                        !cancel.is_cancelled()
-                    }).map_err(ocr_error)?;
-                    Ok(OperationResult::Recognitions { cells: project(cells)? })
-                }).await.map_err(isct_core::runtime_tasks::RuntimeTaskError::from)?
+                    let cells = inner
+                        .scanner
+                        .scan(&image, |progress| {
+                            let _ = isct_core::ports::EventSink::emit(
+                                &*inner.events,
+                                isct_core::events::CoreEvent::OcrProgress {
+                                    operation_id,
+                                    completed: progress.completed as u64,
+                                    total: progress.total as u64,
+                                },
+                            );
+                            !cancel.is_cancelled()
+                        })
+                        .map_err(ocr_error)?;
+                    Ok(OperationResult::Recognitions {
+                        cells: project(cells)?,
+                    })
+                })
+                .await
+                .map_err(isct_core::runtime_tasks::RuntimeTaskError::from)?
             })
         }
         #[cfg(not(feature = "ocr"))]
@@ -265,12 +287,28 @@ fn ocr_error(e: isct_ocr::MatrixOcrError) -> SdkError {
         E::Cancelled => SdkError::Cancelled,
         E::Unavailable => unavailable("OCR backend"),
         E::InvalidImage(detail) => SdkError::InvalidInput { detail },
-        E::Busy => SdkError::Unavailable {
+        E::Busy => SdkError::Busy {
             detail: e.to_string(),
         },
         E::Model(detail) => SdkError::Unavailable { detail },
         other => SdkError::InvalidInput {
             detail: other.to_string(),
         },
+    }
+}
+
+#[cfg(all(test, feature = "ocr"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn scanner_busy_is_retryable_without_claiming_backend_unavailable() {
+        assert!(matches!(
+            ocr_error(isct_ocr::MatrixOcrError::Busy),
+            SdkError::Busy { .. }
+        ));
+        assert!(matches!(
+            ocr_error(isct_ocr::MatrixOcrError::Unavailable),
+            SdkError::Unavailable { .. }
+        ));
     }
 }

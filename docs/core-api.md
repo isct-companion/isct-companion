@@ -97,12 +97,13 @@ results. Result kinds equal request kinds except `validateAcademicProfile` →
 rejects the batch. Optional serde-default fields and omitted result fields are
 defined in Rust; nullable and optional are not interchangeable for every record.
 
-`FinderRequest` has `year`, `term`, `keys`, `input`, `remoteIds` and `action`.
+`FinderRequest` has `year`, `term`, `keys`, `input`, `remoteIds`, `action` and
+`includeIneligible` (defaults false).
 Keys/input default empty; remote IDs and action default absent. Actions are
 `{kind:"commit",key}`, `{kind:"toggleTime",key,append}` and `{kind:"paste",text}`.
 `FinderView` returns normalized keys, query plan, suggestions, rows, clashes,
-replacement candidates, credit totals, active slots, paste results and missing
-detail IDs. These actions prepare a view; a workspace intent performs writes.
+replacement candidates, credit totals, active slots, paste results, missing
+detail IDs and `ineligibleIds`. These actions prepare a view; a workspace intent performs writes.
 
 ## Minimal desktop call sequence
 
@@ -158,11 +159,18 @@ links to [the native SDK reference](core-ffi.md) for foreign method signatures.
 
 `Core::new(DataStore, Arc<SchoolAuthService>, PullNetwork)` constructs one
 application owner containing `store`, `auth`, `agent`, `workspace`, `reminders` and `Arc<CoreRuntime>`.
+Production shells use `Core::with_events(..., EventSink)` and call
+`Core::start(&Handle)` once; Core owns the pull-event forwarding task. Successful
+workspace mutations emit `user-intent` after commit. Delivery failures do not
+turn an accepted write into a failed transaction. Shutdown drains the forwarding
+task and releases the native event sink. `Core::new` remains useful for headless
+clients without event delivery.
 The desktop manages one `Arc<Core>`. Its compatibility `DataStore` and auth state
 entries are clones of those same services, not additional coordinators.
 
 `Core::services(events, executor, exporter)` creates operation-scoped ports for
-school, references and scheduling. `Core::school_records()` returns the existing
+school, references and scheduling. `Core::{save_credentials,delete_credentials}` also notify the attached browser
+engine; shells do not repeat this orchestration. `Core::school_records()` returns the existing
 school read model. `Core::attach_school_browser` installs the single Core-owned
 login/session/extraction engine over a native `SchoolBrowser` port. Its callback
 identity and lifecycle contracts are documented in
@@ -298,6 +306,18 @@ are read-only finder actions; changing the timetable requires a workspace intent
 `remoteIds = null` uses stored offerings; an empty list represents a pending
 remote search. The shell executes the returned syllabus plan and reports progress.
 
+The [2026 undergraduate guide, pp. 2–3](https://www.titech.ac.jp/guide/guide_2026/gakubu1/pdf/01.pdf)
+prohibits 200-level and higher enrollment in the admission year; 100-level
+introductory specialist courses remain eligible. Core compares the **planned
+term's academic year** to `academicProfile.admissionYear`, not the current date
+or the catalog year. Unknown admission years or unrecognized codes do not create
+a restriction. Recommended marks, candidate rows and pasted selections respect
+this rule. `includeIneligible` exposes unavailable rows for inspection, while
+`ineligibleIds` tells shells which add controls to disable. `AddCatalogCourses`
+rechecks the entire batch before writing. Existing courses, recognized credits
+and later-year planning are preserved. External English-test credit recognition
+is distinct from enrollment and does not waive this gate.
+
 `Core::lms_merge_preview(scope, term)` returns review rows, conflict groups and
 missing syllabus detail IDs. The shell fetches those details, requests the final
 preview, then forwards the person's choices as `ApplyLmsMerge`. Core recomputes
@@ -344,7 +364,10 @@ Desktop and future native shells use the same schedule and reminder rules.
 `notification::NotificationContent` owns the title/body size limits for both
 planned reminders and shell-requested notifications.
 
-Desktop calls `Core::reminder_tick(sink, now)` from its existing wake loop.
+Desktop and FFI call `Core::wake(WakeServices)` from their native wake opportunities.
+Core runs refresh, cloud and reminders and returns a `WakeReport` retaining each
+result; an earlier failure never suppresses later services. Ports and clock facts
+are supplied per wake. `reminder_tick(sink, now)` remains available for direct use.
 Core owns the 30-second gate, five-minute grace window, three-day fired-log
 retention, delivery deduplication and task shutdown. `NotificationSink::deliver`
 returns a typed delivery error; failed deliveries release their claim for retry.

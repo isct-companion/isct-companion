@@ -22,7 +22,7 @@ writeFileSync(
   join(fixture, "Package.swift"),
   `// swift-tools-version: 6.0
 import PackageDescription
-let package = Package(name: "SdkSmoke", platforms: [.iOS(.v17)], dependencies: [.package(path: ${JSON.stringify(join(root, "bindings/swift"))})], targets: [.executableTarget(name: "SdkSmoke", dependencies: [.product(name: "IsctCore", package: "swift")], path: "Sources")])
+let package = Package(name: "SdkSmoke", platforms: [.iOS(.v17)], dependencies: [.package(name: "IsctCoreSDK", path: ${JSON.stringify(join(root, "bindings/swift"))})], targets: [.executableTarget(name: "SdkSmoke", dependencies: [.product(name: "IsctCore", package: "IsctCoreSDK")], path: "Sources")])
 `,
 );
 // Use the shipped package/XCFramework exactly as an application would.

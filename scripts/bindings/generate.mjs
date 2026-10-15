@@ -1,10 +1,10 @@
-import { run, generate } from "./common.mjs";
+import { run, generate, sdkFeatureArgs } from "./common.mjs";
+const ocr = process.argv.includes("--ocr");
 run("cargo", [
   "build",
   "-p",
   "isct-ffi",
-  "--features",
-  process.argv.includes("--ocr") ? "bindgen,ocr" : "bindgen",
+  ...sdkFeatureArgs({ bindgen: true, ocr }),
   "--locked",
   "-j",
   "2",

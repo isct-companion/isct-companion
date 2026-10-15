@@ -612,7 +612,6 @@ fn reminder_term(workspace: &Value) -> String {
 fn open_assignment(row: &Value) -> bool {
     visible(row)
         && row.get("hidden").and_then(Value::as_bool) != Some(true)
-        && !matches!(text(row, "submission"), Some("submitted" | "graded"))
-        && text(row, "submissionStatus") != Some("submitted")
+        && !super::assignment_submitted(row)
         && text(row, "dueAt").is_some()
 }

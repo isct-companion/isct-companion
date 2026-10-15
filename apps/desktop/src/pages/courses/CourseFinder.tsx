@@ -133,7 +133,10 @@ export function CourseFinder({
   } | null>(null);
   const [page, setPage] = useState(0);
   const [refresh, setRefresh] = useState(0);
+  const [showUnavailable, setShowUnavailable] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setShowUnavailable(false), [year, term]);
 
   const reload = async () => {
     setCatalogRevision((revision) => revision + 1);
@@ -154,7 +157,12 @@ export function CourseFinder({
     return () => removeEventListener("keydown", focus);
   }, []);
 
-  const planning = useFinderQuery({ year, term, keys });
+  const planning = useFinderQuery({
+    year,
+    term,
+    keys,
+    includeIneligible: showUnavailable,
+  });
   // Keep the last plan while its replacement loads; typing never restarts a search.
   const planningKey = JSON.stringify([year, term, keys]);
   const lastPlan = useRef({ key: planningKey, value: planning.value?.plan });
@@ -168,6 +176,7 @@ export function CourseFinder({
       year,
       term,
       keys,
+      includeIneligible: showUnavailable,
       input,
       remoteIds:
         remote.state === "done"
@@ -184,6 +193,7 @@ export function CourseFinder({
   const factors = view?.factors ?? planning.value?.factors ?? [];
   const duplicates = view?.duplicates ?? 0;
   const onTimetable = new Set(view?.onTimetable ?? []);
+  const ineligible = new Set(view?.ineligibleIds ?? []);
 
   // Pills the syllabus understands become one search (no paging, ≤100 rows);
   // detail pages are then fetched for those rows only, a few at a time.
@@ -213,7 +223,13 @@ export function CourseFinder({
         await reload();
         if (cancelled || !syncDetails) return;
         const pending = (
-          await finderQuery({ year, term, keys, remoteIds: [...ids] })
+          await finderQuery({
+            year,
+            term,
+            keys,
+            includeIneligible: showUnavailable,
+            remoteIds: [...ids],
+          })
         ).detailIds;
         if (!pending.length) return;
         const problems: string[] = [];
@@ -245,7 +261,7 @@ export function CourseFinder({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [planKey, year, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [planKey, year, refresh, showUnavailable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const live = view?.live ?? "";
   const rows = view?.rows ?? [];
@@ -256,7 +272,8 @@ export function CourseFinder({
   const byId = useMemo(() => new Map(list.map((c) => [c.id, c])), [list]);
   const chosen = [...selected]
     .map((id) => byId.get(id))
-    .filter((c): c is FinderCourse => Boolean(c));
+    .filter((c): c is FinderCourse => Boolean(c))
+    .filter((c) => !ineligible.has(c.id));
   const chosenCredits = chosen.reduce(
     (sum, c) => sum + (view?.credits[c.id] ?? 0),
     0,
@@ -276,7 +293,7 @@ export function CourseFinder({
       .catch((reason) => setError(message(reason)));
   };
   const toggle = (course: FinderCourse) => {
-    if (onTimetable.has(course.code)) return;
+    if (onTimetable.has(course.code) || ineligible.has(course.id)) return;
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(course.id)) next.delete(course.id);
@@ -355,7 +372,13 @@ export function CourseFinder({
     setActive(0);
     setOpen(true);
     if (/\s$/.test(value) && value.trim()) {
-      void finderQuery({ year, term, keys, input: value })
+      void finderQuery({
+        year,
+        term,
+        keys,
+        includeIneligible: showUnavailable,
+        input: value,
+      })
         .then((next) => {
           if (sequence === editSequence.current && next.commitKey)
             commit(next.commitKey);
@@ -426,6 +449,15 @@ export function CourseFinder({
           </span>
         </div>
         <div className="courseListTools">
+          <UiButton
+            type="button"
+            aria-pressed={showUnavailable}
+            onClick={() => setShowUnavailable((show) => !show)}
+          >
+            {showUnavailable
+              ? t("Hide unavailable courses")
+              : t("Show unavailable courses")}
+          </UiButton>
           {manual && (
             <UiButton type="button" onClick={manual}>
               {t("Manual")}
@@ -659,6 +691,7 @@ export function CourseFinder({
         )}
         {shown.map(({ course, matched }) => {
           const placed = onTimetable.has(course.code);
+          const unavailable = ineligible.has(course.id);
           const rec = view?.context.recommended[course.code];
           const clash = !placed && Boolean(view?.clashes.includes(course.id));
           const replacing =
@@ -673,7 +706,12 @@ export function CourseFinder({
                 id={`finder-${course.id}`}
                 aria-label={t("Select")}
                 checked={selected.has(course.id)}
-                disabled={placed || readOnly}
+                disabled={placed || unavailable || readOnly}
+                title={
+                  unavailable
+                    ? t("Not available in the admission year")
+                    : undefined
+                }
                 onChange={() => toggle(course)}
               />
               <button
@@ -706,6 +744,11 @@ export function CourseFinder({
                     </i>
                   )}
                   {clash && <i className="clash">{t("Conflict")}</i>}
+                  {unavailable && (
+                    <i className="clash">
+                      {t("Not available in the admission year")}
+                    </i>
+                  )}
                 </span>
               </button>
               {placed ? (
@@ -714,11 +757,13 @@ export function CourseFinder({
                 <UiButton
                   type="button"
                   className={`finderAdd${replacing ? " replace" : ""}`}
-                  disabled={readOnly || mutating}
+                  disabled={readOnly || mutating || unavailable}
                   title={
-                    replacing
-                      ? t("Replaces the course in the same periods")
-                      : undefined
+                    unavailable
+                      ? t("Not available in the admission year")
+                      : replacing
+                        ? t("Replaces the course in the same periods")
+                        : undefined
                   }
                   onClick={() => void addCourses([course])}
                 >

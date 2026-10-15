@@ -16,6 +16,8 @@ pub enum SdkError {
     Timeout { detail: String },
     #[error("Capability unavailable: {detail}")]
     Unavailable { detail: String },
+    #[error("Capability busy: {detail}")]
+    Busy { detail: String },
     #[error("Platform callback failed: {detail}")]
     Callback { detail: String },
     #[error("Operation cancelled")]
@@ -24,6 +26,51 @@ pub enum SdkError {
     Closed,
     #[error("Internal worker failed: {detail}")]
     Internal { detail: String },
+}
+impl From<isct_core::schedule::ReminderError> for SdkError {
+    fn from(e: isct_core::schedule::ReminderError) -> Self {
+        use isct_core::schedule::ReminderError as E;
+        match e {
+            E::InvalidInput(detail) => Self::InvalidInput { detail },
+            E::Data(e) => e.into(),
+            E::Storage(detail) => Self::Storage { detail },
+            E::Policy(e) => e.into(),
+            E::Task(e) => e.into(),
+            E::Delivery(e) => Self::Callback {
+                detail: e.to_string(),
+            },
+        }
+    }
+}
+impl From<isct_core::schedule::ScheduleError> for SdkError {
+    fn from(e: isct_core::schedule::ScheduleError) -> Self {
+        match e {
+            isct_core::schedule::ScheduleError::InvalidInput(detail) => {
+                Self::InvalidInput { detail }
+            }
+            isct_core::schedule::ScheduleError::Compatibility(detail) => {
+                Self::Compatibility { detail }
+            }
+        }
+    }
+}
+impl From<isct_core::facade::CredentialMutationError> for SdkError {
+    fn from(e: isct_core::facade::CredentialMutationError) -> Self {
+        match e {
+            isct_core::facade::CredentialMutationError::Auth(e) => e.into(),
+            isct_core::facade::CredentialMutationError::Browser(e) => e.into(),
+        }
+    }
+}
+impl From<isct_core::runtime::CloudWakeError> for SdkError {
+    fn from(e: isct_core::runtime::CloudWakeError) -> Self {
+        match e {
+            isct_core::runtime::CloudWakeError::Sync(e) => e.into(),
+            isct_core::runtime::CloudWakeError::NotAttached => Self::Unavailable {
+                detail: e.to_string(),
+            },
+        }
+    }
 }
 impl From<uniffi::UnexpectedUniFFICallbackError> for SdkError {
     fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
@@ -70,11 +117,16 @@ impl From<isct_core::facade::ReadModelError> for SdkError {
         match e {
             E::Workspace(e) => e.into(),
             E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Schedule(e) => Self::InvalidInput {
-                detail: e.to_string(),
-            },
-            E::Finder(e) => Self::InvalidInput {
-                detail: e.to_string(),
+            E::Schedule(e) => e.into(),
+            E::Finder(e) => match e {
+                isct_core::course_query::FinderError::InvalidInput(detail) => {
+                    Self::InvalidInput { detail }
+                }
+                isct_core::course_query::FinderError::Schedule(e) => e.into(),
+                isct_core::course_query::FinderError::Data(e) => e.into(),
+                isct_core::course_query::FinderError::Compatibility(e) => Self::Compatibility {
+                    detail: e.to_string(),
+                },
             },
             E::Catalog(e) => e.into(),
         }

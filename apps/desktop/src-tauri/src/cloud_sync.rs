@@ -67,7 +67,7 @@ impl CloudTransport for NativeCloud {
         })
     }
 }
-fn services(app: &AppHandle) -> Result<CloudServices, String> {
+pub(crate) fn services(app: &AppHandle) -> Result<CloudServices, String> {
     Ok(CloudServices {
         backup: crate::commands::backup::service(app)?,
         transport: Arc::new(NativeCloud(app.clone())),
@@ -107,15 +107,6 @@ impl CloudSync {
             };
             if let Err(error) = result {
                 eprintln!("Could not journal cloud update: {error}");
-            }
-        }
-    }
-    pub fn tick(app: &AppHandle) {
-        if let Some(sync) = app.try_state::<Self>() {
-            if let Err(error) = services(app)
-                .and_then(|ports| sync.0.tick(ports).map_err(|error| error.to_string()))
-            {
-                eprintln!("Cloud queue: {error}");
             }
         }
     }

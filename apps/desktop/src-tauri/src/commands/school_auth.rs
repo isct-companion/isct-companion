@@ -34,40 +34,30 @@ pub(crate) async fn school_credential_status(
 #[tauri::command]
 pub(crate) async fn save_school_credentials(
     webview: tauri::Webview,
-    controller: tauri::State<'_, SchoolWebController>,
-    service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
+    app: tauri::AppHandle,
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    let saved = with_credentials(service.inner().clone(), move |service| {
-        service.save(profile, credentials)
-    })
-    .await?;
-    controller
-        .engine
-        .credentials_changed(profile, true)
-        .map_err(|e| e.to_string())?;
-    Ok(saved)
+    let core = crate::core_ports::core(&app);
+    tauri::async_runtime::spawn_blocking(move || core.save_credentials(profile, credentials))
+        .await
+        .map_err(|_| "The credential operation stopped unexpectedly.".to_string())?
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub(crate) async fn delete_school_credentials(
     webview: tauri::Webview,
-    controller: tauri::State<'_, SchoolWebController>,
-    service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
+    app: tauri::AppHandle,
     profile: SchoolAuthProfile,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    let deleted = with_credentials(service.inner().clone(), move |service| {
-        service.delete(profile)
-    })
-    .await?;
-    controller
-        .engine
-        .credentials_changed(profile, false)
-        .map_err(|e| e.to_string())?;
-    Ok(deleted)
+    let core = crate::core_ports::core(&app);
+    tauri::async_runtime::spawn_blocking(move || core.delete_credentials(profile))
+        .await
+        .map_err(|_| "The credential operation stopped unexpectedly.".to_string())?
+        .map_err(|error| error.to_string())
 }
 
 /// Copies the saved Matrix directly from the vault to the system clipboard,

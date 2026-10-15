@@ -1185,6 +1185,9 @@ export function LmsWorkspace({
                       ? "Not submitted"
                       : "No deadline",
               )}
+              {state === "graded" && a.grade && (
+                <span className="lmsAssignmentGrade">{a.grade}</span>
+              )}
             </span>
           )}
         </header>

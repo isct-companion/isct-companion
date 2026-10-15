@@ -3,7 +3,7 @@ name: Native Core SDK
 on:
   workflow_dispatch:
   push:
-    branches: [refactor/rust-core]
+    branches: [main]
     paths:
       - crates/isct-core/**
       - crates/isct-ffi/**
@@ -68,7 +68,7 @@ jobs:
         run: node scripts/bindings/ios-smoke.mjs
       - uses: actions/upload-artifact@v7
         with:
-          name: isct-core-swift-sdk
+          name: isct-core-swift-sdk-dev-ci
           path: bindings/swift/
           if-no-files-found: error
           retention-days: 7
@@ -93,9 +93,9 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
-      - name: Install SDK and host Kotlin compiler
+      - name: Install build SDKs and host Kotlin compiler
         run: |
-          sdkmanager "platform-tools" "emulator" "platforms;android-34" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" "system-images;android-34;google_apis;x86_64"
+          sdkmanager "platforms;android-34" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION"
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           if ! command -v kotlinc >/dev/null; then
             curl -fL https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
@@ -128,7 +128,7 @@ jobs:
           script: node scripts/bindings/android-smoke.mjs
       - uses: actions/upload-artifact@v7
         with:
-          name: isct-core-android-sdk
+          name: isct-core-android-sdk-dev-ci
           path: bindings/kotlin/
           if-no-files-found: error
           retention-days: 7

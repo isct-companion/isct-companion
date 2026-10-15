@@ -13,6 +13,15 @@ export const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const target = join(root, "target");
 export const output = join(target, "native-sdk");
 export const generated = join(output, "generated");
+export const iosDeploymentTarget = "17.0";
+// This is the product compatibility floor, not the API level of the CI emulator.
+// Lower it only after the complete AAR, JNA and OCR runtime pass on that API level.
+export const androidMinSdk = 34;
+export const androidCompileSdk = 34;
+export function sdkFeatureArgs({ bindgen = false, ocr = false } = {}) {
+  const features = [bindgen && "bindgen", ocr && "ocr"].filter(Boolean);
+  return features.length > 0 ? ["--features", features.join(",")] : [];
+}
 export function run(cmd, args, options = {}) {
   console.log(`> ${cmd} ${args.join(" ")}`);
   const child = spawnSync(cmd, args, {
@@ -27,6 +36,17 @@ export function run(cmd, args, options = {}) {
 }
 export function capture(cmd, args) {
   return execFileSync(cmd, args, { cwd: root, encoding: "utf8" }).trim();
+}
+export function kotlinLibrary(name) {
+  const kotlinRoot = dirname(
+    dirname(realpathSync(capture("which", ["kotlinc"]))),
+  );
+  const library = ["lib", "libexec/lib"]
+    .map((directory) => join(kotlinRoot, directory, name))
+    .find(existsSync);
+  if (!library)
+    throw new Error(`Missing ${name} in the Kotlin compiler distribution`);
+  return library;
 }
 export async function javaDependencies() {
   mkdirSync(output, { recursive: true });
@@ -43,18 +63,9 @@ export async function javaDependencies() {
   }
   if (createHash("sha256").update(readFileSync(jar)).digest("hex") !== hash)
     throw new Error("JNA checksum mismatch");
-  const kotlinRoot = dirname(
-    dirname(realpathSync(capture("which", ["kotlinc"]))),
-  );
   const coroutines =
     process.env.KOTLIN_COROUTINES_JAR ??
-    ["lib", "libexec/lib"]
-      .map((p) => join(kotlinRoot, p, "kotlinx-coroutines-core-jvm.jar"))
-      .find(existsSync);
-  if (!coroutines)
-    throw new Error(
-      "Set KOTLIN_COROUTINES_JAR to the compiler distribution coroutines jar",
-    );
+    kotlinLibrary("kotlinx-coroutines-core-jvm.jar");
   return { jna: jar, coroutines };
 }
 export function generate() {

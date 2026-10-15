@@ -7,14 +7,14 @@ import {
   target,
   output,
   generated,
+  sdkFeatureArgs,
 } from "./common.mjs";
 const ocr = process.argv.includes("--ocr");
 run("cargo", [
   "build",
   "-p",
   "isct-ffi",
-  "--features",
-  ocr ? "bindgen,ocr" : "bindgen",
+  ...sdkFeatureArgs({ bindgen: true, ocr }),
   "--locked",
   "-j",
   "2",

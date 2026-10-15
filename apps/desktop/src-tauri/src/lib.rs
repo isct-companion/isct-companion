@@ -288,7 +288,7 @@ pub fn run() {
                     .app_data_dir()?
                     .join("school-credential-status.json"),
             )));
-            app.manage(std::sync::Arc::new(isct_core::Core::new(
+            app.manage(std::sync::Arc::new(isct_core::Core::with_events(
                 app.state::<data::DataStore>().inner().clone(),
                 app.state::<std::sync::Arc<SchoolAuthService>>()
                     .inner()
@@ -298,6 +298,7 @@ pub fn run() {
                 } else {
                     pull_coordinator::PullNetwork::Wifi
                 },
+                std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
             )));
             let school_controller = tauri::async_runtime::block_on(async {
                 let native = school_browser_native::NativeBrowser::new(app.handle().clone())?;

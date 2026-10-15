@@ -1,11 +1,14 @@
-import { join, dirname } from "node:path";
-import { mkdirSync, rmSync, readdirSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import { mkdirSync, rmSync, readdirSync } from "node:fs";
 import {
   run,
   capture,
   javaDependencies,
   androidJna,
   androidAnnotations,
+  androidCompileSdk,
+  androidMinSdk,
+  kotlinLibrary,
   root,
   output,
 } from "./common.mjs";
@@ -26,13 +29,7 @@ const aar = await androidJna();
 run("unzip", ["-q", aar, "-d", join(stage, "jna")]);
 const { coroutines } = await javaDependencies();
 const annotations = await androidAnnotations();
-const kotlinRoot = dirname(
-  dirname(realpathSync(capture("which", ["kotlinc"]))),
-);
-const stdlib = join(kotlinRoot, "lib/kotlin-stdlib.jar");
-const alternate = join(kotlinRoot, "libexec/lib/kotlin-stdlib.jar");
-const { existsSync } = await import("node:fs");
-const kotlinStdlib = existsSync(stdlib) ? stdlib : alternate;
+const kotlinStdlib = kotlinLibrary("kotlin-stdlib.jar");
 const classes = join(stage, "sdk/classes.jar");
 const jna = join(stage, "jna/classes.jar");
 run("kotlinc", [
@@ -46,9 +43,9 @@ run("kotlinc", [
 ]);
 run(join(sdk, "build-tools", buildTools, "d8"), [
   "--min-api",
-  "34",
+  String(androidMinSdk),
   "--lib",
-  join(sdk, "platforms/android-34/android.jar"),
+  join(sdk, `platforms/android-${androidCompileSdk}/android.jar`),
   "--output",
   join(stage, "smoke.zip"),
   join(stage, "smoke.jar"),

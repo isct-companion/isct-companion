@@ -1,3 +1,4 @@
+import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
 import { SwipeActions } from "../../components/SwipeActions";
 import { useFormFactor } from "../../app/form-factor";
@@ -176,7 +177,7 @@ export function Today({
             <b>{assignment.title}</b>
             <small>
               {course?.title ?? "LMS"} ·{" "}
-              {submitted ? "submitted" : (assignment.submission ?? "unknown")}
+              {submissionLabel(assignment, t, submitted)}
             </small>
           </span>
           {!due.overdue && !submitted ? (

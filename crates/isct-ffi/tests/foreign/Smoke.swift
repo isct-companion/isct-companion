@@ -24,6 +24,15 @@ func require(_ condition: Bool, _ detail: String) throws {
         let config = SessionConfig(dataDirectory: directory.appendingPathComponent("data").path, filesDirectory: directory.appendingPathComponent("files").path, initialNetwork: .offline, cloudProviders: [], authorizedCloudProviders: [])
         let vault = MemoryVault()
         let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, downloads: nil)
+        let cancelledOperation = try session.snapshot()
+        let cancelledWait = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await cancelledOperation.value()
+        }
+        do {
+            _ = try await cancelledWait.value
+            throw NSError(domain: "expected-swift-cancellation", code: 1)
+        } catch is CancellationError { }
         if CommandLine.arguments.contains("--require-ocr") {
             try require(try session.capabilities().ocr, "Packaged iOS SDK must expose OCR")
         }

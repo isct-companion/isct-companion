@@ -12,7 +12,10 @@ import {
   javaDependencies,
   androidJna,
   androidAnnotations,
+  androidCompileSdk,
+  androidMinSdk,
   capture,
+  sdkFeatureArgs,
   root,
   target,
   output,
@@ -22,12 +25,14 @@ const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
 const ndk = process.env.NDK_HOME;
 if (!sdk || !ndk) throw new Error("Set ANDROID_HOME and NDK_HOME");
 const profile = process.env.ISCT_SDK_PROFILE ?? "release";
+const ocr = !process.argv.includes("--no-ocr");
+const bindingFeatures = sdkFeatureArgs({ bindgen: true, ocr });
+const targetFeatures = sdkFeatureArgs({ ocr });
 run("cargo", [
   "build",
   "-p",
   "isct-ffi",
-  "--features",
-  "bindgen",
+  ...bindingFeatures,
   "--locked",
   "-j",
   "2",
@@ -35,13 +40,20 @@ run("cargo", [
 generate();
 const host = process.platform === "darwin" ? "darwin-x86_64" : "linux-x86_64";
 const toolchain = join(ndk, "toolchains/llvm/prebuilt", host, "bin");
-const features = process.argv.includes("--no-ocr") ? [] : ["--features", "ocr"];
 const stage = join(output, "android-aar");
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
 for (const [triple, abi, clang] of [
-  ["aarch64-linux-android", "arm64-v8a", "aarch64-linux-android34-clang"],
-  ["x86_64-linux-android", "x86_64", "x86_64-linux-android34-clang"],
+  [
+    "aarch64-linux-android",
+    "arm64-v8a",
+    `aarch64-linux-android${androidMinSdk}-clang`,
+  ],
+  [
+    "x86_64-linux-android",
+    "x86_64",
+    `x86_64-linux-android${androidMinSdk}-clang`,
+  ],
 ]) {
   const env = {
     ...process.env,
@@ -63,7 +75,7 @@ for (const [triple, abi, clang] of [
       triple,
       "--profile",
       profile,
-      ...features,
+      ...targetFeatures,
       "--locked",
       "-j",
       "2",
@@ -93,7 +105,10 @@ for (const [triple, abi, clang] of [
 }
 const { jna, coroutines } = await javaDependencies();
 const annotations = await androidAnnotations();
-const android = join(sdk, "platforms/android-34/android.jar");
+const android = join(
+  sdk,
+  `platforms/android-${androidCompileSdk}/android.jar`,
+);
 run("kotlinc", [
   join(generated, "app/isctcompanion/core/isct_ffi.kt"),
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/OperationValue.kt",
@@ -106,7 +121,7 @@ run("kotlinc", [
 ]);
 writeFileSync(
   join(stage, "AndroidManifest.xml"),
-  '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.isctcompanion.core"><uses-sdk android:minSdkVersion="34"/></manifest>',
+  `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.isctcompanion.core"><uses-sdk android:minSdkVersion="${androidMinSdk}"/></manifest>`,
 );
 writeFileSync(
   join(stage, "proguard.txt"),
@@ -139,7 +154,9 @@ writeFileSync(
     {
       version,
       profile,
-      ocr: features.length > 0,
+      ocr,
+      minSdk: androidMinSdk,
+      compileSdk: androidCompileSdk,
       abis: ["arm64-v8a", "x86_64"],
     },
     null,

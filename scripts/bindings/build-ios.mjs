@@ -6,17 +6,27 @@ import {
   writeFileSync,
   readFileSync,
 } from "node:fs";
-import { run, generate, target, root, output, generated } from "./common.mjs";
+import {
+  run,
+  generate,
+  sdkFeatureArgs,
+  iosDeploymentTarget,
+  target,
+  root,
+  output,
+  generated,
+} from "./common.mjs";
 if (process.platform !== "darwin")
   throw new Error("Building XCFrameworks requires Xcode");
 const profile = process.env.ISCT_SDK_PROFILE ?? "release";
-const features = process.argv.includes("--no-ocr") ? [] : ["--features", "ocr"];
+const ocr = !process.argv.includes("--no-ocr");
+const bindingFeatures = sdkFeatureArgs({ bindgen: true, ocr });
+const targetFeatures = sdkFeatureArgs({ ocr });
 run("cargo", [
   "build",
   "-p",
   "isct-ffi",
-  "--features",
-  "bindgen",
+  ...bindingFeatures,
   "--locked",
   "-j",
   "2",
@@ -41,7 +51,7 @@ for (const triple of ["aarch64-apple-ios", "aarch64-apple-ios-sim"]) {
       triple,
       "--profile",
       profile,
-      ...features,
+      ...targetFeatures,
       "--locked",
       "-j",
       "2",
@@ -50,7 +60,7 @@ for (const triple of ["aarch64-apple-ios", "aarch64-apple-ios-sim"]) {
       env: {
         ...process.env,
         CARGO_TARGET_DIR: target,
-        IPHONEOS_DEPLOYMENT_TARGET: "17.0",
+        IPHONEOS_DEPLOYMENT_TARGET: iosDeploymentTarget,
       },
     },
   );
@@ -82,7 +92,8 @@ writeFileSync(
       version: JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
         .version,
       profile,
-      ocr: features.length > 0,
+      ocr,
+      minimumIos: iosDeploymentTarget,
     },
     null,
     2,

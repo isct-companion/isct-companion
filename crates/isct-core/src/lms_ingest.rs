@@ -1,5 +1,5 @@
 use crate::data::{resolve_course_id, versioned::content_hash, DataError};
-use crate::school_parser::lms::{id_of, lms_url, LmsPayload};
+use crate::school_parser::lms::{id_of, lms_url, AssignState, LmsPayload};
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
@@ -490,14 +490,14 @@ fn write_assignment(
     source: &AssignmentSource<'_>,
     due: Option<i64>,
     listed_open: bool,
-    page_state: Option<&str>,
+    page_state: Option<&AssignState>,
 ) -> Result<bool, IngestError> {
     let cmid = source.cmid;
-    let prior: Option<(String, Option<String>)> = tx
+    let prior: Option<(String, Option<String>, Option<String>)> = tx
         .query_row(
-            "SELECT submission, due_at FROM assignments WHERE lms_cmid=?1 AND missing_since IS NULL",
+            "SELECT submission, due_at, json_extract(value,'$.grade') FROM assignments WHERE lms_cmid=?1 AND missing_since IS NULL",
             [cmid],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
         .map_err(IngestError::from)?;
@@ -511,7 +511,7 @@ fn write_assignment(
     // The assignment page is authoritative; the event list is only a hint.
     // Keep the last known due date when Moodle temporarily omits its event.
     let submission = if let Some(state) = page_state {
-        state
+        state.submission.as_str()
     } else if listed_open {
         "open"
     } else if prior.as_ref().map(|value| value.0.as_str()) == Some("open")
@@ -519,19 +519,32 @@ fn write_assignment(
     {
         "submitted"
     } else {
+        // A pull that could not read the page keeps finished work finished.
         prior
             .as_ref()
             .map(|value| value.0.as_str())
-            .filter(|p| *p == "submitted")
+            .filter(|p| matches!(*p, "submitted" | "graded"))
             .unwrap_or("unknown")
     };
     let due_at = due
         .and_then(|d| chrono::DateTime::from_timestamp(d, 0))
         .map(|d| d.to_rfc3339())
         .or_else(|| prior.as_ref().and_then(|value| value.1.clone()));
-    let assignment = json!({"id":format!("lms-assignment:{cmid}"),"sourceKey":format!("lms:default:assignment:{cmid}"),"kind":"assignment","courseId":source.course,
+    // The page's grade when it was read; otherwise the last one seen, while
+    // the work still counts as graded.
+    let grade = match page_state {
+        Some(state) => state.grade.clone(),
+        None => prior
+            .as_ref()
+            .and_then(|value| value.2.clone())
+            .filter(|_| submission == "graded"),
+    };
+    let mut assignment = json!({"id":format!("lms-assignment:{cmid}"),"sourceKey":format!("lms:default:assignment:{cmid}"),"kind":"assignment","courseId":source.course,
         "lmsCmid":cmid,"lmsCourseId":source.lms_course,"title":source.title,"details":"","sourceUrl":source.url,
         "dueAt":due_at,"submission":submission});
+    if let Some(grade) = grade {
+        assignment["grade"] = grade.into();
+    }
     upsert_versioned(
         tx,
         "assignments",
@@ -787,7 +800,7 @@ pub fn apply_lms_payload(
                     },
                     due_of(cmid),
                     action_ids.contains(&cmid),
-                    payload.assign_status.get(&cmid).map(String::as_str),
+                    payload.assign_status.get(&cmid),
                 )?);
                 written.insert(cmid);
                 live_assignments.insert(format!("lms-assignment:{cmid}"));
@@ -857,7 +870,7 @@ pub fn apply_lms_payload(
             },
             due_of(cmid),
             true,
-            payload.assign_status.get(&cmid).map(String::as_str),
+            payload.assign_status.get(&cmid),
         )?);
         written.insert(cmid);
     }
@@ -942,5 +955,44 @@ mod tests {
             apply_lms_payload(&mut connection, &payload),
             Err(IngestError::InvalidPayload(_))
         ));
+    }
+    #[test]
+    fn graded_assignment_and_grade_survive_missing_page_then_accept_reopened_state() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrations::migrate(&mut connection).unwrap();
+        let mut raw = json!({
+            "status":"ok", "sourceUrl":"https://lms.s.isct.ac.jp/2025/my/",
+            "courses":[{"id":42,"fullname":"Test","shortname":"TEST[2026]","coursecategory":1,"viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=42"}],
+            "structures":[{"courseId":42,"complete":true,"state":{
+                "section":[], "cm":[{"id":7,"sectionid":1,"module":"assign","name":"Essay",
+                "url":"https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=7"}]
+            }}],
+            "assignStatus":[{"cmid":7,"submission":"graded","grade":" 85.00 / 100.00 "}]
+        });
+        for stage in 0..3 {
+            if stage == 1 {
+                raw["assignStatus"] = json!([]);
+            }
+            if stage == 2 {
+                raw["assignStatus"] = json!([{"cmid":7,"submission":"open"}]);
+            }
+            let (_, payload) = crate::school_parser::lms::parse_payload(&raw.to_string()).unwrap();
+            apply_lms_payload(&mut connection, &payload.unwrap()).unwrap();
+            let value: String = connection
+                .query_row(
+                    "SELECT value FROM assignments WHERE lms_cmid=7",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let value: serde_json::Value = serde_json::from_str(&value).unwrap();
+            if stage < 2 {
+                assert_eq!(value["submission"], "graded");
+                assert_eq!(value["grade"], "85.00 / 100.00");
+            } else {
+                assert_eq!(value["submission"], "open");
+                assert!(value.get("grade").is_none());
+            }
+        }
     }
 }

@@ -257,7 +257,9 @@ jobs:
           cat > release-notes.md <<'NOTES'
           Desktop preview for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
 
-          This rc1 refresh adds HEIC/HEIF image decoding and matrix detection for arbitrary rotation, stretching and perspective. Debug crop exports use the configured download folder and are excluded from release builds.
+          RC2 consolidates scheduling, subscriptions, school synchronization and workspace mutations in the shared Rust Core. It fixes startup date handling, admission-year course eligibility, and graded LMS assignments losing their completed state or displayed grade.
+
+          Desktop MCP uses the local HTTP server. Existing workspace data is preserved; OCR stays optional on supported architectures. This release contains desktop installers only.
 
           Download the installer for your architecture. Intel Mac builds currently do not include campus-card OCR. Build success does not replace testing on each supported operating system.
 

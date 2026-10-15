@@ -7,7 +7,14 @@
     const has = (name) => Boolean(table.querySelector(`td.${name}`));
     const submission = has("submissiongraded") ? "graded"
       : has("submissionstatussubmitted") ? "submitted" : "open";
-    return { cmid, submission, late: has("latesubmission") || has("overdue") };
+    // Released feedback leads with the grade ("100.00 / 100.00", or a scale
+    // item) as plain text. Its rows carry no classes; without a grade the
+    // first row is the grader or a comment, which both hold markup.
+    const first = page.querySelector(".feedback .feedbacktable table tr td");
+    const text = first && !first.children.length
+      ? first.textContent.replace(/\s+/g, " ").trim() : "";
+    const grade = text && text !== "-" ? text : null;
+    return { cmid, submission, grade, late: has("latesubmission") || has("overdue") };
   }
   if (module === "quiz") {
     // The attempt box is always rendered on the quiz view page; without it
@@ -18,7 +25,15 @@
     // so this stays independent of the interface language.
     const finished = [...page.querySelectorAll("table.quizreviewsummary")]
       .some((table) => table.querySelectorAll("tr").length >= 3);
-    return { cmid, submission: finished ? "submitted" : "open", late: false };
+    // The final grade is a sentence ("…最終評点は 100 / 100 です。"); only its
+    // "grade / maximum" pair is read. Absent until the grade is released,
+    // and without numbers while answers still need grading.
+    const pair = finished && [...page.querySelectorAll("#feedback h3")]
+      .map((heading) => heading.textContent.match(/(\d[\d.,]*)\s*\/\s*(\d[\d.,]*)/))
+      .find(Boolean);
+    const grade = pair ? `${pair[1]} / ${pair[2]}` : null;
+    return { cmid, submission: grade ? "graded" : finished ? "submitted" : "open",
+      grade, late: false };
   }
   return null;
 }

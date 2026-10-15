@@ -2,7 +2,7 @@
 import PackageDescription
 let package = Package(
     name: "IsctCore",
-    platforms: [.iOS(.v17), .macOS(.v14)],
+    platforms: [.iOS(.v17)],
     products: [.library(name: "IsctCore", targets: ["IsctCore"])],
     targets: [
         .binaryTarget(name: "IsctCoreFFI", path: "artifacts/IsctCore.xcframework"),
