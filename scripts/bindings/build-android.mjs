@@ -108,7 +108,7 @@ writeFileSync(
   '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.isctcompanion.core"><uses-sdk android:minSdkVersion="34"/></manifest>',
 );
 writeFileSync(
-  join(stage, "consumer-rules.pro"),
+  join(stage, "proguard.txt"),
   "-keep class com.sun.jna.** { *; }\n-keep class app.isctcompanion.core.** { *; }\n",
 );
 writeFileSync(join(stage, "R.txt"), "");

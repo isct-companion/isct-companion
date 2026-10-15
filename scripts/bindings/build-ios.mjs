@@ -31,19 +31,29 @@ copyFileSync(
 );
 const options = [];
 for (const triple of ["aarch64-apple-ios", "aarch64-apple-ios-sim"]) {
-  run("cargo", [
-    "build",
-    "-p",
-    "isct-ffi",
-    "--target",
-    triple,
-    "--profile",
-    profile,
-    ...features,
-    "--locked",
-    "-j",
-    "2",
-  ]);
+  run(
+    "cargo",
+    [
+      "build",
+      "-p",
+      "isct-ffi",
+      "--target",
+      triple,
+      "--profile",
+      profile,
+      ...features,
+      "--locked",
+      "-j",
+      "2",
+    ],
+    {
+      env: {
+        ...process.env,
+        CARGO_TARGET_DIR: target,
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0",
+      },
+    },
+  );
   options.push(
     "-library",
     join(

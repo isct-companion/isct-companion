@@ -90,6 +90,8 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install SDK and host Kotlin compiler
         run: |
           sdkmanager "platform-tools" "emulator" "platforms;android-34" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" "system-images;android-34;google_apis;x86_64"

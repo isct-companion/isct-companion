@@ -623,7 +623,7 @@ mod offering_locator_tests {
         .unwrap();
         let page = super::parser::parse_detail(
             &url,
-            include_str!("../../../../artifacts/syllabus-research/parallel-en-content.html"),
+            include_str!("../../tests/fixtures/syllabus/parallel-en-content.html"),
             "en",
         )
         .unwrap();
