@@ -1,0 +1,9 @@
+[bindings.swift]
+module_name = "IsctCore"
+ffi_module_name = "IsctCoreFFI"
+generate_module_map = true
+
+[bindings.kotlin]
+package_name = "app.isctcompanion.core"
+cdylib_name = "isct_ffi"
+android = true

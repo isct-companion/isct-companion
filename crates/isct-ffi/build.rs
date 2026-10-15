@@ -1,0 +1,155 @@
+//! Project the existing serde contract into foreign records without duplicating schemas.
+//! Core remains independent of UniFFI. Only ABI representation changes live here.
+use quote::{quote, ToTokens};
+use std::{env, fs, path::PathBuf};
+use syn::{visit_mut::VisitMut, Attribute, Item, Type};
+
+fn attrs(attrs: &mut Vec<Attribute>) {
+    attrs.retain(|a| {
+        a.path().is_ident("serde") || a.path().is_ident("doc") || a.path().is_ident("default")
+    });
+    // Defaults affect deserializing the transport, not domain validation. Generated
+    // records receive their complete fields from UniFFI; Core applies its own defaults.
+    for attr in attrs.iter_mut() {
+        if attr.path().is_ident("serde") {
+            let text = attr.to_token_stream().to_string();
+            if text.contains("default_") {
+                *attr = syn::parse_quote!(#[serde(default)]);
+            }
+        }
+    }
+}
+struct ForeignTypes;
+impl VisitMut for ForeignTypes {
+    fn visit_attribute_mut(&mut self, _: &mut Attribute) {}
+    fn visit_type_mut(&mut self, ty: &mut Type) {
+        match ty {
+            Type::Array(array) => {
+                let mut item = *array.elem.clone();
+                self.visit_type_mut(&mut item);
+                *ty = syn::parse_quote!(Vec<#item>);
+            }
+            Type::Reference(_) => *ty = syn::parse_quote!(String),
+            Type::Tuple(_) => *ty = syn::parse_quote!(JsonValue),
+            Type::Path(path) if path.path.is_ident("Value") => *ty = syn::parse_quote!(JsonValue),
+            Type::Path(path) if path.path.is_ident("usize") => *ty = syn::parse_quote!(u64),
+            Type::Path(path) if path.path.is_ident("Task") => *ty = syn::parse_quote!(CloudTask),
+            Type::Path(path) => {
+                for segment in &mut path.path.segments {
+                    if segment.ident == "BTreeMap" {
+                        segment.ident = syn::parse_quote!(HashMap);
+                    }
+                }
+                syn::visit_mut::visit_type_mut(self, ty);
+            }
+            _ => syn::visit_mut::visit_type_mut(self, ty),
+        }
+    }
+}
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let core = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("../isct-core/src");
+    let files = [
+        "workspace.rs",
+        "schedule/mod.rs",
+        "schedule/calendar.rs",
+        "schedule/occurrence.rs",
+        "schedule/tasks.rs",
+        "schedule/reminders.rs",
+        "schedule/ics.rs",
+        "course_query/mod.rs",
+        "school_auth.rs",
+        "school_browser/mod.rs",
+        "school_browser/port.rs",
+        "lifecycle.rs",
+        "cloud_sync/mod.rs",
+        "pull_coordinator.rs",
+        "course_materials.rs",
+        "storage.rs",
+        "notes.rs",
+        "school_parser/lms.rs",
+        "../../isct-ocr/src/recognition.rs",
+    ];
+    let mut output = quote! { use crate::json::JsonValue; use serde::{Serialize, Deserialize}; use std::collections::HashMap; };
+    for name in files {
+        let path = core.join(name);
+        println!("cargo:rerun-if-changed={}", path.display());
+        let file = syn::parse_file(&fs::read_to_string(path)?)?;
+        for item in file.items {
+            match item {
+                Item::Struct(mut item)
+                    if matches!(item.fields, syn::Fields::Named(_))
+                        && matches!(item.vis, syn::Visibility::Public(_))
+                        && item.attrs.iter().any(|a| {
+                            a.path().is_ident("derive")
+                                && a.to_token_stream().to_string().contains("Serialize")
+                                || a.path().is_ident("derive")
+                                    && a.to_token_stream().to_string().contains("Deserialize")
+                        }) =>
+                {
+                    if name == "school_parser/lms.rs" && item.ident != "ResolvedFile" {
+                        continue;
+                    }
+                    // Service handles and private implementation state never enter metadata.
+                    let default = item.attrs.iter().any(|a| {
+                        a.path().is_ident("derive")
+                            && a.to_token_stream().to_string().contains("Default")
+                    });
+                    attrs(&mut item.attrs);
+                    item.attrs.insert(0, syn::parse_quote!(#[derive(Clone, Debug, Serialize, Deserialize, uniffi::Record)]));
+                    if default {
+                        item.attrs.insert(0, syn::parse_quote!(#[derive(Default)]));
+                    }
+                    if item.ident == "Task" {
+                        item.ident = syn::parse_quote!(CloudTask);
+                    }
+                    for field in &mut item.fields {
+                        attrs(&mut field.attrs);
+                        ForeignTypes.visit_type_mut(&mut field.ty);
+                    }
+                    output.extend(quote!(#item));
+                }
+                Item::Enum(mut item)
+                    if matches!(item.vis, syn::Visibility::Public(_))
+                        && item.attrs.iter().any(|a| {
+                            a.path().is_ident("derive")
+                                && a.to_token_stream().to_string().contains("Serialize")
+                                || a.path().is_ident("derive")
+                                    && a.to_token_stream().to_string().contains("Deserialize")
+                        }) =>
+                {
+                    let default = item.attrs.iter().any(|a| {
+                        a.path().is_ident("derive")
+                            && a.to_token_stream().to_string().contains("Default")
+                    });
+                    if name == "school_parser/lms.rs" {
+                        continue;
+                    }
+                    attrs(&mut item.attrs);
+                    item.attrs.insert(0, syn::parse_quote!(#[derive(Clone, Debug, Serialize, Deserialize, uniffi::Enum)]));
+                    if default {
+                        item.attrs.insert(0, syn::parse_quote!(#[derive(Default)]));
+                    }
+                    for variant in &mut item.variants {
+                        attrs(&mut variant.attrs);
+                        for field in &mut variant.fields {
+                            attrs(&mut field.attrs);
+                            ForeignTypes.visit_type_mut(&mut field.ty);
+                        }
+                    }
+                    output.extend(quote!(#item));
+                }
+                _ => {}
+            }
+        }
+    }
+    output.extend(quote!(
+        fn false_value(value: &bool) -> bool {
+            !*value
+        }
+    ));
+    fs::write(
+        PathBuf::from(env::var("OUT_DIR")?).join("contracts.rs"),
+        output.to_string(),
+    )?;
+    Ok(())
+}

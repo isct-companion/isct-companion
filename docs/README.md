@@ -2,7 +2,8 @@
 
 ## Implemented contracts
 
-- [Shared Core API and protocol](core-api.md): desktop/native transport mapping, records, intents, queries, errors, lifecycle and MCP mapping. Application Swift/Kotlin bindings remain deferred.
+- [Shared Core API and protocol](core-api.md): desktop/native transport mapping, records, intents, queries, errors, lifecycle and MCP mapping. Swift/Kotlin SDK details are in the native integration reference.
+- [Native Core SDK](core-ffi.md): Swift/Kotlin bindings, lifecycle, ports, packaging and verification.
 - [Data ownership](data-ownership.md) and [data architecture](data-architecture.md): persistence and school imports.
 - [School browser ports](core-school-browser.md), [downloads](core-downloads.md), [notes/backup/cloud](core-backup-sync.md): operation and recovery contracts.
 - [Agent access](agent-access.md): local HTTP MCP setup and tool arguments.

@@ -1,0 +1,274 @@
+//! Service adapters share the session's Core, operation scope and platform ports.
+use crate::{
+    json::project, session::unavailable, types::*, JsonValue, Operation, OperationResult, SdkError,
+    Session,
+};
+use std::sync::Arc;
+fn note_error(e: isct_core::notes::NoteError) -> SdkError {
+    match e {
+        isct_core::notes::NoteError::Input(detail) => SdkError::InvalidInput { detail },
+        other => SdkError::Storage {
+            detail: other.to_string(),
+        },
+    }
+}
+fn material_error(e: isct_core::course_materials::MaterialError) -> SdkError {
+    match e {
+        isct_core::course_materials::MaterialError::Input(detail) => {
+            SdkError::InvalidInput { detail }
+        }
+        isct_core::course_materials::MaterialError::Storage(detail) => SdkError::Storage { detail },
+        other => SdkError::Unavailable {
+            detail: other.to_string(),
+        },
+    }
+}
+#[uniffi::export]
+impl Session {
+    pub fn save_note(
+        &self,
+        context: CourseFolder,
+        id: String,
+        text: String,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let notes = i.core.runtime.notes.at(i.files.clone());
+            let device = i.backup.device_id().map_err(|e| SdkError::Storage {
+                detail: e.to_string(),
+            })?;
+            Ok(OperationResult::File {
+                file: project(
+                    notes
+                        .save(project(context)?, id, text, &device)
+                        .map_err(note_error)?,
+                )?,
+            })
+        })
+    }
+    pub fn read_note(&self, context: CourseFolder, id: String) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::File {
+                file: project(
+                    i.core
+                        .runtime
+                        .notes
+                        .at(i.files.clone())
+                        .read(project(context)?, id)
+                        .map_err(note_error)?,
+                )?,
+            })
+        })
+    }
+    pub fn list_notes(
+        &self,
+        context: CourseFolder,
+        sections: Vec<String>,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Files {
+                files: project(
+                    i.core
+                        .runtime
+                        .notes
+                        .at(i.files.clone())
+                        .list(project(context)?, sections)
+                        .map_err(note_error)?,
+                )?,
+            })
+        })
+    }
+    pub fn open_material(
+        &self,
+        context: CourseKey,
+        source: String,
+        download: bool,
+        read_text: bool,
+        limit: Option<u64>,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let session = i.download_session.clone().map(|port| {
+                Arc::new(crate::ports::DownloadSession(port))
+                    as Arc<dyn isct_core::downloads::DownloadSession>
+            });
+            let service = isct_core::course_materials::CourseMaterials::new(
+                i.core.store.clone(),
+                i.files.clone(),
+                i.core.runtime.downloads.clone(),
+                session,
+            );
+            Ok(OperationResult::Material {
+                material: project(
+                    service
+                        .open(project(context)?, source, download, read_text, limit)
+                        .await
+                        .map_err(material_error)?,
+                )?,
+            })
+        })
+    }
+    pub fn clean_materials(&self, days: u64) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let service = isct_core::course_materials::CourseMaterials::new(
+                i.core.store.clone(),
+                i.files.clone(),
+                i.core.runtime.downloads.clone(),
+                None,
+            );
+            let count = service.clean(days).await.map_err(material_error)?;
+            Ok(OperationResult::Text {
+                value: count.to_string(),
+            })
+        })
+    }
+    pub fn school_lifecycle(
+        &self,
+        event: SchoolSessionLifecycle,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            i.core.school_browser()?.lifecycle(project(event)?).await?;
+            Ok(OperationResult::Done)
+        })
+    }
+    pub fn ensure_school_session(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            Ok(OperationResult::Flag {
+                value: i
+                    .core
+                    .school_browser()?
+                    .ensure_session(project(profile)?)
+                    .await?,
+            })
+        })
+    }
+    pub fn school_browsing(&self, site: Option<SchoolSite>) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            i.core.school_browser()?.user_browsing(project(site)?)?;
+            Ok(OperationResult::Done)
+        })
+    }
+    pub fn navigate_school(
+        &self,
+        site: SchoolSite,
+        url: String,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Flag {
+                value: i.core.school_browser()?.navigate(project(site)?, &url)?,
+            })
+        })
+    }
+    pub fn reload_school(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Flag {
+                value: i.core.school_browser()?.reload(project(site)?)?,
+            })
+        })
+    }
+    pub fn back_school(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Flag {
+                value: i.core.school_browser()?.back(project(site)?)?,
+            })
+        })
+    }
+    pub fn forward_school(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Flag {
+                value: i.core.school_browser()?.forward(project(site)?)?,
+            })
+        })
+    }
+    pub fn set_cloud_automatic(&self, enabled: bool) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let (sync, services) = i
+                .cloud
+                .as_ref()
+                .ok_or_else(|| unavailable("Cloud transport"))?;
+            Ok(OperationResult::Cloud {
+                state: project(sync.set_automatic(services.clone(), enabled).await?)?,
+            })
+        })
+    }
+    pub fn restore_cloud(&self, id: String) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let (sync, services) = i
+                .cloud
+                .as_ref()
+                .ok_or_else(|| unavailable("Cloud transport"))?;
+            Ok(OperationResult::Cloud {
+                state: project(sync.restore(services.clone(), id).await?)?,
+            })
+        })
+    }
+    /// Parser access also allows SDK consumers to validate public fixtures without network.
+    pub fn parse_lms_resource(
+        &self,
+        html: String,
+        response_url: String,
+        module: String,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |_| {
+            let url = crate::ports::parse_url(&response_url)?;
+            let value = isct_core::school_parser::lms::parse_resource_page(&html, &url, &module);
+            Ok(OperationResult::Document {
+                value: JsonValue(serde_json::to_value(value).map_err(|e| {
+                    SdkError::InvalidInput {
+                        detail: e.to_string(),
+                    }
+                })?),
+            })
+        })
+    }
+    pub fn prepare_scanner(&self) -> Result<Arc<Operation>, SdkError> {
+        #[cfg(feature = "ocr")]
+        {
+            self.blocking(|i| {
+                i.scanner.warm_up().map_err(ocr_error)?;
+                Ok(OperationResult::Done)
+            })
+        }
+        #[cfg(not(feature = "ocr"))]
+        {
+            self.blocking(|_| Err(unavailable("OCR backend")))
+        }
+    }
+    pub fn scan_matrix(&self, image: Vec<u8>) -> Result<Arc<Operation>, SdkError> {
+        #[cfg(feature = "ocr")]
+        {
+            self.start(true,move|i,cancel|async move{
+            if cancel.is_cancelled(){return Err(SdkError::Cancelled)}
+            tokio::task::spawn_blocking(move||{
+                let cells=i.scanner.scan(&image,|progress|{
+                    let _=i.events.publish("ocr-progress",serde_json::json!({"completed":progress.completed,"total":progress.total}));
+                    !cancel.is_cancelled()
+                }).map_err(ocr_error)?;
+                Ok(OperationResult::Recognitions{cells:project(cells)?})
+            }).await.map_err(isct_core::runtime_tasks::RuntimeTaskError::from)?
+        })
+        }
+        #[cfg(not(feature = "ocr"))]
+        {
+            let _ = image;
+            self.blocking(|_| Err(unavailable("OCR backend")))
+        }
+    }
+}
+#[cfg(feature = "ocr")]
+fn ocr_error(e: isct_ocr::MatrixOcrError) -> SdkError {
+    use isct_ocr::MatrixOcrError as E;
+    match e {
+        E::Cancelled => SdkError::Cancelled,
+        E::Unavailable => unavailable("OCR backend"),
+        E::InvalidImage(detail) => SdkError::InvalidInput { detail },
+        E::Busy => SdkError::Unavailable {
+            detail: e.to_string(),
+        },
+        E::Model(detail) => SdkError::Unavailable { detail },
+        other => SdkError::InvalidInput {
+            detail: other.to_string(),
+        },
+    }
+}

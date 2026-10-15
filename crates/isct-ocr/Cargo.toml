@@ -15,7 +15,7 @@ thiserror = "2"
 
 # ONNX Runtime does not publish an Intel macOS binary. Keeping the complete
 # backend target-specific also makes the public stub build free of image/ORT.
-[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+[target.'cfg(not(any(all(target_os = "macos", target_arch = "x86_64"), all(target_os = "android", not(target_arch = "aarch64")))))'.dependencies]
 base64 = { version = "0.22", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"], optional = true }
 imageproc = { version = "0.27", default-features = false, optional = true }

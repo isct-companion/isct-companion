@@ -13,6 +13,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkspaceChangeSource {
+    UserIntent,
     ReferencePull,
     ReferencePoll,
     SchoolPull,
@@ -102,6 +103,7 @@ mod tests {
     #[test]
     fn workspace_events_preserve_desktop_names_and_payloads() {
         for (source, expected) in [
+            (WorkspaceChangeSource::UserIntent, "user-intent"),
             (WorkspaceChangeSource::ReferencePull, "reference-pull"),
             (WorkspaceChangeSource::ReferencePoll, "reference-poll"),
             (WorkspaceChangeSource::SchoolPull, "school-pull"),
