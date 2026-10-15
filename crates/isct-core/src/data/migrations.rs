@@ -1,7 +1,7 @@
 use super::DataError;
 use rusqlite::{Connection, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 const CREATE_SCHEMA: &str = r#"
 CREATE TABLE timetable_courses (
@@ -188,6 +188,12 @@ CREATE TABLE exams (
 );
 CREATE INDEX exams_by_course ON exams(academic_year,course_code);
 CREATE INDEX exams_by_date ON exams(academic_year,exam_date);
+CREATE TABLE class_schedules (
+  id TEXT PRIMARY KEY, academic_year INTEGER NOT NULL, course_code TEXT NOT NULL,
+  value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
+  last_seen_at TEXT, missing_since TEXT
+);
 CREATE TABLE schedule_overrides (
   id TEXT PRIMARY KEY, target_key TEXT UNIQUE, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
@@ -259,13 +265,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creates_schema_six() {
+    fn creates_schema_seven() {
         let mut connection = Connection::open_in_memory().unwrap();
         assert!(migrate(&mut connection).unwrap());
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         let count: i64 = connection
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE name = 'timetable_courses'",

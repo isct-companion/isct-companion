@@ -109,6 +109,7 @@ export function seedWorkspace(): Workspace {
     recommendedCourses: [],
     importantDates: [],
     exams: [],
+    classSchedules: [],
     scheduleOverrides: [],
     subscriptions: [],
     scheduledTasks: [

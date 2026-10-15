@@ -5,6 +5,7 @@
 //! before that transaction commits.
 
 use crate::data::{DataError, DataStore, WorkspaceWrite};
+use crate::schedule::ClassGroup;
 use crate::study_profile::StudyEnrollment;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -219,6 +220,12 @@ pub enum WorkspaceIntent {
         section_id: u64,
     },
     MarkTimetableReviewed,
+    /// Chooses (or clears) the 物理学演習・実験 group of one semester,
+    /// such as "2026-3Q4Q".
+    SetClassGroup {
+        semester: String,
+        group: Option<ClassGroup>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -618,6 +625,24 @@ fn apply_intent(
                 ),
             );
             write.save_setting("importStatus", &status)
+        }
+        WorkspaceIntent::SetClassGroup { semester, group } => {
+            crate::schedule::validate_semester(&semester)
+                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            let mut groups = current
+                .get("classGroups")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let groups_object = object_mut(&mut groups, "class groups")?;
+            match group {
+                Some(group) => {
+                    groups_object.insert(semester, serde_json::to_value(group)?);
+                }
+                None => {
+                    groups_object.remove(&semester);
+                }
+            }
+            write.save_setting("classGroups", &groups)
         }
     }
 }
@@ -2266,10 +2291,7 @@ fn set_subscription(
     url: Option<String>,
     reset_remote: bool,
 ) -> Result<(), DataError> {
-    if !matches!(
-        subscription_kind.as_str(),
-        "calendar" | "departments" | "important-dates" | "exams"
-    ) {
+    if !crate::reference_refresh::REFERENCE_KINDS.contains(&subscription_kind.as_str()) {
         return Err("subscription kind is invalid".into());
     }
     if url.as_ref().is_some_and(|url| !url.starts_with("https://")) {

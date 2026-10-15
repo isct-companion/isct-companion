@@ -8,8 +8,8 @@ use crate::{
         PullContext, PullCoordinator, PullError, PullOptions, PullPriority, PullTarget,
     },
     subscriptions::{
-        self, AcademicCalendar, Departments, ImportantDates, PublishedExamFeed, ReferenceFetch,
-        SubscriptionClient, SubscriptionError,
+        self, AcademicCalendar, ClassSchedules, Departments, ImportantDates, PublishedExamFeed,
+        ReferenceFetch, SubscriptionClient, SubscriptionError,
     },
 };
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -19,6 +19,14 @@ use tokio::sync::Mutex;
 
 const PUBLIC_INDEX: &str =
     "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
+/// Every reference dataset kind a subscription can follow.
+pub const REFERENCE_KINDS: [&str; 5] = [
+    "calendar",
+    "departments",
+    "important-dates",
+    "exams",
+    "class-schedules",
+];
 type ReferenceTransportFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, SubscriptionError>> + Send + 'a>>;
 type Probes = Arc<Mutex<HashMap<String, Result<String, ReferenceError>>>>;
@@ -105,6 +113,7 @@ enum ReferencePayload {
     Departments(Departments),
     ImportantDates(ImportantDates),
     Exams(Vec<PublishedExamFeed>),
+    ClassSchedules(ClassSchedules),
 }
 
 #[derive(Clone, Debug)]
@@ -142,6 +151,11 @@ impl From<Departments> for ReferencePayload {
 impl From<ImportantDates> for ReferencePayload {
     fn from(value: ImportantDates) -> Self {
         Self::ImportantDates(value)
+    }
+}
+impl From<ClassSchedules> for ReferencePayload {
+    fn from(value: ClassSchedules) -> Self {
+        Self::ClassSchedules(value)
     }
 }
 impl From<Vec<PublishedExamFeed>> for ReferencePayload {
@@ -200,6 +214,10 @@ impl ReferenceTransport for HttpReferenceTransport {
                     .fetch_exams(index_url, year, Some(expected_index_hash), known_hash)
                     .await?
                     .into()),
+                "class-schedules" => Ok(client
+                    .fetch_class_schedules(index_url, year, Some(expected_index_hash), known_hash)
+                    .await?
+                    .into()),
                 _ => Err(SubscriptionError::Validation(
                     "unsupported subscription type".into(),
                 )),
@@ -246,7 +264,7 @@ impl ReferenceService {
         let probes: Probes = Arc::new(Mutex::new(HashMap::new()));
         let mut changed = 0u64;
         let mut failures = 0usize;
-        for kind in ["calendar", "departments", "important-dates", "exams"] {
+        for kind in REFERENCE_KINDS {
             let row = subscription_row(&workspace, kind);
             if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
                 continue;
@@ -347,8 +365,7 @@ impl ReferenceService {
         context: &PullContext,
         probes: &Probes,
     ) -> Result<Value, ReferenceError> {
-        if !["calendar", "departments", "important-dates", "exams"].contains(&request.kind.as_str())
-        {
+        if !REFERENCE_KINDS.contains(&request.kind.as_str()) {
             return Err(ReferenceError::InvalidInput(
                 "unsupported subscription type".into(),
             ));
@@ -494,6 +511,9 @@ impl ReferenceService {
             Some(ReferencePayload::ImportantDates(value)) => {
                 subscriptions::apply_important_dates(&mut connection, value)?
             }
+            Some(ReferencePayload::ClassSchedules(value)) => {
+                subscriptions::apply_class_schedules(&mut connection, value)?
+            }
             Some(ReferencePayload::Exams(feeds)) => {
                 let mut changed = 0;
                 let mut applied = Vec::new();
@@ -541,7 +561,7 @@ fn subscription_year(workspace: &Value, kind: &str) -> Option<i32> {
 /// The settings view uses the same year selection as every reference refresh.
 pub fn subscription_views(workspace: &Value) -> Value {
     let mut views = serde_json::Map::new();
-    for kind in ["calendar", "departments", "important-dates", "exams"] {
+    for kind in REFERENCE_KINDS {
         let row = subscription_row(workspace, kind);
         let year = subscription_year(workspace, kind);
         let enabled = row.and_then(|row| row["enabled"].as_bool()).unwrap_or(true);
@@ -634,6 +654,7 @@ fn cache_fingerprint(workspace: &Value, kind: &str, year: i32) -> Result<String,
         "departments" => &["departments", "recommendedCourses"],
         "important-dates" => &["importantDates"],
         "exams" => &["exams"],
+        "class-schedules" => &["classSchedules"],
         _ => {
             return Err(ReferenceError::InvalidInput(
                 "unsupported reference cache kind".into(),
@@ -921,6 +942,7 @@ mod tests {
         put_subscription(&store, "departments", true, json!({}));
         put_subscription(&store, "important-dates", false, json!({}));
         put_subscription(&store, "exams", true, json!({}));
+        put_subscription(&store, "class-schedules", true, json!({}));
         let transport = Arc::new(FakeTransport::default());
         service(&store, transport.clone())
             .refresh_all(true)
@@ -929,7 +951,7 @@ mod tests {
 
         assert_eq!(transport.probes.load(Ordering::Relaxed), 1);
         let calls = transport.calls();
-        assert_eq!(calls.len(), 3);
+        assert_eq!(calls.len(), 4);
         assert!(!calls.iter().any(|call| call.0 == "important-dates"));
 
         service(&store, transport.clone())
@@ -937,7 +959,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(transport.probes.load(Ordering::Relaxed), 2);
-        assert_eq!(transport.calls().len(), 6);
+        assert_eq!(transport.calls().len(), 8);
     }
 
     #[tokio::test]
@@ -955,7 +977,10 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("2026"));
-        disable(&store, &["departments", "important-dates", "exams"]);
+        disable(
+            &store,
+            &["departments", "important-dates", "exams", "class-schedules"],
+        );
         put_subscription(&store, "calendar", true, json!({}));
         let transport = Arc::new(FakeTransport::default());
         for force in [false, true] {

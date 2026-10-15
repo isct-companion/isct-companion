@@ -7,6 +7,7 @@ export const REFERENCE_KINDS = [
   "departments",
   "important-dates",
   "exams",
+  "class-schedules",
 ] as const satisfies readonly Subscription["kind"][];
 
 type NetworkInformation = {

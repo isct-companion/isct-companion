@@ -31,6 +31,7 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("recommendedCourses", "recommended_courses"),
     ("importantDates", "important_dates"),
     ("exams", "exams"),
+    ("classSchedules", "class_schedules"),
     ("scheduleOverrides", "schedule_overrides"),
     ("subscriptions", "subscriptions"),
     ("scheduledTasks", "scheduled_tasks"),
@@ -54,6 +55,7 @@ const SCHOOL_CACHE_TABLES: &[&str] = &[
     "recommended_courses",
     "important_dates",
     "exams",
+    "class_schedules",
 ];
 
 /// Local backup payload. School/reference caches are intentionally absent:
@@ -105,6 +107,7 @@ const INTENT_SETTINGS: &[&str] = &[
     "selectedTerm",
     "terms",
     "academicProfile",
+    "classGroups",
     "settings",
     "userPreferences",
     "devicePreferences",
@@ -147,7 +150,8 @@ fn intent_revision(connection: &Connection) -> Result<String, DataError> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-pub(crate) const USER_BACKUP_SETTINGS: &[&str] = &["userPreferences", "academicProfile", "terms"];
+pub(crate) const USER_BACKUP_SETTINGS: &[&str] =
+    &["userPreferences", "academicProfile", "terms", "classGroups"];
 const BACKUP_KIND: &str = "IsctCompanion.local-backup";
 const BACKUP_SCHEMA_VERSION: u64 = 6;
 
@@ -332,6 +336,8 @@ fn validate_setting(key: &str, value: &Value) -> Result<(), DataError> {
             validate_admission_year(value)?;
             validate_study_enrollments(value)
         }
+        "classGroups" => crate::schedule::validate_class_groups(value)
+            .map_err(|error| DataError::InvalidInput(error.to_string())),
         _ => Ok(()),
     }
 }
@@ -502,6 +508,7 @@ fn empty_workspace() -> Value {
         }
     });
     workspace["currentTerm"] = Value::String(term);
+    workspace["classSchedules"] = json!([]);
     merge_object(
         &mut workspace["settings"],
         json!({
@@ -1330,6 +1337,7 @@ impl WorkspaceWrite<'_, '_> {
             "selectedTerm"
                 | "terms"
                 | "academicProfile"
+                | "classGroups"
                 | "userPreferences"
                 | "devicePreferences"
                 | "cloud"
@@ -1786,6 +1794,7 @@ impl DataStore {
             "selectedTerm"
                 | "terms"
                 | "academicProfile"
+                | "classGroups"
                 | "userPreferences"
                 | "devicePreferences"
                 | "cloud"
@@ -1937,6 +1946,7 @@ impl DataStore {
             "terms",
             "settings",
             "academicProfile",
+            "classGroups",
             "importStatus",
             "syncStatus",
             "logs",

@@ -7,9 +7,14 @@ import { dayNames } from "../../components/timetable/timetable";
 import {
   contentLanguage,
   pickLocalized,
+  type ClassGroupChoice,
   type Course,
   type Workspace,
 } from "../../lib/model";
+import { tokyoDate } from "../../lib/civil-date";
+import { notify } from "../../app/notify";
+import { workspaceActions } from "../../store/workspace";
+import { ClassGroupSwitch } from "./ClassGroupPicker";
 import { t } from "../../i18n";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
 import { useScheduleQuery, type TaskView } from "../../platform/core-query";
@@ -105,6 +110,12 @@ export function CourseDetails({
   const bridge = getDesktopBridge();
   const now = useClock();
   const tasks = useScheduleQuery<TaskView>({ kind: "taskView", now }).value;
+  const groupChoices = (
+    useScheduleQuery<ClassGroupChoice[]>({
+      kind: "classGroups",
+      today: tokyoDate(new Date(now)),
+    }).value ?? []
+  ).filter((choice) => choice.courses.some((item) => item.id === course.id));
   const language = contentLanguage(data.settings);
   const materials = (data.materials as LmsItem[])
     .filter(
@@ -199,6 +210,24 @@ export function CourseDetails({
                     ))
                   : t("集中・時間未定")}
               </dd>
+              {groupChoices.length > 0 && (
+                <>
+                  <dt>{t("Physics group")}</dt>
+                  <dd>
+                    {groupChoices.map((choice) => (
+                      <ClassGroupSwitch
+                        key={choice.semester}
+                        choice={choice}
+                        onChange={(group) =>
+                          void workspaceActions
+                            .setClassGroup(choice.semester, group)
+                            .catch(notify.error)
+                        }
+                      />
+                    ))}
+                  </dd>
+                </>
+              )}
               <dt>{t("Instructor")}</dt>
               <dd>{course.instructor || "—"}</dd>
               <dt>{t("Credits")}</dt>

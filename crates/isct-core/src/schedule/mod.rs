@@ -1,5 +1,6 @@
 //! Calendar and schedule read models shared by every application shell.
 
+pub mod alternation;
 mod calendar;
 mod civil;
 mod colors;
@@ -18,6 +19,10 @@ use thiserror::Error;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
+pub use alternation::{
+    class_group_choices, semester_of, validate_class_groups, validate_semester, Alternation,
+    ClassGroup, ClassGroupChoice, ClassGroupCourse, ClassGroupSession, Turn,
+};
 pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
     CalendarDayView, QuarterRange, QuarterView, TeachingRange,
@@ -168,6 +173,10 @@ pub enum WorkspaceQuery {
         #[serde(default)]
         locale: Option<NotificationLocale>,
     },
+    /// Semesters with 物理学演習・実験 and the red/white group of each.
+    ClassGroups {
+        today: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -260,6 +269,7 @@ pub enum WorkspaceQueryResult {
     AcademicTerm(Option<String>),
     Glance(GlanceSnapshot),
     NotificationPlan(NotificationPlan),
+    ClassGroups(Vec<ClassGroupChoice>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -515,6 +525,12 @@ pub fn query(
             parse_timestamp(&horizon)?,
             locale,
         )?)),
+        WorkspaceQuery::ClassGroups { today } => {
+            parse_civil_date(&today)?;
+            Ok(WorkspaceQueryResult::ClassGroups(class_group_choices(
+                workspace, &today,
+            )))
+        }
     }
 }
 
@@ -688,6 +704,12 @@ pub fn declarations() -> Vec<String> {
         QuarterView::decl(),
         AcademicYearCalendar::decl(),
         CalendarExportScope::decl(),
+        ClassGroup::decl(),
+        Turn::decl(),
+        Alternation::decl(),
+        ClassGroupCourse::decl(),
+        ClassGroupSession::decl(),
+        ClassGroupChoice::decl(),
         OccurrenceKind::decl(),
         Occurrence::decl(),
         ScheduleProblemKind::decl(),

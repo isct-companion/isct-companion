@@ -6,6 +6,7 @@ import type {
   WorkspaceChangedEvent,
 } from "../platform/desktop-bridge";
 import type { Workspace } from "../lib/model";
+import type { ClassGroup } from "../generated/persistence";
 import { repository } from "../storage/repository";
 import type {
   CoreWorkspaceSnapshot,
@@ -304,6 +305,14 @@ export const workspaceActions = {
       kind: "replaceSettings",
       settings: (edit(draft) ?? draft).settings,
     }));
+  },
+  /** The red/white group of a semester's 物理学演習・実験 ("2026-3Q4Q"). */
+  setClassGroup(semester: string, group: ClassGroup | null) {
+    return internalWorkspaceStore.mutate({
+      kind: "setClassGroup",
+      semester,
+      group,
+    });
   },
   /** The timetable was compared with LMS; its cache TTL restarts now. */
   markTimetableReviewed() {

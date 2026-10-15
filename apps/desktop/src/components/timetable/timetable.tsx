@@ -1,4 +1,6 @@
 import { t } from "../../i18n";
+import { alternationLabel } from "../../lib/alternation";
+import type { Alternation } from "../../lib/model";
 import { useState } from "react";
 import {
   teachingPeriods,
@@ -37,6 +39,7 @@ export type Block = {
   timeLabel?: string;
   conflictWith?: string[];
   overridden?: boolean;
+  alternation?: Alternation;
 };
 
 export type DayColumn = {
@@ -200,6 +203,11 @@ export function WeekTimetable({
                   )}
                   <b>{block.title}</b>
                   {block.room && <small className="ttRoom">{block.room}</small>}
+                  {block.alternation && (
+                    <small className="ttAlternation">
+                      {alternationLabel(block.alternation)}
+                    </small>
+                  )}
                   {block.subtitle && <span className="ttCode">{block.subtitle}</span>}
                   {block.conflictWith?.length ? (
                     <small className="ttConflict">Overlaps {block.conflictWith.join(", ")}</small>
@@ -245,7 +253,11 @@ export function WeekTimetable({
                 <span>
                   <b>{block.title}</b>
                   <small>
-                    {[block.kind === "exam" ? `EXAM · ${block.timeLabel}` : block.subtitle, block.room]
+                    {[
+                      block.kind === "exam" ? `EXAM · ${block.timeLabel}` : block.subtitle,
+                      block.alternation && alternationLabel(block.alternation),
+                      block.room,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </small>

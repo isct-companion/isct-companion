@@ -6,6 +6,7 @@ use serde_json::{Map, Value};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
+use super::alternation::{self, Alternation, Resolution};
 use super::calendar::{calendar_state, content_language, localized, quarter_range};
 use super::civil::{clock_for_periods, weekday};
 use super::{
@@ -53,6 +54,9 @@ pub struct Occurrence {
     pub conflict_with: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overridden: Option<bool>,
+    /// Set on 物理学演習・実験 blocks, which meet every other week.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alternation: Option<Alternation>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -161,7 +165,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 {
                     continue;
                 }
-                blocks.push(course_occurrence(
+                let mut block = course_occurrence(
                     course,
                     format!("{id}-{index}-{day}"),
                     &date,
@@ -169,7 +173,9 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                     text(meeting, "startTime").unwrap_or_default(),
                     text(meeting, "endTime").unwrap_or_default(),
                     None,
-                ));
+                );
+                block.alternation = alternation::template(workspace, course, term);
+                blocks.push(block);
             }
         }
         for event in &events {
@@ -204,6 +210,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 time_label: None,
                 conflict_with: None,
                 overridden: None,
+                alternation: None,
             });
         }
         for left in 0..blocks.len() {
@@ -420,21 +427,55 @@ pub fn occurrences_on_date(
                 .iter()
                 .enumerate()
             {
-                let meets = meeting
-                    .get("days")
-                    .and_then(Value::as_array)
-                    .is_some_and(|days| {
-                        days.iter()
-                            .any(|value| value.as_u64() == Some(u64::from(teaching_day)))
-                    });
-                if (outside_teaching && !options.include_cancelled_courses)
-                    || !meets
-                    || text(meeting, "validFrom").is_some_and(|from| date < from)
+                if text(meeting, "validFrom").is_some_and(|from| date < from)
                     || text(meeting, "validTo").is_some_and(|to| date > to)
                 {
                     continue;
                 }
-                blocks.push(course_occurrence(
+                let on = |weekday: u8| {
+                    meeting
+                        .get("days")
+                        .and_then(Value::as_array)
+                        .is_some_and(|days| {
+                            days.iter()
+                                .any(|value| value.as_u64() == Some(u64::from(weekday)))
+                        })
+                };
+                let marker = match alternation::resolve(
+                    workspace,
+                    course,
+                    term,
+                    date,
+                    options.include_cancelled_courses,
+                ) {
+                    Resolution::Weekly(marker) => marker,
+                    Resolution::Hide => continue,
+                    // A published session is dated; the teaching ranges do
+                    // not apply to it.
+                    Resolution::Show {
+                        alternation,
+                        cancelled,
+                    } => {
+                        if on(day) {
+                            let mut block = course_occurrence(
+                                course,
+                                format!("{course_id}-weekly-{index}-{date}"),
+                                date,
+                                text(meeting, "room").unwrap_or_default(),
+                                text(meeting, "startTime").unwrap_or_default(),
+                                text(meeting, "endTime").unwrap_or_default(),
+                                cancelled.then_some(true),
+                            );
+                            block.alternation = Some(alternation);
+                            blocks.push(block);
+                        }
+                        continue;
+                    }
+                };
+                if (outside_teaching && !options.include_cancelled_courses) || !on(teaching_day) {
+                    continue;
+                }
+                let mut block = course_occurrence(
                     course,
                     format!("{course_id}-weekly-{index}-{date}"),
                     date,
@@ -442,7 +483,9 @@ pub fn occurrences_on_date(
                     text(meeting, "startTime").unwrap_or_default(),
                     text(meeting, "endTime").unwrap_or_default(),
                     (closed || outside_teaching).then_some(true),
-                ));
+                );
+                block.alternation = marker;
+                blocks.push(block);
             }
             for intensive in array(workspace, "intensiveSchedules").iter().filter(|row| {
                 visible(row)
@@ -514,6 +557,7 @@ pub fn occurrences_on_date(
                 time_label: None,
                 conflict_with: None,
                 overridden: None,
+                alternation: None,
             });
         }
         for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
@@ -591,6 +635,7 @@ fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, Sched
         time_label: None,
         conflict_with: None,
         overridden: None,
+        alternation: None,
     }))
 }
 
@@ -666,6 +711,7 @@ fn course_occurrence(
         time_label: None,
         conflict_with: None,
         overridden: None,
+        alternation: None,
     }
 }
 
@@ -883,6 +929,7 @@ pub fn resolve_day_agenda(
             )),
             conflict_with: None,
             overridden: change.map(|_| true),
+            alternation: None,
         });
     }
     let exam_ids: HashSet<_> = exams

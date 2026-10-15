@@ -31,6 +31,10 @@ const DATASETS: Record<
   calendar: { title: "Academic calendar", follows: "academic" },
   "important-dates": { title: "Important dates", follows: "academic" },
   exams: { title: "Exam timetable", follows: "academic" },
+  "class-schedules": {
+    title: "Alternating class schedules",
+    follows: "academic",
+  },
   departments: { title: "Study guide", follows: "admission" },
 };
 

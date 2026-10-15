@@ -55,6 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schedule/mod.rs",
         "schedule/calendar.rs",
         "schedule/occurrence.rs",
+        "schedule/alternation.rs",
         "schedule/tasks.rs",
         "schedule/reminders.rs",
         "schedule/ics.rs",
