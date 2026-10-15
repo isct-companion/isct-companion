@@ -130,6 +130,34 @@
 .settingsPane .row > .mantine-Input-wrapper {
   width: clamp(180px, 40cqi, 280px);
 }
+.studyStages {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  width: min(100%, 620px);
+}
+.studyStages > .settingsNote {
+  margin: 0;
+  text-align: right;
+}
+.studyStage {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
+  gap: 6px;
+  width: 100%;
+  align-items: center;
+}
+.studyStage .mantine-Input-wrapper {
+  width: 100%;
+}
+.studyStageActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.studyStages > .studyStageError {
+  color: var(--danger);
+}
 
 /* ---------- settings: status line ---------- */
 .settingsStatus {
@@ -359,6 +387,15 @@ button.calendarDay.open {
   .settingsPane .actions {
     flex-wrap: wrap;
     max-width: 100%;
+  }
+  .studyStages {
+    justify-items: stretch;
+  }
+  .studyStages > .settingsNote {
+    text-align: left;
+  }
+  .studyStage {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
 

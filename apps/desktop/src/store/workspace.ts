@@ -3,6 +3,7 @@ import type {
   SchoolIngestOutcome,
   SchoolPullOptions,
   SchoolRecords,
+  WorkspaceChangedEvent,
 } from "../platform/desktop-bridge";
 import type { Workspace } from "../lib/model";
 import { repository } from "../storage/repository";
@@ -52,6 +53,7 @@ export function createWorkspaceStore(
   let writes: Promise<unknown> = Promise.resolve();
   let refreshing: Promise<SchoolRecords | undefined> | undefined;
   let refreshRequest = 0;
+  const localMutationRevisions = new Set<string>();
   const publish = (next: WorkspaceSnapshot) => {
     state.setState(Object.freeze(next), true);
   };
@@ -81,6 +83,11 @@ export function createWorkspaceStore(
               : intent,
         });
         adopt(snapshot);
+        localMutationRevisions.add(snapshot.revision);
+        if (localMutationRevisions.size > 32)
+          localMutationRevisions.delete(
+            localMutationRevisions.values().next().value!,
+          );
         return snapshot;
       } catch (error) {
         // The intent may have lost a race with school, cloud, or another
@@ -120,6 +127,18 @@ export function createWorkspaceStore(
     });
     return refreshing;
   };
+  const handleWorkspaceChanged = async (event: WorkspaceChangedEvent) => {
+    if (event.source !== "user-intent" || !event.revision) return reload();
+    // Core emits before the native command resolves. Wait for the command's
+    // authoritative snapshot, then read only if this came from another client.
+    await writes;
+    if (
+      state.getState().revision === event.revision ||
+      localMutationRevisions.has(event.revision)
+    )
+      return state.getState().schoolRecords;
+    return reload();
+  };
   return {
     getState: state.getState,
     getInitialState: state.getInitialState,
@@ -145,6 +164,7 @@ export function createWorkspaceStore(
       return loading;
     },
     reload,
+    handleWorkspaceChanged,
     pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
       if (!school?.pull)
         return Promise.reject(new Error("School pull needs the desktop app."));
@@ -226,6 +246,7 @@ export const workspaceStore = {
   subscribe: internalWorkspaceStore.subscribe,
   initialize: internalWorkspaceStore.initialize,
   reload: internalWorkspaceStore.reload,
+  handleWorkspaceChanged: internalWorkspaceStore.handleWorkspaceChanged,
   flush: internalWorkspaceStore.flush,
 };
 
@@ -260,6 +281,17 @@ export const workspaceActions = {
     return internalWorkspaceStore.mutate({
       kind: "setAdmissionYear",
       admissionYear: year ?? null,
+    });
+  },
+  setStudyProfile(
+    admissionYear: number | undefined,
+    studyEnrollments: Workspace["academicProfile"]["studyEnrollments"],
+  ) {
+    requireAction("change-local-preference", detectPlatform());
+    return internalWorkspaceStore.mutate({
+      kind: "setStudyProfile",
+      admissionYear: admissionYear ?? null,
+      studyEnrollments: studyEnrollments ?? [],
     });
   },
   updateSettings(edit: WorkspaceEdit) {

@@ -77,6 +77,111 @@ describe("Zustand workspace snapshot cache", () => {
     ).toEqual(["r0", "r1"]);
     expect(store.getState().workspace?.settings.appearance).toBe("light");
   });
+  it("uses mutation responses when an event arrives before a newer queued write", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
+    await store.initialize();
+    let release!: (snapshot: CoreWorkspaceSnapshot) => void;
+    service.mutate
+      .mockImplementationOnce(
+        () => new Promise((resolve) => void (release = resolve)),
+      )
+      .mockImplementationOnce(async (request) => {
+        expect(request.expectedRevision).toBe("r1");
+        return {
+          revision: "r2",
+          contentRevision: "r2",
+          workspace: {
+            ...seedWorkspace(),
+            settings: { ...seedWorkspace().settings, appearance: "light" },
+          },
+          schoolRecords: schoolRecords(),
+        };
+      });
+    const mutation = store.mutate(appearance("dark"));
+    await vi.waitFor(() => expect(service.mutate).toHaveBeenCalledOnce());
+    const event = store.handleWorkspaceChanged({
+      source: "user-intent",
+      revision: "r1",
+    });
+    const newerMutation = store.mutate(appearance("light"));
+    release({
+      revision: "r1",
+      contentRevision: "r1",
+      workspace: {
+        ...seedWorkspace(),
+        settings: { ...seedWorkspace().settings, appearance: "dark" },
+      },
+      schoolRecords: schoolRecords(),
+    });
+    await Promise.all([mutation, event, newerMutation]);
+    expect(service.snapshot).toHaveBeenCalledOnce();
+    expect(store.getState()).toMatchObject({ revision: "r2" });
+  });
+  it("reloads a user-intent revision committed by another client", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
+    await store.initialize();
+    service.snapshot.mockResolvedValueOnce({
+      revision: "external-r1",
+      contentRevision: "external-r1",
+      workspace: seedWorkspace(),
+      schoolRecords: schoolRecords(),
+    });
+    await store.handleWorkspaceChanged({
+      source: "user-intent",
+      revision: "external-r1",
+    });
+    expect(service.snapshot).toHaveBeenCalledTimes(2);
+    expect(store.getState().revision).toBe("external-r1");
+  });
+  it("shares conflict recovery with an external event waiting on the failed write", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
+    await store.initialize();
+    let reject!: (error: Error) => void;
+    service.mutate.mockImplementationOnce(
+      () => new Promise((_resolve, fail) => void (reject = fail)),
+    );
+    service.snapshot.mockResolvedValueOnce({
+      revision: "external-r1",
+      contentRevision: "external-r1",
+      workspace: seedWorkspace(),
+      schoolRecords: schoolRecords(),
+    });
+    const mutation = store.mutate(appearance("dark"));
+    await vi.waitFor(() => expect(service.mutate).toHaveBeenCalledOnce());
+    const event = store.handleWorkspaceChanged({
+      source: "user-intent",
+      revision: "external-r1",
+    });
+    reject(new Error("revision conflict"));
+    await expect(mutation).rejects.toThrow("revision conflict");
+    await event;
+    expect(service.snapshot).toHaveBeenCalledTimes(2);
+    expect(store.getState().revision).toBe("external-r1");
+  });
+  it("keeps non-user events visible even when the user revision is unchanged", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
+    await store.initialize();
+    await store.handleWorkspaceChanged({ source: "mcp" });
+    await store.handleWorkspaceChanged({ source: "school-pull" });
+    expect(service.snapshot).toHaveBeenCalledTimes(3);
+  });
+  it("recognizes a delayed event after a newer local write", async () => {
+    const service = coreService();
+    const store = createWorkspaceStore(service);
+    await store.initialize();
+    await store.mutate(appearance("dark"));
+    await store.mutate(appearance("light"));
+    await store.handleWorkspaceChanged({
+      source: "user-intent",
+      revision: "r1",
+    });
+    expect(service.snapshot).toHaveBeenCalledOnce();
+    expect(store.getState().revision).toBe("r2");
+  });
   it("resolves successive form intents against the preceding committed snapshot", async () => {
     const service = coreService();
     const store = createWorkspaceStore(service);

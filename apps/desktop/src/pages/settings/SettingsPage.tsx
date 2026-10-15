@@ -2,7 +2,11 @@ import { notify as appNotify } from "../../app/notify";
 import { settingsSection } from "../../app/routes";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
-import type { ScheduledTask, Workspace } from "../../lib/model";
+import type {
+  ScheduledTask,
+  StudyEnrollment,
+  Workspace,
+} from "../../lib/model";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import type { Platform, Section } from "../../app/shared";
 import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
@@ -170,11 +174,16 @@ export function Settings({
     return () => cancelAnimationFrame(frame);
   }, [focus, current]);
 
-  const setAdmissionYear = (year: number | undefined) => {
+  const setStudyProfile = (
+    admissionYear: number | undefined,
+    studyEnrollments: StudyEnrollment[],
+  ) => {
     try {
-      void workspaceActions.setAdmissionYear(year).catch(appNotify.error);
+      return workspaceActions
+        .setStudyProfile(admissionYear, studyEnrollments)
+        .then(() => undefined);
     } catch (error) {
-      appNotify.error(error);
+      return Promise.reject(error);
     }
   };
   const customizeSite = (fn: (d: Workspace) => Workspace) => {
@@ -197,7 +206,7 @@ export function Settings({
       <StudyProfileSettings
         data={data}
         update={update}
-        setAdmissionYear={setAdmissionYear}
+        setStudyProfile={setStudyProfile}
         refreshReferences={refreshReferences}
         openSection={sectionSupported("calendar", context) ? open : undefined}
       />

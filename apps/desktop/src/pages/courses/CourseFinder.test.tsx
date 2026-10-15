@@ -42,6 +42,9 @@ const view: FinderView = {
   live: "",
   clashes: [],
   ineligibleIds: [],
+  eligibility: {
+    [course.id]: { status: "allowed", reason: "noKnownRestriction" },
+  },
   replacements: {},
   credits: { [course.id]: 2 },
   onTimetable: [],
@@ -49,6 +52,7 @@ const view: FinderView = {
   pasteHandled: false,
   pastedIds: [],
   missingCodes: [],
+  ineligibleCodes: [],
   detailIds: [],
 };
 
@@ -118,7 +122,16 @@ it("keeps selected courses and withholds Undo when adding fails", async () => {
 it("shows first-year upper-level courses but disables every add path", async () => {
   const add = vi.fn();
   finder.useQuery.mockReturnValue({
-    value: { ...view, ineligibleIds: [course.id] },
+    value: {
+      ...view,
+      ineligibleIds: [course.id],
+      eligibility: {
+        [course.id]: {
+          status: "ineligible",
+          reason: "undergraduateFirstYearUpperLevel",
+        },
+      },
+    },
     pending: false,
   });
   await act(async () =>
@@ -144,7 +157,9 @@ it("shows first-year upper-level courses but disables every add path", async () 
   expect(host.querySelector<HTMLButtonElement>(".finderAdd")?.disabled).toBe(
     true,
   );
-  expect(host.textContent).toContain("Not available in the admission year");
+  expect(host.textContent).toContain(
+    "Not available to regular first-year undergraduate students",
+  );
   const showUnavailable = [...host.querySelectorAll("button")].find(
     (button) => button.textContent === "Show unavailable courses",
   )!;

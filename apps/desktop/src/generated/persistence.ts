@@ -111,7 +111,7 @@ export type Assignment = {
   lmsCourseId?: number;
   submission?: "unknown" | "open" | "submitted" | "graded";
   /**
-   * The grade as the assignment page shows it (e.g. "85.00 / 100.00").
+   * The grade as displayed by the LMS.
    */
   grade?: string;
   submissionStatus?:
@@ -571,6 +571,7 @@ export type AcademicYearConfig = {
 export type AcademicProfile = {
   name: string;
   admissionYear?: number;
+  studyEnrollments?: StudyEnrollment[];
   gradePath: Array<GradePathEntry>;
   years: Array<AcademicYearConfig>;
 };
@@ -670,6 +671,33 @@ export type IntegerPolicy = { default: number; min: number; max: number };
 export type CourseFilePolicy = {
   autoDownloadLimitMb: IntegerPolicy;
   retentionDays: IntegerPolicy;
+};
+
+export type StudyStage = "undergraduate" | "master" | "doctoral" | "unknown";
+
+export type StudyEntryKind = "regular" | "transfer" | "unknown";
+
+export type StudyEnrollment = {
+  stage: StudyStage;
+  entryKind: StudyEntryKind;
+  entryGrade?: number;
+  admittedTerm: `${number}-${Quarter}`;
+};
+
+export type CourseEligibilityStatus = "allowed" | "ineligible" | "unknown";
+
+export type CourseEligibilityReason =
+  | "noKnownRestriction"
+  | "academicIdentityMissing"
+  | "enrollmentForTermMissing"
+  | "invalidStudyHistory"
+  | "entryDetailsMissing"
+  | "courseCodeUnrecognized"
+  | "undergraduateFirstYearUpperLevel";
+
+export type CourseEligibility = {
+  status: CourseEligibilityStatus;
+  reason: CourseEligibilityReason;
 };
 
 export type Term = { year: number; quarter: number };
@@ -980,6 +1008,11 @@ export type WorkspaceMutation = {
 export type WorkspaceIntent =
   | { kind: "replaceSettings"; settings: Settings }
   | { kind: "setAdmissionYear"; admissionYear: number | null }
+  | {
+      kind: "setStudyProfile";
+      admissionYear: number | null;
+      studyEnrollments: Array<StudyEnrollment>;
+    }
   | {
       kind: "editAcademicCalendar";
       academicProfile: unknown;

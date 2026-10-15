@@ -51,6 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let core = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("../isct-core/src");
     let files = [
         "workspace.rs",
+        "study_profile.rs",
         "schedule/mod.rs",
         "schedule/calendar.rs",
         "schedule/occurrence.rs",

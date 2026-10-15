@@ -452,6 +452,8 @@ contract!(QuarterStarts {
 contract!(AcademicYearConfig { pub academic_year: i32, pub quarter_starts: QuarterStarts, });
 contract!(AcademicProfile {
     pub name: String, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub admission_year: Option<i32>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "StudyEnrollment[]"))]
+    pub study_enrollments: Option<Vec<crate::study_profile::StudyEnrollment>>,
     pub grade_path: Vec<GradePathEntry>, pub years: Vec<AcademicYearConfig>,
 });
 contract!(ImportStatus {

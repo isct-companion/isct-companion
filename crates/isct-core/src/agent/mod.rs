@@ -533,7 +533,7 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
             let (year, quarter) = parse_term(term)?;
-            let Some(offering) = store.catalog_offering(offering_id)? else {
+            let Some(_) = store.catalog_offering(offering_id)? else {
                 return Err(if store.catalog_search_item(offering_id)?.is_some() {
                     "this course's schedule is not synced yet (plannable: false). Open it once in IsctCompanion, then try again."
                 } else {
@@ -541,46 +541,73 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                 }
                 .into());
             };
-            if offering.get("year").and_then(Value::as_i64) != Some(year) {
-                return Err("offering does not belong to the requested academic year".into());
-            }
-            let quarters = offering
-                .get("quarters")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>();
-            if !quarters.is_empty() && !quarters.contains(&quarter) {
-                return Err(format!(
-                    "offering is taught in {}, not {quarter}",
-                    quarters.join(", ")
-                )
-                .into());
-            }
-            // One course per offering and year, whatever quarter it sits in
-            // (like addSyllabusDraft): writing a new one would replace it.
-            let canonical = format!("{year}-{offering_id}");
-            let existing = visible_rows(&workspace, "courses").into_iter().find(|row| {
-                text(row, "id") == Some(canonical.as_str())
-                    || text(row, "offeringId") == Some(offering_id)
-            });
-            // A 3Q–4Q offering is planned into each of its quarters, like
-            // `AddCatalogCourses`.
-            let terms: Vec<String> = if quarters.is_empty() {
-                vec![term.to_string()]
-            } else {
-                quarters.iter().map(|q| format!("{year}-{q}")).collect()
-            };
-            let course_value = course_from_offering(&offering, term)?;
             let details = agent_write_result(store.agent_write(name, |write| {
+                let offering = write.catalog_offering(offering_id)?.ok_or_else(|| {
+                    DataError::InvalidInput(
+                        "offering is no longer available in the local catalog".into(),
+                    )
+                })?;
+                if offering.get("year").and_then(Value::as_i64) != Some(year) {
+                    return Err(DataError::InvalidInput(
+                        "offering does not belong to the requested academic year".into(),
+                    ));
+                }
+                let quarters = offering
+                    .get("quarters")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                if !quarters.is_empty() && !quarters.iter().any(|value| value == quarter) {
+                    return Err(DataError::InvalidInput(format!(
+                        "offering is taught in {}, not {quarter}",
+                        quarters.join(", ")
+                    )));
+                }
+                // A 3Q–4Q offering is planned into each of its quarters, like
+                // `AddCatalogCourses`.
+                let terms = if quarters.is_empty() {
+                    vec![term.to_string()]
+                } else {
+                    quarters
+                        .iter()
+                        .map(|quarter| format!("{year}-{quarter}"))
+                        .collect::<Vec<_>>()
+                };
+                let latest_workspace = write.workspace()?;
+                for plan_term in &terms {
+                    let eligibility = crate::study_profile::catalog_course_eligibility(
+                        &latest_workspace,
+                        plan_term,
+                        &offering,
+                    );
+                    if let Some(message) =
+                        crate::study_profile::ineligibility_message(&offering, eligibility)
+                    {
+                        return Err(DataError::InvalidInput(message));
+                    }
+                }
+                // One course per offering and year, whatever quarter it sits
+                // in. Use the transaction snapshot so a concurrent school
+                // ingest or local write cannot make this decision stale.
+                let canonical = format!("{year}-{offering_id}");
+                let existing = visible_rows(&latest_workspace, "courses")
+                    .into_iter()
+                    .find(|row| {
+                        text(row, "id") == Some(canonical.as_str())
+                            || text(row, "offeringId") == Some(offering_id)
+                    });
+                let course_value = course_from_offering(&offering, term)
+                    .map_err(|error| DataError::InvalidInput(error.to_string()))?;
                 let stored_course = write
                     .rows("manual_courses")?
                     .into_iter()
                     .find(|row| text(row, "offeringId") == Some(offering_id));
                 // A live course for the offering is reused; a deleted row is
                 // revived only when no other live course stands for it.
-                let course = match (stored_course, existing.clone()) {
+                let course = match (stored_course, existing) {
                     (Some(course), _) if course.get("deletedAt").is_none() => course,
                     (_, Some(course)) => course,
                     (stored, None) => write.put(

@@ -7,6 +7,7 @@ import type {
   RemotePlan,
   Suggestion,
 } from "../lib/course-query";
+import type { CourseEligibility } from "../generated/persistence";
 import { useWorkspace } from "../store/useWorkspace";
 import { getDesktopBridge } from "./desktop-bridge";
 import type { QueryState } from "./core-query";
@@ -41,6 +42,7 @@ export type FinderView = {
   live: string;
   clashes: string[];
   ineligibleIds: string[];
+  eligibility: Record<string, CourseEligibility>;
   replacements: Record<string, string[]>;
   credits: Record<string, number>;
   onTimetable: string[];
@@ -49,6 +51,7 @@ export type FinderView = {
   pasteHandled: boolean;
   pastedIds: string[];
   missingCodes: string[];
+  ineligibleCodes: string[];
   detailIds: string[];
 };
 

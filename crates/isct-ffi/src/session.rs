@@ -500,6 +500,7 @@ impl Session {
                 &*i.events,
                 isct_core::events::CoreEvent::WorkspaceChanged {
                     source: isct_core::events::WorkspaceChangeSource::LocalRestore,
+                    revision: None,
                 },
             );
             Ok(OperationResult::Done)
@@ -678,7 +679,7 @@ async fn initialize(
     let browser_shutdown_error = if let Some(native) = browser {
         let browser = Arc::new(Browser::new(native));
         let errors = browser.shutdown_error.clone();
-        core.attach_school_browser(events.clone(), browser)?;
+        core.attach_school_browser(browser)?;
         Some(errors)
     } else {
         None

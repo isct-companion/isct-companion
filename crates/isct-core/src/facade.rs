@@ -27,6 +27,14 @@ pub struct Core {
 
 struct CoreEvents(Mutex<Option<Arc<dyn EventSink>>>);
 
+struct NoopEvents;
+
+impl EventSink for NoopEvents {
+    fn emit(&self, _event: crate::events::CoreEvent) -> Result<(), crate::ports::EventError> {
+        Ok(())
+    }
+}
+
 impl EventSink for CoreEvents {
     fn emit(&self, event: crate::events::CoreEvent) -> Result<(), crate::ports::EventError> {
         let sink = self
@@ -101,7 +109,6 @@ impl Core {
 
     pub fn attach_school_browser(
         &self,
-        events: Arc<dyn EventSink>,
         browser: Arc<dyn SchoolBrowser>,
     ) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
         let mut owner = self
@@ -117,7 +124,7 @@ impl Core {
             .events
             .as_ref()
             .map(|events| events.clone() as Arc<dyn EventSink>)
-            .unwrap_or(events);
+            .unwrap_or_else(|| Arc::new(NoopEvents));
         let engine = SchoolBrowserEngine::new(
             self.store.clone(),
             self.auth.clone(),

@@ -13,6 +13,20 @@ export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop" | "native-mobile";
 /** Rust's `std::env::consts::OS` for this build, injected at startup. */
 export type NativeOs = "macos" | "ios" | "android" | "windows" | "linux";
+export type WorkspaceChangedEvent = {
+  source:
+    | "user-intent"
+    | "reference-pull"
+    | "reference-poll"
+    | "school-pull"
+    | "scheduler"
+    | "mcp"
+    | "cloud-sync"
+    | "cloud-restore"
+    | "local-restore";
+  /** The committed user-intent revision, when the source can provide it. */
+  revision?: string;
+};
 export const nativeOs = (): NativeOs | undefined =>
   typeof window === "undefined"
     ? undefined
@@ -349,7 +363,9 @@ export interface DesktopBridge {
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
   runScheduledTask(id: string): Promise<string>;
-  onWorkspaceChanged(callback: () => void): Promise<() => void>;
+  onWorkspaceChanged(
+    callback: (event: WorkspaceChangedEvent) => void,
+  ): Promise<() => void>;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
   saveSchoolCredentials(
     profile: SchoolAuthProfile,
@@ -571,7 +587,20 @@ export function createTauriDesktopBridge(
     },
     runScheduledTask: (id) => invokeCommand("run_scheduled_task", { id }),
     onWorkspaceChanged: async (callback) => {
-      const unlisten = await listen("workspace-changed", () => callback());
+      const unlisten = await listen<unknown>("workspace-changed", (event) => {
+        if (!event || typeof event !== "object") return;
+        const { source, revision } = event as Record<string, unknown>;
+        // Unknown future sources must still trigger snapshot recovery.
+        if (
+          typeof source !== "string" ||
+          (revision !== undefined && typeof revision !== "string")
+        )
+          return;
+        callback({
+          source: source as WorkspaceChangedEvent["source"],
+          ...(revision === undefined ? {} : { revision }),
+        });
+      });
       return () => quietly(unlisten);
     },
     schoolCredentialStatus: () => result("school_credential_status"),

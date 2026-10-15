@@ -608,8 +608,8 @@ export function WorkspaceApp() {
       let cancelled = false;
       let dispose: (() => void) | undefined;
       void desktopBridge
-        .onWorkspaceChanged(() => {
-          void workspaceStore.reload().catch(notify.error);
+        .onWorkspaceChanged((event) => {
+          void workspaceStore.handleWorkspaceChanged(event).catch(notify.error);
         })
         .then((unlisten) => {
           if (cancelled) {

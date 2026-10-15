@@ -235,6 +235,7 @@ mod tests {
             (
                 CoreEvent::WorkspaceChanged {
                     source: WorkspaceChangeSource::LocalRestore,
+                    revision: None,
                 },
                 "workspace-changed",
                 json!({"source":"local-restore"}),
