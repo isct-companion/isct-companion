@@ -250,7 +250,9 @@ impl EventSink for FakeObserver {
         }
         match event {
             CoreEvent::CloudSyncState(state) => self.states.lock().unwrap().push(state),
-            CoreEvent::WorkspaceChanged { source } => self.workspaces.lock().unwrap().push(source),
+            CoreEvent::WorkspaceChanged { source, .. } => {
+                self.workspaces.lock().unwrap().push(source)
+            }
             _ => {}
         }
         Ok(())

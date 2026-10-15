@@ -24,6 +24,11 @@ use thiserror::Error;
 
 pub const MATRIX_CELLS: usize = 70;
 
+/// Compile-time backend availability; model initialization remains lazy.
+pub const fn available() -> bool {
+    cfg!(matrix_ocr)
+}
+
 /// Largest encoded image `scan` accepts.
 pub const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 
@@ -75,6 +80,10 @@ pub struct MatrixOcrService;
 
 #[cfg(not(matrix_ocr))]
 impl MatrixOcrService {
+    pub fn warm_up(&self) -> Result<(), MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
+
     #[cfg(debug_assertions)]
     pub fn with_debug_dir(self, _directory: Option<PathBuf>) -> Self {
         self

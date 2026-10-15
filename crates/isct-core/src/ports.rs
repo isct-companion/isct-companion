@@ -13,6 +13,8 @@ pub trait EventSink: Send + Sync {
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum SecretError {
+    #[error("Native vault callback failed: {0}")]
+    Callback(String),
     #[error("Secret account is not allowed.")]
     InvalidAccount,
     #[error("Secret payload is invalid.")]

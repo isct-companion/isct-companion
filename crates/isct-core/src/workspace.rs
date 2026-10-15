@@ -5,6 +5,7 @@
 //! before that transaction commits.
 
 use crate::data::{DataError, DataStore, WorkspaceWrite};
+use crate::study_profile::StudyEnrollment;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -58,6 +59,14 @@ pub enum WorkspaceIntent {
     SetAdmissionYear {
         #[cfg_attr(feature = "ts", ts(type = "number | null"))]
         admission_year: Option<i32>,
+    },
+    /// Saves the guide cohort and the complete, ordered degree-stage history.
+    /// `admissionYear` remains a reference-data cohort and never implies a
+    /// degree stage.
+    SetStudyProfile {
+        #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+        admission_year: Option<i32>,
+        study_enrollments: Vec<StudyEnrollment>,
     },
     EditAcademicCalendar {
         #[cfg_attr(feature = "ts", ts(type = "unknown"))]
@@ -262,6 +271,7 @@ pub fn declarations() -> Vec<String> {
 #[derive(Clone)]
 pub struct WorkspaceService {
     store: DataStore,
+    events: Option<Arc<dyn crate::ports::EventSink>>,
     /// What the last `AddCatalogCourses` placed and replaced, so
     /// `UndoCatalogCourses` reverses exactly that add.  Like the finder's undo
     /// toast it lasts for this session only.
@@ -283,6 +293,15 @@ impl WorkspaceService {
     pub fn new(store: DataStore) -> Self {
         Self {
             store,
+            events: None,
+            catalog_undo: Arc::default(),
+        }
+    }
+
+    pub fn with_events(store: DataStore, events: Arc<dyn crate::ports::EventSink>) -> Self {
+        Self {
+            store,
+            events: Some(events),
             catalog_undo: Arc::default(),
         }
     }
@@ -311,6 +330,12 @@ impl WorkspaceService {
             .catalog_undo
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = undo;
+        if let Some(events) = &self.events {
+            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged {
+                source: crate::events::WorkspaceChangeSource::UserIntent,
+                revision: Some(result.revision.clone()),
+            });
+        }
         Ok(result)
     }
 }
@@ -371,11 +396,43 @@ fn apply_intent(
             }
             write.save_setting("academicProfile", &Value::Object(profile.clone()))
         }
+        WorkspaceIntent::SetStudyProfile {
+            admission_year,
+            mut study_enrollments,
+        } => {
+            crate::study_profile::canonicalize_study_enrollments(&mut study_enrollments)
+                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            let mut profile = current
+                .get("academicProfile")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let profile = object_mut(&mut profile, "academic profile")?;
+            match admission_year {
+                Some(year) => {
+                    profile.insert("admissionYear".into(), Value::from(year));
+                }
+                None => {
+                    profile.remove("admissionYear");
+                }
+            }
+            profile.insert(
+                "studyEnrollments".into(),
+                serde_json::to_value(study_enrollments)?,
+            );
+            write.save_setting("academicProfile", &Value::Object(profile.clone()))
+        }
         WorkspaceIntent::EditAcademicCalendar {
-            academic_profile,
+            mut academic_profile,
             exceptions,
         } => {
             require_object(&academic_profile, "academic profile")?;
+            // Older shells do not know the degree-stage history. A calendar
+            // edit from one must not erase identity saved by a newer shell.
+            if academic_profile.get("studyEnrollments").is_none() {
+                if let Some(history) = current.pointer("/academicProfile/studyEnrollments") {
+                    academic_profile["studyEnrollments"] = history.clone();
+                }
+            }
             write.save_setting("academicProfile", &academic_profile)?;
             replace_records(
                 write,
@@ -858,6 +915,32 @@ fn set_course_on_timetable(
 /// in one of them is planned into each of them; added outside its quarters
 /// it stays in `term_id`.  A local draft (plan item) in `term_id` whose
 /// periods clash leaves the timetable; school-registered courses stay.
+fn catalog_plan_terms(offering: &Value, term_id: &str) -> Result<Vec<String>, DataError> {
+    validate_term(term_id)?;
+    let (plan_year, quarter) = (&term_id[..4], &term_id[5..]);
+    let quarters = offering
+        .get("quarters")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    if !quarters.contains(&quarter) {
+        return Ok(vec![term_id.to_string()]);
+    }
+    let terms = quarters
+        .iter()
+        .map(|quarter| format!("{plan_year}-{quarter}"))
+        .filter(|term| validate_term(term).is_ok())
+        .collect::<Vec<_>>();
+    if terms.is_empty() {
+        return Err(DataError::InvalidInput(
+            "catalog offering has no valid teaching quarter".into(),
+        ));
+    }
+    Ok(terms)
+}
+
 fn add_catalog_courses(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
@@ -865,8 +948,28 @@ fn add_catalog_courses(
     offerings: Vec<Value>,
 ) -> Result<CatalogAddReceipt, DataError> {
     validate_term(term_id)?;
+    let offerings = offerings
+        .iter()
+        .map(|submitted| {
+            let id = string(submitted, "id")?;
+            write.catalog_row(id)?.ok_or_else(|| {
+                DataError::InvalidInput(format!("catalog offering {id} is no longer available"))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for offering in &offerings {
+        for plan_term in catalog_plan_terms(offering, term_id)? {
+            let eligibility =
+                crate::study_profile::catalog_course_eligibility(current, &plan_term, offering);
+            if let Some(message) =
+                crate::study_profile::ineligibility_message(offering, eligibility)
+            {
+                return Err(DataError::InvalidInput(message));
+            }
+        }
+    }
     let locale = workspace_content_locale(current);
-    let (plan_year, quarter) = (&term_id[..4], &term_id[5..]);
+    let plan_year = &term_id[..4];
     let mut offering_ids = offerings
         .iter()
         .map(|offering| string(offering, "id").map(str::to_string))
@@ -977,22 +1080,7 @@ fn add_catalog_courses(
                 id
             }
         };
-        let quarters: Vec<&str> = offering
-            .get("quarters")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect();
-        let plan_terms: Vec<String> = if quarters.contains(&quarter) {
-            quarters
-                .iter()
-                .map(|quarter| format!("{plan_year}-{quarter}"))
-                .filter(|term| validate_term(term).is_ok())
-                .collect()
-        } else {
-            vec![term_id.to_string()]
-        };
+        let plan_terms = catalog_plan_terms(&offering, term_id)?;
         for plan_term in plan_terms {
             let mine = |row: &&Value| {
                 row.get("courseId").and_then(Value::as_str) == Some(&course_id)
@@ -2348,11 +2436,82 @@ fn object_mut<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{EventError, EventSink};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct MutationEvents {
+        count: AtomicUsize,
+        fail: bool,
+    }
+
+    impl EventSink for MutationEvents {
+        fn emit(&self, event: crate::events::CoreEvent) -> Result<(), EventError> {
+            assert!(matches!(
+                event,
+                crate::events::CoreEvent::WorkspaceChanged {
+                    source: crate::events::WorkspaceChangeSource::UserIntent,
+                    revision: Some(_),
+                }
+            ));
+            self.count.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                Err(EventError::Delivery("synthetic delivery failure".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     fn service(name: &str) -> WorkspaceService {
         let path =
             std::env::temp_dir().join(format!("isct-workspace-{name}-{}.db", Uuid::new_v4()));
         WorkspaceService::new(DataStore::initialize(path).unwrap().0)
+    }
+
+    #[test]
+    fn committed_mutations_emit_once_and_delivery_does_not_change_the_result() {
+        let path =
+            std::env::temp_dir().join(format!("isct-workspace-events-{}.db", Uuid::new_v4()));
+        let store = DataStore::initialize(path).unwrap().0;
+        let events = Arc::new(MutationEvents {
+            count: AtomicUsize::new(0),
+            fail: false,
+        });
+        let service = WorkspaceService::with_events(store, events.clone());
+        let initial = service.snapshot().unwrap();
+        let committed = service
+            .mutate(WorkspaceMutation {
+                expected_revision: initial.revision,
+                intent: WorkspaceIntent::SetAdmissionYear {
+                    admission_year: Some(2026),
+                },
+            })
+            .unwrap();
+        assert_eq!(events.count.load(Ordering::Relaxed), 1);
+
+        let failed = service.mutate(WorkspaceMutation {
+            expected_revision: "stale".into(),
+            intent: WorkspaceIntent::SetAdmissionYear {
+                admission_year: Some(2025),
+            },
+        });
+        assert!(matches!(failed, Err(WorkspaceError::Conflict(_))));
+        assert_eq!(events.count.load(Ordering::Relaxed), 1);
+
+        let failing_events = Arc::new(MutationEvents {
+            count: AtomicUsize::new(0),
+            fail: true,
+        });
+        let service = WorkspaceService::with_events(service.store.clone(), failing_events.clone());
+        assert!(service
+            .mutate(WorkspaceMutation {
+                expected_revision: committed.revision,
+                intent: WorkspaceIntent::SetAdmissionYear {
+                    admission_year: Some(2027),
+                },
+            })
+            .is_ok());
+        assert_eq!(failing_events.count.load(Ordering::Relaxed), 1);
     }
 
     fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) -> Value {
@@ -2488,6 +2647,120 @@ mod tests {
     }
 
     #[test]
+    fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
+        let service = service("study-profile");
+        let legacy = json!({
+            "name":"My program",
+            "admissionYear":2024,
+            "gradePath":[{"grade":"B2","academicYear":2025}],
+            "years":[{"academicYear":2026,"quarterStarts":{
+                "1Q":"2026-04-01","2Q":"2026-06-01","3Q":"2026-10-01","4Q":"2026-12-01"
+            }}]
+        });
+        service
+            .store
+            .put_workspace_setting("academicProfile", legacy.clone(), "test")
+            .unwrap();
+        let old = service.snapshot().unwrap();
+        assert!(old.workspace["academicProfile"]
+            .get("studyEnrollments")
+            .is_none());
+
+        let saved = run(
+            &service,
+            WorkspaceIntent::SetStudyProfile {
+                admission_year: Some(2024),
+                study_enrollments: vec![
+                    StudyEnrollment {
+                        stage: crate::study_profile::StudyStage::Undergraduate,
+                        entry_kind: crate::study_profile::StudyEntryKind::Regular,
+                        entry_grade: Some(1),
+                        admitted_term: "2024-1Q".into(),
+                    },
+                    StudyEnrollment {
+                        stage: crate::study_profile::StudyStage::Master,
+                        entry_kind: crate::study_profile::StudyEntryKind::Regular,
+                        entry_grade: Some(1),
+                        admitted_term: "2028-1Q".into(),
+                    },
+                ],
+            },
+        )
+        .unwrap();
+        assert_eq!(saved["academicProfile"]["name"], legacy["name"]);
+        assert_eq!(saved["academicProfile"]["gradePath"], legacy["gradePath"]);
+        assert_eq!(saved["academicProfile"]["years"], legacy["years"]);
+        assert_eq!(
+            saved["academicProfile"]["studyEnrollments"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        let calendar = run(
+            &service,
+            WorkspaceIntent::EditAcademicCalendar {
+                academic_profile: json!({
+                    "name":"Renamed program", "admissionYear":2024,
+                    "gradePath":legacy["gradePath"], "years":legacy["years"]
+                }),
+                exceptions: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            calendar["academicProfile"]["studyEnrollments"],
+            saved["academicProfile"]["studyEnrollments"],
+            "an older calendar editor must preserve the stage history"
+        );
+    }
+
+    #[test]
+    fn invalid_study_history_is_rejected_atomically() {
+        let service = service("invalid-study-profile");
+        let before = service.snapshot().unwrap();
+        for study_enrollments in [
+            vec![StudyEnrollment {
+                stage: crate::study_profile::StudyStage::Undergraduate,
+                entry_kind: crate::study_profile::StudyEntryKind::Regular,
+                entry_grade: Some(1),
+                admitted_term: "2026-spring".into(),
+            }],
+            vec![
+                StudyEnrollment {
+                    stage: crate::study_profile::StudyStage::Undergraduate,
+                    entry_kind: crate::study_profile::StudyEntryKind::Regular,
+                    entry_grade: Some(1),
+                    admitted_term: "2026-1Q".into(),
+                },
+                StudyEnrollment {
+                    stage: crate::study_profile::StudyStage::Master,
+                    entry_kind: crate::study_profile::StudyEntryKind::Regular,
+                    entry_grade: Some(1),
+                    admitted_term: "2026-1Q".into(),
+                },
+            ],
+        ] {
+            let error = service
+                .mutate(WorkspaceMutation {
+                    expected_revision: before.revision.clone(),
+                    intent: WorkspaceIntent::SetStudyProfile {
+                        admission_year: Some(2026),
+                        study_enrollments,
+                    },
+                })
+                .unwrap_err();
+            assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+            let after = service.snapshot().unwrap();
+            assert_eq!(after.revision, before.revision);
+            assert_eq!(
+                after.workspace["academicProfile"],
+                before.workspace["academicProfile"]
+            );
+        }
+    }
+
+    #[test]
     fn invalid_record_rolls_back_the_whole_intent() {
         let service = service("rollback");
         let original = service.snapshot().unwrap();
@@ -2609,6 +2882,9 @@ mod tests {
     }
 
     fn mutate(service: &WorkspaceService, intent: WorkspaceIntent) -> WorkspaceSnapshot {
+        if let WorkspaceIntent::AddCatalogCourses { offerings, .. } = &intent {
+            service.store.catalog_upsert_offerings(offerings).unwrap();
+        }
         let expected_revision = service.snapshot().unwrap().revision;
         service
             .mutate(WorkspaceMutation {
@@ -2640,7 +2916,8 @@ mod tests {
                     "instructors":[{"en":"Teacher One"}],
                     "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202600002",
                     "credits":{"lecture":2,"exercise":0,"lab":0},
-                    "instructionLanguage":"ja",
+                    "instructionLanguage":"ja", "format":{"kinds":["lecture"]}, "media":{},
+                    "academicUnit":{}, "intensive":false, "fetchedAt":{},
                     "schedule":[{"kind":"weekly","day":1,"periods":[1,2]}]
                 })],
             },
@@ -2734,6 +3011,20 @@ mod tests {
     #[test]
     fn catalog_course_preserves_localized_fields_credits_rooms_and_long_period_ranges() {
         let service = service("catalog-course");
+        service
+            .store
+            .catalog_upsert_offerings(&[json!({
+                "id":"202600001", "year":2026, "quarters":["3Q"],
+                "code":"CSC.T363", "title":{"ja":"演習","en":"Exercise"},
+                "instructors":[{"ja":"教員一","en":"Teacher One"},{"ja":"教員二","en":"Teacher Two"}],
+                "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202600001",
+                "credits":{"lecture":0,"exercise":1.5,"lab":0.5},
+                "instructionLanguage":"ja", "format":{"kinds":["exercise"]}, "media":{},
+                "academicUnit":{}, "intensive":false, "fetchedAt":{},
+                "content":{"summary":{"ja":"内容"}},
+                "schedule":[{"kind":"weekly","day":2,"periods":[5,8],"room":{"ja":"西講義棟","en":"West Hall"}}]
+            })])
+            .unwrap();
         let original = service.snapshot().unwrap();
         let next = service
             .mutate(WorkspaceMutation {
@@ -3007,6 +3298,9 @@ mod tests {
     }
 
     fn run(service: &WorkspaceService, intent: WorkspaceIntent) -> Result<Value, WorkspaceError> {
+        if let WorkspaceIntent::AddCatalogCourses { offerings, .. } = &intent {
+            service.store.catalog_upsert_offerings(offerings).unwrap();
+        }
         let expected_revision = service.snapshot()?.revision;
         service
             .mutate(WorkspaceMutation {
@@ -3020,10 +3314,135 @@ mod tests {
         json!({
             "id":id, "year":2026, "quarters":quarters, "code":code,
             "title":{"en":code}, "instructors":[], "credits":{"lecture":2,"exercise":0,"lab":0},
-            "instructionLanguage":"en", "format":{"kinds":["lecture"]},
+            "instructionLanguage":"en", "format":{"kinds":["lecture"]}, "media":{},
+            "academicUnit":{}, "intensive":false, "fetchedAt":{},
             "schedule":[{"kind":"weekly","day":1,"periods":[1,2],"room":{"en":"W1"}}],
             "syllabusUrl":format!("https://syllabus.s.isct.ac.jp/courses/{id}")
         })
+    }
+
+    #[test]
+    fn catalog_add_enforces_first_year_eligibility_atomically_and_preserves_existing_data() {
+        let service = service("catalog-first-year");
+        run(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![offering("202630300", "CSC.T301", &["3Q"])],
+            },
+        )
+        .unwrap();
+        run(
+            &service,
+            WorkspaceIntent::SetStudyProfile {
+                admission_year: Some(2026),
+                study_enrollments: vec![StudyEnrollment {
+                    stage: crate::study_profile::StudyStage::Undergraduate,
+                    entry_kind: crate::study_profile::StudyEntryKind::Regular,
+                    entry_grade: Some(1),
+                    admitted_term: "2026-1Q".into(),
+                }],
+            },
+        )
+        .unwrap();
+        let before = service.snapshot().unwrap();
+        let error = run(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![
+                    offering("202630100", "CSC.T101", &["3Q"]),
+                    offering("202630200", "LAH.T209-01", &["3Q"]),
+                ],
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        let rejected = service.snapshot().unwrap();
+        assert_eq!(rejected.revision, before.revision);
+        assert!(rows(&rejected.workspace, "courses")
+            .unwrap()
+            .any(|course| is_live(course) && course["code"] == "CSC.T301"));
+        assert!(!rows(&rejected.workspace, "courses")
+            .unwrap()
+            .any(|course| course["code"] == "CSC.T101"));
+
+        let first_year = run(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![offering("202630100", "CSC.T101", &["3Q"])],
+            },
+        )
+        .unwrap();
+        assert!(rows(&first_year, "courses")
+            .unwrap()
+            .any(|course| is_live(course) && course["code"] == "CSC.T101"));
+
+        let second_year = run(
+            &service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2027-3Q".into(),
+                offerings: vec![offering("202630200", "CSC.T201", &["3Q"])],
+            },
+        )
+        .unwrap();
+        assert!(rows(&second_year, "courses")
+            .unwrap()
+            .any(|course| is_live(course) && course["code"] == "CSC.T201"));
+    }
+
+    #[test]
+    fn catalog_add_checks_authoritative_content_in_every_placed_quarter() {
+        let service = service("catalog-authority");
+        run(
+            &service,
+            WorkspaceIntent::SetStudyProfile {
+                admission_year: Some(2026),
+                study_enrollments: vec![
+                    StudyEnrollment {
+                        stage: crate::study_profile::StudyStage::Undergraduate,
+                        entry_kind: crate::study_profile::StudyEntryKind::Regular,
+                        entry_grade: Some(1),
+                        admitted_term: "2026-1Q".into(),
+                    },
+                    StudyEnrollment {
+                        stage: crate::study_profile::StudyStage::Master,
+                        entry_kind: crate::study_profile::StudyEntryKind::Regular,
+                        entry_grade: Some(1),
+                        admitted_term: "2026-4Q".into(),
+                    },
+                ],
+            },
+        )
+        .unwrap();
+        let canonical = offering("202630209", "LAH.T209-01", &["3Q", "4Q"]);
+        service
+            .store
+            .catalog_upsert_offerings(std::slice::from_ref(&canonical))
+            .unwrap();
+        let before = service.snapshot().unwrap();
+
+        // The requested 4Q is a master's term, but the same offering would
+        // also be placed into undergraduate 3Q and must be rejected there.
+        let mut submitted = canonical;
+        submitted["code"] = json!("CSC.T101");
+        let error = service
+            .mutate(WorkspaceMutation {
+                expected_revision: before.revision.clone(),
+                intent: WorkspaceIntent::AddCatalogCourses {
+                    term_id: "2026-4Q".into(),
+                    offerings: vec![submitted],
+                },
+            })
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "LAH.T209-01 is not available to a regular first-year undergraduate student."
+        );
+        let after = service.snapshot().unwrap();
+        assert_eq!(after.revision, before.revision);
+        assert!(!rows(&after.workspace, "courses").unwrap().any(is_live));
     }
 
     /// Live plan items as `(id, courseId, termId)`.
@@ -3058,6 +3477,10 @@ mod tests {
     fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
         let service = service("catalog-quarters");
         let add = |term: &str, offering: Value| {
+            service
+                .store
+                .catalog_upsert_offerings(std::slice::from_ref(&offering))
+                .unwrap();
             run(
                 &service,
                 WorkspaceIntent::AddCatalogCourses {

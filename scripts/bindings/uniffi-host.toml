@@ -1,0 +1,3 @@
+# Only host JVM smoke tests override Android's cleaner implementation.
+[crates.isct_ffi.bindings.kotlin]
+android = false

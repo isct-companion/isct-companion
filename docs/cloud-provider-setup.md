@@ -29,10 +29,12 @@ Use these names consistently when registering providers:
    redirect.
 
 The registered IsctCompanion client IDs (desktop, iOS, Android) are committed
-in `config/oauth-clients.yaml`. Vite compiles in the one matching Tauri's
-`TAURI_ENV_PLATFORM`, and `scripts/tauri.mjs` writes the derived iOS callback
-scheme into `backend/Info.ios.plist` (generated, ignored), which Tauri merges
-into the iOS app's Info.plist. OAuth client IDs are public and appear in every authorization URL. `VITE_GOOGLE_DRIVE_CLIENT_ID` and the Settings field remain
+in `config/oauth-clients.yaml`. The desktop build reads the desktop entry through
+`scripts/lib/oauth-config.mjs`. The retired Tauri mobile callback generation is
+preserved there for reference; its generated Info.plist belongs under
+`deprecated/tauri-mobile/`. Native SwiftUI/Compose configuration will use the
+same client-ID registry when those apps are implemented.
+OAuth client IDs are public and appear in every authorization URL. `VITE_GOOGLE_DRIVE_CLIENT_ID` and the Settings field remain
 available only as development overrides. Google's token endpoint also
 requires the Desktop client's secret, even with PKCE; set it as
 `google-drive.desktop-secret` in the YAML (or `ISCT_GOOGLE_DESKTOP_CLIENT_SECRET`
@@ -41,7 +43,7 @@ sends it only with the registered desktop client ID. Google documents this
 secret as non-confidential for installed apps; it ships only inside desktop
 binaries. Rust target conditions exclude the desktop OAuth flow and secret from
 iOS/Android, while the iOS Google Sign-In plugin is an iOS-only dependency.
-`scripts/verify-platform-bundle.mjs` fails release builds if another platform's
+`scripts/checks/verify-platform-bundle.mjs` fails release builds if another platform's
 OAuth configuration leaks into an artifact.
 
 The app requests only `https://www.googleapis.com/auth/drive.appdata`, the

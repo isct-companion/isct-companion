@@ -33,15 +33,46 @@ desktop app.
 
 ## Repository map
 
-- `src/pages`: Today, Courses, Web and Settings screens.
-- `src/components`: shared UI.
-- `src/store` and `src/storage`: frontend read model and native repository bridge.
-- `crates/isct-core`: shared domain services, mutations, read models and task ownership.
-- `crates/isct-ocr`: independent image preparation and optional OCR engine.
-- `backend/src`: Tauri commands, native platform ports and local HTTP MCP.
-- `src/generated`: TypeScript contracts generated from Rust.
-- `crates/isct-core/tests/fixtures/subscriptions`: frozen reference-data test fixtures.
-- `docs`: maintained architecture, storage and provider notes.
+```text
+apps/desktop/
+  src/                     React application and disposable view caches
+    app/                   application composition, routes and lifecycle
+    pages/                 desktop screens
+    layouts/compact/       responsive layout for narrow desktop windows
+    features/              feature UI and document viewers
+    platform/              Tauri client, query hooks and platform presentation
+    lib/                   desktop presentation helpers and preview fixtures
+    generated/             contracts generated from Rust
+  src-tauri/               Tauri host, native ports, commands and HTTP MCP
+  public/                  desktop web assets
+crates/isct-core/           authoritative domain state, services and storage
+crates/isct-ocr/            independent optional OCR engine and model
+crates/isct-ffi/            native Core facade and generated contract bridge
+bindings/                  Swift package and Kotlin/AAR packaging
+resources/locales/         shared UI translation resources
+resources/design/          original icon artwork; future shared visual tokens
+config/                    cross-platform build configuration (OAuth clients)
+scripts/                   desktop, bindings, checks, data and shared build tools
+deprecated/tauri-mobile/   retired Tauri mobile adapters, plugins and build notes
+docs/                      contracts, design and verification records
+```
+
+Future SwiftUI and Compose applications belong in `apps/ios/` and
+`apps/android/`. Swift/Kotlin SDK packages live under `bindings/`, backed by
+the shared Rust facade in `crates/isct-ffi/`.
+The native UI projects are created when implemented.
+
+Platform manifests and build configuration stay beside the owning app. The
+root Yarn/Cargo workspaces retain one lockfile each and the Rust build output
+remains at root `target/`. Root commands delegate to the desktop workspace.
+Generate desktop TypeScript contracts with `yarn core:types`; the exporter
+belongs to Core and does not require compiling Tauri. Subscription test data
+remains in `crates/isct-core/tests/fixtures/subscriptions/`.
+
+The retired mobile release workflows are archived outside GitHub's active
+workflow directory. Desktop releases build independently; platform checks
+continue to compile shared Core for iOS and Android. Historical plans and
+verification records may use paths from before this directory move.
 
 ## Desktop Core checkpoint
 
@@ -58,9 +89,10 @@ and shutdown. See the [documentation index](docs/README.md). The desktop MCP ada
 shares those services at `http://127.0.0.1:47832/mcp` while the app is open; authentication
 is configured in Settings → AI agent access.
 
-Phase 6 (Swift/Kotlin bindings, native packages and mobile smoke tests) is deferred.
-It is not a prerequisite for the current desktop checkpoint. Native mobile UI
-redesign and distribution/release checks remain separate work.
+The native SDK is implemented in `crates/isct-ffi`, with generated Swift/Kotlin
+packages under `bindings/`. See [native SDK integration](docs/core-ffi.md) for
+service operations, cancellation, native ports, build commands and verification
+boundaries. SwiftUI/Compose interfaces and real-account acceptance remain separate work.
 
 Debug builds display the base version plus a UTC build timestamp and Git revision.
 `dirty` records uncommitted working-tree changes at build time, including documents.

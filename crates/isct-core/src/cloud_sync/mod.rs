@@ -427,7 +427,10 @@ impl CloudSync {
     }
 
     fn publish_workspace(&self, services: &CloudServices, source: WorkspaceChangeSource) {
-        let _ = services.events.emit(CoreEvent::WorkspaceChanged { source });
+        let _ = services.events.emit(CoreEvent::WorkspaceChanged {
+            source,
+            revision: None,
+        });
     }
 
     fn provider_result_inner(

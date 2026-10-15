@@ -16,7 +16,7 @@ When two places (desktop and mobile, iOS and Android, two pages) need the same
 behaviour, put it in one module with one interface and let each side call it.
 Do not copy the logic. Examples: `crates/isct-core/src/school_browser` holds the
 login scripts and relays used by every school-web adapter; the route table in
-`src/app/routes.ts` serves both the workstation and the mobile shell.
+`apps/desktop/src/app/routes.ts` serves both the workstation and compact desktop layouts.
 
 ## 3. Isolate native differences at compile time, not with runtime checks
 
@@ -32,8 +32,8 @@ Allowed exceptions:
 
 - iOS vs iPadOS. One iOS binary runs on both, so telling them apart at runtime
   is fine.
-- Layout by viewport. Choosing the mobile or workstation shell from the window
-  size (`src/app/form-factor.ts`) is a layout decision, not native behaviour.
+- Layout by viewport. Choosing the compact or workstation layout from the window
+  size (`apps/desktop/src/app/form-factor.ts`) is a layout decision, not native behaviour.
 
 ## 4. Consolidate domain logic and state in Rust
 

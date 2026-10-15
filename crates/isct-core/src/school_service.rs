@@ -205,6 +205,7 @@ impl SchoolService {
                         if matches!(result, Ok(_) | Err(SchoolExecutorError::Cancelled)) {
                             let _ = service.events.emit(CoreEvent::WorkspaceChanged {
                                 source: WorkspaceChangeSource::SchoolPull,
+                                revision: None,
                             });
                         }
                         let result = result.map_err(map_executor_error)?;

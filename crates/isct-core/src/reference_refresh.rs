@@ -284,6 +284,7 @@ impl ReferenceService {
         self.store.record_reference_poll()?;
         let _ = self.events.emit(CoreEvent::WorkspaceChanged {
             source: WorkspaceChangeSource::ReferencePoll,
+            revision: None,
         });
         if failures > 0 {
             Err(ReferenceError::PartialFailure(failures))
@@ -473,6 +474,7 @@ impl ReferenceService {
         }
         let _ = self.events.emit(CoreEvent::WorkspaceChanged {
             source: WorkspaceChangeSource::ReferencePull,
+            revision: None,
         });
         result
     }

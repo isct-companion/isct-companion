@@ -50,7 +50,7 @@ jobs:
       - run: cargo test --workspace --locked --no-run
 
   apple:
-    name: Apple backend (${{ matrix.target }})
+    name: Apple Rust (${{ matrix.target }})
     runs-on: macos-14
     strategy:
       fail-fast: false
@@ -69,7 +69,14 @@ jobs:
         with:
           workspaces: . -> target
           key: ${{ matrix.target }}
-      - run: cargo check --manifest-path backend/Cargo.toml --locked --target ${{ matrix.target }}
+      - name: Check desktop shell or portable Core
+        shell: bash
+        run: |
+          if [[ '${{ matrix.target }}' == *ios* ]]; then
+            cargo check -p isct-core --locked --target ${{ matrix.target }}
+          else
+            cargo check -p isct-companion --locked --target ${{ matrix.target }}
+          fi
       - name: Desktop Rust contracts
         if: matrix.target == 'aarch64-apple-darwin'
         run: cargo test --workspace --locked
@@ -81,7 +88,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   android:
-    name: Android backend (arm64)
+    name: Android Core (arm64)
     runs-on: ubuntu-latest
     env:
       NDK_VERSION: 27.2.12479018
@@ -110,4 +117,4 @@ jobs:
           echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$toolchain/bin/aarch64-linux-android34-clang" >> "$GITHUB_ENV"
           echo "CC_aarch64_linux_android=$toolchain/bin/aarch64-linux-android34-clang" >> "$GITHUB_ENV"
           echo "AR_aarch64_linux_android=$toolchain/bin/llvm-ar" >> "$GITHUB_ENV"
-      - run: cargo check --manifest-path backend/Cargo.toml --locked --target aarch64-linux-android
+      - run: cargo check -p isct-core --locked --target aarch64-linux-android

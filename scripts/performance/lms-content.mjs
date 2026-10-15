@@ -6,6 +6,7 @@ import { createServer } from "vite";
 // Use the app's module resolver for its extensionless TypeScript imports.
 const loader = await createServer({
   configFile: false,
+  root: new URL("../../apps/desktop/", import.meta.url).pathname,
   optimizeDeps: { noDiscovery: true, include: [] },
   server: { middlewareMode: true, hmr: false, ws: false, watch: null },
 });

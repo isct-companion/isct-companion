@@ -44,6 +44,18 @@ impl EventSink for NoopEvents {
 }
 
 #[derive(Default)]
+struct PullEvents(AtomicUsize);
+
+impl EventSink for PullEvents {
+    fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
+        if matches!(event, CoreEvent::PullStateChanged(_)) {
+            self.0.fetch_add(1, Ordering::Release);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Default)]
 struct NoopExecutor;
 
 impl SchoolExecutor for NoopExecutor {
@@ -299,4 +311,46 @@ async fn shutdown_is_final_and_idempotent() {
         Err(RuntimeError::Task(RuntimeTaskError::Stopped))
     ));
     runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn runtime_owns_one_pull_forwarder_and_releases_it_on_shutdown() {
+    let runtime = Arc::new(CoreRuntime::new(PullNetwork::Wifi));
+    let events = Arc::new(PullEvents::default());
+    runtime
+        .start_event_forwarding(events.clone(), &tokio::runtime::Handle::current())
+        .unwrap();
+    runtime
+        .start_event_forwarding(events.clone(), &tokio::runtime::Handle::current())
+        .unwrap();
+
+    runtime
+        .coordinator
+        .run(
+            PullTarget::Reference {
+                kind: "forwarding-test".into(),
+                index_url: "https://example.test/index.json".into(),
+                year: 2026,
+            },
+            PullOptions::manual(),
+            |_| async { Ok(json!({"changed": 0})) },
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while events.0.load(Ordering::Acquire) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), runtime.shutdown())
+        .await
+        .unwrap();
+    assert_eq!(Arc::strong_count(&events), 1);
+    assert_eq!(
+        runtime.start_event_forwarding(events, &tokio::runtime::Handle::current()),
+        Err(RuntimeTaskError::Stopped)
+    );
 }

@@ -319,6 +319,57 @@ fn concurrent_plan_add_converges_on_one_course_and_plan_item() {
 }
 
 #[test]
+fn plan_add_uses_the_shared_first_year_gate_before_writing() {
+    let fixture = Fixture::new();
+    fixture
+        .store
+        .put_workspace_setting(
+            "academicProfile",
+            json!({
+                "name":"Mine", "gradePath":[], "years":[],
+                "studyEnrollments":[
+                    {"stage":"undergraduate", "entryKind":"regular", "entryGrade":1,
+                     "admittedTerm":"2026-1Q"},
+                    {"stage":"master", "entryKind":"regular", "entryGrade":1,
+                     "admittedTerm":"2026-4Q"}
+                ]
+            }),
+            "test",
+        )
+        .unwrap();
+    fixture
+        .store
+        .catalog_upsert_offerings(&[json!({
+            "id":"202612399", "year":2026, "quarters":["3Q","4Q"], "code":"LAW.W221-12",
+            "title":{"en":"Upper Systems"}, "instructors":[],
+            "instructionLanguage":"en", "format":{"kinds":["lecture"]}, "media":{},
+            "credits":{"lecture":2.0,"exercise":0.0,"lab":0.0}, "schedule":[],
+            "academicUnit":{"en":"Engineering"}, "intensive":false,
+            "syllabusUrl":"https://example.invalid/202612399", "fetchedAt":{}
+        })])
+        .unwrap();
+
+    let error = fixture
+        .service()
+        .call(
+            "plan_add",
+            &json!({"offeringId":"202612399","term":"2026-4Q"}),
+            WRITES,
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "LAW.W221-12 is not available to a regular first-year undergraduate student."
+    );
+    assert!(fixture
+        .store
+        .user_rows("manual_courses")
+        .unwrap()
+        .is_empty());
+    assert!(fixture.store.user_rows("plan_items").unwrap().is_empty());
+}
+
+#[test]
 fn date_and_term_validation_messages_remain_stable() {
     let fixture = Fixture::new();
     let service = fixture.service();

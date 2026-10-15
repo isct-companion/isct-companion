@@ -10,6 +10,9 @@ use std::{
 };
 use unicode_normalization::UnicodeNormalization;
 
+pub use crate::study_profile::catalog_course_eligibility;
+use crate::study_profile::{CourseEligibility, CourseEligibilityStatus};
+
 const DAYS: [&str; 6] = ["月", "火", "水", "木", "金", "土"];
 const SHORT_DAYS: [&str; 6] = ["mon", "tue", "wed", "thu", "fri", "sat"];
 const LONG_DAYS: [&str; 6] = [
@@ -882,6 +885,9 @@ pub fn live_text(input: &str, keys: &[String], courses: &[Value], ctx: &FinderCo
 pub struct FinderRequest {
     pub year: u16,
     pub term: String,
+    /// Explicitly include courses that cannot be newly added to this term.
+    #[serde(default)]
+    pub include_ineligible: bool,
     #[serde(default)]
     pub keys: Vec<String>,
     #[serde(default)]
@@ -916,6 +922,8 @@ pub struct FinderView {
     pub suggestions: Vec<Value>,
     pub live: String,
     pub clashes: Vec<String>,
+    pub ineligible_ids: Vec<String>,
+    pub eligibility: BTreeMap<String, CourseEligibility>,
     pub replacements: BTreeMap<String, Vec<String>>,
     pub credits: BTreeMap<String, f64>,
     pub on_timetable: Vec<String>,
@@ -924,6 +932,7 @@ pub struct FinderView {
     pub paste_handled: bool,
     pub pasted_ids: Vec<String>,
     pub missing_codes: Vec<String>,
+    pub ineligible_codes: Vec<String>,
     pub detail_ids: Vec<String>,
 }
 #[derive(Debug, thiserror::Error)]
@@ -987,6 +996,8 @@ pub fn finder_view(
         .filter(|r| {
             r.get("deletedAt").is_none_or(Value::is_null)
                 && r.get("admissionYear") == admission
+                && catalog_course_eligibility(workspace, &request.term, r).status
+                    != CourseEligibilityStatus::Ineligible
                 && !selected_department.is_empty()
                 && (text(r, "departmentId") == selected_department
                     || selected_department.ends_with(&format!(":{}", text(r, "departmentId"))))
@@ -1041,6 +1052,24 @@ pub fn finder_view(
         .into_iter()
         .filter_map(normalize_offering)
         .collect::<Vec<_>>();
+    let eligibility = courses
+        .iter()
+        .map(|course| {
+            (
+                text(course, "id").to_string(),
+                catalog_course_eligibility(workspace, &request.term, course),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let ineligible_ids = eligibility
+        .iter()
+        .filter(|(_, result)| result.status == CourseEligibilityStatus::Ineligible)
+        .map(|(id, _)| id.clone())
+        .collect::<Vec<_>>();
+    let ineligible = ineligible_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
     let mut keys = request.keys;
     match &request.action {
         Some(FinderAction::Commit { key }) => keys.push(key.clone()),
@@ -1079,7 +1108,17 @@ pub fn finder_view(
         }
         None => courses.clone(),
     };
-    let live = live_text(&request.input, &keys, &base, &ctx);
+    let eligible_base = base
+        .iter()
+        .filter(|course| !ineligible.contains(text(course, "id")))
+        .cloned()
+        .collect::<Vec<_>>();
+    let visible_base = if request.include_ineligible {
+        &base
+    } else {
+        &eligible_base
+    };
+    let live = live_text(&request.input, &keys, visible_base, &ctx);
     let factors = if request.remote_ids.is_some() {
         parsed
             .factors
@@ -1090,8 +1129,8 @@ pub fn finder_view(
     } else {
         parsed.factors.clone()
     };
-    let rows = run(&base, &factors, &ctx, &live);
-    let suggestions = suggest(&request.input, &keys, &base, &ctx);
+    let rows = run(visible_base, &factors, &ctx, &live);
+    let suggestions = suggest(&request.input, &keys, visible_base, &ctx);
     let commit_key =
         if request.input.ends_with(char::is_whitespace) && !request.input.trim().is_empty() {
             let canonical = condition(request.input.trim(), &ctx);
@@ -1159,7 +1198,7 @@ pub fn finder_view(
         .filter(|f| f.r#type == "quarter")
         .cloned()
         .collect::<Vec<_>>();
-    let detail_ids = run(&base, &quarter_factors, &ctx, "")
+    let detail_ids = run(visible_base, &quarter_factors, &ctx, "")
         .iter()
         .filter(|row| row.pointer("/course/detailed") == Some(&Value::Bool(false)))
         .map(|row| text(&row["course"], "id").to_string())
@@ -1171,6 +1210,7 @@ pub fn finder_view(
     let mut paste_handled = false;
     let mut pasted_ids = Vec::new();
     let mut missing_codes = Vec::new();
+    let mut ineligible_codes = Vec::new();
     if let Some(FinderAction::Paste { text: raw }) = &request.action {
         if raw.len() > 64 * 1024 {
             return Err(FinderError::InvalidInput(
@@ -1178,7 +1218,7 @@ pub fn finder_view(
             ));
         }
         let normalized = normalized(raw);
-        let regex = Regex::new(r"[A-Za-z]{3}\.[A-Za-z][0-9]{3}")
+        let regex = Regex::new(r"(?i)[a-z]{3}\.[a-z][0-9]{3}(?:-[0-9]{2})?")
             .map_err(|e| FinderError::InvalidInput(e.to_string()))?;
         let mut seen = HashSet::new();
         let codes = regex
@@ -1194,7 +1234,9 @@ pub fn finder_view(
                 .find(|c| text(c, "code") == code && array(c, "quarters").contains(&json!(quarter)))
                 .or_else(|| courses.iter().find(|c| text(c, "code") == code));
             if let Some(c) = found {
-                if !on_timetable.contains(&code) {
+                if ineligible.contains(text(c, "id")) {
+                    ineligible_codes.push(code);
+                } else if !on_timetable.contains(&code) {
                     pasted_ids.push(text(c, "id").into());
                 }
             } else {
@@ -1213,6 +1255,8 @@ pub fn finder_view(
         suggestions,
         live,
         clashes,
+        ineligible_ids,
+        eligibility,
         replacements,
         credits,
         on_timetable,
@@ -1221,6 +1265,7 @@ pub fn finder_view(
         paste_handled,
         pasted_ids,
         missing_codes,
+        ineligible_codes,
         detail_ids,
     })
 }
@@ -1259,6 +1304,159 @@ pub fn normalize_offering(mut row: Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn eligibility_offering(id: &str, code: &str) -> Value {
+        json!({
+            "id":id, "year":2026, "code":code, "quarters":["3Q"],
+            "unitCode":"342300", "title":{"en":code}, "format":{"kinds":[]}
+        })
+    }
+
+    #[test]
+    fn first_year_eligibility_uses_the_planned_year_and_keeps_all_course_search_visible() {
+        let offerings = vec![
+            eligibility_offering("100", "CSC.T101"),
+            eligibility_offering("200", "CSC.T201"),
+            eligibility_offering("humanities", "LAH.T209-01"),
+            eligibility_offering("law", "LAW.W221-12"),
+            eligibility_offering("300", "CSC.T301"),
+        ];
+        let workspace = json!({
+            "currentTerm":"2026-3Q",
+            "academicProfile":{"admissionYear":2026,"studyEnrollments":[{
+                "stage":"undergraduate","entryKind":"regular","entryGrade":1,
+                "admittedTerm":"2026-1Q"
+            }]},
+            "settings":{"departmentId":"cs"},
+            "recommendedCourses":[
+                {"admissionYear":2026,"departmentId":"cs","code":"CSC.T101","group":"A"},
+                {"admissionYear":2026,"departmentId":"cs","code":"CSC.T201","group":"B"}
+            ],
+            "courses":[], "memberships":[], "planItems":[]
+        });
+        let request = |term: &str,
+                       keys: Vec<&str>,
+                       include_ineligible: bool,
+                       action: Option<FinderAction>| FinderRequest {
+            year: term[..4].parse().unwrap(),
+            term: term.into(),
+            include_ineligible,
+            keys: keys.into_iter().map(str::to_string).collect(),
+            input: String::new(),
+            remote_ids: None,
+            action,
+        };
+
+        let default = finder_view(
+            &workspace,
+            offerings.clone(),
+            request("2026-3Q", vec!["3Q"], false, None),
+        )
+        .unwrap();
+        assert_eq!(
+            default.ineligible_ids,
+            vec!["200", "300", "humanities", "law"]
+        );
+        assert_eq!(
+            default.eligibility["100"].status,
+            CourseEligibilityStatus::Allowed
+        );
+        assert_eq!(
+            default.eligibility["humanities"].reason,
+            crate::study_profile::CourseEligibilityReason::UndergraduateFirstYearUpperLevel
+        );
+        assert_eq!(
+            default
+                .rows
+                .iter()
+                .map(|row| text(&row["course"], "id"))
+                .collect::<Vec<_>>(),
+            vec!["100"]
+        );
+        assert!(default.context.recommended.contains_key("CSC.T101"));
+        assert!(!default.context.recommended.contains_key("CSC.T201"));
+
+        let all = finder_view(
+            &workspace,
+            offerings.clone(),
+            request("2026-3Q", vec!["3Q"], true, None),
+        )
+        .unwrap();
+        assert_eq!(
+            all.rows.len(),
+            5,
+            "explicit all-course search stays visible"
+        );
+
+        let pasted = finder_view(
+            &workspace,
+            offerings.clone(),
+            request(
+                "2026-3Q",
+                vec![],
+                false,
+                Some(FinderAction::Paste {
+                    text: "CSC.T101 CSC.T201 LAH.T209-01 LAW.W221-12 CSC.T301".into(),
+                }),
+            ),
+        )
+        .unwrap();
+        assert_eq!(pasted.pasted_ids, vec!["100"]);
+        assert_eq!(
+            pasted.ineligible_codes,
+            vec!["CSC.T201", "LAH.T209-01", "LAW.W221-12", "CSC.T301"]
+        );
+
+        let second_year = finder_view(
+            &workspace,
+            offerings.clone(),
+            request("2027-3Q", vec![], false, None),
+        )
+        .unwrap();
+        assert!(second_year.ineligible_ids.is_empty());
+
+        let mut unknown = workspace;
+        unknown["academicProfile"] = json!({});
+        let unknown =
+            finder_view(&unknown, offerings, request("2026-3Q", vec![], false, None)).unwrap();
+        assert!(unknown.ineligible_ids.is_empty());
+        assert!(unknown
+            .eligibility
+            .values()
+            .all(|result| result.status == CourseEligibilityStatus::Unknown));
+    }
+
+    #[test]
+    fn eligibility_does_not_guess_without_study_identity_or_course_number() {
+        let upper_level = eligibility_offering("upper", "CSC.T301");
+        assert_eq!(
+            catalog_course_eligibility(&json!({"academicProfile":{}}), "2026-3Q", &upper_level)
+                .status,
+            CourseEligibilityStatus::Unknown
+        );
+        let undergraduate = json!({"academicProfile":{"studyEnrollments":[{
+            "stage":"undergraduate","entryKind":"regular","entryGrade":1,
+            "admittedTerm":"2026-1Q"
+        }]}});
+        assert_eq!(
+            catalog_course_eligibility(
+                &undergraduate,
+                "2026-3Q",
+                &eligibility_offering("special", "SPECIAL")
+            )
+            .status,
+            CourseEligibilityStatus::Unknown
+        );
+        assert_eq!(
+            catalog_course_eligibility(
+                &undergraduate,
+                "2026-3Q",
+                &eligibility_offering("foreign", "SPECIAL.2026")
+            )
+            .status,
+            CourseEligibilityStatus::Unknown
+        );
+    }
+
     #[test]
     fn replacement_ignores_same_course_and_nonweekly_results() {
         let fixture: Value = serde_json::from_str(include_str!("fixtures.json")).unwrap();

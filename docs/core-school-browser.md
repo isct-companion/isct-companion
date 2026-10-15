@@ -10,9 +10,10 @@ inside the Rust process.
 
 ## Ownership
 
-`Core::attach_school_browser(events, browser)` installs one
-`SchoolBrowserEngine`. `Core::school_browser()` returns that same engine; shells
-must not create a second login queue or session state machine.
+`Core::attach_school_browser(browser)` installs one `SchoolBrowserEngine`.
+The browser uses the event sink supplied once to `Core::with_events`; a headless
+`Core::new` uses a no-op sink. `Core::school_browser()` returns that same engine;
+shells must not create a second login queue or session state machine.
 
 Core owns:
 

@@ -53,7 +53,9 @@ Fetched when the person opens an item, not during sync.
 | Page | Selector | Value |
 |---|---|---|
 | `mod/assign/view.php?id={cmid}` | `.submissionstatustable table tr` → `th`, `td` | Status is in the **`td` class**, not the text: `submissionstatussubmitted` / `submissionstatusnew` / `submissionstatusdraft`; `submissiongraded` / `submissionnotgraded`; `earlysubmission` / `latesubmission` / `overdue`. |
-| same | `[data-region="activity-dates"] div` | Open/due dates as localized text; use only if the calendar has none (format `期限: 2026年 06月 23日(火曜日) 00:00` / English equivalent). |
+| same | `.feedback .feedbacktable table tr:first-child td` | Grade as shown (`100.00 / 100.00`, or a scale item), when it is plain text. Rows have no classes; the grade row comes first, followed by its grading date. Without a grade the first row is the grader or a feedback comment, both containing markup. Verified on `id=131787`, 2026-10-15. |
+| `mod/quiz/view.php?id={cmid}` | `#feedback h3` | Final grade as a sentence (`あなたの小テスト最終評点は 100 / 100 です。`); only the `grade / maximum` pair is read, which makes the quiz `graded`. Absent while hidden, without numbers while answers await grading. Verified on `id=138532`, 2026-10-15. |
+| `mod/assign/view.php?id={cmid}` | `[data-region="activity-dates"] div` | Open/due dates as localized text; use only if the calendar has none (format `期限: 2026年 06月 23日(火曜日) 00:00` / English equivalent). |
 | same | `#intro` | Assignment description (HTML → plain text, links kept). |
 | same | `body` classes `cmid-{n}`, `course-{n}` | Identity check before storing. |
 | `mod/folder/view.php?id={cmid}` | `.foldertree a[href*="/pluginfile.php/"]` | File list: name (link text), URL. Files are not downloaded. |

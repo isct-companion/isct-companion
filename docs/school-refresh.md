@@ -92,7 +92,7 @@ most every 30 seconds and keeps its RRULE, launch and revision-claim policies.
 `SchoolService` chooses the account and loads credentials before calling the
 `SchoolExecutor` port, which Core's `SchoolBrowserEngine` implements. The engine
 owns WebView navigation, sign-in and visible-view preemption; native shells only
-implement the `SchoolBrowser` port (`backend/src/school_browser_native.rs`).
+implement the `SchoolBrowser` port (`apps/desktop/src-tauri/src/school_browser_native.rs`).
 
 - Losing main-window focus updates the foreground fact. Actual OS suspension
   stops new execution in both coordinator lanes; resume reopens admission and

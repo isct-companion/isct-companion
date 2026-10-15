@@ -110,7 +110,7 @@ mod tests {
             .query_pairs()
             .any(|(k, v)| k == "teacher" && v == "Kobayashi"));
         let captured = parse_search(
-            include_str!("../../../artifacts/syllabus-research/combined-search.html"),
+            include_str!("../tests/fixtures/syllabus/combined-search.html"),
             2026,
             100,
         )
@@ -138,34 +138,32 @@ mod tests {
             (
                 "social",
                 "7/0-907-0-110100-0/202600907",
-                include_str!("../../../artifacts/syllabus-research/social-en-content.html"),
+                include_str!("../tests/fixtures/syllabus/social-en-content.html"),
             ),
             (
                 "parallel",
                 "4/0-904-342300-0-0/202602440",
-                include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
+                include_str!("../tests/fixtures/syllabus/parallel-en-content.html"),
             ),
             (
                 "procedural",
                 "4/0-904-342300-0-0/202602417",
-                include_str!("../../../artifacts/syllabus-research/procedural-en-content.html"),
+                include_str!("../tests/fixtures/syllabus/procedural-en-content.html"),
             ),
             (
                 "logic",
                 "4/1-22-442222-0-0/202604060",
-                include_str!("../../../artifacts/syllabus-research/logic-en-content.html"),
+                include_str!("../tests/fixtures/syllabus/logic-en-content.html"),
             ),
             (
                 "assembly",
                 "4/0-904-342300-0-0/202602427",
-                include_str!("../../../artifacts/syllabus-research/assembly-en-content.html"),
+                include_str!("../tests/fixtures/syllabus/assembly-en-content.html"),
             ),
             (
                 "programming-one",
                 "4/0-904-342200-0-0/202602384",
-                include_str!(
-                    "../../../artifacts/syllabus-research/programming-one-en-content.html"
-                ),
+                include_str!("../tests/fixtures/syllabus/programming-one-en-content.html"),
             ),
         ];
         let mut result = Vec::new();
@@ -185,7 +183,7 @@ mod tests {
     #[test]
     fn parses_verified_search_fixture() {
         let result = parse_search(
-            include_str!("../../../artifacts/syllabus-research/search-excerpt.html"),
+            include_str!("../tests/fixtures/syllabus/search-excerpt.html"),
             2026,
             12,
         )
@@ -211,7 +209,7 @@ mod tests {
         .unwrap();
         let page = parse_detail(
             &url,
-            include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
+            include_str!("../tests/fixtures/syllabus/parallel-en-content.html"),
             "en",
         )
         .unwrap();
@@ -243,11 +241,11 @@ mod tests {
         for (language, html) in [
             (
                 "en",
-                include_str!("../../../artifacts/syllabus-research/social-en-content.html"),
+                include_str!("../tests/fixtures/syllabus/social-en-content.html"),
             ),
             (
                 "ja",
-                include_str!("../../../artifacts/syllabus-research/social-ja-content.html"),
+                include_str!("../tests/fixtures/syllabus/social-ja-content.html"),
             ),
         ] {
             let url = Url::parse(&format!(
@@ -315,7 +313,7 @@ mod tests {
         .unwrap();
         let page = parse_detail(
             &url,
-            include_str!("../../../artifacts/syllabus-research/parallel-en-content.html"),
+            include_str!("../tests/fixtures/syllabus/parallel-en-content.html"),
             "en",
         )
         .unwrap();
@@ -347,7 +345,7 @@ mod tests {
         .unwrap();
         let page = parse_detail(
             &url,
-            include_str!("../../../artifacts/syllabus-research/detail-en-excerpt.html"),
+            include_str!("../tests/fixtures/syllabus/detail-en-excerpt.html"),
             "en",
         )
         .unwrap();

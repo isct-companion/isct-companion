@@ -1,0 +1,54 @@
+{
+  "observedDate": "2026-09-10",
+  "scope": "Main syllabus HTML from h1 to before aside; navigation/scripts excluded. Actual public course prose and structure retained for parser regression tests. No authenticated data or distributed learning files.",
+  "fixtures": [
+    {
+      "file": "social-en-content.html",
+      "url": "https://syllabus.s.isct.ac.jp/courses/2026/7/0-907-0-110100-0/202600907?hl=en",
+      "bytes": 18661,
+      "sha256": "e21986242bb5598d50ed760f7e07340130b47f645ca46a35b08d13b4859328d4"
+    },
+    {
+      "file": "social-ja-content.html",
+      "url": "https://syllabus.s.isct.ac.jp/courses/2026/7/0-907-0-110100-0/202600907?hl=ja",
+      "bytes": 19231,
+      "sha256": "693aacd6493386bc2b7d13605cec3e278b1085ad74270dc14e5b37eb546fd0b9"
+    },
+    {
+      "file": "parallel-en-content.html",
+      "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602440?hl=en",
+      "bytes": 11112,
+      "sha256": "42fb3192a42993380b15535c3a69ab3ef645ffc8452e617cfd90e7af0e0ca1f6"
+    },
+    {
+      "file": "procedural-en-content.html",
+      "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602417?hl=en",
+      "bytes": 12830,
+      "sha256": "0047ea1bc7c97283c554d0cea373eb2bba8c224fa899fb4f8f54f4438feb15f5"
+    },
+    {
+      "file": "object-en-content.html",
+      "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602431?hl=en",
+      "bytes": 2372,
+      "sha256": "0e496ea1a245748ed68e658b5b1bf14d79c2713c30559cdccf67de4e7d79cc00"
+    },
+    {
+      "file": "assembly-en-content.html",
+      "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602427?hl=en",
+      "bytes": 11237,
+      "sha256": "0d2e19771e6e5dee18ccfd4d67faac7b36f672f41370898cacca6b2df4013569"
+    },
+    {
+      "file": "programming-one-en-content.html",
+      "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342200-0-0/202602384?hl=en",
+      "bytes": 12330,
+      "sha256": "2b9a6f4e309a26f5a830a79ce809ac27898029db2c59d7d1365712023186147f"
+    },
+    {
+      "file": "logic-en-content.html",
+      "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/1-22-442222-0-0/202604060?hl=en",
+      "bytes": 10637,
+      "sha256": "dc292cc644438a90d32ad53add59b62543136d980993231d7e15ca230c5cb0a0"
+    }
+  ]
+}

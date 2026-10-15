@@ -1,0 +1,37 @@
+[package]
+name = "isct-ffi"
+version = "1.0.0-rc.1"
+edition = "2021"
+rust-version = "1.90"
+description = "Native Swift and Kotlin bindings for IsctCompanion Core"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = []
+bindgen = ["uniffi/cli"]
+ocr = ["dep:isct-ocr"]
+
+[dependencies]
+isct-core = { path = "../isct-core" }
+isct-ocr = { path = "../isct-ocr", optional = true }
+uniffi = { version = "=0.32.1" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+futures-util = "0.3"
+async-trait = "0.1"
+tokio-util = { version = "0.7", features = ["rt"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+url = "2.5"
+
+[build-dependencies]
+syn = { version = "2", features = ["full", "visit-mut"] }
+quote = "1"
+
+[[bin]]
+name = "isct-bindgen"
+path = "src/bin/bindgen.rs"
+required-features = ["bindgen"]

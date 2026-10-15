@@ -72,18 +72,22 @@ pub struct MatrixOcrService(
     #[cfg(debug_assertions)] Option<std::path::PathBuf>,
 );
 impl MatrixOcrService {
-    #[cfg(debug_assertions)]
-    pub fn with_debug_dir(mut self, directory: Option<std::path::PathBuf>) -> Self {
-        self.1 = directory;
-        self
+    /// Prepare and validate the optional runtime before accepting a camera scan.
+    pub fn warm_up(&self) -> Result<(), MatrixOcrError> {
+        let mut model = self.lock_model()?;
+        if model.is_none() {
+            *model = Some(Paddle::new()?);
+        }
+        let Some(paddle) = model.as_mut() else {
+            return Err(MatrixOcrError::Model(
+                "OCR runtime did not initialize".into(),
+            ));
+        };
+        paddle.recognize(vec![0.; 3 * 48 * 320])?;
+        Ok(())
     }
-    pub fn scan(
-        &self,
-        image: &[u8],
-        progress: impl Fn(OcrProgress) -> bool,
-    ) -> Result<Vec<Recognition>, MatrixOcrError> {
-        // Reject overlapping scans instead of accumulating photos and blocking jobs.
-        let mut model = match self.0.try_lock() {
+    fn lock_model(&self) -> Result<std::sync::MutexGuard<'_, Option<Paddle>>, MatrixOcrError> {
+        let model = match self.0.try_lock() {
             Ok(model) => model,
             Err(TryLockError::WouldBlock) => return Err(MatrixOcrError::Busy),
             Err(TryLockError::Poisoned(poisoned)) => {
@@ -98,6 +102,21 @@ impl MatrixOcrService {
                 ));
             }
         };
+        Ok(model)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn with_debug_dir(mut self, directory: Option<std::path::PathBuf>) -> Self {
+        self.1 = directory;
+        self
+    }
+    pub fn scan(
+        &self,
+        image: &[u8],
+        progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<Vec<Recognition>, MatrixOcrError> {
+        // Reject overlapping scans instead of accumulating photos and blocking jobs.
+        let mut model = self.lock_model()?;
         if !progress(OcrProgress {
             completed: 0,
             total: MATRIX_CELLS,

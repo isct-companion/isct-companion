@@ -42,16 +42,27 @@ struct TaskScope {
 
 impl RuntimeTasks {
     pub fn spawn(&self, work: impl Future<Output = ()> + Send + 'static) -> bool {
+        let Ok(runtime) = Handle::try_current() else {
+            return false;
+        };
+        self.spawn_on(&runtime, work)
+    }
+
+    /// Admit work onto an explicitly owned runtime. Native shells that create
+    /// Core outside an entered Tokio context can still give the task scope a
+    /// stable executor without temporarily entering it themselves.
+    pub fn spawn_on(
+        &self,
+        runtime: &Handle,
+        work: impl Future<Output = ()> + Send + 'static,
+    ) -> bool {
         let Ok(closed) = self.0.closed.lock() else {
             return false;
         };
         if *closed {
             return false;
         }
-        let Ok(runtime) = Handle::try_current() else {
-            return false;
-        };
-        self.0.tracker.spawn_on(work, &runtime);
+        self.0.tracker.spawn_on(work, runtime);
         true
     }
 

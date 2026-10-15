@@ -194,7 +194,10 @@ fn task_result_problem(outcomes: &[IngestOutcome]) -> Result<(), SchedulerError>
 fn emit(services: &SchedulerServices, source: WorkspaceChangeSource) {
     // Events are hints with snapshot recovery. A failed delivery must not leave
     // a claimed task permanently displaying `Running`.
-    let _ = services.events.emit(CoreEvent::WorkspaceChanged { source });
+    let _ = services.events.emit(CoreEvent::WorkspaceChanged {
+        source,
+        revision: None,
+    });
 }
 
 async fn pull_site(

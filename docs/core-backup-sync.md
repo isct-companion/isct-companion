@@ -96,17 +96,17 @@ flush/sync and rename; Unix temporary files are created with mode 0600.
 
 ## Source organization
 
-`src/features/lms/` owns the shared LMS workspace, previews, note editor and
+`apps/desktop/src/features/lms/` owns the shared LMS workspace, previews, note editor and
 their helpers/tests. Pages compose this feature instead of importing shared
 code from another page's private subtree. This replaces the old
-`src/pages/today/lms/` directory without changing routes or presentation.
+`apps/desktop/src/pages/today/lms/` directory without changing routes or presentation.
 
-`backend/src/commands/backup.rs` contains backup command adapters and native
-file dialogs. `backend/src/commands/school_auth.rs` runs potentially interactive
+`apps/desktop/src-tauri/src/commands/backup.rs` contains backup command adapters and native
+file dialogs. `apps/desktop/src-tauri/src/commands/school_auth.rs` runs potentially interactive
 vault operations on blocking workers, independently of workspace database
 commands. School page-load callbacks also read credentials off the UI thread
 and consume a current-page token before resuming on the main thread.
-`backend/src/cloud_sync.rs` contains native ports and command
+`apps/desktop/src-tauri/src/cloud_sync.rs` contains native ports and command
 forwarders. Business rules live under `crates/isct-core/src/{notes,backup,cloud_sync}`.
 Other frontend features can follow this boundary as their domain logic moves
 into Core; this checkpoint does not reorganize unrelated UI files.

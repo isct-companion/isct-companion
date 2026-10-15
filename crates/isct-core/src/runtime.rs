@@ -14,6 +14,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use tokio::runtime::Handle;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
@@ -25,6 +26,14 @@ pub enum RuntimeError {
     Clock,
     #[error("Cloud sync is already attached to this runtime.")]
     CloudAlreadyAttached,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CloudWakeError {
+    #[error("Cloud sync is not attached to this runtime.")]
+    NotAttached,
+    #[error(transparent)]
+    Sync(#[from] crate::cloud_sync::CloudSyncError),
 }
 
 #[cfg(test)]
@@ -45,6 +54,7 @@ pub struct CoreRuntime {
     ticking: Arc<tokio::sync::Mutex<()>>,
     lifecycle: tokio::sync::Mutex<()>,
     suspended: AtomicBool,
+    event_forwarder_started: AtomicBool,
 }
 
 impl CoreRuntime {
@@ -62,13 +72,65 @@ impl CoreRuntime {
             ticking: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle: tokio::sync::Mutex::new(()),
             suspended: AtomicBool::new(false),
+            event_forwarder_started: AtomicBool::new(false),
         }
+    }
+
+    /// Start the runtime-owned pull snapshot bridge exactly once. Its lifetime
+    /// is the runtime task scope, so every shell gets identical forwarding and
+    /// shutdown behavior.
+    pub fn start_event_forwarding(
+        self: &Arc<Self>,
+        events: Arc<dyn crate::ports::EventSink>,
+        handle: &Handle,
+    ) -> Result<(), RuntimeTaskError> {
+        if self.tasks.is_closed() {
+            return Err(RuntimeTaskError::Stopped);
+        }
+        if self
+            .event_forwarder_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let mut states = self.subscribe_pulls();
+        let tasks = self.tasks.clone();
+        if !tasks.clone().spawn_on(handle, async move {
+            loop {
+                tokio::select! {
+                    _ = tasks.closed() => break,
+                    changed = states.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+                    }
+                }
+                let snapshot = states.borrow_and_update().clone();
+                let _ = events.emit(crate::events::CoreEvent::PullStateChanged(snapshot));
+            }
+        }) {
+            self.event_forwarder_started.store(false, Ordering::Release);
+            return Err(RuntimeTaskError::Stopped);
+        }
+        Ok(())
     }
 
     pub fn attach_cloud(&self, cloud: crate::cloud_sync::CloudSync) -> Result<(), RuntimeError> {
         self.cloud
             .set(cloud)
             .map_err(|_| RuntimeError::CloudAlreadyAttached)
+    }
+
+    pub fn wake_cloud(
+        &self,
+        services: crate::cloud_sync::CloudServices,
+    ) -> Result<bool, CloudWakeError> {
+        self.cloud
+            .get()
+            .ok_or(CloudWakeError::NotAttached)?
+            .tick(services)
+            .map_err(CloudWakeError::from)
     }
 
     pub async fn wake(

@@ -13,6 +13,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkspaceChangeSource {
+    UserIntent,
     ReferencePull,
     ReferencePoll,
     SchoolPull,
@@ -20,6 +21,7 @@ pub enum WorkspaceChangeSource {
     Mcp,
     CloudSync,
     CloudRestore,
+    LocalRestore,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -48,12 +50,28 @@ pub struct SchoolDownloadEvent {
 /// on load, so a delivery that happens before a window exists is not lost state.
 #[derive(Clone, Debug)]
 pub enum CoreEvent {
-    WorkspaceChanged { source: WorkspaceChangeSource },
+    WorkspaceChanged {
+        source: WorkspaceChangeSource,
+        /// Present for user intents so the initiating shell can correlate the
+        /// event with the authoritative snapshot returned by the mutation.
+        revision: Option<String>,
+    },
+    OcrProgress {
+        operation_id: u64,
+        completed: u64,
+        total: u64,
+    },
     SchoolLogin(SchoolLoginEvent),
     SchoolPullProgress(SchoolPullProgress),
     SchoolSession(SchoolSessionEvent),
-    SchoolWebUrl { site: SchoolSite, url: String },
-    SchoolWebOpen { site: SchoolSite, url: String },
+    SchoolWebUrl {
+        site: SchoolSite,
+        url: String,
+    },
+    SchoolWebOpen {
+        site: SchoolSite,
+        url: String,
+    },
     SchoolIngest(IngestOutcome),
     SchoolDownload(SchoolDownloadEvent),
     PullStateChanged(Vec<PullSnapshot>),
@@ -65,6 +83,7 @@ impl CoreEvent {
     pub fn name(&self) -> &'static str {
         match self {
             Self::WorkspaceChanged { .. } => "workspace-changed",
+            Self::OcrProgress { .. } => "ocr-progress",
             Self::SchoolLogin(_) => "school-login-status",
             Self::SchoolPullProgress(_) => "school-pull-progress",
             Self::SchoolSession(_) => "school-session",
@@ -80,7 +99,22 @@ impl CoreEvent {
     /// The existing desktop event payload is also the portable event contract.
     pub fn payload(&self) -> Value {
         match self {
-            Self::WorkspaceChanged { source } => json!({ "source": source }),
+            Self::WorkspaceChanged { source, revision } => {
+                let mut payload = json!({ "source": source });
+                if let Some(revision) = revision {
+                    payload["revision"] = json!(revision);
+                }
+                payload
+            }
+            Self::OcrProgress {
+                operation_id,
+                completed,
+                total,
+            } => json!({
+                "operationId": operation_id,
+                "completed": completed,
+                "total": total,
+            }),
             Self::SchoolLogin(event) => json!(event),
             Self::SchoolPullProgress(event) => json!(event),
             Self::SchoolSession(event) => json!(event),
@@ -102,6 +136,7 @@ mod tests {
     #[test]
     fn workspace_events_preserve_desktop_names_and_payloads() {
         for (source, expected) in [
+            (WorkspaceChangeSource::UserIntent, "user-intent"),
             (WorkspaceChangeSource::ReferencePull, "reference-pull"),
             (WorkspaceChangeSource::ReferencePoll, "reference-poll"),
             (WorkspaceChangeSource::SchoolPull, "school-pull"),
@@ -109,10 +144,23 @@ mod tests {
             (WorkspaceChangeSource::Mcp, "mcp"),
             (WorkspaceChangeSource::CloudSync, "cloud-sync"),
             (WorkspaceChangeSource::CloudRestore, "cloud-restore"),
+            (WorkspaceChangeSource::LocalRestore, "local-restore"),
         ] {
-            let event = CoreEvent::WorkspaceChanged { source };
+            let event = CoreEvent::WorkspaceChanged {
+                source,
+                revision: None,
+            };
             assert_eq!(event.name(), "workspace-changed");
             assert_eq!(event.payload(), json!({ "source": expected }));
         }
+
+        let event = CoreEvent::WorkspaceChanged {
+            source: WorkspaceChangeSource::UserIntent,
+            revision: Some("r1".into()),
+        };
+        assert_eq!(
+            event.payload(),
+            json!({"source":"user-intent","revision":"r1"})
+        );
     }
 }

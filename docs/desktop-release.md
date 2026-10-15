@@ -1,7 +1,8 @@
 # Desktop distribution
 
 The public source repository builds the app and hosts preview Releases with
-three desktop installers, a signed Android APK and a signed iOS/iPadOS IPA.
+three desktop installers. The retired Tauri mobile release workflows are
+archived under `deprecated/tauri-mobile/workflows/`.
 `isct-companion/Isct-Companion-App` remains available as the separate distribution
 destination for stable releases, holding only README and license documents.
 The two repositories have independent Git histories. Third-party notices and
@@ -32,7 +33,7 @@ does not establish runtime compatibility on every supported OS.
 ## Publish releases
 
 Source-repository publication uses the workflow's `GITHUB_TOKEN`; no separate
-release token is needed. A `main` push builds all platforms without publishing
+release token is needed. A `main` push builds all desktop targets without publishing
 a Release. A version tag publishes after the builds succeed, and manual
 dispatch can publish either a new build or an existing successful run.
 
@@ -45,15 +46,15 @@ For the separate distribution repository:
    secrets. Do not paste it into source files or chat. Set an expiration and
    rotate the secret before it expires.
 3. Merge the release workflow into the branch used for releases. Update the
-   matching versions in `package.json`, `backend/Cargo.toml` and
-   `backend/tauri.conf.json`.
+   matching versions in `package.json`, `apps/desktop/package.json`,
+   `apps/desktop/src-tauri/Cargo.toml` and
+   `apps/desktop/src-tauri/tauri.conf.json`.
 4. Dispatch the workflow with `publish` enabled and
    `publish_target=distribution`. The version guard rejects mismatched tags.
 
-All desktop and mobile builds, including the TestFlight upload, must succeed
-before publication. Only `.dmg`/`.exe` installers, `.apk` and `.ipa` packages
-are uploaded as Release assets. See [mobile releases](mobile-release.md) for
-mobile signing and TestFlight setup.
+All desktop builds must succeed before publication. Only `.dmg` and `.exe`
+installers are uploaded as Release assets. Native mobile release pipelines
+will be introduced with the SwiftUI and Compose apps.
 The job creates a draft, uploads the complete set, then publishes it as a
 prerelease. An existing published version is protected by default. An explicit
 manual dispatch with `replace_existing=true` can refresh that version's assets.
