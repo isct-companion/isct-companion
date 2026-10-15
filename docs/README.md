@@ -11,6 +11,7 @@
 ## Verification and plans
 
 - [Desktop Core checkpoint](verification/core-consolidation.md): final evidence, coverage limits and code-size accounting; replaces per-commit run logs.
+- [Native SDK checkpoint](verification/native-sdk.md): host and packaged-target verification, acceptance boundary and cleanup accounting.
 - [Foreign runtime spike](verification/ffi-runtime.md): historical findings; replaced by production SDK tests.
 - [Core consolidation roadmap](core-consolidation.md) and [mobile UX](ux/mobile.md): future work and design decisions; use implemented API references for current call signatures.
 - `tasks/`: original feature specifications, not the current transport/API reference.

@@ -70,7 +70,7 @@ before work is admitted. `awaitResult()` returns a typed `OperationResult`;
 | Accounts              | `credentialStatus`, `saveCredentials`, `deleteCredentials`                                                                              |
 | School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `ensureSchoolSession`, `schoolBrowsing`, navigation/back/forward/reload, `pullSchool` |
 | References/pulls      | `refreshReferences`, `pullState`, `cancelPull`                                                                                          |
-| Files/notes           | `openMaterial`, `cleanMaterials`, `saveNote`, `readNote`, `listNotes`                                                                   |
+| Files/notes           | `openMaterial`, `cleanMaterials`, `saveNote`, `readNote`, `listNotes`, `parseLmsResource`                                               |
 | Backup/cloud          | `exportBackup`, `applyBackup`, `cloudState`, `syncCloud`, `setCloudEnabled`, `setCloudAutomatic`, `restoreCloud`                        |
 | Lifecycle             | `lifecycle`, `suspend`, `resume`, `wake`, `shutdown`                                                                                    |
 | Optional OCR          | `capabilities`, `prepareScanner`, `scanMatrix`                                                                                          |
@@ -152,3 +152,6 @@ ports. They exercise writes, conflicts, read models, parser/backup access,
 subscriptions, optional OCR, suspension/resume and repeated shutdown. Device-side
 CI uses the packaged native targets. Real school sign-in, real cloud-provider
 mutations and complete native UI flows remain native-shell acceptance work.
+
+Commands and packaged-target CI evidence are recorded in the
+[native SDK checkpoint](verification/native-sdk.md).

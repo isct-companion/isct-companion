@@ -10,12 +10,12 @@ Desktop and future native mobile shells share Core's domain contract: the same
 records, intents, read models, validation, JST date rules, revision conflicts and
 operation ownership. Their transport adapters carry that contract:
 
-| Consumer         | Transport / entry                           | Status                                                       |
-| ---------------- | ------------------------------------------- | ------------------------------------------------------------ |
-| Desktop UI       | Tauri invoke → the app's single `Arc<Core>` | Implemented                                                  |
-| Desktop MCP      | Streamable HTTP / JSON-RPC → `Core.agent`   | Implemented, authorized subset of domain operations          |
-| Swift / iOS      | Native bindings → Core and platform ports   | FFI implemented; native packaging/CI validation tracked in core-ffi.md |
-| Kotlin / Android | Native bindings → Core and platform ports   | FFI implemented; native packaging/CI validation tracked in core-ffi.md |
+| Consumer         | Transport / entry                           | Status                                              |
+| ---------------- | ------------------------------------------- | --------------------------------------------------- |
+| Desktop UI       | Tauri invoke → the app's single `Arc<Core>` | Implemented                                         |
+| Desktop MCP      | Streamable HTTP / JSON-RPC → `Core.agent`   | Implemented, authorized subset of domain operations |
+| Swift / iOS      | Native bindings → Core and platform ports   | SDK implemented; SwiftUI shell pending              |
+| Kotlin / Android | Native bindings → Core and platform ports   | SDK implemented; Compose shell pending              |
 
 The shared contract is defined by Rust, rather than a universal HTTP endpoint.
 MCP has its own tool envelopes, permission and audit contract. Mobile bindings
@@ -70,7 +70,7 @@ Intent groups (the generated `WorkspaceIntent` is the complete field schema):
 
 | Group                  | `kind` values                                                                                                                                                     |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Preferences / terms    | `replaceSettings`, `setAdmissionYear`, `editAcademicCalendar`, `selectTerm`, `addTerm`, `removeTerm`                                                                |
+| Preferences / terms    | `replaceSettings`, `setAdmissionYear`, `editAcademicCalendar`, `selectTerm`, `addTerm`, `removeTerm`                                                              |
 | Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `applyLmsMerge`, `markTimetableReviewed` |
 | Events / plans         | `saveEvent`, `deleteEvent`, `savePlan`, `deletePlan`                                                                                                              |
 | Calendar / sources     | `saveCalendarException`, `deleteCalendarException`, `saveSubscription`, `setSubscription`, `deleteSubscription`                                                   |
@@ -126,7 +126,13 @@ export async function updateAppearanceAndReadToday() {
   let snapshot = await invoke<WorkspaceSnapshot>("workspace_snapshot");
   const mutation: WorkspaceMutation = {
     expectedRevision: snapshot.revision,
-    intent: { kind: "replaceSettings", settings: { ...(snapshot.workspace as Workspace).settings, appearance: "dark" } },
+    intent: {
+      kind: "replaceSettings",
+      settings: {
+        ...(snapshot.workspace as Workspace).settings,
+        appearance: "dark",
+      },
+    },
   };
   snapshot = await invoke<WorkspaceSnapshot>("mutate_workspace", { mutation });
   const queries: WorkspaceQuery[] = [
