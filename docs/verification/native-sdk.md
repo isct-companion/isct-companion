@@ -24,21 +24,20 @@ exception, then successfully save/delete credentials and continue Core calls.
 The review-fix checkpoint additionally covers admission-year catalog eligibility,
 atomic rejection of an ineligible course batch, single Core-owned user-intent
 events, local-restore event semantics, independent wake-service outcomes and
-native event-port release. The packaged-target evidence below predates these
-fixes; current device acceptance requires a fresh CI run.
+native event-port release.
 
 ## Packaged-target CI
 
-[The iOS SDK job](https://github.com/isct-companion/isct-companion/actions/runs/38682438947/job/116249763838)
-passed at source checkpoint `3503b8d`, including the Swift package consumer,
-iPhone 16 Pro simulator and OCR inference. Its complete Swift SDK is uploaded as
-the `isct-core-swift-sdk` workflow artifact. Device SDKs and simulator clients are
+[The iOS SDK job](https://github.com/isct-companion/isct-companion/actions/runs/38689356250/job/116271429048)
+passed at source checkpoint `769a99b`, including the Swift package consumer,
+iOS simulator and OCR inference. Its dev-profile Swift SDK is uploaded as
+the `isct-core-swift-sdk-dev-ci` workflow artifact. Device SDKs and simulator clients are
 built in CI; no iOS simulator runtime is downloaded locally.
 
-[Android AAR/ART acceptance](https://github.com/isct-companion/isct-companion/actions/runs/38682438947/job/116249762920)
-passed at checkpoint `3503b8d`: both ABI libraries built, the Kotlin consumer
+[Android AAR/ART acceptance](https://github.com/isct-companion/isct-companion/actions/runs/38689356250/job/116271428805)
+passed at checkpoint `769a99b`: both ABI libraries built, the Kotlin consumer
 loaded the actual AAR on Android API 34, and `KOTLIN_CORE_SDK_SMOKE_PASSED`
-completed. The AAR and dependency metadata are uploaded as `isct-core-android-sdk`.
+completed. The AAR and dependency metadata are uploaded as `isct-core-android-sdk-dev-ci`.
 
 The current workflow names new uploads `isct-core-swift-sdk-dev-ci` and
 `isct-core-android-sdk-dev-ci`. Both use the dev profile for CI speed; they are
