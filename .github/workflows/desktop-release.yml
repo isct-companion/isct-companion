@@ -257,7 +257,9 @@ jobs:
           cat > release-notes.md <<'NOTES'
           Desktop preview for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
 
-          RC2 consolidates scheduling, subscriptions, school synchronization and workspace mutations in the shared Rust Core. It fixes startup date handling, admission-year course eligibility, and graded LMS assignments losing their completed state or displayed grade.
+          RC3 adds study-stage history for undergraduate, master's, doctoral and transfer students. Course eligibility now uses the profile for the planned term, with shared validation for desktop and MCP, class-number suffixes, multi-quarter additions and clear paste feedback.
+
+          It also removes redundant workspace reloads while preserving updates from other clients, protects study history during calendar edits and backup restoration, and fixes native SDK cancellation coverage. Existing profiles remain compatible; add your study stages in Settings > Study to enable identity-specific checks.
 
           Desktop MCP uses the local HTTP server. Existing workspace data is preserved; OCR stays optional on supported architectures. This release contains desktop installers only.
 
