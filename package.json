@@ -16,7 +16,11 @@
     "icons:desktop": "node scripts/desktop/generate-desktop-icons.mjs",
     "core:types": "cargo run -p isct-core --features ts --example export-types && prettier --write apps/desktop/src/generated/persistence.ts",
     "backend:test": "cargo test --workspace --locked",
-    "backend:check": "cargo check --workspace --locked"
+    "backend:check": "cargo check --workspace --locked",
+    "sdk:generate": "node scripts/bindings/generate.mjs",
+    "sdk:test": "node scripts/bindings/host-smoke.mjs",
+    "sdk:ios": "node scripts/bindings/build-ios.mjs",
+    "sdk:android": "node scripts/bindings/build-android.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.2",

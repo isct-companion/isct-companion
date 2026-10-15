@@ -34,7 +34,7 @@ describe("public syllabus fixture provenance", () => {
   it("pins every public course-page fixture to an official URL, date, and digest", () => {
     const provenancePath = join(
       root,
-      "artifacts/syllabus-research/content-provenance.json",
+      "crates/isct-core/tests/fixtures/syllabus/content-provenance.json",
     );
     const provenance = JSON.parse(readFileSync(provenancePath, "utf8")) as {
       observedDate: string;

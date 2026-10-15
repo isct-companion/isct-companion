@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 // Scripts the native side injects into every school webview at document start.
 const script = (name: string) =>
   readFileSync(
-    resolve(process.cwd(), "../..", "crates/isct-core/src/school_browser/assets", name),
+    resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../crates/isct-core/src/school_browser/assets",
+      name,
+    ),
     "utf8",
   );
 

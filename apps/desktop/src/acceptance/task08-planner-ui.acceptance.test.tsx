@@ -74,7 +74,7 @@ const parsed = JSON.parse(
   readFileSync(
     resolve(
       process.cwd(), "../..",
-      "artifacts/syllabus-research/course-examples-parsed.json",
+      "crates/isct-core/tests/fixtures/syllabus/course-examples-parsed.json",
     ),
     "utf8",
   ),

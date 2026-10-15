@@ -47,6 +47,8 @@ apps/desktop/
   public/                  desktop web assets
 crates/isct-core/           authoritative domain state, services and storage
 crates/isct-ocr/            independent optional OCR engine and model
+crates/isct-ffi/            native Core facade and generated contract bridge
+bindings/                  Swift package and Kotlin/AAR packaging
 resources/locales/         shared UI translation resources
 resources/design/          original icon artwork; future shared visual tokens
 config/                    cross-platform build configuration (OAuth clients)
@@ -56,9 +58,9 @@ docs/                      contracts, design and verification records
 ```
 
 Future SwiftUI and Compose applications belong in `apps/ios/` and
-`apps/android/`. Their shared Rust facade belongs in `crates/isct-ffi/`, with
-Swift/Kotlin packages under `bindings/`. These directories are created when
-implemented; native application bindings are not available yet.
+`apps/android/`. Swift/Kotlin SDK packages live under `bindings/`, backed by
+the shared Rust facade in `crates/isct-ffi/`.
+The native UI projects are created when implemented.
 
 Platform manifests and build configuration stay beside the owning app. The
 root Yarn/Cargo workspaces retain one lockfile each and the Rust build output
@@ -87,9 +89,10 @@ and shutdown. See the [documentation index](docs/README.md). The desktop MCP ada
 shares those services at `http://127.0.0.1:47832/mcp` while the app is open; authentication
 is configured in Settings → AI agent access.
 
-Phase 6 (Swift/Kotlin bindings, native packages and mobile smoke tests) is deferred.
-It is not a prerequisite for the current desktop checkpoint. Native mobile UI
-redesign and distribution/release checks remain separate work.
+The native SDK is implemented in `crates/isct-ffi`, with generated Swift/Kotlin
+packages under `bindings/`. See [native SDK integration](docs/core-ffi.md) for
+service operations, cancellation, native ports, build commands and verification
+boundaries. SwiftUI/Compose interfaces and real-account acceptance remain separate work.
 
 Debug builds display the base version plus a UTC build timestamp and Git revision.
 `dirty` records uncommitted working-tree changes at build time, including documents.

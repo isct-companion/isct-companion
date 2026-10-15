@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["apps/desktop/src-tauri", "deprecated/tauri-mobile/plugins/*", "crates/isct-core", "crates/isct-ocr"]
+members = ["apps/desktop/src-tauri", "deprecated/tauri-mobile/plugins/*", "crates/isct-core", "crates/isct-ocr", "crates/isct-ffi"]
 default-members = ["apps/desktop/src-tauri"]
 
 [profile.release]
