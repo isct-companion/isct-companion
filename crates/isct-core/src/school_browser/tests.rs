@@ -1017,7 +1017,7 @@ async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails(
                                     crate::pull_coordinator::PullError::Execution(error.to_string())
                                 })?;
                             if let Some(problem) =
-                                outcomes.iter().find(|row| row.state != IngestState::Ok)
+                                outcomes.iter().find(|row| row.state.is_problem())
                             {
                                 context.outcome_error(problem.message.clone()).await;
                             }
@@ -1061,6 +1061,10 @@ async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails(
             "sourceUrl": gpa_url.as_str(),
             "kind": "gpa",
             "data": {
+                "complete": true,
+                "shape": "gpa-summary",
+                "empty": false,
+                "categories": [],
                 "overall": [[[], ["GPA", "GPT", "修得済単位", "合格率"], ["3.20", "100", "10", "90"]]],
                 "terms": []
             }
@@ -1237,6 +1241,10 @@ fn kyomu_gpa_relay(script: &str) -> Url {
             "sourceUrl": "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
             "kind": "gpa",
             "data": {
+                "complete": true,
+                "shape": "gpa-summary",
+                "empty": false,
+                "categories": [],
                 "overall": [[[], ["GPA", "GPT", "修得済単位", "合格率"], ["3.20", "100", "10", "90"]]],
                 "terms": []
             }

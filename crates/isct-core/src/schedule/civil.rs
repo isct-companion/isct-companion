@@ -73,24 +73,3 @@ pub fn tokyo_date(value: DateTime<FixedOffset>) -> String {
 pub(crate) fn weekday(raw: &str) -> Result<u8, ScheduleError> {
     Ok(parse_civil_date(raw)?.weekday().number_from_monday() as u8)
 }
-
-pub(crate) fn clock_for_periods(
-    periods: [u8; 2],
-) -> Result<(&'static str, &'static str), ScheduleError> {
-    const TIMES: [(&str, &str); 5] = [
-        ("08:50", "10:30"),
-        ("10:45", "12:25"),
-        ("13:30", "15:10"),
-        ("15:25", "17:05"),
-        ("17:15", "18:55"),
-    ];
-    let valid = |period: u8| (1..=10).contains(&period);
-    if !valid(periods[0]) || !valid(periods[1]) || periods[0] > periods[1] {
-        return Err(ScheduleError::InvalidInput(
-            "Choose periods from 1 to 10 in ascending order.".into(),
-        ));
-    }
-    let first = TIMES[((periods[0] - 1) / 2) as usize].0;
-    let last = TIMES[((periods[1] - 1) / 2) as usize].1;
-    Ok((first, last))
-}

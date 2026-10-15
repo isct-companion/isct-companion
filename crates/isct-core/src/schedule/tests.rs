@@ -96,6 +96,44 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
 }
 
 #[test]
+fn period_backed_meetings_follow_profile_clock_while_custom_clocks_stay_explicit() {
+    let mut data = workspace();
+    let mut table = default_teaching_periods();
+    table[2].start_time = "13:00".into();
+    data["academicProfile"]["teachingPeriods"] = serde_json::to_value(table).unwrap();
+    data["courses"][0]["meetings"] = json!([
+        {"days":[1],"periods":[5,6,7,8],"startTime":"13:30","endTime":"17:05","room":"M-101"},
+        {"days":[1],"periods":[],"startTime":"07:30","endTime":"09:00","room":"Custom"}
+    ]);
+
+    let template = planning_week(&data, "2026-1Q").unwrap();
+    assert_eq!(template.days[0].blocks[0].start_time, "07:30");
+    assert_eq!(template.days[0].blocks[1].start_time, "13:00");
+    assert_eq!(template.days[0].blocks[1].end_time, "17:05");
+}
+
+#[test]
+fn teaching_period_query_returns_resolved_default_and_profile_override() {
+    let mut data = workspace();
+    let WorkspaceQueryResult::TeachingPeriods(defaults) =
+        query(&data, WorkspaceQuery::TeachingPeriods).unwrap()
+    else {
+        panic!("expected teaching periods")
+    };
+    assert_eq!(defaults, default_teaching_periods());
+
+    let mut configured = defaults;
+    configured[5].end_time = "21:00".into();
+    data["academicProfile"]["teachingPeriods"] = serde_json::to_value(&configured).unwrap();
+    let WorkspaceQueryResult::TeachingPeriods(resolved) =
+        query(&data, WorkspaceQuery::TeachingPeriods).unwrap()
+    else {
+        panic!("expected teaching periods")
+    };
+    assert_eq!(resolved, configured);
+}
+
+#[test]
 fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
     let mut data = workspace();
     data["plans"] = json!([
@@ -131,6 +169,28 @@ fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
             (ScheduleProblemKind::ScheduleOverride, "wrapped"),
         ]
     );
+}
+
+#[test]
+fn malformed_period_meeting_is_reported_without_hiding_a_good_course() {
+    let mut data = workspace();
+    data["courses"].as_array_mut().unwrap().push(json!({
+        "id":"bad-course", "termId":"2026-1Q", "title":"Broken course",
+        "code":"BAD.1", "color":"#000000",
+        "meetings":[{"days":[1],"periods":[257,258],"startTime":"09:00","endTime":"10:00","room":""}]
+    }));
+    data["memberships"].as_array_mut().unwrap().push(json!({
+        "id":"bad-member", "termId":"2026-1Q", "courseId":"bad-course",
+        "status":"registered", "evidence":{"provider":"school"}
+    }));
+
+    let day =
+        occurrences_on_date(&data, "2026-1Q", "2026-04-13", AgendaOptions::default()).unwrap();
+    assert_eq!(day.len(), 1);
+    assert_eq!(day[0].id, "course");
+    assert!(schedule_problems(&data).iter().any(|problem| {
+        problem.kind == ScheduleProblemKind::CourseMeeting && problem.id == "bad-course:0"
+    }));
 }
 
 #[test]
@@ -215,12 +275,23 @@ fn recurrence_and_intensive_dates_are_strict() {
         vec!["2026-04-13T00:30:00+09:00", "2026-04-14T00:30:00+09:00"]
     );
     assert_eq!(
-        intensive_days("2026-04-12", "2026-04-14", [3, 4])
-            .unwrap()
-            .len(),
+        intensive_days(
+            &default_teaching_periods(),
+            "2026-04-12",
+            "2026-04-14",
+            [3, 4]
+        )
+        .unwrap()
+        .len(),
         3
     );
-    assert!(intensive_days("2026-04-14", "2026-04-12", [3, 4]).is_err());
+    assert!(intensive_days(
+        &default_teaching_periods(),
+        "2026-04-14",
+        "2026-04-12",
+        [3, 4]
+    )
+    .is_err());
 }
 
 #[test]
@@ -384,8 +455,20 @@ fn recurrence_ics_and_cancelled_context_cover_desktop_boundaries() {
     .unwrap()
     .is_empty());
     assert_eq!(next_plan_occurrences(&plan, 5).unwrap().len(), 2);
-    assert!(intensive_days("2026-04-01", "2026-04-02", [0, 10]).is_err());
-    assert!(intensive_days("2026-04-01", "2026-04-02", [4, 3]).is_err());
+    assert!(intensive_days(
+        &default_teaching_periods(),
+        "2026-04-01",
+        "2026-04-02",
+        [0, 10]
+    )
+    .is_err());
+    assert!(intensive_days(
+        &default_teaching_periods(),
+        "2026-04-01",
+        "2026-04-02",
+        [4, 3]
+    )
+    .is_err());
 
     data["plans"] = json!([plan]);
     data["academicCalendar"]

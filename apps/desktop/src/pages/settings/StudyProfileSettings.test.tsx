@@ -88,7 +88,7 @@ it("saves consecutive stage edits as one profile without losing fields", async (
     '[aria-label="Stage admission term, stage 1"]',
   )!;
   await act(async () => {
-    change(stage, "master");
+    change(stage, "professional");
     change(kind, "transfer");
     change(grade, "2");
     change(term, "2026-2Q");
@@ -100,7 +100,7 @@ it("saves consecutive stage edits as one profile without losing fields", async (
 
   expect(setStudyProfile).toHaveBeenCalledWith(2026, [
     {
-      stage: "master",
+      stage: "professional",
       entryKind: "transfer",
       entryGrade: 2,
       admittedTerm: "2026-2Q",

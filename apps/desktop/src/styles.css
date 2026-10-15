@@ -2987,6 +2987,10 @@ p {
   background: var(--danger-soft);
   color: var(--danger);
 }
+.finderBadges .eligibilityUnknown {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
 .finderFoot {
   display: flex;
   align-items: center;
@@ -3423,17 +3427,33 @@ p {
   opacity: 0;
   transition: opacity 120ms;
 }
-.dueRow .textButton:focus-visible { opacity: 1; }
+.dueRow .textButton:focus-visible {
+  opacity: 1;
+}
 @media (hover: hover) and (pointer: fine) {
-  .dueRow:hover .textButton { opacity: 1; }
+  .dueRow:hover .textButton {
+    opacity: 1;
+  }
 }
 @media (hover: none) {
-  .dueRow .textButton { opacity: 1; }
+  .dueRow .textButton {
+    opacity: 1;
+  }
 }
-.dueRow.touchRow { grid-template-columns: 3px minmax(0, 1fr); }
-.dueRow.touchRow .dueAssignment { min-height: 48px; touch-action: pan-y; }
-.duePinned { display: grid; gap: 4px; }
-.duePinned > small { color: var(--muted); }
+.dueRow.touchRow {
+  grid-template-columns: 3px minmax(0, 1fr);
+}
+.dueRow.touchRow .dueAssignment {
+  min-height: 48px;
+  touch-action: pan-y;
+}
+.duePinned {
+  display: grid;
+  gap: 4px;
+}
+.duePinned > small {
+  color: var(--muted);
+}
 .moreToggle {
   justify-self: start;
   margin-top: 4px;
@@ -3772,6 +3792,19 @@ p {
 .academicGradeDetails {
   margin-top: 14px;
   animation: enter 0.14s ease;
+}
+.academicAvailability {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: calc(11px * var(--text));
+}
+.academicAvailability small {
+  color: var(--muted);
 }
 .academicGradeDetails table {
   width: 100%;
@@ -4588,9 +4621,22 @@ textarea.codeArea {
 
 /* Remaining time before a deadline; tone rises inside three days and one day. */
 .dueChip {
-  display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 6px;
-  background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 600;
-  font-variant-numeric: tabular-nums; white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.dueChip.soon { background: var(--warn-soft); color: var(--warn); }
-.dueChip.urgent { background: var(--danger-soft); color: var(--danger); }
+.dueChip.soon {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.dueChip.urgent {
+  background: var(--danger-soft);
+  color: var(--danger);
+}

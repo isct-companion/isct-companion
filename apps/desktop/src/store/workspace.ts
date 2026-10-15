@@ -203,6 +203,7 @@ const emptySchoolRecords = (): SchoolRecords => ({
   gpaByTerm: [],
   requirements: [],
   lastRuns: {},
+  pageAvailability: {},
 });
 
 /** Browser preview has no Core process and exposes a read-only sample. */

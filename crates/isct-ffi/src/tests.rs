@@ -202,6 +202,94 @@ async fn typed_study_profile_round_trips_and_rejects_invalid_terms_atomically() 
 }
 
 #[tokio::test]
+async fn graduate_teaching_calendar_crosses_ffi_and_invalid_tables_roll_back() {
+    let f = Fixture::new().await;
+    let first = f.snapshot().await;
+    let OperationResult::Workspace { snapshot: saved } = f
+        .session
+        .mutate(WorkspaceMutation {
+            expected_revision: first.revision,
+            intent: WorkspaceIntent::SetStudyProfile {
+                admission_year: Some(2026),
+                study_enrollments: vec![StudyEnrollment {
+                    stage: StudyStage::Professional,
+                    entry_kind: StudyEntryKind::Regular,
+                    entry_grade: Some(1),
+                    admitted_term: "2026-3Q".into(),
+                }],
+            },
+        })
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    let mut periods: Vec<TeachingPeriod> =
+        crate::json::project(isct_core::schedule::default_teaching_periods()).unwrap();
+    assert_eq!(periods[5].periods, vec![11, 12]);
+    periods[5].start_time = "20:00".into();
+    periods[5].end_time = "21:40".into();
+    let mut profile = saved.workspace.0["academicProfile"].clone();
+    profile["teachingPeriods"] = serde_json::to_value(&periods).unwrap();
+    let OperationResult::Workspace { snapshot: saved } = f
+        .session
+        .mutate(WorkspaceMutation {
+            expected_revision: saved.revision,
+            intent: WorkspaceIntent::EditAcademicCalendar {
+                academic_profile: JsonValue(profile.clone()),
+                exceptions: vec![],
+            },
+        })
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    assert_eq!(saved.workspace.0["academicProfile"], profile);
+    assert_eq!(profile["studyEnrollments"][0]["stage"], "professional");
+
+    // Foreign vectors can have a shape Core's fixed pair cannot represent.
+    profile["teachingPeriods"][5]["periods"] = json!([11, 12, 13]);
+    let invalid = f
+        .session
+        .mutate(WorkspaceMutation {
+            expected_revision: saved.revision.clone(),
+            intent: WorkspaceIntent::EditAcademicCalendar {
+                academic_profile: JsonValue(profile),
+                exceptions: vec![],
+            },
+        })
+        .unwrap()
+        .await_result()
+        .await;
+    assert!(matches!(invalid, Err(SdkError::InvalidInput { .. })));
+    let after = f.snapshot().await;
+    assert_eq!(after.revision, saved.revision);
+    assert_eq!(after.workspace.0, saved.workspace.0);
+    let OperationResult::Schedule { snapshot: queried } = f
+        .session
+        .schedule_query(vec![WorkspaceQuery::TeachingPeriods])
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    let WorkspaceQueryResult::TeachingPeriods(resolved) = &queried.values[0] else {
+        panic!("wrong query result")
+    };
+    assert_eq!(resolved[5].periods, vec![11, 12]);
+    assert_eq!(resolved[5].start_time, "20:00");
+    assert_eq!(resolved[5].end_time, "21:40");
+    f.finish().await;
+}
+
+#[tokio::test]
 async fn dropping_foreign_wait_does_not_abort_an_admitted_transaction() {
     let f = Fixture::new().await;
     let first = f.snapshot().await;
@@ -423,6 +511,17 @@ fn school_outcomes_and_reminder_failures_remain_typed() {
     let outcomes: Vec<IngestOutcome> = crate::json::project(vec![outcome]).unwrap();
     assert!(matches!(outcomes[0].state, IngestState::ReconnectRequired));
     assert_eq!(outcomes[0].changed, 2);
+    let unavailable: IngestOutcome =
+        crate::json::project(isct_core::school_service::IngestOutcome {
+            site: isct_core::lifecycle::SchoolSite::Kyomu,
+            kind: "gpa".into(),
+            state: isct_core::school_service::IngestState::Unavailable,
+            changed: 0,
+            message: "This page is not offered to this account.".into(),
+        })
+        .unwrap();
+    assert!(matches!(unavailable.state, IngestState::Unavailable));
+    assert_eq!(unavailable.changed, 0);
 
     use isct_core::schedule::{ReminderError as E, ScheduleError};
     assert!(matches!(

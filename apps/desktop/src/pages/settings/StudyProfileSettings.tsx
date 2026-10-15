@@ -224,6 +224,9 @@ export function StudyProfileSettings({
                   <option value="unknown">{t("Stage not set")}</option>
                   <option value="undergraduate">{t("Undergraduate")}</option>
                   <option value="master">{t("Master")}</option>
+                  <option value="professional">
+                    {t("Professional degree")}
+                  </option>
                   <option value="doctoral">{t("Doctoral")}</option>
                 </UiSelect>
                 <UiSelect

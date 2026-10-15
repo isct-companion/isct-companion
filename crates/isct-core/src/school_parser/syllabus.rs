@@ -391,7 +391,7 @@ fn parse_schedule(value: &str) -> Result<Vec<ParsedScheduleEntry>, SyllabusError
         if let Some(captures) = en_weekly.captures(part) {
             let start = captures[1].parse::<u8>().map_err(|_| "invalid period")?;
             let end = captures[2].parse::<u8>().map_err(|_| "invalid period")?;
-            if !(1..=10).contains(&start) || !(start..=10).contains(&end) {
+            if crate::schedule::validate_period_range([start, end]).is_err() {
                 return Err(format!("Unsupported syllabus schedule: {raw_part}").into());
             }
             result.push(ParsedScheduleEntry {
@@ -405,7 +405,7 @@ fn parse_schedule(value: &str) -> Result<Vec<ParsedScheduleEntry>, SyllabusError
         if let Some(captures) = ja_weekly.captures(part) {
             let start = captures[2].parse::<u8>().map_err(|_| "invalid period")?;
             let end = captures[3].parse::<u8>().map_err(|_| "invalid period")?;
-            if !(1..=10).contains(&start) || !(start..=10).contains(&end) {
+            if crate::schedule::validate_period_range([start, end]).is_err() {
                 return Err(format!("Unsupported syllabus schedule: {raw_part}").into());
             }
             result.push(ParsedScheduleEntry {

@@ -155,6 +155,9 @@ func require(_ condition: Bool, _ detail: String) throws {
         let queries: [WorkspaceQuery] = [.glance(now:"2026-10-15T09:00:00+09:00"), .notificationPlan(now:"2026-10-15T09:00:00+09:00",horizon:"2026-10-16T09:00:00+09:00",locale:nil)]
         guard case let .schedule(result) = try await session.scheduleQuery(queries:queries).value() else { throw NSError(domain:"query",code:1) }
         try require(result.revision == committed.contentRevision && result.values.count == 2, "Snapshot contract differs")
+        guard case let .schedule(clockResult) = try await session.scheduleQuery(queries:[.teachingPeriods]).value(),
+              case let .some(.teachingPeriods(periods)) = clockResult.values.first else { throw NSError(domain:"teaching-periods",code:1) }
+        try require(periods.count == 6 && periods[5].periods == Data([11,12]) && periods[5].startTime == "19:05" && periods[5].endTime == "20:45", "Native teaching clock differs")
         _ = try await session.parseLmsResource(html:"<html></html>",responseUrl:"https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=1",module:"resource").value()
         _ = try await session.exportBackup().value()
         if try session.capabilities().ocr {

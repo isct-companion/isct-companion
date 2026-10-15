@@ -1,10 +1,12 @@
 import { t } from "../../i18n";
 import { useState } from "react";
 import {
-  teachingPeriods,
+  teachingRows,
+  timetableBounds,
   timetableOffset,
   timetablePosition,
 } from "../../lib/timetable-layout";
+import type { TeachingPeriod } from "../../generated/persistence";
 
 export const dayNames = [
   "Monday",
@@ -71,6 +73,7 @@ export function WeekTimetable({
   emptyLabel = "Nothing scheduled",
   onSlot,
   activeSlots,
+  teachingPeriods,
 }: {
   days: DayColumn[];
   onSelect?: (block: Block) => void;
@@ -82,14 +85,23 @@ export function WeekTimetable({
   onSlot?: (day: number, from: number, to: number, append: boolean) => void;
   /** Slots to highlight, as `${day}:${from}-${to}`. */
   activeSlots?: ReadonlySet<string>;
+  teachingPeriods: readonly TeachingPeriod[];
 }) {
   const [day, setDay] = useState(
     Math.min(Math.max(initialDay, 1), Math.max(days.length, 1)),
   );
-  const nowOffset = showNow ? timetableOffset(jstMinutes()) : undefined;
+  const rows = teachingRows(teachingPeriods);
+  const bounds = timetableBounds(
+    teachingPeriods,
+    days.flatMap((column) => column.blocks),
+  );
+  const nowOffset = showNow ? timetableOffset(jstMinutes(), bounds) : undefined;
   const agenda = days[day - 1]?.blocks ?? [];
   return (
-    <div className={`tt${days.some(column => column.calendarNotice) ? " hasCalendarNotice" : ""}`} style={{ "--days": days.length } as React.CSSProperties}>
+    <div
+      className={`tt${days.some((column) => column.calendarNotice) ? " hasCalendarNotice" : ""}`}
+      style={{ "--days": days.length } as React.CSSProperties}
+    >
       <div className="ttGrid" role="grid" aria-label={t("Weekly timetable")}>
         <div className="ttCorner" />
         {days.map((column) => (
@@ -101,15 +113,23 @@ export function WeekTimetable({
             {column.date && (
               <small>{column.date.slice(5).replace("-", "/")}</small>
             )}
-            {column.calendarNotice && <span className="ttCalendarNotice" title={column.calendarNotice}>{column.calendarNotice}</span>}
+            {column.calendarNotice && (
+              <span className="ttCalendarNotice" title={column.calendarNotice}>
+                {column.calendarNotice}
+              </span>
+            )}
           </div>
         ))}
         <div className="ttAxis">
-          {teachingPeriods.map((period) => {
-            const position = timetablePosition(period.start, period.end);
+          {rows.map((period) => {
+            const position = timetablePosition(
+              period.start,
+              period.end,
+              bounds,
+            );
             return (
               <div
-                className={period.label === "Lunch" ? "lunch" : ""}
+                className={period.isBreak ? "lunch" : ""}
                 key={t(period.label)}
                 style={{
                   top: `${position.topPercent}%`,
@@ -129,12 +149,21 @@ export function WeekTimetable({
           >
             {onSlot &&
               dayIndex < SLOT_DAYS &&
-              teachingPeriods
-                .filter((period) => period.periods.length > 0)
+              rows
+                .filter((period) => !period.isBreak)
                 .map((period) => {
-                  const position = timetablePosition(period.start, period.end);
-                  const [from, to] = period.periods as readonly [number, number];
-                  const active = activeSlots?.has(`${dayIndex + 1}:${from}-${to}`);
+                  const position = timetablePosition(
+                    period.start,
+                    period.end,
+                    bounds,
+                  );
+                  const [from, to] = period.periods as readonly [
+                    number,
+                    number,
+                  ];
+                  const active = activeSlots?.has(
+                    `${dayIndex + 1}:${from}-${to}`,
+                  );
                   return (
                     <button
                       type="button"
@@ -143,33 +172,48 @@ export function WeekTimetable({
                       aria-pressed={Boolean(active)}
                       aria-label={`${t(column.label)} ${period.label}`}
                       title={t("Find courses at this time")}
-                      style={{ top: `${position.topPercent}%`, height: `${position.heightPercent}%` }}
-                      onClick={(event) => onSlot(dayIndex + 1, from, to, event.metaKey || event.ctrlKey)}
+                      style={{
+                        top: `${position.topPercent}%`,
+                        height: `${position.heightPercent}%`,
+                      }}
+                      onClick={(event) =>
+                        onSlot(
+                          dayIndex + 1,
+                          from,
+                          to,
+                          event.metaKey || event.ctrlKey,
+                        )
+                      }
                     />
                   );
                 })}
-            {teachingPeriods.map((period) => {
-              const position = timetablePosition(period.start, period.end);
+            {rows.map((period) => {
+              const position = timetablePosition(
+                period.start,
+                period.end,
+                bounds,
+              );
               return (
                 <i
-                  className={period.label === "Lunch" ? "ttLunch" : "ttRule"}
+                  className={period.isBreak ? "ttLunch" : "ttRule"}
                   key={t(period.label)}
                   style={{
                     top: `${position.topPercent}%`,
-                    height:
-                      period.label === "Lunch"
-                        ? `${position.heightPercent}%`
-                        : undefined,
+                    height: period.isBreak
+                      ? `${position.heightPercent}%`
+                      : undefined,
                   }}
                 />
               );
             })}
             {column.blocks.map((block) => {
               // A block without readable times is left out rather than breaking the page.
-              if (!CLOCK.test(block.startTime) || !CLOCK.test(block.endTime)) return null;
+              if (!CLOCK.test(block.startTime) || !CLOCK.test(block.endTime))
+                return null;
               const position = timetablePosition(
                 block.startTime,
                 block.endTime,
+                bounds,
               );
               return (
                 <UiButton
@@ -200,9 +244,13 @@ export function WeekTimetable({
                   )}
                   <b>{block.title}</b>
                   {block.room && <small className="ttRoom">{block.room}</small>}
-                  {block.subtitle && <span className="ttCode">{block.subtitle}</span>}
+                  {block.subtitle && (
+                    <span className="ttCode">{block.subtitle}</span>
+                  )}
                   {block.conflictWith?.length ? (
-                    <small className="ttConflict">Overlaps {block.conflictWith.join(", ")}</small>
+                    <small className="ttConflict">
+                      Overlaps {block.conflictWith.join(", ")}
+                    </small>
                   ) : null}
                 </UiButton>
               );
@@ -227,8 +275,14 @@ export function WeekTimetable({
             </UiButton>
           ))}
         </div>
-        <div className={`ttAgendaList${days[day - 1]?.noClasses ? " noClasses" : ""}`}>
-          {days[day - 1]?.calendarNotice && <div className="ttCalendarNotice">{days[day - 1].calendarNotice}</div>}
+        <div
+          className={`ttAgendaList${days[day - 1]?.noClasses ? " noClasses" : ""}`}
+        >
+          {days[day - 1]?.calendarNotice && (
+            <div className="ttCalendarNotice">
+              {days[day - 1].calendarNotice}
+            </div>
+          )}
           {agenda.length ? (
             agenda.map((block) => (
               <UiButton
@@ -245,12 +299,19 @@ export function WeekTimetable({
                 <span>
                   <b>{block.title}</b>
                   <small>
-                    {[block.kind === "exam" ? `EXAM · ${block.timeLabel}` : block.subtitle, block.room]
+                    {[
+                      block.kind === "exam"
+                        ? `EXAM · ${block.timeLabel}`
+                        : block.subtitle,
+                      block.room,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </small>
                   {block.conflictWith?.length ? (
-                    <small className="ttConflict">Overlaps {block.conflictWith.join(", ")}</small>
+                    <small className="ttConflict">
+                      Overlaps {block.conflictWith.join(", ")}
+                    </small>
                   ) : null}
                 </span>
               </UiButton>

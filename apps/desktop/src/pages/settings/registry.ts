@@ -138,7 +138,7 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "study-stages",
     title: "Study stages",
     terms:
-      "undergraduate master doctoral transfer grade 学士 修士 博士 編入 年次",
+      "undergraduate master professional doctoral transfer grade 学士 修士 専門職 博士 編入 年次",
   },
   {
     section: "notifications",

@@ -241,6 +241,19 @@ turns a person's edit into a conflict. Intents keep that bookkeeping from the
 stored row. `contentRevision` fingerprints the whole snapshot; read-model caches
 key on it.
 
+`SchoolIngestOutcome.state` includes `unavailable` for an authoritative page
+that explicitly reports the capability is not offered. It is a completed
+capability observation, not an authentication or parser failure: `changed` is
+zero, `message` carries the page's reason, the coordinator and scheduler count
+the pull as completed, and Core records `import_runs.state = "unavailable"` so
+freshness advances. Core does not apply rows or mark previously stored rows
+missing for that page. `schoolRecords.pageAvailability` exposes the latest
+observation as
+`Record<provider:scope, {state: "available" | "unavailable", checkedAt, message}>`;
+a normal complete payload records `available`. Shells may explain the capability
+gap from this read model but must not reinterpret it as an empty authoritative
+dataset.
+
 Send `WorkspaceMutation { expected_revision, intent }` to
 `Core::workspace.mutate`. Core starts an IMMEDIATE transaction, rechecks the
 revision, validates and applies the whole intent, and returns the committed
@@ -260,13 +273,31 @@ poll clock, agent write history). Shells keep only their option lists.
 `academicProfile.admissionYear` is the cohort used to select study-guide and
 recommendation reference data. It does not imply an undergraduate identity.
 `academicProfile.studyEnrollments` is the optional, ordered study history. Each
-row records `stage` (`undergraduate`, `master`, `doctoral`, or `unknown`),
+row records `stage` (`undergraduate`, `master`, `professional`, `doctoral`, or `unknown`),
 `entryKind` (`regular`, `transfer`, or `unknown`), optional `entryGrade`, and an
 `admittedTerm` (`YYYY-nQ`). The most recent row admitted on or before a queried
 term supplies that term's identity, so a graduate admission in a later quarter
 does not rewrite earlier undergraduate terms. Duplicate admission terms and
 malformed rows are rejected atomically. Profiles stored before this field was
 introduced remain valid and unknown; Core never fills in undergraduate status.
+
+`academicProfile.teachingPeriods?: TeachingPeriod[]` owns the timetable clock.
+Each `TeachingPeriod` is
+`{periods: [number, number], startTime: string, endTime: string}`. A supplied
+table must contain the six ordered blocks `[1,2]`, `[3,4]`, `[5,6]`, `[7,8]`,
+`[9,10]`, and `[11,12]`; times use strict 24-hour `HH:MM`, each start precedes
+its end, and blocks do not overlap. Any invalid table rejects the whole
+mutation. A missing field selects the
+[official graduate timetable](https://www.titech.ac.jp/student/students/life/graduate-timetables)
+default: 1–2 08:50–10:30, 3–4 10:45–12:25, 5–6 13:30–15:10, 7–8
+15:25–17:05, 9–10 17:15–18:55, and 11–12 19:05–20:45. Existing profiles
+therefore adopt the official clock without a stored-data migration. Read models resolve a meeting with nonempty `periods`
+through the current table; `periods: []` marks an explicit per-course custom
+clock whose `startTime` and `endTime` stay unchanged. Typed
+`WorkspaceQuery::TeachingPeriods` returns
+`WorkspaceQueryResult::TeachingPeriods(Vec<TeachingPeriod>)` with the complete
+resolved table. Legacy profiles without the field receive the same official
+default from Core, so Swift and Android do not depend on a TypeScript constant.
 
 A stale revision returns `WorkspaceError::Conflict`; reread before retrying or
 asking the person to review changed data. Invalid input returns `InvalidIntent`,
@@ -316,10 +347,11 @@ value; Core converts it to UTC before evaluation, so nothing depends on the
 machine's zone. Every local writer, including MCP, stores only plans whose
 start and recurrence evaluate, and schedule overrides whose periods name a class
 slot (`InvalidIntent` / MCP `InvalidInput` otherwise). Desktop and MCP share this parser,
-recurrence and civil-date exclusions. A stored plan or override that still cannot
-be evaluated (for example synced from elsewhere) is skipped, or left unapplied,
-without failing the other queries; `scheduleView.problems` lists it for the
-person to repair. Academic dates use JST independently of
+recurrence and civil-date exclusions. A stored plan, override, or course meeting
+that still cannot be evaluated (for example synced from elsewhere) is skipped,
+or left unapplied, without failing the other queries; `scheduleView.problems`
+lists it for the person to repair, including `courseMeeting` records with invalid
+periods or clocks. Academic dates use JST independently of
 the device language/timezone. Invalid inputs return
 `ScheduleError` through `ReadModelError`; shells display the error without
 substituting an independent calendar calculation. The frontend discards responses
@@ -336,19 +368,59 @@ The [2026 undergraduate guide, pp. 2–3](https://www.titech.ac.jp/guide/guide_2
 prohibits 200-level and higher enrollment for regular first-year undergraduate
 students; 100-level introductory specialist courses remain eligible. Core's
 shared `catalog_course_eligibility` returns a typed `status`
-(`allowed`, `ineligible`, or `unknown`) and `reason`. `allowed` means that no
+(`allowed`, `ineligible`, or `unknown`), a `reason`, and optional rule evidence
+(`id`, `academicYear`, and the official `sourceUrl`). `allowed` means that no
 implemented, evidence-backed rule restricts the known identity and course; it
-is not an official enrollment approval. Only an explicit undergraduate,
-regular-entry, grade-1 stage in its admission academic year can produce the
-current hard block. Transfer entry, higher entry grade, and later known stages
-do not match that rule. Missing identity, entry details, historical stage, or a
-recognizable course code returns `unknown` and does not hard-block. Course-code
-parsing accepts class suffixes such as `LAH.T209-01` and `LAW.W221-12`.
+is not an official enrollment approval. Missing identity, entry details,
+historical stage, a recognizable course code, a required approval, or a
+reliably readable prerequisite fact returns `unknown` and does not hard-block.
+Course-code parsing accepts class suffixes such as `LAH.T209-01` and
+`LAW.W221-12`. A rule from the 2026 guides is not silently projected onto a
+different admission or academic year: a course that otherwise matches that
+rule returns `ruleYearUnsupported`.
 
-No master's humanities restriction is encoded yet because Core cannot identify
-its exact official applicability from the catalog fields with enough precision;
-it does not generalize the policy to all 400- or 500-level courses. Recommended
-marks, candidate rows and pasted selections use the shared result.
+The finite 2026 rule set is deliberately narrower than a general policy DSL:
+
+- An explicit undergraduate, regular-entry, grade-1 stage may not newly plan a
+  200-level or higher course during its admission academic year. Transfer
+  entry, higher entry grade, and later stages do not match the rule.
+- Under the [2026 graduate humanities guide](https://www.titech.ac.jp/guide/guide_2026/graduate/pdf/03-01.pdf),
+  a master's student may plan 400-level LAH courses in the first semester;
+  500-level and higher LAH courses are hard-blocked until the second semester.
+  Spring entry moves from 1Q/2Q to 3Q/4Q; autumn entry moves from 3Q/4Q to the
+  following year's 1Q/2Q. This restriction is not applied to the separately
+  represented professional-degree stage.
+- The same guide identifies `LAH.C401` as Leadership Workshop, `LAH.C402` as
+  Peer Review Practicum, and `LAH.C501` as Facilitation Practicum. The latter
+  two require a Leadership Workshop grade of at least 80, as stated in the
+  [2026 graduate orientation, p. 27](https://www.titech.ac.jp/student-support/pdf/2026spring-orientation-j.pdf).
+  Current grade rows
+  cannot prove that numeric prerequisite reliably, so a master's student gets
+  `leadershipWorkshopGradeRequired` with `unknown`, never an invented pass or a
+  hard rejection.
+- Under the [2026 graduate general guide, section 6-1](https://www.titech.ac.jp/guide/guide_2026/graduate/pdf/01-01.pdf),
+  master's and professional-degree students need course approval after the
+  research-proposal presentation to take a 600-level course. Because that
+  approval is not an authoritative local fact, Core returns
+  `graduateCourseApprovalRequired` with `unknown`. Undergraduate courses may
+  be taken but do not count toward that graduate stage; the planner does not
+  rewrite or infer credit attribution from the course number.
+- Under the [2026 entrepreneurship guide, pp. 10–11](https://www.titech.ac.jp/guide/guide_2026/graduate/pdf/03-06.pdf),
+  `ENT.A631`, `ENT.A635`, `ENT.A639`, `ENT.A641`, `ENT.A642`, and `ENT.A643`
+  are unavailable during the first six months of doctoral study. `ENT.A621`
+  states the restriction as a general principle, so it returns
+  `doctoralFirstSemesterGenerallyRestricted` with `unknown` rather than a hard
+  rejection. After six months, `ENT.A635` and `ENT.A639` still return
+  `separateApplicationRequired` with `unknown`; other 600-level or GA1D courses
+  are not generalized into this rule.
+
+The professional-degree stage is distinct from the master's stage. Core does
+not perform a local 40-unit graduation decision, infer degree-requirement
+categories from course numbers, or claim that an aggregate semester plan has
+official approval. Formal registrations, grades, recognized credits, and
+requirement results from 教務 remain authoritative; LMS data remains
+authoritative only for teaching activity. Recommended marks, candidate rows
+and pasted selections use the shared per-course result.
 `includeIneligible` exposes unavailable rows for inspection;
 `eligibility` exposes every row's typed status and reason while
 `ineligibleIds` drives disabled controls, and

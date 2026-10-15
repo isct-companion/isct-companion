@@ -96,6 +96,7 @@ import { CourseFinder } from "../pages/courses/CourseFinder";
 import { LmsMergeDialog } from "../pages/courses/LmsMergeDialog";
 import { AcademicSummary } from "../pages/courses/AcademicSummary";
 import { type MergeDiff } from "../lib/lms-merge";
+import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
@@ -129,8 +130,11 @@ const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
 /** A pull result as one short line; undefined when everything succeeded. */
 function pullProblem(outcomes: { state: string; message: string }[]) {
-  const failed = outcomes.find((item) => item.state !== "ok");
-  if (!failed) return undefined;
+  const failed = outcomes.find(
+    (item) => item.state === "reconnect-required" || item.state === "error",
+  );
+  const unavailable = outcomes.find((item) => item.state === "unavailable");
+  if (!failed) return unavailable?.message;
   return failed.state === "reconnect-required"
     ? "Sign-in required. Check the account in Settings → School accounts."
     : failed.message;
@@ -472,7 +476,10 @@ export function WorkspaceApp() {
       }));
     });
     const offIngest = desktopBridge?.onSchoolIngest?.((outcome) => {
-      if (outcome.site === "kyomu" && outcome.state === "ok")
+      if (
+        outcome.site === "kyomu" &&
+        (outcome.state === "ok" || outcome.state === "unavailable")
+      )
         setKyomuProgress((value) =>
           value === null ? value : Math.min(95, Math.max(value, 15) + 20),
         );
@@ -549,9 +556,12 @@ export function WorkspaceApp() {
   useEffect(
     () =>
       desktopBridge?.onSchoolIngest?.((outcome) => {
-        if (outcome.state === "ok" && pageRef.current === "web")
+        if (
+          (outcome.state === "ok" || outcome.state === "unavailable") &&
+          pageRef.current === "web"
+        )
           ingestedOnWeb.current = true;
-        if (outcome.state === "ok")
+        if (outcome.state === "ok" || outcome.state === "unavailable")
           void workspaceActions.refreshSchool().catch(() => undefined);
       }),
     [],
@@ -1401,6 +1411,7 @@ export function WorkspaceApp() {
             <AcademicSummary
               summaries={data.gpaSummary}
               termCredits={termCredits}
+              availability={schoolRecords?.pageAvailability?.["kyomu:gpa"]}
               progress={kyomuProgress ?? (pulling ? 0 : null)}
               refresh={
                 desktopBridge?.pullSchool
@@ -1621,6 +1632,9 @@ export function WorkspaceApp() {
         <CourseEditor
           key={courseEditor.course?.id ?? "new"}
           course={courseEditor.course}
+          teachingPeriods={resolvedTeachingPeriods(
+            data.academicProfile.teachingPeriods,
+          )}
           fetchSyllabus={
             nativeCapabilities?.syllabusSearch === true && desktopBridge
               ? (url) =>

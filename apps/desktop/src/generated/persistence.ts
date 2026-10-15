@@ -572,6 +572,7 @@ export type AcademicProfile = {
   name: string;
   admissionYear?: number;
   studyEnrollments?: StudyEnrollment[];
+  teachingPeriods?: TeachingPeriod[];
   gradePath: Array<GradePathEntry>;
   years: Array<AcademicYearConfig>;
 };
@@ -673,7 +674,8 @@ export type CourseFilePolicy = {
   retentionDays: IntegerPolicy;
 };
 
-export type StudyStage = "undergraduate" | "master" | "doctoral" | "unknown";
+export type StudyStage =
+  "undergraduate" | "master" | "professional" | "doctoral" | "unknown";
 
 export type StudyEntryKind = "regular" | "transfer" | "unknown";
 
@@ -693,11 +695,48 @@ export type CourseEligibilityReason =
   | "invalidStudyHistory"
   | "entryDetailsMissing"
   | "courseCodeUnrecognized"
-  | "undergraduateFirstYearUpperLevel";
+  | "undergraduateFirstYearUpperLevel"
+  | "masterFirstSemesterHumanitiesUpperLevel"
+  | "graduateCourseApprovalRequired"
+  | "leadershipWorkshopGradeRequired"
+  | "doctoralFirstSemesterGenerallyRestricted"
+  | "doctoralFirstSemesterRestricted"
+  | "separateApplicationRequired"
+  | "ruleYearUnsupported";
+
+export type CourseEligibilityRuleId =
+  | "undergraduateFirstYearCourseLevel"
+  | "masterFirstSemesterHumanities"
+  | "graduateDoctoralLevelApproval"
+  | "masterLeadershipPracticumPrerequisite"
+  | "doctoralAcademicLiteracyFirstSemester"
+  | "doctoralAcademicFirstSemester"
+  | "doctoralAcademicTrainingApplication";
+
+export type CourseEligibilityRuleEvidence = {
+  id: CourseEligibilityRuleId;
+  academicYear: number;
+  sourceUrl: string;
+};
 
 export type CourseEligibility = {
   status: CourseEligibilityStatus;
   reason: CourseEligibilityReason;
+  rule?: CourseEligibilityRuleEvidence;
+};
+
+export type SchoolPageAvailabilityState = "available" | "unavailable";
+
+export type SchoolPageAvailability = {
+  state: SchoolPageAvailabilityState;
+  checkedAt: string;
+  message: string;
+};
+
+export type TeachingPeriod = {
+  periods: [number, number];
+  startTime: string;
+  endTime: string;
 };
 
 export type Term = { year: number; quarter: number };
@@ -760,7 +799,7 @@ export type Occurrence = {
   overridden: boolean | null;
 };
 
-export type ScheduleProblemKind = "plan" | "scheduleOverride";
+export type ScheduleProblemKind = "courseMeeting" | "plan" | "scheduleOverride";
 
 export type ScheduleProblem = {
   kind: ScheduleProblemKind;
@@ -905,6 +944,7 @@ export type ScheduleView = {
 export type ScheduleIntensiveDay = { date: string; periods: [number, number] };
 
 export type WorkspaceQuery =
+  | { kind: "teachingPeriods" }
   | { kind: "workspaceOverview"; term: string }
   | { kind: "subscriptionViews" }
   | { kind: "planningWeek"; term: string }
@@ -961,6 +1001,7 @@ export type WorkspaceQuery =
     };
 
 export type WorkspaceQueryResult =
+  | { kind: "teachingPeriods"; value: Array<TeachingPeriod> }
   | { kind: "workspaceOverview"; value: WorkspaceOverview }
   | { kind: "subscriptionViews"; value: unknown }
   | { kind: "planningWeek"; value: PlanningWeek }
@@ -1132,3 +1173,36 @@ export const COURSE_PALETTE = [
   "#806a9d",
   "#5c7d93",
 ] as const;
+
+export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
+  {
+    periods: [1, 2],
+    startTime: "08:50",
+    endTime: "10:30",
+  },
+  {
+    periods: [3, 4],
+    startTime: "10:45",
+    endTime: "12:25",
+  },
+  {
+    periods: [5, 6],
+    startTime: "13:30",
+    endTime: "15:10",
+  },
+  {
+    periods: [7, 8],
+    startTime: "15:25",
+    endTime: "17:05",
+  },
+  {
+    periods: [9, 10],
+    startTime: "17:15",
+    endTime: "18:55",
+  },
+  {
+    periods: [11, 12],
+    startTime: "19:05",
+    endTime: "20:45",
+  },
+];

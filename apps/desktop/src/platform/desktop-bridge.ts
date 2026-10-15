@@ -8,6 +8,7 @@ import type { Localized } from "../lib/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type { SyllabusCourse } from "../lib/syllabus";
+import type { SchoolPageAvailability } from "../generated/persistence";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop" | "native-mobile";
@@ -127,7 +128,7 @@ const isSchoolSessionState = (value: unknown): value is SchoolSessionState =>
 export type SchoolIngestOutcome = {
   site: SchoolSite;
   kind: string;
-  state: "ok" | "reconnect-required" | "error";
+  state: "ok" | "unavailable" | "reconnect-required" | "error";
   changed: number;
   message: string;
 };
@@ -172,6 +173,8 @@ export type LmsCourseRecord = {
 export type SchoolRecords = {
   /** Last complete import per `provider:scope` (ISO time). */
   lastRuns: Record<string, string>;
+  /** Latest authoritative capability observation per `provider:scope`. */
+  pageAvailability: Record<string, SchoolPageAvailability>;
   lmsCourses: LmsCourseRecord[];
   registrations: {
     id: string;

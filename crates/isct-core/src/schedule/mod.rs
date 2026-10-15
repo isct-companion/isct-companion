@@ -10,6 +10,7 @@ mod reminders;
 mod tasks;
 #[cfg(test)]
 mod tests;
+mod timing;
 
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,6 @@ pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
     CalendarDayView, QuarterRange, QuarterView, TeachingRange,
 };
-pub(crate) use civil::clock_for_periods;
 pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use credits::declared_term_credits;
@@ -42,6 +42,10 @@ pub use reminders::{
 };
 pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, TaskDeadlineView, TaskView, TermTaskView};
+pub(crate) use timing::{clock_for_periods, validate_period_range};
+pub use timing::{
+    default_teaching_periods, teaching_periods, validate_teaching_periods, TeachingPeriod,
+};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {
@@ -75,6 +79,7 @@ pub struct AgendaRequestOptions {
     rename_all_fields = "camelCase"
 )]
 pub enum WorkspaceQuery {
+    TeachingPeriods,
     WorkspaceOverview {
         term: String,
     },
@@ -238,6 +243,7 @@ pub struct AcademicYearIndex {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 pub enum WorkspaceQueryResult {
+    TeachingPeriods(Vec<TeachingPeriod>),
     WorkspaceOverview(WorkspaceOverview),
     SubscriptionViews(#[cfg_attr(feature = "ts", ts(type = "unknown"))] Value),
     PlanningWeek(PlanningWeek),
@@ -275,6 +281,9 @@ pub fn query(
     request: WorkspaceQuery,
 ) -> Result<WorkspaceQueryResult, ScheduleError> {
     match request {
+        WorkspaceQuery::TeachingPeriods => Ok(WorkspaceQueryResult::TeachingPeriods(
+            teaching_periods(workspace)?,
+        )),
         WorkspaceQuery::WorkspaceOverview { term } => Ok(WorkspaceQueryResult::WorkspaceOverview(
             workspace_overview(workspace, &term)?,
         )),
@@ -489,9 +498,15 @@ pub fn query(
         WorkspaceQuery::DisplayColor { course } => {
             Ok(WorkspaceQueryResult::DisplayColor(display_color(&course)))
         }
-        WorkspaceQuery::IntensiveDays { from, to, periods } => Ok(
-            WorkspaceQueryResult::IntensiveDays(intensive_days(&from, &to, periods)?),
-        ),
+        WorkspaceQuery::IntensiveDays { from, to, periods } => {
+            let teaching_periods = teaching_periods(workspace)?;
+            Ok(WorkspaceQueryResult::IntensiveDays(intensive_days(
+                &teaching_periods,
+                &from,
+                &to,
+                periods,
+            )?))
+        }
         WorkspaceQuery::NextPlanOccurrences { plan, limit } => Ok(
             WorkspaceQueryResult::NextPlanOccurrences(next_plan_occurrences(&plan, limit)?),
         ),
@@ -681,6 +696,7 @@ pub(crate) fn visible(value: &Value) -> bool {
 #[cfg(feature = "ts")]
 pub fn declarations() -> Vec<String> {
     vec![
+        TeachingPeriod::decl(),
         Term::decl(),
         TeachingRange::decl(),
         QuarterRange::decl(),

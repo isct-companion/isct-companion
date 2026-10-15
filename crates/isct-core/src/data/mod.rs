@@ -5,6 +5,7 @@ pub mod versioned;
 
 pub use error::DataError;
 
+use crate::school_service::{SchoolPageAvailability, SchoolPageAvailabilityState};
 use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::de::DeserializeOwned;
@@ -330,7 +331,19 @@ fn validate_setting(key: &str, value: &Value) -> Result<(), DataError> {
         "cloud" => validate_choices(value, CLOUD_CHOICES),
         "academicProfile" => {
             validate_admission_year(value)?;
-            validate_study_enrollments(value)
+            validate_study_enrollments(value)?;
+            if let Some(periods) = value
+                .get("teachingPeriods")
+                .filter(|value| !value.is_null())
+            {
+                let periods: Vec<crate::schedule::TeachingPeriod> =
+                    serde_json::from_value(periods.clone()).map_err(|error| {
+                        DataError::InvalidInput(format!("teaching periods are invalid: {error}"))
+                    })?;
+                crate::schedule::validate_teaching_periods(&periods)
+                    .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            }
+            Ok(())
         }
         _ => Ok(()),
     }
@@ -572,6 +585,38 @@ fn validate_contract<T: DeserializeOwned>(table: &str, value: &Value) -> Result<
 fn validate_local_record(table: &str, value: &Value) -> Result<(), DataError> {
     let invalid = |error: &dyn std::fmt::Display| DataError::from(format!("{table}: {error}"));
     match table {
+        "manual_courses" => {
+            let course = serde_json::from_value::<crate::contracts::Course>(value.clone())
+                .map_err(|error| invalid(&error))?;
+            for meeting in course.meetings {
+                if meeting.periods.is_empty() {
+                    let clock = chrono::NaiveTime::parse_from_str;
+                    let valid = clock(&meeting.start_time, "%H:%M")
+                        .ok()
+                        .zip(clock(&meeting.end_time, "%H:%M").ok())
+                        .is_some_and(|(start, end)| start < end);
+                    if !valid {
+                        return Err(invalid(&"custom meeting times are invalid"));
+                    }
+                    continue;
+                }
+                if meeting
+                    .periods
+                    .windows(2)
+                    .any(|pair| pair[1] != pair[0].saturating_add(1))
+                {
+                    return Err(invalid(
+                        &"meeting periods must be a contiguous ascending range",
+                    ));
+                }
+                crate::schedule::validate_period_range([
+                    meeting.periods[0],
+                    *meeting.periods.last().unwrap_or(&meeting.periods[0]),
+                ])
+                .map_err(|error| invalid(&error))?;
+            }
+            Ok(())
+        }
         "plans" => serde_json::from_value::<crate::contracts::Plan>(value.clone())
             .map_err(|error| invalid(&error))?
             .validate()
@@ -1959,7 +2004,7 @@ impl DataStore {
                 .ok_or_else(|| "current academic term is not configured".to_string())?,
         );
         normalize_optional_nulls(&mut workspace);
-        normalize_meeting_clocks(&mut workspace);
+        normalize_meeting_clocks(&mut workspace)?;
         let _: crate::contracts::Workspace = serde_json::from_value(workspace.clone())
             .map_err(|error| format!("workspace validation failed: {error}"))?;
         Ok(workspace)
@@ -1981,6 +2026,10 @@ impl DataStore {
             );
         }
         records.insert("lastRuns".into(), Self::last_import_runs_from(connection)?);
+        records.insert(
+            "pageAvailability".into(),
+            Self::page_availability_from(connection)?,
+        );
         Ok(Value::Object(records))
     }
 
@@ -1988,7 +2037,8 @@ impl DataStore {
         let mut statement = connection
             .prepare(
                 "SELECT provider, scope, MAX(finished_at) FROM import_runs
-                 WHERE state='complete' AND finished_at IS NOT NULL GROUP BY provider, scope",
+                 WHERE state IN ('complete','unavailable') AND finished_at IS NOT NULL
+                 GROUP BY provider, scope",
             )
             .map_err(DataError::from)?;
         let rows = statement
@@ -2006,6 +2056,46 @@ impl DataStore {
             runs.insert(format!("{provider}:{scope}"), Value::String(finished));
         }
         Ok(Value::Object(runs))
+    }
+
+    fn page_availability_from(connection: &Connection) -> Result<Value, DataError> {
+        let mut statement = connection
+            .prepare(
+                "SELECT provider,scope,state,finished_at,COALESCE(message,'') FROM import_runs
+                 WHERE state IN ('complete','unavailable') AND finished_at IS NOT NULL
+                 ORDER BY finished_at,rowid",
+            )
+            .map_err(DataError::from)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(DataError::from)?;
+        let mut availability = Map::new();
+        for row in rows {
+            let (provider, scope, state, checked_at, message) = row.map_err(DataError::from)?;
+            let availability_state = if state == "unavailable" {
+                SchoolPageAvailabilityState::Unavailable
+            } else {
+                SchoolPageAvailabilityState::Available
+            };
+            availability.insert(
+                format!("{provider}:{scope}"),
+                serde_json::to_value(SchoolPageAvailability {
+                    state: availability_state,
+                    checked_at,
+                    message,
+                })
+                .map_err(DataError::from)?,
+            );
+        }
+        Ok(Value::Object(availability))
     }
 
     pub fn reset_workspace(&self) -> Result<Value, DataError> {
@@ -2609,9 +2699,11 @@ impl DataStore {
     }
 }
 
-fn normalize_meeting_clocks(workspace: &mut Value) {
+fn normalize_meeting_clocks(workspace: &mut Value) -> Result<(), DataError> {
+    let teaching_periods = crate::schedule::teaching_periods(workspace)
+        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
     let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) else {
-        return;
+        return Ok(());
     };
     for meeting in courses
         .iter_mut()
@@ -2619,26 +2711,15 @@ fn normalize_meeting_clocks(workspace: &mut Value) {
         .filter_map(Value::as_array_mut)
         .flatten()
     {
-        let valid_clock = |key: &str| {
-            meeting
-                .get(key)
-                .and_then(Value::as_str)
-                .is_some_and(|clock| {
-                    let bytes = clock.as_bytes();
-                    matches!(bytes.len(), 4 | 5)
-                        && bytes[bytes.len() - 3] == b':'
-                        && bytes
-                            .iter()
-                            .enumerate()
-                            .all(|(index, byte)| index == bytes.len() - 3 || byte.is_ascii_digit())
-                })
-        };
-        if valid_clock("startTime") && valid_clock("endTime") {
-            continue;
-        }
         let Some(periods) = meeting.get("periods").and_then(Value::as_array) else {
             continue;
         };
+        // An empty period list is an explicit custom clock. Period-backed
+        // rows are projected through the current profile table even when an
+        // older generated clock is still present in storage.
+        if periods.is_empty() {
+            continue;
+        }
         let mut periods = periods.iter().filter_map(Value::as_u64);
         let Some(first) = periods.next() else {
             continue;
@@ -2649,13 +2730,16 @@ fn normalize_meeting_clocks(workspace: &mut Value) {
         let (Ok(minimum), Ok(maximum)) = (u8::try_from(minimum), u8::try_from(maximum)) else {
             continue;
         };
-        if let Ok((start, end)) = crate::schedule::clock_for_periods([minimum, maximum]) {
+        if let Ok((start, end)) =
+            crate::schedule::clock_for_periods(&teaching_periods, [minimum, maximum])
+        {
             if let Some(object) = meeting.as_object_mut() {
                 object.insert("startTime".into(), Value::String(start.into()));
                 object.insert("endTime".into(), Value::String(end.into()));
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2695,9 +2779,27 @@ mod tests {
         let mut workspace = json!({"courses":[{"meetings":[{
             "periods":[5,6,7,8], "startTime":"", "endTime":""
         }]}]});
-        normalize_meeting_clocks(&mut workspace);
+        normalize_meeting_clocks(&mut workspace).unwrap();
         assert_eq!(workspace["courses"][0]["meetings"][0]["startTime"], "13:30");
         assert_eq!(workspace["courses"][0]["meetings"][0]["endTime"], "17:05");
+    }
+
+    #[test]
+    fn configured_clock_fills_legacy_rows_without_retiming_explicit_meetings() {
+        let mut teaching_periods = crate::schedule::default_teaching_periods();
+        teaching_periods[2].start_time = "13:00".into();
+        let mut workspace = json!({
+            "academicProfile":{"teachingPeriods":teaching_periods},
+            "courses":[{"meetings":[
+                {"periods":[5,6,7,8], "startTime":"", "endTime":""},
+                {"periods":[], "startTime":"07:30", "endTime":"09:00"}
+            ]}]
+        });
+        normalize_meeting_clocks(&mut workspace).unwrap();
+        assert_eq!(workspace["courses"][0]["meetings"][0]["startTime"], "13:00");
+        assert_eq!(workspace["courses"][0]["meetings"][0]["endTime"], "17:05");
+        assert_eq!(workspace["courses"][0]["meetings"][1]["startTime"], "07:30");
+        assert_eq!(workspace["courses"][0]["meetings"][1]["endTime"], "09:00");
     }
 
     #[test]
