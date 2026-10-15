@@ -3,9 +3,10 @@ node_modules/
 .yarn/
 dist/
 target/
-backend/target/
-backend/gen/
-backend/Info.ios.plist
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+deprecated/tauri-mobile/gen/
+deprecated/tauri-mobile/Info.ios.plist
 *.tsbuildinfo
 coverage/
 
@@ -47,3 +48,9 @@ secrets.json
 *.log
 *.swp
 scripts/research/syllabus-sample-output/
+
+# Future native-shell build outputs
+apps/ios/build/
+apps/android/.gradle/
+apps/android/**/build/
+bindings/**/build/

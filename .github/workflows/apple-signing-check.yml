@@ -19,4 +19,4 @@ jobs:
         env:
           APPLE_MACOS_PROVISIONING_PROFILE: ${{ secrets.APPLE_MACOS_PROVISIONING_PROFILE }}
         run: |
-          node --input-type=module -e "import { macSigningConfig } from './scripts/macos-signing.mjs'; macSigningConfig({ required: true }); console.log('Mac distribution profile validated.');"
+          node --input-type=module -e "import { macSigningConfig } from './scripts/desktop/macos-signing.mjs'; macSigningConfig({ required: true }); console.log('Mac distribution profile validated.');"

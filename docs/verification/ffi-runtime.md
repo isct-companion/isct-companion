@@ -10,7 +10,7 @@ those operations.
 Run on macOS with Swift 6, Kotlin and a JDK:
 
 ```sh
-node scripts/ffi-runtime-smoke.mjs
+node scripts/bindings/ffi-runtime-smoke.mjs
 ```
 
 The fixture has its own locked Cargo workspace, pins UniFFI 0.32.1 and uses the

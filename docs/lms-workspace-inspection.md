@@ -50,10 +50,10 @@ Group Work's syllabus wrapper `mod/url/view.php?id=84250` exposes `https://sylla
 ## Current implementation gaps
 
 - `crates/isct-core/src/lms_ingest.rs` whitelists section identity/title/visibility and module identity/link fields. It drops section bodies and inline assets, then persists module rows without independent sections.
-- `src/pages/courses/CourseDetails.tsx` builds sections from material rows; text-only and empty sections therefore disappear. Resource links currently use the app-wide Web route.
-- `src/pages/today/TodayPage.tsx` opens the shared course drawer through `App.tsx`.
-- `src/cache/index.ts` stores bounded JSON metadata; it is not a binary file cache.
-- `backend/src/school_web.rs` already has persistent school WebViews and measured bounds. The right-side official tab must reuse this infrastructure and hide the native view when another tab is active. Native WebView placement cannot be handled by CSS z-index alone.
+- `apps/desktop/src/pages/courses/CourseDetails.tsx` builds sections from material rows; text-only and empty sections therefore disappear. Resource links currently use the app-wide Web route.
+- `apps/desktop/src/pages/today/TodayPage.tsx` opens the shared course drawer through `App.tsx`.
+- `apps/desktop/src/cache/index.ts` stores bounded JSON metadata; it is not a binary file cache.
+- `apps/desktop/src-tauri/src/school_web.rs` already has persistent school WebViews and measured bounds. The right-side official tab must reuse this infrastructure and hide the native view when another tab is active. Native WebView placement cannot be handled by CSS z-index alone.
 
 ## Implementation boundary
 

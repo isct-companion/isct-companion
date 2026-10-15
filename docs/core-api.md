@@ -30,7 +30,7 @@ Sources of truth:
 - [Schedule](../crates/isct-core/src/schedule/mod.rs): query/result variants and read models.
 - [Finder](../crates/isct-core/src/course_query/mod.rs): finder request/action/result records.
 - [Persistence contracts](../crates/isct-core/src/contracts.rs): row and settings schemas.
-- [Generated TypeScript](../src/generated/persistence.ts): workspace and schedule declarations generated from Rust. Finder declarations currently reside in Rust and the thin shell adapter.
+- [Generated TypeScript](../apps/desktop/src/generated/persistence.ts): workspace and schedule declarations generated from Rust. Finder declarations currently reside in Rust and the thin shell adapter.
 
 JSON records use camelCase fields. Tagged requests use `kind`; query results use
 `{kind,value}`. IDs are opaque strings; term IDs are `YYYY-nQ`; workspace revision
@@ -108,7 +108,7 @@ detail IDs. These actions prepare a view; a workspace intent performs writes.
 
 This TypeScript example uses the generated contract (paths assume a file in
 `docs/`). Use a serialized intent dispatcher in the application, as implemented
-by [the snapshot cache](../src/store/workspace.ts).
+by [the snapshot cache](../apps/desktop/src/store/workspace.ts).
 
 ```ts
 import { invoke } from "@tauri-apps/api/core";
@@ -117,7 +117,7 @@ import type {
   WorkspaceQuery,
   WorkspaceQueryResult,
   WorkspaceSnapshot,
-} from "../src/generated/persistence";
+} from "../apps/desktop/src/generated/persistence";
 
 type ReadModels = { revision: string; values: WorkspaceQueryResult[] };
 
@@ -318,7 +318,7 @@ submitted, nearest assignment per course, and per-term
 pending/pinned/overdue/this-week/later and lecture groups as ordered IDs. Today,
 Lecture Desk and course readers render those IDs and labels; they do not apply
 their own submitted rule. Shells pass `now` from the shared minute clock
-(`src/platform/use-clock.ts`), so pages issuing the same query within a minute
+(`apps/desktop/src/platform/use-clock.ts`), so pages issuing the same query within a minute
 share one request. Malformed
 or locale-formatted timestamps are excluded from deadline calculations; they
 cannot reach an `Intl` formatter as an invalid date.
@@ -424,7 +424,7 @@ cookies or session data. A future explicitly authorized school tool must use
 Every tool is dispatched through `Core.agent.call(name, args, AgentPolicy)`.
 [Agent access](agent-access.md) describes client setup and tool parameters;
 `tools/list` returns the current JSON schemas from
-[the HTTP adapter](../backend/src/agent_server.rs).
+[the HTTP adapter](../apps/desktop/src-tauri/src/agent_server.rs).
 
 | Tools                                                         | Shared Core capability                                                         |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -546,7 +546,7 @@ Swift/Kotlin bindings or physical-device acceptance are complete.
 
 ## Type generation
 
-Regenerate the shared TypeScript contracts with
-`cargo run -p isct-companion --example export-types`, then format the output with
-`yarn prettier --write src/generated/persistence.ts`. The exporter is a developer
-example and is not included in desktop application bundles.
+Regenerate the shared TypeScript contracts with `yarn core:types`. The root
+command runs `cargo run -p isct-core --features ts --example export-types` and
+formats `apps/desktop/src/generated/persistence.ts`. The exporter belongs to Core
+and is not included in desktop application bundles.

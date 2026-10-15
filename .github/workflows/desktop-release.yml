@@ -37,20 +37,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ios:
-    name: iOS and iPadOS
-    if: inputs.source_run_id == '' || github.event_name != 'workflow_dispatch'
-    uses: ./.github/workflows/ios-testflight.yml
-    with:
-      upload_testflight: true
-    secrets: inherit
-
-  android:
-    name: Android
-    if: inputs.source_run_id == '' || github.event_name != 'workflow_dispatch'
-    uses: ./.github/workflows/android-release.yml
-    secrets: inherit
-
   build:
     name: Build (${{ matrix.target }})
     if: inputs.source_run_id == '' || github.event_name != 'workflow_dispatch'
@@ -94,7 +80,7 @@ jobs:
         shell: bash
         run: |
           yarn build
-          node scripts/desktop-release.mjs validate
+          node scripts/desktop/desktop-release.mjs validate
       - name: Apply optional OAuth overrides
         shell: bash
         env:
@@ -134,7 +120,7 @@ jobs:
           fi
           yarn desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           if [[ "$RUNNER_OS" == macOS ]]; then
-            node scripts/verify-platform-bundle.mjs desktop "target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
+            node scripts/checks/verify-platform-bundle.mjs desktop "target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
           fi
           if [[ "$RUNNER_OS" == macOS && "$SIGN_MACOS" == true ]]; then
             app="target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
@@ -148,7 +134,7 @@ jobs:
             done
           fi
       - name: Collect only public distribution files
-        run: node scripts/desktop-release.mjs collect ${{ matrix.target }}
+        run: node scripts/desktop/desktop-release.mjs collect ${{ matrix.target }}
       - name: Record Mac signing status
         if: runner.os == 'macOS'
         shell: bash
@@ -167,11 +153,11 @@ jobs:
 
   publish:
     name: Publish public release
-    needs: [build, ios, android]
+    needs: [build]
     if: >-
       always() && !cancelled() &&
-      ((needs.build.result == 'success' && needs.ios.result == 'success' && needs.android.result == 'success') ||
-       (needs.build.result == 'skipped' && needs.ios.result == 'skipped' && needs.android.result == 'skipped' && inputs.source_run_id != '')) &&
+      ((needs.build.result == 'success') ||
+       (needs.build.result == 'skipped' && inputs.source_run_id != '')) &&
       (startsWith(github.ref, 'refs/tags/v') || inputs.publish == true)
     runs-on: ubuntu-latest
     permissions:
@@ -228,24 +214,6 @@ jobs:
             fi
           done
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
-      - name: Download mobile distribution files
-        uses: actions/download-artifact@v8
-        with:
-          pattern: mobile-*
-          path: mobile-installers
-          run-id: ${{ inputs.source_run_id || github.run_id }}
-          github-token: ${{ github.token }}
-      - name: Collect signed IPA and APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=${RELEASE_TAG#v}
-          ipa=$(find mobile-installers/mobile-ios-ipados -type f -name '*.ipa' -print -quit)
-          apk=$(find mobile-installers/mobile-android-aarch64 -type f -name '*.apk' -print -quit)
-          test -n "$ipa"
-          test -n "$apk"
-          cp "$ipa" "release-assets/IsctCompanion_${version}_ios-ipados.ipa"
-          cp "$apk" release-assets/
       - name: Check out only the public repository
         if: inputs.publish_target == 'distribution'
         uses: actions/checkout@v5
@@ -296,7 +264,6 @@ jobs:
           Read the license documents bundled with the app before installing. Third-party notices are included in the app.
           NOTES
           echo "Source build: https://github.com/$BUILD_REPO/commit/$SOURCE_SHA" >> release-notes.md
-          echo 'Android 14+ arm64 APK and iOS/iPadOS 17+ IPA are included. Install iOS/iPadOS through TestFlight; its availability is listed in the README. The App Store-signed IPA is provided as a build artifact and cannot be installed directly on arbitrary devices.' >> release-notes.md
           if [[ "$MACOS_SIGNING_STATUS" == signed-notarized ]]; then
             echo 'Mac installers are signed with Developer ID and notarized by Apple. The Windows installer is unsigned.' >> release-notes.md
           else
@@ -313,5 +280,5 @@ jobs:
             fi
             gh release create "$RELEASE_TAG" "${tag_args[@]}" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
           fi
-          gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe release-assets/*.apk release-assets/*.ipa --clobber
+          gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false

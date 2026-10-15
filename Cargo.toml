@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["backend", "backend/plugins/*", "crates/isct-core", "crates/isct-ocr"]
-default-members = ["backend"]
+members = ["apps/desktop/src-tauri", "deprecated/tauri-mobile/plugins/*", "crates/isct-core", "crates/isct-ocr"]
+default-members = ["apps/desktop/src-tauri"]
 
 [profile.release]
 panic = "unwind"
