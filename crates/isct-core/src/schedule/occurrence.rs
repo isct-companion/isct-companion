@@ -9,6 +9,7 @@ use ts_rs::TS;
 use super::alternation::{self, Alternation, Resolution};
 use super::calendar::{calendar_state, content_language, localized, quarter_range};
 use super::civil::{clock_for_periods, weekday};
+use super::colors::display_color;
 use super::{
     add_days, array, parse_civil_date, text, visible, ScheduleError, ScheduleIntensiveDay,
 };
@@ -699,12 +700,7 @@ fn course_occurrence(
         start_time: start.into(),
         end_time: end.into(),
         end_date: None,
-        color: course
-            .pointer("/overrides/color")
-            .and_then(Value::as_str)
-            .or_else(|| text(course, "color"))
-            .unwrap_or_default()
-            .into(),
+        color: display_color(course),
         conflict: None,
         dim: Some(false),
         cancelled,
@@ -914,12 +910,7 @@ pub fn resolve_day_agenda(
             start_time: start.into(),
             end_time: end.into(),
             end_date: None,
-            color: course
-                .pointer("/overrides/color")
-                .and_then(Value::as_str)
-                .or_else(|| text(course, "color"))
-                .unwrap_or_default()
-                .into(),
+            color: display_color(course),
             conflict: None,
             dim: None,
             cancelled: None,
