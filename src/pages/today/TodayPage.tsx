@@ -3,7 +3,11 @@ import { SwipeActions } from "../../components/SwipeActions";
 import { useFormFactor } from "../../app/form-factor";
 import { t } from "../../i18n";
 import { UiButton } from "../../components/mantine";
-import { deadlineState, dueCountdown } from "../../core/academic";
+import {
+  deadlineState,
+  dueCountdown,
+  submissionLabel,
+} from "../../core/academic";
 import {
   contentLanguage,
   pickLocalized,
@@ -209,7 +213,7 @@ export function Today({
             <b>{assignment.title}</b>
             <small>
               {course?.title ?? "LMS"} ·{" "}
-              {submitted ? "submitted" : (assignment.submission ?? "unknown")}
+              {submissionLabel(assignment, t)}
             </small>
           </span>
           {due.ms >= 0 && !submitted ? (

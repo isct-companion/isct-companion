@@ -539,11 +539,14 @@ fn call(store: &DataStore, name: &str, args: &Value) -> Result<Value, String> {
             let due = |row: &Value| {
                 text(row, "dueAt").and_then(|due| chrono::DateTime::parse_from_rfc3339(due).ok())
             };
+            // Done as the app counts it: submitted or graded on the LMS, or
+            // marked submitted by hand.
             let mut open = visible_rows(&workspace, "assignments")
                 .into_iter()
                 .filter(|row| {
                     row.get("hidden") != Some(&Value::Bool(true))
-                        && text(row, "submission") != Some("submitted")
+                        && !matches!(text(row, "submission"), Some("submitted" | "graded"))
+                        && text(row, "submissionStatus") != Some("submitted")
                 })
                 .collect::<Vec<_>>();
             open.sort_by_key(|row| due(row));

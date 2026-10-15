@@ -392,6 +392,7 @@
 .lmsAssignmentState { flex: 0 0 auto; padding: 2px 7px; border-radius: 6px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .lmsAssignmentState.done, .lmsAssignmentState.graded { background: var(--ok-soft); color: var(--ok); }
 .lmsAssignmentState.missed { background: var(--danger-soft); color: var(--danger); }
+.lmsAssignmentGrade { margin-left: 6px; font-variant-numeric: tabular-nums; }
 .lmsAssignmentBody { margin: 10px 0 0 18px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.75; animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
 .lmsAssignmentCard > footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin: 10px 0 0 18px; }
 .lmsAssignmentCard > footer > .lmsTextLink:first-child { margin-right: auto; }

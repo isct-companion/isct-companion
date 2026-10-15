@@ -110,6 +110,10 @@ export type Assignment = {
   lmsCmid?: number;
   lmsCourseId?: number;
   submission?: "unknown" | "open" | "submitted" | "graded";
+  /**
+   * The grade as the assignment page shows it (e.g. "85.00 / 100.00").
+   */
+  grade?: string;
   submissionStatus?:
     "unknown" | "draft" | "submitted" | "late" | "not-submitted";
   hidden?: boolean;

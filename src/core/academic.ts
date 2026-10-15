@@ -46,6 +46,20 @@ export function deadlineState(
   };
 }
 /**
+ * The work's state for display, with the grade once the LMS shows one
+ * ("採点済 85.00 / 100.00"). Marking it submitted by hand counts as submitted.
+ */
+export function submissionLabel(
+  a: Assignment,
+  translate: (key: string) => string,
+): string {
+  if (a.submission === "graded")
+    return a.grade ? `${translate("graded")} ${a.grade}` : translate("graded");
+  if (a.submission === "submitted" || a.submissionStatus === "submitted")
+    return translate("submitted");
+  return translate(a.submission ?? "unknown");
+}
+/**
  * Time left before a deadline, for a chip: exact to the hour inside three
  * days ("1d 12h"), whole days beyond. Tone tiers: under a day, under three.
  */

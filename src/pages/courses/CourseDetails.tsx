@@ -3,7 +3,7 @@ import { useState } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
 import { PullRing } from "../../components/PullRing";
 import { dayNames } from "../../components/timetable/timetable";
-import { deadlineState } from "../../core/academic";
+import { deadlineState, submissionLabel } from "../../core/academic";
 import {
   contentLanguage,
   pickLocalized,
@@ -315,7 +315,7 @@ export function CourseDetails({
                     }
                   >
                     {assignment.dueAt ? due.label : "—"} ·{" "}
-                    {t(assignment.submission ?? "unknown")}
+                    {submissionLabel(assignment, t)}
                   </small>
                 </div>
               );
