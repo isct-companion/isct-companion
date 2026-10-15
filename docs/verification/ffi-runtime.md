@@ -1,24 +1,9 @@
 # Foreign runtime boundary spike
 
-This is an isolated host fixture, not the application FFI facade. It validates
-binding mechanics before service and browser-port contracts are finalized.
-It does not establish mobile-target compatibility or application cancellation
-semantics. The application must preserve shared pull ownership and the Applying
-commit boundary; it must not copy the fixture's unconditional task abort into
-those operations.
-
-Run on macOS with Swift 6, Kotlin and a JDK:
-
-```sh
-node scripts/bindings/ffi-runtime-smoke.mjs
-```
-
-The fixture has its own locked Cargo workspace, pins UniFFI 0.32.1 and uses the
-repository's existing `target/`. The runner downloads checksum-pinned JNA 5.17.0
-and uses Kotlin's bundled coroutines jar (`KOTLIN_COROUTINES_JAR` can override
-its location). Generated bindings and compiler output remain under `target/`.
-The fixture is excluded from the production workspace and introduces no app
-dependency or exported application API.
+Historical binding-mechanics experiment, superseded by the real
+[native Core SDK](../core-ffi.md). Its isolated crate, duplicate lockfile and
+runner have been removed. Run `yarn sdk:test` or `yarn sdk:test --ocr` for the
+current Swift/Kotlin clients against the production facade.
 
 Verified on 2026-10-13 with the generated Swift and Kotlin bindings:
 
@@ -55,6 +40,7 @@ Findings that constrain the real facade:
    wait; the real Core must additionally honor its persistence and coalescing
    contracts, provide snapshots, and settle every registered operation.
 
-The fixture tests must be replaced or extended with the real facade during
-the FFI phase, including callback generation IDs, subscription disposal,
-snapshot recovery, suspension/resume and Swift/Kotlin mobile-target checks.
+The production facade now has Rust ownership/recovery tests, real foreign
+callback exception checks, subscription disposal, suspension/resume and packaged
+iOS/Android CI clients. Domain cancellation preserves shared pull ownership and
+the Applying commit boundary; it does not copy the spike's task-abort policy.
