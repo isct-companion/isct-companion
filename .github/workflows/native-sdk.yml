@@ -3,7 +3,7 @@ name: Native Core SDK
 on:
   workflow_dispatch:
   push:
-    branches: [main, refactor/rust-core]
+    branches: [main]
     paths:
       - crates/isct-core/**
       - crates/isct-ffi/**
