@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 26 checks must be re-run before the next release.**
+**7 of 28 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**18 checks have never been run or could not be run:**
+**20 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -47,6 +47,8 @@ an unverified area becomes an assumed-good one.
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
 - `DESKTOP-REMINDER-TIMES` — never verified
+- `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
+- `DESKTOP-SIGNED-UPDATES` — never verified
 
 ## Status
 
@@ -78,6 +80,8 @@ an unverified area becomes an assumed-good one.
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 
 ## Personas
 
@@ -244,11 +248,14 @@ The account from SCHOOL-SIGNIN-SCIENCE is Signed in.
 
 **Steps**
 
-1. Trigger a full LMS pull and leave the window alone until it ends.
+1. In a fresh disposable workspace, sign in and let the initial automatic
+   full LMS pull finish. Then use Pull from LMS and verify it defaults
+   to all courses, including quarters outside the current semester.
    - *Why:* The uninterrupted path establishes the baseline the interrupted path
      is compared against.
-2. Compare the pulled course list and assignments with the LMS open in
-   another browser.
+2. Compare courses and assignments with the authenticated LMS. Select
+   Pull current quarter only, then reopen a previously cached lecture.
+   Keep reading while the later partial background refresh finishes.
    - *Why:* A pull that "succeeds" with silently dropped courses is the failure
      this step catches; matching counts alone would not.
 3. Open a visible school page in the middle of a second pull.
@@ -262,8 +269,10 @@ visible school page that interrupted the second pull.
 
 **Expected**
 
-The first pull matches the LMS exactly and advances its timestamp; the
-interrupted pull leaves the previous rows intact and resumes.
+The first pull matches the LMS course list and advances its timestamp;
+current-only reads the actual current quarter. Cached lecture content
+remains usable during refresh and changed content produces one quiet,
+short in-app update notice. Interrupted work retains old rows and resumes.
 
 **Why this is manual**
 
@@ -1405,5 +1414,104 @@ and native notification delivery; tests use a headless notification sink.
 - `apps/desktop/src/pages/settings/NotificationSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/notifications.rs`
 - `crates/isct-core/src/schedule/reminders.rs`
+
+**Last recorded** never run
+
+### Official course search and enrollment use the authenticated native session (`SCHOOL-OFFICIAL-COURSE-PAGES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An updated native desktop build, a real Tokyo Tech account, and the
+student's registered timetable available in 教務Web. Use a disposable
+local workspace for the fresh-profile check.
+
+**Steps**
+
+1. Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
+   the department, admission year and current timetable with the source.
+   - *Why:* Only a real account exposes the current programme and the registered
+     timetable. It also exercises native redirects and the hidden reader.
+2. Search a broad course prefix with more than 100 results, scroll to
+   load another page, then narrow by teacher, quarter and start period.
+   - *Why:* Exercises live ASP.NET paging and session form state in the native
+     hidden browser; fixture tests cannot prove the university accepts
+     those postbacks. Changing conditions must start a fresh query.
+3. Open one result's syllabus details and one registered course's LMS
+   materials; refresh LMS and reopen the timetable.
+   - *Why:* Real school sessions must support both content destinations without
+     a detail refresh or LMS membership changing official enrollment.
+
+**Where to look**
+
+Settings > Study, Schedule, the course search list and the native school
+browser. Compare the same course code, quarter, time and room in 教務Web.
+
+**Expected**
+
+Fresh profile fields match 教務Web; current enrollment and rooms match
+its timetable. Search appends at most 100 courses per batch without
+duplicates, changes filters on the server, and preserves loaded rows.
+Syllabus details and LMS materials open for the same course; LMS refresh
+leaves the official timetable intact. No university registration is changed.
+
+**Why this is manual**
+
+Requires real student authentication, native hidden-browser ownership,
+the live university postback state and authenticated content destinations.
+Headless tests exercise the parser, shared projections and UI paging only.
+
+**Covers**
+
+- `crates/isct-core/src/school_browser/engine/extraction.rs`
+- `crates/isct-core/src/school_browser/assets/kyomu-search.js`
+- `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
+- `crates/isct-core/src/data/kyomu_projection.rs`
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
+
+**Last recorded** never run
+
+### Signed native updates preserve the existing workspace (`DESKTOP-SIGNED-UPDATES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An installed update-enabled desktop bundle, a newer signed desktop release,
+and a disposable workspace containing a timetable and a saved note.
+Update signing secrets must already be configured by the maintainer.
+
+**Steps**
+
+1. Check for updates in Settings > About and download the offered update.
+   - *Why:* Only a signed native bundle exercises updater signature verification and the OS installer.
+2. Enable automatic updates, quit, reopen, and inspect the timetable and saved note.
+   - *Why:* Verifies installation goes through native shutdown and retains the same application-data directory.
+3. On Windows, launch the release installer build from Explorer and open a workspace file.
+   - *Why:* A headless Unix test cannot detect an unwanted Windows console or child-process console.
+
+**Where to look**
+
+Settings > About, the native app window, Windows desktop, and the saved workspace.
+
+**Expected**
+
+The newer version installs on exit without losing saved data. A signature
+mismatch is rejected. Windows release launches have no accompanying terminal.
+
+**Why this is manual**
+
+Requires signed release artifacts, native installers and a real Windows desktop.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/desktop_updates.rs`
+- `apps/desktop/src-tauri/src/main.rs`
+- `.github/workflows/desktop-release.yml`
 
 **Last recorded** never run

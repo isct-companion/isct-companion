@@ -203,6 +203,8 @@ impl From<isct_core::catalog::CatalogError> for SdkError {
         use isct_core::catalog::CatalogError as E;
         match e {
             E::Data(e) => e.into(),
+            E::Pull(e) => e.into(),
+            E::School(e) => e.into(),
             E::InvalidInput(detail) => Self::InvalidInput { detail },
             E::Json(e) => Self::Compatibility {
                 detail: e.to_string(),

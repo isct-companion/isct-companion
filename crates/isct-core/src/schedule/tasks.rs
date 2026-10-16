@@ -16,6 +16,8 @@ use super::{
 #[serde(rename_all = "camelCase")]
 pub struct TaskDeadlineView {
     pub at: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub remaining_milliseconds: i64,
     pub label: String,
     pub tone: String,
     pub countdown_label: String,
@@ -252,6 +254,7 @@ fn deadline_view(due: DateTime<FixedOffset>, now: DateTime<FixedOffset>) -> Task
     };
     TaskDeadlineView {
         at: due.to_rfc3339(),
+        remaining_milliseconds: ms,
         label,
         tone: tone.into(),
         countdown_label,

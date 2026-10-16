@@ -30,9 +30,39 @@ impl DataStore {
                     }
                 }
             }
+            let existing: Option<String> = transaction
+                .query_row(
+                    "SELECT value FROM offerings WHERE id=?1",
+                    [&offering_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(existing) = existing
+                .map(|raw| serde_json::from_str::<Value>(&raw))
+                .transpose()?
+            {
+                merge_official_fields(&mut offering, &existing);
+            }
+            if offering.get("kyomu").is_some() {
+                let departments: Vec<Value> =
+                    serde_json::from_str(include_str!("../course_query/departments.json"))?;
+                if let Some(department) = departments.iter().find(|d| {
+                    offering["code"].as_str().is_some_and(|code| {
+                        code.starts_with(&format!("{}.", d["codePrefix"].as_str().unwrap_or("?")))
+                    })
+                }) {
+                    offering["unitCode"] = department["unitCode"].clone();
+                    offering["academicUnit"] = department["name"].clone();
+                }
+            }
             let timestamp = now();
             let source_key = format!(
-                "syllabus:{}:offering:{}",
+                "{}:{}:offering:{}",
+                if offering.get("kyomu").is_some() {
+                    "kyomu"
+                } else {
+                    "syllabus"
+                },
                 offering
                     .get("year")
                     .and_then(Value::as_i64)
@@ -249,5 +279,50 @@ impl DataStore {
                 .map_err(|_| DataError::storage("search row contains invalid JSON"))
         })
         .transpose()
+    }
+}
+
+/// 教務 owns delivery facts. Syllabus can add bilingual names and content,
+/// but a later detail refresh can never restore stale times or credits.
+fn merge_official_fields(incoming: &mut Value, stored: &Value) {
+    let incoming_official = incoming.get("kyomu").is_some();
+    if incoming_official {
+        for field in [
+            "format",
+            "media",
+            "classLabel",
+            "fetchedAt",
+            "sourceUpdated",
+            "unitCode",
+            "academicUnit",
+        ] {
+            if let Some(value) = stored.get(field) {
+                incoming[field] = value.clone();
+            }
+        }
+        if let Some(en) = stored.pointer("/title/en") {
+            incoming["title"]["en"] = en.clone();
+        }
+    } else if stored.get("kyomu").is_some() {
+        for field in [
+            "year",
+            "quarters",
+            "code",
+            "credits",
+            "schedule",
+            "instructionLanguage",
+            "intensive",
+            "kyomu",
+            "unitCode",
+            "academicUnit",
+        ] {
+            if let Some(value) = stored.get(field) {
+                incoming[field] = value.clone();
+            }
+        }
+        if let Some(ja) = stored.pointer("/title/ja") {
+            incoming["title"]["ja"] = ja.clone();
+        }
+        incoming["instructors"] = stored["instructors"].clone();
     }
 }

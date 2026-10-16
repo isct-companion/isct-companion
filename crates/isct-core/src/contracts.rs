@@ -78,6 +78,7 @@ contract!(SourceRef {
 contract!(CreditSplit { pub lecture: f64, pub exercise: f64, pub lab: f64, });
 contract!(Meeting {
     pub days: Vec<u8>, pub periods: Vec<u8>, pub start_time: String, pub end_time: String,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub term_ids: Option<Vec<String>>,
     pub room: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub room_names: Option<Localized>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub valid_from: Option<String>,
@@ -100,6 +101,7 @@ contract!(Course {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub offering_id: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub names: Option<CourseNames>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub lms_course_id: Option<u64>,
     pub code: String, pub title: String, pub instructor: String, pub credits: f64,
     pub credit_split: CreditSplit, pub instruction_language: InstructionLanguage,
     pub color: String, pub meetings: Vec<Meeting>, pub source: SourceRef,
@@ -449,6 +451,7 @@ contract!(Settings {
     #[cfg_attr(feature = "ts", ts(type = "\"system\" | \"light\" | \"dark\""))] pub appearance: String,
     #[cfg_attr(feature = "ts", ts(type = "\"comfortable\" | \"compact\""))] pub density: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"small\" | \"medium\" | \"large\""))] pub text_size: Option<String>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub automatic_app_updates: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub restore_school_page: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub active_school_site: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub school_web_zoom: Option<f64>,

@@ -20,6 +20,7 @@ const drawerTabs = new Set<string>([
 ]);
 export const routePatterns = {
   home: "/home",
+  timetable: "/timetable",
   week: "/home/week",
   lectures: "/lectures",
   course: "/lectures/:courseId",
@@ -33,6 +34,7 @@ const encode = encodeURIComponent;
 export const paths = {
   home: (view: "day" | "week" = "day") =>
     view === "week" ? routePatterns.week : routePatterns.home,
+  timetable: () => routePatterns.timetable,
   lectures: (courseId?: string, assignmentId?: string) =>
     courseId
       ? `${routePatterns.lectures}/${encode(courseId)}${assignmentId ? `/assignments/${encode(assignmentId)}` : ""}`
@@ -75,13 +77,15 @@ export function parseRoute(location: string) {
   const match = matchRoutes(definitions, pathname)?.at(-1);
   const id = match?.route.id;
   const page: Page =
-    id === "course" || id === "assignment" || id === "lectures"
-      ? "lectures"
-      : id === "settings" || id === "section"
-        ? "settings"
-        : id === "web" || id === "webSite"
-          ? "web"
-          : "home";
+    id === "timetable"
+      ? "timetable"
+      : id === "course" || id === "assignment" || id === "lectures"
+        ? "lectures"
+        : id === "settings" || id === "section"
+          ? "settings"
+          : id === "web" || id === "webSite"
+            ? "web"
+            : "home";
   return {
     page,
     matched: Boolean(match),

@@ -12,6 +12,7 @@
 )]
 
 pub mod agent;
+pub mod app_updates;
 pub mod backup;
 pub mod catalog;
 pub mod cloud_credentials;

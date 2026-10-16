@@ -17,6 +17,10 @@
       "declared",
     ],
     [
+      "/Titech/Student/%E5%AD%A6%E7%94%9F%E6%83%85%E5%A0%B1/PID4_2.aspx",
+      "profile",
+    ],
+    [
       "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx",
       "grades",
     ],
@@ -24,12 +28,11 @@
       "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx",
       "requirements",
     ],
-    [
-      "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
-      "gpa",
-    ],
+    ["/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx", "gpa"],
   ]);
-  const kind = allowed.get(location.pathname);
+  const kind = [...allowed].find(
+    ([path]) => path.toLowerCase() === location.pathname.toLowerCase(),
+  )?.[1];
   const result = (status, data = {}, message = "") => ({
     status,
     sourceUrl,
@@ -70,8 +73,7 @@
     .find((value) =>
       /(?:このページ|本機能|当機能).*(?:利用できません|対象外)/.test(value),
     );
-  if (unavailableMessage)
-    return result("unavailable", {}, unavailableMessage);
+  if (unavailableMessage) return result("unavailable", {}, unavailableMessage);
 
   const explicitEmpty = (root) =>
     Boolean(root && /対象データはありません/.test(clean(root.textContent)));
@@ -125,7 +127,7 @@
       (heading) =>
         Boolean(
           heading.compareDocumentPosition(table) &
-            Node.DOCUMENT_POSITION_FOLLOWING,
+          Node.DOCUMENT_POSITION_FOLLOWING,
         ),
     );
     return clean(headings.at(-1)?.textContent);
@@ -172,17 +174,47 @@
         quarter: `${from + index}Q`,
         day: match[3],
         periods,
+        room: clean(part.slice(match[0].length)).replace(/^\((.*)\)$/, "$1"),
       }));
     });
+
+  if (kind === "profile") {
+    const root = document.querySelector("#ctl00_ContentPlaceHolder1_divMain");
+    if (!root) return incomplete("The academic profile page shape is unknown.");
+    const heading = [...root.querySelectorAll("h2")].find((node) =>
+      /【現在】/.test(node.textContent),
+    );
+    const next = heading?.nextElementSibling;
+    const table = next?.matches("table") ? next : next?.querySelector("table");
+    if (!table?.matches("table"))
+      return incomplete("The current academic profile is missing.");
+    // Only academic identity leaves the page. Names, student numbers, contacts
+    // and other personal rows are deliberately excluded.
+    const fields = Object.fromEntries(
+      [...table.rows].map((row) => [
+        clean(row.cells[0]?.textContent),
+        clean(row.cells[1]?.textContent),
+      ]),
+    );
+    if (
+      !fields["所属"] ||
+      !/^\d{4}\/\d{2}\/\d{2}$/.test(fields["入学年月日"] || "")
+    )
+      return incomplete("The academic profile fields are incomplete.");
+    return complete("academic-profile", {
+      department: fields["所属"],
+      admittedOn: fields["入学年月日"].replaceAll("/", "-"),
+      programme: clean(heading.textContent).replace("【現在】", "").trim(),
+      entryCategory: fields["入学試験区分"] || "",
+    });
+  }
 
   if (kind === "registrations") {
     const root = document.querySelector("#divSinkokuStatus");
     if (!root) return incomplete("The registration page shape is unknown.");
     const timetable = document.querySelector("table#timetable");
     const listTables = [
-      ...document.querySelectorAll(
-        'table[id^="kamokuUnit_"][id$="_gvKamoku"]',
-      ),
+      ...document.querySelectorAll('table[id^="kamokuUnit_"][id$="_gvKamoku"]'),
     ];
     if (!timetable || !listTables.length)
       return incomplete("The registration course area is missing.");
@@ -204,11 +236,31 @@
     };
     const seen = new Set();
     const courses = [];
-    for (const block of document.querySelectorAll("table#timetable [data-jwc]")) {
+    for (const block of document.querySelectorAll(
+      "table#timetable [data-jwc]",
+    )) {
       const offeringId = clean(block.getAttribute("data-jwc"));
       if (!/^\d{9}$/.test(offeringId))
         return incomplete("A registration course identifier is invalid.");
-      if (seen.has(offeringId)) continue;
+      if (seen.has(offeringId)) {
+        const course = courses.find(
+          (course) => course.offeringId === offeringId,
+        );
+        for (const entry of schedule(
+          lines(
+            block.querySelector(".ttYoubi") || block.querySelector(".ttYoubi2"),
+          ),
+        )) {
+          const twin = course.schedule.find(
+            (row) =>
+              row.quarter === entry.quarter &&
+              row.day === entry.day &&
+              JSON.stringify(row.periods) === JSON.stringify(entry.periods),
+          );
+          if (twin && entry.room) twin.room = entry.room;
+        }
+        continue;
+      }
       seen.add(offeringId);
       const classes = [
         ...block.classList,
@@ -229,7 +281,7 @@
             ? "needs-check"
             : "registrable";
       const times = lines(
-        block.querySelector(".ttYoubi2") || block.querySelector(".ttYoubi"),
+        block.querySelector(".ttYoubi") || block.querySelector(".ttYoubi2"),
       );
       courses.push({
         offeringId,
@@ -255,12 +307,9 @@
         if (explicitEmpty(row)) continue;
         if (!row.querySelector("td") || !clean(row.textContent)) continue;
         const link = row.querySelector("a.kamokuGridKamokuName");
-        if (!link)
-          return incomplete("A registration list row is incomplete.");
-        const offeringId = new URL(
-          link.href,
-          location.href,
-        ).searchParams.get("jwc") || "";
+        if (!link) return incomplete("A registration list row is incomplete.");
+        const offeringId =
+          new URL(link.href, location.href).searchParams.get("jwc") || "";
         if (!/^\d{9}$/.test(offeringId))
           return incomplete("A registration list identifier is invalid.");
         if (seen.has(offeringId)) continue;
@@ -269,9 +318,7 @@
         const at = (label) =>
           values[headers.findIndex((header) => header.includes(label))] || "";
         const creditRaw = text(row, "span.resultUnitKamokuTaniSP");
-        const credit = creditRaw.match(
-          /\[\s*([\d.]+)-([\d.]+)-([\d.]+)\s*\]/,
-        );
+        const credit = creditRaw.match(/\[\s*([\d.]+)-([\d.]+)-([\d.]+)\s*\]/);
         const rawSchedule = text(row, "td.tdYoubi");
         courses.push({
           offeringId,
@@ -316,6 +363,10 @@
           savedAt,
         },
         courses,
+        quarters:
+          clean(document.querySelector("#rdoQAll")?.parentElement?.textContent)
+            .match(/[1-4]/g)
+            ?.map((quarter) => `${quarter}Q`) || [],
       },
       courses.length === 0,
     );
@@ -323,9 +374,7 @@
 
   if (kind === "declared") {
     const tables = [
-      ...document.querySelectorAll(
-        'table[id^="kamokuUnit_"][id$="_gvKamoku"]',
-      ),
+      ...document.querySelectorAll('table[id^="kamokuUnit_"][id$="_gvKamoku"]'),
     ];
     if (!tables.length)
       return incomplete("The declared-course page shape is unknown.");
@@ -342,14 +391,11 @@
         if (!row.querySelector("td") || !clean(row.textContent)) continue;
         const link = row.querySelector("a.kamokuGridKamokuName");
         if (!link) return incomplete("A declared-course row is incomplete.");
-        const offeringId = new URL(link.href, location.href).searchParams.get(
-          "jwc",
-        ) || "";
+        const offeringId =
+          new URL(link.href, location.href).searchParams.get("jwc") || "";
         if (!/^\d{9}$/.test(offeringId))
           return incomplete("A declared-course identifier is invalid.");
-        const range = text(row, "td.tdQ").match(
-          /^([1-4])(?:\s*-\s*([1-4]))?$/,
-        );
+        const range = text(row, "td.tdQ").match(/^([1-4])(?:\s*-\s*([1-4]))?$/);
         const credit = text(row, "span.resultUnitKamokuTaniSP").match(
           /\[\s*([\d.]+)-([\d.]+)-([\d.]+)\s*\]/,
         );
@@ -362,8 +408,7 @@
           quarters: range
             ? Array.from(
                 {
-                  length:
-                    Number(range[2] || range[1]) - Number(range[1]) + 1,
+                  length: Number(range[2] || range[1]) - Number(range[1]) + 1,
                 },
                 (_, index) => Number(range[1]) + index,
               )
@@ -427,6 +472,16 @@
             text(row, "span.resultUnitKamokuCodeSP"),
           recommended: text(row, "td.resultUnitSuisho"),
           credits: text(row, "td.resultUnitTani"),
+          effectiveCredits: row
+            .querySelector("td.resultUnitTani")
+            ?.getAttribute("data-sort")
+            ?.trim()
+            ? Number(
+                row
+                  .querySelector("td.resultUnitTani")
+                  .getAttribute("data-sort"),
+              )
+            : undefined,
           result: text(row, "td.resultUnitSeiseki"),
           quarter: [...row.querySelectorAll('[class*="tdQuarter"]')]
             .map((cell) => clean(cell.textContent))
@@ -438,8 +493,7 @@
         return incomplete("A grouped grade table has no explicit rows.");
       groups.push({ category, rows });
     }
-    if (awaitingGroup)
-      return incomplete("A grade group has no result table.");
+    if (awaitingGroup) return incomplete("A grade group has no result table.");
     if (groupedCount) {
       return complete(
         "undergraduate-grouped",
@@ -472,9 +526,14 @@
           ? "undergraduate"
           : "";
       if (!section)
-        return incomplete("A flat grade table has no recognized section label.");
+        return incomplete(
+          "A flat grade table has no recognized section label.",
+        );
       const rows = page.rows
-        .filter((row) => row.some(Boolean) && !explicitEmpty({ textContent: row.join(" ") }))
+        .filter(
+          (row) =>
+            row.some(Boolean) && !explicitEmpty({ textContent: row.join(" ") }),
+        )
         .map((row) => ({
           title: row[titleAt] || "",
           instructor: row[instructorAt] || "",
@@ -515,13 +574,12 @@
       if (page.headers.length < 2)
         return incomplete("A requirement table has no semantic header.");
       const rows = page.rows
-        .filter((row) => row.some(Boolean) && !explicitEmpty({ textContent: row.join(" ") }))
-        .map((row) => ({ label: row[0] || "", values: row.slice(1) }));
-      if (
-        !rows.some((row) =>
-          /(?:卒業|修了)要件|修得済単位/.test(row.label),
+        .filter(
+          (row) =>
+            row.some(Boolean) && !explicitEmpty({ textContent: row.join(" ") }),
         )
-      )
+        .map((row) => ({ label: row[0] || "", values: row.slice(1) }));
+      if (!rows.some((row) => /(?:卒業|修了)要件|修得済単位/.test(row.label)))
         return incomplete("A requirement table has no recognized rows.");
       tables.push({ headers: page.headers, rows });
     }
@@ -577,4 +635,4 @@
     })
     .filter(Boolean);
   return complete("gpa-summary", { categories, overall, terms }, false);
-})()
+})();

@@ -337,10 +337,21 @@ fn in_year(date: &str, year: i32) -> bool {
 }
 
 pub(crate) fn content_language(workspace: &Value) -> &str {
-    workspace
+    match workspace
         .pointer("/settings/contentLanguage")
         .and_then(Value::as_str)
-        .unwrap_or("en")
+    {
+        Some("ja") => "ja",
+        Some("en") => "en",
+        _ if workspace
+            .pointer("/settings/locale")
+            .and_then(Value::as_str)
+            .is_some_and(|locale| matches!(locale, "ja" | "zh")) =>
+        {
+            "ja"
+        }
+        _ => "en",
+    }
 }
 
 pub(crate) fn localized(value: Option<&Value>, locale: &str, fallback: &str) -> String {

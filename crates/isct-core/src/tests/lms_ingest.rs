@@ -46,7 +46,8 @@ fn extractor_routes_work_by_loaded_page_and_explicit_scope() {
     assert!(LMS_EXTRACT_SCRIPT
         .contains("const requestedCourseId = explicitCourseId || (!fullScan ? pageCourseId : 0)"));
     assert!(LMS_EXTRACT_SCRIPT.contains("'core_calendar_get_action_events_by_course'"));
-    assert!(LMS_EXTRACT_SCRIPT.contains("fullScan && ((year === academicYear"));
+    assert!(LMS_EXTRACT_SCRIPT
+        .contains("return requestedCourseId ? Number(course.id) === requestedCourseId : fullScan"));
 }
 
 #[test]
@@ -116,16 +117,16 @@ fn page_captures_do_not_make_the_full_refresh_look_fresh() {
     apply_lms_payload(&mut connection, &payload).unwrap();
     let runs = store.last_import_runs().unwrap();
     assert!(runs["lms:summary"].is_string());
-    assert!(runs["lms:full"].is_null());
+    assert!(runs["lms:all"].is_null());
     payload.full_scan = true;
     apply_lms_payload(&mut connection, &payload).unwrap();
-    let full = store.last_import_runs().unwrap()["lms:full"].clone();
+    let full = store.last_import_runs().unwrap()["lms:all"].clone();
     assert!(full.is_string());
     payload.full_scan = false;
     apply_lms_payload(&mut connection, &payload).unwrap();
-    assert_eq!(store.last_import_runs().unwrap()["lms:full"], full);
+    assert_eq!(store.last_import_runs().unwrap()["lms:all"], full);
     payload.full_scan = true;
     payload.courses_complete = false;
     apply_lms_payload(&mut connection, &payload).unwrap();
-    assert_eq!(store.last_import_runs().unwrap()["lms:full"], full);
+    assert_eq!(store.last_import_runs().unwrap()["lms:all"], full);
 }

@@ -1,4 +1,4 @@
-export type Page = "home" | "lectures" | "web" | "settings";
+export type Page = "home" | "timetable" | "lectures" | "web" | "settings";
 export type Section =
   | "accounts"
   | "study"

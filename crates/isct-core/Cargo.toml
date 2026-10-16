@@ -32,6 +32,7 @@ percent-encoding = "2"
 base64 = "0.22"
 futures-util = "0.3"
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
+semver = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }

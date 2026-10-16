@@ -87,6 +87,8 @@ pub struct FinderDepartment {
     pub name: BTreeMap<String, String>,
     pub unit_code: String,
     #[serde(default)]
+    pub code_prefix: String,
+    #[serde(default)]
     pub scope: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -181,6 +183,21 @@ fn recognize(word: &str, ctx: &FinderContext, next: Option<&str>) -> Condition {
     let normalized = normalized(word);
     let w = normalized.trim();
     let lw = w.to_lowercase();
+    if let Some((prefix, value)) = w.split_once(':').filter(|(_, v)| !v.trim().is_empty()) {
+        let kind = match prefix.to_ascii_lowercase().as_str() {
+            "teacher" | "instructor" | "教員" | "教师" => Some("teacher"),
+            "room" | "教室" => Some("room"),
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            return make(
+                kind,
+                format!("{kind}:{}", value.trim()),
+                format!("{prefix}: {}", value.trim()),
+                json!(value.trim().to_lowercase()),
+            );
+        }
+    }
     if ["curr", "current", "当前", "今期"].contains(&lw.as_str()) {
         return make(
             "quarter",
@@ -534,10 +551,30 @@ fn searchable(course: &Value) -> String {
     )
 }
 fn remote_factor(f: &Factor) -> bool {
-    f.r#type != "exclude" && ["dept", "code", "level", "text"].contains(&f.r#type.as_str())
+    f.r#type != "exclude" && ["code", "level", "text", "teacher"].contains(&f.r#type.as_str())
 }
 fn hit(course: &Value, c: &Condition, ctx: &FinderContext) -> bool {
     c.values.iter().any(|v| match c.r#type.as_str() {
+        "teacher" => v.as_str().is_some_and(|needle| {
+            array(course, "instructors").iter().any(|name| {
+                ["ja", "en"]
+                    .iter()
+                    .any(|lang| lower(text(name, lang)).contains(needle))
+            })
+        }),
+        "room" => v.as_str().is_some_and(|needle| {
+            array(course, "schedule").iter().any(|slot| {
+                ["ja", "en"].iter().any(|lang| {
+                    lower(
+                        slot.get("room")
+                            .and_then(|r| r.get(*lang))
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                    )
+                    .contains(needle)
+                })
+            })
+        }),
         "quarter" => array(course, "quarters").contains(&json!(format!("{}Q", v))),
         "time" => weekly(course).any(|s| {
             (v.get("day").is_none() || v.get("day") == s.get("day"))
@@ -667,14 +704,19 @@ pub fn remote_plan(factors: &[Factor], scopes: &BTreeMap<String, String>) -> Val
         })
         .collect();
     let codes: Vec<_> = alts("code").iter().map(|c| c.key.clone()).collect();
+    let teachers: Vec<_> = alts("teacher")
+        .iter()
+        .flat_map(|c| &c.values)
+        .filter_map(Value::as_str)
+        .collect();
     let groups: Vec<_> = alts("level")
         .iter()
         .filter_map(|c| c.values.first().map(Value::to_string))
         .collect();
-    if words.is_empty() && scoped.is_empty() && codes.is_empty() {
+    if words.is_empty() && scoped.is_empty() && codes.is_empty() && factors.is_empty() {
         return json!({"unsupported":"empty"});
     }
-    if scoped.len().max(1) * codes.len().max(1) > 4 {
+    if scoped.len().max(1) * codes.len().max(1) * teachers.len().max(1) > 4 {
         return json!({"unsupported":"too-many"});
     }
     let q = if words.is_empty() { "." } else { &words };
@@ -692,6 +734,58 @@ pub fn remote_plan(factors: &[Factor], scopes: &BTreeMap<String, String>) -> Val
     for scope in &scoped {
         for code in &codes {
             let mut query = json!({"q":q});
+            let quarters: Vec<_> = alts("quarter")
+                .iter()
+                .flat_map(|c| &c.values)
+                .filter_map(Value::as_u64)
+                .collect();
+            if !quarters.is_empty() {
+                query["quarters"] = json!(quarters);
+            }
+            let times = alts("time");
+            if !times.is_empty() {
+                let days: Vec<_> = times
+                    .iter()
+                    .flat_map(|c| &c.values)
+                    .filter_map(|v| v["day"].as_u64())
+                    .collect();
+                if times
+                    .iter()
+                    .flat_map(|c| &c.values)
+                    .all(|v| v["day"].is_u64())
+                {
+                    query["days"] = json!(days);
+                }
+                // Start-time filtering is a superset: an earlier, longer class
+                // can overlap a requested slot. The local matcher checks overlap.
+                if times
+                    .iter()
+                    .flat_map(|c| &c.values)
+                    .all(|v| v["to"].is_u64())
+                {
+                    if let Some(to) = times
+                        .iter()
+                        .flat_map(|c| &c.values)
+                        .filter_map(|v| v["to"].as_u64())
+                        .max()
+                    {
+                        query["periodStarts"] = json!((1..=to).collect::<Vec<_>>());
+                    }
+                }
+            }
+            let languages = alts("lang");
+            if languages.len() == 1 && languages[0].values.len() == 1 {
+                query["language"] = languages[0].values[0].clone();
+            }
+            let requirements: Vec<_> = alts("group")
+                .iter()
+                .flat_map(|c| &c.values)
+                .cloned()
+                .collect();
+            if !requirements.is_empty() {
+                query["requirementGroups"] = json!(requirements);
+            }
+
             if let Some(scope) = scope {
                 query["scope"] = json!(scope);
             }
@@ -701,7 +795,15 @@ pub fn remote_plan(factors: &[Factor], scopes: &BTreeMap<String, String>) -> Val
             if !groups.is_empty() {
                 query["groups"] = json!(groups);
             }
-            queries.push(query);
+            if teachers.is_empty() {
+                queries.push(query);
+            } else {
+                for teacher in &teachers {
+                    let mut query = query.clone();
+                    query["teacher"] = json!(teacher);
+                    queries.push(query);
+                }
+            }
         }
     }
     json!({"queries":queries})
@@ -1059,26 +1161,35 @@ pub fn finder_view(
         .pointer("/settings/departmentId")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let admission = workspace.pointer("/academicProfile/admissionYear");
-    let recommended = array(workspace, "recommendedCourses")
+    let department_name = department_name_ja(selected_department)?;
+    let recommended = offerings
         .iter()
         .filter(|r| {
-            r.get("deletedAt").is_none_or(Value::is_null)
-                && r.get("admissionYear") == admission
-                && catalog_course_eligibility(workspace, &request.term, r).status
-                    != CourseEligibilityStatus::Ineligible
-                && !selected_department.is_empty()
-                && (text(r, "departmentId") == selected_department
-                    || selected_department.ends_with(&format!(":{}", text(r, "departmentId"))))
+            r["year"].as_u64() == Some(u64::from(request.year))
+                && department_name.as_deref().is_some_and(|name| {
+                    r.pointer("/kyomu/department").and_then(Value::as_str) == Some(name)
+                })
         })
-        .map(|r| {
-            (
+        .filter(|r| {
+            catalog_course_eligibility(workspace, &request.term, r).status
+                != CourseEligibilityStatus::Ineligible
+        })
+        .filter_map(|r| {
+            let group = r.pointer("/kyomu/group")?.as_str()?;
+            if group.is_empty() {
+                return None;
+            }
+            Some((
                 text(r, "code").to_string(),
                 Recommendation {
-                    group: text(r, "group").into(),
-                    mark: r.get("mark").and_then(Value::as_str).map(String::from),
+                    group: group.into(),
+                    mark: r
+                        .pointer("/kyomu/mark")
+                        .and_then(Value::as_str)
+                        .filter(|m| !m.is_empty())
+                        .map(str::to_string),
                 },
-            )
+            ))
         })
         .collect();
     let placed = crate::schedule::scheduled_courses(workspace, &request.term);

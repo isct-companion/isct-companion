@@ -592,6 +592,28 @@ fn academic_year_credits_and_colors_preserve_source_semantics() {
         declared_term_credits(pair.as_array().unwrap(), "2026-1Q").unwrap(),
         Some(2.5)
     );
+    // Fractions, historical spans and failed/pending results must not be
+    // replaced by declaration totals or by competency points.
+    let grades = json!([
+        {"completed":"2025前学期","quarter":"1","credits":"0.5-0.5-0","result":"合格"},
+        {"completed":"2025後学期","quarter":"3-4","credits":"1-0.5-0","effectiveCredits":1.5,"result":"75"},
+        {"completed":"2026前学期","quarter":"1-4","credits":"4-0-0","result":"認定"},
+        {"completed":"2024後学期","quarter":"3","credits":"2-0-0","result":"不合格"},
+        {"completed":"2026後学期","quarter":"3","credits":"2-0-0","result":"未報告"},
+        {"completed":"2023後学期","quarter":"3","credits":"2-0-0","result":"合格","missingSince":"x"}
+    ]);
+    let ledger = credits::earned_credits_by_term(grades.as_array().unwrap());
+    assert_eq!(ledger["2025-1Q"], 1.0);
+    assert_eq!(ledger["2025-3Q"], 0.75);
+    assert_eq!(ledger["2025-4Q"], 0.75);
+    assert_eq!(ledger["2026-2Q"], 1.0);
+    assert_eq!(ledger["2026-3Q"], 1.0);
+    assert_eq!(ledger["2024-3Q"], 0.0);
+    assert!(!ledger.contains_key("2023-3Q"));
+    assert_eq!(
+        declared_term_credits(pair.as_array().unwrap(), "2026-3Q").unwrap(),
+        None
+    );
     assert_eq!(
         display_color(
             &json!({"id":"c","code":"CSC.T262","color":"#526e91","overrides":{"color":"#806a9d"}})

@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
 import { getDesktopBridge } from "./desktop-bridge";
-import { useWorkspace } from "../store/useWorkspace";
+import { useViewQuery } from "./view-query";
 import type {
   AcademicProfile,
   CalendarException,
@@ -112,8 +111,6 @@ export type AcademicYearCalendar = {
 };
 export type { AcademicProfile };
 
-const pending = new Map<string, Promise<unknown[]>>();
-
 export async function scheduleQueries<T extends unknown[]>(
   queries: readonly ScheduleQuery[],
 ): Promise<T> {
@@ -148,63 +145,12 @@ export function useScheduleQueries<T extends unknown[]>(
   queries: readonly ScheduleQuery[],
   enabled = true,
 ): QueryState<T> {
-  const revision = useWorkspace((state) => state.contentRevision);
-  const [attempt, setAttempt] = useState(0);
-  const requestKey = JSON.stringify(queries);
-  const key = JSON.stringify([revision, queries]);
-  const [state, setState] = useState<
-    QueryState<T> & { key?: string; requestKey?: string }
-  >({ pending: enabled });
-  useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    let request = pending.get(key);
-    if (!request) {
-      request = scheduleQueries(queries);
-      pending.set(key, request);
-      // Completed values are disposable view caches, bounded independently of Core.
-      while (pending.size > 128) pending.delete(pending.keys().next().value!);
-      const ownedRequest = request;
-      void request.catch(() => {
-        if (pending.get(key) === ownedRequest) pending.delete(key);
-      });
-    }
-    void request.then(
-      (value) => {
-        if (active)
-          setState({ key, requestKey, value: value as T, pending: false });
-      },
-      (error) => {
-        if (active)
-          setState({
-            key,
-            requestKey,
-            error: String(error instanceof Error ? error.message : error),
-            pending: false,
-          });
-      },
-    );
-    return () => {
-      active = false;
-    };
-    // The serialized request includes all arguments and the snapshot revision.
-  }, [key, enabled, attempt]);
-  const retry = () => {
-    setState((current) => ({
-      key,
-      requestKey,
-      value: current.key === key ? current.value : undefined,
-      pending: true,
-    }));
-    setAttempt((current) => current + 1);
-  };
-  if (!enabled) return { pending: false };
-  if (state.key === key) return { ...state, retry };
-  return {
-    value: state.requestKey === requestKey ? state.value : undefined,
-    pending: true,
-    retry,
-  };
+  return useViewQuery(
+    "schedule",
+    queries,
+    () => scheduleQueries<T>(queries),
+    enabled,
+  );
 }
 
 export function useScheduleQuery<T>(

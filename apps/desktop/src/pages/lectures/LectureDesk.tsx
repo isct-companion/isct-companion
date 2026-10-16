@@ -1,3 +1,4 @@
+import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { usePanelRef } from "react-resizable-panels";
@@ -20,7 +21,7 @@ import type { CourseEntry } from "../../features/lms/LmsWorkspace";
 import { useFormFactor } from "../../app/form-factor";
 import { useClock } from "../../platform/use-clock";
 import {
-  useScheduleQuery,
+  useScheduleQueries,
   type ScheduleView,
   type TaskView,
 } from "../../platform/core-query";
@@ -107,19 +108,20 @@ export function LectureDesk({
   const nowIso = useClock(active);
   const now = useMemo(() => new Date(nowIso), [nowIso]);
   const today = jstDate(now);
-  const schedule = useScheduleQuery<ScheduleView>({
-    kind: "scheduleView",
-    term: shownTerm,
-    from: today,
-    to: addDays(today, 7),
-    includePersonal: true,
-  }).value;
+  const snapshot = useScheduleQueries<[ScheduleView, TaskView]>([
+    {
+      kind: "scheduleView",
+      term: shownTerm,
+      from: today,
+      to: addDays(today, 7),
+      includePersonal: true,
+    },
+    { kind: "taskView", now: nowIso },
+  ]).value;
+  const schedule = snapshot?.[0];
+  const taskView = snapshot?.[1];
   const terms = schedule?.allTerms.length ? schedule.allTerms : [term];
   const courses = schedule?.courses ?? [];
-  const taskView = useScheduleQuery<TaskView>({
-    kind: "taskView",
-    now: nowIso,
-  }).value;
   const taskTerm = taskView?.byTerm?.[shownTerm];
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
 
@@ -160,7 +162,10 @@ export function LectureDesk({
           when: meeting?.when,
           room: meeting?.room,
           due: due
-            ? { label: due.countdownLabel, tone: due.countdownTone }
+            ? {
+                label: deadlineText(due, data.settings.locale).countdownLabel,
+                tone: due.countdownTone,
+              }
             : undefined,
         };
       })
@@ -173,13 +178,19 @@ export function LectureDesk({
     const byId = new Map(courses.map((course) => [course.id, course]));
     return (taskTerm?.lectureOpenIds ?? [])
       .flatMap((id) => byAssignment.get(id) ?? [])
-      .map((a) => {
+      .flatMap((a) => {
+        const course = byId.get(a.courseId);
+        if (!course) return [];
         const deadline = taskView?.deadlines?.[a.id];
         return {
           assignment: a,
-          course: byId.get(a.courseId)!,
+          course,
           due: deadline
-            ? { label: deadline.countdownLabel, tone: deadline.countdownTone }
+            ? {
+                label: deadlineText(deadline, data.settings.locale)
+                  .countdownLabel,
+                tone: deadline.countdownTone,
+              }
             : undefined,
         };
       });
@@ -189,7 +200,10 @@ export function LectureDesk({
     const byId = new Map(courses.map((course) => [course.id, course]));
     return (taskTerm?.lectureHiddenIds ?? [])
       .flatMap((id) => byAssignment.get(id) ?? [])
-      .map((a) => ({ assignment: a, course: byId.get(a.courseId)! }));
+      .flatMap((a) => {
+        const course = byId.get(a.courseId);
+        return course ? [{ assignment: a, course }] : [];
+      });
   }, [byAssignment, courses, taskTerm]);
   const needle = query.trim().toLowerCase();
   const shownWork = needle

@@ -769,6 +769,7 @@ describe("the LMS reading workspace", () => {
             at: "2026-10-10T09:00:00+09:00",
             label: "Due 10 Oct, 09:00",
             tone: "normal",
+            remainingMilliseconds: 172800000,
             countdownLabel: "2d",
             countdownTone: "soon",
             overdue: false,

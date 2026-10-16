@@ -337,6 +337,17 @@ pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
         .iter()
         .filter(|row| visible(row) && text(row, "id").is_some_and(|id| ids.contains(id)))
         .cloned()
+        .map(|mut course| {
+            if let Some(meetings) = course.get_mut("meetings").and_then(Value::as_array_mut) {
+                meetings.retain(|meeting| {
+                    meeting
+                        .get("termIds")
+                        .and_then(Value::as_array)
+                        .is_none_or(|terms| terms.iter().any(|t| t.as_str() == Some(term)))
+                });
+            }
+            course
+        })
         .collect()
 }
 

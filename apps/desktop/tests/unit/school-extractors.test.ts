@@ -628,3 +628,204 @@ describe("bundled public subscription data", () => {
     }
   });
 });
+
+describe("official course discovery and academic identity", () => {
+  it("returns timing, rooms and requirements with search results, rejecting incomplete columns", async () => {
+    const html = readRepoFile(
+      "crates/isct-core/tests/fixtures/kyomu/course-search.html",
+    );
+    const provenance = JSON.parse(
+      readRepoFile(
+        "crates/isct-core/tests/fixtures/kyomu/content-provenance.json",
+      ),
+    );
+    expect(createHash("sha256").update(html).digest("hex")).toBe(
+      provenance.fixtures[0].sha256,
+    );
+    expect(Buffer.byteLength(html)).toBe(provenance.fixtures[0].bytes);
+    const read = async (source: string) => {
+      const dom = new JSDOM(source, {
+        url: "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0_1.aspx",
+        runScripts: "outside-only",
+      });
+      return (await dom.window.eval(asset("kyomu-search.js"))) as Extracted;
+    };
+    const result = await read(html);
+    expect(result.status).toBe("ok");
+    const courses = result.data.courses as Record<string, unknown>[];
+    expect(courses).toHaveLength(14);
+    expect(courses.find((c) => c.id === "202602431")).toMatchObject({
+      code: "CSC.T273",
+      quarters: ["3Q"],
+      credits: { lecture: 1, exercise: 1, lab: 0 },
+      schedule: [
+        {
+          kind: "weekly",
+          day: 1,
+          periods: [3, 4],
+          room: { ja: "M-B07, 情報工学系計算機室" },
+        },
+        {
+          kind: "weekly",
+          day: 4,
+          periods: [3, 4],
+          room: { ja: "M-B07, 情報工学系計算機室" },
+        },
+      ],
+      kyomu: { group: "C", mark: "recommended" },
+    });
+    expect(
+      await read(html.replace(/授業担当教員/g, "changed-column")),
+    ).toMatchObject({ status: "error" });
+  });
+
+  it("merges the rooms from repeated weekday cells and extracts only academic identity", () => {
+    const block = (day: string) =>
+      `<div data-jwc="202602431"><p class="ttKamokuName"><a>Course</a></p><p class="ttSinkokuNo">CSC.T273</p><p class="ttYoubi">3Q：月3-4${day === "月" ? " (M-B07)" : ""}<br>3Q：木3-4${day === "木" ? " (W9-324)" : ""}</p></div>`;
+    const registration = runExtractor(
+      paths.registrations,
+      `<div id="divSinkokuStatus"></div><table id="timetable"><tr><td>${block("月")}</td><td>${block("木")}</td></tr></table><table id="kamokuUnit_1_gvKamoku"><tr><th>授業担当教員</th><th>備考</th></tr></table>`,
+    );
+    expect(registration).toMatchObject({
+      status: "ok",
+      data: {
+        courses: [
+          {
+            schedule: [
+              { quarter: "3Q", day: "月", periods: [3, 4], room: "M-B07" },
+              { quarter: "3Q", day: "木", periods: [3, 4], room: "W9-324" },
+            ],
+          },
+        ],
+      },
+    });
+    const path =
+      "/Titech/Student/%E5%AD%A6%E7%94%9F%E6%83%85%E5%A0%B1/PID4_2.aspx";
+    const profile = runExtractor(
+      path,
+      `<div id="ctl00_ContentPlaceHolder1_divMain"><h2>【現在】 学士課程</h2><div><table><tr><th>所属</th><td>情報工学系</td></tr><tr><th>入学年月日</th><td>2025/04/01</td></tr><tr><th>入学試験区分</th><td>前期日程</td></tr><tr><th>氏名</th><td>PRIVATE-NAME</td></tr><tr><th>学籍番号</th><td>PRIVATE-ID</td></tr><tr><th>個人メールアドレス</th><td>private@example.invalid</td></tr></table></div></div>`,
+    );
+    expect(profile).toMatchObject({
+      status: "ok",
+      kind: "profile",
+      data: {
+        department: "情報工学系",
+        admittedOn: "2025-04-01",
+        programme: "学士課程",
+      },
+    });
+    expect(JSON.stringify(profile)).not.toMatch(/PRIVATE|private@example/);
+  });
+});
+
+it("emits at most 100 official courses per cursor and rejects a cursor reused for another query", async () => {
+  const template = new JSDOM(
+    readRepoFile("crates/isct-core/tests/fixtures/kyomu/course-search.html"),
+    {
+      url: "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0_1.aspx",
+      runScripts: "outside-only",
+    },
+  );
+  const grid = template.window.document.querySelector("table")!;
+  const row = grid.querySelector('a[href*="jwc="]')!.closest("tr")!;
+  const header = grid.querySelector("tr")!.outerHTML;
+  grid.innerHTML =
+    header +
+    Array.from({ length: 205 }, (_, i) => {
+      const copy = row.cloneNode(true) as HTMLTableRowElement;
+      copy
+        .querySelector("a")!
+        .setAttribute(
+          "href",
+          `https://syllabus.s.isct.ac.jp/courses?jwc=${202600000 + i}`,
+        );
+      return copy.outerHTML;
+    }).join("");
+  const ids: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 3; page++) {
+    const nextCursor = `00000000-0000-4000-8000-${String(page + 1).padStart(12, "0")}`;
+    template.window.eval(
+      `globalThis.__ISCT_COMPANION_KYOMU_HIDDEN__=true;globalThis.__ISCT_COMPANION_KYOMU_PAGE__=${JSON.stringify({ cursor, nextCursor })}`,
+    );
+    const result = (await template.window.eval(
+      asset("kyomu-search.js"),
+    )) as Extracted;
+    expect(result.status).toBe("ok");
+    const rows = result.data.courses as { id: string }[];
+    expect(rows).toHaveLength(page < 2 ? 100 : 5);
+    ids.push(...rows.map((row) => row.id));
+    cursor = result.data.nextCursor as string | undefined;
+    if (page < 2) expect(cursor).toBe(nextCursor);
+  }
+  expect(cursor).toBeUndefined();
+  expect(new Set(ids).size).toBe(205);
+  // The native boundary receives course rows and an opaque cursor, never form tokens.
+  template.window.eval(
+    `history.replaceState(null,'','?Name=another-query');globalThis.__ISCT_COMPANION_KYOMU_PAGE__={cursor:'00000000-0000-4000-8000-000000000002',nextCursor:'00000000-0000-4000-8000-000000000004'}`,
+  );
+  const stale = (await template.window.eval(
+    asset("kyomu-search.js"),
+  )) as Extracted;
+  expect(stale).toMatchObject({
+    status: "error",
+    message: "The course search page expired. Refresh the search.",
+  });
+});
+
+it("posts only grid paging events and keeps form state out of course results", async () => {
+  const url =
+    "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0_1.aspx";
+  const dom = new JSDOM(
+    readRepoFile("crates/isct-core/tests/fixtures/kyomu/course-search.html"),
+    { url, runScripts: "outside-only" },
+  );
+  const grid = dom.window.document.querySelector("table")!;
+  const row = grid.querySelector('a[href*="jwc="]')!.closest("tr")!;
+  const header = grid.querySelector("tr")!.outerHTML;
+  const target = "ctl00$ContentPlaceHolder1$gvGrid$ctl01$ctl03";
+  const page = (start: number, count: number, more: boolean) => {
+    const rows = Array.from({ length: count }, (_, index) => {
+      const copy = row.cloneNode(true) as HTMLTableRowElement;
+      copy
+        .querySelector("a")!
+        .setAttribute(
+          "href",
+          `https://syllabus.s.isct.ac.jp/courses?jwc=${202600000 + start + index}`,
+        );
+      return copy.outerHTML;
+    }).join("");
+    return `<form><input type="hidden" name="__VIEWSTATE" value="school-token"><input type="submit" name="btnSelect" value="追加申告する"><table id="ctl00_ContentPlaceHolder1_gvGrid">${header}${rows}${more ? `<tr><td><a href="javascript:__doPostBack('${target}','')">&gt;&gt;</a></td></tr>` : ""}</table></form>`;
+  };
+  const first = page(0, 100, true);
+  const second = page(100, 5, false);
+  dom.window.document.body.innerHTML = page(0, 10, false);
+  const select = dom.window.document.createElement("select");
+  select.id = "ctl00_ContentPlaceHolder1_gvGrid_ctl01_drpPageSize";
+  select.name = "ctl00$ContentPlaceHolder1$gvGrid$ctl01$drpPageSize";
+  select.innerHTML =
+    '<option value="10">10</option><option value="100">100</option>';
+  dom.window.document.querySelector("table")!.appendChild(select);
+  // The network is the only dependency replaced: execute the shipped reader
+  // over real DOM/FormData, with the university responses supplied at its port.
+  dom.window.eval(
+    `globalThis.responses=${JSON.stringify([first, second])};globalThis.posts=[];globalThis.fetch=async (url,options)=>{posts.push(Object.fromEntries(options.body));return {ok:true,url,text:async()=>responses.shift()}};globalThis.__ISCT_COMPANION_KYOMU_HIDDEN__=true;globalThis.__ISCT_COMPANION_KYOMU_PAGE__={nextCursor:'00000000-0000-4000-8000-000000000001'}`,
+  );
+  const a = (await dom.window.eval(asset("kyomu-search.js"))) as Extracted;
+  expect(a.status).toBe("ok");
+  expect(a.data.courses).toHaveLength(100);
+  expect(JSON.stringify(a)).not.toContain("school-token");
+  dom.window.eval(
+    `globalThis.__ISCT_COMPANION_KYOMU_PAGE__={cursor:'00000000-0000-4000-8000-000000000001',nextCursor:'00000000-0000-4000-8000-000000000002'}`,
+  );
+  const b = (await dom.window.eval(asset("kyomu-search.js"))) as Extracted;
+  expect(b.status).toBe("ok");
+  expect(b.data.courses).toHaveLength(5);
+  expect(b.data.nextCursor).toBeUndefined();
+  const posts = dom.window.eval("posts") as Record<string, string>[];
+  expect(posts.map((p) => p.__EVENTTARGET)).toEqual([select.name, target]);
+  expect(posts[0][select.name]).toBe("100");
+  expect(
+    posts.every((p) => p.__VIEWSTATE === "school-token" && !("btnSelect" in p)),
+  ).toBe(true);
+});

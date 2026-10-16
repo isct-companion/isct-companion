@@ -136,3 +136,9 @@ impl From<BrowserError> for SchoolBrowserError {
 #[cfg(test)]
 #[path = "../tests/school_browser.rs"]
 mod tests;
+
+impl From<SchoolBrowserError> for crate::pull_coordinator::PullError {
+    fn from(error: SchoolBrowserError) -> Self {
+        crate::school_service::map_executor_error(engine::map_executor(error))
+    }
+}

@@ -438,6 +438,24 @@ pub fn catalog_course(
 ///
 /// The teaching table is passed in rather than read here: one builder serves
 /// both the intent path and the MCP path, and both resolve the table once.
+pub(crate) fn catalog_instructor_names(offering: &Value) -> Value {
+    let mut names = serde_json::Map::new();
+    for language in ["ja", "en"] {
+        let value = offering["instructors"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|name| name[language].as_str())
+            .filter(|name| !name.is_empty())
+            .collect::<Vec<_>>()
+            .join(" / ");
+        if !value.is_empty() {
+            names.insert(language.into(), value.into());
+        }
+    }
+    Value::Object(names)
+}
+
 pub(crate) fn planned_catalog_course(
     offering: &Value,
     course_id: &str,
@@ -465,14 +483,14 @@ pub(crate) fn planned_catalog_course(
         .join(" / ");
     Ok(json!({
         "id":course_id, "kind":"course", "termId":term_id, "offeringId":offering_id,
-        "names":{"title":offering.get("title"),"instructor":offering.get("instructors").and_then(Value::as_array).and_then(|items| items.first()).cloned().unwrap_or_else(|| json!({}))},
+        "names":{"title":offering.get("title"),"instructor":catalog_instructor_names(offering)},
         "code":offering.get("code").and_then(Value::as_str).unwrap_or_default(),
         "title":localized(offering.get("title"), locale), "instructor":instructor, "credits":total,
         "creditSplit":credits,
         "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
         "color":"#556b8d", "meetings":catalog_meetings(offering, locale, teaching_periods)?,
         "url":offering.get("syllabusUrl"),
-        "source":{"provider":"syllabus","externalId":offering_id}
+        "source":{"provider":if offering.get("kyomu").is_some() { "kyomu" } else { "syllabus" },"externalId":offering_id}
     }))
 }
 

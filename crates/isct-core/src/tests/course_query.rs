@@ -2,7 +2,8 @@ use super::*;
 fn eligibility_offering(id: &str, code: &str) -> Value {
     json!({
         "id":id, "year":2026, "code":code, "quarters":["3Q"],
-        "unitCode":"342300", "title":{"en":code}, "format":{"kinds":[]}
+        "unitCode":"342300", "title":{"en":code}, "format":{"kinds":[]},
+        "kyomu":{"department":"情報工学系","group":"A","mark":"recommended"}
     })
 }
 
@@ -237,4 +238,36 @@ fn matches_original_typescript_finder_traces() {
         };
         assert_eq!(actual, case["expected"], "case {index}: {}", case["input"]);
     }
+}
+
+#[test]
+fn teacher_queries_use_official_search_while_rooms_and_overlap_stay_local() {
+    let context = FinderContext::default();
+    let keys = ["teacher:Tanaka", "room:W9", "3Q", "火3-4"].map(str::to_string);
+    let factors = factors_of(&keys, &context).factors;
+    let course = |id: &str, teacher: &str, room: &str, periods: [u8; 2]| {
+        json!({
+            "id":id,"code":id,"quarters":["3Q"],"title":{"ja":id},
+            "instructors":[{"en":teacher}],
+            "schedule":[{"kind":"weekly","day":2,"periods":periods,"room":{"ja":room}}]
+        })
+    };
+    let courses = [
+        course("match", "TANAKA", "W9-324", [1, 4]),
+        course("wrong-room", "Tanaka", "M-B07", [3, 4]),
+        course("wrong-time", "Tanaka", "W9-324", [5, 6]),
+        course("wrong-teacher", "Suzuki", "W9-324", [3, 4]),
+    ];
+    let rows = run(&courses, &factors, &context, "");
+    assert_eq!(
+        rows.iter()
+            .map(|row| text(&row.course, "id"))
+            .collect::<Vec<_>>(),
+        vec!["match"]
+    );
+    let plan = remote_plan(&factors, &BTreeMap::new());
+    assert_eq!(
+        plan["queries"],
+        json!([{"q":".","teacher":"tanaka","quarters":[3],"days":[2],"periodStarts":[1,2,3,4]}])
+    );
 }

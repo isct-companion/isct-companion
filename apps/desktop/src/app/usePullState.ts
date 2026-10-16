@@ -93,12 +93,12 @@ export function usePullState() {
         progress.phase === "timetable"
           ? t("Preparing your timetable")
           : progress.phase === "catalog"
-            ? "Reading enrolled courses"
+            ? t("Reading enrolled courses")
             : progress.phase === "course"
-              ? "Loading course"
+              ? t("Loading course")
               : progress.phase === "material"
-                ? "Reading material"
-                : "Checking assignment";
+                ? t("Reading material")
+                : t("Checking assignment");
       setLmsPhase(`${label} · ${context || "LMS"} · ${count}`);
     });
     return () => {
@@ -112,7 +112,7 @@ export function usePullState() {
     kyomuProgress,
     setLmsProgress,
     setKyomuProgress,
-    lmsPhase,
+    lmsPhase: t(lmsPhase),
     setLmsPhase,
     loginSteps,
     pulling,

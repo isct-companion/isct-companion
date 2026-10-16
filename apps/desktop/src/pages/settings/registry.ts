@@ -104,6 +104,18 @@ export type SettingEntry = {
 
 export const SETTING_ENTRIES: SettingEntry[] = [
   {
+    section: "about",
+    id: "updates",
+    title: "App updates",
+    terms: "version update download 更新 版本",
+  },
+  {
+    section: "about",
+    id: "automatic-updates",
+    title: "Automatic updates",
+    terms: "background install 自动更新 自動更新",
+  },
+  {
     section: "accounts",
     id: "science",
     title: "Science Tokyo account",

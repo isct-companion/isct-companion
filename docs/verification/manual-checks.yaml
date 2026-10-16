@@ -227,13 +227,16 @@ checks:
       The account from SCHOOL-SIGNIN-SCIENCE is Signed in.
     steps:
       - action: |
-          Trigger a full LMS pull and leave the window alone until it ends.
+          In a fresh disposable workspace, sign in and let the initial automatic
+          full LMS pull finish. Then use Pull from LMS and verify it defaults
+          to all courses, including quarters outside the current semester.
         reason: |
           The uninterrupted path establishes the baseline the interrupted path
           is compared against.
       - action: |
-          Compare the pulled course list and assignments with the LMS open in
-          another browser.
+          Compare courses and assignments with the authenticated LMS. Select
+          Pull current quarter only, then reopen a previously cached lecture.
+          Keep reading while the later partial background refresh finishes.
         reason: |
           A pull that "succeeds" with silently dropped courses is the failure
           this step catches; matching counts alone would not.
@@ -246,8 +249,10 @@ checks:
       The LMS page course and assignment lists, the refresh timestamp, and the
       visible school page that interrupted the second pull.
     expected: |
-      The first pull matches the LMS exactly and advances its timestamp; the
-      interrupted pull leaves the previous rows intact and resumes.
+      The first pull matches the LMS course list and advances its timestamp;
+      current-only reads the actual current quarter. Cached lecture content
+      remains usable during refresh and changed content produces one quiet,
+      short in-app update notice. Interrupted work retains old rows and resumes.
     why_manual: |
       Depends on the authenticated Moodle session above. The AJAX surface is
       read-only but account-scoped, so no fixture can stand in for a real
@@ -1206,4 +1211,79 @@ checks:
       - apps/desktop/src/pages/settings/NotificationSettings.tsx
       - apps/desktop/src-tauri/src/commands/notifications.rs
       - crates/isct-core/src/schedule/reminders.rs
+    verified: null
+
+  - id: SCHOOL-OFFICIAL-COURSE-PAGES
+    area: desktop
+    title: Official course search and enrollment use the authenticated native session
+    persona: undergraduate-senior
+    preconditions: |
+      An updated native desktop build, a real Tokyo Tech account, and the
+      student's registered timetable available in 教務Web. Use a disposable
+      local workspace for the fresh-profile check.
+    steps:
+      - action: |
+          Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
+          the department, admission year and current timetable with the source.
+        reason: |
+          Only a real account exposes the current programme and the registered
+          timetable. It also exercises native redirects and the hidden reader.
+      - action: |
+          Search a broad course prefix with more than 100 results, scroll to
+          load another page, then narrow by teacher, quarter and start period.
+        reason: |
+          Exercises live ASP.NET paging and session form state in the native
+          hidden browser; fixture tests cannot prove the university accepts
+          those postbacks. Changing conditions must start a fresh query.
+      - action: |
+          Open one result's syllabus details and one registered course's LMS
+          materials; refresh LMS and reopen the timetable.
+        reason: |
+          Real school sessions must support both content destinations without
+          a detail refresh or LMS membership changing official enrollment.
+    observe: |
+      Settings > Study, Schedule, the course search list and the native school
+      browser. Compare the same course code, quarter, time and room in 教務Web.
+    expected: |
+      Fresh profile fields match 教務Web; current enrollment and rooms match
+      its timetable. Search appends at most 100 courses per batch without
+      duplicates, changes filters on the server, and preserves loaded rows.
+      Syllabus details and LMS materials open for the same course; LMS refresh
+      leaves the official timetable intact. No university registration is changed.
+    why_manual: |
+      Requires real student authentication, native hidden-browser ownership,
+      the live university postback state and authenticated content destinations.
+      Headless tests exercise the parser, shared projections and UI paging only.
+    covers:
+      - crates/isct-core/src/school_browser/engine/extraction.rs
+      - crates/isct-core/src/school_browser/assets/kyomu-search.js
+      - crates/isct-core/src/school_browser/assets/kyomu-extract.js
+      - crates/isct-core/src/data/kyomu_projection.rs
+      - apps/desktop/src/pages/courses/CourseFinder.tsx
+    verified: null
+
+  - id: DESKTOP-SIGNED-UPDATES
+    area: desktop
+    title: Signed native updates preserve the existing workspace
+    persona: undergraduate-senior
+    preconditions: |
+      An installed update-enabled desktop bundle, a newer signed desktop release,
+      and a disposable workspace containing a timetable and a saved note.
+      Update signing secrets must already be configured by the maintainer.
+    steps:
+      - action: Check for updates in Settings > About and download the offered update.
+        reason: Only a signed native bundle exercises updater signature verification and the OS installer.
+      - action: Enable automatic updates, quit, reopen, and inspect the timetable and saved note.
+        reason: Verifies installation goes through native shutdown and retains the same application-data directory.
+      - action: On Windows, launch the release installer build from Explorer and open a workspace file.
+        reason: A headless Unix test cannot detect an unwanted Windows console or child-process console.
+    observe: Settings > About, the native app window, Windows desktop, and the saved workspace.
+    expected: |
+      The newer version installs on exit without losing saved data. A signature
+      mismatch is rejected. Windows release launches have no accompanying terminal.
+    why_manual: Requires signed release artifacts, native installers and a real Windows desktop.
+    covers:
+      - apps/desktop/src-tauri/src/desktop_updates.rs
+      - apps/desktop/src-tauri/src/main.rs
+      - .github/workflows/desktop-release.yml
     verified: null

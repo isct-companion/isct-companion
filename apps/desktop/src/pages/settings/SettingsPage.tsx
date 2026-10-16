@@ -207,7 +207,6 @@ export function Settings({
         data={data}
         update={update}
         setStudyProfile={setStudyProfile}
-        refreshReferences={refreshReferences}
         openSection={sectionSupported("calendar", context) ? open : undefined}
       />
     ) : current === "notifications" ? (
@@ -265,7 +264,7 @@ export function Settings({
     ) : current === "diagnostics" ? (
       <DiagnosticsSettings data={data} caps={caps} />
     ) : current === "about" ? (
-      <AboutSettings />
+      <AboutSettings data={data} update={update} />
     ) : null;
 
   return (

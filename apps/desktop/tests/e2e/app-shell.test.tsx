@@ -281,61 +281,64 @@ it("replaces a clashing course and Undo restores the previous one", async () => 
     planItems: [planItemFor(clashingCourse)],
   });
 
-  app = await mountApp({
-    workspace: before,
-    queries: {
-      workspaceOverview: (_query, core) => overviewFor(core.workspace),
-      planningWeek: (_query, core) => planningWeekFor(core.workspace),
-      scheduleView: (_query, core) => scheduleViewFor(core.workspace),
-    },
-    finder: (request) => ({
-      context: {
-        currentQuarter: 3,
-        recommended: {},
-        departments: [],
-        busy: [{ day: 2, from: 7, to: 8 }],
+  app = await mountApp(
+    {
+      workspace: before,
+      queries: {
+        workspaceOverview: (_query, core) => overviewFor(core.workspace),
+        planningWeek: (_query, core) => planningWeekFor(core.workspace),
+        scheduleView: (_query, core) => scheduleViewFor(core.workspace),
       },
-      courses: [placed, clashing],
-      factors: [],
-      duplicates: 0,
-      keys: request.keys ?? [],
-      plan: { unsupported: "empty" },
-      rows: [placed, clashing].map((course) => ({ course, matched: [] })),
-      suggestions: [],
-      live: String(request.input ?? ""),
-      clashes: [clashing.id],
-      ineligibleIds: [],
-      eligibility: {},
-      replacements: { [clashing.id]: [placedCourse.id] },
-      credits: { [placed.id]: 2, [clashing.id]: 2 },
-      onTimetable: [placedCourse.code],
-      activeSlots: ["火7-8"],
-      pasteHandled: false,
-      pastedIds: [],
-      missingCodes: [],
-      ineligibleCodes: [],
-      detailIds: [],
-    }),
-    handle: (command) => {
-      if (command === "catalog_offerings") return [placed, clashing];
-      if (command === "catalog_query")
-        return {
-          items: [{ id: placed.id }],
-          total: 1,
-          returned: 1,
-          truncated: false,
-        };
-      return undefined;
+      finder: (request) => ({
+        context: {
+          currentQuarter: 3,
+          recommended: {},
+          departments: [],
+          busy: [{ day: 2, from: 7, to: 8 }],
+        },
+        courses: [placed, clashing],
+        factors: [],
+        duplicates: 0,
+        keys: request.keys ?? [],
+        plan: { unsupported: "empty" },
+        rows: [placed, clashing].map((course) => ({ course, matched: [] })),
+        suggestions: [],
+        live: String(request.input ?? ""),
+        clashes: [clashing.id],
+        ineligibleIds: [],
+        eligibility: {},
+        replacements: { [clashing.id]: [placedCourse.id] },
+        credits: { [placed.id]: 2, [clashing.id]: 2 },
+        onTimetable: [placedCourse.code],
+        activeSlots: ["火7-8"],
+        pasteHandled: false,
+        pastedIds: [],
+        missingCodes: [],
+        ineligibleCodes: [],
+        detailIds: [],
+      }),
+      handle: (command) => {
+        if (command === "catalog_offerings") return [placed, clashing];
+        if (command === "catalog_query")
+          return {
+            items: [{ id: placed.id }],
+            total: 1,
+            returned: 1,
+            truncated: false,
+          };
+        return undefined;
+      },
+      // Core commits the replacement (or the undo) and returns the new snapshot.
+      apply: (intent, core) => {
+        if (intent.kind === "addCatalogCourses") {
+          core.publish(after, "revision:after");
+        } else if (intent.kind === "undoCatalogCourses") {
+          core.publish(before, "revision:undo");
+        }
+      },
     },
-    // Core commits the replacement (or the undo) and returns the new snapshot.
-    apply: (intent, core) => {
-      if (intent.kind === "addCatalogCourses") {
-        core.publish(after, "revision:after");
-      } else if (intent.kind === "undoCatalogCourses") {
-        core.publish(before, "revision:undo");
-      }
-    },
-  });
+    { route: paths.timetable() },
+  );
   const { host, core } = app;
 
   const editSwitch = await vi.waitFor(() => {
@@ -759,7 +762,7 @@ describe("shell navigation", () => {
  * ------------------------------------------------------------------ */
 
 describe("keyboard shortcuts", () => {
-  it("routes ⌘1–4 and Escape, replacing the section and cycling all four drawer tabs", async () => {
+  it("routes ⌘1–5 and Escape, replacing the section and cycling all four drawer tabs", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture({ courses: [placedCourse] }),
@@ -803,9 +806,10 @@ describe("keyboard shortcuts", () => {
 
     for (const [index, target] of [
       paths.home(),
+      paths.timetable(),
       paths.lectures(),
       paths.web(),
-      // ⌘4 returns to the section left above.
+      // ⌘5 returns to the section left above.
       paths.settings("study"),
     ].entries()) {
       await act(async () => {
@@ -900,7 +904,7 @@ describe("native listener ordering", () => {
           return baseHandle(command, args, core);
         },
       }),
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host, core } = app;
     // The planner timetable is the person-visible view of the workspace rows.
@@ -1096,7 +1100,7 @@ describe("Chinese UI", () => {
     const { host, core } = app;
 
     await until(() => expect(document.documentElement.lang).toBe("zh"));
-    expect(host.querySelector(".rail button")?.textContent).toContain("首页");
+    expect(host.querySelector(".rail button")?.textContent).toContain("今天");
     expect(document.body.textContent).toContain("中文");
     expect(
       host
@@ -1143,7 +1147,7 @@ describe("mobile shell", () => {
       `the ${label} tab`,
     );
 
-  it("drops the fixed status bar and shows four bottom tabs", async () => {
+  it("drops the fixed status bar and shows the primary bottom tabs", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture(),
@@ -1160,7 +1164,7 @@ describe("mobile shell", () => {
       [...host.querySelectorAll(".mobileTabs button")].map(
         (button) => button.textContent,
       ),
-    ).toEqual(["Home", "Lectures", "Web", "Settings"]);
+    ).toEqual(["Today", "Timetable", "Lectures", "Web", "Settings"]);
     expect(host.querySelector(".mobileStatusDot")).not.toBeNull();
   }, 20_000);
 
@@ -1256,7 +1260,7 @@ describe("mobile shell", () => {
     await until(() =>
       expect(window.location.hash).toBe(`#${paths.home("week")}`),
     );
-    await click(await tab(host, "Home"));
+    await click(await tab(host, "Today"));
     await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
   }, 20_000);
 
@@ -1822,6 +1826,59 @@ describe("schedule query caches", () => {
     ).toEqual(["late-quarter", "quick-quarter"]);
   }, 20_000);
 
+  it("retains the last complete calendar while a replacement is pending", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    installFakeCore({
+      workspace,
+      revision: "rev:retained-quarter",
+      handle: (command, args, live) => {
+        if (command !== "schedule_query") return undefined;
+        const term = (args.queries as { term: string }[])[0].term;
+        const answer = () =>
+          scheduleAnswer(
+            "workspaceOverview",
+            overviewFor(live.workspace, { term }),
+            "rev:retained-quarter",
+          );
+        return term === "replacement-quarter" ? gate.then(answer) : answer();
+      },
+    });
+    probe = await mount(
+      <ScheduleSwitchProbe
+        initial="retained-quarter"
+        next="replacement-quarter"
+      />,
+    );
+    await until(() =>
+      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
+        "retained-quarter",
+      ),
+    );
+    await click(probe.host.querySelector(".probeSwitch"));
+    expect(probe.host.querySelector(".probeTerm")?.textContent).toBe(
+      "retained-quarter",
+    );
+    expect(
+      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
+    ).toBe("yes");
+    await act(async () => {
+      release();
+      await gate;
+    });
+    await until(() =>
+      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
+        "replacement-quarter",
+      ),
+    );
+    expect(
+      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
+    ).toBe("no");
+  }, 20_000);
+
   it("retry re-issues the read without a remount and clears the error", async () => {
     const workspace = workspaceFixture({ courses: [placedCourse] });
     let failed = false;
@@ -2051,7 +2108,7 @@ describe("First school connection", () => {
       return element!;
     });
     expect(setup.textContent).toContain(
-      "first full LMS sync builds your timetable automatically",
+      "Tokyo Tech for your timetable and course search",
     );
     await click(setup.querySelector("button"));
     await until(() =>

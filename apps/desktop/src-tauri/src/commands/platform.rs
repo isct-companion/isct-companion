@@ -76,3 +76,36 @@ pub(crate) fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCap
         matrix_ocr: cfg!(matrix_ocr),
     })
 }
+
+#[cfg(desktop)]
+#[tauri::command]
+pub(crate) async fn check_app_update(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    manual: bool,
+    download: bool,
+) -> Result<crate::desktop_updates::UpdateStatus, String> {
+    crate::require_local_main(&webview)?;
+    crate::core_ports::runtime(&app)
+        .run(crate::desktop_updates::check(app.clone(), manual, download))
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[cfg(desktop)]
+#[tauri::command]
+pub(crate) fn app_update_state(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<crate::desktop_updates::UpdateStatus, String> {
+    crate::require_local_main(&webview)?;
+    crate::desktop_updates::snapshot(&app)
+}
+#[cfg(desktop)]
+#[tauri::command]
+pub(crate) fn install_app_update(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    crate::require_local_main(&webview)?;
+    crate::desktop_updates::request_install(&app)
+}

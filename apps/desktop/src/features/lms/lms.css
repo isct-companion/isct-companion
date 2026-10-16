@@ -577,3 +577,5 @@
 .lmsPdfControls, .lmsPdfZoom { min-width: 0; flex-wrap: wrap; }
 
 .lmsWorkspaceHint { margin: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.lmsPullControls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }

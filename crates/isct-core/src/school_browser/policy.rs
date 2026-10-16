@@ -62,6 +62,17 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
                 && value
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+            (url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
+                && url.path().eq_ignore_ascii_case(crate::catalog::KYOMU_SEARCH_PATH)
+                && match key.as_ref() {
+                    "Quarters" | "Youbi" | "KaisiJigenS" | "KamokuCodeSeries" | "HisshuKbn" => value.len()<=128 && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b','),
+                    "Lang_kj" | "Lang_ke" => value == "True",
+                    "TermUnit" => value.len() == 5 && value.bytes().all(|b| b.is_ascii_digit()) && matches!(value.as_bytes().last(),Some(b'1'|b'2')),
+                    "_search" | "ZengakuSenmonAll" | "Suisho" | "Zengaku" | "Senmon" | "SE" | "MD" => matches!(value.as_ref(),"True"|"False"),
+                    "ShinkokuNoS" | "Name" | "KyouinName" => value.chars().count() <= 200 && !value.chars().any(char::is_control),
+                    "back" => value == "0",
+                    _ => false,
+                }) ||
             (matches!(key.as_ref(), "id" | "course" | "page" | "section") && identifier)
                 // Keep only the draft editor action on the LMS assignment route.
                 || (key == "action"

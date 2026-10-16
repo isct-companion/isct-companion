@@ -11,8 +11,8 @@ mod lms_merge;
 
 use calendar::*;
 pub use catalog::catalog_course;
-pub(crate) use catalog::planned_catalog_course;
 use catalog::*;
+pub(crate) use catalog::{catalog_instructor_names, planned_catalog_course};
 use courses::*;
 pub use lms_merge::lms_merge_preview;
 use lms_merge::*;

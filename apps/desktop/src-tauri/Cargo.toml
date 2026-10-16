@@ -46,6 +46,8 @@ rmcp = { version = "=3.4.0", default-features = false, features = ["server", "tr
 subtle = "2"
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio = { version = "1", features = ["net"] }
+# Native v2 EXE and macOS tar.gz updates; legacy v1 ZIP installers are unused.
+tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 wry = "0.57"

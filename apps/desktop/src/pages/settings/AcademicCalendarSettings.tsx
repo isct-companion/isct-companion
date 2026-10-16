@@ -1,3 +1,4 @@
+import { formatJst } from "../../lib/civil-date";
 import { notify as appNotify } from "../../app/notify";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { t } from "../../i18n";
@@ -44,10 +45,10 @@ function isCalendarDate(value: string) {
 
 function weekdayName(day: number, locale: Workspace["settings"]["locale"]) {
   // 2024-01-01 was a Monday; day 1 = Monday … 7 = Sunday.
-  return new Intl.DateTimeFormat(languageTag(locale), {
+  return formatJst(new Date(Date.UTC(2024, 0, day)), locale, {
     weekday: "long",
     timeZone: "UTC",
-  }).format(new Date(Date.UTC(2024, 0, day)));
+  });
 }
 
 function describe(

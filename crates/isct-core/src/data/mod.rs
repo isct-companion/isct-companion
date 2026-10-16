@@ -1,6 +1,7 @@
 mod backup_store;
 mod catalog_store;
 mod defaults;
+mod kyomu_projection;
 mod lms_store;
 mod records;
 mod settings;
@@ -9,7 +10,7 @@ mod snapshot;
 pub use defaults::initial_workspace;
 use defaults::*;
 use records::*;
-pub(crate) use records::{canonical_course_id, resolve_course_id};
+pub(crate) use records::{canonical_course_id, lms_course_code, resolve_course_id};
 pub(crate) use settings::ADMISSION_YEARS;
 use settings::*;
 

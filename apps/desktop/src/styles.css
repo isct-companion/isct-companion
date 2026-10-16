@@ -2530,28 +2530,6 @@ p {
   color: var(--warn);
   flex-basis: 100%;
 }
-.finderPager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 6px;
-  border-top: 1px solid var(--line);
-  font-size: calc(12px * var(--text));
-  color: var(--muted);
-}
-.finderPager .textButton {
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-}
-.finderPager .textButton:disabled {
-  color: var(--muted);
-  opacity: 0.5;
-  cursor: default;
-}
 .courseFinder .finderResults {
   flex: 1;
   min-height: 0;
@@ -4624,4 +4602,39 @@ textarea.codeArea {
 .dueChip.urgent {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.finderLoadMore {
+  display: flex;
+  justify-content: center;
+}
+.finderLoadMore:has(button) {
+  padding: 12px;
+}
+
+.quarterPage,
+.calendarWorkspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.calendarWorkspace {
+  gap: 16px;
+}
+.calendarWorkspace .ttCard {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+:lang(zh) {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+:lang(ja) {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI",
+    "Meiryo", "Noto Sans CJK JP", system-ui, sans-serif;
 }
