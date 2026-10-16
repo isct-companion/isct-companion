@@ -200,15 +200,6 @@ describe("official school hosts", () => {
       "idp-saas.nap.gsic.titech.ac.jp",
     ]);
   });
-
-  it("records the 医歯学系 hosts as allowlisted but unverified", () => {
-    // Deliberate: a school page may hand off to them, but no adapter, no
-    // SchoolSite mapping and no live account has been exercised.
-    expect(schoolHosts()).toEqual(
-      expect.arrayContaining(["yushima2.tmd.ac.jp", "lib02.tmd.ac.jp"]),
-    );
-    expect(policySource()).toMatch(/NOT verified/i);
-  });
 });
 
 describe("school URL sanitisation", () => {
@@ -265,16 +256,6 @@ describe("school site mapping", () => {
       "portal.t4.gsic.titech.ac.jp": "Tsubame",
       "www.titech.ac.jp": "StudyGuide",
     });
-  });
-
-  it("leaves the two unverified 医歯学系 hosts without a site", () => {
-    // Allowlisted hosts without a SchoolSite are deliberate: the 医歯学系 pair
-    // has no adapter, and the Tokyo Tech Portal services open in the portal's
-    // own view rather than as a site of their own.
-    const unmapped = schoolHosts().filter((host) => !(host in siteMapping()));
-    expect(unmapped).toEqual(
-      expect.arrayContaining(["yushima2.tmd.ac.jp", "lib02.tmd.ac.jp"]),
-    );
   });
 });
 

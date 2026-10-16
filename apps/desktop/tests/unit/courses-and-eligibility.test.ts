@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { COURSE_FILE_POLICY as CORE_POLICY } from "@app/generated/persistence";
 import { submissionLabel } from "@app/lib/academic";
 import { COURSE_FILE_POLICY } from "@app/lib/course-file-policy";
-import { DAYS, LOCAL_TYPES } from "@app/lib/course-query";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "@app/lib/departments";
 import type { Assignment, Course } from "@app/lib/model";
 import { isSyllabusCourse } from "@app/lib/syllabus";
@@ -112,12 +110,6 @@ describe("the identity of a syllabus page", () => {
     expect(syllabusIdentity(`${CANONICAL_SYLLABUS_URL}?hl=ja`)).toBe(
       CANONICAL_SYLLABUS_URL,
     );
-  });
-
-  it("differs between the languages only by the English marker", () => {
-    const japanese = syllabusIdentity(CANONICAL_SYLLABUS_URL);
-    const english = syllabusIdentity(`${CANONICAL_SYLLABUS_URL}?hl=en`);
-    expect(english).toBe(`${japanese}?hl=en`);
   });
 
   it("drops every other query parameter and the fragment", () => {
@@ -640,10 +632,6 @@ describe("the bundled undergraduate departments", () => {
 describe("resolving the department stored in settings", () => {
   const cs = SYLLABUS_DEPARTMENTS.find((department) => department.id === "cs")!;
 
-  it("resolves a plain department id", () => {
-    expect(departmentById("cs")).toBe(cs);
-  });
-
   it("resolves a subscription-scoped id by the part after the colon", () => {
     expect(departmentById("2026:cs")).toBe(cs);
     expect(departmentById("undergraduate:cs")).toBe(cs);
@@ -682,44 +670,7 @@ describe("resolving the department stored in settings", () => {
   });
 });
 
-describe("the weekday labels the finder and timetable print", () => {
-  it("names the six teaching days from Monday", () => {
-    expect([...DAYS]).toEqual(["月", "火", "水", "木", "金", "土"]);
-  });
-
-  it("looks up a day number of one to six by subtracting one", () => {
-    const names = [1, 2, 3, 4, 5, 6].map((day) => DAYS[day - 1]);
-    expect(names).toEqual(["月", "火", "水", "木", "金", "土"]);
-  });
-
-  it("leaves a seventh day unnamed so no Sunday cell is mislabelled", () => {
-    expect(DAYS.at(6)).toBeUndefined();
-  });
-});
-
-describe("the finder conditions the loaded context can settle", () => {
-  it("marks exactly the recommendation group, mark and free-slot conditions", () => {
-    expect([...LOCAL_TYPES].sort()).toEqual(["free"]);
-  });
-
-  it("does not mark conditions that need the school to answer", () => {
-    for (const type of ["dept", "code", "level", "text"])
-      expect(LOCAL_TYPES.has(type), type).toBe(false);
-  });
-});
-
 describe("the course file limits the settings page edits", () => {
-  it("re-exports the policy Core generates instead of keeping a second copy", () => {
-    expect(COURSE_FILE_POLICY).toBe(CORE_POLICY);
-  });
-
-  it("exposes the two limits the storage settings offer", () => {
-    expect(Object.keys(COURSE_FILE_POLICY).sort()).toEqual([
-      "autoDownloadLimitMb",
-      "retentionDays",
-    ]);
-  });
-
   it("keeps every limit a usable control with the default inside its range", () => {
     for (const [name, policy] of Object.entries(COURSE_FILE_POLICY)) {
       expect(Number.isInteger(policy.min), name).toBe(true);

@@ -208,10 +208,9 @@ fn frozen_subscription_fixtures_validate_and_include_the_documented_cs_course() 
         .iter()
         .find(|department| department.id == "cs")
         .expect("Computer Science department");
-    assert!(cs
-        .recommended
-        .iter()
-        .any(|course| course.code == "CSC.T241" && course.group == "A"));
+    assert!(cs.recommended.iter().any(|course| course.code == "CSC.T241"
+        && course.group == "A"
+        && matches!(course.mark, Some(RecommendationMark::Recommended))));
 }
 
 #[test]

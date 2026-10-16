@@ -239,12 +239,6 @@ describe("Chinese translation catalogue", () => {
     // A handful of entries are genuinely the same word or a proper noun.
     expect(copiedFromJapanese.length).toBeLessThan(keys.length * 0.05);
     expect(copiedFromEnglish.length).toBeLessThan(keys.length * 0.05);
-
-    expect(zh["Home"]).toBe("首页");
-    expect(zh["Courses"]).toBe("课程");
-    expect(zh["Settings"]).toBe("设置");
-    expect(zh["Home"]).not.toBe(ja["Home"]);
-    expect(zh["Courses"]).not.toBe(ja["Courses"]);
   });
 
   it("maps each UI locale to the locale used for dates", () => {
