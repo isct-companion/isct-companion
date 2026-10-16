@@ -697,7 +697,8 @@ checks:
       commit: 7fdf1b6
       by: human
       result: pass
-      notes: 67 expected cells recognised, no wrong accepted cells; private image not committed.
+      notes: 67 expected cells recognised, no wrong accepted cells; private image not
+        committed.
       evidence: docs/verification/core-consolidation.md#automated-acceptance
 
   - id: DESKTOP-SCHOOL-WEBVIEW
@@ -1272,35 +1273,56 @@ checks:
       the app and its data. A debug build may use the strictly loopback fixture
       origin; release builds always use the source repository.
     steps:
-      - action: Detect an update, download a tampered copy, then retry with the valid signed bundle.
-        reason: The real native updater must reject modified bytes before permitting installation; fixtures alone do not exercise the packaged app and key.
-      - action: Enable automatic updates, quit through the app menu or Cmd-Q, and reopen.
-        reason: Cocoa's predefined Quit can bypass ExitRequested; the native menu must enter owned shutdown before installing verified bytes.
-      - action: Compare the installed version, login state, saved settings, timetable and course records with the rollback copy.
-        reason: A real bundle replacement must preserve the same app-data and Keychain access; an isolated parser test cannot verify that.
-    observe: Settings > About, the application bundle version, updater-install-result.json in app data, and the retained workspace.
+      - action: Detect an update, download a tampered copy, then retry with the valid
+          signed bundle.
+        reason: The real native updater must reject modified bytes before permitting
+          installation; fixtures alone do not exercise the packaged app and key.
+      - action: Enable automatic updates, quit through the app menu or Cmd-Q, and
+          reopen.
+        reason: Cocoa's predefined Quit can bypass ExitRequested; the native menu must
+          enter owned shutdown before installing verified bytes.
+      - action: Compare the installed version, login state, saved settings, timetable
+          and course records with the rollback copy.
+        reason: A real bundle replacement must preserve the same app-data and Keychain
+          access; an isolated parser test cannot verify that.
+    observe: Settings > About, the application bundle version,
+      updater-install-result.json in app data, and the retained workspace.
     expected: |
       Tampered content is rejected, the valid bundle installs through Cmd-Q,
       the new version reopens and saved data and login credentials remain.
       A source repository with no stable release is reported as unpublished.
-    why_manual: Requires Developer ID signing, real macOS menu dispatch, Keychain access and native app-bundle replacement.
+    why_manual: Requires Developer ID signing, real macOS menu dispatch, Keychain
+      access and native app-bundle replacement.
     covers:
       - apps/desktop/src-tauri/src/desktop_updates.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/tauri.conf.json
-    verified: null
+    verified:
+      version: 1.0.1-dev.1
+      date: 2026-10-16
+      commit: af4f026b552d2e36e830966df9b74dad96eb8fb2
+      by: agent
+      result: pass
+      notes: Developer-ID-signed local 1.0.0 to 1.0.1-dev.1; tampered archive
+        rejected; Cmd-Q automatic install and reopen succeeded; original IDs,
+        settings and both logins retained.
+      evidence: docs/verification/desktop-updater.md
 
   - id: DESKTOP-WINDOWS-LAUNCH
     area: desktop
     title: Windows release launches without a companion terminal
     persona: undergraduate-senior
-    preconditions: A Windows release installer built from the current desktop source and a real Windows desktop.
+    preconditions: A Windows release installer built from the current desktop source
+      and a real Windows desktop.
     steps:
-      - action: Install the release, launch it from Explorer, and open a course workspace file.
-        reason: Windows subsystem and child-process consoles cannot be observed by headless Unix tests.
+      - action: Install the release, launch it from Explorer, and open a course
+          workspace file.
+        reason: Windows subsystem and child-process consoles cannot be observed by
+          headless Unix tests.
     observe: The Windows desktop, app window and taskbar.
     expected: The app and workspace open without an accompanying console window.
-    why_manual: Requires a native Windows release executable, Explorer and the real desktop shell.
+    why_manual: Requires a native Windows release executable, Explorer and the real
+      desktop shell.
     covers:
       - apps/desktop/src-tauri/src/main.rs
       - .github/workflows/desktop-release.yml
