@@ -12,7 +12,11 @@ import {
   Modal,
   TextInput,
 } from "@mantine/core";
-import { useMediaQuery, useLocalStorage } from "@mantine/hooks";
+import {
+  useMediaQuery,
+  useLocalStorage,
+  useDebouncedCallback,
+} from "@mantine/hooks";
 
 import {
   WeekTimetable,
@@ -105,6 +109,9 @@ export function Courses({
     { kind: "workspaceOverview", term: "" },
   ]).value?.[0];
   const term = selection?.coursesTerm ?? currentTerm;
+  const selectTerm = useDebouncedCallback((termId: TermId) => {
+    void mutate({ kind: "selectTerm", termId }).catch(() => undefined);
+  }, 100);
   const canEdit = editing && !readOnly;
   const wide = useMediaQuery("(min-width: 761px)");
   const overview = selection;
@@ -174,9 +181,7 @@ export function Courses({
         terms={terms}
         selected={term}
         current={currentTerm}
-        onSelect={(termId) =>
-          void mutate({ kind: "selectTerm", termId }).catch(() => undefined)
-        }
+        onSelect={selectTerm}
       />
       {exportMenu(
         <ActionIcon
@@ -211,9 +216,7 @@ export function Courses({
           terms={terms}
           selected={term}
           current={currentTerm}
-          onSelect={(termId) =>
-            void mutate({ kind: "selectTerm", termId }).catch(() => undefined)
-          }
+          onSelect={selectTerm}
           onAdd={canEdit ? addTerm : undefined}
         />
         <div className="pageBarRight">

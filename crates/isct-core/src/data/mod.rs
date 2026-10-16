@@ -6,6 +6,7 @@ mod lms_store;
 mod records;
 mod settings;
 mod snapshot;
+pub(crate) use snapshot::content_revision;
 
 pub use defaults::initial_workspace;
 use defaults::*;
@@ -527,6 +528,10 @@ pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
 }
 
 impl WorkspaceWrite<'_, '_> {
+    pub(crate) fn revision(&self) -> Result<String, DataError> {
+        intent_revision(self.transaction)
+    }
+
     /// `(workspace, school records, user-intent revision)` as written so far.
     pub(crate) fn snapshot_parts(&self) -> Result<(Value, Value, String), DataError> {
         Ok((
@@ -786,6 +791,7 @@ fn record_agent_write_in(
 #[derive(Clone)]
 pub struct DataStore {
     path: PathBuf,
+    snapshot_reader: std::sync::Arc<std::sync::Mutex<snapshot::SnapshotReader>>,
 }
 
 impl DataStore {
@@ -804,7 +810,10 @@ impl DataStore {
                 [],
             )
             .map_err(DataError::from)?;
-        let store = Self { path };
+        let store = Self {
+            path,
+            snapshot_reader: std::sync::Arc::default(),
+        };
         store.ensure_defaults()?;
         Ok((store, schema_changed))
     }

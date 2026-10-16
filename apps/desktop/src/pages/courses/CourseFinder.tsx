@@ -151,6 +151,7 @@ export function CourseFinder({
     >(),
   );
   const [refresh, setRefresh] = useState(0);
+  const [requestedTerm, setRequestedTerm] = useState<string | null>(null);
   const [showUnavailable, setShowUnavailable] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -298,6 +299,10 @@ export function CourseFinder({
       setError("");
       return cleanup;
     }
+    if (requestedTerm !== term) {
+      setRemote({ state: "idle" });
+      return cleanup;
+    }
     setRemote({ state: "searching" });
     setError("");
     timer = setTimeout(async () => {
@@ -337,7 +342,7 @@ export function CourseFinder({
       }
     }, 250);
     return cleanup;
-  }, [planKey, year, refresh, showUnavailable]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [planKey, year, term, requestedTerm, refresh, showUnavailable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const live = view?.live ?? "";
   const rows = view?.rows ?? [];
@@ -538,6 +543,7 @@ export function CourseFinder({
     }
   };
   const onChange = (value: string, composing = false) => {
+    setRequestedTerm(term);
     const sequence = ++editSequence.current;
     setInput(value);
     setActive(0);
@@ -819,13 +825,16 @@ export function CourseFinder({
           {rows.length} {t("courses")} {filteredByText}
           {duplicates > 0 && ` · ${t("duplicates merged")}`}
         </span>
-        {remote.state === "done" && (
+        {query && (
           <button
             type="button"
             className="textButton"
-            onClick={() => setRefresh((n) => n + 1)}
+            onClick={() => {
+              setRequestedTerm(term);
+              setRefresh((n) => n + 1);
+            }}
           >
-            {t("Refresh")}
+            {t(remote.state === "idle" ? "Search 教務Web" : "Refresh")}
           </button>
         )}
         {remote.state === "done" && remote.truncated && (

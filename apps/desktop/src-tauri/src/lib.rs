@@ -89,11 +89,23 @@ where
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
     static DATA_COMMANDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let queued_at = std::time::Instant::now();
     tauri::async_runtime::spawn_blocking(move || {
         let _serialized = DATA_COMMANDS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        work()
+        let started = std::time::Instant::now();
+        let result = work();
+        if std::env::var_os("ISCT_TRACE_READS").is_some() {
+            eprintln!(
+                "[native-data] op={} queue_ms={} work_ms={} ok={}",
+                std::any::type_name::<F>(),
+                started.duration_since(queued_at).as_millis(),
+                started.elapsed().as_millis(),
+                result.is_ok()
+            );
+        }
+        result
     })
     .await
     .map_err(|_| "The native data command stopped unexpectedly.".to_string())?

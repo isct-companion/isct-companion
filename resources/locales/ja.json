@@ -1010,5 +1010,6 @@
   "{{duration}} ago": "{{duration}}前",
   "Due in {{duration}}": "締切まで{{duration}}",
   "Due {{date}}": "締切 {{date}}",
-  "No stable release has been published yet": "安定版はまだ公開されていません"
+  "No stable release has been published yet": "安定版はまだ公開されていません",
+  "Search 教務Web": "教務Webで検索"
 }

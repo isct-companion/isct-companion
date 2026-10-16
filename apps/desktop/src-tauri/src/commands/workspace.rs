@@ -19,6 +19,7 @@ pub(crate) async fn mutate_workspace(
     mutation: WorkspaceMutation,
 ) -> Result<WorkspaceSnapshot, String> {
     require_local_main(&webview)?;
+    let started = std::time::Instant::now();
     let core = core_ports::core(&app);
     let snapshot = run_data_command(move || {
         core.workspace
@@ -31,7 +32,16 @@ pub(crate) async fn mutate_workspace(
             })
     })
     .await?;
+    let persisted = std::time::Instant::now();
     cloud_sync::CloudSync::changed(&app).await;
+    if std::env::var_os("ISCT_TRACE_READS").is_some() {
+        eprintln!(
+            "[native-mutation] persist_ms={} cloud_capture_ms={} total_ms={}",
+            persisted.duration_since(started).as_millis(),
+            persisted.elapsed().as_millis(),
+            started.elapsed().as_millis()
+        );
+    }
     Ok(snapshot)
 }
 

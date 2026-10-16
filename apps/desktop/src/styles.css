@@ -337,7 +337,7 @@ p {
 }
 .lmsStatusLine {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: baseline;
   gap: 9px;
   color: var(--muted);

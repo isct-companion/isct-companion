@@ -112,7 +112,7 @@ fn stale_revision_cannot_overwrite_a_newer_settings_change() {
 }
 
 #[test]
-fn settings_replacement_clears_keys_and_core_validates_every_value() {
+fn cached_settings_follow_external_commits_and_core_validates_every_value() {
     let service = service("settings");
     let original = service.snapshot().unwrap();
     let chosen = mutate(
@@ -125,10 +125,19 @@ fn settings_replacement_clears_keys_and_core_validates_every_value() {
         },
     );
     assert_eq!(chosen.workspace["settings"]["departmentId"], "cs");
-    service.store.record_reference_poll().unwrap();
+    // Warm the reader, then commit through a separately initialized handle.
+    // PRAGMA data_version must invalidate the cached projection, even though
+    // this background update deliberately keeps the user-intent revision.
+    let warm = service.snapshot().unwrap();
+    let external = DataStore::initialize(service.store.path().to_path_buf())
+        .unwrap()
+        .0;
+    external.record_reference_poll().unwrap();
     let polled = service.snapshot().unwrap();
     let checked = polled.workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"].clone();
     assert!(checked.is_string());
+    assert_eq!(polled.revision, warm.revision);
+    assert_ne!(polled.content_revision, warm.content_revision);
 
     // A form built from the earlier snapshot clears the department and
     // cannot roll the Core-owned poll clock back.

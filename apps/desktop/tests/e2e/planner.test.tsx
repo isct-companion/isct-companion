@@ -405,6 +405,15 @@ describe("the course planner", () => {
       { route: paths.timetable() },
     );
     await enablePlanning(app);
+    expect(
+      app.core.calls.filter((call) => call.command === "catalog_query"),
+    ).toHaveLength(0);
+    await click(
+      await required(
+        () => buttonByText(app!.host, "Search 教務Web"),
+        "explicit official search",
+      ),
+    );
     await settled(() => expect(app!.host.textContent).toContain("100 courses"));
     for (let loaded = 200; loaded <= 1000; loaded += 100) {
       await click(buttonByText(app.host, "Load more courses")!);
@@ -986,7 +995,7 @@ describe("the course editor", () => {
  * ------------------------------------------------------------------ */
 
 describe("the year and quarter picker", () => {
-  it("keeps one year open and changes the term only when a quarter is clicked", async () => {
+  it("keeps one year open and coalesces rapid quarter clicks into the last selection", async () => {
     const workspace = workspaceFixture();
     workspace.terms = TERMS;
     workspace.selectedTerm = "2026-3Q";
@@ -1039,7 +1048,14 @@ describe("the year and quarter picker", () => {
       () => host.querySelector<HTMLButtonElement>('[aria-label="2025 2Q"]'),
       "the 2025 2Q quarter",
     );
-    await click(quarter);
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="2025 1Q"]')!.click();
+      host.querySelector<HTMLButtonElement>('[aria-label="2025 3Q"]')!.click();
+      quarter.click();
+    });
+    expect(
+      core.intents.filter((candidate) => candidate.kind === "selectTerm"),
+    ).toHaveLength(0);
 
     await settled(() =>
       expect(
@@ -1050,6 +1066,9 @@ describe("the year and quarter picker", () => {
     );
     const intent = recordedIntent(core, "selectTerm");
     expect(intent.termId).toBe("2025-2Q");
+    expect(
+      core.intents.filter((candidate) => candidate.kind === "selectTerm"),
+    ).toHaveLength(1);
     expect(
       host.querySelector(".yearQuarterGroup.expanded .yearQuarterYear")
         ?.textContent,

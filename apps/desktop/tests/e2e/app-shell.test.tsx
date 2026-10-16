@@ -2380,7 +2380,13 @@ describe("workspace column sizing", () => {
 });
 
 it("reports the active kyomu pull instead of an idle LMS status", async () => {
-  app = await mountShell(shellOptions({ workspace: workspaceFixture() }));
+  app = await mountShell(
+    shellOptions({
+      workspace: workspaceFixture(),
+      handle: (command, args, core) =>
+        command === "pull_school" ? [] : baseHandle(command, args, core),
+    }),
+  );
   await act(async () =>
     app!.core.emit("pull-state-changed", [
       {
@@ -2403,10 +2409,33 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
     expect(status.textContent).toContain("5%");
     expect(status.textContent).not.toContain("Ready");
   });
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      state: "ok",
+      kind: "registrations",
+      message: "",
+      imported: 1,
+    }),
+  );
+  await until(() =>
+    expect(app!.host.querySelector(".lmsStatus")!.textContent).toContain("35%"),
+  );
   await act(async () => app!.core.emit("pull-state-changed", []));
   await until(() =>
     expect(app!.host.querySelector(".lmsStatus")!.textContent).toContain(
       "Ready",
     ),
   );
+  const force = app.host.querySelector<HTMLButtonElement>(".lmsStatus button")!;
+  expect(force.textContent).toBe("Refresh now");
+  await click(force);
+  await until(() =>
+    expect(
+      app!.core.calls
+        .filter((call) => call.command === "pull_school")
+        .map((call) => call.args.site),
+    ).toEqual(["kyomu", "science-lms"]),
+  );
+  await until(() => expect(force.disabled).toBe(false));
 });

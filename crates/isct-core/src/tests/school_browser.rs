@@ -332,17 +332,15 @@ impl SecretVault for BlockingVault {
 }
 
 fn extraction_relay(script: &str, raw: serde_json::Value) -> Url {
-    let relay = script
-        .split("location.href='")
-        .nth(1)
-        .and_then(|value| value.split("'+btoa").next())
-        .unwrap();
-    let encoded_run = script
-        .split("_isctExtractionRun=")
-        .nth(1)
-        .and_then(|value| value.split(';').next())
-        .unwrap();
-    let run: String = serde_json::from_str(encoded_run).unwrap();
+    let quoted = |key: &str| {
+        script
+            .split(key)
+            .nth(1)
+            .and_then(|value| value.split(';').next())
+            .unwrap()
+    };
+    let relay: String = serde_json::from_str(quoted("const relay = ")).unwrap();
+    let run: String = serde_json::from_str(quoted("const run = ")).unwrap();
     let mut raw = raw;
     raw.as_object_mut()
         .unwrap()

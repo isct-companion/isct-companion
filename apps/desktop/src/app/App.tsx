@@ -447,6 +447,7 @@ export function WorkspaceApp() {
     schoolStatus,
   } = usePullState();
   const pulling = lmsProgress !== null;
+  const [forceRefreshing, setForceRefreshing] = useState(false);
   useCoreLifecycle();
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
   /** After a pull settles the timetable, ask once for the physics group of
@@ -821,6 +822,16 @@ export function WorkspaceApp() {
       if (!quiet) notify.error(error);
     } finally {
       setKyomuProgress(null);
+    }
+  };
+  const forceSchoolRefresh = async () => {
+    if (forceRefreshing) return;
+    setForceRefreshing(true);
+    try {
+      await refreshKyomu(true);
+      await fetchLms(true);
+    } finally {
+      setForceRefreshing(false);
     }
   };
   /** Opens 教務Web registration with this quarter's timetable as a queue. */
@@ -1692,8 +1703,20 @@ export function WorkspaceApp() {
           <div className="lmsStatusLine">
             <b>{schoolStatus.source}</b>
             <span>{schoolStatus.phase}</span>
-            {schoolStatus.progress !== null && (
-              <output>{Math.round(schoolStatus.progress)}%</output>
+            <output>
+              {schoolStatus.progress !== null
+                ? `${Math.round(schoolStatus.progress)}%`
+                : ""}
+            </output>
+            {desktopBridge?.pullSchool && (
+              <UiButton
+                type="button"
+                className="textButton"
+                disabled={forceRefreshing}
+                onClick={() => void forceSchoolRefresh()}
+              >
+                {t(forceRefreshing ? "Refreshing…" : "Refresh now")}
+              </UiButton>
             )}
           </div>
           {schoolStatus.progress !== null && (

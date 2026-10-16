@@ -554,8 +554,12 @@ struct ProgressRelay {
 }
 
 pub(super) fn extraction_script(setup: &str, script: &str, relay: &str, run: &str) -> String {
-    let run = serde_json::to_string(run).unwrap_or_else(|_| "\"\"".into());
-    format!("{setup}Promise.resolve({script}).then(v=>{{if(v&&typeof v==='object')v._isctExtractionRun={run};return v}}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))")
+    let quoted = |value: &str| serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into());
+    let body = include_str!("../assets/extraction-relay.js")
+        .replace("__ISCT_RELAY__", &quoted(relay))
+        .replace("__ISCT_RUN__", &quoted(run))
+        .replace("__ISCT_EXTRACTOR__", script);
+    format!("{setup}{body}")
 }
 
 pub(super) fn ingestion_script(raw: &str) -> Option<&'static str> {

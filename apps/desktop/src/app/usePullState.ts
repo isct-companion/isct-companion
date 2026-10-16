@@ -31,9 +31,13 @@ export function usePullState() {
     ? Math.max(lmsViewProgress ?? 5, nativeLmsProgress)
     : lmsViewProgress;
   const [kyomuViewProgress, setKyomuProgress] = useState<number | null>(null);
-  const kyomuProgress = kyomuViewProgress ?? (activeKyomu ? 5 : null);
+  const [nativeKyomuProgress, setNativeKyomuProgress] = useState(5);
+  const kyomuProgress = activeKyomu
+    ? Math.max(kyomuViewProgress ?? 5, nativeKyomuProgress)
+    : kyomuViewProgress;
   useEffect(() => desktopBridge?.onPullState?.(setNativePulls), []);
   useEffect(() => setNativeLmsProgress(5), [activeLms?.id]);
+  useEffect(() => setNativeKyomuProgress(5), [activeKyomu?.id]);
   useEffect(() => {
     if (activeLms?.state === "blocked")
       setLmsPhase(`Waiting · ${activeLms.blockedBy ?? "school view"}`);
@@ -70,8 +74,8 @@ export function usePullState() {
         outcome.site === "kyomu" &&
         (outcome.state === "ok" || outcome.state === "unavailable")
       )
-        setKyomuProgress((value) =>
-          value === null ? value : Math.min(95, Math.max(value, 15) + 20),
+        setNativeKyomuProgress((value) =>
+          Math.min(95, Math.max(value, 15) + 20),
         );
     });
     const offProgress = desktopBridge?.onSchoolPullProgress?.((progress) => {
