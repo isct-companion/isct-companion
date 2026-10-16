@@ -6,7 +6,7 @@ use crate::{
     cloud_sync::SyncState,
     lifecycle::SchoolSite,
     pull_coordinator::PullSnapshot,
-    school_browser::{AttachmentPreview, SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent},
+    school_browser::{SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent},
     school_service::IngestOutcome,
 };
 
@@ -43,10 +43,6 @@ pub struct SchoolDownloadEvent {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// Set on `Done` for an attachment the app shows instead of the school
-    /// view; `path` is then a temporary copy, not a file in Downloads.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preview: Option<AttachmentPreview>,
 }
 
 /// Every event a shell forwards to its UI. Events are hints: the UI re-reads

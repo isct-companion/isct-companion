@@ -209,7 +209,6 @@ pub fn run() {
             commands::school::school_web_back,
             commands::school::school_web_forward,
             commands::school::reveal_school_download,
-            commands::school::save_school_preview,
             commands::school::set_school_web_zoom,
             commands::school::pull_school,
             commands::school::pull_state,

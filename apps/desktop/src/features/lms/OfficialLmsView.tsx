@@ -7,7 +7,6 @@ import {
   schoolWebExit,
 } from "../../app/native";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
-import { useSchoolFilePreviewOpen } from "../school-preview/SchoolFilePreview";
 
 /** Same resident LMS WebView and login flow, bounded to this viewer only. */
 export function OfficialLmsView({
@@ -23,10 +22,8 @@ export function OfficialLmsView({
   const owner = useRef(Symbol("today-lms"));
   const opened = useRef(false);
   const [status, setStatus] = useState("Opening LMS…");
-  // An attachment preview covers the app; the native view stays hidden under it.
-  const previewOpen = useSchoolFilePreviewOpen();
   useEffect(() => {
-    if (!active || !available || !desktopBridge || previewOpen) return;
+    if (!active || !available || !desktopBridge) return;
     let disposed = false;
     // Set once the native view is open; bounds follow it from then on.
     let ready = false;
@@ -85,7 +82,7 @@ export function OfficialLmsView({
       cancelAnimationFrame(frame);
       void releaseSchoolView(owner.current).catch(() => undefined);
     };
-  }, [url, active, available, previewOpen]);
+  }, [url, active, available]);
   return (
     <div className="lmsOfficialHost" ref={host}>
       {!available ? (

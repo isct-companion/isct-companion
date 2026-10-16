@@ -161,19 +161,6 @@ pub(crate) fn reveal_school_download(
     controller.reveal_download(&app, &path)
 }
 
-/// Copies an attachment shown in the app's viewer into the download folder;
-/// paths other than this session's previews are refused.
-#[tauri::command]
-pub(crate) fn save_school_preview(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    controller: tauri::State<'_, SchoolWebController>,
-    path: String,
-) -> Result<bool, String> {
-    require_local_main(&webview)?;
-    controller.save_preview(&app, &path)
-}
-
 #[tauri::command]
 pub(crate) fn set_school_web_zoom(
     webview: tauri::Webview,

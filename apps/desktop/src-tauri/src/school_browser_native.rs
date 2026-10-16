@@ -581,9 +581,6 @@ impl SchoolWebController {
     pub fn reveal_download(&self, app: &AppHandle, path: &str) -> Result<bool, String> {
         self.native.downloads.reveal(app, path)
     }
-    pub fn save_preview(&self, app: &AppHandle, path: &str) -> Result<bool, String> {
-        self.native.downloads.save_preview(app, path)
-    }
     pub fn set_zoom(&self, site: SchoolSite, scale: f64) -> Result<bool, String> {
         if !scale.is_finite() {
             return Err("School view scale must be finite.".into());
