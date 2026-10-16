@@ -375,6 +375,31 @@ export type ImportantDate = {
   deletedAt?: string;
 };
 
+export type ClassSession = {
+  date: string;
+  kind: "orientation" | "exercise" | "lab" | "exam" | "no-class";
+  group?: ClassGroup;
+  number?: string;
+};
+
+export type ClassSchedule = {
+  academicYear: number;
+  courseCode: string;
+  classLabel?: Localized;
+  offeringIds: Array<string>;
+  quarters: Array<Quarter>;
+  sourceIds: Array<string>;
+  sessions: Array<ClassSession>;
+  sourceKey?: string;
+  lastSeenAt?: string;
+  missingSince?: string;
+  id: string;
+  rev: number;
+  updatedAt: string;
+  updatedBy: string;
+  deletedAt?: string;
+};
+
 export type Exam = {
   academicYear: number;
   level: "undergraduate" | "graduate";
@@ -425,7 +450,7 @@ export type ScheduleOverride = {
 export type Subscription = {
   dataUrl?: string;
   url: string;
-  kind: "calendar" | "departments" | "important-dates" | "exams";
+  kind: (typeof REFERENCE_KINDS)[number];
   enabled: boolean;
   indexHash?: string;
   remoteHash?: string;
@@ -627,6 +652,12 @@ export type Workspace = {
   recommendedCourses: Array<RecommendedCourse>;
   importantDates: Array<ImportantDate>;
   exams: Array<Exam>;
+  classSchedules: Array<ClassSchedule>;
+  /**
+   * The red/white group chosen for each semester ("2026-3Q4Q") of
+   * alternating 物理学演習・実験 classes.
+   */
+  classGroups?: Partial<Record<string, ClassGroup>>;
   scheduleOverrides: Array<ScheduleOverride>;
   subscriptions: Array<Subscription>;
   scheduledTasks: Array<ScheduledTask>;
@@ -776,6 +807,60 @@ export type AcademicYearCalendar = {
 
 export type CalendarExportScope = "courses" | "courses-and-plans";
 
+export type ClassGroup = "red" | "white";
+
+export type Turn = "red" | "white" | "all";
+
+export type Alternation = {
+  /**
+   * Who meets on this date; absent on the weekly template and for classes
+   * without a published schedule.
+   */
+  turn?: Turn;
+  /**
+   * Isct-Data publishes this class's sessions.
+   */
+  scheduled: boolean;
+  /**
+   * The person's group for the semester, once chosen.
+   */
+  group?: ClassGroup;
+  session?: "orientation" | "exercise" | "lab" | "exam" | "no-class";
+  /**
+   * The published session number, such as "3Q-1".
+   */
+  number?: string;
+};
+
+export type ClassGroupCourse = {
+  id: string;
+  title: string;
+  scheduled: boolean;
+};
+
+export type ClassGroupSession = {
+  date: string;
+  turn: Turn;
+  courseTitle: string;
+  session: "exercise" | "lab";
+};
+
+export type ClassGroupChoice = {
+  semester: string;
+  /**
+   * The semester's two quarter ids, such as ["2026-3Q", "2026-4Q"].
+   */
+  terms: Array<string>;
+  group: ClassGroup | null;
+  /**
+   * No group is chosen yet for the current quarter's semester or a later
+   * one, so the person should be asked.
+   */
+  needsChoice: boolean;
+  courses: Array<ClassGroupCourse>;
+  next: ClassGroupSession | null;
+};
+
 export type OccurrenceKind = "course" | "event" | "plan" | "exam";
 
 export type Occurrence = {
@@ -797,6 +882,10 @@ export type Occurrence = {
   timeLabel: string | null;
   conflictWith: Array<string> | null;
   overridden: boolean | null;
+  /**
+   * Set on 物理学演習・実験 blocks, which meet every other week.
+   */
+  alternation: Alternation | null;
 };
 
 export type ScheduleProblemKind = "courseMeeting" | "plan" | "scheduleOverride";
@@ -1018,7 +1107,8 @@ export type WorkspaceQuery =
       now: string;
       horizon: string;
       locale: NotificationLocale | null;
-    };
+    }
+  | { kind: "classGroups"; today: string };
 
 export type WorkspaceQueryResult =
   | { kind: "teachingPeriods"; value: Array<TeachingPeriod> }
@@ -1044,7 +1134,8 @@ export type WorkspaceQueryResult =
   | { kind: "academicProfile"; value: unknown }
   | { kind: "academicTerm"; value: string | null }
   | { kind: "glance"; value: GlanceSnapshot }
-  | { kind: "notificationPlan"; value: NotificationPlan };
+  | { kind: "notificationPlan"; value: NotificationPlan }
+  | { kind: "classGroups"; value: Array<ClassGroupChoice> };
 
 export type WorkspaceSnapshot = {
   /**
@@ -1140,7 +1231,8 @@ export type WorkspaceIntent =
       occurrence: string;
       sectionId: number;
     }
-  | { kind: "markTimetableReviewed" };
+  | { kind: "markTimetableReviewed" }
+  | { kind: "setClassGroup"; semester: string; group: ClassGroup | null };
 
 export type CourseBatchChanges = {
   language?: string;
@@ -1355,6 +1447,7 @@ export const EMPTY_WORKSPACE: Workspace = {
     years: [],
   },
   assignments: [],
+  classSchedules: [],
   courses: [],
   currentTerm: "2026-1Q",
   departments: [],
@@ -1460,3 +1553,14 @@ export const EMPTY_WORKSPACE: Workspace = {
   },
   terms: ["2026-1Q"],
 };
+
+export const PUBLIC_DATA_INDEX =
+  "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
+
+export const REFERENCE_KINDS = [
+  "calendar",
+  "departments",
+  "important-dates",
+  "exams",
+  "class-schedules",
+] as const;

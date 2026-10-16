@@ -17,23 +17,23 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 23 checks must be re-run before the next release.**
+**7 of 24 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
-- `SCHOOL-LMS-YEAR-ROLLOVER` — covered paths changed after b598ae6
 - `OCR-CAMPUS-CARD` — covered paths changed after 7fdf1b6
 - `DESKTOP-SCHOOL-WEBVIEW` — covered paths changed after 7fdf1b6
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**15 checks have never been run or could not be run:**
+**16 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
 - `IDENTITY-DOCTORAL-RULES` — never verified
 - `IDENTITY-TRANSFER-COHORT` — never verified
+- `IDENTITY-PERIOD-OVERRIDE-UI` — unreached: The shell reads a static generated table, so a stored override does not reach the timetable geometry.
 - `SCHOOL-KYOMU-GRADUATE-TABLES` — unreached: No graduate account available; a borrowed account is pending.
 - `IDENTITY-LANGUAGE-SWITCH` — never verified
 - `CLOUD-DRIVE-WRITE` — never verified
@@ -56,9 +56,10 @@ an unverified area becomes an assumed-good one.
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-TRANSFER-COHORT` | identity | 編入生 | —<br>not run | crates/isct-core/src/subscriptions.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/lib/departments.ts |
+| `IDENTITY-PERIOD-OVERRIDE-UI` | identity | 理工学系 3年生・履修計画期 | **unreached**<br>2026-10-16 · human · `8ae53c3` | crates/isct-core/src/schedule/timing.rs<br>apps/desktop/src/lib/timetable-layout.ts |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/isct-core/src/kyomu_ingest.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/study_profile.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
-| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
+| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
@@ -67,7 +68,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
-| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_pdf_save.rs |
+| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
@@ -462,6 +463,62 @@ but which one applies is only knowable from the account.
 
 **Last recorded** never run
 
+### A stored teaching-period override reaches the timetable (`IDENTITY-PERIOD-OVERRIDE-UI`)
+
+**Area** identity · **Persona** 理工学系 3年生・履修計画期 · **Result** **unreached**
+
+> Not verified: unreached: The shell reads a static generated table, so a stored override does not reach the timetable geometry.
+
+**Preconditions**
+
+A study profile whose teaching periods differ from the official table,
+stored through Settings, and at least one course on the timetable.
+
+**Steps**
+
+1. Edit the teaching periods in Settings so one block starts at a time
+   the official table does not use, and save.
+   - *Why:* The override has to be persisted, not merely accepted by the form. An
+     unsaved edit would make the next step pass for the wrong reason.
+2. Open the timetable and compare block positions with the times just
+   entered.
+   - *Why:* This is the gap. The shell derives its slot geometry from the
+     generated default table, so a stored override is ignored today. The
+     step makes the omission visible instead of assuming it away.
+3. Restart the app and look again.
+   - *Why:* Separates "the form kept the value" from "the resolved table reaches
+     the view"; those fail independently.
+
+**Where to look**
+
+The teaching-period table in Settings, and the vertical position of the
+timetable blocks against the clock.
+
+**Expected**
+
+The timetable reflects the stored periods rather than the official
+defaults.
+
+**Why this is manual**
+
+Confirming that a student's own table changes the timetable they see
+needs the real app holding a stored profile. The wiring becomes
+automatable once the shell is given the resolved table, which is why this
+is recorded as an unreached gap rather than an automated test.
+
+**Covers**
+
+- `crates/isct-core/src/schedule/timing.rs`
+- `apps/desktop/src/lib/timetable-layout.ts`
+
+**Last recorded** unreached · 2026-10-16 · human · `8ae53c3` · `1.0.0-rc.3`
+
+Blocked by: The shell reads a static generated table, so a stored override does not reach the timetable geometry.
+
+Found while merging origin/main. Core supports the override; the view does not read it.
+
+Evidence: `docs/verification/manual-acceptance.md`
+
 ### Graduate 教務Web tables against a real graduate account (`SCHOOL-KYOMU-GRADUATE-TABLES`)
 
 **Area** school · **Persona** 修士課程 1年・前期課程 · **Result** **unreached**
@@ -566,9 +623,7 @@ judged against the live catalogue.
 
 ### LMS pull after the academic year moves (`SCHOOL-LMS-YEAR-ROLLOVER`)
 
-**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass ⚠
-
-> Needs re-running: covered paths changed after b598ae6
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass
 
 **Preconditions**
 
@@ -1013,7 +1068,7 @@ and was never covered by a live run.
 **Covers**
 
 - `apps/desktop/src/features/lms/PdfDocument.tsx`
-- `apps/desktop/src-tauri/src/school_pdf_save.rs`
+- `apps/desktop/src-tauri/src/school_downloads.rs`
 
 **Last recorded** never run
 

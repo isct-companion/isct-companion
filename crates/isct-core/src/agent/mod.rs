@@ -251,76 +251,6 @@ fn fallback_term(date: chrono::NaiveDate) -> String {
     format!("{year}-{quarter}")
 }
 
-fn localized(value: Option<&Value>) -> String {
-    value
-        .and_then(|value| value.get("en").or_else(|| value.get("ja")))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn course_from_offering(
-    offering: &Value,
-    term: &str,
-    teaching_periods: &[crate::schedule::TeachingPeriod],
-) -> Result<Value, AgentError> {
-    let offering_id = offering
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or("offering is invalid")?;
-    let title = localized(offering.get("title"));
-    let instructors = offering
-        .get("instructors")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(|value| localized(Some(value)))
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>()
-        .join(" / ");
-    let meetings = offering
-        .get("schedule")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| {
-            if entry.get("kind").and_then(Value::as_str) != Some("weekly") {
-                return None;
-            }
-            let periods = entry.get("periods")?.as_array()?;
-            let from = periods.first()?.as_u64()?;
-            let to = periods.get(1)?.as_u64()?;
-            let bounds = [u8::try_from(from).ok()?, u8::try_from(to).ok()?];
-            let (start_time, end_time) =
-                crate::schedule::clock_for_periods(teaching_periods, bounds).ok()?;
-            Some(json!({
-                "days":[entry.get("day")?.as_u64()?],
-                "periods":(from..=to).collect::<Vec<_>>(),
-                "startTime":start_time, "endTime":end_time,
-                "room":localized(entry.get("room")), "roomNames":entry.get("room")
-            }))
-        })
-        .collect::<Vec<_>>();
-    let credits = offering
-        .get("credits")
-        .cloned()
-        .unwrap_or_else(|| json!({"lecture":0,"exercise":0,"lab":0}));
-    let total = ["lecture", "exercise", "lab"]
-        .into_iter()
-        .filter_map(|key| credits.get(key).and_then(Value::as_f64))
-        .sum::<f64>();
-    Ok(json!({
-        "kind":"course", "termId":term, "offeringId":offering_id,
-        "names":{"title":offering.get("title"),"instructor":{"en":instructors}},
-        "code":offering.get("code").and_then(Value::as_str).unwrap_or_default(),
-        "title":title, "instructor":instructors, "credits":total, "creditSplit":credits,
-        "instructionLanguage":offering.get("instructionLanguage").and_then(Value::as_str).unwrap_or("other"),
-        "color":"#556b8d", "meetings":meetings,
-        "url":offering.get("syllabusUrl"),
-        "source":{"provider":"syllabus","externalId":offering_id}
-    }))
-}
-
 fn write_result(details: Value) -> Value {
     let mut result = json!({"ok": true});
     if let (Some(result), Value::Object(details)) = (result.as_object_mut(), details) {
@@ -594,10 +524,19 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                         text(row, "id") == Some(canonical.as_str())
                             || text(row, "offeringId") == Some(offering_id)
                     });
-                let teaching_periods = crate::schedule::teaching_periods(&latest_workspace)
-                    .map_err(|error| DataError::InvalidInput(error.to_string()))?;
-                let course_value = course_from_offering(&offering, term, &teaching_periods)
-                    .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+                // One builder serves this path and `AddCatalogCourses`; both
+                // resolve the teaching table first so a profile override
+                // reaches the meetings either way.
+                let course_value = crate::workspace::planned_catalog_course(
+                    &offering,
+                    &canonical,
+                    term,
+                    crate::workspace::workspace_content_locale(&latest_workspace),
+                    &crate::schedule::teaching_periods(&latest_workspace)
+                        .map_err(|error| {
+                            crate::data::DataError::InvalidInput(error.to_string())
+                        })?,
+                )?;
                 let stored_course = write
                     .rows("manual_courses")?
                     .into_iter()

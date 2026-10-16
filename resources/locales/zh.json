@@ -839,5 +839,21 @@
   "This rule is not yet verified for the selected academic year": "尚未核实该规则是否适用于所选学年",
   "Not available for this study profile": "此学籍不可修读",
   "Show unavailable courses": "显示不可修读的课程",
-  "Hide unavailable courses": "隐藏不可修读的课程"
+  "Hide unavailable courses": "隐藏不可修读的课程",
+  "Red group": "红组",
+  "White group": "白组",
+  "Both groups": "全员",
+  "Orientation (both groups)": "说明会（全员）",
+  "Exam (both groups)": "考试（全员）",
+  "No class": "停课",
+  "Alternate weeks": "隔周",
+  "Alternate weeks · schedule not listed": "隔周・日程未收录",
+  "Physics group": "物理演习・实验分组",
+  "物理学演習 and 物理学実験 meet every other week, in turns of a red and a white group. The timetable shows only your group's days.": "物理学演習和物理学実験由红组、白组隔周交替上课。时间表只显示你所在组上课的日子。",
+  "{{date}} is the {{group}}'s exercise ({{course}}).": "{{date}} 是{{group}}的演习（{{course}}）。",
+  "{{date}} is the {{group}}'s lab ({{course}}).": "{{date}} 是{{group}}的实验（{{course}}）。",
+  "This class's dates are not listed yet, so it shows every week.": "这门课的日程尚未收录，所以每周都会显示。",
+  "You can change this later in the course details.": "之后可以在课程详情里修改。",
+  "Later": "稍后",
+  "Alternating class schedules": "隔周课程日程"
 }

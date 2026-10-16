@@ -258,18 +258,58 @@ pub struct PublishedExamFeed {
     pub feed: ExamFeed,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// One dated session of a course that does not meet every week.
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClassSession {
+    pub date: String,
+    /// `orientation` and `exam` are for every group, `no-class` cancels the
+    /// slot, `exercise` and `lab` are for `group` only.
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClassScheduleEntry {
+    pub id: String,
+    pub course_code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class_label: Option<Localized>,
+    pub offering_ids: Vec<String>,
+    pub quarters: Vec<String>,
+    pub source_ids: Vec<String>,
+    pub sessions: Vec<ClassSession>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClassSchedules {
+    pub schema_version: u32,
+    pub academic_year: i32,
+    pub timezone: String,
+    pub source: Vec<FeedSource>,
+    pub entries: Vec<ClassScheduleEntry>,
+}
+
+// Index entries ignore keys they do not know, so publishing a new dataset
+// kind does not break apps that predate it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AcademicYearEntry {
     academic_calendar: IndexedSource,
     #[serde(default)]
     exams: Vec<IndexedSource>,
     #[serde(default)]
     important_dates: Option<IndexedSource>,
+    #[serde(default)]
+    class_schedules: Option<IndexedSource>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AdmissionYearEntry {
     departments: IndexedSource,
 }
@@ -283,7 +323,7 @@ struct IndexedSource {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct SubscriptionIndex {
     #[serde(default)]
     academic_years: BTreeMap<String, AcademicYearEntry>,
@@ -631,6 +671,60 @@ pub fn validate_important_dates(raw: &str, year: i32) -> Result<ImportantDates, 
     Ok(value)
 }
 
+pub fn validate_class_schedules(raw: &str, year: i32) -> Result<ClassSchedules, SubscriptionError> {
+    if raw.len() > MAX_DATA_BYTES {
+        return Err("class schedules exceed the size limit".into());
+    }
+    let value: ClassSchedules =
+        serde_json::from_str(raw).map_err(|e| format!("invalid class schedules: {e}"))?;
+    if value.schema_version != 1 || value.academic_year != year || value.timezone != "Asia/Tokyo" {
+        return Err("class schedules metadata does not match the selection".into());
+    }
+    let sources = validate_feed_sources(&value.source)?;
+    let mut ids = HashSet::new();
+    for entry in &value.entries {
+        let invalid = || SubscriptionError::from(format!("class schedule {} is invalid", entry.id));
+        if !ids.insert(entry.id.as_str())
+            || entry.id.trim().is_empty()
+            || entry.course_code.trim().is_empty()
+            || entry.offering_ids.is_empty()
+            || entry
+                .offering_ids
+                .iter()
+                .any(|id| id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()))
+            || entry.quarters.is_empty()
+            || entry
+                .quarters
+                .iter()
+                .any(|quarter| !matches!(quarter.as_str(), "1Q" | "2Q" | "3Q" | "4Q"))
+            || entry.source_ids.is_empty()
+            || entry
+                .source_ids
+                .iter()
+                .any(|id| !sources.contains(id.as_str()))
+            || entry.sessions.is_empty()
+        {
+            return Err(invalid());
+        }
+        let mut previous = None;
+        for session in &entry.sessions {
+            let day = date(&session.date)?;
+            let group_ok = match session.kind.as_str() {
+                "exercise" | "lab" => matches!(session.group.as_deref(), Some("red" | "white")),
+                "orientation" | "exam" | "no-class" => session.group.is_none(),
+                _ => false,
+            };
+            // Sessions are listed once each, in date order.
+            if !group_ok || !date_in_academic_year(day, year) || previous.is_some_and(|p| p >= day)
+            {
+                return Err(invalid());
+            }
+            previous = Some(day);
+        }
+    }
+    Ok(value)
+}
+
 pub fn validate_exam_feed(
     raw: &str,
     year: i32,
@@ -857,6 +951,57 @@ impl SubscriptionClient {
         let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
         verify_source_hash(&raw, &source.hash)?;
         let value = validate_important_dates(&raw, year)?;
+        Ok(ReferenceFetch {
+            value: Some(value),
+            data_url: url.to_string(),
+            remote_hash: source.hash.clone(),
+            source_ts: source.ts.clone(),
+        })
+    }
+
+    /// A year without published class schedules yields an empty feed, so
+    /// rows of a withdrawn file are marked missing instead of lingering.
+    pub async fn fetch_class_schedules(
+        &self,
+        index_url: &str,
+        year: i32,
+        expected_index_hash: Option<&str>,
+        known_hash: Option<&str>,
+    ) -> Result<ReferenceFetch<ClassSchedules>, SubscriptionError> {
+        let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
+        let Some(source) = index
+            .academic_years
+            .get(&year.to_string())
+            .ok_or("academic year is not published in this index")?
+            .class_schedules
+            .as_ref()
+        else {
+            let remote_hash = content_hash(&json!({"classSchedules": null, "year": year}))?;
+            return Ok(ReferenceFetch {
+                value: (known_hash != Some(remote_hash.as_str())).then(|| ClassSchedules {
+                    schema_version: 1,
+                    academic_year: year,
+                    timezone: "Asia/Tokyo".into(),
+                    source: Vec::new(),
+                    entries: Vec::new(),
+                }),
+                data_url: index_url.to_string(),
+                remote_hash,
+                source_ts: String::new(),
+            });
+        };
+        let url = source_url(&base, source)?;
+        if known_hash == Some(source.hash.as_str()) {
+            return Ok(ReferenceFetch {
+                value: None,
+                data_url: url.to_string(),
+                remote_hash: source.hash.clone(),
+                source_ts: source.ts.clone(),
+            });
+        }
+        let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
+        verify_source_hash(&raw, &source.hash)?;
+        let value = validate_class_schedules(&raw, year)?;
         Ok(ReferenceFetch {
             value: Some(value),
             data_url: url.to_string(),
@@ -1296,6 +1441,53 @@ pub fn apply_important_dates(
         &tx,
         "important_dates",
         &format!("important-date:{}:%", feed.academic_year),
+        &live,
+    )?;
+    tx.commit().map_err(SubscriptionError::from)?;
+    Ok(changed)
+}
+
+pub fn apply_class_schedules(
+    connection: &mut Connection,
+    feed: &ClassSchedules,
+) -> Result<usize, SubscriptionError> {
+    let feed_value = serde_json::to_value(feed).map_err(SubscriptionError::from)?;
+    let source_hash = content_hash(&feed_value)?;
+    let tx = connection.transaction().map_err(SubscriptionError::from)?;
+    let mut changed = 0;
+    let mut live = HashSet::new();
+    for entry in &feed.entries {
+        let id = format!("class-schedule:{}:{}", feed.academic_year, entry.id);
+        live.insert(id.clone());
+        let mut value = serde_json::to_value(entry).map_err(SubscriptionError::from)?;
+        let object = object_mut(&mut value, "class schedule")?;
+        object.insert("id".into(), id.clone().into());
+        object.insert("academicYear".into(), feed.academic_year.into());
+        object.insert(
+            "sourceKey".into(),
+            format!(
+                "reference:class-schedules:{}:{}",
+                feed.academic_year, entry.id
+            )
+            .into(),
+        );
+        object.insert("provenance".into(), json!({"source":feed.source}));
+        changed += usize::from(apply_row(
+            &tx,
+            "class_schedules",
+            &id,
+            &value,
+            &source_hash,
+            &[
+                ("academic_year", feed.academic_year.into()),
+                ("course_code", entry.course_code.clone().into()),
+            ],
+        )?);
+    }
+    changed += mark_missing(
+        &tx,
+        "class_schedules",
+        &format!("class-schedule:{}:%", feed.academic_year),
         &live,
     )?;
     tx.commit().map_err(SubscriptionError::from)?;

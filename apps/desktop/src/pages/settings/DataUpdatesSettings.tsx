@@ -13,8 +13,8 @@ import {
 import {
   PUBLIC_DATA_INDEX,
   REFERENCE_KINDS,
-  subscriptionNetwork,
-} from "../../platform/subscription-polling";
+} from "../../generated/persistence";
+import { subscriptionNetwork } from "../../platform/subscription-polling";
 import type { Platform } from "../../app/shared";
 import {
   formatDay,
@@ -31,6 +31,10 @@ const DATASETS: Record<
   calendar: { title: "Academic calendar", follows: "academic" },
   "important-dates": { title: "Important dates", follows: "academic" },
   exams: { title: "Exam timetable", follows: "academic" },
+  "class-schedules": {
+    title: "Alternating class schedules",
+    follows: "academic",
+  },
   departments: { title: "Study guide", follows: "admission" },
 };
 
