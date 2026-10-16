@@ -1139,7 +1139,7 @@ function studyWorkspace(): Workspace {
 
 const stageSelect = (pane: HTMLElement) =>
   pane.querySelector<HTMLSelectElement>(
-    '[aria-label="Degree stage, stage 1"]',
+    '[aria-label="Degree programme, entry 1"]',
   )!;
 
 const departmentSelect = (pane: HTMLElement) =>
@@ -1169,6 +1169,85 @@ function studyIntents(mounted: MountedApp) {
 }
 
 describe("Study profile", () => {
+  it("persists a department selection after the controlled field rerenders", async () => {
+    const mounted = await mountStudy(studyWorkspace(), {
+      apply: (intent, core) => {
+        if (intent.kind === "replaceSettings")
+          core.publish(
+            {
+              ...core.workspace,
+              settings: intent.settings as Workspace["settings"],
+            },
+            "revision:profile-edit",
+          );
+      },
+    });
+    const pane = settingsPane(mounted);
+    await change(departmentSelect(pane), "cs");
+    await wait(() =>
+      expect(mounted.core.workspace.settings.departmentId).toBe("cs"),
+    );
+    expect(departmentSelect(pane).value).toBe("cs");
+  });
+
+  it("prefills the detected entry year and saves it only on request", async () => {
+    const workspace = studyWorkspace();
+    delete workspace.academicProfile.admissionYear;
+    const mounted = await mountStudy(workspace, {
+      apply: (intent, core) => {
+        if (intent.kind === "setStudyProfile")
+          core.publish(
+            {
+              ...core.workspace,
+              academicProfile: {
+                ...core.workspace.academicProfile,
+                admissionYear: intent.admissionYear ?? undefined,
+                studyEnrollments: intent.studyEnrollments,
+              },
+            },
+            "revision:profile-edit",
+          );
+      },
+      handle: (command) => {
+        if (command === "school_credential_status")
+          return { ...matrixStatus(), suggestedAdmissionYear: 2025 };
+      },
+    });
+    const pane = settingsPane(mounted);
+    await wait(() =>
+      expect(
+        pane.querySelector<HTMLSelectElement>(
+          '[data-setting="admission-year"] select',
+        )!.value,
+      ).toBe("2025"),
+    );
+    expect(studyIntents(mounted)).toHaveLength(0);
+    await clickButton(pane, "Save enrollment details");
+    await wait(() =>
+      expect(mounted.core.workspace.academicProfile.admissionYear).toBe(2025),
+    );
+  });
+
+  it("keeps a manually saved admission year when a different year is detected", async () => {
+    const workspace = studyWorkspace();
+    workspace.academicProfile.admissionYear = 2024;
+    const mounted = await mountStudy(workspace, {
+      handle: (command) => {
+        if (command === "school_credential_status")
+          return { ...matrixStatus(), suggestedAdmissionYear: 2025 };
+      },
+    });
+    const pane = settingsPane(mounted);
+    await flush();
+    expect(
+      pane.querySelector<HTMLSelectElement>(
+        '[data-setting="admission-year"] select',
+      )!.value,
+    ).toBe("2024");
+    expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true);
+    expect(studyIntents(mounted)).toHaveLength(0);
+  });
+
   it(
     "saves consecutive stage edits as one profile without losing any field",
     async () => {
@@ -1177,20 +1256,20 @@ describe("Study profile", () => {
 
       const stage = stageSelect(pane);
       const kind = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Entry kind, stage 1"]',
+        '[aria-label="Entry route, entry 1"]',
       )!;
       const grade = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Entry grade, stage 1"]',
+        '[aria-label="Starting year of study, entry 1"]',
       )!;
       const term = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Stage admission term, stage 1"]',
+        '[aria-label="Admission term, entry 1"]',
       )!;
       await change(stage, "professional");
       await change(kind, "transfer");
       await change(grade, "2");
       await change(term, "2026-2Q");
 
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       await wait(() => expect(studyIntents(mounted)).toHaveLength(1));
       // One save carries every edit, so a field cannot be lost half-way.
       expect(studyIntents(mounted)[0]).toEqual({
@@ -1232,11 +1311,11 @@ describe("Study profile", () => {
       const pane = settingsPane(mounted);
 
       await change(stageSelect(pane), "doctoral");
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       await wait(() => expect(stageSelect(pane).disabled).toBe(true));
       expect(
         pane.querySelector<HTMLSelectElement>(
-          '[aria-label="Entry kind, stage 1"]',
+          '[aria-label="Entry route, entry 1"]',
         )!.disabled,
       ).toBe(true);
       expect(buttonIn(pane, "Saving…").disabled).toBe(true);
@@ -1259,7 +1338,7 @@ describe("Study profile", () => {
       const pane = settingsPane(mounted);
 
       await change(stageSelect(pane), "doctoral");
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
         const alert = pane.querySelector('[role="alert"]');
         if (!alert) throw new Error("The rejection is not reported yet.");
@@ -1267,7 +1346,7 @@ describe("Study profile", () => {
       });
       expect(error.textContent).toContain("duplicate term");
       expect(stageSelect(pane).value).toBe("doctoral");
-      expect(buttonIn(pane, "Save study profile").disabled).toBe(false);
+      expect(buttonIn(pane, "Save enrollment details").disabled).toBe(false);
     },
     TIMEOUT,
   );
@@ -1296,7 +1375,7 @@ describe("Study profile", () => {
       // has really been adopted before Save is pressed.
       await wait(() => expect(departmentSelect(pane).value).toBe("physics"));
 
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
         const alert = pane.querySelector('[role="alert"]');
         if (!alert) throw new Error("The conflict is not reported yet.");
@@ -1326,9 +1405,9 @@ describe("Study profile", () => {
       const pane = settingsPane(mounted);
 
       await change(stageSelect(pane), "master");
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       await wait(() =>
-        expect(buttonIn(pane, "Save study profile").disabled).toBe(true),
+        expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true),
       );
       expect(stageSelect(pane).value).toBe("master");
 

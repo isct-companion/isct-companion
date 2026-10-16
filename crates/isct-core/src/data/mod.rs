@@ -793,7 +793,7 @@ impl DataStore {
             std::fs::create_dir_all(parent).map_err(DataError::from)?;
         }
         let mut connection = Connection::open(&path).map_err(DataError::from)?;
-        let rebuilt = migrations::migrate(&mut connection)?;
+        let schema_changed = migrations::migrate(&mut connection)?;
         // Catalog offerings are never deleted by the person; earlier workspace
         // saves tombstoned rows the window had not loaded yet. Restore them.
         connection
@@ -805,7 +805,7 @@ impl DataStore {
             .map_err(DataError::from)?;
         let store = Self { path };
         store.ensure_defaults()?;
-        Ok((store, rebuilt))
+        Ok((store, schema_changed))
     }
 
     fn open(&self) -> Result<Connection, DataError> {

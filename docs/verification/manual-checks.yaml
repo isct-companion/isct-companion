@@ -1039,7 +1039,8 @@ checks:
     title: Installers on a clean machine of each platform
     persona: careless-multidevice
     preconditions: |
-      The published installers and a machine that has never run the app.
+      The published installers, a clean machine and a separate installation with
+      an existing workspace (including schema 6 for the 1.0 update).
     steps:
       - action: |
           Install on macOS (both architectures) and Windows x64.
@@ -1049,8 +1050,16 @@ checks:
       - action: |
           Launch, complete first-run, and open a workspace from a backup.
         reason: |
-          An existing workspace must import into a fresh install, which is the
-          upgrade path every current user takes.
+          An existing workspace must import into a fresh install, independently of the
+          normal update path.
+      - action: |
+          On the existing installation, change a timetable and a preference,
+          quit, replace the application with the new installer, and relaunch
+          without exporting or importing a backup.
+        reason: |
+          Checks that an actual OS installer uses the same application-data
+          directory and retains data across a normal update. SQL migration
+          tests cannot exercise app replacement and installed identities.
       - action: |
           Observe the Gatekeeper and SmartScreen prompts.
         reason: |
@@ -1061,11 +1070,13 @@ checks:
       workspace.
     expected: |
       Installation succeeds, the OS prompts match the release notes, and
-      existing workspace data imports.
+      existing workspace data imports and survives ordinary app updates.
     why_manual: |
       Requires clean machines and real installers; build success is not
       runtime compatibility.
     covers:
+      - crates/isct-core/src/data/migrations.rs
+      - apps/desktop/src-tauri/src/lib.rs
       - scripts/desktop/desktop-release.mjs
       - .github/workflows/desktop-release.yml
     verified: null

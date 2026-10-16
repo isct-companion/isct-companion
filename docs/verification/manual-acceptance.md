@@ -73,7 +73,7 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
-| `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
+| `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 
@@ -1208,7 +1208,8 @@ Needs Apple credentials and the notarization service.
 
 **Preconditions**
 
-The published installers and a machine that has never run the app.
+The published installers, a clean machine and a separate installation with
+an existing workspace (including schema 6 for the 1.0 update).
 
 **Steps**
 
@@ -1216,9 +1217,15 @@ The published installers and a machine that has never run the app.
    - *Why:* Build success does not establish runtime compatibility; the release
      notes say so explicitly.
 2. Launch, complete first-run, and open a workspace from a backup.
-   - *Why:* An existing workspace must import into a fresh install, which is the
-     upgrade path every current user takes.
-3. Observe the Gatekeeper and SmartScreen prompts.
+   - *Why:* An existing workspace must import into a fresh install, independently of the
+     normal update path.
+3. On the existing installation, change a timetable and a preference,
+   quit, replace the application with the new installer, and relaunch
+   without exporting or importing a backup.
+   - *Why:* Checks that an actual OS installer uses the same application-data
+     directory and retains data across a normal update. SQL migration
+     tests cannot exercise app replacement and installed identities.
+4. Observe the Gatekeeper and SmartScreen prompts.
    - *Why:* The release notes promise a specific prompt behaviour; a mismatch
      makes the notes wrong rather than the build.
 
@@ -1230,7 +1237,7 @@ workspace.
 **Expected**
 
 Installation succeeds, the OS prompts match the release notes, and
-existing workspace data imports.
+existing workspace data imports and survives ordinary app updates.
 
 **Why this is manual**
 
@@ -1239,6 +1246,8 @@ runtime compatibility.
 
 **Covers**
 
+- `crates/isct-core/src/data/migrations.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
 - `scripts/desktop/desktop-release.mjs`
 - `.github/workflows/desktop-release.yml`
 
