@@ -419,6 +419,7 @@ contract!(AgentAccess { pub enabled: bool, #[serde(default)] pub last_writes: Ve
 contract!(Notifications {
     pub classes: bool, pub assignments: bool,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_lead_minutes: Option<u32>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub assignment_lead_minutes: Option<Vec<u32>>,
     #[cfg_attr(feature = "ts", ts(type = "NotificationPermission"))] pub local_permission: String,
 });
 contract!(CloudSettings {

@@ -515,6 +515,7 @@ export type Notifications = {
   classes: boolean;
   assignments: boolean;
   classLeadMinutes?: number;
+  assignmentLeadMinutes?: Array<number>;
   localPermission: NotificationPermission;
 };
 
@@ -1407,6 +1408,8 @@ export const COURSE_PALETTE = [
   "#806a9d",
   "#5c7d93",
 ] as const;
+
+export const DEFAULT_ASSIGNMENT_LEADS = [1440, 60] as const;
 
 export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
   {

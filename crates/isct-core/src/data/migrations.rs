@@ -1,5 +1,5 @@
 use super::DataError;
-use rusqlite::{Connection, Transaction};
+use rusqlite::Connection;
 
 pub const SCHEMA_VERSION: i64 = 7;
 
@@ -188,12 +188,6 @@ CREATE TABLE exams (
 );
 CREATE INDEX exams_by_course ON exams(academic_year,course_code);
 CREATE INDEX exams_by_date ON exams(academic_year,exam_date);
-CREATE TABLE class_schedules (
-  id TEXT PRIMARY KEY, academic_year INTEGER NOT NULL, course_code TEXT NOT NULL,
-  value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
-  updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
-  last_seen_at TEXT, missing_since TEXT
-);
 CREATE TABLE schedule_overrides (
   id TEXT PRIMARY KEY, target_key TEXT UNIQUE, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
@@ -207,34 +201,13 @@ CREATE TABLE scheduled_tasks (
 );
 "#;
 
-fn drop_user_objects(transaction: &Transaction<'_>) -> Result<(), DataError> {
-    let objects = {
-        let mut statement = transaction
-            .prepare(
-                "SELECT type, name FROM sqlite_master
-                 WHERE name NOT LIKE 'sqlite_%' AND type IN ('table', 'view')",
-            )
-            .map_err(DataError::from)?;
-        let objects = statement
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(DataError::from)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(DataError::from)?;
-        objects
-    };
-    for (kind, name) in objects {
-        let escaped = name.replace('"', "\"\"");
-        let sql = if kind == "view" {
-            format!("DROP VIEW IF EXISTS \"{escaped}\"")
-        } else {
-            format!("DROP TABLE IF EXISTS \"{escaped}\"")
-        };
-        transaction.execute_batch(&sql).map_err(DataError::from)?;
-    }
-    Ok(())
-}
+const CREATE_CLASS_SCHEDULES: &str = r#"CREATE TABLE class_schedules (
+  id TEXT PRIMARY KEY, academic_year INTEGER NOT NULL, course_code TEXT NOT NULL,
+  value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
+  last_seen_at TEXT, missing_since TEXT
+);
+"#;
 
 pub fn migrate(connection: &mut Connection) -> Result<bool, DataError> {
     connection
@@ -246,12 +219,25 @@ pub fn migrate(connection: &mut Connection) -> Result<bool, DataError> {
     if version == SCHEMA_VERSION {
         return Ok(false);
     }
-    // Pre-release builds deliberately rebuild mismatched schemas. There is no
-    // production user data to migrate yet.
+    // Never rebuild a populated database, including on downgrade or an unknown schema.
+    let populated: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND type='table')",
+        [], |row| row.get(0),
+    ).map_err(DataError::from)?;
+    if version != 6 && (version != 0 || populated) {
+        return Err(DataError::compatibility(format!(
+            "Database schema {version} is not supported. Your database was left intact."
+        )));
+    }
     let transaction = connection.transaction().map_err(DataError::from)?;
-    drop_user_objects(&transaction)?;
+    if version == 0 {
+        transaction
+            .execute_batch(CREATE_SCHEMA)
+            .map_err(DataError::from)?;
+    }
+    // Schema 7 only adds this cache table; all user and school rows stay in place.
     transaction
-        .execute_batch(CREATE_SCHEMA)
+        .execute_batch(CREATE_CLASS_SCHEDULES)
         .map_err(DataError::from)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)

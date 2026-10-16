@@ -58,6 +58,7 @@ export type SchoolCredentials = {
   matrix: string;
 };
 export type SchoolCredentialStatus = {
+  suggestedAdmissionYear?: number;
   science: {
     availability:
       | "not-configured"

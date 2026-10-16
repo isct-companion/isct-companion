@@ -268,14 +268,8 @@ pub fn run() {
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
-            let (data_store, rebuilt) = data::DataStore::initialize(app_data_dir.join("school.db"))
+            let (data_store, _) = data::DataStore::initialize(app_data_dir.join("school.db"))
                 .map_err(std::io::Error::other)?;
-            if rebuilt {
-                let path = app_data_dir.join("workspace.json");
-                if path.is_file() {
-                    std::fs::remove_file(path)?;
-                }
-            }
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
             app.manage(

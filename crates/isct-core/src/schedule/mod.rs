@@ -10,6 +10,7 @@ mod ics;
 mod occurrence;
 mod range;
 mod reminders;
+pub(crate) use reminders::assignment_lead_minutes;
 mod requests;
 mod tasks;
 
@@ -51,7 +52,7 @@ pub use range::calendar_between;
 pub use reminders::{
     glance, notification_plan, GlanceSnapshot, NotificationItem, NotificationLocale,
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
-    ReminderService,
+    ReminderService, DEFAULT_ASSIGNMENT_LEADS,
 };
 pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
 pub(crate) use tasks::assignment_submitted;

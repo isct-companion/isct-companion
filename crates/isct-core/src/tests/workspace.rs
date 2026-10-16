@@ -1522,3 +1522,35 @@ fn initial_import_fills_missing_times_but_defers_an_existing_plan_to_review() {
         }
     }
 }
+
+#[test]
+fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
+    let service = service("reminder-times");
+    let initial = service.snapshot().unwrap();
+    let settings = settings_with(&initial, |settings| {
+        settings["notifications"]["assignmentLeadMinutes"] = json!([180, 30])
+    });
+    let saved = service
+        .mutate(WorkspaceMutation {
+            expected_revision: initial.revision,
+            intent: WorkspaceIntent::ReplaceSettings { settings },
+        })
+        .unwrap();
+    assert_eq!(
+        service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
+        json!([180, 30])
+    );
+    let invalid = settings_with(&saved, |settings| {
+        settings["notifications"]["assignmentLeadMinutes"] = json!([])
+    });
+    assert!(service
+        .mutate(WorkspaceMutation {
+            expected_revision: saved.revision,
+            intent: WorkspaceIntent::ReplaceSettings { settings: invalid }
+        })
+        .is_err());
+    assert_eq!(
+        service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
+        json!([180, 30])
+    );
+}

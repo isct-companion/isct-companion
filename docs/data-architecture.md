@@ -107,4 +107,4 @@ Authentication secrets are outside both the workspace and extension boundary. A 
 
 ## Development reset policy
 
-The current pre-release build does not preserve compatibility with the previous demo. Changes replace the local model and UI directly. Existing local demo data may be cleared and reseeded rather than migrated; compatibility work starts only after the product and source contracts stabilize.
+Database upgrades preserve existing workspace data. Known schemas migrate in a transaction; unsupported schemas and downgrades return an error without deleting stored data. Replacing the installed application does not require exporting and restoring a backup.

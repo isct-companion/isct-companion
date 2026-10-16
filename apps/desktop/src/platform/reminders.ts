@@ -2,6 +2,10 @@
 import type { DesktopBridge } from "./desktop-bridge";
 export const CLASS_LEAD_CHOICES = [5, 10, 15, 30] as const;
 export const DEFAULT_CLASS_LEAD = 10;
+export const ASSIGNMENT_LEAD_CHOICES = [
+  15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080,
+] as const;
+export { DEFAULT_ASSIGNMENT_LEADS } from "../generated/persistence";
 
 /** One-time transfer of the previous webview's device-local delivery log. */
 export async function bootstrapReminders(
