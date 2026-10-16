@@ -12,7 +12,11 @@ import {
 } from "../../lib/model";
 import { t } from "../../i18n";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
-import { useScheduleQuery, type TaskView } from "../../platform/core-query";
+import {
+  useScheduleQuery,
+  type CourseDetail,
+  type TaskView,
+} from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
 import { SyllabusDetails } from "./syllabus-details";
 
@@ -106,43 +110,21 @@ export function CourseDetails({
   const now = useClock();
   const tasks = useScheduleQuery<TaskView>({ kind: "taskView", now }).value;
   const language = contentLanguage(data.settings);
-  const materials = (data.materials as LmsItem[])
-    .filter(
-      (item) =>
-        item.courseId === course.id &&
-        !item.deletedAt &&
-        item.visible !== false &&
-        item.module !== "assign" &&
-        item.module !== "quiz",
-    )
-    .sort(
-      (left, right) =>
-        (left.sectionNumber ?? left.session) -
-        (right.sectionNumber ?? right.session),
-    );
-  const sections = [
-    ...new Set(materials.map((item) => item.sectionNumber ?? item.session)),
-  ];
-  const assignments = data.assignments
-    .filter(
-      (item) => item.courseId === course.id && !item.deletedAt && !item.hidden,
-    )
-    .sort((left, right) =>
-      (left.dueAt ?? "~").localeCompare(right.dueAt ?? "~"),
-    );
+  const detail = useScheduleQuery<CourseDetail>({
+    kind: "courseDetail",
+    courseId: course.id,
+  }).value;
+  const rows = <T extends { id: string }>(items: T[], ids?: string[]): T[] => {
+    const byId = new Map(items.map((item) => [item.id, item]));
+    return (ids ?? []).flatMap((id) => byId.get(id) ?? []);
+  };
+  const materials = rows(data.materials as LmsItem[], detail?.materialIds);
+  const sections = detail?.sections ?? [];
+  const assignments = rows(data.assignments, detail?.assignmentIds);
   const offering = data.offerings.find(
-    (item) => item.id === course.offeringId && !item.deletedAt,
+    (item) => item.id === detail?.offeringId,
   );
-  const exams = data.exams
-    .filter(
-      (item) =>
-        !item.deletedAt &&
-        !item.missingSince &&
-        item.status === "scheduled" &&
-        item.courseCode.trim().toUpperCase() ===
-          course.code.trim().toUpperCase(),
-    )
-    .sort((left, right) => left.date.localeCompare(right.date));
+  const exams = rows(data.exams, detail?.examIds);
   const count = (value: number) =>
     value > 0 ? <Badge size="xs">{value}</Badge> : null;
   const refresh = fetchLms && (

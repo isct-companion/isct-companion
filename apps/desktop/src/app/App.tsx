@@ -1,3 +1,7 @@
+import { usePullState } from "./usePullState";
+import { useCoreLifecycle } from "./useCoreLifecycle";
+import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
+import { useAppearance } from "./useAppearance";
 import {
   scheduleQuery,
   useScheduleQuery,
@@ -30,7 +34,7 @@ import { notify } from "./notify";
 import { AppShell, MantineProvider } from "@mantine/core";
 import { UiButton } from "../components/mantine";
 import { confirmAction } from "../components/confirm";
-import i18n, { t } from "../i18n";
+import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import {
   desktopBridge,
@@ -38,7 +42,6 @@ import {
   official,
   saveExportFile,
 } from "./native";
-import { cleanMaterials, retentionDays } from "../features/lms/files";
 import { errorText, jstDate, type Page, type Section } from "./shared";
 
 import { Today } from "../pages/today/TodayPage";
@@ -67,14 +70,9 @@ const LmsWorkspace = lazy(() =>
     default: module.LmsWorkspace,
   })),
 );
-import { bootstrapReminders } from "../platform/reminders";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
-import {
-  detectPlatform,
-  resolveCapabilities,
-  type CapabilityRuntime,
-} from "../platform/capabilities";
+import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
 import {
   useSchoolSession,
   type SchoolSessionState,
@@ -83,11 +81,8 @@ import { appTheme, cssVariablesResolver } from "./theme";
 
 import { performAction } from "../platform/actions";
 import {
-  schoolPullForDisplay,
-  type NativeCapabilitySnapshot,
   type SchoolPullOptions,
   type SchoolSite,
-  type PullSnapshot,
 } from "../platform/desktop-bridge";
 
 import { subscriptionNetwork } from "../platform/subscription-polling";
@@ -138,19 +133,6 @@ function pullProblem(outcomes: { state: string; message: string }[]) {
   return failed.state === "reconnect-required"
     ? "Sign-in required. Check the account in Settings → School accounts."
     : failed.message;
-}
-
-const LOGIN_STEP_LABELS: Record<string, string> = {
-  agree: "Accepting portal terms",
-  identifier: "Entering account",
-  password: "Checking password",
-  method: "Selecting sign-in method",
-  otp: "Verifying one-time code",
-  matrix: "Verifying matrix code",
-};
-
-function loginStepLabel(step: string) {
-  return LOGIN_STEP_LABELS[step] ?? step;
 }
 
 function sessionStatusLabel(
@@ -257,10 +239,6 @@ export function WorkspaceApp() {
         })),
       }
     : undefined;
-  useEffect(() => {
-    void i18n.changeLanguage(data?.settings.locale ?? "en");
-    document.documentElement.lang = data?.settings.locale ?? "en";
-  }, [data?.settings.locale]);
   const [editMode, setEditMode] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -437,119 +415,17 @@ export function WorkspaceApp() {
   const [panelCourseId, setPanelCourseId] = useState<string | null>(null);
   // A search result opened from the syllabus panel, shown over the timetable.
   const [offeringPanel, setOfferingPanel] = useState<FinderCourse | null>(null);
-  // View progress also includes the timetable review after the native pull.
-  const [lmsViewProgress, setLmsProgress] = useState<number | null>(null);
-  const [nativePulls, setNativePulls] = useState<PullSnapshot[]>([]);
-  const [nativeLmsProgress, setNativeLmsProgress] = useState(5);
-  const activeLms = schoolPullForDisplay(nativePulls, "science-lms");
-  const activeKyomu = schoolPullForDisplay(nativePulls, "kyomu");
-  const lmsProgress = activeLms
-    ? Math.max(lmsViewProgress ?? 5, nativeLmsProgress)
-    : lmsViewProgress;
-  const [kyomuViewProgress, setKyomuProgress] = useState<number | null>(null);
-  const kyomuProgress = kyomuViewProgress ?? (activeKyomu ? 5 : null);
-  useEffect(() => desktopBridge?.onPullState?.(setNativePulls), []);
-  useEffect(() => setNativeLmsProgress(5), [activeLms?.id]);
-  useEffect(() => {
-    if (activeLms?.state === "blocked")
-      setLmsPhase(`Waiting · ${activeLms.blockedBy ?? "school view"}`);
-    else if (activeLms?.state === "queued")
-      setLmsPhase("Waiting for school refresh");
-  }, [activeLms?.id, activeLms?.state, activeLms?.blockedBy]);
-  const [lmsPhase, setLmsPhase] = useState("Ready");
-  const [loginSteps, setLoginSteps] = useState<
-    Partial<Record<"science" | "tokyo-tech", string>>
-  >({});
+  const {
+    lmsProgress,
+    kyomuProgress,
+    setLmsProgress,
+    setKyomuProgress,
+    lmsPhase,
+    setLmsPhase,
+    loginSteps,
+  } = usePullState();
   const pulling = lmsProgress !== null;
-  useEffect(() => {
-    const offLogin = desktopBridge?.onSchoolLoginStatus?.((event) => {
-      setLoginSteps((current) => ({
-        ...current,
-        [event.profile]:
-          event.state === "connected"
-            ? "Signed in"
-            : event.state === "progress"
-              ? `Signing in · ${loginStepLabel(event.message)}`
-              : event.state === "needs-user"
-                ? "Waiting for you"
-                : event.message,
-      }));
-    });
-    const offIngest = desktopBridge?.onSchoolIngest?.((outcome) => {
-      if (
-        outcome.site === "kyomu" &&
-        (outcome.state === "ok" || outcome.state === "unavailable")
-      )
-        setKyomuProgress((value) =>
-          value === null ? value : Math.min(95, Math.max(value, 15) + 20),
-        );
-    });
-    const offProgress = desktopBridge?.onSchoolPullProgress?.((progress) => {
-      const ratio = progress.total
-        ? Math.min(1, progress.completed / progress.total)
-        : 1;
-      const ranges = {
-        catalog: [5, 8],
-        course: [8, 25],
-        material: [25, 38],
-        assignment: [38, 44],
-      } as const;
-      const [start, end] = ranges[progress.phase];
-      setNativeLmsProgress((current) =>
-        Math.max(current, start + (end - start) * ratio),
-      );
-      const course = decodeEntities(progress.courseTitle).trim();
-      const item = decodeEntities(progress.itemTitle).trim();
-      const context = [progress.term, course, item].filter(Boolean).join(" · ");
-      const count = progress.total
-        ? `${progress.completed}/${progress.total}`
-        : "0/0";
-      const label =
-        progress.phase === "catalog"
-          ? "Reading enrolled courses"
-          : progress.phase === "course"
-            ? "Loading course"
-            : progress.phase === "material"
-              ? "Reading material"
-              : "Checking assignment";
-      setLmsPhase(`${label} · ${context || "LMS"} · ${count}`);
-    });
-    return () => {
-      offLogin?.();
-      offIngest?.();
-      offProgress?.();
-    };
-  }, []);
-  useEffect(() => {
-    if (!desktopBridge?.schoolRefreshEvent) return;
-    const report = (kind: "foreground" | "background") => {
-      void desktopBridge
-        ?.schoolRefreshEvent?.({
-          kind,
-          network: subscriptionNetwork(detectPlatform()),
-        })
-        .catch(() => undefined);
-      void desktopBridge?.cloudLifecycle?.(kind).catch(() => undefined);
-    };
-    const focus = () => {
-      if (document.visibilityState !== "hidden") report("foreground");
-    };
-    const visibility = () =>
-      report(
-        document.visibilityState === "hidden" ? "background" : "foreground",
-      );
-    focus();
-    addEventListener("focus", focus);
-    addEventListener("online", focus);
-    addEventListener("offline", visibility);
-    document.addEventListener("visibilitychange", visibility);
-    return () => {
-      removeEventListener("focus", focus);
-      removeEventListener("online", focus);
-      removeEventListener("offline", visibility);
-      document.removeEventListener("visibilitychange", visibility);
-    };
-  }, []);
+  useCoreLifecycle();
   const [mergeDiff, setMergeDiff] = useState<MergeDiff | null>(null);
   const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const loadSchoolRecords = () => workspaceActions.refreshSchool();
@@ -566,19 +442,8 @@ export function WorkspaceApp() {
       }),
     [],
   );
-  const [schedulerState, setSchedulerState] =
-    useState<CapabilityRuntime["background"]["scheduler"]>("off");
-  const [nativeCapabilities, setNativeCapabilities] =
-    useState<NativeCapabilitySnapshot>();
-  const [nativeCapabilitiesReady, setNativeCapabilitiesReady] = useState(false);
-  useEffect(() => {
-    if (!desktopBridge) return;
-    void desktopBridge
-      .getRuntimeCapabilities()
-      .then(setNativeCapabilities)
-      .catch(() => setNativeCapabilities(undefined))
-      .finally(() => setNativeCapabilitiesReady(true));
-  }, []);
+  const { schedulerState, nativeCapabilities, nativeCapabilitiesReady } =
+    useWorkspaceRuntime(sourceData);
   // Courses of the quarter on screen, a 3Q–4Q course in each of its quarters.
   const termCourseKey = overview.value?.termCourseIds.join("\n");
   useEffect(() => {
@@ -602,96 +467,7 @@ export function WorkspaceApp() {
     sourceData?.courses,
     nativeCapabilities?.syllabusSearch,
   ]);
-  useEffect(() => {
-    void workspaceStore.initialize();
-  }, []);
-
-  useEffect(() => {
-    if (!sourceData) return;
-    const updateState = () => {
-      const tasks = workspaceStore.getState().workspace?.scheduledTasks ?? [];
-      setSchedulerState(tasks.some((task) => task.enabled) ? "active" : "off");
-    };
-    updateState();
-    const unsubscribe = workspaceStore.subscribe(updateState);
-    if (desktopBridge?.runScheduledTask) {
-      let cancelled = false;
-      let dispose: (() => void) | undefined;
-      void desktopBridge
-        .onWorkspaceChanged((event) => {
-          void workspaceStore.handleWorkspaceChanged(event).catch(notify.error);
-        })
-        .then((unlisten) => {
-          if (cancelled) {
-            unlisten();
-            return;
-          }
-          dispose = unlisten;
-          // Listening is asynchronous. Recover the snapshot only after actual
-          // registration, closing the startup gap between read and subscribe.
-          return workspaceStore.reload();
-        })
-        .catch(notify.error);
-      return () => {
-        cancelled = true;
-        dispose?.();
-        unsubscribe();
-      };
-    }
-    // Preview has no runtime; all task admission and timing belong to Core.
-    return unsubscribe;
-  }, [sourceData?.deviceId]);
-
-  useEffect(() => {
-    if (sourceData && desktopBridge)
-      void bootstrapReminders(desktopBridge).catch(notify.error);
-  }, [sourceData?.deviceId]);
-
-  // Once per launch, after settings load: drop downloaded course files left unused.
-  const cleaned = useRef(false);
-  useEffect(() => {
-    if (!data || cleaned.current) return;
-    cleaned.current = true;
-    void cleanMaterials(retentionDays(data.settings)).catch(() => undefined);
-  }, [Boolean(data)]);
-  // "Automatic" follows the system while the app is open, not only at launch.
-  useEffect(() => {
-    if (
-      data?.settings.appearance !== "system" ||
-      typeof matchMedia !== "function"
-    )
-      return;
-    const query = matchMedia("(prefers-color-scheme: dark)");
-    const follow = () => {
-      document.documentElement.dataset.mantineColorScheme = query.matches
-        ? "dark"
-        : "light";
-    };
-    query.addEventListener("change", follow);
-    return () => query.removeEventListener("change", follow);
-  }, [data?.settings.appearance]);
-  useEffect(() => {
-    if (!data) return;
-    document.documentElement.dataset.appearance = data.settings.appearance;
-    document.documentElement.dataset.mantineColorScheme =
-      data.settings.appearance === "system"
-        ? typeof matchMedia === "function" &&
-          matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light"
-        : data.settings.appearance;
-    document.documentElement.dataset.textSize =
-      data.settings.textSize ?? "medium";
-    document.body.style.backgroundImage = data.settings.customization
-      ?.background
-      ? `url("${data.settings.customization.background.replaceAll('"', "%22")}")`
-      : "";
-    document.getElementById("user-app-css")?.remove();
-  }, [
-    data?.settings.appearance,
-    data?.settings.textSize,
-    data?.settings.customization,
-  ]);
+  useAppearance(data);
   useEffect(() => {
     if (store.error && sourceData)
       notify.error(store.error, () => void workspaceStore.reload());

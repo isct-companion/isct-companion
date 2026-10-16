@@ -27,6 +27,11 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
+    for declaration in isct_core::course_query::declarations() {
+        output.push_str("export ");
+        output.push_str(&declaration);
+        output.push_str("\n\n");
+    }
     output.push_str("export const DATA_POLICY: DataPolicy = ");
     output.push_str(
         &serde_json::to_string_pretty(&isct_core::contracts::data_policy())
@@ -48,6 +53,19 @@ fn main() {
     output.push_str(
         &serde_json::to_string_pretty(&isct_core::schedule::default_teaching_periods())
             .expect("serialize default teaching periods"),
+    );
+    output.push_str(";\n");
+    output.push_str("\nexport const EMPTY_WORKSPACE: Workspace = ");
+    output.push_str(
+        &serde_json::to_string_pretty(
+            &isct_core::data::initial_workspace(
+                chrono::NaiveDate::from_ymd_opt(2026, 4, 1).expect("fixture date"),
+                "preview-device",
+                "2026-04-01T00:00:00.000Z",
+            )
+            .expect("valid initial workspace"),
+        )
+        .expect("serialize empty workspace"),
     );
     output.push_str(";\n");
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

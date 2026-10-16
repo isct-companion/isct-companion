@@ -1,16 +1,26 @@
+import {
+  loadReading,
+  persistReading,
+  type ReadingState,
+  type ViewTab,
+} from "./reading-state";
+import { useCourseNotes } from "./useCourseNotes";
+import {
+  CurrentLesson,
+  ImageThumbnail,
+  RichContent,
+  type FileAccess,
+} from "./RichContent";
 import "./lms.css";
 import { STACKED_QUERY } from "../../app/form-factor";
 import {
-  createContext,
   lazy,
-  memo,
   Suspense,
   useCallback,
   useLayoutEffect,
   useEffect,
   useMemo,
   useRef,
-  useContext,
   useState,
   type WheelEvent,
 } from "react";
@@ -31,7 +41,6 @@ import {
   formatLmsDate,
   contentText,
   imageOnly,
-  safeContent,
   safeUrl,
 } from "./content";
 import { OfficialLmsView } from "./OfficialLmsView";
@@ -43,7 +52,6 @@ import {
   gravityTarget,
   lessonSummary,
   markedLesson,
-  markSchedule,
   railLabels,
 } from "./lessons";
 import {
@@ -54,21 +62,13 @@ import {
 /** The rail's entry for course activities outside any section. */
 const ACTIVITIES = -1;
 /** The lesson the course is at, for marking rows of schedule tables. */
-const CurrentLesson = createContext<number | undefined>(undefined);
+
 import { fileFamily, extension } from "./file-types";
-import {
-  cachedThumbnail,
-  dropThumbnail,
-  loadThumbnail,
-  onSignedIn,
-} from "./thumbnails";
 import {
   type CourseFolder,
   folderComponent,
   downloadLimit,
   previewKind,
-  listNotes,
-  saveNote,
   moveNote,
   type LocalFile,
 } from "./files";
@@ -104,26 +104,8 @@ const SyllabusDetails = lazy(() =>
 const isSyllabus = (m: Material) =>
   /^(シラバス|syllabus)$/i.test(m.title.trim()) ||
   Boolean(m.resourceUrl?.startsWith("https://syllabus.s.isct.ac.jp/"));
-type ViewTab = {
-  id: string;
-  title: string;
-  kind: "material" | "official" | "link" | "note" | "syllabus" | "announcement";
-  section?: string;
-  url?: string;
-};
-type ReadingState = {
-  version: 2;
-  expanded: string[];
-  scroll: number;
-  tabs: ViewTab[];
-  selected?: string;
-  anchor?: { id: string; ratio: number };
-  /** The lesson shown alone in the outline, by section id. */
-  lesson?: number;
-};
-const reading = new Map<string, ReadingState>();
 /** Where course files live and how large an automatic download may be. */
-type FileAccess = { context: CourseFolder; limit: number };
+
 /** Consecutive image-only labels share one grid instead of a block each. */
 function groupImageLabels(items: Material[]): (Material | Material[])[] {
   const grouped: (Material | Material[])[] = [];
@@ -203,181 +185,6 @@ function withoutActivityDates(html: string) {
   return page.body.innerHTML;
 }
 
-const ImageThumbnail = memo(function ImageThumbnail({
-  url,
-  files,
-}: {
-  url: string;
-  files: FileAccess;
-}) {
-  const element = useRef<HTMLSpanElement>(null);
-  const [src, setSrc] = useState<string | undefined>(() =>
-    cachedThumbnail(files.context, url),
-  );
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(
-    () =>
-      onSignedIn(() => {
-        setFailed(false);
-        setAttempt((value) => value + 1);
-      }),
-    [],
-  );
-  useEffect(() => {
-    if (src || failed) return;
-    let disposed = false;
-    const load = () =>
-      void loadThumbnail(files.context, url, files.limit)
-        .then((value) => {
-          if (!disposed && value) setSrc(value);
-        })
-        .catch(() => undefined);
-    const observer =
-      typeof IntersectionObserver === "undefined"
-        ? undefined
-        : new IntersectionObserver(
-            (entries) => {
-              if (entries.some((entry) => entry.isIntersecting)) {
-                observer!.disconnect();
-                load();
-              }
-            },
-            { rootMargin: "200px" },
-          );
-    if (observer && element.current) observer.observe(element.current);
-    else load();
-    return () => {
-      disposed = true;
-      observer?.disconnect();
-    };
-  }, [url, src, failed, attempt, files]);
-  return (
-    <span
-      ref={element}
-      className={`lmsFileTile lmsThumbnail${loaded ? " loaded" : ""}`}
-      data-family="image"
-      aria-hidden="true"
-    >
-      <LmsIcon name="image" size={18} />
-      {src && (
-        <img
-          src={src}
-          alt=""
-          decoding="async"
-          onLoad={() => setLoaded(true)}
-          onError={() => {
-            dropThumbnail(url);
-            setSrc(undefined);
-            setLoaded(false);
-            setFailed(true);
-          }}
-        />
-      )}
-    </span>
-  );
-});
-
-const RichContent = memo(function RichContent({
-  html,
-  language,
-  openLink,
-  files,
-}: {
-  files: FileAccess;
-  html: string;
-  language?: "ja" | "en";
-  openLink: (url: string, title: string, anchor?: Element) => void;
-}) {
-  const current = useContext(CurrentLesson);
-  const content = useMemo(
-    () => markSchedule(safeContent(html, language), current),
-    [html, language, current],
-  );
-  const renderedHtml = useMemo(() => ({ __html: content }), [content]);
-  const element = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    let disposed = false;
-    const load = async (placeholder: HTMLElement) => {
-      const url = placeholder.dataset.imageSrc!;
-      placeholder.dataset.state = "loading";
-      try {
-        const src = await loadThumbnail(files.context, url, files.limit);
-        if (disposed) return;
-        if (!src) {
-          placeholder.dataset.state = "unavailable";
-          return;
-        }
-        const image = document.createElement("img");
-        image.alt = placeholder.dataset.imageAlt || "";
-        image.decoding = "async";
-        image.className = "lmsInlineThumbnail";
-        image.onload = () => {
-          placeholder.dataset.state = "ready";
-        };
-        image.onerror = () => {
-          dropThumbnail(url);
-          image.remove();
-          placeholder.dataset.state = "unavailable";
-        };
-        image.src = src;
-        placeholder.replaceChildren(image);
-      } catch (error) {
-        if (!disposed) {
-          placeholder.dataset.state = "unavailable";
-          placeholder.title = String(error);
-        }
-      }
-    };
-    const placeholders =
-      element.current?.querySelectorAll<HTMLElement>("[data-image-src]") || [];
-    const observer =
-      typeof IntersectionObserver === "undefined"
-        ? null
-        : new IntersectionObserver(
-            (entries) => {
-              for (const entry of entries)
-                if (entry.isIntersecting) {
-                  observer!.unobserve(entry.target);
-                  void load(entry.target as HTMLElement);
-                }
-            },
-            { rootMargin: "80px" },
-          );
-    for (const placeholder of placeholders) {
-      if (observer) observer.observe(placeholder);
-      else void load(placeholder);
-    }
-    const stop = onSignedIn(() => {
-      for (const placeholder of placeholders)
-        if (placeholder.dataset.state === "unavailable") void load(placeholder);
-    });
-    return () => {
-      disposed = true;
-      observer?.disconnect();
-      stop();
-    };
-  }, [content, files]);
-  return (
-    <div
-      ref={element}
-      className="lmsRichContent"
-      dangerouslySetInnerHTML={renderedHtml}
-      onClick={(event) => {
-        const link = (event.target as Element).closest("a");
-        if (!link) return;
-        event.preventDefault();
-        const url = safeUrl(link.getAttribute("href"));
-        const name =
-          link.querySelector<HTMLElement>("[data-image-alt]")?.dataset
-            .imageAlt || link.querySelector(".lmsAttachmentName")?.textContent;
-        if (url) openLink(url, name || link.textContent || t("Link"), link);
-      }}
-    />
-  );
-});
-
 export function LmsWorkspace({
   course,
   data,
@@ -413,25 +220,7 @@ export function LmsWorkspace({
   const openOfficialRef = useRef(openOfficial);
   openOfficialRef.current = openOfficial;
   const key = `${data.deviceId}:${course.id}`;
-  const [saved] = useState(
-    () =>
-      reading.get(key) ??
-      (() => {
-        try {
-          const value = JSON.parse(
-            sessionStorage.getItem(`lms-reading:${key}`) || "null",
-          );
-          return value &&
-            value.version === 2 &&
-            Array.isArray(value.expanded) &&
-            Array.isArray(value.tabs)
-            ? (value as ReadingState)
-            : undefined;
-        } catch {
-          return undefined;
-        }
-      })(),
-  );
+  const [saved] = useState(() => loadReading(key));
   const [expanded, setExpanded] = useState<string[]>(saved?.expanded ?? []);
   const [tabs, setTabs] = useState<ViewTab[]>(saved?.tabs ?? []);
   const [selected, setSelected] = useState(saved?.selected);
@@ -458,15 +247,6 @@ export function LmsWorkspace({
     return () => media.removeEventListener("change", changed);
   }, []);
   const viewerActive = active && (!narrow || mobileViewer);
-  const [notes, setNotes] = useState<LocalFile[]>([]);
-  const [noteError, setNoteError] = useState("");
-  const [deletedNote, setDeletedNote] = useState<{
-    id: string;
-    section: string;
-    title: string;
-  } | null>(null);
-  const noteCreation = useRef(false);
-  const [creatingNote, setCreatingNote] = useState(false);
   const folder = useMemo(
     () => ({
       term: folderComponent(course.termId),
@@ -795,56 +575,6 @@ export function LmsWorkspace({
       ]),
     [sections, materials, assignments],
   );
-  const refreshNotes = () =>
-    void listNotes(
-      folder,
-      sections.map((s) => `section-${s.id}`),
-    )
-      .then((value) => setNotes(value.sort((a, b) => a.id.localeCompare(b.id))))
-      .catch((error) => setNoteError(String(error)));
-  useEffect(() => {
-    if (!active) return;
-    refreshNotes();
-    window.addEventListener("course-storage-changed", refreshNotes);
-    return () =>
-      window.removeEventListener("course-storage-changed", refreshNotes);
-  }, [active, folder, sections]);
-  const newNote = async (section: LmsSection) => {
-    if (noteCreation.current) return;
-    noteCreation.current = true;
-    setCreatingNote(true);
-    setNoteError("");
-    const context = { ...folder, section: `section-${section.id}` };
-    try {
-      const existing = (await listNotes(folder, [context.section])).sort(
-        (a, b) => a.id.localeCompare(b.id),
-      )[0];
-      let id = existing?.id;
-      if (!existing)
-        id = (
-          await saveNote(
-            context,
-            "",
-            `# ${section.title}
-
-`,
-          )
-        ).id;
-      refreshNotes();
-      open({
-        id: id!,
-        title: existing?.name.trim() || `${section.title} · ${t("Note")}`,
-        kind: "note",
-        section: context.section,
-      });
-    } catch (error) {
-      setNoteError(String(error));
-    } finally {
-      noteCreation.current = false;
-      setCreatingNote(false);
-    }
-  };
-
   const matches = (title: string, html?: string) =>
     !query.trim() ||
     `${title} ${html ? searchable.get(html) || contentText(html) : ""}`
@@ -867,6 +597,16 @@ export function LmsWorkspace({
     },
     [query],
   );
+  const {
+    notes,
+    noteError,
+    setNoteError,
+    deletedNote,
+    setDeletedNote,
+    creatingNote,
+    refreshNotes,
+    newNote,
+  } = useCourseNotes(folder, sections, active, open);
   const [fileMenu, setFileMenu] = useState<{
     url: string;
     title: string;
@@ -987,37 +727,7 @@ export function LmsWorkspace({
     // Explicit entrance only; refreshing content must never jump the reader.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry.request]);
-  const saveReading = () => {
-    reading.delete(key);
-    reading.set(key, current.current);
-    if (reading.size > 8) reading.delete(reading.keys().next().value!);
-    try {
-      sessionStorage.setItem(
-        `lms-reading:${key}`,
-        JSON.stringify(current.current),
-      );
-    } catch {
-      /* Reading remains available in memory. */
-    }
-    try {
-      const indexKey = `lms-reading-index:${data.deviceId}`;
-      const stored: unknown = JSON.parse(
-        sessionStorage.getItem(indexKey) || "[]",
-      );
-      const index = [
-        ...(Array.isArray(stored)
-          ? stored.filter((k) => typeof k === "string" && k !== key)
-          : []),
-        key,
-      ];
-      index
-        .slice(0, -8)
-        .forEach((k) => sessionStorage.removeItem(`lms-reading:${k}`));
-      sessionStorage.setItem(indexKey, JSON.stringify(index.slice(-8)));
-    } catch {
-      /* Persistence is optional. */
-    }
-  };
+  const saveReading = () => persistReading(key, data.deviceId, current.current);
   useEffect(() => {
     window.addEventListener("pagehide", saveReading);
     return () => {

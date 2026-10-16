@@ -1084,3 +1084,67 @@ fn assignment_completion_is_shared_by_mcp_tasks_and_reminders() {
     }
     assert!(!super::assignment_submitted(&json!({"submission":"open"})));
 }
+
+#[test]
+fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
+    let data = json!({
+        "courses":[{"id":"c","code":" csc.t101 ","offeringId":"o"}],
+        "offerings":[{"id":"o"}],
+        "materials":[
+            {"id":"later","courseId":"c","session":2},
+            {"id":"first","courseId":"c","session":9,"sectionNumber":1},
+            {"id":"same-section","courseId":"c","session":1},
+            {"id":"deleted","courseId":"c","session":0,"deletedAt":"x"},
+            {"id":"private","courseId":"c","session":0,"visible":false},
+            {"id":"assignment-module","courseId":"c","module":"assign"},
+            {"id":"quiz-module","courseId":"c","module":"quiz"},
+            {"id":"other-course","courseId":"other","session":0}
+        ],
+        "assignments":[
+            {"id":"no-date","courseId":"c","dueAt":null},
+            {"id":"later","courseId":"c","dueAt":"2026-10-20T00:00:00Z"},
+            {"id":"early","courseId":"c","dueAt":"2026-10-17T00:00:00Z"},
+            {"id":"hidden","courseId":"c","hidden":true},
+            {"id":"deleted","courseId":"c","deletedAt":"x"}
+        ],
+        "exams":[
+            {"id":"late","courseCode":"CSC.T101","date":"2026-11-02","status":"scheduled"},
+            {"id":"early","courseCode":"csc.t101 ","date":"2026-11-01","status":"scheduled"},
+            {"id":"missing","courseCode":"CSC.T101","status":"scheduled","missingSince":"x"},
+            {"id":"cancelled","courseCode":"CSC.T101","status":"cancelled"}
+        ]
+    });
+    let request: WorkspaceQuery =
+        serde_json::from_value(json!({"kind":"courseDetail","courseId":"c"})).unwrap();
+    let WorkspaceQueryResult::CourseDetail(view) = query(&data, request).unwrap() else {
+        panic!("wrong result kind")
+    };
+    assert_eq!(view.material_ids, ["first", "same-section", "later"]);
+    assert_eq!(view.sections, [1, 2]);
+    assert_eq!(view.assignment_ids, ["early", "later", "no-date"]);
+    assert_eq!(view.exam_ids, ["early", "late"]);
+    assert_eq!(view.offering_id.as_deref(), Some("o"));
+    assert!(course_detail(&data, "unknown").material_ids.is_empty());
+}
+
+#[test]
+fn query_request_contracts_reject_unstructured_inputs() {
+    for request in [
+        json!({"kind":"planCivilStart","plan":{}}),
+        json!({"kind":"displayColor","course":{"color":42}}),
+        json!({"kind":"nextPlanOccurrences","plan":{"start":"2026-10-16"}}),
+        json!({"kind":"validateAcademicProfile","profile":[]}),
+        json!({"kind":"academicTermForDate","date":"2026-10-16","profile":{"name":"missing years"}}),
+    ] {
+        assert!(serde_json::from_value::<WorkspaceQuery>(request).is_err());
+    }
+    let request = serde_json::from_value(
+        json!({"kind":"planCivilStart","plan":{"start":"2026-10-16T09:00:00+09:00"}}),
+    )
+    .unwrap();
+    let WorkspaceQueryResult::PlanCivilStart(value) = query(&json!({}), request).unwrap() else {
+        panic!("wrong result kind")
+    };
+    assert_eq!(value.date, "2026-10-16");
+    assert_eq!(value.time, "09:00");
+}
