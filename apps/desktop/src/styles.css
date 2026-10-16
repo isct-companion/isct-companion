@@ -3572,6 +3572,14 @@ p {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.tt .ttBlock .ttAlternation {
+  flex: none;
+  color: var(--ink);
+  opacity: 0.72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .tt .ttBlock .ttCode {
   display: none;
 }

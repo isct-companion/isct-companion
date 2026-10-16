@@ -71,7 +71,7 @@ if-addrs = "0.14"
 ipnet = "2"
 hickory-resolver = { version = "0.25", default-features = false, features = ["tokio"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSResponder", "NSView"] }
-# School view PDF save hook (school_pdf_save.rs). Same versions wry already uses.
+# School view WebKit hooks (school_webkit.rs). Same versions wry already uses.
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSURL"] }
-objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKUIDelegate", "WKWebView"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSURL", "NSURLRequest", "NSURLResponse"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKUIDelegate", "WKWebView"] }

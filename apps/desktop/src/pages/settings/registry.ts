@@ -264,7 +264,8 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     section: "sources",
     id: "calendar",
     title: "Official data updates",
-    terms: "subscription github calendar guide exams 購読 試験",
+    terms:
+      "subscription github calendar guide exams alternating physics 購読 試験 隔週 物理",
   },
   {
     section: "sources",

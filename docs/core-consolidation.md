@@ -65,7 +65,7 @@ Tauri coupling by file (count of `tauri` mentions):
 | `campus_wifi.rs` | 414 | 9 | commands (macOS system integration) |
 | `scheduler.rs` | 323 | 8 | 30 s `tokio` interval owned by core, `emit` |
 | `school_web_shared.rs` | 3444 | 6 | owns WebView handles, eval, bounds, downloads |
-| `pull_service.rs`, `reference_refresh.rs`, `cloud.rs`, `secrets.rs`, `school_web*.rs`, `lms_downloader.rs`, `school_pdf_save.rs`, `lms_protocol.rs`, `icloud.rs` | | 1–5 | `AppHandle`, events, plugins |
+| `pull_service.rs`, `reference_refresh.rs`, `cloud.rs`, `secrets.rs`, `school_web*.rs`, `lms_downloader.rs`, `school_webkit.rs`, `lms_protocol.rs`, `icloud.rs` | | 1–5 | `AppHandle`, events, plugins |
 
 Candidates with no direct Tauri imports: `syllabus.rs`, `subscriptions.rs`,
 `school_extract.rs`, `school_auth.rs`, `pull_coordinator.rs`, `policy.rs`,
@@ -378,7 +378,7 @@ exports both call these.
 | `agent` | `agent_command` |
 
 Desktop-only system integrations stay in `backend/` as shell code:
-`school_pdf_save`, `set_school_web_bounds`, `hide_school_web`,
+`school_webkit`, `set_school_web_bounds`, `hide_school_web`,
 `save_file`, `open_external`.
 
 ## Phases

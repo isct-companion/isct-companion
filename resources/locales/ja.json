@@ -839,5 +839,21 @@
   "This rule is not yet verified for the selected academic year": "選択した年度への規則適用をまだ確認できていません",
   "Not available for this study profile": "この学籍では履修できません",
   "Show unavailable courses": "履修できない科目も表示",
-  "Hide unavailable courses": "履修できない科目を隠す"
+  "Hide unavailable courses": "履修できない科目を隠す",
+  "Red group": "赤組",
+  "White group": "白組",
+  "Both groups": "全員",
+  "Orientation (both groups)": "オリエンテーション（全員）",
+  "Exam (both groups)": "試験（全員）",
+  "No class": "休講",
+  "Alternate weeks": "隔週",
+  "Alternate weeks · schedule not listed": "隔週・日程未収録",
+  "Physics group": "物理学演習・実験の組",
+  "物理学演習 and 物理学実験 meet every other week, in turns of a red and a white group. The timetable shows only your group's days.": "物理学演習と物理学実験は、赤組と白組が隔週で交互に受講します。時間割には自分の組の日だけを表示します。",
+  "{{date}} is the {{group}}'s exercise ({{course}}).": "{{date}} は{{group}}の演習です（{{course}}）。",
+  "{{date}} is the {{group}}'s lab ({{course}}).": "{{date}} は{{group}}の実験です（{{course}}）。",
+  "This class's dates are not listed yet, so it shows every week.": "この授業の日程はまだ収録されていないため、毎週表示しています。",
+  "You can change this later in the course details.": "あとから授業の詳細で変更できます。",
+  "Later": "あとで",
+  "Alternating class schedules": "隔週授業の日程"
 }

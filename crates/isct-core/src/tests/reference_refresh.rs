@@ -200,6 +200,7 @@ async fn batch_probes_a_shared_index_once_and_skips_disabled_sources() {
     put_subscription(&store, "departments", true, json!({}));
     put_subscription(&store, "important-dates", false, json!({}));
     put_subscription(&store, "exams", true, json!({}));
+    put_subscription(&store, "class-schedules", true, json!({}));
     let transport = Arc::new(FakeTransport::default());
     service(&store, transport.clone())
         .refresh_all(true)
@@ -208,7 +209,7 @@ async fn batch_probes_a_shared_index_once_and_skips_disabled_sources() {
 
     assert_eq!(transport.probes.load(Ordering::Relaxed), 1);
     let calls = transport.calls();
-    assert_eq!(calls.len(), 3);
+    assert_eq!(calls.len(), 4);
     assert!(!calls.iter().any(|call| call.0 == "important-dates"));
 
     service(&store, transport.clone())
@@ -216,7 +217,7 @@ async fn batch_probes_a_shared_index_once_and_skips_disabled_sources() {
         .await
         .unwrap();
     assert_eq!(transport.probes.load(Ordering::Relaxed), 2);
-    assert_eq!(transport.calls().len(), 6);
+    assert_eq!(transport.calls().len(), 8);
 }
 
 #[tokio::test]
@@ -234,7 +235,10 @@ async fn automatic_and_manual_runs_use_the_selected_term_year() {
         .as_str()
         .unwrap()
         .starts_with("2026"));
-    disable(&store, &["departments", "important-dates", "exams"]);
+    disable(
+        &store,
+        &["departments", "important-dates", "exams", "class-schedules"],
+    );
     put_subscription(&store, "calendar", true, json!({}));
     let transport = Arc::new(FakeTransport::default());
     for force in [false, true] {

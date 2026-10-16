@@ -109,12 +109,15 @@ import {
   type EventDraft,
 } from "../pages/courses/editors";
 import type {
+  ClassGroupChoice,
   Course,
   PersonalEvent,
   Plan,
   TermId,
   Workspace,
 } from "../lib/model";
+import { tokyoDate } from "../lib/civil-date";
+import { ClassGroupPrompt } from "../pages/courses/ClassGroupPicker";
 import type { WorkspaceIntent } from "../lib/workspace-intents";
 
 const KYOMU_REGISTRATION =
@@ -427,6 +430,17 @@ export function WorkspaceApp() {
   const pulling = lmsProgress !== null;
   useCoreLifecycle();
   const [mergeDiff, setMergeDiff] = useState<MergeDiff | null>(null);
+  const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
+  /** After a pull settles the timetable, ask once for the physics group of
+   * a current or later semester that has none. */
+  const askClassGroup = async () => {
+    // The question is a convenience; a failed read must not fail the pull.
+    const choices = await scheduleQuery<ClassGroupChoice[]>({
+      kind: "classGroups",
+      today: tokyoDate(new Date()),
+    }).catch(() => []);
+    setGroupPrompt(choices.find((choice) => choice.needsChoice) ?? null);
+  };
   const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const loadSchoolRecords = () => workspaceActions.refreshSchool();
   useEffect(
@@ -788,6 +802,7 @@ export function WorkspaceApp() {
         setLmsPhase(`Up to date · ${diff.common.length} courses matched`);
         if (!quiet)
           notify.info(`Timetable matches LMS (${diff.common.length})`);
+        await askClassGroup();
       }
     } catch (error) {
       setLmsPhase(`Update failed · ${errorText(error) ?? t("unknown error")}`);
@@ -1338,6 +1353,7 @@ export function WorkspaceApp() {
           close={async () => {
             await workspaceActions.markTimetableReviewed();
             setMergeDiff(null);
+            await askClassGroup();
           }}
           apply={async (add, keep, retime) => {
             const diff = mergeDiff;
@@ -1350,6 +1366,19 @@ export function WorkspaceApp() {
             });
             setMergeDiff(null);
             notify.info("Timetable updated from LMS");
+            await askClassGroup();
+          }}
+        />
+      )}
+      {groupPrompt && (
+        <ClassGroupPrompt
+          choice={groupPrompt}
+          later={() => setGroupPrompt(null)}
+          choose={(group) => {
+            setGroupPrompt(null);
+            void workspaceActions
+              .setClassGroup(groupPrompt.semester, group)
+              .catch(notify.error);
           }}
         />
       )}

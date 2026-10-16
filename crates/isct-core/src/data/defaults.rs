@@ -161,6 +161,7 @@ fn initial_workspace_value(date: chrono::NaiveDate, device_id: &str, updated_at:
         }
     });
     workspace["currentTerm"] = Value::String(term);
+    workspace["classSchedules"] = json!([]);
     merge_object(
         &mut workspace["settings"],
         json!({
