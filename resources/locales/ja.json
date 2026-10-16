@@ -902,5 +902,10 @@
   "Starting year not set": "入学時の学年を選択",
   "Year {{grade}}": "{{grade}} 年次",
   "Choose an admission term for every degree programme.": "すべての課程で入学時期を選択してください。",
-  "Degree programme": "在籍課程"
+  "Degree programme": "在籍課程",
+  "1 day before": "1日前",
+  "{{days}} days before": "{{days}}日前",
+  "1 hour before": "1時間前",
+  "{{hours}} hours before": "{{hours}}時間前",
+  "Assignment reminder times": "課題の通知タイミング"
 }

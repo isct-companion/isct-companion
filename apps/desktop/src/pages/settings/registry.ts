@@ -165,6 +165,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     terms: "deadline due 課題 締切",
   },
   {
+    section: "notifications",
+    id: "assignment-lead",
+    title: "Assignment reminder times",
+    terms: "deadline minutes hours days before 提前 作业 提醒 締切",
+  },
+  {
     section: "calendar",
     id: "days",
     title: "Holidays and make-up days",

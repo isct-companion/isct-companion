@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 25 checks must be re-run before the next release.**
+**7 of 26 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**17 checks have never been run or could not be run:**
+**18 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -46,6 +46,7 @@ an unverified area becomes an assumed-good one.
 - `RELEASE-INSTALL` — never verified
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
+- `DESKTOP-REMINDER-TIMES` — never verified
 
 ## Status
 
@@ -76,6 +77,7 @@ an unverified area becomes an assumed-good one.
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
+| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
 
 ## Personas
 
@@ -1359,5 +1361,49 @@ uploader, site restrictions or the signed native browser.
 - `crates/isct-core/src/school_browser/assets/assignment-upload.js`
 - `apps/desktop/src-tauri/src/workspaces.rs`
 - `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
+
+**Last recorded** never run
+
+### Deliver class and assignment reminders at the selected times (`DESKTOP-REMINDER-TIMES`)
+
+**Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An updated native desktop build and OS notification permission available.
+
+**Steps**
+
+1. Grant notification permission, enable both reminder types, and choose
+   a class lead time plus a non-default assignment lead time.
+   - *Why:* Real OS consent and notification delivery are unavailable to the
+     headless settings and reminder-plan tests.
+2. Arrange the class start and assignment deadline so their selected
+   reminder times occur shortly, then leave the app in the background.
+   - *Why:* Verifies that native lifecycle wakeups deliver the selected times
+     even when the settings page and the application window are inactive.
+
+**Where to look**
+
+The operating system notification centre and the selected reminder times
+in Settings > Notifications after reopening the page.
+
+**Expected**
+
+Each native notification arrives at the configured time with the correct
+class or assignment title, and selected times remain saved.
+
+**Why this is manual**
+
+Requires actual OS notification permission, background lifecycle callbacks
+and native notification delivery; tests use a headless notification sink.
+
+**Covers**
+
+- `apps/desktop/src/pages/settings/NotificationSettings.tsx`
+- `apps/desktop/src-tauri/src/commands/notifications.rs`
+- `crates/isct-core/src/schedule/reminders.rs`
 
 **Last recorded** never run

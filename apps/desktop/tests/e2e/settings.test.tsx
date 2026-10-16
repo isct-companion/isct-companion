@@ -1629,3 +1629,69 @@ describe("Academic calendar profile", () => {
     TIMEOUT,
   );
 });
+
+describe("Notification preferences", () => {
+  it("groups lead times under each reminder and persists both choices", async () => {
+    app = await mountSettings(paths.settings("notifications"), {
+      apply: (intent, core) => {
+        if (intent.kind === "replaceSettings")
+          core.publish(
+            {
+              ...core.workspace,
+              settings: intent.settings as Workspace["settings"],
+            },
+            "revision:reminders",
+          );
+      },
+    });
+    const pane = settingsPane(app);
+    const classTime = pane.querySelector<HTMLSelectElement>(
+      '[data-setting="class-lead"] select',
+    )!;
+    expect(
+      classTime.closest('[role="group"]')!.getAttribute("aria-label"),
+    ).toBe("Class reminders");
+    await change(classTime, "30");
+    await wait(() =>
+      expect(app!.core.workspace.settings.notifications.classLeadMinutes).toBe(
+        30,
+      ),
+    );
+    const assignmentTime = pane.querySelector<HTMLInputElement>(
+      '[aria-label="Assignment reminder times"]',
+    )!;
+    expect(
+      assignmentTime.closest(".settingsSuboptions")!.getAttribute("aria-label"),
+    ).toBe("Assignment reminders");
+    await click(assignmentTime);
+    const option = await wait(() => {
+      const option = [
+        ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ].find((item) => item.textContent === "3 hours before");
+      if (!option) throw new Error("Reminder choice not visible");
+      return option;
+    });
+    await click(option);
+    await wait(() =>
+      expect(
+        app!.core.workspace.settings.notifications.assignmentLeadMinutes,
+      ).toEqual([1440, 60, 180]),
+    );
+    const assignments = pane.querySelector(
+      '[data-setting="assignments"] input',
+    )!;
+    await click(assignments);
+    await wait(() =>
+      expect(pane.querySelector('[data-setting="assignment-lead"]')).toBeNull(),
+    );
+    await click(assignments);
+    await wait(() =>
+      expect(
+        pane.querySelector('[data-setting="assignment-lead"]'),
+      ).not.toBeNull(),
+    );
+    expect(
+      app.core.workspace.settings.notifications.assignmentLeadMinutes,
+    ).toEqual([1440, 60, 180]);
+  });
+});

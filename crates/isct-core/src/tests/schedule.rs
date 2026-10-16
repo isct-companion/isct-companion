@@ -1321,3 +1321,34 @@ fn date_range_crosses_academic_years_and_merges_conflicts_once() {
     let overlap = calendar_between(&data, "2027-04-01", "2027-04-01").unwrap();
     assert_eq!(overlap[0].occurrences.len(), 2);
 }
+
+#[test]
+fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
+    let mut data = workspace();
+    data["settings"]["notifications"]["classes"] = json!(false);
+    data["assignments"] =
+        json!([{"id":"report","title":"Report","dueAt":"2026-04-14T18:00:00+09:00"}]);
+    data["settings"]["notifications"]["assignmentLeadMinutes"] = json!([180, 30]);
+    let from = DateTime::parse_from_rfc3339("2026-04-13T00:00:00+09:00").unwrap();
+    let to = DateTime::parse_from_rfc3339("2026-04-14T18:00:00+09:00").unwrap();
+    let plan = notification_plan(&data, from, to, Some(NotificationLocale::En)).unwrap();
+    assert_eq!(plan.items.len(), 2);
+    assert_eq!(plan.items[0].at, "2026-04-14T15:00:00+09:00");
+    assert_eq!(plan.items[0].body, "Due in 3 hours");
+    assert_eq!(plan.items[1].at, "2026-04-14T17:30:00+09:00");
+    assert_eq!(plan.items[1].body, "Due in 30 minutes");
+    let ja = notification_plan(&data, from, to, Some(NotificationLocale::Ja)).unwrap();
+    assert_eq!(ja.items[1].body, "締切まで30分");
+    for invalid in [
+        json!([]),
+        json!([0]),
+        json!([30, 30]),
+        json!([10081]),
+        json!([1.5]),
+        json!(["60"]),
+        json!([1, 2, 3, 4, 5, 6, 7, 8, 9]),
+    ] {
+        data["settings"]["notifications"]["assignmentLeadMinutes"] = invalid;
+        assert!(notification_plan(&data, from, to, None).is_err());
+    }
+}
