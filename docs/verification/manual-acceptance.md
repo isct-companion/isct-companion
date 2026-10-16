@@ -866,9 +866,9 @@ camera or a photo of the card.
 **Steps**
 
 1. Open the matrix OCR flow and supply a photo of a real card.
-   - *Why:* Synthetic tensors and the private parity image already cover the
-     pipeline; a real card is what exposes lighting, angle and printing
-     variation that no fixture reproduces.
+   - *Why:* Synthetic tensors and the frozen filter fixture cover the pipeline
+     stage by stage; a real card is what exposes lighting, angle and
+     printing variation that no fixture reproduces.
 2. Open Scan with camera in a packaged desktop app, allow camera access,
    and bring the real card toward the camera. Check that one red outline
    follows the Matrix, with no cell boxes or letter overlays. Move the

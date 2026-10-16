@@ -748,9 +748,9 @@ checks:
       - action: |
           Open the matrix OCR flow and supply a photo of a real card.
         reason: |
-          Synthetic tensors and the private parity image already cover the
-          pipeline; a real card is what exposes lighting, angle and printing
-          variation that no fixture reproduces.
+          Synthetic tensors and the frozen filter fixture cover the pipeline
+          stage by stage; a real card is what exposes lighting, angle and
+          printing variation that no fixture reproduces.
       - action: |
           Open Scan with camera in a packaged desktop app, allow camera access,
           and bring the real card toward the camera. Check that one red outline

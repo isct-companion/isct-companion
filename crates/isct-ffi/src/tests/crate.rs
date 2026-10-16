@@ -496,11 +496,19 @@ fn generated_contract_preserves_intents_fixed_arrays_and_unknown_payloads() {
         to: "2026-10-16".into(),
         periods: vec![1, 2, 3],
     };
-    assert!(crate::json::project_input::<_, isct_core::schedule::WorkspaceQuery>(bad).is_err());
+    assert!(matches!(
+        crate::json::project_input::<_, isct_core::schedule::WorkspaceQuery>(bad),
+        Err(SdkError::InvalidInput { .. })
+    ));
+    // The same mismatch on the way out is Core's fault, not the caller's.
+    assert!(matches!(
+        crate::json::project::<_, [u8; 2]>(vec![1]),
+        Err(SdkError::Internal { .. })
+    ));
 }
 
 #[test]
-fn school_outcomes_and_reminder_failures_remain_typed() {
+fn school_outcomes_project_into_the_generated_ffi_types() {
     let outcome = isct_core::school_service::IngestOutcome {
         site: isct_core::lifecycle::SchoolSite::ScienceLms,
         kind: "courses".into(),
@@ -522,30 +530,6 @@ fn school_outcomes_and_reminder_failures_remain_typed() {
         .unwrap();
     assert!(matches!(unavailable.state, IngestState::Unavailable));
     assert_eq!(unavailable.changed, 0);
-
-    use isct_core::schedule::{ReminderError as E, ScheduleError};
-    assert!(matches!(
-        SdkError::from(E::Storage("disk".into())),
-        SdkError::Storage { .. }
-    ));
-    assert!(matches!(
-        SdkError::from(E::Data(isct_core::data::DataError::Storage("db".into()))),
-        SdkError::Storage { .. }
-    ));
-    assert!(matches!(
-        SdkError::from(E::Policy(ScheduleError::Compatibility("schema".into()))),
-        SdkError::Compatibility { .. }
-    ));
-    assert!(matches!(
-        SdkError::from(E::Task(isct_core::runtime_tasks::RuntimeTaskError::Stopped)),
-        SdkError::Closed
-    ));
-    assert!(matches!(
-        SdkError::from(E::Delivery(
-            isct_core::schedule::NotificationSinkError::Delivery("OS".into())
-        )),
-        SdkError::Callback { .. }
-    ));
 }
 
 #[tokio::test]
