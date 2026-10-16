@@ -585,6 +585,14 @@ describe("the LMS reading workspace", () => {
     });
     const { host } = await openWorkspace(f, { entry: { request: 600 } });
 
+    expect(
+      host
+        .querySelector(".lmsOutline")
+        ?.contains(host.querySelector('[aria-label="Search course content"]')),
+    ).toBe(true);
+    expect(
+      host.querySelector(".lmsWorkspaceTools")?.querySelector("input"),
+    ).toBeNull();
     expect(host.querySelector(".lmsViewer")).toBeNull();
     const card = host.querySelector<HTMLElement>(".lmsAnnouncementCard")!;
     expect(card.textContent).toContain("Classroom change");
@@ -826,7 +834,7 @@ describe("the LMS reading workspace", () => {
     ).toContain("https://lms.s.isct.ac.jp/2025/");
   }, 30_000);
 
-  it("releases a hidden reader's document and keeps at most five open documents", async () => {
+  it("replaces the current document, pins PDF tools above it, and releases hidden readers", async () => {
     const f = lectureFixture();
     pdfjs.load.mockReset();
     pdfjs.destroy.mockReset();
@@ -884,6 +892,16 @@ describe("the LMS reading workspace", () => {
       );
     }
     expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
+    expect(
+      host.querySelector('.lmsReaderToolSlot [aria-label="PDF tools"]'),
+    ).not.toBeNull();
+    expect(
+      host.querySelector('.lmsViewerBody [aria-label="PDF tools"]'),
+    ).toBeNull();
+    expect(
+      host.querySelector(".lmsViewerClose")?.getAttribute("aria-label"),
+    ).toBe("Close File 5");
 
     await render({ active: false });
     await waitFor(() =>
@@ -894,13 +912,20 @@ describe("the LMS reading workspace", () => {
       expect(host.querySelectorAll("canvas")).toHaveLength(1),
     );
 
+    await click(host.querySelector(".lmsViewerClose"));
+    await waitFor(() =>
+      expect(host.querySelectorAll("canvas")).toHaveLength(0),
+    );
+    expect(host.querySelector(".lmsViewer")).toBeNull();
+
     await release(view);
     const stored = JSON.parse(
       sessionStorage.getItem(
         `lms-reading:${f.workspace.deviceId}:${f.course.id}`,
       ) ?? "null",
     );
-    expect(stored.tabs).toHaveLength(5);
+    expect(stored.opened).toBeUndefined();
+    expect(stored).not.toHaveProperty("tabs");
   }, 60_000);
 
   it("restores the centered section-relative reading position after content height changes", async () => {
@@ -1896,9 +1921,33 @@ describe("the markdown editor", () => {
     expect(change).not.toHaveBeenCalled();
   }, 40_000);
 
+  it("formats the selected text from the Markdown tool panel", async () => {
+    const change = vi.fn();
+    const editor = await openMarkdown("Plain", change);
+    const { editorViewCtx } = await import("@milkdown/kit/core");
+    const { TextSelection } = await import("@milkdown/kit/prose/state");
+    await act(async () =>
+      editor.editors.at(-1)!.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        view.dispatch(
+          view.state.tr.setSelection(
+            TextSelection.create(view.state.doc, 1, 6),
+          ),
+        );
+      }),
+    );
+    await click(editor.host.querySelector('[aria-label="Bold"]'));
+    await waitFor(() =>
+      expect(change.mock.calls.at(-1)?.[0]).toContain("**Plain**"),
+    );
+  }, 40_000);
+
   it("renders an attachment read-only", async () => {
     const editor = await openMarkdown("# Attachment\n\nRead me");
     expect(editor.editable()).toBe(false);
+    expect(
+      editor.host.querySelector('[aria-label="Markdown tools"]'),
+    ).toBeNull();
     expect(
       editor.host
         .querySelector(".ProseMirror")

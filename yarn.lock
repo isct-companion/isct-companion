@@ -697,6 +697,7 @@ __metadata:
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
     react-i18next: "npm:^17.0.13"
+    react-resizable-panels: "npm:^4.14.5"
     react-router: "npm:^7"
     rrule: "npm:^2.8.1"
     typescript: "npm:7.0.2"
@@ -4523,6 +4524,16 @@ __metadata:
     "@types/react":
       optional: true
   checksum: 10c0/b5f3315bead75e72853f492c0b51ba8fb4fa09a4534d7fc42d6fcd59ca3e047cf213279ffc1e35b337e314ef5a04cb2b12544c85e0078802271731c27c09e5aa
+  languageName: node
+  linkType: hard
+
+"react-resizable-panels@npm:^4.14.5":
+  version: 4.14.5
+  resolution: "react-resizable-panels@npm:4.14.5"
+  peerDependencies:
+    react: ^18.0.0 || ^19.0.0
+    react-dom: ^18.0.0 || ^19.0.0
+  checksum: 10c0/49643e85fa4e45286b0b54ca423c7e0b0e779d0f82d63bcfbc1ddad21e85337c2b7e851c851c898c66c8a2b30279ef0497de211e248283f0a8833a6b32aa08ed
   languageName: node
   linkType: hard
 

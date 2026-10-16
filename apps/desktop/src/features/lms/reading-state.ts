@@ -1,4 +1,4 @@
-export type ViewTab = {
+export type OpenedContent = {
   id: string;
   title: string;
   kind: "material" | "official" | "link" | "note" | "syllabus" | "announcement";
@@ -6,11 +6,10 @@ export type ViewTab = {
   url?: string;
 };
 export type ReadingState = {
-  version: 2;
+  version: 3;
   expanded: string[];
   scroll: number;
-  tabs: ViewTab[];
-  selected?: string;
+  opened?: OpenedContent;
   anchor?: { id: string; ratio: number };
   /** The lesson shown alone in the outline, by section id. */
   lesson?: number;
@@ -25,10 +24,7 @@ export function loadReading(key: string): ReadingState | undefined {
         const value = JSON.parse(
           sessionStorage.getItem(`lms-reading:${key}`) || "null",
         );
-        return value &&
-          value.version === 2 &&
-          Array.isArray(value.expanded) &&
-          Array.isArray(value.tabs)
+        return value && value.version === 3 && Array.isArray(value.expanded)
           ? (value as ReadingState)
           : undefined;
       } catch {

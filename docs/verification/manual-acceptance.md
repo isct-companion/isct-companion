@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 23 checks must be re-run before the next release.**
+**7 of 24 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**15 checks have never been run or could not be run:**
+**16 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -44,6 +44,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `RELEASE-INSTALL` — never verified
+- `WORKSPACE-NATIVE-RESIZE` — never verified
 
 ## Status
 
@@ -72,6 +73,7 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
+| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 
 ## Personas
 
@@ -1237,5 +1239,53 @@ runtime compatibility.
 
 - `scripts/desktop/desktop-release.mjs`
 - `.github/workflows/desktop-release.yml`
+
+**Last recorded** never run
+
+### Resize a workspace containing the native school browser (`WORKSPACE-NATIVE-RESIZE`)
+
+**Area** native · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Run the updated signed macOS desktop build with a school account available.
+
+**Steps**
+
+1. Open a school service in Web, drag the separator in both directions,
+   and move the pointer across the school page before releasing it.
+   - *Why:* WKWebView is a separate native surface and can intercept the pointer;
+     a DOM splitter test cannot prove that the drag stays captured.
+2. Open an official LMS page in a lecture reader, resize its left outline,
+   then shrink and widen the window across the compact breakpoint.
+   - *Why:* The native page must follow the actual reader bounds, including the
+     relocated search field and tool panel, without covering either toolbar.
+
+**Where to look**
+
+The native page edges, workspace separator, Web service header and
+the document tool panel in the lecture reader.
+
+**Expected**
+
+The separator follows the pointer until release. The native page stays
+inside its content area and both toolbars remain clickable after resizing.
+
+**Why this is manual**
+
+Requires a signed native shell and a real WKWebView over authenticated
+school content; jsdom and the browser preview render only the DOM host.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src/components/ResizableWorkspace.tsx`
+- `apps/desktop/src/pages/web/WebPage.tsx`
+- `apps/desktop/src/features/lms/OfficialLmsView.tsx`
+- `apps/desktop/src/features/lms/ReaderPane.tsx`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/components/workspace-chrome.css`
 
 **Last recorded** never run

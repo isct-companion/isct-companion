@@ -876,5 +876,12 @@
   "Connect your school accounts": "学校アカウントを接続して始めましょう",
   "Connect school accounts": "学校アカウントを接続",
   "Connect Science Tokyo for LMS courses and assignments, and Tokyo Tech for registration and grades. Your first full LMS sync builds your timetable automatically.": "Science Tokyo を接続すると LMS の授業と課題を、Tokyo Tech を接続すると履修登録と成績を取得できます。初回の LMS 全体同期で時間割が自動的に作成されます。",
-  "Preparing your timetable": "時間割を作成中"
+  "Preparing your timetable": "時間割を作成中",
+  "Resize workspace": "ワークスペースの幅を調整",
+  "Drag to resize · Double-click to reset": "ドラッグで幅を調整 · ダブルクリックでリセット",
+  "Markdown tools": "Markdown ツール",
+  "Bold": "太字",
+  "Italic": "斜体",
+  "Inline code": "インラインコード",
+  "Bullet list": "箇条書き"
 }

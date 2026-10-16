@@ -1069,3 +1069,41 @@ checks:
       - scripts/desktop/desktop-release.mjs
       - .github/workflows/desktop-release.yml
     verified: null
+
+  - id: WORKSPACE-NATIVE-RESIZE
+    area: native
+    title: Resize a workspace containing the native school browser
+    persona: narrow-window-keyboard
+    preconditions: |
+      Run the updated signed macOS desktop build with a school account available.
+    steps:
+      - action: |
+          Open a school service in Web, drag the separator in both directions,
+          and move the pointer across the school page before releasing it.
+        reason: |
+          WKWebView is a separate native surface and can intercept the pointer;
+          a DOM splitter test cannot prove that the drag stays captured.
+      - action: |
+          Open an official LMS page in a lecture reader, resize its left outline,
+          then shrink and widen the window across the compact breakpoint.
+        reason: |
+          The native page must follow the actual reader bounds, including the
+          relocated search field and tool panel, without covering either toolbar.
+    observe: |
+      The native page edges, workspace separator, Web service header and
+      the document tool panel in the lecture reader.
+    expected: |
+      The separator follows the pointer until release. The native page stays
+      inside its content area and both toolbars remain clickable after resizing.
+    why_manual: |
+      Requires a signed native shell and a real WKWebView over authenticated
+      school content; jsdom and the browser preview render only the DOM host.
+    covers:
+      - apps/desktop/src-tauri/src/school_web.rs
+      - apps/desktop/src/components/ResizableWorkspace.tsx
+      - apps/desktop/src/pages/web/WebPage.tsx
+      - apps/desktop/src/features/lms/OfficialLmsView.tsx
+      - apps/desktop/src/features/lms/ReaderPane.tsx
+      - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/components/workspace-chrome.css
+    verified: null

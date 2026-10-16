@@ -32,6 +32,12 @@ export const appTheme = createTheme({
   colors: { campus: campusBlue },
   fontFamily: tokens.font.family.sans,
   defaultRadius: "md",
+  radius: {
+    xs: tokens.radius.chip,
+    sm: tokens.radius.control,
+    md: tokens.radius.surface,
+    lg: tokens.radius.panel,
+  },
   cursorType: "pointer",
   focusRing: "auto",
   components: {

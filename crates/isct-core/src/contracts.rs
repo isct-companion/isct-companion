@@ -450,7 +450,6 @@ contract!(Settings {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"small\" | \"medium\" | \"large\""))] pub text_size: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub restore_school_page: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub active_school_site: Option<String>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub school_service_width: Option<f64>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub school_web_zoom: Option<f64>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub show_grades: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub site_consents: Option<SiteConsents>,

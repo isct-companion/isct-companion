@@ -2074,3 +2074,138 @@ describe("First school connection", () => {
     ).toBeNull();
   });
 });
+
+describe("workspace column sizing", () => {
+  it("resizes with the keyboard, restores the chosen width, and keeps content mounted in compact mode", async () => {
+    const { ResizableWorkspace } =
+      await import("@app/components/ResizableWorkspace");
+    // jsdom has no layout engine; give the real splitter a measured 1000px workspace.
+    const width = vi
+      .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.matches("[data-separator]")
+          ? 20
+          : this.matches("[data-panel]")
+            ? 490
+            : 1000;
+      });
+    const height = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockReturnValue(600);
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.matches('[data-panel][id$="-first"]'))
+          return new DOMRect(0, 0, 392, 600);
+        if (this.matches('[data-panel][id$="-second"]'))
+          return new DOMRect(412, 0, 588, 600);
+        if (this.matches("[data-separator]"))
+          return new DOMRect(392, 0, 20, 600);
+        return new DOMRect(0, 0, 1000, 600);
+      });
+    const left = vi
+      .spyOn(HTMLElement.prototype, "offsetLeft", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.matches('[data-panel][id$="-second"]')
+          ? 412
+          : this.matches("[data-separator]")
+            ? 392
+            : 0;
+      });
+    const browserObserver = window.ResizeObserver;
+    window.ResizeObserver = class implements ResizeObserver {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        queueMicrotask(() =>
+          this.callback(
+            [
+              {
+                target,
+                borderBoxSize: [{ inlineSize: 1000, blockSize: 600 }],
+              } as unknown as ResizeObserverEntry,
+            ],
+            this,
+          ),
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+    localStorage.clear();
+    function Workbench({ enabled = true }: { enabled?: boolean }) {
+      return (
+        <ResizableWorkspace
+          id="test-columns"
+          enabled={enabled}
+          firstSize="40%"
+          firstMin="20%"
+          secondMin="30%"
+        >
+          <textarea aria-label="Draft" defaultValue="Unsaved draft" />
+          <p>Reading pane</p>
+        </ResizableWorkspace>
+      );
+    }
+    try {
+      probe = await mount(<Workbench />);
+      const separator = () =>
+        probe!.host.querySelector<HTMLElement>('[role="separator"]')!;
+      const beforeDrag = Number(separator().getAttribute("aria-valuenow"));
+      const pointer = (kind: string, x: number) =>
+        Object.assign(
+          new MouseEvent(kind, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: 200,
+            buttons: kind === "pointerup" ? 0 : 1,
+          }),
+          { pointerId: 1, pointerType: "mouse", isPrimary: true },
+        );
+      await act(async () => {
+        separator().dispatchEvent(pointer("pointerdown", 402));
+        separator().dispatchEvent(pointer("pointermove", 450));
+        separator().dispatchEvent(pointer("pointerup", 450));
+      });
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBeGreaterThan(
+        beforeDrag,
+      );
+      const initial = Number(separator().getAttribute("aria-valuenow"));
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        ),
+      );
+      const resized = Number(separator().getAttribute("aria-valuenow"));
+      expect(resized).toBeGreaterThan(initial);
+      const draft = probe.host.querySelector("textarea")!;
+      await typeInto(draft, "Still writing");
+      await act(async () => probe!.root.render(<Workbench enabled={false} />));
+      expect(probe.host.querySelector("textarea")).toBe(draft);
+      expect(draft.value).toBe("Still writing");
+      await act(async () => probe!.root.render(<Workbench />));
+      expect(probe.host.querySelector("textarea")).toBe(draft);
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(resized);
+      await probe.unmount();
+      probe = await mount(<Workbench />);
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(resized);
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+        ),
+      );
+      expect(
+        Number(separator().getAttribute("aria-valuenow")),
+      ).toBeLessThanOrEqual(70);
+    } finally {
+      await probe?.unmount();
+      probe = undefined;
+      width.mockRestore();
+      height.mockRestore();
+      rect.mockRestore();
+      left.mockRestore();
+      window.ResizeObserver = browserObserver;
+      localStorage.clear();
+    }
+  });
+});

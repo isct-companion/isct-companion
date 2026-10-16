@@ -1,8 +1,11 @@
+import { useElementSize } from "@mantine/hooks";
+import { ReaderPane } from "./ReaderPane";
+import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import {
   loadReading,
   persistReading,
   type ReadingState,
-  type ViewTab,
+  type OpenedContent,
 } from "./reading-state";
 import { useCourseNotes } from "./useCourseNotes";
 import {
@@ -222,8 +225,10 @@ export function LmsWorkspace({
   const key = `${data.deviceId}:${course.id}`;
   const [saved] = useState(() => loadReading(key));
   const [expanded, setExpanded] = useState<string[]>(saved?.expanded ?? []);
-  const [tabs, setTabs] = useState<ViewTab[]>(saved?.tabs ?? []);
-  const [selected, setSelected] = useState(saved?.selected);
+  const [opened, setOpened] = useState<OpenedContent | undefined>(
+    saved?.opened,
+  );
+  const selected = opened?.id;
   const [readingSection, setReadingSection] = useState(saved?.anchor?.id);
   const [query, setQuery] = useState("");
   const [focusLesson, setFocusLesson] = useState<number | undefined>(
@@ -236,16 +241,19 @@ export function LmsWorkspace({
   const [original, setOriginal] = useState(false);
   const [mobileViewer, setMobileViewer] = useState(false);
   const outline = useRef<HTMLDivElement>(null);
-  const [narrow, setNarrow] = useState(
+  const [narrowWindow, setNarrowWindow] = useState(
     () => window.matchMedia?.(NARROW_QUERY).matches ?? false,
   );
   useEffect(() => {
     const media = window.matchMedia?.(NARROW_QUERY);
     if (!media) return;
-    const changed = () => setNarrow(media.matches);
+    const changed = () => setNarrowWindow(media.matches);
     media.addEventListener("change", changed);
     return () => media.removeEventListener("change", changed);
   }, []);
+  const workspaceSize = useElementSize();
+  const narrow =
+    narrowWindow || (workspaceSize.width > 0 && workspaceSize.width < 640);
   const viewerActive = active && (!narrow || mobileViewer);
   const folder = useMemo(
     () => ({
@@ -265,18 +273,16 @@ export function LmsWorkspace({
   /** Assignment workspaces are a desktop feature (folders, VS Code). */
   const workspaces = detectPlatform() === "native-desktop";
   const current = useRef<ReadingState>({
-    version: 2,
+    version: 3,
     expanded,
-    tabs,
-    selected,
+    opened,
     scroll: saved?.scroll ?? 0,
     anchor: saved?.anchor,
   });
   current.current = {
     ...current.current,
     expanded,
-    tabs,
-    selected,
+    opened,
     lesson: focusLesson,
   };
   const language =
@@ -581,18 +587,17 @@ export function LmsWorkspace({
       .toLocaleLowerCase()
       .includes(query.trim().toLocaleLowerCase());
   const open = useCallback(
-    (tab: ViewTab) => {
-      if (tab.kind === "official" && tab.url && openOfficialRef.current) {
-        openOfficialRef.current(tab.url);
+    (content: OpenedContent) => {
+      if (
+        content.kind === "official" &&
+        content.url &&
+        openOfficialRef.current
+      ) {
+        openOfficialRef.current(content.url);
         return;
       }
       if (outline.current) recordPosition(outline.current);
-      setTabs((previous) =>
-        previous.some((item) => item.id === tab.id)
-          ? previous
-          : [...previous, tab].slice(-5),
-      );
-      setSelected(tab.id);
+      setOpened(content);
       setMobileViewer(true);
     },
     [query],
@@ -771,7 +776,6 @@ export function LmsWorkspace({
     };
     setReadingSection(id);
   };
-  const activeTab = tabs.find((tab) => tab.id === selected);
   useLayoutEffect(() => {
     const host = outline.current;
     const anchor = current.current.anchor;
@@ -786,10 +790,10 @@ export function LmsWorkspace({
       host.scrollTop +=
         rect.top - panel.top + rect.height * anchor.ratio - panel.height / 2;
     }
-  }, [Boolean(activeTab)]);
+  }, [Boolean(opened)]);
   const material =
-    activeTab?.kind === "material"
-      ? materials.find((m) => m.id === activeTab.id)
+    opened?.kind === "material"
+      ? materials.find((m) => m.id === opened.id)
       : undefined;
   const toggle = (id: string) =>
     setExpanded((previous) =>
@@ -797,15 +801,10 @@ export function LmsWorkspace({
         ? previous.filter((item) => item !== id)
         : [...previous, id],
     );
-  const closeTab = (id: string) => {
+  const closeContent = () => {
     if (outline.current) recordPosition(outline.current);
-    const next = tabs.filter((tab) => tab.id !== id);
-    setTabs(next);
-    if (selected === id) {
-      setSelected(undefined);
-      setMobileViewer(false);
-    }
-    if (!next.length) setMobileViewer(false);
+    setOpened(undefined);
+    setMobileViewer(false);
   };
   /** Assignment card: state and deadline first, the teacher's text on request. */
   const assignmentContent = (a: Assignment) => {
@@ -1254,7 +1253,7 @@ export function LmsWorkspace({
   };
   return (
     <div
-      className={`lmsWorkspace${activeTab ? " hasViewer" : ""}${mobileViewer ? " viewing" : ""}`}
+      className={`lmsWorkspace${narrow ? " narrowReader" : ""}${opened ? " hasViewer" : ""}${mobileViewer ? " viewing" : ""}`}
     >
       <header className="lmsWorkspaceHeader">
         {!navigationProvided && (
@@ -1263,8 +1262,8 @@ export function LmsWorkspace({
           </button>
         )}
         <div className="lmsCourseIdentity">
-          <small>{course.code}</small>
           <h1>{course.title}</h1>
+          <small>{course.code}</small>
         </div>
         {entry.date && (
           <span className="lmsEntryTime">
@@ -1293,7 +1292,7 @@ export function LmsWorkspace({
           <button
             type="button"
             className="lmsRefresh"
-            disabled={progress != null || activeTab?.kind === "official"}
+            disabled={progress != null || opened?.kind === "official"}
             onClick={refresh}
           >
             {progress != null ? `${Math.round(progress)}%` : t("Refresh")}
@@ -1301,26 +1300,6 @@ export function LmsWorkspace({
         )}
       </header>
       <div className="lmsWorkspaceTools">
-        <div className="lmsOutlineTools">
-          <input
-            aria-label={t("Search course content")}
-            placeholder={t("Search this course…")}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {lessons.length ? null : (
-            <button
-              type="button"
-              onClick={() =>
-                setExpanded(
-                  expanded.length ? [] : sections.map((s) => `section:${s.id}`),
-                )
-              }
-            >
-              {expanded.length ? t("Expand all") : t("Collapse all")}
-            </button>
-          )}
-        </div>
         {lessons.length > 0 && !query.trim() && (
           <nav className="lmsLessonRail" aria-label={t("Lessons")} ref={rail}>
             <span
@@ -1373,142 +1352,162 @@ export function LmsWorkspace({
           </nav>
         )}
       </div>
-      <div className="lmsWorkspaceBody">
-        <CurrentLesson.Provider value={at?.number}>
-          <aside className="lmsOutline">
-            <div
-              className={`lmsOutlineScroll${query ? " searching" : ""}`}
-              ref={outline}
-              onScroll={(event) => {
-                recordPosition(event.currentTarget);
-                followScroll(event.currentTarget);
-                restAfterScroll(event.currentTarget);
-              }}
-            >
-              {fileMenu && (
-                <Suspense fallback={null}>
-                  <FilePopover
-                    key={fileMenu.url}
-                    url={fileMenu.url}
-                    title={fileMenu.title}
-                    context={folder}
-                    limit={limit}
-                    anchor={fileMenu.anchor}
-                    onClose={closeFileMenu}
-                    openInApp={() => {
-                      closeFileMenu();
-                      open({
-                        id: `official:${fileMenu.url}`,
-                        title: fileMenu.title,
-                        kind: "official",
-                        url: fileMenu.url,
-                      });
-                    }}
-                  />
-                </Suspense>
-              )}
-              {noteError && <p role="alert">{noteError}</p>}
-              {deletedNote && (
-                <div className="lmsNoteUndo" role="status">
-                  <span>{t("Note deleted")}</span>
+      <div className="lmsWorkspaceBody" ref={workspaceSize.ref}>
+        <ResizableWorkspace
+          id={`reading-${course.id}`}
+          enabled={!narrow && Boolean(opened)}
+          firstSize="44%"
+          firstMin={220}
+          secondMin={260}
+        >
+          <CurrentLesson.Provider value={at?.number}>
+            <aside className="lmsOutline">
+              <div className="lmsOutlineTools">
+                <input
+                  aria-label={t("Search course content")}
+                  placeholder={t("Search this course…")}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                {lessons.length ? null : (
                   <button
                     type="button"
-                    onClick={() => {
-                      const note = deletedNote;
-                      void moveNote(
-                        { ...folder, section: note.section },
-                        note.id,
-                        true,
+                    onClick={() =>
+                      setExpanded(
+                        expanded.length
+                          ? []
+                          : sections.map((s) => `section:${s.id}`),
                       )
-                        .then(() => {
-                          setDeletedNote(null);
-                          refreshNotes();
-                          open({ ...note, kind: "note" });
-                        })
-                        .catch((error) => setNoteError(String(error)));
-                    }}
+                    }
                   >
-                    {t("Undo")}
+                    {expanded.length ? t("Expand all") : t("Collapse all")}
                   </button>
-                </div>
-              )}
-              {!paged && <h2>{t("Course content")}</h2>}
-              {sections.map((section) => sectionView(section))}
-              {!sections.length && (
-                <p className="lmsQuiet">
-                  {t(
-                    "No course content synced yet. Refresh LMS to load the outline.",
-                  )}
-                </p>
-              )}
-              <div data-page={paged ? "activities" : undefined}>
-                {/* Only assignments outside any section; the rest sit in their lesson. */}
-                {(() => {
-                  const loose = assignments.filter(
-                    (a) => !sectionOf(a) && matches(a.title, a.details),
-                  );
-                  return loose.length ? (
-                    <section
-                      data-reading-section="assignments"
-                      className={`lmsActivityGroup${readingSection === "assignments" ? " reading" : ""}`}
-                    >
-                      <h2>{t("Assignments")}</h2>
-                      {loose.map(assignmentContent)}
-                    </section>
-                  ) : null;
-                })()}
-                {["Discussions", "Links", "Other activities"].map((group) => {
-                  const items = materials.filter(
-                    (m) =>
-                      groupFor(m.module) === group &&
-                      !sections.some((s) =>
-                        m.sectionId != null
-                          ? m.sectionId === s.id
-                          : (m.sectionNumber ?? m.session) === s.number,
-                      ) &&
-                      matches(m.title, m.bodyHtml),
-                  );
-                  return items.length ? (
-                    <div
-                      key={group}
-                      data-reading-section={`group:${group}`}
-                      className={`lmsActivityGroup${readingSection === `group:${group}` ? " reading" : ""}`}
-                    >
-                      <h2>{t(group)}</h2>
-                      {items.map((m) =>
-                        m.module === "forum" ? forumCards(m) : row(m),
-                      )}
-                    </div>
-                  ) : null;
-                })}
+                )}
               </div>
-            </div>
-            {data.settings.lmsBilingualFilter && (
-              <button
-                type="button"
-                className="lmsOriginal"
-                onClick={() => setOriginal((value) => !value)}
+
+              <div
+                className={`lmsOutlineScroll${query ? " searching" : ""}`}
+                ref={outline}
+                onScroll={(event) => {
+                  recordPosition(event.currentTarget);
+                  followScroll(event.currentTarget);
+                  restAfterScroll(event.currentTarget);
+                }}
               >
-                {original ? t("Use preferred language") : t("Show original")}
-              </button>
-            )}
-          </aside>
-        </CurrentLesson.Provider>
-        {activeTab && (
-          <section className="lmsViewer" aria-label={t("Opened content")}>
-            <button
-              className="lmsViewerClose"
-              type="button"
-              aria-label={`${t("Close")} ${activeTab.title}`}
-              title={t("Close")}
-              onClick={() => closeTab(activeTab.id)}
-            >
-              <LmsIcon name="close" />
-            </button>
-            <div className="lmsViewerBody">
+                {fileMenu && (
+                  <Suspense fallback={null}>
+                    <FilePopover
+                      key={fileMenu.url}
+                      url={fileMenu.url}
+                      title={fileMenu.title}
+                      context={folder}
+                      limit={limit}
+                      anchor={fileMenu.anchor}
+                      onClose={closeFileMenu}
+                      openInApp={() => {
+                        closeFileMenu();
+                        open({
+                          id: `official:${fileMenu.url}`,
+                          title: fileMenu.title,
+                          kind: "official",
+                          url: fileMenu.url,
+                        });
+                      }}
+                    />
+                  </Suspense>
+                )}
+                {noteError && <p role="alert">{noteError}</p>}
+                {deletedNote && (
+                  <div className="lmsNoteUndo" role="status">
+                    <span>{t("Note deleted")}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const note = deletedNote;
+                        void moveNote(
+                          { ...folder, section: note.section },
+                          note.id,
+                          true,
+                        )
+                          .then(() => {
+                            setDeletedNote(null);
+                            refreshNotes();
+                            open({ ...note, kind: "note" });
+                          })
+                          .catch((error) => setNoteError(String(error)));
+                      }}
+                    >
+                      {t("Undo")}
+                    </button>
+                  </div>
+                )}
+                {!paged && <h2>{t("Course content")}</h2>}
+                {sections.map((section) => sectionView(section))}
+                {!sections.length && (
+                  <p className="lmsQuiet">
+                    {t(
+                      "No course content synced yet. Refresh LMS to load the outline.",
+                    )}
+                  </p>
+                )}
+                <div data-page={paged ? "activities" : undefined}>
+                  {/* Only assignments outside any section; the rest sit in their lesson. */}
+                  {(() => {
+                    const loose = assignments.filter(
+                      (a) => !sectionOf(a) && matches(a.title, a.details),
+                    );
+                    return loose.length ? (
+                      <section
+                        data-reading-section="assignments"
+                        className={`lmsActivityGroup${readingSection === "assignments" ? " reading" : ""}`}
+                      >
+                        <h2>{t("Assignments")}</h2>
+                        {loose.map(assignmentContent)}
+                      </section>
+                    ) : null;
+                  })()}
+                  {["Discussions", "Links", "Other activities"].map((group) => {
+                    const items = materials.filter(
+                      (m) =>
+                        groupFor(m.module) === group &&
+                        !sections.some((s) =>
+                          m.sectionId != null
+                            ? m.sectionId === s.id
+                            : (m.sectionNumber ?? m.session) === s.number,
+                        ) &&
+                        matches(m.title, m.bodyHtml),
+                    );
+                    return items.length ? (
+                      <div
+                        key={group}
+                        data-reading-section={`group:${group}`}
+                        className={`lmsActivityGroup${readingSection === `group:${group}` ? " reading" : ""}`}
+                      >
+                        <h2>{t(group)}</h2>
+                        {items.map((m) =>
+                          m.module === "forum" ? forumCards(m) : row(m),
+                        )}
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+              {data.settings.lmsBilingualFilter && (
+                <button
+                  type="button"
+                  className="lmsOriginal"
+                  onClick={() => setOriginal((value) => !value)}
+                >
+                  {original ? t("Use preferred language") : t("Show original")}
+                </button>
+              )}
+            </aside>
+          </CurrentLesson.Provider>
+          {opened && (
+            <ReaderPane title={opened.title} close={closeContent}>
               {/* Hidden readers release their documents; the official view keeps its webview. */}
               {!viewerActive &&
-              activeTab.kind !== "official" ? null : activeTab.kind ===
+              opened.kind !== "official" ? null : opened.kind ===
                 "announcement" ? (
                 <div className="lmsDocument">
                   <div className="lmsDocumentHeading">
@@ -1518,7 +1517,7 @@ export function LmsWorkspace({
                         data.settings.locale,
                       )}
                     </small>
-                    <h2>{activeTab.title}</h2>
+                    <h2>{opened.title}</h2>
                   </div>
                   {announcement && (
                     <RichContent
@@ -1529,13 +1528,13 @@ export function LmsWorkspace({
                     />
                   )}
                 </div>
-              ) : activeTab.kind === "syllabus" ? (
+              ) : opened.kind === "syllabus" ? (
                 <div className="lmsDocument">
                   <Suspense fallback={<p>{t("Loading…")}</p>}>
                     <SyllabusDetails
                       variant="document"
                       currentLesson={at?.number}
-                      url={activeTab.url!}
+                      url={opened.url!}
                       fetchCourse={
                         desktopBridge
                           ? (url) =>
@@ -1548,31 +1547,31 @@ export function LmsWorkspace({
                     />
                   </Suspense>
                 </div>
-              ) : activeTab.kind === "note" ? (
+              ) : opened.kind === "note" ? (
                 <Suspense fallback={<p>{t("Loading editor…")}</p>}>
                   <NoteEditor
-                    key={activeTab.id}
-                    id={activeTab.id}
-                    context={{ ...folder, section: activeTab.section! }}
+                    key={opened.id}
+                    id={opened.id}
+                    context={{ ...folder, section: opened.section! }}
                     onSaved={refreshNotes}
                     onDeleted={() => {
                       setDeletedNote({
-                        id: activeTab.id,
-                        section: activeTab.section!,
-                        title: activeTab.title,
+                        id: opened.id,
+                        section: opened.section!,
+                        title: opened.title,
                       });
-                      closeTab(activeTab.id);
+                      closeContent();
                       refreshNotes();
                     }}
                   />
                 </Suspense>
-              ) : activeTab.kind === "official" ? (
+              ) : opened.kind === "official" ? (
                 <>
                   <div className="lmsSourceBar">
                     Official LMS · lms.s.isct.ac.jp
                   </div>
                   <OfficialLmsView
-                    url={activeTab.url!}
+                    url={opened.url!}
                     active={viewerActive}
                     available={schoolWebAvailable}
                   />
@@ -1581,7 +1580,7 @@ export function LmsWorkspace({
                 <div className="lmsDocument lmsFileDocument">
                   <div className="lmsDocumentHeading">
                     <small>{material?.sectionTitle || course.code}</small>
-                    <h2>{activeTab.title}</h2>
+                    <h2>{opened.title}</h2>
                   </div>
                   {material?.bodyHtml && (
                     <RichContent
@@ -1600,7 +1599,7 @@ export function LmsWorkspace({
                         )
                           ? material.url
                           : undefined) ||
-                        (activeTab.kind === "link" ? activeTab.url : undefined),
+                        (opened.kind === "link" ? opened.url : undefined),
                     );
                     if (!url) {
                       // A forum read without posts is empty, not unsynced; any
@@ -1624,7 +1623,7 @@ export function LmsWorkspace({
                                 onClick={() =>
                                   open({
                                     id: `official:${official}`,
-                                    title: activeTab.title,
+                                    title: opened.title,
                                     kind: "official",
                                     url: official,
                                   })
@@ -1641,7 +1640,7 @@ export function LmsWorkspace({
                         <FilePreview
                           key={url}
                           url={url}
-                          title={activeTab.title}
+                          title={opened.title}
                           context={folder}
                           limit={limit}
                           openInApp={
@@ -1649,7 +1648,7 @@ export function LmsWorkspace({
                               ? () =>
                                   open({
                                     id: `official:${url}`,
-                                    title: activeTab.title,
+                                    title: opened.title,
                                     kind: "official",
                                     url,
                                   })
@@ -1669,9 +1668,9 @@ export function LmsWorkspace({
                   })()}
                 </div>
               )}
-            </div>
-          </section>
-        )}
+            </ReaderPane>
+          )}
+        </ResizableWorkspace>
       </div>
     </div>
   );

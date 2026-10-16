@@ -1,5 +1,6 @@
 @import "./generated/design/tokens.css";
 @import "./generated/design/tokens.dark.css";
+@import "./components/workspace-chrome.css";
 
 /* Colours, radii, shadow and font come from design/tokens (yarn design:tokens). */
 :root {
@@ -1889,6 +1890,8 @@ p {
 }
 .todaySection > header {
   display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
   justify-content: space-between;
   align-items: center;
   min-height: 34px;
@@ -2313,8 +2316,7 @@ p {
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: var(--service-width, 168px) 6px minmax(0, 1fr);
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr);
 }
 .servicePicker {
   min-width: 0;
@@ -2374,24 +2376,6 @@ p {
 .servicePicker button[data-frequency="low"] {
   color: color-mix(in srgb, var(--muted) 72%, transparent);
 }
-.serviceResizeHandle {
-  position: relative;
-  cursor: col-resize;
-  touch-action: none;
-  border-radius: 99px;
-}
-.serviceResizeHandle::after {
-  content: "";
-  position: absolute;
-  inset: 4px 2px;
-  border-radius: 99px;
-  background: var(--line);
-  transition: background 120ms ease;
-}
-.serviceResizeHandle:hover::after,
-.serviceResizeHandle:focus-visible::after {
-  background: var(--accent);
-}
 .servicesBody .webHost {
   min-width: 0;
   min-height: 0;
@@ -2437,9 +2421,6 @@ p {
   }
   .servicePicker button {
     min-width: max-content;
-  }
-  .serviceResizeHandle {
-    display: none;
   }
   .servicesPage {
     padding: 20px 20px 82px;
@@ -3311,6 +3292,8 @@ p {
 }
 .dueScope {
   display: inline-flex;
+  flex-shrink: 0;
+  max-width: 100%;
   margin-left: auto;
   padding: 2px;
   gap: 2px;

@@ -1,4 +1,6 @@
 import "./lectures.css";
+import { ResizableWorkspace } from "../../components/ResizableWorkspace";
+import { useMediaQuery } from "@mantine/hooks";
 import {
   Activity,
   useEffect,
@@ -57,6 +59,7 @@ export function LectureDesk({
   restoreAssignment?: (assignmentId: string) => void;
 }) {
   // Single-column layouts open the lecture as a dialog over the list.
+  const wide = useMediaQuery("(min-width: 769px)");
   const stacked = useFormFactor() === "mobile";
   // The quarter shown here is browsed on its own; it starts at the current one.
   const [shownTerm, setShownTerm] = useState(term);
@@ -199,174 +202,191 @@ export function LectureDesk({
 
   return (
     <div className={`page lectureDesk${entry ? " open" : ""}`}>
-      <nav className="lectureList" aria-label={t("Lectures")}>
-        <header>
-          <h1>{t("Lecture Desk")}</h1>
-          <UiSelect
-            className="lectureTerm"
-            aria-label={t("Quarter")}
-            value={shownTerm}
-            onChange={(event) => setShownTerm(event.target.value as TermId)}
-          >
-            {[...new Set(terms.map((item) => item.slice(0, 4)))].map((year) => (
-              <optgroup key={year} label={year}>
-                {terms
-                  .filter((item) => item.startsWith(`${year}-`))
-                  .map((item) => (
-                    <option key={item} value={item}>
-                      {item.replace("-", " ")}
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
-          </UiSelect>
-        </header>
-        <div
-          className="dueScope lectureMode"
-          role="group"
-          aria-label={t("Show")}
-        >
-          {(["lectures", "assignments"] as const).map((item) => (
-            <button
-              type="button"
-              key={item}
-              aria-pressed={mode === item}
-              onClick={() => setMode(item)}
+      <ResizableWorkspace
+        id="lectures"
+        enabled={wide}
+        firstSize={220}
+        firstMin={170}
+        firstMax="45%"
+        secondMin="45%"
+      >
+        <nav className="lectureList" aria-label={t("Lectures")}>
+          <header>
+            <h1>{t("Lecture Desk")}</h1>
+            <UiSelect
+              className="lectureTerm"
+              aria-label={t("Quarter")}
+              value={shownTerm}
+              onChange={(event) => setShownTerm(event.target.value as TermId)}
             >
-              {t(item === "lectures" ? "Lectures" : "Assignments")}
-            </button>
-          ))}
-        </div>
-        <UiInput
-          className="lectureFilter"
-          type="search"
-          aria-label={t("Filter")}
-          placeholder={t("Filter…")}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => event.key === "Escape" && setQuery("")}
-        />
-        {mode === "assignments" &&
-          shownWork.map(({ assignment, course, due }) => (
-            <button
-              type="button"
-              key={assignment.id}
-              className={`lectureRow${entry?.assignmentId === assignment.id ? " selected" : ""}`}
-              aria-current={
-                entry?.assignmentId === assignment.id ? "true" : undefined
-              }
-              style={{ "--course": course.color } as React.CSSProperties}
-              onClick={() => select(course.id, assignment.id)}
-            >
-              <b>{assignment.title}</b>
-              <small>{course.title}</small>
-              {due && (
-                <span className={`dueChip ${due.tone}`}>{due.label}</span>
+              {[...new Set(terms.map((item) => item.slice(0, 4)))].map(
+                (year) => (
+                  <optgroup key={year} label={year}>
+                    {terms
+                      .filter((item) => item.startsWith(`${year}-`))
+                      .map((item) => (
+                        <option key={item} value={item}>
+                          {item.replace("-", " ")}
+                        </option>
+                      ))}
+                  </optgroup>
+                ),
               )}
-            </button>
-          ))}
-        {mode === "assignments" && !shownWork.length && (
-          <p className="quietEmpty compact">
-            {t(
-              work.length ? "No matching assignments." : "No open assignments.",
-            )}
-          </p>
-        )}
-        {mode === "assignments" &&
-          restoreAssignment &&
-          shownHidden.length > 0 && (
-            <>
+            </UiSelect>
+          </header>
+          <div
+            className="dueScope lectureMode"
+            role="group"
+            aria-label={t("Show")}
+          >
+            {(["lectures", "assignments"] as const).map((item) => (
               <button
                 type="button"
-                className="lectureHiddenToggle"
-                aria-expanded={showHidden}
-                onClick={() => setShowHidden((value) => !value)}
+                key={item}
+                aria-pressed={mode === item}
+                onClick={() => setMode(item)}
               >
-                {showHidden ? "▾" : "▸"} {t("Hidden assignments")}
+                {t(item === "lectures" ? "Lectures" : "Assignments")}
               </button>
-              {showHidden &&
-                shownHidden.map(({ assignment, course }) => (
-                  <div
-                    key={assignment.id}
-                    className="lectureRow hidden"
-                    style={{ "--course": course.color } as React.CSSProperties}
-                  >
-                    <b>{assignment.title}</b>
-                    <small>{course.title}</small>
-                    <button
-                      type="button"
-                      className="textButton"
-                      onClick={() => restoreAssignment(assignment.id)}
-                    >
-                      {t("Restore")}
-                    </button>
-                  </div>
-                ))}
-            </>
-          )}
-        {mode === "lectures" &&
-          shown.map((lecture) => (
-            <button
-              type="button"
-              key={lecture.id}
-              className={`lectureRow${entry?.courseId === lecture.id ? " selected" : ""}${lecture.rank === 0 ? " now" : ""}`}
-              aria-current={entry?.courseId === lecture.id ? "true" : undefined}
-              style={{ "--course": lecture.color } as React.CSSProperties}
-              onClick={() => select(lecture.id)}
-            >
-              <b>{lecture.title}</b>
-              <small>
-                {[lecture.when, lecture.room].filter(Boolean).join(" · ") ||
-                  lecture.code}
-              </small>
-              {lecture.due && (
-                <span className={`dueChip ${lecture.due.tone}`}>
-                  {lecture.due.label}
-                </span>
-              )}
-            </button>
-          ))}
-        {mode === "lectures" && !shown.length && (
-          <p className="quietEmpty compact">
-            {t(
-              lectures.length
-                ? "No matching lectures."
-                : "No lectures on this quarter's timetable.",
-            )}
-          </p>
-        )}
-      </nav>
-      <div
-        className="lectureContent"
-        role={stacked && entry ? "dialog" : undefined}
-        aria-modal={stacked && entry ? true : undefined}
-      >
-        {entry && (
-          <button type="button" className="lectureBack" onClick={clear}>
-            ‹ {t("Lectures")}
-          </button>
-        )}
-        {retained.map((item) => (
-          <div
-            className="lectureSlot"
-            key={item.courseId}
-            hidden={entry?.courseId !== item.courseId}
-          >
-            <Activity
-              mode={
-                active && entry?.courseId === item.courseId
-                  ? "visible"
-                  : "hidden"
-              }
-            >
-              {renderWorkspace(
-                item,
-                active && entry?.courseId === item.courseId,
-              )}
-            </Activity>
+            ))}
           </div>
-        ))}
-      </div>
+          <UiInput
+            className="lectureFilter"
+            type="search"
+            aria-label={t("Filter")}
+            placeholder={t("Filter…")}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => event.key === "Escape" && setQuery("")}
+          />
+          {mode === "assignments" &&
+            shownWork.map(({ assignment, course, due }) => (
+              <button
+                type="button"
+                key={assignment.id}
+                className={`lectureRow${entry?.assignmentId === assignment.id ? " selected" : ""}`}
+                aria-current={
+                  entry?.assignmentId === assignment.id ? "true" : undefined
+                }
+                style={{ "--course": course.color } as React.CSSProperties}
+                onClick={() => select(course.id, assignment.id)}
+              >
+                <b>{assignment.title}</b>
+                <small>{course.title}</small>
+                {due && (
+                  <span className={`dueChip ${due.tone}`}>{due.label}</span>
+                )}
+              </button>
+            ))}
+          {mode === "assignments" && !shownWork.length && (
+            <p className="quietEmpty compact">
+              {t(
+                work.length
+                  ? "No matching assignments."
+                  : "No open assignments.",
+              )}
+            </p>
+          )}
+          {mode === "assignments" &&
+            restoreAssignment &&
+            shownHidden.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="lectureHiddenToggle"
+                  aria-expanded={showHidden}
+                  onClick={() => setShowHidden((value) => !value)}
+                >
+                  {showHidden ? "▾" : "▸"} {t("Hidden assignments")}
+                </button>
+                {showHidden &&
+                  shownHidden.map(({ assignment, course }) => (
+                    <div
+                      key={assignment.id}
+                      className="lectureRow hidden"
+                      style={
+                        { "--course": course.color } as React.CSSProperties
+                      }
+                    >
+                      <b>{assignment.title}</b>
+                      <small>{course.title}</small>
+                      <button
+                        type="button"
+                        className="textButton"
+                        onClick={() => restoreAssignment(assignment.id)}
+                      >
+                        {t("Restore")}
+                      </button>
+                    </div>
+                  ))}
+              </>
+            )}
+          {mode === "lectures" &&
+            shown.map((lecture) => (
+              <button
+                type="button"
+                key={lecture.id}
+                className={`lectureRow${entry?.courseId === lecture.id ? " selected" : ""}${lecture.rank === 0 ? " now" : ""}`}
+                aria-current={
+                  entry?.courseId === lecture.id ? "true" : undefined
+                }
+                style={{ "--course": lecture.color } as React.CSSProperties}
+                onClick={() => select(lecture.id)}
+              >
+                <b>{lecture.title}</b>
+                <small>
+                  {[lecture.when, lecture.room].filter(Boolean).join(" · ") ||
+                    lecture.code}
+                </small>
+                {lecture.due && (
+                  <span className={`dueChip ${lecture.due.tone}`}>
+                    {lecture.due.label}
+                  </span>
+                )}
+              </button>
+            ))}
+          {mode === "lectures" && !shown.length && (
+            <p className="quietEmpty compact">
+              {t(
+                lectures.length
+                  ? "No matching lectures."
+                  : "No lectures on this quarter's timetable.",
+              )}
+            </p>
+          )}
+        </nav>
+        <div
+          className="lectureContent"
+          role={stacked && entry ? "dialog" : undefined}
+          aria-modal={stacked && entry ? true : undefined}
+        >
+          {entry && (
+            <button type="button" className="lectureBack" onClick={clear}>
+              ‹ {t("Lectures")}
+            </button>
+          )}
+          {retained.map((item) => (
+            <div
+              className="lectureSlot"
+              key={item.courseId}
+              hidden={entry?.courseId !== item.courseId}
+            >
+              <Activity
+                mode={
+                  active && entry?.courseId === item.courseId
+                    ? "visible"
+                    : "hidden"
+                }
+              >
+                {renderWorkspace(
+                  item,
+                  active && entry?.courseId === item.courseId,
+                )}
+              </Activity>
+            </div>
+          ))}
+        </div>
+      </ResizableWorkspace>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { intlLocale } from "../../i18n/locale";
 import { t } from "../../i18n";
 import { useState, type ReactNode } from "react";
@@ -12,7 +13,7 @@ import {
   Modal,
   TextInput,
 } from "@mantine/core";
-import { useLocalStorage } from "@mantine/hooks";
+import { useMediaQuery, useLocalStorage } from "@mantine/hooks";
 
 import {
   WeekTimetable,
@@ -111,6 +112,7 @@ export function Courses({
   ]).value?.[0];
   const term = selection?.coursesTerm ?? currentTerm;
   const canEdit = editing && !readOnly;
+  const wide = useMediaQuery("(min-width: 761px)");
   const [weekAnchor, setWeekAnchor] = useState<{
     term: TermId;
     date: string;
@@ -407,116 +409,127 @@ export function Courses({
         </div>
       </header>
       <div className={`coursesBody${editing ? "" : " viewing"}`}>
-        <div className="coursesLeft">
-          <Paper
-            component="section"
-            className="ttCard"
-            withBorder
-            shadow="xs"
-            radius="md"
-          >
-            <div className="timetableViewBar">
-              <b>{editing ? t("Quarter template") : weekLabel}</b>
-              {!editing && (
-                <div className="scheduleControls">
+        <ResizableWorkspace
+          id="planner"
+          enabled={wide && editing}
+          secondSize={320}
+          firstMin="40%"
+          secondMin={240}
+          secondMax="55%"
+        >
+          <div className="coursesLeft">
+            <Paper
+              component="section"
+              className="ttCard"
+              withBorder
+              shadow="xs"
+              radius="md"
+            >
+              <div className="timetableViewBar">
+                <b>{editing ? t("Quarter template") : weekLabel}</b>
+                {!editing && (
+                  <div className="scheduleControls">
+                    <UiButton
+                      type="button"
+                      aria-label={t("Previous week")}
+                      onClick={() => moveWeek(-7)}
+                    >
+                      ←
+                    </UiButton>
+                    <UiButton
+                      type="button"
+                      onClick={() => {
+                        void mutate({
+                          kind: "selectTerm",
+                          termId: currentTerm,
+                        }).catch(() => undefined);
+                        setWeekAnchor({ term: currentTerm, date: today });
+                      }}
+                    >
+                      {t("This week")}
+                    </UiButton>
+                    <UiButton
+                      type="button"
+                      aria-label={t("Next week")}
+                      onClick={() => moveWeek(7)}
+                    >
+                      →
+                    </UiButton>
+                  </div>
+                )}
+              </div>
+              {editing && (
+                <div className="intensiveLane">
+                  {canEdit && onIntensive ? (
+                    <UiButton
+                      type="button"
+                      className={`intensiveToggle${intensiveActive ? " active" : ""}`}
+                      aria-pressed={Boolean(intensiveActive)}
+                      title={t("Find intensive courses")}
+                      onClick={(event) =>
+                        onIntensive(event.metaKey || event.ctrlKey)
+                      }
+                    >
+                      {t("集中・時間未定")}
+                    </UiButton>
+                  ) : (
+                    <b>{t("集中・時間未定")}</b>
+                  )}
+                  <div>
+                    {unscheduled.map((course) => (
+                      <UiButton
+                        key={course.id}
+                        type="button"
+                        style={
+                          { "--course": course.color } as React.CSSProperties
+                        }
+                        onClick={() => open(course.id)}
+                      >
+                        {course.title}
+                      </UiButton>
+                    ))}
+                    {!unscheduled.length && <small>{t("None")}</small>}
+                  </div>
                   <UiButton
                     type="button"
-                    aria-label={t("Previous week")}
-                    onClick={() => moveWeek(-7)}
-                  >
-                    ←
-                  </UiButton>
-                  <UiButton
-                    type="button"
-                    onClick={() => {
-                      void mutate({
-                        kind: "selectTerm",
-                        termId: currentTerm,
-                      }).catch(() => undefined);
-                      setWeekAnchor({ term: currentTerm, date: today });
-                    }}
-                  >
-                    {t("This week")}
-                  </UiButton>
-                  <UiButton
-                    type="button"
-                    aria-label={t("Next week")}
-                    onClick={() => moveWeek(7)}
-                  >
-                    →
-                  </UiButton>
-                </div>
-              )}
-            </div>
-            {editing && (
-              <div className="intensiveLane">
-                {canEdit && onIntensive ? (
-                  <UiButton
-                    type="button"
-                    className={`intensiveToggle${intensiveActive ? " active" : ""}`}
-                    aria-pressed={Boolean(intensiveActive)}
-                    title={t("Find intensive courses")}
-                    onClick={(event) =>
-                      onIntensive(event.metaKey || event.ctrlKey)
+                    className="weekLength"
+                    aria-pressed={weekLength === "7"}
+                    title={t("Show the weekend")}
+                    onClick={() =>
+                      setWeekLength(weekLength === "7" ? "5" : "7")
                     }
                   >
-                    {t("集中・時間未定")}
+                    {weekLength === "7" ? t("7 days") : t("5 days")}
                   </UiButton>
-                ) : (
-                  <b>{t("集中・時間未定")}</b>
-                )}
-                <div>
-                  {unscheduled.map((course) => (
-                    <UiButton
-                      key={course.id}
-                      type="button"
-                      style={
-                        { "--course": course.color } as React.CSSProperties
-                      }
-                      onClick={() => open(course.id)}
-                    >
-                      {course.title}
-                    </UiButton>
-                  ))}
-                  {!unscheduled.length && <small>{t("None")}</small>}
                 </div>
-                <UiButton
-                  type="button"
-                  className="weekLength"
-                  aria-pressed={weekLength === "7"}
-                  title={t("Show the weekend")}
-                  onClick={() => setWeekLength(weekLength === "7" ? "5" : "7")}
-                >
-                  {weekLength === "7" ? t("7 days") : t("5 days")}
-                </UiButton>
-              </div>
+              )}
+              <WeekTimetable
+                days={columns}
+                teachingPeriods={resolvedTeachingPeriods(
+                  data.academicProfile.teachingPeriods,
+                )}
+                onSelect={select}
+                emptyLabel="Nothing scheduled this day"
+                showNow={!editing}
+                onSlot={canEdit ? onSlot : undefined}
+                activeSlots={editing ? activeSlots : undefined}
+              />
+            </Paper>
+            {editing && leftPanel && (
+              <div className="coursesSidePanel">{leftPanel}</div>
             )}
-            <WeekTimetable
-              days={columns}
-              teachingPeriods={resolvedTeachingPeriods(
-                data.academicProfile.teachingPeriods,
-              )}
-              onSelect={select}
-              emptyLabel="Nothing scheduled this day"
-              showNow={!editing}
-              onSlot={canEdit ? onSlot : undefined}
-              activeSlots={editing ? activeSlots : undefined}
-            />
-          </Paper>
-          {editing && leftPanel && (
-            <div className="coursesSidePanel">{leftPanel}</div>
-          )}
-        </div>
-        {editing && (
-          <div className="coursesSide">
-            <div className="coursesInspector">
-              {editing && side}
-              {editing && panel && (
-                <div className="coursesSidePanel">{panel}</div>
-              )}
-            </div>
           </div>
-        )}
+          {editing && (
+            <div className="coursesSide">
+              <div className="coursesInspector">
+                {editing && side}
+                {editing && panel && (
+                  <div className="coursesSidePanel">{panel}</div>
+                )}
+              </div>
+            </div>
+          )}
+        </ResizableWorkspace>
       </div>
       <Modal
         opened={Boolean(preview)}
