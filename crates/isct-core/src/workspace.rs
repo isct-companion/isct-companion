@@ -1064,39 +1064,12 @@ fn add_catalog_courses(
         let course_id = match live_course {
             Some(course) => string(course, "id")?.to_string(),
             None => {
-                let credits = offering
-                    .get("credits")
-                    .cloned()
-                    .unwrap_or_else(|| json!({"lecture":0,"exercise":0,"lab":0}));
-                let total = ["lecture", "exercise", "lab"]
-                    .into_iter()
-                    .filter_map(|key| credits.get(key).and_then(Value::as_f64))
-                    .sum::<f64>();
-                let instructor = offering
-                    .get("instructors")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .map(|value| localized(Some(value), locale))
-                    .filter(|value| !value.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" / ");
                 let tombstone = courses
                     .iter()
                     .find(|course| course.get("id").and_then(Value::as_str) == Some(&course_id));
                 let course = write.put(
                     "manual_courses",
-                    json!({
-                        "id":course_id, "kind":"course", "termId":term_id, "offeringId":offering_id,
-                        "names":{"title":offering.get("title"),"instructor":offering.get("instructors").and_then(Value::as_array).and_then(|items| items.first()).cloned().unwrap_or_else(|| json!({}))},
-                        "code":offering.get("code").and_then(Value::as_str).unwrap_or_default(),
-                        "title":localized(offering.get("title"), locale), "instructor":instructor, "credits":total,
-                        "creditSplit":credits,
-                        "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
-                        "color":"#556b8d", "meetings":catalog_meetings(&offering, locale)?,
-                        "url":offering.get("syllabusUrl"),
-                        "source":{"provider":"syllabus","externalId":offering_id}
-                    }),
+                    planned_catalog_course(&offering, &course_id, term_id, locale)?,
                     tombstone.and_then(revision),
                 )?;
                 let id = string(&course, "id")?.to_string();
@@ -1994,6 +1967,45 @@ fn undo_catalog_courses(
     Ok(())
 }
 
+/// The manual course a catalog offering is planned as, shared by
+/// `AddCatalogCourses` and the agent's `plan_add`.
+pub(crate) fn planned_catalog_course(
+    offering: &Value,
+    course_id: &str,
+    term_id: &str,
+    locale: &str,
+) -> Result<Value, DataError> {
+    let offering_id = string(offering, "id")?;
+    let credits = offering
+        .get("credits")
+        .cloned()
+        .unwrap_or_else(|| json!({"lecture":0,"exercise":0,"lab":0}));
+    let total = ["lecture", "exercise", "lab"]
+        .into_iter()
+        .filter_map(|key| credits.get(key).and_then(Value::as_f64))
+        .sum::<f64>();
+    let instructor = offering
+        .get("instructors")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|value| localized(Some(value), locale))
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" / ");
+    Ok(json!({
+        "id":course_id, "kind":"course", "termId":term_id, "offeringId":offering_id,
+        "names":{"title":offering.get("title"),"instructor":offering.get("instructors").and_then(Value::as_array).and_then(|items| items.first()).cloned().unwrap_or_else(|| json!({}))},
+        "code":offering.get("code").and_then(Value::as_str).unwrap_or_default(),
+        "title":localized(offering.get("title"), locale), "instructor":instructor, "credits":total,
+        "creditSplit":credits,
+        "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
+        "color":"#556b8d", "meetings":catalog_meetings(offering, locale)?,
+        "url":offering.get("syllabusUrl"),
+        "source":{"provider":"syllabus","externalId":offering_id}
+    }))
+}
+
 /// Converts a catalog offering to the shell's syllabus-course shape.  Keeping
 /// this conversion beside `AddCatalogCourses` prevents sync and add flows from
 /// disagreeing about localized names, rooms, credits, or period clocks.
@@ -2109,7 +2121,7 @@ fn localized(value: Option<&Value>, locale: &str) -> String {
         .to_string()
 }
 
-fn workspace_content_locale(workspace: &Value) -> &'static str {
+pub(crate) fn workspace_content_locale(workspace: &Value) -> &'static str {
     match workspace
         .pointer("/settings/contentLanguage")
         .and_then(Value::as_str)
