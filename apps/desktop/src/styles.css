@@ -4537,6 +4537,37 @@ textarea.codeArea {
   min-width: 0;
   min-height: 0;
 }
+.homePage.needsSetup {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.homeSetup {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.homeSetup > div {
+  flex: 1;
+  min-width: 0;
+}
+.homeSetup p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--text));
+}
+.homeSetup > button {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .homeSetup {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 .homeDay {
   display: flex;
   min-height: 0;

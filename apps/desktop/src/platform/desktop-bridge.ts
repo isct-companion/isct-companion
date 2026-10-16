@@ -134,7 +134,7 @@ export type SchoolIngestOutcome = {
 };
 export type SchoolPullProgress = {
   site: "science-lms" | "kyomu";
-  phase: "catalog" | "course" | "material" | "assignment";
+  phase: "catalog" | "course" | "material" | "assignment" | "timetable";
   completed: number;
   total: number;
   courseId: number;

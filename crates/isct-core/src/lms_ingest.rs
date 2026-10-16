@@ -343,6 +343,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     for (let index = 0; index < assignIds.length; index += 4)
       await Promise.all(assignIds.slice(index, index + 4).map(readStatus));
     return {status:'ok', sourceUrl, language:String(cfg.language || ''), coursesComplete,
+      fullScan:fullScan && !requestedCourseId,
       courses, structures, actionEvents, datedEvents, timetable, assignStatus};
   } catch (error) {
     return {status:String(error?.message || error) === 'reconnect-required' ? 'login' : 'error',
@@ -576,7 +577,12 @@ pub fn apply_lms_payload(
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
-    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'lms','full','running',?2)", params![run_id, started]).map_err(IngestError::from)?;
+    let scope = if payload.full_scan && payload.courses_complete {
+        "full"
+    } else {
+        "summary"
+    };
+    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'lms',?2,'running',?3)", params![run_id, scope, started]).map_err(IngestError::from)?;
     let action_ids: HashSet<u64> = payload
         .action_events
         .iter()

@@ -365,7 +365,80 @@ impl SchoolBrowserEngine {
         context.applied().await;
         let outcome = applied.map_err(|_| SchoolBrowserError::Stopped)??;
         let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
+        if site == SchoolSite::ScienceLms
+            && full
+            && outcome.state == IngestState::Ok
+            && parse_lms_payload(&raw).is_ok_and(|(_, payload)| {
+                payload.is_some_and(|payload| payload.full_scan && payload.courses_complete)
+            })
+        {
+            self.initialize_timetable(context).await?;
+        }
         Ok(outcome)
+    }
+
+    async fn initialize_timetable(&self, context: &PullContext) -> Result<(), SchoolBrowserError> {
+        let store = self.0.store.clone();
+        let preview = tokio::task::spawn_blocking(move || {
+            crate::workspace::WorkspaceService::new(store).initial_lms_preview()
+        })
+        .await
+        .map_err(|_| SchoolBrowserError::Stopped)?
+        .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
+        let Some(preview) = preview else {
+            return Ok(());
+        };
+        let ids = preview["detailIds"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let report = |completed| {
+            let _ = self
+                .0
+                .events
+                .emit(CoreEvent::SchoolPullProgress(SchoolPullProgress {
+                    site: SchoolSite::ScienceLms,
+                    phase: "timetable".into(),
+                    completed,
+                    total: ids.len(),
+                    course_id: 0,
+                    course_title: String::new(),
+                    term: String::new(),
+                    item_title: String::new(),
+                }));
+        };
+        report(0);
+        for (index, batch) in ids.chunks(4).enumerate() {
+            if context.is_cancelled() {
+                return Err(SchoolBrowserError::Cancelled);
+            }
+            let results = futures_util::future::join_all(
+                batch
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(|id| crate::catalog::catalog_sync_offering(&self.0.store, id.to_owned())),
+            )
+            .await;
+            for result in results {
+                if let Err(error) = result {
+                    crate::diagnostics::report("initial-timetable", &error);
+                }
+            }
+            report(((index + 1) * 4).min(ids.len()));
+        }
+        if !context.applying().await {
+            return Err(SchoolBrowserError::Cancelled);
+        }
+        let store = self.0.store.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            crate::workspace::WorkspaceService::new(store).initialize_lms_timetable()
+        })
+        .await;
+        context.applied().await;
+        result
+            .map_err(|_| SchoolBrowserError::Stopped)?
+            .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
+        Ok(())
     }
 
     /// Records that a hidden navigation landed on an identity-provider sign-in

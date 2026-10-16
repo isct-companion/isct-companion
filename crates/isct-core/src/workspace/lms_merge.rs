@@ -678,3 +678,114 @@ pub(super) fn lms_terms_with_offering(lms: &Value, offering: Option<&Value>) -> 
     }
     terms.into_iter().collect()
 }
+
+fn needs_initial_timetable(workspace: &Value) -> bool {
+    workspace
+        .pointer("/importStatus/timetableReviewedAt")
+        .and_then(Value::as_str)
+        .is_none()
+        && !crate::schedule::placement_terms(workspace).any(|term| {
+            crate::schedule::scheduled_courses(workspace, term)
+                .iter()
+                .any(|course| {
+                    course
+                        .get("meetings")
+                        .and_then(Value::as_array)
+                        .is_some_and(|meetings| !meetings.is_empty())
+                })
+        })
+}
+
+impl WorkspaceService {
+    /// The first complete LMS pull initializes an untouched timetable. Later
+    /// pulls leave timetable changes to the existing review flow.
+    pub(crate) fn initial_lms_preview(&self) -> Result<Option<Value>, WorkspaceError> {
+        let snapshot = self.snapshot()?;
+        if !needs_initial_timetable(&snapshot.workspace)
+            || snapshot
+                .school_records
+                .get("lmsCourses")
+                .and_then(Value::as_array)
+                .is_none_or(|courses| courses.is_empty())
+        {
+            return Ok(None);
+        }
+        let term = string(&snapshot.workspace, "currentTerm")?;
+        let offerings = self.store.catalog_search("")?;
+        lms_merge_preview(
+            &snapshot.workspace,
+            &snapshot.school_records,
+            "all",
+            term,
+            &offerings,
+        )
+        .map(Some)
+    }
+
+    pub(crate) fn initialize_lms_timetable(&self) -> Result<bool, WorkspaceError> {
+        let baseline = self.snapshot()?;
+        self.store
+            .workspace_write(&baseline.revision, |write, current, school| {
+                if !needs_initial_timetable(current) {
+                    return Ok(false);
+                }
+                let offerings = write
+                    .catalog_rows()?
+                    .into_iter()
+                    .filter_map(crate::course_query::normalize_offering)
+                    .collect::<Vec<_>>();
+                let mut terms = school
+                    .get("lmsCourses")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|lms| {
+                        lms_terms_with_offering(
+                            lms,
+                            lms.get("offeringId")
+                                .and_then(Value::as_str)
+                                .and_then(|id| {
+                                    offerings.iter().find(|row| {
+                                        row.get("id").and_then(Value::as_str) == Some(id)
+                                    })
+                                }),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                terms.sort();
+                terms.dedup();
+                let diff = lms_diff(
+                    current,
+                    school,
+                    &terms,
+                    &offerings,
+                    workspace_content_locale(current),
+                )?;
+                if diff.lms_only.is_empty() && diff.common.is_empty() {
+                    return Ok(false);
+                }
+                let add = diff
+                    .lms_only
+                    .iter()
+                    .map(|entry| string(entry, "key").map(str::to_owned))
+                    .collect::<Result<_, _>>()?;
+                let keep = diff
+                    .local_only
+                    .iter()
+                    .map(|entry| string(entry, "key").map(str::to_owned))
+                    .collect::<Result<_, _>>()?;
+                let retime = diff
+                    .common
+                    .iter()
+                    .filter(|pair| pair.get("timeDiffers").and_then(Value::as_bool) == Some(true))
+                    .map(|pair| string(&pair["local"], "id").map(|id| format!("local:{id}")))
+                    .collect::<Result<_, _>>()?;
+                apply_lms_merge(write, current, school, terms, add, keep, retime)?;
+                // Validate the complete read model before the transaction commits.
+                let (workspace, school, revision) = write.snapshot_parts()?;
+                snapshot(workspace, school, revision)?;
+                Ok(true)
+            })
+            .map_err(WorkspaceError::from)
+    }
+}

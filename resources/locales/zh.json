@@ -871,5 +871,10 @@
   "Reload saved profile": "重新载入已保存的档案",
   "The academic profile changed elsewhere. Reload it before saving your edits.": "学业档案已在其他地方更新。请重新载入后再编辑保存。",
   "Start time": "开始时间",
-  "End time": "结束时间"
+  "End time": "结束时间",
+  "School account setup": "学校账号设置",
+  "Connect your school accounts": "连接学校账号，开始使用",
+  "Connect school accounts": "连接学校账号",
+  "Connect Science Tokyo for LMS courses and assignments, and Tokyo Tech for registration and grades. Your first full LMS sync builds your timetable automatically.": "连接 Science Tokyo 获取 LMS 课程和作业，连接 Tokyo Tech 获取选课和成绩。首次全量 LMS 同步会自动建立课表。",
+  "Preparing your timetable": "正在建立课表"
 }

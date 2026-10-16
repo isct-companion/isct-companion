@@ -871,5 +871,10 @@
   "Reload saved profile": "保存済みの設定を読み直す",
   "The academic profile changed elsewhere. Reload it before saving your edits.": "別の場所で設定が変更されました。保存済みの設定を読み直してから編集してください。",
   "Start time": "開始時刻",
-  "End time": "終了時刻"
+  "End time": "終了時刻",
+  "School account setup": "学校アカウントの設定",
+  "Connect your school accounts": "学校アカウントを接続して始めましょう",
+  "Connect school accounts": "学校アカウントを接続",
+  "Connect Science Tokyo for LMS courses and assignments, and Tokyo Tech for registration and grades. Your first full LMS sync builds your timetable automatically.": "Science Tokyo を接続すると LMS の授業と課題を、Tokyo Tech を接続すると履修登録と成績を取得できます。初回の LMS 全体同期で時間割が自動的に作成されます。",
+  "Preparing your timetable": "時間割を作成中"
 }
