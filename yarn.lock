@@ -702,7 +702,6 @@ __metadata:
     react-i18next: "npm:^17.0.13"
     react-resizable-panels: "npm:^4.14.5"
     react-router: "npm:^7"
-    rrule: "npm:^2.8.1"
     typescript: "npm:7.0.2"
     vite: "npm:8.2.2"
     vite-plugin-static-copy: "npm:4.1.1"
@@ -4917,15 +4916,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"rrule@npm:^2.8.1":
-  version: 2.8.1
-  resolution: "rrule@npm:2.8.1"
-  dependencies:
-    tslib: "npm:^2.4.0"
-  checksum: 10c0/c9350620bbd57d0cdf99320b576121a2d7ed579fda4ae50891e2779c7dfd6dc7b174b558b6598adefb1f0e053549dc977740e1a265f77dcf0827aaeea60b45e7
-  languageName: node
-  linkType: hard
-
 "safe-buffer@npm:~5.2.0":
   version: 5.2.1
   resolution: "safe-buffer@npm:5.2.1"
@@ -5256,7 +5246,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tslib@npm:^2.0.0, tslib@npm:^2.1.0, tslib@npm:^2.4.0":
+"tslib@npm:^2.0.0, tslib@npm:^2.1.0":
   version: 2.8.1
   resolution: "tslib@npm:2.8.1"
   checksum: 10c0/9c4759110a19c53f992d9aae23aac5ced636e99887b51b9e61def52611732872ff7668757d4e4c61f19691e36f4da981cd9485e869b4a7408d689f6bf1f14e62
