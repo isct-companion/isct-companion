@@ -1,4 +1,5 @@
 use super::*;
+use crate::study_profile::ADMISSION_YEARS;
 
 pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
     let user = json!({
@@ -54,8 +55,6 @@ const CLOUD_CHOICES: &[(&str, &[&str])] = &[
         &["keep-current", "use-latest", "resolve-manually"],
     ),
 ];
-/// Study-guide cohorts are four-digit years from the 2000 curriculum onwards.
-pub(crate) const ADMISSION_YEARS: std::ops::RangeInclusive<i64> = 2000..=9999;
 
 pub(super) fn validate_choices(
     value: &Value,

@@ -11,7 +11,6 @@ pub use defaults::initial_workspace;
 use defaults::*;
 use records::*;
 pub(crate) use records::{canonical_course_id, resolve_course_id};
-pub(crate) use settings::ADMISSION_YEARS;
 use settings::*;
 
 pub mod cloud_merge;
@@ -22,7 +21,7 @@ pub mod versioned;
 pub use changes::{CommitObserver, WorkspaceChangeSource};
 pub use error::DataError;
 
-use crate::school_service::{SchoolPageAvailability, SchoolPageAvailabilityState};
+use crate::contracts::{SchoolPageAvailability, SchoolPageAvailabilityState};
 use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::de::DeserializeOwned;
@@ -517,15 +516,12 @@ impl From<DataError> for AgentWriteError {
     }
 }
 
-pub(crate) struct AgentWriteTransaction<'transaction, 'connection> {
-    transaction: &'transaction rusqlite::Transaction<'connection>,
-}
-
-/// Narrow database capabilities used by the workspace domain service.  The
-/// service owns policy; this type only provides revision-checked persistence
-/// inside the service's single IMMEDIATE transaction.
+/// Narrow database capabilities used by the workspace domain rules, for user
+/// intents and agent tools alike. The rules own policy; this type only
+/// provides revision-checked persistence inside one IMMEDIATE transaction.
 pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
     transaction: &'transaction rusqlite::Transaction<'connection>,
+    actor: &'static str,
 }
 
 impl WorkspaceWrite<'_, '_> {
@@ -535,7 +531,7 @@ impl WorkspaceWrite<'_, '_> {
         value: Value,
         expected_rev: Option<u64>,
     ) -> Result<Value, DataError> {
-        put_user_record_in_transaction(self.transaction, table, value, "workspace", expected_rev)
+        put_user_record_in_transaction(self.transaction, table, value, self.actor, expected_rev)
     }
 
     pub(crate) fn delete(
@@ -544,7 +540,20 @@ impl WorkspaceWrite<'_, '_> {
         id: &str,
         expected_rev: Option<u64>,
     ) -> Result<bool, DataError> {
-        delete_user_record_in_transaction(self.transaction, table, id, "workspace", expected_rev)
+        delete_user_record_in_transaction(self.transaction, table, id, self.actor, expected_rev)
+    }
+
+    /// Every stored row of a user table, deleted ones included.
+    pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
+        if !DataStore::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        read_rows(self.transaction, table)
+    }
+
+    /// A detailed catalog offering; search-only rows cannot be planned.
+    pub(crate) fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
+        catalog_offering_in(self.transaction, id)
     }
 
     /// Whether a live row with this ID is stored in the given user table.
@@ -630,44 +639,6 @@ impl WorkspaceWrite<'_, '_> {
         self.save_setting("userPreferences", &user)?;
         self.save_setting("devicePreferences", &device)?;
         self.save_setting("cloud", &cloud)
-    }
-}
-
-impl AgentWriteTransaction<'_, '_> {
-    /// Latest workspace assembled under the agent write transaction's
-    /// IMMEDIATE lock. Domain gates must use this snapshot rather than the
-    /// preflight read made before the transaction began.
-    pub(crate) fn workspace(&self) -> Result<Value, DataError> {
-        DataStore::load_workspace_from(self.transaction)
-    }
-
-    pub(crate) fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
-        catalog_offering_in(self.transaction, id)
-    }
-
-    pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
-        if !DataStore::user_table(table) {
-            return Err("table is not user-owned".into());
-        }
-        read_rows(self.transaction, table)
-    }
-
-    pub(crate) fn put(
-        &self,
-        table: &str,
-        value: Value,
-        expected_rev: Option<u64>,
-    ) -> Result<Value, DataError> {
-        put_user_record_in_transaction(self.transaction, table, value, "mcp", expected_rev)
-    }
-
-    pub(crate) fn delete(
-        &self,
-        table: &str,
-        id: &str,
-        expected_rev: Option<u64>,
-    ) -> Result<bool, DataError> {
-        delete_user_record_in_transaction(self.transaction, table, id, "mcp", expected_rev)
     }
 }
 
@@ -981,15 +952,21 @@ impl DataStore {
     pub(crate) fn agent_write<T>(
         &self,
         tool: &str,
-        action: impl FnOnce(&AgentWriteTransaction<'_, '_>) -> Result<T, DataError>,
+        action: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value) -> Result<T, DataError>,
     ) -> Result<T, AgentWriteError> {
         // Agent tools check each row's revision under this IMMEDIATE lock;
         // they hold no workspace revision to compare.
-        self.write(Some(WorkspaceChangeSource::Mcp), |transaction| {
+        let source = WorkspaceChangeSource::Mcp;
+        self.write(Some(source), |transaction| {
             if !agent_access_enabled_in(transaction)? {
                 return Err(AgentWriteError::Disabled);
             }
-            let result = action(&AgentWriteTransaction { transaction })?;
+            let current = Self::load_workspace_from(transaction)?;
+            let write = WorkspaceWrite {
+                transaction,
+                actor: source.actor(),
+            };
+            let result = action(&write, &current)?;
             record_agent_write_in(transaction, tool)?;
             Ok(result)
         })
@@ -1055,7 +1032,11 @@ impl DataStore {
     /// allowlist and validation as a workspace intent.
     pub fn put_workspace_setting(&self, key: &str, value: Value) -> Result<(), DataError> {
         self.write(Some(WorkspaceChangeSource::UserIntent), |transaction| {
-            WorkspaceWrite { transaction }.save_setting(key, &value)
+            WorkspaceWrite {
+                transaction,
+                actor: WorkspaceChangeSource::UserIntent.actor(),
+            }
+            .save_setting(key, &value)
         })
     }
 

@@ -38,23 +38,7 @@ impl IngestState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
-#[serde(rename_all = "kebab-case")]
-pub enum SchoolPageAvailabilityState {
-    Available,
-    Unavailable,
-}
-
-/// Latest authoritative capability observation for one school page.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolPageAvailability {
-    pub state: SchoolPageAvailabilityState,
-    pub checked_at: String,
-    pub message: String,
-}
+pub use crate::contracts::{SchoolPageAvailability, SchoolPageAvailabilityState};
 
 #[cfg(feature = "ts")]
 pub fn declarations() -> Vec<String> {

@@ -13,6 +13,9 @@ use std::sync::LazyLock;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
+/// Study-guide cohorts are four-digit years from the 2000 curriculum onwards.
+pub(crate) const ADMISSION_YEARS: std::ops::RangeInclusive<i64> = 2000..=9999;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]

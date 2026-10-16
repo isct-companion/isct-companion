@@ -34,7 +34,11 @@ impl DataStore {
             }
             let current = Self::load_workspace_from(transaction)?;
             let school_records = Self::school_records_from(transaction)?;
-            operation(&WorkspaceWrite { transaction }, &current, &school_records)?;
+            let write = WorkspaceWrite {
+                transaction,
+                actor: WorkspaceChangeSource::UserIntent.actor(),
+            };
+            operation(&write, &current, &school_records)?;
             let revision = intent_revision(transaction)?;
             let parts = (
                 Self::load_workspace_from(transaction)?,

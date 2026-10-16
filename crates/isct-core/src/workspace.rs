@@ -9,6 +9,7 @@ mod catalog;
 mod courses;
 mod lms_merge;
 
+pub(crate) use calendar::set_assignment_mark;
 use calendar::*;
 pub use catalog::catalog_course;
 pub(crate) use catalog::planned_catalog_course;
@@ -342,6 +343,37 @@ impl WorkspaceService {
     }
 }
 
+/// Saves one personal plan and returns its id. Shared by the `SavePlan`
+/// intent and agent tools, so both meet one set of plan rules.
+pub(crate) fn save_plan(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    mut draft: Value,
+    existing_id: Option<String>,
+) -> Result<String, DataError> {
+    crate::plans::canonicalize_plan_draft(&mut draft)
+        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+    let id = existing_id.unwrap_or_else(|| Uuid::now_v7().to_string());
+    save_simple_record(
+        write,
+        current,
+        "plans",
+        "plans",
+        draft,
+        Some(id.clone()),
+        |_| Ok(()),
+    )?;
+    Ok(id)
+}
+
+pub(crate) fn delete_plan(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    plan_id: &str,
+) -> Result<(), DataError> {
+    delete_visible(write, current, "plans", "plans", plan_id)
+}
+
 fn snapshot(
     workspace: Value,
     school_records: Value,
@@ -511,19 +543,10 @@ fn apply_intent(
         WorkspaceIntent::DeleteEvent { event_id } => {
             delete_visible(write, current, "events", "personal_events", &event_id)
         }
-        WorkspaceIntent::SavePlan {
-            mut draft,
-            existing_id,
-        } => {
-            crate::plans::canonicalize_plan_draft(&mut draft)
-                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
-            save_simple_record(write, current, "plans", "plans", draft, existing_id, |_| {
-                Ok(())
-            })
+        WorkspaceIntent::SavePlan { draft, existing_id } => {
+            save_plan(write, current, draft, existing_id).map(|_| ())
         }
-        WorkspaceIntent::DeletePlan { plan_id } => {
-            delete_visible(write, current, "plans", "plans", &plan_id)
-        }
+        WorkspaceIntent::DeletePlan { plan_id } => delete_plan(write, current, &plan_id),
         WorkspaceIntent::SaveCalendarException { draft, existing_id } => {
             save_calendar_exception(write, current, draft, existing_id)
         }

@@ -199,7 +199,9 @@ fn plan_writes_accept_civil_until_and_the_contract_rejects_unusable_recurrence()
     ] {
         let error = fixture
             .store
-            .agent_write("plan_event_create", |write| write.put("plans", plan, None))
+            .agent_write("plan_event_create", |write, _| {
+                write.put("plans", plan, None)
+            })
             .unwrap_err();
         assert!(matches!(
             error,
@@ -249,7 +251,7 @@ fn transaction_rechecks_revoked_access_before_running_the_write() {
         )
         .unwrap();
     let ran = std::cell::Cell::new(false);
-    let result = fixture.store.agent_write("plan_event_create", |_| {
+    let result = fixture.store.agent_write("plan_event_create", |_, _| {
         ran.set(true);
         Ok(())
     });
