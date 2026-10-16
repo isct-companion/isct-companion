@@ -134,9 +134,26 @@ parsing and the database transaction finish as owned work; dropping the
 original native caller does not abort the commit. 教務Web commits each page
 under its own gate and returns to `running` afterwards, so Cancel stops the pull
 between pages; a shutdown during a page commit cancels the remaining pages once
-that commit finishes. Outcomes remain `ok`,
-`reconnect-required` or `error`, and Core emits progress and ingest events with
-the existing wire fields.
+that commit finishes. An accepted payload must identify a supported page shape,
+set `complete: true`, and include every collection required by that shape. An
+empty collection is authoritative only when the page contains the extractor's
+scoped no-data marker. A missing table paired with a visible group heading,
+unknown headers and partial rows are `error`; they do not enter the apply
+transaction or mark older rows missing.
+教務Web does not publish a manifest of the grade groups or requirement tables
+an account should receive, so Core does not hard-code undergraduate counts for
+graduate accounts. After a fully loaded page, the extractor validates every
+candidate table that is present. If the authority removes a whole candidate
+from the DOM, that is indistinguishable from an intentional account-specific
+shape until the site publishes another completion signal.
+
+Outcomes are `ok`, `unavailable`, `reconnect-required` or `error`.
+`unavailable` requires an explicit not-offered message on an approved school
+page. Core records that capability observation for refresh freshness and UI
+display, but leaves the page's existing rows untouched. It is a completed pull
+outcome rather than a coordinator failure. `pageAvailability` in the school
+read model distinguishes retained older rows from the latest authoritative
+capability observation.
 
 Visible LMS and 教務 pages use the same extractor and apply functions. This
 keeps page-triggered refreshes and background pulls on one parser and storage

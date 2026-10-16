@@ -355,7 +355,7 @@ impl ScheduleOverride {
     /// Replacement periods must name a real class slot.
     pub fn validate(&self) -> Result<(), crate::schedule::ScheduleError> {
         self.periods
-            .map(|(first, last)| crate::schedule::clock_for_periods([first, last]))
+            .map(|(first, last)| crate::schedule::validate_period_range([first, last]))
             .transpose()
             .map(|_| ())
     }
@@ -454,6 +454,8 @@ contract!(AcademicProfile {
     pub name: String, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub admission_year: Option<i32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "StudyEnrollment[]"))]
     pub study_enrollments: Option<Vec<crate::study_profile::StudyEnrollment>>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "TeachingPeriod[]"))]
+    pub teaching_periods: Option<Vec<crate::schedule::TeachingPeriod>>,
     pub grade_path: Vec<GradePathEntry>, pub years: Vec<AcademicYearConfig>,
 });
 contract!(ImportStatus {

@@ -1,6 +1,9 @@
 //! The course finder's product grammar, shared by all shells.
 //! Its pills and syllabus fan-out rules are application-specific; regex and
 //! Unicode normalization handle the parsing primitives.
+mod contracts;
+pub use contracts::*;
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -8,6 +11,8 @@ use std::{
     collections::{BTreeMap, HashSet},
     sync::LazyLock,
 };
+#[cfg(feature = "ts")]
+use ts_rs::TS;
 use unicode_normalization::UnicodeNormalization;
 
 pub use crate::study_profile::catalog_course_eligibility;
@@ -56,25 +61,28 @@ fn false_value(value: &bool) -> bool {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FinderContext {
     pub current_quarter: u8,
     #[serde(default)]
     pub recommended: BTreeMap<String, Recommendation>,
     #[serde(default)]
-    pub departments: Vec<Department>,
+    pub departments: Vec<FinderDepartment>,
     #[serde(default)]
     pub busy: Vec<BusySlot>,
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct Recommendation {
     pub group: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mark: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
-pub struct Department {
+pub struct FinderDepartment {
     pub id: String,
     pub name: BTreeMap<String, String>,
     pub unit_code: String,
@@ -82,28 +90,35 @@ pub struct Department {
     pub scope: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct BusySlot {
     pub day: u8,
     pub from: u8,
     pub to: u8,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct Condition {
     pub r#type: String,
     pub key: String,
     pub label: String,
+    #[cfg_attr(feature = "ts", ts(type = "(string | number | TimeValue)[]"))]
     pub values: Vec<Value>,
     #[serde(default, skip_serializing_if = "false_value")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
     pub prefix: bool,
     #[serde(default, skip_serializing_if = "false_value")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
     pub exclude: bool,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct Factor {
     pub r#type: String,
     pub alts: Vec<Condition>,
 }
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct Factors {
     pub factors: Vec<Factor>,
     pub duplicates: usize,
@@ -576,12 +591,41 @@ fn hit(course: &Value, c: &Condition, ctx: &FinderContext) -> bool {
         _ => false,
     })
 }
-pub fn run(courses: &[Value], factors: &[Factor], ctx: &FinderContext, live: &str) -> Vec<Value> {
+pub fn run(
+    courses: &[Value],
+    factors: &[Factor],
+    ctx: &FinderContext,
+    live: &str,
+) -> Vec<FinderRow> {
     let live = lower(live.trim());
     let mut seen = HashSet::new();
-    let mut rows:Vec<Value>=courses.iter().filter(|c| {
-        (live.is_empty() || searchable(c).contains(&live)) && factors.iter().all(|f|if f.r#type=="exclude" {f.alts.first().is_none_or(|a|!hit(c,a,ctx))} else {f.alts.iter().any(|a|hit(c,a,ctx))}) && seen.insert(text(c,"id"))
-    }).map(|c|json!({"course":c,"matched":factors.iter().filter(|f|f.alts.len()>1 && f.r#type!="exclude").flat_map(|f|f.alts.iter().filter(|a|hit(c,a,ctx)).map(|a|a.label.clone())).collect::<Vec<_>>()})).collect();
+    let mut rows: Vec<FinderRow> = courses
+        .iter()
+        .filter(|c| {
+            (live.is_empty() || searchable(c).contains(&live))
+                && factors.iter().all(|f| {
+                    if f.r#type == "exclude" {
+                        f.alts.first().is_none_or(|a| !hit(c, a, ctx))
+                    } else {
+                        f.alts.iter().any(|a| hit(c, a, ctx))
+                    }
+                })
+                && seen.insert(text(c, "id"))
+        })
+        .map(|c| FinderRow {
+            course: c.clone(),
+            matched: factors
+                .iter()
+                .filter(|f| f.alts.len() > 1 && f.r#type != "exclude")
+                .flat_map(|f| {
+                    f.alts
+                        .iter()
+                        .filter(|a| hit(c, a, ctx))
+                        .map(|a| a.label.clone())
+                })
+                .collect::<Vec<_>>(),
+        })
+        .collect();
     let weight = |c: &Value| {
         ctx.recommended
             .get(text(c, "code"))
@@ -593,9 +637,9 @@ pub fn run(courses: &[Value], factors: &[Factor], ctx: &FinderContext, live: &st
             .unwrap_or(0)
     };
     rows.sort_by(|a, b| {
-        weight(&b["course"])
-            .cmp(&weight(&a["course"]))
-            .then_with(|| text(&a["course"], "code").cmp(text(&b["course"], "code")))
+        weight(&b.course)
+            .cmp(&weight(&a.course))
+            .then_with(|| text(&a.course, "code").cmp(text(&b.course, "code")))
     });
     rows
 }
@@ -759,7 +803,12 @@ fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
     }
     out
 }
-pub fn suggest(input: &str, keys: &[String], courses: &[Value], ctx: &FinderContext) -> Vec<Value> {
+pub fn suggest(
+    input: &str,
+    keys: &[String],
+    courses: &[Value],
+    ctx: &FinderContext,
+) -> Vec<Suggestion> {
     let exclude = input.starts_with('!');
     let typed = normalized(if exclude {
         input.strip_prefix('!').unwrap_or(input)
@@ -774,7 +823,7 @@ pub fn suggest(input: &str, keys: &[String], courses: &[Value], ctx: &FinderCont
         keys.push(key.into());
         run(courses, &factors_of(&keys, ctx).factors, ctx, "").len()
     };
-    let add = |key: &str, out: &mut Vec<Value>| {
+    let add = |key: &str, out: &mut Vec<Suggestion>| {
         let full = if exclude {
             format!("!{key}")
         } else {
@@ -783,7 +832,7 @@ pub fn suggest(input: &str, keys: &[String], courses: &[Value], ctx: &FinderCont
         if keys.contains(&full)
             || out
                 .iter()
-                .any(|v| text(v, "kind") == "condition" && text(v, "key") == full)
+                .any(|v| matches!(v, Suggestion::Condition { key, .. } if key == &full))
         {
             return;
         }
@@ -792,7 +841,11 @@ pub fn suggest(input: &str, keys: &[String], courses: &[Value], ctx: &FinderCont
             return;
         }
         let remote = !c.exclude && ["dept", "code", "level", "text"].contains(&c.r#type.as_str());
-        out.push(json!({"kind":"condition","key":full,"condition":c,"count":if remote{-1}else{count(&full) as i64}}));
+        out.push(Suggestion::Condition {
+            count: if remote { -1 } else { count(&full) as i64 },
+            key: full,
+            condition: c,
+        });
     };
     if typed.is_empty() {
         for key in if exclude {
@@ -852,7 +905,9 @@ pub fn suggest(input: &str, keys: &[String], courses: &[Value], ctx: &FinderCont
             .collect();
         matching.sort_by_key(|c| !text(c, "code").starts_with(&upper));
         for course in matching.into_iter().take(6) {
-            out.push(json!({"kind":"course","course":course}));
+            out.push(Suggestion::Course {
+                course: course.clone(),
+            });
         }
     }
     let key = if exclude {
@@ -861,7 +916,14 @@ pub fn suggest(input: &str, keys: &[String], courses: &[Value], ctx: &FinderCont
         typed.into()
     };
     if !keys.contains(&key) {
-        out.push(json!({"kind":"text","key":key,"count":if key.starts_with('!'){count(&key) as i64}else{-1}}));
+        out.push(Suggestion::Text {
+            count: if key.starts_with('!') {
+                count(&key) as i64
+            } else {
+                -1
+            },
+            key,
+        });
     }
     out
 }
@@ -872,7 +934,7 @@ pub fn live_text(input: &str, keys: &[String], courses: &[Value], ctx: &FinderCo
         || condition(value, ctx).r#type != "text"
         || suggest(value, keys, courses, ctx)
             .iter()
-            .any(|s| text(s, "kind") == "condition")
+            .any(|s| matches!(s, Suggestion::Condition { .. }))
     {
         String::new()
     } else {
@@ -881,6 +943,7 @@ pub fn live_text(input: &str, keys: &[String], courses: &[Value], ctx: &FinderCo
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FinderRequest {
     pub year: u16,
@@ -899,6 +962,7 @@ pub struct FinderRequest {
     pub action: Option<FinderAction>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -910,16 +974,19 @@ pub enum FinderAction {
     Paste { text: String },
 }
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FinderView {
     pub context: FinderContext,
+    #[cfg_attr(feature = "ts", ts(type = "FinderCourse[]"))]
     pub courses: Vec<Value>,
     pub factors: Vec<Factor>,
     pub duplicates: usize,
     pub keys: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(type = "RemotePlan"))]
     pub plan: Value,
-    pub rows: Vec<Value>,
-    pub suggestions: Vec<Value>,
+    pub rows: Vec<FinderRow>,
+    pub suggestions: Vec<Suggestion>,
     pub live: String,
     pub clashes: Vec<String>,
     pub ineligible_ids: Vec<String>,
@@ -948,7 +1015,8 @@ pub enum FinderError {
 }
 
 pub fn department_name_ja(id: &str) -> Result<Option<String>, serde_json::Error> {
-    let departments: Vec<Department> = serde_json::from_str(include_str!("departments.json"))?;
+    let departments: Vec<FinderDepartment> =
+        serde_json::from_str(include_str!("departments.json"))?;
     Ok(departments
         .into_iter()
         .find(|department| department.id == id || id.ends_with(&format!(":{}", department.id)))
@@ -985,7 +1053,8 @@ pub fn finder_view(
             "Course condition is too long.".into(),
         ));
     }
-    let departments: Vec<Department> = serde_json::from_str(include_str!("departments.json"))?;
+    let departments: Vec<FinderDepartment> =
+        serde_json::from_str(include_str!("departments.json"))?;
     let selected_department = workspace
         .pointer("/settings/departmentId")
         .and_then(Value::as_str)
@@ -1134,14 +1203,14 @@ pub fn finder_view(
     let commit_key =
         if request.input.ends_with(char::is_whitespace) && !request.input.trim().is_empty() {
             let canonical = condition(request.input.trim(), &ctx);
-            suggestions
-                .first()
-                .filter(|v| {
-                    text(v, "kind") == "condition"
-                        && v.pointer("/condition/type").and_then(Value::as_str) != Some("text")
-                        && text(v, "key") == canonical.key
-                })
-                .map(|v| text(v, "key").to_string())
+            suggestions.first().and_then(|suggestion| match suggestion {
+                Suggestion::Condition { key, condition, .. }
+                    if condition.r#type != "text" && *key == canonical.key =>
+                {
+                    Some(key.clone())
+                }
+                _ => None,
+            })
         } else {
             None
         };
@@ -1200,8 +1269,8 @@ pub fn finder_view(
         .collect::<Vec<_>>();
     let detail_ids = run(visible_base, &quarter_factors, &ctx, "")
         .iter()
-        .filter(|row| row.pointer("/course/detailed") == Some(&Value::Bool(false)))
-        .map(|row| text(&row["course"], "id").to_string())
+        .filter(|row| row.course.get("detailed") == Some(&Value::Bool(false)))
+        .map(|row| text(&row.course, "id").to_string())
         .collect();
     let on_timetable = placed
         .iter()
@@ -1302,244 +1371,28 @@ pub fn normalize_offering(mut row: Value) -> Option<Value> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn eligibility_offering(id: &str, code: &str) -> Value {
-        json!({
-            "id":id, "year":2026, "code":code, "quarters":["3Q"],
-            "unitCode":"342300", "title":{"en":code}, "format":{"kinds":[]}
-        })
-    }
+#[path = "../tests/course_query.rs"]
+mod tests;
 
-    #[test]
-    fn first_year_eligibility_uses_the_planned_year_and_keeps_all_course_search_visible() {
-        let offerings = vec![
-            eligibility_offering("100", "CSC.T101"),
-            eligibility_offering("200", "CSC.T201"),
-            eligibility_offering("humanities", "LAH.T209-01"),
-            eligibility_offering("law", "LAW.W221-12"),
-            eligibility_offering("300", "CSC.T301"),
-        ];
-        let workspace = json!({
-            "currentTerm":"2026-3Q",
-            "academicProfile":{"admissionYear":2026,"studyEnrollments":[{
-                "stage":"undergraduate","entryKind":"regular","entryGrade":1,
-                "admittedTerm":"2026-1Q"
-            }]},
-            "settings":{"departmentId":"cs"},
-            "recommendedCourses":[
-                {"admissionYear":2026,"departmentId":"cs","code":"CSC.T101","group":"A"},
-                {"admissionYear":2026,"departmentId":"cs","code":"CSC.T201","group":"B"}
-            ],
-            "courses":[], "memberships":[], "planItems":[]
-        });
-        let request = |term: &str,
-                       keys: Vec<&str>,
-                       include_ineligible: bool,
-                       action: Option<FinderAction>| FinderRequest {
-            year: term[..4].parse().unwrap(),
-            term: term.into(),
-            include_ineligible,
-            keys: keys.into_iter().map(str::to_string).collect(),
-            input: String::new(),
-            remote_ids: None,
-            action,
-        };
-
-        let default = finder_view(
-            &workspace,
-            offerings.clone(),
-            request("2026-3Q", vec!["3Q"], false, None),
-        )
-        .unwrap();
-        assert_eq!(
-            default.ineligible_ids,
-            vec!["200", "300", "humanities", "law"]
-        );
-        assert_eq!(
-            default.eligibility["100"].status,
-            CourseEligibilityStatus::Allowed
-        );
-        assert_eq!(
-            default.eligibility["humanities"].reason,
-            crate::study_profile::CourseEligibilityReason::UndergraduateFirstYearUpperLevel
-        );
-        assert_eq!(
-            default
-                .rows
-                .iter()
-                .map(|row| text(&row["course"], "id"))
-                .collect::<Vec<_>>(),
-            vec!["100"]
-        );
-        assert!(default.context.recommended.contains_key("CSC.T101"));
-        assert!(!default.context.recommended.contains_key("CSC.T201"));
-
-        let all = finder_view(
-            &workspace,
-            offerings.clone(),
-            request("2026-3Q", vec!["3Q"], true, None),
-        )
-        .unwrap();
-        assert_eq!(
-            all.rows.len(),
-            5,
-            "explicit all-course search stays visible"
-        );
-
-        let pasted = finder_view(
-            &workspace,
-            offerings.clone(),
-            request(
-                "2026-3Q",
-                vec![],
-                false,
-                Some(FinderAction::Paste {
-                    text: "CSC.T101 CSC.T201 LAH.T209-01 LAW.W221-12 CSC.T301".into(),
-                }),
-            ),
-        )
-        .unwrap();
-        assert_eq!(pasted.pasted_ids, vec!["100"]);
-        assert_eq!(
-            pasted.ineligible_codes,
-            vec!["CSC.T201", "LAH.T209-01", "LAW.W221-12", "CSC.T301"]
-        );
-
-        let second_year = finder_view(
-            &workspace,
-            offerings.clone(),
-            request("2027-3Q", vec![], false, None),
-        )
-        .unwrap();
-        assert!(second_year.ineligible_ids.is_empty());
-
-        let mut unknown = workspace;
-        unknown["academicProfile"] = json!({});
-        let unknown =
-            finder_view(&unknown, offerings, request("2026-3Q", vec![], false, None)).unwrap();
-        assert!(unknown.ineligible_ids.is_empty());
-        assert!(unknown
-            .eligibility
-            .values()
-            .all(|result| result.status == CourseEligibilityStatus::Unknown));
-    }
-
-    #[test]
-    fn eligibility_does_not_guess_without_study_identity_or_course_number() {
-        let upper_level = eligibility_offering("upper", "CSC.T301");
-        assert_eq!(
-            catalog_course_eligibility(&json!({"academicProfile":{}}), "2026-3Q", &upper_level)
-                .status,
-            CourseEligibilityStatus::Unknown
-        );
-        let undergraduate = json!({"academicProfile":{"studyEnrollments":[{
-            "stage":"undergraduate","entryKind":"regular","entryGrade":1,
-            "admittedTerm":"2026-1Q"
-        }]}});
-        assert_eq!(
-            catalog_course_eligibility(
-                &undergraduate,
-                "2026-3Q",
-                &eligibility_offering("special", "SPECIAL")
-            )
-            .status,
-            CourseEligibilityStatus::Unknown
-        );
-        assert_eq!(
-            catalog_course_eligibility(
-                &undergraduate,
-                "2026-3Q",
-                &eligibility_offering("foreign", "SPECIAL.2026")
-            )
-            .status,
-            CourseEligibilityStatus::Unknown
-        );
-    }
-
-    #[test]
-    fn replacement_ignores_same_course_and_nonweekly_results() {
-        let fixture: Value = serde_json::from_str(include_str!("fixtures.json")).unwrap();
-        let placed = json!([
-            {"code":"X.1","meetings":[{"days":[2],"periods":[3,4]}]},
-            {"code":"X.2","meetings":[{"days":[2],"periods":[5,6]}]},
-            {"code":"X.3","meetings":[{"days":[],"periods":[]}]},
-            {"code":"CSC.T262","meetings":[{"days":[2],"periods":[3,4]}]}
-        ]);
-        assert_eq!(
-            clashing_courses(&fixture["courses"][0], placed.as_array().unwrap())
-                .iter()
-                .map(|row| text(row, "code"))
-                .collect::<Vec<_>>(),
-            vec!["X.1"]
-        );
-        assert!(clashing_courses(&fixture["courses"][3], placed.as_array().unwrap()).is_empty());
-    }
-    #[test]
-    fn a_three_q_four_q_course_keeps_its_periods_busy_in_four_q() {
-        let workspace = json!({
-            "currentTerm":"2026-4Q", "settings":{},
-            "courses":[{"id":"multi","termId":"2026-3Q","code":"MTH.B301",
-                "meetings":[{"days":[1],"periods":[1,2]}]}],
-            "memberships":[],
-            "planItems":[
-                {"id":"plan-3q","termId":"2026-3Q","courseId":"multi"},
-                {"id":"plan-4q","termId":"2026-4Q","courseId":"multi"}
-            ]
-        });
-        let view = finder_view(
-            &workspace,
-            vec![],
-            serde_json::from_value(json!({"year":2026,"term":"2026-4Q"})).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(view.context.busy.len(), 1);
-        assert_eq!(
-            (
-                view.context.busy[0].day,
-                view.context.busy[0].from,
-                view.context.busy[0].to
-            ),
-            (1, 1, 2)
-        );
-    }
-    #[test]
-    fn partial_offerings_have_stable_finder_defaults() {
-        let row = normalize_offering(
-            json!({"id":"a","code":"ABC.A123","title":{"ja":"A"},"quarters":["3Q"],"format":{}}),
-        )
-        .unwrap();
-        assert_eq!(row["detailed"], false);
-        assert_eq!(row["instructionLanguage"], "other");
-        assert_eq!(row["format"]["kinds"], json!([]));
-        assert_eq!(total_credits(&row), 0.0);
-    }
-    #[test]
-    fn matches_original_typescript_finder_traces() {
-        let fixture: Value = serde_json::from_str(include_str!("fixtures.json")).unwrap();
-        let ctx: FinderContext = serde_json::from_value(fixture["context"].clone()).unwrap();
-        let scopes: BTreeMap<String, String> =
-            serde_json::from_value(fixture["scopes"].clone()).unwrap();
-        let courses = fixture["courses"].as_array().unwrap();
-        for (index, case) in fixture["cases"].as_array().unwrap().iter().enumerate() {
-            let mut ctx = ctx.clone();
-            let input = &case["input"];
-            if input["bare"] == true {
-                ctx.recommended.clear();
-            }
-            let keys: Vec<String> =
-                serde_json::from_value(input.get("keys").cloned().unwrap_or(json!([]))).unwrap();
-            let factors = factors_of(&keys, &ctx);
-            let actual = match text(case, "kind") {
-                "condition" => serde_json::to_value(condition(text(input, "word"), &ctx)).unwrap(),
-                "factors" => serde_json::to_value(factors).unwrap(),
-                "run" => json!(run(courses, &factors.factors, &ctx, "")),
-                "plan" => remote_plan(&factors.factors, &scopes),
-                "suggest" => json!(suggest(text(input, "input"), &keys, courses, &ctx)),
-                "live" => json!(live_text(text(input, "input"), &keys, courses, &ctx)),
-                other => panic!("unknown trace {other}"),
-            };
-            assert_eq!(actual, case["expected"], "case {index}: {}", case["input"]);
-        }
-    }
+#[cfg(feature = "ts")]
+pub fn declarations() -> Vec<String> {
+    vec![
+        TimeValue::decl(),
+        FinderCourse::decl(),
+        FinderSchedule::decl(),
+        FinderRow::decl(),
+        Suggestion::decl(),
+        RemoteQuery::decl(),
+        RemotePlan::decl(),
+        FinderContext::decl(),
+        Recommendation::decl(),
+        FinderDepartment::decl(),
+        BusySlot::decl(),
+        Condition::decl(),
+        Factor::decl(),
+        Factors::decl(),
+        FinderRequest::decl(),
+        FinderAction::decl(),
+        FinderView::decl(),
+    ]
 }

@@ -37,6 +37,9 @@ fun main(args:Array<String>) = runBlocking {
     val queries=listOf(WorkspaceQuery.Glance("2026-10-15T09:00:00+09:00"),WorkspaceQuery.NotificationPlan("2026-10-15T09:00:00+09:00","2026-10-16T09:00:00+09:00",null))
     val result=(session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot
     check(result.revision==committed.contentRevision && result.values.size==2)
+    val clockResult=(session.scheduleQuery(listOf(WorkspaceQuery.TeachingPeriods)).value() as OperationResult.Schedule).snapshot
+    val periods=(clockResult.values.single() as WorkspaceQueryResult.TeachingPeriods).v1
+    check(periods.size==6 && periods[5].periods.contentEquals(byteArrayOf(11,12)) && periods[5].startTime=="19:05" && periods[5].endTime=="20:45")
     session.parseLmsResource("<html></html>","https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=1","resource").value()
     session.exportBackup().value()
     if(session.capabilities().ocr) {

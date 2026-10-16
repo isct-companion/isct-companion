@@ -4,6 +4,7 @@ import { PullRing } from "../../components/PullRing";
 import i18n, { t, intlLocale } from "../../i18n";
 import { formatTimestamp } from "../../lib/civil-date";
 import type { GpaSummary } from "../../lib/model";
+import type { SchoolPageAvailability } from "../../generated/persistence";
 
 const SCOPES: { scope: GpaSummary["scope"]; label: string }[] = [
   { scope: "all", label: "All" },
@@ -18,16 +19,22 @@ export function AcademicSummary({
   summaries,
   termCredits,
   progress = null,
+  availability,
   refresh,
   openOfficial,
 }: {
   summaries: GpaSummary[];
   termCredits: number;
   progress?: number | null;
+  availability?: SchoolPageAvailability;
   refresh?: () => void;
   openOfficial: () => void;
 }) {
   const all = summaries.find((item) => item.scope === "all" && !item.deletedAt);
+  const unavailable = availability?.state === "unavailable";
+  const availabilityChecked = availability
+    ? formatTimestamp(availability.checkedAt, intlLocale(i18n.language))
+    : undefined;
   const [opened, setOpened] = useState(false);
   return (
     <div className="academicSummaryTrigger">
@@ -70,41 +77,61 @@ export function AcademicSummary({
                 </b>
               </div>
               <div className="academicGradeDetails">
-                <table>
-                  <caption className="srOnly">
-                    {t("Grades from 教務Web")}
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">{t("Scope")}</th>
-                      <th scope="col">GPA</th>
-                      <th scope="col">GPT</th>
-                      <th scope="col">{t("Earned")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {SCOPES.map(({ scope, label }) => {
-                      const row = summaries.find(
-                        (item) => item.scope === scope && !item.deletedAt,
-                      );
-                      return (
-                        <tr key={scope}>
-                          <th scope="row">{t(label)}</th>
-                          <td>{fixed(row?.gpa, 2)}</td>
-                          <td>{fixed(row?.gpt, 2)}</td>
-                          <td>{row?.earnedCredits ?? "—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                {unavailable && (
+                  <div className="academicAvailability" role="status">
+                    <b>
+                      {t("This GPA page is not provided for this account.")}
+                    </b>
+                    <small>
+                      {all
+                        ? t(
+                            "The values below were retained from an earlier successful fetch.",
+                          )
+                        : availability.message}
+                    </small>
+                  </div>
+                )}
+                {(!unavailable || all) && (
+                  <table>
+                    <caption className="srOnly">
+                      {t("Grades from 教務Web")}
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">{t("Scope")}</th>
+                        <th scope="col">GPA</th>
+                        <th scope="col">GPT</th>
+                        <th scope="col">{t("Earned")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {SCOPES.map(({ scope, label }) => {
+                        const row = summaries.find(
+                          (item) => item.scope === scope && !item.deletedAt,
+                        );
+                        return (
+                          <tr key={scope}>
+                            <th scope="row">{t(label)}</th>
+                            <td>{fixed(row?.gpa, 2)}</td>
+                            <td>{fixed(row?.gpt, 2)}</td>
+                            <td>{row?.earnedCredits ?? "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
                 <small>
                   {all
-                    ? (formatTimestamp(
-                        all.fetchedAt,
-                        intlLocale(i18n.language),
-                      ) ?? t("Not fetched yet"))
-                    : t("Not fetched yet")}
+                    ? `${unavailable ? `${t("Previous fetch")}: ` : ""}${
+                        formatTimestamp(
+                          all.fetchedAt,
+                          intlLocale(i18n.language),
+                        ) ?? t("Not fetched yet")
+                      }`
+                    : unavailable
+                      ? `${t("Checked")}: ${availabilityChecked ?? availability.checkedAt}`
+                      : t("Not fetched yet")}
                 </small>
               </div>
               <footer>

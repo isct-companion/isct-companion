@@ -1,0 +1,6 @@
+# Written by design/build.mjs (yarn design:tokens); a staleness test compares them byte for byte.
+src/generated/design/
+
+# Rendered by scripts/checks/manual-acceptance.mjs; a test compares it to the
+# YAML it is generated from, byte for byte.
+../../docs/verification/manual-acceptance.md

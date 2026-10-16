@@ -12,12 +12,22 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
+    for declaration in isct_core::school_service::declarations() {
+        output.push_str("export ");
+        output.push_str(&declaration);
+        output.push_str("\n\n");
+    }
     for declaration in isct_core::schedule::declarations() {
         output.push_str("export ");
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
     for declaration in isct_core::workspace::declarations() {
+        output.push_str("export ");
+        output.push_str(&declaration);
+        output.push_str("\n\n");
+    }
+    for declaration in isct_core::course_query::declarations() {
         output.push_str("export ");
         output.push_str(&declaration);
         output.push_str("\n\n");
@@ -39,6 +49,25 @@ fn main() {
             .expect("serialize course palette"),
     );
     output.push_str(" as const;\n");
+    output.push_str("\nexport const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = ");
+    output.push_str(
+        &serde_json::to_string_pretty(&isct_core::schedule::default_teaching_periods())
+            .expect("serialize default teaching periods"),
+    );
+    output.push_str(";\n");
+    output.push_str("\nexport const EMPTY_WORKSPACE: Workspace = ");
+    output.push_str(
+        &serde_json::to_string_pretty(
+            &isct_core::data::initial_workspace(
+                chrono::NaiveDate::from_ymd_opt(2026, 4, 1).expect("fixture date"),
+                "preview-device",
+                "2026-04-01T00:00:00.000Z",
+            )
+            .expect("valid initial workspace"),
+        )
+        .expect("serialize empty workspace"),
+    );
+    output.push_str(";\n");
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../apps/desktop/src/generated/persistence.ts");
     std::fs::create_dir_all(path.parent().expect("generated directory"))

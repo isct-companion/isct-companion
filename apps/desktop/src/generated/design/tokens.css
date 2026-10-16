@@ -1,0 +1,31 @@
+/**
+ * Do not edit directly, this file was auto-generated.
+ */
+
+:root {
+  --bg: #f3f3f0; /** Window background, warm neutral */
+  --surface: #ffffff;
+  --surface-2: #f7f7f4;
+  --surface-3: #eeeeea;
+  --line: #e3e3de;
+  --line-strong: #cfcfc8;
+  --ink: #1d1e1c;
+  --muted: #6f716c;
+  --accent: #2f5fd0; /** Campus blue */
+  --accent-ink: #ffffff;
+  --accent-soft: #e6edfc;
+  --danger: #b3382b;
+  --danger-soft: #fbe9e6;
+  --warn: #8a5a0b;
+  --warn-soft: #fff3d6;
+  --ok: #24733f;
+  --ok-soft: #e1f3e7;
+  --shadow: 0px 1px 2px 0px #0000000a, 0px 8px 24px 0px #0000000d;
+  --course-tint-fill: 22%; /** Something that occupies time: a timetable block */
+  --course-tint-soft: 10%; /** Emphasis on a row: the current or next class */
+  --radius-chip: 6px; /** Deadline chip, timetable block */
+  --radius-control: 8px; /** Buttons, inputs, segmented controls */
+  --radius-surface: 10px; /** Rows, cards, emphasised rows */
+  --radius-panel: 16px; /** Reading pane, sheets */
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', system-ui, sans-serif; /** Desktop only; phones use the system font for native Japanese rendering and dynamic sizes */
+}

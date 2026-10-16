@@ -99,29 +99,9 @@ impl MatrixOcrService {
 }
 
 #[cfg(test)]
-mod limit_tests {
-    use super::*;
-
-    #[test]
-    fn base64_payload_bound_matches_the_decoded_image_limit() {
-        let largest = MAX_IMAGE_BYTES.div_ceil(3) * 4;
-        assert_eq!(check_base64_image_len(largest), Ok(()));
-        assert_eq!(check_base64_image_len(largest + 1), Err(image_too_large()));
-    }
-}
+#[path = "tests/crate__limit_tests.rs"]
+mod limit_tests;
 
 #[cfg(all(test, not(matrix_ocr)))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn disabled_backend_has_the_same_recoverable_interface() {
-        let service = MatrixOcrService;
-        for _ in 0..2 {
-            assert_eq!(
-                service.scan(b"", |_| true),
-                Err(MatrixOcrError::Unavailable)
-            );
-        }
-    }
-}
+#[path = "tests/crate.rs"]
+mod tests;

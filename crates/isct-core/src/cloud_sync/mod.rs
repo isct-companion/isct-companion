@@ -1088,4 +1088,5 @@ async fn blocking<T: Send + 'static>(
 }
 
 #[cfg(test)]
+#[path = "../tests/cloud_sync.rs"]
 mod tests;

@@ -130,4 +130,5 @@ impl From<BrowserError> for SchoolBrowserError {
 }
 
 #[cfg(test)]
+#[path = "../tests/school_browser.rs"]
 mod tests;

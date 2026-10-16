@@ -502,6 +502,26 @@ pub(super) fn apply_raw(
                     .map(|changed| (kind.clone(), changed))
                     .map_err(|error| (kind, Some(error.to_string())))
             }
+            Ok((KyomuStage::Unavailable, Some(payload))) => {
+                let kind = payload.kind.clone();
+                let message = payload.message.clone();
+                return Ok(match record_kyomu_unavailable(&connection, &payload) {
+                    Ok(()) => IngestOutcome {
+                        site,
+                        kind,
+                        state: IngestState::Unavailable,
+                        changed: 0,
+                        message,
+                    },
+                    Err(error) => IngestOutcome {
+                        site,
+                        kind,
+                        state: IngestState::Error,
+                        changed: 0,
+                        message: error.to_string(),
+                    },
+                });
+            }
             Ok((_, payload)) => Err((
                 payload
                     .map(|value| value.kind)
@@ -540,3 +560,7 @@ pub(super) fn sign_in_required(site: SchoolSite, kind: &str) -> IngestOutcome {
         message: "Sign-in required".into(),
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/school_browser__engine__extraction.rs"]
+mod tests;

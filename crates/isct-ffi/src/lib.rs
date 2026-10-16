@@ -27,5 +27,7 @@ pub use events::{Event, StreamUpdate, Subscription};
 pub use operation::{Operation, OperationResult, OperationStatus, ScheduleSnapshot};
 pub use session::{Capabilities, Session, SessionConfig};
 mod services;
+
 #[cfg(test)]
+#[path = "tests/crate.rs"]
 mod tests;

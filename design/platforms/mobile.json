@@ -1,0 +1,10 @@
+{
+  "radius": {
+    "$type": "dimension",
+    "$description": "Phone values for the same roles: larger touch surfaces, capsule controls.",
+    "chip": { "$value": "6px" },
+    "control": { "$value": "999px" },
+    "surface": { "$value": "22px" },
+    "panel": { "$value": "26px" }
+  }
+}

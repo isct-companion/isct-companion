@@ -3,13 +3,19 @@
 mod calendar;
 mod civil;
 mod colors;
+mod course_detail;
 mod credits;
 mod ics;
 mod occurrence;
 mod reminders;
+mod requests;
 mod tasks;
+
 #[cfg(test)]
+#[path = "../tests/schedule.rs"]
 mod tests;
+
+mod timing;
 
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
@@ -22,9 +28,9 @@ pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
     CalendarDayView, QuarterRange, QuarterView, TeachingRange,
 };
-pub(crate) use civil::clock_for_periods;
 pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
+pub use course_detail::{course_detail, CourseDetail};
 pub use credits::declared_term_credits;
 pub use ics::{export_quarter_ics, CalendarExportScope};
 pub(crate) use occurrence::placement_terms;
@@ -40,8 +46,13 @@ pub use reminders::{
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
     ReminderService,
 };
+pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
 pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, TaskDeadlineView, TaskView, TermTaskView};
+pub(crate) use timing::{clock_for_periods, validate_period_range};
+pub use timing::{
+    default_teaching_periods, teaching_periods, validate_teaching_periods, TeachingPeriod,
+};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {
@@ -75,6 +86,7 @@ pub struct AgendaRequestOptions {
     rename_all_fields = "camelCase"
 )]
 pub enum WorkspaceQuery {
+    TeachingPeriods,
     WorkspaceOverview {
         term: String,
     },
@@ -87,8 +99,7 @@ pub enum WorkspaceQuery {
         selected_year: i32,
     },
     PlanCivilStart {
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        plan: Value,
+        plan: PlanStartInput,
     },
     CourseTimeline {
         course_id: String,
@@ -100,6 +111,9 @@ pub enum WorkspaceQuery {
     },
     TaskView {
         now: String,
+    },
+    CourseDetail {
+        course_id: String,
     },
     ScheduleView {
         term: String,
@@ -136,8 +150,7 @@ pub enum WorkspaceQuery {
         term: String,
     },
     DisplayColor {
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        course: Value,
+        course: ColorCourse,
     },
     IntensiveDays {
         from: String,
@@ -145,19 +158,16 @@ pub enum WorkspaceQuery {
         periods: [u8; 2],
     },
     NextPlanOccurrences {
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        plan: Value,
+        plan: crate::contracts::Plan,
         #[serde(default = "default_occurrence_limit")]
         limit: u16,
     },
     ValidateAcademicProfile {
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        profile: Value,
+        profile: crate::contracts::AcademicProfile,
     },
     AcademicTermForDate {
         date: String,
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        profile: Value,
+        profile: crate::contracts::AcademicProfile,
     },
     Glance {
         now: String,
@@ -238,6 +248,7 @@ pub struct AcademicYearIndex {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 pub enum WorkspaceQueryResult {
+    TeachingPeriods(Vec<TeachingPeriod>),
     WorkspaceOverview(WorkspaceOverview),
     SubscriptionViews(#[cfg_attr(feature = "ts", ts(type = "unknown"))] Value),
     PlanningWeek(PlanningWeek),
@@ -245,6 +256,7 @@ pub enum WorkspaceQueryResult {
     PlanCivilStart(PlanCivilStart),
     CourseTimeline(CourseTimeline),
     TaskView(TaskView),
+    CourseDetail(CourseDetail),
     ScheduleView(ScheduleView),
     DayAgenda(Vec<Occurrence>),
     CalendarState(#[cfg_attr(feature = "ts", ts(type = "unknown | null"))] Option<Value>),
@@ -275,6 +287,9 @@ pub fn query(
     request: WorkspaceQuery,
 ) -> Result<WorkspaceQueryResult, ScheduleError> {
     match request {
+        WorkspaceQuery::TeachingPeriods => Ok(WorkspaceQueryResult::TeachingPeriods(
+            teaching_periods(workspace)?,
+        )),
         WorkspaceQuery::WorkspaceOverview { term } => Ok(WorkspaceQueryResult::WorkspaceOverview(
             workspace_overview(workspace, &term)?,
         )),
@@ -313,9 +328,12 @@ pub fn query(
                 years,
             }))
         }
-        WorkspaceQuery::PlanCivilStart { plan } => {
-            Ok(WorkspaceQueryResult::PlanCivilStart(plan_start(&plan)?))
-        }
+        WorkspaceQuery::CourseDetail { course_id } => Ok(WorkspaceQueryResult::CourseDetail(
+            course_detail(workspace, &course_id),
+        )),
+        WorkspaceQuery::PlanCivilStart { plan } => Ok(WorkspaceQueryResult::PlanCivilStart(
+            plan_start(&request_value(plan)?)?,
+        )),
         WorkspaceQuery::CourseTimeline {
             course_id,
             now,
@@ -486,21 +504,34 @@ pub fn query(
         WorkspaceQuery::DeclaredCredits { term } => Ok(WorkspaceQueryResult::DeclaredCredits(
             declared_term_credits(array(workspace, "registrations"), &term)?,
         )),
-        WorkspaceQuery::DisplayColor { course } => {
-            Ok(WorkspaceQueryResult::DisplayColor(display_color(&course)))
+        WorkspaceQuery::DisplayColor { course } => Ok(WorkspaceQueryResult::DisplayColor(
+            display_color(&request_value(course)?),
+        )),
+        WorkspaceQuery::IntensiveDays { from, to, periods } => {
+            let teaching_periods = teaching_periods(workspace)?;
+            Ok(WorkspaceQueryResult::IntensiveDays(intensive_days(
+                &teaching_periods,
+                &from,
+                &to,
+                periods,
+            )?))
         }
-        WorkspaceQuery::IntensiveDays { from, to, periods } => Ok(
-            WorkspaceQueryResult::IntensiveDays(intensive_days(&from, &to, periods)?),
-        ),
-        WorkspaceQuery::NextPlanOccurrences { plan, limit } => Ok(
-            WorkspaceQueryResult::NextPlanOccurrences(next_plan_occurrences(&plan, limit)?),
-        ),
-        WorkspaceQuery::ValidateAcademicProfile { profile } => Ok(
-            WorkspaceQueryResult::AcademicProfile(validate_academic_profile(&profile)?),
-        ),
-        WorkspaceQuery::AcademicTermForDate { date, profile } => Ok(
-            WorkspaceQueryResult::AcademicTerm(academic_term_for_date(&date, &profile)?),
-        ),
+        WorkspaceQuery::NextPlanOccurrences { plan, limit } => {
+            Ok(WorkspaceQueryResult::NextPlanOccurrences(
+                next_plan_occurrences(&request_value(plan)?, limit)?,
+            ))
+        }
+        WorkspaceQuery::ValidateAcademicProfile { profile } => {
+            Ok(WorkspaceQueryResult::AcademicProfile(
+                validate_academic_profile(&request_value(profile)?)?,
+            ))
+        }
+        WorkspaceQuery::AcademicTermForDate { date, profile } => {
+            Ok(WorkspaceQueryResult::AcademicTerm(academic_term_for_date(
+                &date,
+                &request_value(profile)?,
+            )?))
+        }
         WorkspaceQuery::Glance { now } => Ok(WorkspaceQueryResult::Glance(glance(
             workspace,
             parse_timestamp(&now)?,
@@ -681,6 +712,7 @@ pub(crate) fn visible(value: &Value) -> bool {
 #[cfg(feature = "ts")]
 pub fn declarations() -> Vec<String> {
     vec![
+        TeachingPeriod::decl(),
         Term::decl(),
         TeachingRange::decl(),
         QuarterRange::decl(),
@@ -702,6 +734,10 @@ pub fn declarations() -> Vec<String> {
         PlanningDay::decl(),
         PlanningWeek::decl(),
         PlanCivilStart::decl(),
+        PlanStartInput::decl(),
+        ColorCourse::decl(),
+        ColorOverrides::decl(),
+        CourseDetail::decl(),
         CourseTimeline::decl(),
         TaskDeadlineView::decl(),
         TermTaskView::decl(),
@@ -713,4 +749,8 @@ pub fn declarations() -> Vec<String> {
         WorkspaceQuery::decl(),
         WorkspaceQueryResult::decl(),
     ]
+}
+
+fn request_value(value: impl Serialize) -> Result<Value, ScheduleError> {
+    serde_json::to_value(value).map_err(|error| ScheduleError::InvalidInput(error.to_string()))
 }

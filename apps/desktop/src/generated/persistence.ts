@@ -572,6 +572,7 @@ export type AcademicProfile = {
   name: string;
   admissionYear?: number;
   studyEnrollments?: StudyEnrollment[];
+  teachingPeriods?: TeachingPeriod[];
   gradePath: Array<GradePathEntry>;
   years: Array<AcademicYearConfig>;
 };
@@ -673,7 +674,8 @@ export type CourseFilePolicy = {
   retentionDays: IntegerPolicy;
 };
 
-export type StudyStage = "undergraduate" | "master" | "doctoral" | "unknown";
+export type StudyStage =
+  "undergraduate" | "master" | "professional" | "doctoral" | "unknown";
 
 export type StudyEntryKind = "regular" | "transfer" | "unknown";
 
@@ -693,11 +695,48 @@ export type CourseEligibilityReason =
   | "invalidStudyHistory"
   | "entryDetailsMissing"
   | "courseCodeUnrecognized"
-  | "undergraduateFirstYearUpperLevel";
+  | "undergraduateFirstYearUpperLevel"
+  | "masterFirstSemesterHumanitiesUpperLevel"
+  | "graduateCourseApprovalRequired"
+  | "leadershipWorkshopGradeRequired"
+  | "doctoralFirstSemesterGenerallyRestricted"
+  | "doctoralFirstSemesterRestricted"
+  | "separateApplicationRequired"
+  | "ruleYearUnsupported";
+
+export type CourseEligibilityRuleId =
+  | "undergraduateFirstYearCourseLevel"
+  | "masterFirstSemesterHumanities"
+  | "graduateDoctoralLevelApproval"
+  | "masterLeadershipPracticumPrerequisite"
+  | "doctoralAcademicLiteracyFirstSemester"
+  | "doctoralAcademicFirstSemester"
+  | "doctoralAcademicTrainingApplication";
+
+export type CourseEligibilityRuleEvidence = {
+  id: CourseEligibilityRuleId;
+  academicYear: number;
+  sourceUrl: string;
+};
 
 export type CourseEligibility = {
   status: CourseEligibilityStatus;
   reason: CourseEligibilityReason;
+  rule?: CourseEligibilityRuleEvidence;
+};
+
+export type SchoolPageAvailabilityState = "available" | "unavailable";
+
+export type SchoolPageAvailability = {
+  state: SchoolPageAvailabilityState;
+  checkedAt: string;
+  message: string;
+};
+
+export type TeachingPeriod = {
+  periods: [number, number];
+  startTime: string;
+  endTime: string;
 };
 
 export type Term = { year: number; quarter: number };
@@ -760,7 +799,7 @@ export type Occurrence = {
   overridden: boolean | null;
 };
 
-export type ScheduleProblemKind = "plan" | "scheduleOverride";
+export type ScheduleProblemKind = "courseMeeting" | "plan" | "scheduleOverride";
 
 export type ScheduleProblem = {
   kind: ScheduleProblemKind;
@@ -822,6 +861,25 @@ export type PlanningWeek = {
 };
 
 export type PlanCivilStart = { date: string; time: string };
+
+export type PlanStartInput = { start: string };
+
+export type ColorCourse = {
+  id?: string;
+  code?: string;
+  color?: string;
+  overrides?: ColorOverrides;
+};
+
+export type ColorOverrides = { color?: string };
+
+export type CourseDetail = {
+  materialIds: Array<string>;
+  sections: Array<number>;
+  assignmentIds: Array<string>;
+  examIds: Array<string>;
+  offeringId: string | null;
+};
 
 export type CourseTimeline = {
   lastStarted: string | null;
@@ -905,11 +963,12 @@ export type ScheduleView = {
 export type ScheduleIntensiveDay = { date: string; periods: [number, number] };
 
 export type WorkspaceQuery =
+  | { kind: "teachingPeriods" }
   | { kind: "workspaceOverview"; term: string }
   | { kind: "subscriptionViews" }
   | { kind: "planningWeek"; term: string }
   | { kind: "academicYears"; date: string; selectedYear: number }
-  | { kind: "planCivilStart"; plan: unknown }
+  | { kind: "planCivilStart"; plan: PlanStartInput }
   | {
       kind: "courseTimeline";
       courseId: string;
@@ -918,6 +977,7 @@ export type WorkspaceQuery =
       afterDays: number;
     }
   | { kind: "taskView"; now: string }
+  | { kind: "courseDetail"; courseId: string }
   | {
       kind: "scheduleView";
       term: string;
@@ -942,16 +1002,16 @@ export type WorkspaceQuery =
       generatedAt: string;
     }
   | { kind: "declaredCredits"; term: string }
-  | { kind: "displayColor"; course: unknown }
+  | { kind: "displayColor"; course: ColorCourse }
   | {
       kind: "intensiveDays";
       from: string;
       to: string;
       periods: [number, number];
     }
-  | { kind: "nextPlanOccurrences"; plan: unknown; limit: number }
-  | { kind: "validateAcademicProfile"; profile: unknown }
-  | { kind: "academicTermForDate"; date: string; profile: unknown }
+  | { kind: "nextPlanOccurrences"; plan: Plan; limit: number }
+  | { kind: "validateAcademicProfile"; profile: AcademicProfile }
+  | { kind: "academicTermForDate"; date: string; profile: AcademicProfile }
   | { kind: "glance"; now: string }
   | {
       kind: "notificationPlan";
@@ -961,6 +1021,7 @@ export type WorkspaceQuery =
     };
 
 export type WorkspaceQueryResult =
+  | { kind: "teachingPeriods"; value: Array<TeachingPeriod> }
   | { kind: "workspaceOverview"; value: WorkspaceOverview }
   | { kind: "subscriptionViews"; value: unknown }
   | { kind: "planningWeek"; value: PlanningWeek }
@@ -968,6 +1029,7 @@ export type WorkspaceQueryResult =
   | { kind: "planCivilStart"; value: PlanCivilStart }
   | { kind: "courseTimeline"; value: CourseTimeline }
   | { kind: "taskView"; value: TaskView }
+  | { kind: "courseDetail"; value: CourseDetail }
   | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }
   | { kind: "calendarState"; value: unknown | null }
@@ -1086,6 +1148,125 @@ export type CourseBatchChanges = {
   credits?: number;
 };
 
+export type TimeValue = { day?: number; from?: number; to?: number };
+
+export type FinderCourse = {
+  id: string;
+  code: string;
+  year: number;
+  quarters: Array<Quarter>;
+  title: Localized;
+  instructors: Array<Localized>;
+  credits: CreditSplit;
+  instructionLanguage: string;
+  format: ClassFormat;
+  schedule: Array<FinderSchedule>;
+  unitCode?: string;
+  syllabusUrl: string;
+  detailed?: boolean;
+};
+
+export type FinderSchedule = {
+  kind: string;
+  day?: number;
+  periods?: [number, number];
+  room?: Localized;
+};
+
+export type FinderRow = { course: FinderCourse; matched: Array<string> };
+
+export type Suggestion =
+  | { kind: "condition"; key: string; condition: Condition; count: number }
+  | { kind: "course"; course: FinderCourse }
+  | { kind: "text"; key: string; count: number };
+
+export type RemoteQuery = {
+  q: string;
+  scope?: string;
+  code?: string;
+  groups?: Array<string>;
+};
+
+export type RemotePlan =
+  { queries: Array<RemoteQuery> } | { unsupported: "empty" | "too-many" };
+
+export type FinderContext = {
+  currentQuarter: number;
+  recommended: { [key in string]?: Recommendation };
+  departments: Array<FinderDepartment>;
+  busy: Array<BusySlot>;
+};
+
+export type Recommendation = { group: string; mark?: string | null };
+
+export type FinderDepartment = {
+  id: string;
+  name: { [key in string]?: string };
+  unitCode: string;
+  scope: string | null;
+};
+
+export type BusySlot = { day: number; from: number; to: number };
+
+export type Condition = {
+  type: string;
+  key: string;
+  label: string;
+  values: (string | number | TimeValue)[];
+  prefix?: boolean;
+  exclude?: boolean;
+};
+
+export type Factor = { type: string; alts: Array<Condition> };
+
+export type Factors = { factors: Array<Factor>; duplicates: number };
+
+export type FinderRequest = {
+  year: number;
+  term: string;
+  /**
+   * Explicitly include courses that cannot be newly added to this term.
+   */
+  includeIneligible: boolean;
+  keys: Array<string>;
+  input: string;
+  /**
+   * None uses the stored catalog; an empty list represents a remote search in progress.
+   */
+  remoteIds: Array<string> | null;
+  action: FinderAction | null;
+};
+
+export type FinderAction =
+  | { kind: "commit"; key: string }
+  | { kind: "toggleTime"; key: string; append: boolean }
+  | { kind: "paste"; text: string };
+
+export type FinderView = {
+  context: FinderContext;
+  courses: FinderCourse[];
+  factors: Array<Factor>;
+  duplicates: number;
+  keys: Array<string>;
+  plan: RemotePlan;
+  rows: Array<FinderRow>;
+  suggestions: Array<Suggestion>;
+  live: string;
+  clashes: Array<string>;
+  ineligibleIds: Array<string>;
+  eligibility: { [key in string]?: CourseEligibility };
+  replacements: { [key in string]?: Array<string> };
+  credits: { [key in string]?: number };
+  onTimetable: Array<string>;
+  activeSlots: Array<string>;
+  commitKey: string | null;
+  pasteHandled: boolean;
+  pastedIds: Array<string>;
+  missingCodes: Array<string>;
+  ineligibleCodes: Array<string>;
+  detailIds: Array<string>;
+};
+
 export const DATA_POLICY: DataPolicy = {
   lms: {
     staleAfterSeconds: 43200,
@@ -1132,3 +1313,150 @@ export const COURSE_PALETTE = [
   "#806a9d",
   "#5c7d93",
 ] as const;
+
+export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
+  {
+    periods: [1, 2],
+    startTime: "08:50",
+    endTime: "10:30",
+  },
+  {
+    periods: [3, 4],
+    startTime: "10:45",
+    endTime: "12:25",
+  },
+  {
+    periods: [5, 6],
+    startTime: "13:30",
+    endTime: "15:10",
+  },
+  {
+    periods: [7, 8],
+    startTime: "15:25",
+    endTime: "17:05",
+  },
+  {
+    periods: [9, 10],
+    startTime: "17:15",
+    endTime: "18:55",
+  },
+  {
+    periods: [11, 12],
+    startTime: "19:05",
+    endTime: "20:45",
+  },
+];
+
+export const EMPTY_WORKSPACE: Workspace = {
+  academicCalendar: [],
+  academicProfile: {
+    gradePath: [],
+    name: "Personal program",
+    years: [],
+  },
+  assignments: [],
+  courses: [],
+  currentTerm: "2026-1Q",
+  departments: [],
+  deviceId: "preview-device",
+  events: [],
+  exams: [],
+  exceptions: [],
+  gpaSummary: [],
+  importStatus: {
+    school: "not-configured",
+  },
+  importantDates: [],
+  intensiveSchedules: [],
+  materials: [],
+  memberships: [],
+  offerings: [],
+  planItems: [],
+  plans: [],
+  recommendedCourses: [],
+  scheduleOverrides: [],
+  scheduledTasks: [
+    {
+      action: "reference-refresh",
+      enabled: true,
+      id: "builtin:reference-subscriptions",
+      name: "Reference subscriptions",
+      rev: 1,
+      schedule: "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0",
+      updatedAt: "2026-04-01T00:00:00.000Z",
+      updatedBy: "preview-device",
+    },
+    {
+      action: "lms-refresh",
+      enabled: false,
+      id: "builtin:lms-background-refresh",
+      name: "LMS background refresh",
+      rev: 1,
+      schedule: "RRULE:FREQ=HOURLY;INTERVAL=4;BYMINUTE=0",
+      updatedAt: "2026-04-01T00:00:00.000Z",
+      updatedBy: "preview-device",
+    },
+  ],
+  schemaVersion: 3,
+  selectedTerm: "2026-1Q",
+  settings: {
+    agentAccess: {
+      enabled: false,
+      lastWrites: [],
+    },
+    appearance: "system",
+    cloud: {
+      clientId: "",
+      conflict: "resolve-manually",
+      provider: "none",
+      redirectUri: "http://127.0.0.1:42813/oauth/callback",
+    },
+    customization: {
+      background: "",
+      hooks: [],
+      sites: {
+        lms: {
+          css: "",
+          enabled: false,
+          js: "",
+        },
+        portal: {
+          css: "",
+          enabled: false,
+          js: "",
+        },
+        syllabus: {
+          css: "",
+          enabled: false,
+          js: "",
+        },
+      },
+    },
+    density: "comfortable",
+    locale: "en",
+    notifications: {
+      assignments: true,
+      classes: true,
+      localPermission: "default",
+    },
+    restoreSchoolPage: false,
+    schoolServiceWidth: 168,
+    schoolWebZoom: 1,
+    showGrades: false,
+    siteConsents: {
+      lms: false,
+      portal: false,
+      syllabus: false,
+    },
+    subscriptionRefresh: {
+      allowCellular: false,
+      frequency: "daily",
+    },
+  },
+  subscriptions: [],
+  syncStatus: {
+    message: "Cloud sync is off.",
+    state: "needs-configuration",
+  },
+  terms: ["2026-1Q"],
+};

@@ -614,4 +614,5 @@ fn tools() -> Vec<Tool> {
 }
 
 #[cfg(test)]
+#[path = "tests/agent_server.rs"]
 mod tests;

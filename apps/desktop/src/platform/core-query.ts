@@ -83,6 +83,7 @@ export type AcademicYearIndex = Protocol.AcademicYearIndex;
 export type PlanCivilStart = Protocol.PlanCivilStart;
 export type CourseTimeline = Protocol.CourseTimeline;
 export type TaskView = Protocol.TaskView;
+export type CourseDetail = Protocol.CourseDetail;
 export type CalendarOrigin = "official" | "own" | "changed" | "estimated";
 export type CalendarDayView = {
   date: string;

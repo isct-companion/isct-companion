@@ -396,16 +396,26 @@ cargo test --workspace --locked
 ```
 
 ```bash
-./node_modules/.bin/vitest run --exclude 'artifacts/**'
+yarn test
 ```
 
 ```bash
-./node_modules/.bin/tsc -b
+yarn test:types
 ```
 
 Desktop manual smoke test: launch, sign in, pull LMS and 教務Web, open Today,
 refresh subscriptions, exercise active workspace/file workflows, and run OCR
 on supported desktop targets. Preserve backups and sync compatibility.
+
+The smoke test is the part automation cannot reach. Since the test
+consolidation it is recorded as a row in
+[`verification/manual-checks.yaml`](verification/manual-checks.yaml) rather than
+prose here: each check names a persona, states why each step exists, says where
+to observe the result, and records its outcome with evidence. Run
+`yarn verify:manual stale` after a change to see which checks it invalidated, and
+`yarn verify:manual sheet <ID>` to get a run sheet to follow. Automated tests
+live under `apps/desktop/tests/`; see
+[apps/desktop/tests/README.md](../apps/desktop/tests/README.md).
 
 Cross-target checks validate core/FFI portability to `aarch64-apple-ios`,
 `aarch64-apple-ios-sim` and `aarch64-linux-android`. Existing CI already checks
@@ -528,6 +538,21 @@ tests with the same cases).
    2200 px and 600 px images itself, runs on `spawn_blocking`, reports
    `OcrProgress`. HEIC → JPEG is a shell duty (ImageIO on Apple, `ImageDecoder`
    on Android, `heic-to` on Windows desktop); document this on the API.
+7. Course colour: `displayColor` (`src/core/course-colors.ts`) becomes
+   `display_color` in core. Keep the FNV hash and palette byte-identical so
+   existing courses keep their colours; port the TS cases as fixtures. The
+   palette itself is a design token (`design/tokens/course.json`), generated
+   into `schedule/course_palette.rs`.
+8. Mobile read models on top of the moved schedule/reminder logic (see
+   `docs/ux/mobile.md`):
+   - `today(now)`: the Today phase (before/between classes, in class, after
+     classes, no classes), its hero and sections, and the day status. Shells
+     render it in order and do not decide what is due.
+   - `glance(now)`: next class, rest of today, nearest deadlines; a small
+     serialisable snapshot that widget extensions read without loading core.
+   - `notification_plan(now, horizon)`: every planned notification ordered by
+     priority, with time, title, body and deep-link target. Platform limits
+     (iOS 64 pending) are applied by the shell, not core.
 
 Preserve strict civil-date/timestamp parsing and JST academic semantics when
 moving calendar functions. Delete obsolete TS policy and mutation paths once

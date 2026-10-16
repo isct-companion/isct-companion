@@ -26,6 +26,7 @@ import {
   planningColumns,
 } from "../../components/timetable/workspace";
 import type { CalendarExportScope } from "../../generated/persistence";
+import { resolvedTeachingPeriods } from "../../lib/timetable-layout";
 import { UiButton } from "../../components/mantine";
 import { addCivilDays as addDays, tokyoDate } from "../../lib/civil-date";
 import { YearQuarterPicker } from "./YearQuarterPicker";
@@ -492,6 +493,9 @@ export function Courses({
             )}
             <WeekTimetable
               days={columns}
+              teachingPeriods={resolvedTeachingPeriods(
+                data.academicProfile.teachingPeriods,
+              )}
               onSelect={select}
               emptyLabel="Nothing scheduled this day"
               showNow={!editing}

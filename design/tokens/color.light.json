@@ -1,0 +1,32 @@
+{
+  "color": {
+    "$type": "color",
+    "$description": "Light theme. Names are the public CSS variables (--bg, --accent, ...); per-site CSS relies on them.",
+    "bg": { "$value": "#f3f3f0", "$description": "Window background, warm neutral" },
+    "surface": { "$value": "#ffffff" },
+    "surface-2": { "$value": "#f7f7f4" },
+    "surface-3": { "$value": "#eeeeea" },
+    "line": { "$value": "#e3e3de" },
+    "line-strong": { "$value": "#cfcfc8" },
+    "ink": { "$value": "#1d1e1c" },
+    "muted": { "$value": "#6f716c" },
+    "accent": { "$value": "#2f5fd0", "$description": "Campus blue" },
+    "accent-ink": { "$value": "#ffffff" },
+    "accent-soft": { "$value": "#e6edfc" },
+    "danger": { "$value": "#b3382b" },
+    "danger-soft": { "$value": "#fbe9e6" },
+    "warn": { "$value": "#8a5a0b" },
+    "warn-soft": { "$value": "#fff3d6" },
+    "ok": { "$value": "#24733f" },
+    "ok-soft": { "$value": "#e1f3e7" }
+  },
+  "shadow": {
+    "$type": "shadow",
+    "default": {
+      "$value": [
+        { "color": "#0000000a", "offsetX": "0px", "offsetY": "1px", "blur": "2px", "spread": "0px" },
+        { "color": "#0000000d", "offsetX": "0px", "offsetY": "8px", "blur": "24px", "spread": "0px" }
+      ]
+    }
+  }
+}

@@ -1,16 +1,17 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
 use super::calendar::{calendar_state, content_language, localized, quarter_range};
-use super::civil::{clock_for_periods, weekday};
+use super::civil::weekday;
 use super::{
     add_days, array, parse_civil_date, text, visible, ScheduleError, ScheduleIntensiveDay,
 };
+use super::{clock_for_periods, teaching_periods, TeachingPeriod};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -59,6 +60,7 @@ pub struct Occurrence {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ScheduleProblemKind {
+    CourseMeeting,
     Plan,
     ScheduleOverride,
 }
@@ -129,6 +131,7 @@ impl Default for AgendaOptions {
 
 pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, ScheduleError> {
     super::Term::parse(term)?;
+    let teaching_periods = teaching_periods(workspace)?;
     let courses = scheduled_courses(workspace, term);
     let events: Vec<_> = array(workspace, "events")
         .iter()
@@ -161,13 +164,16 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 {
                     continue;
                 }
+                let Ok((start, end)) = meeting_clock(meeting, &teaching_periods) else {
+                    continue;
+                };
                 blocks.push(course_occurrence(
                     course,
                     format!("{id}-{index}-{day}"),
                     &date,
                     text(meeting, "room").unwrap_or_default(),
-                    text(meeting, "startTime").unwrap_or_default(),
-                    text(meeting, "endTime").unwrap_or_default(),
+                    &start,
+                    &end,
                     None,
                 ));
             }
@@ -376,6 +382,7 @@ pub fn occurrences_on_date(
     date: &str,
     options: AgendaOptions,
 ) -> Result<Vec<Occurrence>, ScheduleError> {
+    let teaching_periods = teaching_periods(workspace)?;
     let day = weekday(date)?;
     let state = calendar_state(workspace, date);
     let state_kind = state.as_ref().and_then(|row| text(row, "type"));
@@ -434,13 +441,16 @@ pub fn occurrences_on_date(
                 {
                     continue;
                 }
+                let Ok((start, end)) = meeting_clock(meeting, &teaching_periods) else {
+                    continue;
+                };
                 blocks.push(course_occurrence(
                     course,
                     format!("{course_id}-weekly-{index}-{date}"),
                     date,
                     text(meeting, "room").unwrap_or_default(),
-                    text(meeting, "startTime").unwrap_or_default(),
-                    text(meeting, "endTime").unwrap_or_default(),
+                    &start,
+                    &end,
                     (closed || outside_teaching).then_some(true),
                 ));
             }
@@ -460,7 +470,7 @@ pub fn occurrences_on_date(
                 let Some(periods) = periods(selected.get("periods")) else {
                     continue;
                 };
-                let (start, end) = clock_for_periods(periods)?;
+                let (start, end) = clock_for_periods(&teaching_periods, periods)?;
                 blocks.push(course_occurrence(
                     course,
                     format!("{}-{date}", text(intensive, "id").unwrap_or_default()),
@@ -598,6 +608,29 @@ fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, Sched
 /// stay available; shells list these so the person can repair or delete them.
 pub fn schedule_problems(workspace: &Value) -> Vec<ScheduleProblem> {
     let mut problems = Vec::new();
+    if let Ok(teaching_periods) = teaching_periods(workspace) {
+        for course in array(workspace, "courses")
+            .iter()
+            .filter(|row| visible(row))
+        {
+            for (index, meeting) in course
+                .get("meetings")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                if let Err(error) = meeting_clock(meeting, &teaching_periods) {
+                    problems.push(ScheduleProblem {
+                        kind: ScheduleProblemKind::CourseMeeting,
+                        id: format!("{}:{index}", text(course, "id").unwrap_or_default()),
+                        title: text(course, "title").unwrap_or_default().into(),
+                        message: error.to_string(),
+                    });
+                }
+            }
+        }
+    }
     for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
         if let Err(error) = crate::plans::validate_plan_recurrence(
             text(plan, "start").unwrap_or_default(),
@@ -615,13 +648,22 @@ pub fn schedule_problems(workspace: &Value) -> Vec<ScheduleProblem> {
         .iter()
         .filter(|row| visible(row))
     {
-        if let Err(error) = override_clock(row) {
-            problems.push(ScheduleProblem {
-                kind: ScheduleProblemKind::ScheduleOverride,
-                id: text(row, "id").unwrap_or_default().into(),
-                title: text(row, "title").unwrap_or_default().into(),
-                message: error.to_string(),
-            });
+        if let Some(value) = row.get("periods").filter(|value| !value.is_null()) {
+            let validation = periods(Some(value))
+                .ok_or_else(|| {
+                    ScheduleError::InvalidInput(
+                        "Choose periods from 1 to 12 in ascending order.".into(),
+                    )
+                })
+                .and_then(super::validate_period_range);
+            if let Err(error) = validation {
+                problems.push(ScheduleProblem {
+                    kind: ScheduleProblemKind::ScheduleOverride,
+                    id: text(row, "id").unwrap_or_default().into(),
+                    title: text(row, "title").unwrap_or_default().into(),
+                    message: error.to_string(),
+                });
+            }
         }
     }
     problems
@@ -712,6 +754,7 @@ pub fn resolve_day_agenda(
     date: &str,
     options: AgendaOptions,
 ) -> Result<Vec<Occurrence>, ScheduleError> {
+    let teaching_periods = teaching_periods(workspace)?;
     let mut blocks = occurrences_on_date(workspace, term, date, options.clone())?;
     let overrides: Vec<_> = array(workspace, "scheduleOverrides")
         .iter()
@@ -728,7 +771,7 @@ pub fn resolve_day_agenda(
                 Some(r) => {
                     // An override Core cannot apply leaves the class as
                     // scheduled; `schedule_problems` reports the record.
-                    if apply_override(&mut block, r).is_err() {
+                    if apply_override(&mut block, r, &teaching_periods).is_err() {
                         return Some(block);
                     }
                     (block.date == date).then_some(block)
@@ -759,7 +802,7 @@ pub fn resolve_day_agenda(
             .into_iter()
             .find(|b| b.key == key)
         {
-            if apply_override(&mut original, change).is_ok() {
+            if apply_override(&mut original, change, &teaching_periods).is_ok() {
                 blocks.push(original)
             }
         }
@@ -822,12 +865,15 @@ pub fn resolve_day_agenda(
         let Some(course) = course else { continue };
         // Unusable periods fall back like absent ones; `schedule_problems`
         // reports an invalid override.
-        let valid =
-            |value: Option<&Value>| periods(value).filter(|p| clock_for_periods(*p).is_ok());
+        let valid = |value: Option<&Value>| {
+            periods(value).filter(|p| clock_for_periods(&teaching_periods, *p).is_ok())
+        };
         let periods = change
             .and_then(|r| valid(r.get("periods")))
             .or_else(|| valid(exam.get("periods")));
-        let clock = periods.map(clock_for_periods).transpose()?;
+        let clock = periods
+            .map(|periods| clock_for_periods(&teaching_periods, periods))
+            .transpose()?;
         let start = change
             .and_then(|r| text(r, "startTime"))
             .or_else(|| clock.map(|v| v.0))
@@ -931,8 +977,12 @@ pub fn resolve_day_agenda(
     Ok(blocks)
 }
 
-fn apply_override(block: &mut Occurrence, row: &Value) -> Result<(), ScheduleError> {
-    let clock = override_clock(row)?;
+fn apply_override(
+    block: &mut Occurrence,
+    row: &Value,
+    teaching_periods: &[TeachingPeriod],
+) -> Result<(), ScheduleError> {
+    let clock = override_clock(row, teaching_periods)?;
     if let Some(v) = text(row, "date") {
         block.date = v.into()
     }
@@ -955,12 +1005,20 @@ fn apply_override(block: &mut Occurrence, row: &Value) -> Result<(), ScheduleErr
     Ok(())
 }
 
-fn override_clock(row: &Value) -> Result<Option<(&'static str, &'static str)>, ScheduleError> {
+fn override_clock<'a>(
+    row: &Value,
+    teaching_periods: &'a [TeachingPeriod],
+) -> Result<Option<(&'a str, &'a str)>, ScheduleError> {
     match row.get("periods").filter(|value| !value.is_null()) {
         None => Ok(None),
-        Some(value) => clock_for_periods(periods(Some(value)).ok_or_else(|| {
-            ScheduleError::InvalidInput("Choose periods from 1 to 10 in ascending order.".into())
-        })?)
+        Some(value) => clock_for_periods(
+            teaching_periods,
+            periods(Some(value)).ok_or_else(|| {
+                ScheduleError::InvalidInput(
+                    "Choose periods from 1 to 12 in ascending order.".into(),
+                )
+            })?,
+        )
         .map(Some),
     }
 }
@@ -970,6 +1028,55 @@ fn periods(value: Option<&Value>) -> Option<[u8; 2]> {
     let values = value?.as_array()?;
     let period = |index: usize| u8::try_from(values.get(index)?.as_u64()?).ok();
     (values.len() == 2).then_some([period(0)?, period(1)?])
+}
+
+/// Period-backed meetings follow the currently selected teaching table.
+/// An empty period list is the stored representation of an explicit custom
+/// clock and is returned unchanged.
+fn meeting_clock(
+    meeting: &Value,
+    teaching_periods: &[TeachingPeriod],
+) -> Result<(String, String), ScheduleError> {
+    let stored = || {
+        let start = text(meeting, "startTime").unwrap_or_default();
+        let end = text(meeting, "endTime").unwrap_or_default();
+        let parsed = NaiveTime::parse_from_str(start, "%H:%M")
+            .ok()
+            .zip(NaiveTime::parse_from_str(end, "%H:%M").ok());
+        if !parsed.is_some_and(|(start, end)| start < end) {
+            return Err(ScheduleError::InvalidInput(
+                "Meeting start and end times are invalid.".into(),
+            ));
+        }
+        Ok((start.to_string(), end.to_string()))
+    };
+    let Some(values) = meeting.get("periods").and_then(Value::as_array) else {
+        return stored();
+    };
+    if values.is_empty() {
+        return stored();
+    }
+    let mut values = values.iter().map(|value| {
+        value
+            .as_u64()
+            .and_then(|value| u8::try_from(value).ok())
+            .ok_or_else(|| ScheduleError::InvalidInput("Meeting periods are invalid.".into()))
+    });
+    let first = values
+        .next()
+        .ok_or_else(|| ScheduleError::InvalidInput("Meeting periods are invalid.".into()))??;
+    let mut last = first;
+    for value in values {
+        let value = value?;
+        if value != last.saturating_add(1) {
+            return Err(ScheduleError::InvalidInput(
+                "Meeting periods must be a contiguous ascending range.".into(),
+            ));
+        }
+        last = value;
+    }
+    let (start, end) = clock_for_periods(teaching_periods, [first, last])?;
+    Ok((start.into(), end.into()))
 }
 
 fn plan_civil_start(raw: &str) -> Result<(String, String), ScheduleError> {
@@ -1014,11 +1121,12 @@ pub fn next_plan_occurrences(plan: &Value, limit: u16) -> Result<Vec<String>, Sc
 }
 
 pub fn intensive_days(
+    teaching_periods: &[TeachingPeriod],
     from: &str,
     to: &str,
     periods: [u8; 2],
 ) -> Result<Vec<ScheduleIntensiveDay>, ScheduleError> {
-    clock_for_periods(periods)?;
+    clock_for_periods(teaching_periods, periods)?;
     let start = parse_civil_date(from)?;
     let end = parse_civil_date(to)?;
     let days = (end - start).num_days();

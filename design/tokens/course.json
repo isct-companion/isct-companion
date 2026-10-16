@@ -1,0 +1,22 @@
+{
+  "course": {
+    "$description": "A course is the same colour on every surface. Core picks the palette entry (display_color); shells only render it.",
+    "palette": {
+      "$type": "color",
+      "1": { "$value": "#355ba7" },
+      "2": { "$value": "#4f8a8b" },
+      "3": { "$value": "#668879" },
+      "4": { "$value": "#7b8f3a" },
+      "5": { "$value": "#b0713f" },
+      "6": { "$value": "#a34e5d" },
+      "7": { "$value": "#806a9d" },
+      "8": { "$value": "#5c7d93" }
+    },
+    "tint": {
+      "$type": "number",
+      "$description": "Share of the course colour mixed into the surface.",
+      "fill": { "$value": 0.22, "$description": "Something that occupies time: a timetable block" },
+      "soft": { "$value": 0.1, "$description": "Emphasis on a row: the current or next class" }
+    }
+  }
+}
