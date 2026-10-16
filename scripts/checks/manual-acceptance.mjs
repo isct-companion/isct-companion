@@ -100,14 +100,18 @@ function isAncestor(ancestor, descendant) {
   }
 }
 
+// Names only: porcelain status starts an unstaged line with a space, which
+// git()'s trim would eat, and writes a rename as "old -> new".
 function pendingChanges(globs) {
-  const output = git("status", "--porcelain", "--", ...globs);
-  return output
-    ? output
-        .split("\n")
-        .map((line) => line.slice(3).trim())
-        .filter(Boolean)
-    : [];
+  const changed = git("diff", "--name-only", "HEAD", "--", ...globs);
+  const untracked = git(
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+    "--",
+    ...globs,
+  );
+  return [...new Set(`${changed}\n${untracked}`.split("\n").filter(Boolean))];
 }
 
 // --------------------------------------------------------------------------
