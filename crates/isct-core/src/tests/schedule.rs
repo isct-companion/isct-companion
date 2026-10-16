@@ -227,6 +227,18 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
         view.default_finder_keys,
         vec!["curr".to_string(), "情報工学系".to_string()]
     );
+    let WorkspaceQueryResult::WorkspaceOverview(future) = query(
+        &data,
+        WorkspaceQuery::WorkspaceOverview {
+            term: "2027-1Q".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("expected explicit quarter overview")
+    };
+    assert_eq!(future.default_finder_keys, vec!["1Q", "情報工学系"]);
+    assert_eq!(future.courses_term, "2026-1Q");
+    assert_eq!(future.term, "2027-1Q");
 }
 
 #[test]

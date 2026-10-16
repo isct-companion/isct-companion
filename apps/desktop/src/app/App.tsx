@@ -10,6 +10,7 @@ import { useAppearance } from "./useAppearance";
 import {
   scheduleQuery,
   useScheduleQuery,
+  useTimetableViews,
   type WorkspaceOverview,
 } from "../platform/core-query";
 import { useFinderEditQueue, useFinderQuery } from "../platform/finder-query";
@@ -258,6 +259,7 @@ export function WorkspaceApp() {
     : undefined;
   const [lectureRailHovered, setLectureRailHovered] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -276,6 +278,17 @@ export function WorkspaceApp() {
         : settingsMatch
           ? "settings"
           : "home";
+  const courseViewTerm = previewTerm ?? overview.value?.coursesTerm;
+  const timetableViews = useTimetableViews(
+    overview.value?.allTerms ?? [],
+    page === "timetable",
+  );
+  const cachedTimetable = courseViewTerm
+    ? timetableViews.get(courseViewTerm)
+    : undefined;
+  useEffect(() => {
+    if (previewTerm === overview.value?.coursesTerm) setPreviewTerm(null);
+  }, [previewTerm, overview.value?.coursesTerm]);
   const section = (params.section ?? "accounts") as Section;
   const homeView = homeMatch && weekMatch ? "week" : "day";
   const [searchParams, setSearchParams] = useSearchParams();
@@ -419,12 +432,18 @@ export function WorkspaceApp() {
   const [finderKeys, setFinderKeys] = useState<string[]>([]);
   // The quarter the finder's conditions were made for; switching quarters resets them.
   const [finderTerm, setFinderTerm] = useState<TermId | null>(null);
-  const finderYear = Number(overview.value?.coursesTerm.slice(0, 4) ?? 2026);
-  const finderCourseTerm = overview.value?.coursesTerm ?? "2026-1Q";
+  const finderYear = Number(courseViewTerm?.slice(0, 4) ?? 2026);
+  const finderCourseTerm = courseViewTerm ?? "2026-1Q";
+  const finderSession = JSON.stringify([location.key, finderCourseTerm]);
+  const [activeFinderSession, setActiveFinderSession] = useState<string | null>(
+    null,
+  );
+  const finderActive = activeFinderSession === finderSession;
+  const activateFinder = () => setActiveFinderSession(finderSession);
   const finderView = useFinderQuery(
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
-    Boolean(overview.value && editMode && page === "timetable"),
+    Boolean(overview.value && editMode && page === "timetable" && finderActive),
   );
   const finderEdits = useFinderEditQueue({
     year: finderYear,
@@ -582,7 +601,10 @@ export function WorkspaceApp() {
       </div>
     );
 
-  const workspaceView = overview.value;
+  const workspaceView =
+    page === "timetable"
+      ? (cachedTimetable?.overview ?? overview.value)
+      : overview.value;
   const update = (edit: (data: Workspace) => Workspace) => {
     void workspaceActions.updateSettings(edit).catch(notify.error);
   };
@@ -626,11 +648,12 @@ export function WorkspaceApp() {
   const drawerCourse = drawerId
     ? data.courses.find((c) => c.id === drawerId && !c.deletedAt)
     : undefined;
-  const courseTerm = workspaceView.coursesTerm;
+  const courseTerm = courseViewTerm ?? workspaceView.coursesTerm;
   const finderTermCourses = workspaceView.courses;
   const finderPlaced = new Set(finderView.value?.onTimetable ?? []);
   const finderSlots = new Set(finderView.value?.activeSlots ?? []);
   const pickFinderTime = (key: string, append = false) => {
+    activateFinder();
     void finderEdits
       .run({ kind: "toggleTime", key, append })
       .catch(notify.error);
@@ -1115,6 +1138,7 @@ export function WorkspaceApp() {
         editing={planning}
         onEditingChange={(value) => {
           setEditMode(value);
+          if (!value) setActiveFinderSession(null);
           setOfferingPanel(null);
           setPanelCourseId(null);
         }}
@@ -1122,7 +1146,9 @@ export function WorkspaceApp() {
         newPlan={() => !readOnly && setPlanEditor("new")}
         side={
           <CourseFinder
-            key={courseTerm}
+            key={finderSession}
+            enabled={finderActive}
+            activate={activateFinder}
             year={Number(courseTerm.slice(0, 4))}
             term={courseTerm}
             summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
@@ -1192,11 +1218,21 @@ export function WorkspaceApp() {
         }
         data={data}
         currentTerm={currentTerm}
+        term={courseTerm}
+        overview={workspaceView}
+        cachedPlanning={cachedTimetable?.planning}
+        onSelectTerm={(term) => {
+          setPreviewTerm(term);
+          setActiveFinderSession(null);
+        }}
         readOnly={readOnly}
         mutate={async (intent) => {
+          if (intent.kind === "selectTerm") setActiveFinderSession(null);
           try {
             return await academicIntentOrThrow(intent);
           } catch (error) {
+            if (intent.kind === "selectTerm")
+              setPreviewTerm((term) => (term === intent.termId ? null : term));
             notify.error(error);
             throw error;
           }
@@ -1663,7 +1699,7 @@ export function WorkspaceApp() {
       </AppShell.Footer>
       <AppShell.Main
         component="main"
-        className={`workspaceMain${page === "home" ? " homeMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
+        className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
       >
         {keep("lectures", lecturesPage)}
         {keep("home", homePage)}

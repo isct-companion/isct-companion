@@ -1,6 +1,6 @@
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   ActionIcon,
   Badge,
@@ -46,6 +46,10 @@ import {
 export function Courses({
   data,
   currentTerm,
+  term,
+  overview,
+  cachedPlanning,
+  onSelectTerm,
   readOnly,
   mutate,
   open,
@@ -75,6 +79,10 @@ export function Courses({
   newPlan?: () => void;
   data: Workspace;
   currentTerm: TermId;
+  term: TermId;
+  overview: WorkspaceOverview;
+  cachedPlanning?: PlanningWeek;
+  onSelectTerm: (term: TermId) => void;
   readOnly: boolean;
   mutate: (intent: WorkspaceIntent) => Promise<unknown>;
   /** Shows a course's details over the search panel. */
@@ -105,20 +113,33 @@ export function Courses({
   /** Mobile: one header row, viewing only; extras move into a menu. */
   compact?: boolean;
 }) {
-  const selection = useScheduleQueries<[WorkspaceOverview]>([
-    { kind: "workspaceOverview", term: "" },
-  ]).value?.[0];
-  const term = selection?.coursesTerm ?? currentTerm;
-  const selectTerm = useDebouncedCallback((termId: TermId) => {
-    void mutate({ kind: "selectTerm", termId }).catch(() => undefined);
-  }, 100);
+  const lastQuarterClick = useRef(-Infinity);
+  const commitTerm = useDebouncedCallback(
+    (termId: TermId) => {
+      void mutate({ kind: "selectTerm", termId }).catch(() => undefined);
+    },
+    { delay: 100, flushOnUnmount: true },
+  );
+  const selectTerm = (termId: TermId) => {
+    onSelectTerm(termId);
+    const now = performance.now();
+    const first = now - lastQuarterClick.current >= 100;
+    lastQuarterClick.current = now;
+    commitTerm(termId);
+    // Mantine's leading mode drops the trailing click; flush only the first
+    // click and let its normal debounce retain the final click in a burst.
+    if (first) commitTerm.flush();
+  };
   const canEdit = editing && !readOnly;
   const wide = useMediaQuery("(min-width: 761px)");
-  const overview = selection;
   const terms = overview?.allTerms ?? [currentTerm];
-  const planning = useScheduleQueries<[PlanningWeek]>([
-    { kind: "planningWeek", term },
-  ]).value?.[0];
+  const planningQuery = useScheduleQueries<[PlanningWeek]>(
+    [{ kind: "planningWeek", term }],
+    !cachedPlanning,
+  );
+  const planning =
+    cachedPlanning ??
+    (planningQuery.pending ? undefined : planningQuery.value?.[0]);
   // Courses of this quarter, a 3Q–4Q course in each of its quarters.
   const courseCount = overview?.termCourseIds.length ?? 0;
   const events = data.events.filter((e) => e.termId === term && !e.deletedAt);

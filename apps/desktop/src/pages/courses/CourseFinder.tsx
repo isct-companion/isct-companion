@@ -91,6 +91,8 @@ type NextPage = {
 export function CourseFinder({
   year,
   term,
+  enabled,
+  activate,
   language,
   keys,
   edit,
@@ -106,6 +108,8 @@ export function CourseFinder({
 }: {
   year: number;
   term: TermId;
+  enabled: boolean;
+  activate: () => void;
   language: Lang;
   keys: string[];
   edit: (action: FinderAction) => Promise<FinderView | undefined>;
@@ -176,12 +180,16 @@ export function CourseFinder({
     return () => removeEventListener("keydown", focus);
   }, []);
 
-  const planning = useFinderQuery({
-    year,
-    term,
-    keys,
-    includeIneligible: showUnavailable,
-  });
+  const planning = useFinderQuery(
+    {
+      year,
+      term,
+      keys,
+      includeIneligible: showUnavailable,
+    },
+    0,
+    enabled,
+  );
   // Keep the last plan while its replacement loads; typing never restarts a search.
   const planningKey = JSON.stringify([year, term, keys]);
   const lastPlan = useRef({ key: planningKey, value: planning.value?.plan });
@@ -213,6 +221,7 @@ export function CourseFinder({
             : [],
     },
     catalogRevision,
+    enabled,
   );
   const view = result.value;
   const courses = view?.courses;
@@ -257,7 +266,10 @@ export function CourseFinder({
   // 教務 returns schedule and credits with the result. Syllabus details
   // are fetched when the person opens a course.
   useEffect(() => {
-    if (!plan) return;
+    if (!enabled || !plan) {
+      setRemote({ state: "idle" });
+      return;
+    }
     const generation = ++loadGeneration.current;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -291,16 +303,16 @@ export function CourseFinder({
       setRemote({ state: "idle" });
       return cleanup;
     }
+    if (requestedTerm !== term) {
+      setRemote({ state: "idle" });
+      return cleanup;
+    }
     const cacheKey = JSON.stringify([year, plan]);
     const cached = pageCache.current.get(cacheKey);
     if (cached && cached.expires > Date.now() && cached.refresh === refresh) {
       setRemote(cached.remote);
       setNextPages(cached.pages);
       setError("");
-      return cleanup;
-    }
-    if (requestedTerm !== term) {
-      setRemote({ state: "idle" });
       return cleanup;
     }
     setRemote({ state: "searching" });
@@ -342,7 +354,7 @@ export function CourseFinder({
       }
     }, 250);
     return cleanup;
-  }, [planKey, year, term, requestedTerm, refresh, showUnavailable]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, planKey, year, term, requestedTerm, refresh, showUnavailable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const live = view?.live ?? "";
   const rows = view?.rows ?? [];
@@ -543,6 +555,7 @@ export function CourseFinder({
     }
   };
   const onChange = (value: string, composing = false) => {
+    activate();
     setRequestedTerm(term);
     const sequence = ++editSequence.current;
     setInput(value);
@@ -620,15 +633,17 @@ export function CourseFinder({
             {term.replace("-", " ")}
             {summary && <small> · {summary}</small>}
           </b>
-          <span>
-            {remote.state === "searching"
-              ? t("Searching 教務Web…")
-              : remote.state === "done"
-                ? `${remote.total} ${t("in 教務Web")}`
-                : courses
-                  ? `${list.length} ${t("stored")}`
-                  : t("Loading…")}
-          </span>
+          {enabled && (
+            <span>
+              {remote.state === "searching"
+                ? t("Searching 教務Web…")
+                : remote.state === "done"
+                  ? `${remote.total} ${t("in 教務Web")}`
+                  : courses
+                    ? `${list.length} ${t("stored")}`
+                    : t("Loading…")}
+            </span>
+          )}
         </div>
         <div className="courseListTools">
           {(showUnavailable || Boolean(view?.ineligibleIds.length)) && (
@@ -707,7 +722,11 @@ export function CourseFinder({
             }
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              activate();
+              setRequestedTerm(term);
+              setOpen(true);
+            }}
             onBlur={() => setTimeout(() => setOpen(false), 120)}
           />
         </div>
@@ -830,6 +849,7 @@ export function CourseFinder({
             type="button"
             className="textButton"
             onClick={() => {
+              activate();
               setRequestedTerm(term);
               setRefresh((n) => n + 1);
             }}
@@ -853,7 +873,9 @@ export function CourseFinder({
       </div>
 
       <div className="finderResults" ref={resultsRef} aria-busy={loadingMore}>
-        {!courses && !error && <div className="empty">{t("Loading…")}</div>}
+        {enabled && !courses && !error && (
+          <div className="empty">{t("Loading…")}</div>
+        )}
         {courses && rows.length === 0 && (
           <div className="empty finderEmpty">
             {remote.state === "unsupported" ? (

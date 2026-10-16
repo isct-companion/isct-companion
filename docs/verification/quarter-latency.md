@@ -83,3 +83,82 @@ courses (63), LMS courses (62), grades (49), plans (2) and course overrides (1)
 was retained. The final frontend run passed 520 cases with four skipped; type
 checking passed. The previous application and a consistent pre-install database
 backup remain local. No remote build, release or push was performed.
+
+Follow-up: the new Timetable route lacked the viewport-height constraint used
+by Today. A long finder stretched the page and the percentage-positioned grid.
+The route now has its own viewport-bound main class; the timetable flexes into
+the space remaining below the card toolbars. A browser check of the production
+layout/grid components with 100 long result rows kept the body at its 720 px
+viewport height and the grid bottom at 647.5 px; the finder scrolled internally.
+
+Search activation is now scoped to the route visit and quarter, rather than
+merely suppressing the remote request. Before focus, both local finder queries
+and official catalogue queries are disabled and the result list is empty.
+Focusing the input activates search; timetable slot selection and the explicit
+search button are also deliberate activation actions. Leaving and revisiting
+the page or changing quarters clears activation and remounts the finder. The
+existing 1,000-result paging case now checks zero queries before focus and an
+empty, inactive panel after navigating away and back, preserving the virtual
+row bound.
+
+Quarter selection flushes the first call immediately, then uses the Mantine
+100 ms trailing debounce for the remainder of a burst. Mantine leading mode
+alone drops the final call, so it is deliberately not used. The existing picker
+case checks that the first click is immediate and only the final subsequent
+click commits. The final frontend run passed 520 cases with four skipped; type
+checking passed. Native package verification follows separately.
+
+Native follow-up (`1.0.1-dev.5`): all six teaching rows fit the window in the
+actual 3Q timetable. Edit initially showed zero results; focusing the input
+returned ten official courses. Switching to 4Q cleared the right panel before
+the selected-quarter read model settled. The idle header still said Loading,
+which was a presentation-only leftover from disabling the queries; the final
+package gates that header line on activation too. The paging case also rejects
+Loading before focus. The debounce case now controls its gesture clock because
+real elapsed time under native build load could pass the 100 ms boundary during
+React's act flush; its first-call and trailing-call assertions remain intact.
+
+The remaining roughly 150 ms of perceived stickiness was a different path: the
+quarter highlight and grid waited for selection persistence, then overview and
+planning queries. First-call flushing alone removed only the intentional delay.
+The shell now previews the clicked quarter immediately and indexes Core's
+existing overview/planning read models for the available quarters. These views
+are prepared together while the page is open and remain visible while revision
+changes revalidate them. Selection persistence runs independently; the preview
+is released when the authoritative selection arrives, or restored after an
+error. This is presentation state and transport caching; Core still supplies
+courses, placement, credits, conflict and eligibility decisions. The official
+course finder remains inactive until deliberate activation.
+
+The picker case now holds a save unresolved and verifies that both the selected
+quarter and its cached course blocks are already visible, then rejects the save
+and verifies restoration of the saved quarter. The existing burst and year-hover
+assertions remain. Explicit-quarter overview queries also now derive their
+default finder keys from the requested quarter, rather than the persisted
+selection; the existing Core overview case covers this distinction.
+
+Final automated checks for the immediate-view change: 520 frontend cases passed
+with four skipped. The Rust workspace passed: 22 native, nine native integration,
+372 Core, 16 FFI and 19 OCR (four ignored). The first sandboxed Rust run could
+not bind the native agent tests' loopback sockets; rerunning the unchanged suite
+with that permission passed. A concurrent frontend run also missed a transient
+settings notification; its isolated rerun and the final serial full run passed.
+No assertion or test was removed. Leaving the timetable flushes any final
+debounced selection so a visible preview cannot be stranded by effect cleanup.
+
+`1.0.1-dev.7` was built locally and its Developer ID signature passed deep/strict
+verification. A verified copy is staged for installation and a consistent
+database backup was saved. Final replacement and native immediate-view checking
+are pending: the Mac locked before the UI tool could quit the running dev.5
+application. The installed application was left in place. No remote build,
+release or push was performed.
+
+After the Mac was unlocked, dev.7 replaced the installed application using the
+verified staged bundle. The running dev.5 app exited normally; its bundle and
+a fresh consistent database backup were retained. Both school connections
+remained signed in. All original IDs remained: 63 manual courses, 62 LMS
+courses, 49 grades, two plans and one course override. Native clicks from 4Q
+to 2Q and 2Q to 3Q showed the new selected quarter, matching credits and
+quarter-specific untimed courses in the first subsequent accessibility read.
+Opening Edit left the finder empty with no Loading line; focusing its input
+then entered official search. No remote publication was performed.

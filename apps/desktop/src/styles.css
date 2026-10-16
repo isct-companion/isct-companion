@@ -150,7 +150,8 @@ p {
   overflow: hidden;
 }
 /* Home fits the window; the day and the syllabus list scroll inside their panels. */
-.workspaceMain.homeMain {
+.workspaceMain.homeMain,
+.workspaceMain.timetableMain {
   height: 100dvh;
   overflow: hidden;
 }
@@ -384,7 +385,7 @@ p {
 
 /* ---------- timetable ---------- */
 .tt {
-  height: 100%;
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -3766,7 +3767,8 @@ p {
   clip-path: inset(50%);
 }
 @media (max-width: 760px) {
-  .workspaceMain.homeMain {
+  .workspaceMain.homeMain,
+  .workspaceMain.timetableMain {
     height: auto;
     min-height: 100dvh;
     overflow: visible;
