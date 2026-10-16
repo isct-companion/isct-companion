@@ -883,5 +883,10 @@
   "Bold": "太字",
   "Italic": "斜体",
   "Inline code": "インラインコード",
-  "Bullet list": "箇条書き"
+  "Bullet list": "箇条書き",
+  "Preparing your LMS upload…": "LMS アップロードを準備中…",
+  "Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself.": "ファイルをアップロード領域に送りました。LMS の処理完了後、ファイルを確認してご自身で提出してください。",
+  "The upload area is not available. Choose the files in LMS.": "アップロード領域を利用できません。LMS でファイルを選択してください。",
+  "Files upload to the LMS draft. Review and submit in LMS.": "ファイルは LMS の下書きにアップロードされます。LMS で確認して提出してください。",
+  "Prepare in LMS": "LMS で提出を準備"
 }

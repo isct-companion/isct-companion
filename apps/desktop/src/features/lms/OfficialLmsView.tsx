@@ -52,7 +52,9 @@ export function OfficialLmsView({
         // official form, when it still belongs to this activity.
         if (
           current.hostname !== target.hostname ||
-          current.searchParams.get("id") !== target.searchParams.get("id")
+          current.searchParams.get("id") !== target.searchParams.get("id") ||
+          (target.searchParams.get("action") === "editsubmission" &&
+            current.searchParams.get("action") !== "editsubmission")
         )
           await desktopBridge?.navigateSchoolWeb?.("science-lms", url);
       }

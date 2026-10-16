@@ -110,6 +110,8 @@ struct State {
     lifecycle_epoch: u64,
     customizations: HashMap<SchoolSite, SchoolPageCustomization>,
     guide: Vec<crate::kyomu_guide::GuideItem>,
+    #[cfg(feature = "desktop-workspaces")]
+    submission: Option<super::submission::PendingSubmission>,
     history: HashMap<SchoolSite, PageHistory>,
     suppress_history: HashSet<SchoolSite>,
     popup_return: HashMap<SchoolSite, PopupReturn>,
@@ -295,6 +297,31 @@ impl SchoolBrowserEngine {
         Ok(true)
     }
 
+    #[cfg(feature = "desktop-workspaces")]
+    pub fn prepare_submission(
+        &self,
+        raw: &str,
+        files: Vec<crate::workspaces::SubmissionFile>,
+        messages: super::SubmissionMessages,
+    ) -> Result<String, super::SubmissionError> {
+        let pending = super::submission::PendingSubmission::new(raw, files, messages)?;
+        let url = pending.url.clone();
+        let browser = {
+            let mut state = self.0.state.guard();
+            let browser = state
+                .views
+                .get(&SchoolSite::ScienceLms)
+                .filter(|view| view.navigation.is_none() && pending.matches(&view.url))
+                .map(|view| view.id);
+            state.submission = Some(pending);
+            browser
+        };
+        if let Some(browser) = browser {
+            self.0.inject_submission(browser, &url)?;
+        }
+        Ok(url)
+    }
+
     #[cfg(test)]
     pub(super) fn poison_state_for_test(&self) {
         let _state = self.0.state.guard();
@@ -307,6 +334,10 @@ impl SchoolBrowserEngine {
     }
 
     pub async fn shutdown(&self) {
+        #[cfg(feature = "desktop-workspaces")]
+        {
+            self.0.state.guard().submission = None;
+        }
         self.0.tasks.close();
         let _ = self.0.traces.send(Trace::Stopped);
         self.0.browsing_changed.notify_waiters();
@@ -591,6 +622,8 @@ impl Inner {
         if !customization.javascript.trim().is_empty() {
             let _ = self.dispatch_eval(event.page.browser, customization.javascript, false);
         }
+        #[cfg(feature = "desktop-workspaces")]
+        let _ = self.inject_submission(event.page.browser, event.url.as_str());
         if let Some(guide) = guide {
             let _ = self.dispatch_eval(event.page.browser, guide, false);
         }
@@ -907,6 +940,41 @@ impl Inner {
             }),
         )?;
         Ok(action)
+    }
+
+    #[cfg(feature = "desktop-workspaces")]
+    fn inject_submission(
+        &self,
+        browser: BrowserId,
+        url: &str,
+    ) -> Result<(), super::SubmissionError> {
+        if browser.site != SchoolSite::ScienceLms {
+            return Ok(());
+        }
+        let pending = {
+            let mut state = self.state.guard();
+            if state
+                .submission
+                .as_ref()
+                .is_some_and(|pending| pending.expired())
+            {
+                state.submission = None;
+            }
+            if state
+                .submission
+                .as_ref()
+                .is_some_and(|pending| pending.matches(url))
+            {
+                state.submission.take()
+            } else {
+                None
+            }
+        };
+        if let Some(pending) = pending {
+            self.dispatch_eval(browser, pending.script()?, false)
+                .map_err(|error| super::SubmissionError::Browser(error.to_string()))?;
+        }
+        Ok(())
     }
 
     fn dispatch_eval(

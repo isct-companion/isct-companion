@@ -4,7 +4,8 @@
 use crate::lms_files::root;
 use isct_core::{
     course_materials::CourseKey,
-    workspaces::{Attachment, SubmissionTarget, WorkspaceInfo, Workspaces},
+    school_browser::{SubmissionError, SubmissionMessages},
+    workspaces::{Attachment, WorkspaceInfo, Workspaces},
 };
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
@@ -113,26 +114,42 @@ pub async fn set_workspace_submission(
     .await
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmissionReady {
+    workspace: WorkspaceInfo,
+    url: String,
+}
+
 #[tauri::command]
+#[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub async fn prepare_workspace_submission(
     webview: tauri::Webview,
     app: AppHandle,
+    controller: tauri::State<'_, crate::school_web::SchoolWebController>,
     path: String,
-) -> Result<WorkspaceInfo, String> {
-    crate::require_local_main(&webview)?;
-    let service = service(&app)?;
-    let prepared = run_workspace(&app, move || {
-        service.prepare(&path).map_err(|error| error.to_string())
+    assignment: String,
+    url: String,
+    messages: SubmissionMessages,
+) -> Result<SubmissionReady, SubmissionError> {
+    crate::require_local_main(&webview).map_err(SubmissionError::InvalidInput)?;
+    let service = service(&app).map_err(SubmissionError::Storage)?;
+    let prepared = crate::core_ports::runtime(&app)
+        .run(async move {
+            tauri::async_runtime::spawn_blocking(move || service.prepare_upload(&path, &assignment))
+                .await
+                .map_err(|error| SubmissionError::Storage(error.to_string()))?
+                .map_err(SubmissionError::from)
+        })
+        .await
+        .map_err(|error| SubmissionError::Browser(error.to_string()))??;
+    let url = controller
+        .engine
+        .prepare_submission(&url, prepared.files, messages)?;
+    Ok(SubmissionReady {
+        workspace: prepared.info,
+        url,
     })
-    .await?;
-    match prepared.target {
-        SubmissionTarget::Folder(path) => {
-            app.opener().open_path(path.to_string_lossy(), None::<&str>)
-        }
-        SubmissionTarget::Archive(path) => app.opener().reveal_item_in_dir(path),
-    }
-    .map_err(|error| error.to_string())?;
-    Ok(prepared.info)
 }
 
 #[tauri::command]

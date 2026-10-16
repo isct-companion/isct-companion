@@ -830,12 +830,12 @@ export function LmsWorkspace({
     const body = source?.bodyHtml ? withoutActivityDates(source.bodyHtml) : "";
     const hasBody = Boolean(contentText(body).trim() || a.details?.trim());
     const showBody = openDetails.includes(a.id) || Boolean(query.trim());
-    const submit = () =>
+    const submit = (preparedUrl?: string) =>
       open({
         id: `official:${a.id}`,
         title: a.title,
         kind: "official",
-        url: a.sourceUrl!,
+        url: preparedUrl ?? a.sourceUrl!,
       });
     return (
       <article
@@ -944,7 +944,7 @@ export function LmsWorkspace({
               <button
                 type="button"
                 className={done ? "lmsTextLink" : "lmsSubmit"}
-                onClick={submit}
+                onClick={() => submit()}
               >
                 {t(done ? "View in LMS" : "Submit")}{" "}
                 <LmsIcon name="external" size={13} />

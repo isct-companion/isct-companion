@@ -1107,3 +1107,48 @@ checks:
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/components/workspace-chrome.css
     verified: null
+
+  - id: SCHOOL-ASSIGNMENT-UPLOAD
+    area: school
+    title: Prepare assignment files in the official LMS draft area
+    persona: undergraduate-senior
+    preconditions: |
+      Updated signed desktop bundle, a real LMS account, an open assignment
+      accepting test files, and a workspace with files in submit/.
+    steps:
+      - action: |
+          Choose Prepare in LMS from the assignment workspace. Inspect the
+          right-hand official LMS page without clicking Save or Submit.
+        reason: |
+          Verifies that the injected drag reaches Moodle's authenticated uploader
+          and that assistance stops before the user commits the submission.
+      - action: |
+          Compare every displayed draft filename and size with submit/. Repeat
+          using ZIP, then try a file type the assignment rejects.
+        reason: |
+          Confirms the uploaded data and archive selection, and that Moodle's
+          own restrictions and error UI still govern the upload.
+      - action: |
+          Start from another assignment page, then prepare this assignment.
+          Close and reopen the reader while the official form is visible.
+        reason: |
+          Checks target binding and native navigation: files must only enter
+          the requested assignment, and reopening must not upload a second copy.
+    observe: |
+      The LMS draft file manager, its upload progress/errors, the assignment
+      name/URL and the untouched official Save/Submit controls in the right pane.
+    expected: |
+      Exactly the chosen workspace files appear in the requested assignment's
+      draft. Only user action can save or submit; unsupported uploads show the
+      normal LMS error. Reopening does not duplicate files.
+    why_manual: |
+      Requires real authenticated Moodle uploads and WebKit drag-transfer APIs.
+      Headless tests verify injection and routing but cannot execute the remote
+      uploader, site restrictions or the signed native browser.
+    covers:
+      - crates/isct-core/src/workspaces.rs
+      - crates/isct-core/src/school_browser/submission.rs
+      - crates/isct-core/src/school_browser/assets/assignment-upload.js
+      - apps/desktop/src-tauri/src/workspaces.rs
+      - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
+    verified: null

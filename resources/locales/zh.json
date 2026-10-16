@@ -883,5 +883,10 @@
   "Bold": "加粗",
   "Italic": "斜体",
   "Inline code": "行内代码",
-  "Bullet list": "无序列表"
+  "Bullet list": "无序列表",
+  "Preparing your LMS upload…": "正在准备 LMS 上传…",
+  "Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself.": "文件已送到上传区。请等待 LMS 完成上传，检查文件后自行点击提交。",
+  "The upload area is not available. Choose the files in LMS.": "上传区暂不可用，请在 LMS 中选择文件。",
+  "Files upload to the LMS draft. Review and submit in LMS.": "文件会上传到 LMS 草稿区，请在 LMS 中检查并提交。",
+  "Prepare in LMS": "在 LMS 中准备提交"
 }

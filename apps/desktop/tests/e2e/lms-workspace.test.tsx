@@ -799,7 +799,7 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
     expect(host.querySelector(".lmsOfficialHost")).toBeNull();
 
-    await click(buttonByText(host, "Submit"));
+    await click(buttonByText(host, "Prepare in LMS"));
     await waitFor(() =>
       expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
         "Official LMS",
@@ -813,6 +813,59 @@ describe("the LMS reading workspace", () => {
       expect(host.querySelector(".lmsOfficialHost")).toBeNull(),
     );
   }, 30_000);
+
+  it.each([false, true])(
+    "prepares workspace files in the right LMS pane, and stops if preparation fails (%s)",
+    async (fail) => {
+      const f = lectureFixture();
+      f.workspace.assignments = [assignment()];
+      const workspace = {
+        path: "/courses/Report",
+        name: "Report",
+        submitFiles: ["report.pdf"],
+        zip: false,
+        zipName: "Report.zip",
+      };
+      const url =
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission";
+      const { host, core } = await openWorkspace(f, {
+        handle: (command) => {
+          if (command === "assignment_workspace") return workspace;
+          if (command === "prepare_workspace_submission") {
+            if (fail)
+              return Promise.reject({
+                kind: "invalidInput",
+                message: "The submit folder is empty",
+              });
+            return { workspace, url };
+          }
+          return undefined;
+        },
+      });
+      await waitFor(() =>
+        expect(host.querySelector(".lmsWorkspaceCard")).not.toBeNull(),
+      );
+      await click(buttonByText(host, "Prepare in LMS"));
+      expect(
+        core.commands("prepare_workspace_submission")[0].args,
+      ).toMatchObject({
+        path: workspace.path,
+        assignment: "a1",
+        url: f.workspace.assignments[0].sourceUrl,
+      });
+      if (fail) {
+        expect(host.textContent).toContain("The submit folder is empty");
+        expect(host.querySelector(".lmsViewer")).toBeNull();
+      } else {
+        await waitFor(() =>
+          expect(
+            host.querySelector(".lmsOfficialHost a")?.getAttribute("href"),
+          ).toBe(url),
+        );
+        expect(host.querySelectorAll(".lmsViewer")).toHaveLength(1);
+      }
+    },
+  );
 
   it("renders course HTML inert: tables and safe links stay, active content and unsafe URLs do not", async () => {
     const f = lectureFixture();
