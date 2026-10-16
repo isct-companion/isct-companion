@@ -2,6 +2,8 @@
 node_modules/
 .yarn/
 dist/
+# Native token outputs are committed so Xcode and Gradle need no Node.
+!design/dist/
 target/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
