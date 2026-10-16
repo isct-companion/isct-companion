@@ -528,6 +528,21 @@ tests with the same cases).
    2200 px and 600 px images itself, runs on `spawn_blocking`, reports
    `OcrProgress`. HEIC → JPEG is a shell duty (ImageIO on Apple, `ImageDecoder`
    on Android, `heic-to` on Windows desktop); document this on the API.
+7. Course colour: `displayColor` (`src/core/course-colors.ts`) becomes
+   `display_color` in core. Keep the FNV hash and palette byte-identical so
+   existing courses keep their colours; port the TS cases as fixtures. The
+   palette itself is a design token (`design/tokens/course.json`), generated
+   into `schedule/course_palette.rs`.
+8. Mobile read models on top of the moved schedule/reminder logic (see
+   `docs/ux/mobile.md`):
+   - `today(now)`: the Today phase (before/between classes, in class, after
+     classes, no classes), its hero and sections, and the day status. Shells
+     render it in order and do not decide what is due.
+   - `glance(now)`: next class, rest of today, nearest deadlines; a small
+     serialisable snapshot that widget extensions read without loading core.
+   - `notification_plan(now, horizon)`: every planned notification ordered by
+     priority, with time, title, body and deep-link target. Platform limits
+     (iOS 64 pending) are applied by the shell, not core.
 
 Preserve strict civil-date/timestamp parsing and JST academic semantics when
 moving calendar functions. Delete obsolete TS policy and mutation paths once

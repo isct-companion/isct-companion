@@ -3,6 +3,7 @@ import {
   type CSSVariablesResolver,
   type MantineColorsTuple,
 } from "@mantine/core";
+import tokens from "../generated/design/tokens.json";
 import { t } from "../i18n";
 
 // Mantine queries the system scheme even when the app has an explicit scheme.
@@ -21,24 +22,15 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
     }) as MediaQueryList;
 }
 
-const campusBlue: MantineColorsTuple = [
-  "#eef3ff",
-  "#dce7ff",
-  "#b8cdff",
-  "#8faeff",
-  "#6b94f8",
-  "#527ff0",
-  "#416fE5",
-  "#315fd0",
-  "#2853bb",
-  "#21479f",
-];
+// Mantine's tonal scale and font come from design/tokens (yarn design:tokens).
+const campusBlue = Object.values(
+  tokens["accent-scale"],
+) as unknown as MantineColorsTuple;
 
 export const appTheme = createTheme({
   primaryColor: "campus",
   colors: { campus: campusBlue },
-  fontFamily:
-    "Inter, -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', system-ui, sans-serif",
+  fontFamily: tokens.font.family.sans,
   defaultRadius: "md",
   cursorType: "pointer",
   focusRing: "auto",

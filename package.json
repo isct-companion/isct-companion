@@ -13,6 +13,7 @@
     "test": "yarn workspace @isct/desktop test && vitest run scripts",
     "test:watch": "yarn workspace @isct/desktop test:watch",
     "format": "yarn workspace @isct/desktop format",
+    "design:tokens": "node design/build.mjs",
     "icons:desktop": "node scripts/desktop/generate-desktop-icons.mjs",
     "core:types": "cargo run -p isct-core --features ts --example export-types && prettier --write apps/desktop/src/generated/persistence.ts",
     "backend:test": "cargo test --workspace --locked",
@@ -26,6 +27,7 @@
     "@tauri-apps/cli": "^2.12.2",
     "jsdom": "30.0.1",
     "prettier": "3.9.6",
+    "style-dictionary": "5.5.5",
     "vite": "8.2.2",
     "vitest": "5.0.0",
     "yaml": "^2"
