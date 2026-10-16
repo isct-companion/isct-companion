@@ -687,6 +687,56 @@ describe("the lecture desk", () => {
     );
   }, 20_000);
 
+  it("keeps the open assignments when the quarter changes in Assignments mode", async () => {
+    // Regression: the task view answers for the new quarter at once while that
+    // quarter's courses are still loading, and the list read a missing course.
+    const mounted = await mountApp(
+      {
+        workspace: lectureWorkspace(),
+        revision: freshRevision(),
+        queries: {
+          ...homeQueries,
+          scheduleView: (_query, core) => ({
+            ...lectureSchedule(core.workspace),
+            allTerms: [TERM, "2026-4Q"],
+          }),
+          taskView: (_query, core) => lectureTasks(core.workspace),
+          courseTimeline: () => ({
+            lastStarted: null,
+            next: null,
+            classAt: null,
+          }),
+        },
+        handle: nativeNoise,
+      },
+      { route: paths.lectures() },
+    );
+    app = mounted;
+    await readyLectureRows(mounted.host);
+    await click(await assignmentModeButton(mounted.host));
+    await until(() => expect(mounted.host.textContent).toContain("Report"));
+    const quarter = await required(
+      () =>
+        mounted.host.querySelector<HTMLSelectElement>(
+          "select.lectureTerm, .lectureTerm select",
+        ),
+      "the quarter picker",
+    );
+    const choose = (term: TermId) =>
+      act(async () => {
+        quarter.value = term;
+        quarter.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
+    await choose("2026-4Q");
+    await until(() =>
+      expect(mounted.host.textContent).toContain("No open assignments."),
+    );
+    await choose(TERM);
+    await until(() => expect(mounted.host.textContent).toContain("Report"));
+    expect(mounted.host.querySelector(".pageError")).toBeNull();
+  }, 20_000);
+
   it("folds hidden assignments away until asked, then restores one", async () => {
     const workspace = lectureWorkspace();
     workspace.assignments.push(

@@ -169,15 +169,19 @@ export function LectureDesk({
           left.rank - right.rank || left.title.localeCompare(right.title),
       );
   }, [courses, now, schedule?.agendas, taskView, today]);
+  // The task view answers for a new quarter before that quarter's courses
+  // load, so work whose course is not on screen yet waits for it.
   const work = useMemo(() => {
     const byId = new Map(courses.map((course) => [course.id, course]));
     return (taskTerm?.lectureOpenIds ?? [])
       .flatMap((id) => byAssignment.get(id) ?? [])
-      .map((a) => {
+      .flatMap((a) => {
+        const course = byId.get(a.courseId);
+        if (!course) return [];
         const deadline = taskView?.deadlines?.[a.id];
         return {
           assignment: a,
-          course: byId.get(a.courseId)!,
+          course,
           due: deadline
             ? { label: deadline.countdownLabel, tone: deadline.countdownTone }
             : undefined,
@@ -189,7 +193,10 @@ export function LectureDesk({
     const byId = new Map(courses.map((course) => [course.id, course]));
     return (taskTerm?.lectureHiddenIds ?? [])
       .flatMap((id) => byAssignment.get(id) ?? [])
-      .map((a) => ({ assignment: a, course: byId.get(a.courseId)! }));
+      .flatMap((a) => {
+        const course = byId.get(a.courseId);
+        return course ? { assignment: a, course } : [];
+      });
   }, [byAssignment, courses, taskTerm]);
   const needle = query.trim().toLowerCase();
   const shownWork = needle
