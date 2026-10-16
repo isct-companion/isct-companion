@@ -123,6 +123,8 @@ struct ViewState {
     id: BrowserId,
     last_page: u64,
     url: String,
+    user_url: Option<String>,
+    background_navigation: bool,
     extraction_relay: String,
     auth_relay: String,
     progress_relay: String,
@@ -212,14 +214,19 @@ impl SchoolBrowserEngine {
         site: SchoolSite,
         target: Option<String>,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        let current = self
-            .0
-            .state
-            .guard()
-            .views
-            .get(&site)
-            .map(|view| view.url.clone());
-        let already_open = current.is_some();
+        let (already_open, current, background_changed) = {
+            let state = self.0.state.guard();
+            let view = state.views.get(&site);
+            (
+                view.is_some(),
+                view.and_then(|v| {
+                    v.user_url
+                        .clone()
+                        .or_else(|| (!v.background_navigation).then(|| v.url.clone()))
+                }),
+                view.is_some_and(|v| v.background_navigation),
+            )
+        };
         let explicit_target = target.is_some();
         let target = target
             .or(current)
@@ -236,7 +243,7 @@ impl SchoolBrowserEngine {
             // Revealing an existing resident view must preserve its exact native URL.
             // Re-navigating to our sanitized identity would strip SSO query state.
             if already_open
-                && explicit_target
+                && (explicit_target || background_changed)
                 && self.0.browser.current_url(browser)?.as_ref() != Some(&url)
             {
                 self.dispatch(browser, BrowserAction::Navigate(url))?;
@@ -367,6 +374,8 @@ impl SchoolBrowserEngine {
                     id,
                     last_page: 0,
                     url: initial.to_string(),
+                    user_url: None,
+                    background_navigation: false,
                     extraction_relay: format!("isct-companion-extract://{nonce}/"),
                     auth_relay: format!("isct-companion-auth:{nonce}:"),
                     progress_relay: format!("isct-companion-progress:{nonce}:"),
@@ -520,8 +529,10 @@ impl Inner {
             guide,
             popup_return,
             restore,
+            foreground,
         ) = {
             let mut state = self.state.guard();
+            let foreground = state.browsing == Some(event.page.browser.site);
             let Some(view) = state.views.get_mut(&event.page.browser.site) else {
                 return;
             };
@@ -542,6 +553,10 @@ impl Inner {
             }
             view.navigation = None;
             view.url = safe_loaded.clone();
+            if foreground {
+                view.user_url = Some(safe_loaded.clone());
+                view.background_navigation = false;
+            }
             let relays = (view.auth_relay.clone(), view.progress_relay.clone());
             let suppressed = state.suppress_history.remove(&event.page.browser.site);
             if !suppressed && state.browsing == Some(event.page.browser.site) {
@@ -605,13 +620,16 @@ impl Inner {
                     .then(|| crate::kyomu_guide::script(&state.guide))
                     .flatten(),
                 popup_return,
-                state.restore.clone(),
+                foreground.then(|| state.restore.clone()).flatten(),
+                foreground,
             )
         };
-        let _ = self.events.emit(CoreEvent::SchoolWebUrl {
-            site: event.page.browser.site,
-            url: safe_loaded.clone(),
-        });
+        if foreground {
+            let _ = self.events.emit(CoreEvent::SchoolWebUrl {
+                site: event.page.browser.site,
+                url: safe_loaded.clone(),
+            });
+        }
         if let Some((path, epoch)) = restore {
             self.write_restore(path, epoch, event.page.browser.site, safe_loaded);
         }

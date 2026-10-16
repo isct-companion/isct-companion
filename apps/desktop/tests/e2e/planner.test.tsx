@@ -363,15 +363,15 @@ describe("the course planner", () => {
     ).toEqual({ kind: "commit", key: "room:W9" });
   });
 
-  it("appends official search pages without replacing earlier rows", async () => {
-    const courses = Array.from({ length: 150 }, (_, index) =>
+  it("pages official search results while only mounting the visible rows", async () => {
+    const courses = Array.from({ length: 1000 }, (_, index) =>
       offering(
         String(202600000 + index),
         `CSC.T${index}`,
         `Official course ${index}`,
       ),
     );
-    const cursor = "d80b803a-7694-49db-bd3a-e634d329fb0c";
+    const cursor = "100";
     app = await mountApp(
       {
         revision: freshRevision(),
@@ -391,12 +391,11 @@ describe("the course planner", () => {
             };
           }
           if (command === "catalog_query") {
-            const next = Boolean(args.cursor);
+            const offset = Number(args.cursor ?? 0);
             return {
-              ids: courses
-                .slice(next ? 100 : 0, next ? 150 : 100)
-                .map((row) => row.id),
-              nextCursor: next ? null : cursor,
+              ids: courses.slice(offset, offset + 100).map((row) => row.id),
+              nextCursor:
+                offset + 100 < courses.length ? String(offset + 100) : null,
               truncated: false,
             };
           }
@@ -406,20 +405,31 @@ describe("the course planner", () => {
       { route: paths.timetable() },
     );
     await enablePlanning(app);
-    await settled(() =>
-      expect(app!.host.querySelectorAll(".finderRow")).toHaveLength(100),
-    );
-    await click(buttonByText(app.host, "Load more courses")!);
-    await settled(() =>
-      expect(app!.host.querySelectorAll(".finderRow")).toHaveLength(150),
-    );
+    await settled(() => expect(app!.host.textContent).toContain("100 courses"));
+    for (let loaded = 200; loaded <= 1000; loaded += 100) {
+      await click(buttonByText(app.host, "Load more courses")!);
+      await settled(() =>
+        expect(app!.host.textContent).toContain(`${loaded} courses`),
+      );
+      expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
+    }
     expect(app.host.textContent).toContain("Official course 0");
-    expect(app.host.textContent).toContain("Official course 149");
+    expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
+    expect(app.host.textContent).not.toContain("Official course 999");
+    const scroll = app.host.querySelector<HTMLElement>(".finderResults")!;
+    await act(async () => {
+      scroll.scrollTo({ top: 999 * 96 });
+    });
+    await settled(() =>
+      expect(app!.host.textContent).toContain("Official course 999"),
+    );
+    expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
+    expect(app.host.textContent).not.toContain("Official course 0");
     expect(app.host.textContent).not.toContain("Load more courses");
     const requests = app.core.calls.filter(
       (call) => call.command === "catalog_query",
     );
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(10);
     expect(requests[1].args.cursor).toBe(cursor);
   });
 

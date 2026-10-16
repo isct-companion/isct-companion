@@ -294,6 +294,7 @@ export type AgentConnection =
 export type PullSnapshot = {
   id: string;
   target:
+    | { type: "catalog"; year: number; query: string }
     | { type: "school"; site: "science-lms" | "kyomu"; courseId: number | null }
     | { type: "reference"; kind: string; indexUrl: string; year: number };
   priority: "automatic" | "manual";

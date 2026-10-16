@@ -2378,3 +2378,35 @@ describe("workspace column sizing", () => {
     }
   });
 });
+
+it("reports the active kyomu pull instead of an idle LMS status", async () => {
+  app = await mountShell(shellOptions({ workspace: workspaceFixture() }));
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      {
+        id: "kyomu-active",
+        target: { type: "school", site: "kyomu", courseId: null },
+        state: "queued",
+        priority: "manual",
+        phase: null,
+        blockedBy: null,
+        attempt: 0,
+        waiterCount: 1,
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("教務Web");
+    expect(status.textContent).toContain("Waiting for school refresh");
+    expect(status.textContent).toContain("5%");
+    expect(status.textContent).not.toContain("Ready");
+  });
+  await act(async () => app!.core.emit("pull-state-changed", []));
+  await until(() =>
+    expect(app!.host.querySelector(".lmsStatus")!.textContent).toContain(
+      "Ready",
+    ),
+  );
+});

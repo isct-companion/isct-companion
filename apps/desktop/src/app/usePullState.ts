@@ -45,6 +45,12 @@ export function usePullState() {
     Partial<Record<"science" | "tokyo-tech", string>>
   >({});
   const pulling = lmsProgress !== null;
+  const kyomuPhase =
+    activeKyomu?.state === "blocked"
+      ? `Waiting · ${activeKyomu.blockedBy ?? "school view"}`
+      : activeKyomu?.state === "queued"
+        ? "Waiting for school refresh"
+        : "Preparing your timetable";
   useEffect(() => {
     const offLogin = desktopBridge?.onSchoolLoginStatus?.((event) => {
       setLoginSteps((current) => ({
@@ -116,5 +122,17 @@ export function usePullState() {
     setLmsPhase,
     loginSteps,
     pulling,
+    schoolStatus:
+      kyomuProgress !== null
+        ? { source: "教務Web", phase: t(kyomuPhase), progress: kyomuProgress }
+        : {
+            source: "LMS",
+            phase: t(
+              pulling && lmsPhase === "Ready"
+                ? "Reading enrolled courses"
+                : lmsPhase,
+            ),
+            progress: lmsProgress,
+          },
   };
 }

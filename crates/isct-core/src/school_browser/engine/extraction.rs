@@ -99,46 +99,47 @@ impl SchoolBrowserEngine {
             next_cursor: new_id(),
         };
         tokio::time::timeout(OPEN_TIMEOUT, async {
-            loop {
-                self.wait_until_hidden(context).await?;
-                let lane = self.acquire_pull_lane(context).await?;
-                let result = self
-                    .capture_page(
-                        SchoolSite::Kyomu,
-                        Some(page.clone()),
-                        url,
-                        None,
-                        false,
-                        PAGE_TIMEOUT,
-                        context,
-                    )
-                    .await;
-                drop(lane);
-                match result {
-                    Err(SchoolBrowserError::Preempted) if !context.is_cancelled() => continue,
-                    Err(error) => return Err(error),
-                    Ok(HiddenLoad::SignInRequired) => {
+            // A search is interactive: yield immediately to the person's
+            // Web page rather than occupying the school queue while hidden.
+            if self.0.state.guard().browsing.is_some() {
+                return Err(SchoolBrowserError::Preempted);
+            }
+            let lane = self.acquire_pull_lane(context).await?;
+            let result = self
+                .capture_page(
+                    SchoolSite::Kyomu,
+                    Some(page.clone()),
+                    url,
+                    None,
+                    false,
+                    PAGE_TIMEOUT,
+                    context,
+                )
+                .await;
+            drop(lane);
+            match result {
+                Err(error) => return Err(error),
+                Ok(HiddenLoad::SignInRequired) => {
+                    return Err(SchoolBrowserError::Auth(
+                        "Sign in to 教務Web in Settings to search courses.".into(),
+                    ))
+                }
+                Ok(HiddenLoad::Ready(raw)) => {
+                    let (stage, payload) = parse_kyomu_payload(&raw)
+                        .map_err(|e| SchoolBrowserError::InvalidInput(e.to_string()))?;
+                    if stage != KyomuStage::Ready {
                         return Err(SchoolBrowserError::Auth(
-                            "Sign in to 教務Web in Settings to search courses.".into(),
-                        ))
+                            "Reconnect 教務Web to search courses.".into(),
+                        ));
                     }
-                    Ok(HiddenLoad::Ready(raw)) => {
-                        let (stage, payload) = parse_kyomu_payload(&raw)
-                            .map_err(|e| SchoolBrowserError::InvalidInput(e.to_string()))?;
-                        if stage != KyomuStage::Ready {
-                            return Err(SchoolBrowserError::Auth(
-                                "Reconnect 教務Web to search courses.".into(),
-                            ));
-                        }
-                        return payload
-                            .filter(|p| p.kind == "catalog")
-                            .map(|p| p.data)
-                            .ok_or_else(|| {
-                                SchoolBrowserError::InvalidInput(
-                                    "The official course result is incomplete.".into(),
-                                )
-                            });
-                    }
+                    return payload
+                        .filter(|p| p.kind == "catalog")
+                        .map(|p| p.data)
+                        .ok_or_else(|| {
+                            SchoolBrowserError::InvalidInput(
+                                "The official course result is incomplete.".into(),
+                            )
+                        });
                 }
             }
         })
@@ -261,6 +262,9 @@ impl SchoolBrowserEngine {
             if state.browsing.is_some() {
                 return Err(SchoolBrowserError::Preempted);
             }
+            if let Some(view) = state.views.get_mut(&site) {
+                view.background_navigation = true;
+            }
             state.hidden = Some(HiddenWork {
                 browser,
                 run: run.clone(),
@@ -366,6 +370,9 @@ impl SchoolBrowserEngine {
                 visible: false,
                 catalog_page,
             });
+            if let Some(view) = state.views.get_mut(&site) {
+                view.background_navigation = true;
+            }
             state.hidden = Some(HiddenWork {
                 browser,
                 run: run.clone(),

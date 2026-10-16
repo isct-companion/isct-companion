@@ -444,6 +444,7 @@ export function WorkspaceApp() {
     lmsPhase,
     setLmsPhase,
     loginSteps,
+    schoolStatus,
   } = usePullState();
   const pulling = lmsProgress !== null;
   useCoreLifecycle();
@@ -1689,12 +1690,18 @@ export function WorkspaceApp() {
         </div>
         <div className="lmsStatus" aria-live="polite">
           <div className="lmsStatusLine">
-            <b>LMS</b>
-            <span>{lmsPhase}</span>
-            {pulling && <output>{Math.round(lmsProgress)}%</output>}
+            <b>{schoolStatus.source}</b>
+            <span>{schoolStatus.phase}</span>
+            {schoolStatus.progress !== null && (
+              <output>{Math.round(schoolStatus.progress)}%</output>
+            )}
           </div>
-          {pulling && (
-            <progress aria-label={lmsPhase} max={100} value={lmsProgress} />
+          {schoolStatus.progress !== null && (
+            <progress
+              aria-label={schoolStatus.phase}
+              max={100}
+              value={schoolStatus.progress}
+            />
           )}
         </div>
       </aside>
