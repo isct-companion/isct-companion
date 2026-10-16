@@ -1441,7 +1441,13 @@ local workspace for the fresh-profile check.
    - *Why:* Exercises live ASP.NET paging and session form state in the native
      hidden browser; fixture tests cannot prove the university accepts
      those postbacks. Changing conditions must start a fresh query.
-3. Open one result's syllabus details and one registered course's LMS
+3. Leave 教務Web on a known page, return to Timetable, rapidly switch
+   quarters while search or a school pull is active, then reopen Web.
+   - *Why:* Real native navigation and authenticated postbacks share a browser.
+     Hidden search must not replace the user's Web destination or hold the
+     school queue while Web is visible; native timing is not reproduced by
+     the scripted browser.
+4. Open one result's syllabus details and one registered course's LMS
    materials; refresh LMS and reopen the timetable.
    - *Why:* Real school sessions must support both content destinations without
      a detail refresh or LMS membership changing official enrollment.
@@ -1455,7 +1461,9 @@ browser. Compare the same course code, quarter, time and room in 教務Web.
 
 Fresh profile fields match 教務Web; current enrollment and rooms match
 its timetable. Search appends at most 100 courses per batch without
-duplicates, changes filters on the server, and preserves loaded rows.
+duplicates, changes filters on the server, and preserves loaded results.
+The active school source and progress agree; returning to Web restores
+its foreground page rather than the hidden search destination.
 Syllabus details and LMS materials open for the same course; LMS refresh
 leaves the official timetable intact. No university registration is changed.
 

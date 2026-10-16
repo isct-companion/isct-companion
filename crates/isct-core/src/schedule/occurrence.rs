@@ -329,6 +329,7 @@ fn placements(workspace: &Value) -> impl Iterator<Item = &Value> {
 /// item there. A course running 3Q–4Q is one course (its `termId` is where it
 /// was added) with a row in each quarter.
 pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
+    let clock = teaching_periods(workspace).unwrap_or_default();
     let ids: HashSet<&str> = placements(workspace)
         .filter(|row| text(row, "termId") == Some(term))
         .filter_map(|row| text(row, "courseId"))
@@ -345,6 +346,29 @@ pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
                         .and_then(Value::as_array)
                         .is_none_or(|terms| terms.iter().any(|t| t.as_str() == Some(term)))
                 });
+                // Imported summaries can contain both a full meeting and a
+                // contained slot (5–8 plus 7–8). One course cannot clash with
+                // its own duplicate; retain the covering slot for each day.
+                let mut normalized = Vec::<Value>::new();
+                for meeting in meetings.iter() {
+                    let covers = |a: &Value, b: &Value| {
+                        a["days"] == b["days"]
+                            && a["room"] == b["room"]
+                            && a["termIds"] == b["termIds"]
+                            && meeting_clock(a, &clock)
+                                .ok()
+                                .zip(meeting_clock(b, &clock).ok())
+                                .is_some_and(|((start_a, end_a), (start_b, end_b))| {
+                                    start_a <= start_b && end_a >= end_b
+                                })
+                    };
+                    if normalized.iter().any(|existing| covers(existing, meeting)) {
+                        continue;
+                    }
+                    normalized.retain(|existing| !covers(meeting, existing));
+                    normalized.push(meeting.clone());
+                }
+                *meetings = normalized;
             }
             course
         })

@@ -332,17 +332,15 @@ impl SecretVault for BlockingVault {
 }
 
 fn extraction_relay(script: &str, raw: serde_json::Value) -> Url {
-    let relay = script
-        .split("location.href='")
-        .nth(1)
-        .and_then(|value| value.split("'+btoa").next())
-        .unwrap();
-    let encoded_run = script
-        .split("_isctExtractionRun=")
-        .nth(1)
-        .and_then(|value| value.split(';').next())
-        .unwrap();
-    let run: String = serde_json::from_str(encoded_run).unwrap();
+    let quoted = |key: &str| {
+        script
+            .split(key)
+            .nth(1)
+            .and_then(|value| value.split(';').next())
+            .unwrap()
+    };
+    let relay: String = serde_json::from_str(quoted("const relay = ")).unwrap();
+    let run: String = serde_json::from_str(quoted("const run = ")).unwrap();
     let mut raw = raw;
     raw.as_object_mut()
         .unwrap()
@@ -1848,5 +1846,99 @@ async fn full_lms_pull_updates_content_without_owning_the_timetable() {
     assert!(store.last_import_runs().unwrap()["lms:all"].is_string());
     assert!(!events.0.lock().unwrap().iter().any(|event| matches!(event,
         CoreEvent::SchoolPullProgress(progress) if progress.phase == "timetable")));
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn hidden_catalogue_search_preserves_the_foreground_web_location() {
+    let (engine, browser, events, _) = engine();
+    let original = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/Default.aspx";
+    engine
+        .open(SchoolSite::Kyomu, Some(original.into()))
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse(original).unwrap(),
+    });
+    for attempt in 0..10_000 {
+        if events
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| matches!(event, CoreEvent::SchoolWebUrl { url, .. } if url == original))
+        {
+            break;
+        }
+        settle(attempt).await;
+    }
+    engine.user_browsing(None).unwrap();
+    let search = format!(
+        "https://kyomu0.gakumu.titech.ac.jp{}?_search=True",
+        crate::catalog::KYOMU_SEARCH_PATH
+    );
+    let coordinator = PullCoordinator::default();
+    let request = {
+        let engine = engine.clone();
+        let search = search.clone();
+        tokio::spawn(async move {
+            coordinator
+                .run(
+                    PullTarget::Catalog {
+                        year: 2026,
+                        query: search.clone(),
+                    },
+                    PullOptions::manual(),
+                    move |context| {
+                        let engine = engine.clone();
+                        let search = search.clone();
+                        async move {
+                            engine
+                                .catalog_search(&search, None, &context)
+                                .await
+                                .map_err(Into::into)
+                        }
+                    },
+                )
+                .await
+        })
+    };
+    browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(&search).unwrap(),
+    });
+    let relay = extraction_relay(
+        &browser.extraction_script().await,
+        serde_json::json!({
+            "status":"ok", "kind":"catalog", "sourceUrl":search,
+            "data":{"complete":true,"shape":"course-search","empty":true,"courses":[],"nextCursor":null,"truncated":false}
+        }),
+    );
+    browser.listener().decide_navigation(
+        PageId {
+            browser: id,
+            sequence: 2,
+        },
+        relay,
+        true,
+    );
+    request.await.unwrap().unwrap();
+    assert!(!events.0.lock().unwrap().iter().any(
+        |event| matches!(event, CoreEvent::SchoolWebUrl { url, .. } if url.contains("_search"))
+    ));
+    let reopened = engine.open(SchoolSite::Kyomu, None).await.unwrap();
+    assert_eq!(reopened.url, original);
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), original);
     engine.shutdown().await;
 }

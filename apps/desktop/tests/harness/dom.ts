@@ -44,6 +44,32 @@ export function installWindowGlobals(window: Window & typeof globalThis): void {
   });
   // jsdom leaves scrollIntoView undefined; several views call it on reveal.
   if (window.HTMLElement) {
+    // jsdom has no layout engine. Supply viewport/row geometry while running
+    // the real virtualizer; neither search results nor range selection are mocked.
+    Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("finderResults")
+          ? 600
+          : this.classList.contains("finderRow")
+            ? 96
+            : 0;
+      },
+    });
+    Object.defineProperty(window.HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get() {
+        return this.classList.contains("finderResults") ? 400 : 0;
+      },
+    });
+    window.HTMLElement.prototype.scrollTo ??= function scrollTo(
+      options?: ScrollToOptions | number,
+      y?: number,
+    ) {
+      if (typeof options === "number") this.scrollTop = y ?? 0;
+      else if (typeof options?.top === "number") this.scrollTop = options.top;
+      this.dispatchEvent(new window.Event("scroll"));
+    };
     window.HTMLElement.prototype.scrollIntoView ??=
       function scrollIntoView() {};
   }

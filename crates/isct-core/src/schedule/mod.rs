@@ -580,8 +580,8 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
             .filter_map(|course| course.get("credits").and_then(Value::as_f64))
             .sum()
     });
-    let planned = Term::parse(&courses_term)?;
-    let mut default_finder_keys = vec![if courses_term == current_term {
+    let planned = Term::parse(&term)?;
+    let mut default_finder_keys = vec![if term == current_term {
         "curr".into()
     } else {
         format!("{}Q", planned.quarter)
