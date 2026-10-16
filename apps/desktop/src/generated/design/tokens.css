@@ -24,8 +24,12 @@
   --course-tint-fill: 22%; /** Something that occupies time: a timetable block */
   --course-tint-soft: 10%; /** Emphasis on a row: the current or next class */
   --radius-chip: 6px; /** Deadline chip, timetable block */
-  --radius-control: 8px; /** Buttons, inputs, segmented controls */
-  --radius-surface: 10px; /** Rows, cards, emphasised rows */
-  --radius-panel: 16px; /** Reading pane, sheets */
+  --radius-control: 10px; /** Buttons, inputs, segmented controls */
+  --radius-surface: 12px; /** Rows, cards, emphasised rows */
+  --radius-panel: 20px; /** Reading pane, sheets */
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', system-ui, sans-serif; /** Desktop only; phones use the system font for native Japanese rendering and dynamic sizes */
+  --workspace-bar-height: 42px;
+  --workspace-control-height: 30px;
+  --workspace-gutter: 12px;
+  --workspace-splitter-width: 20px;
 }

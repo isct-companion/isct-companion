@@ -1069,3 +1069,96 @@ checks:
       - scripts/desktop/desktop-release.mjs
       - .github/workflows/desktop-release.yml
     verified: null
+
+  - id: WORKSPACE-NATIVE-RESIZE
+    area: native
+    title: Resize a workspace containing the native school browser
+    persona: narrow-window-keyboard
+    preconditions: |
+      Run the updated signed macOS desktop build with a school account available.
+    steps:
+      - action: |
+          Open a school service in Web, drag the separator in both directions,
+          and move the pointer across the school page before releasing it.
+        reason: |
+          WKWebView is a separate native surface and can intercept the pointer;
+          a DOM splitter test cannot prove that the drag stays captured.
+      - action: |
+          Open an official LMS page in a lecture reader, resize its left outline,
+          then shrink and widen the window across the compact breakpoint.
+        reason: |
+          The native page must follow the actual reader bounds, including the
+          relocated search field and tool panel, without covering either toolbar.
+      - action: |
+          With an official LMS page open, collapse the lecture sidebar, hover
+          Lectures, move into the floating list, then toggle it back to pinned.
+        reason: |
+          Confirms the floating DOM list remains reachable beside the native
+          browser surface, which headless layout tests cannot display.
+    observe: |
+      The native page edges, workspace separator, Web service header and
+      the document tool panel in the lecture reader.
+    expected: |
+      The separator follows the pointer until release. The native page stays
+      inside its content area and both toolbars remain clickable after resizing.
+    why_manual: |
+      Requires a signed native shell and a real WKWebView over authenticated
+      school content; jsdom and the browser preview render only the DOM host.
+    covers:
+      - apps/desktop/src-tauri/src/school_web.rs
+      - apps/desktop/src/components/ResizableWorkspace.tsx
+      - apps/desktop/src/pages/web/WebPage.tsx
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/pages/lectures/lectures.css
+      - apps/desktop/src/features/lms/OfficialLmsView.tsx
+      - apps/desktop/src/features/lms/ReaderPane.tsx
+      - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/components/workspace-chrome.css
+    verified: null
+
+  - id: SCHOOL-ASSIGNMENT-UPLOAD
+    area: school
+    title: Prepare assignment files in the official LMS draft area
+    persona: undergraduate-senior
+    preconditions: |
+      Updated signed desktop bundle, a real LMS account, an open assignment
+      accepting test files, and a workspace with files in submit/.
+    steps:
+      - action: |
+          Choose Prepare in LMS from the assignment workspace. Inspect the
+          right-hand official LMS page without clicking Save or Submit.
+        reason: |
+          Verifies that the injected drag reaches Moodle's authenticated uploader
+          and that assistance stops before the user commits the submission.
+      - action: |
+          Compare every displayed draft filename and size with submit/. Repeat
+          using ZIP, then try a file type the assignment rejects.
+        reason: |
+          Confirms the uploaded data and archive selection, and that Moodle's
+          own restrictions and error UI still govern the upload.
+      - action: |
+          Start from another assignment page, then prepare this assignment.
+          Close and reopen the reader while the official form is visible.
+        reason: |
+          Checks target binding and native navigation: files must only enter
+          the requested assignment, and reopening must not upload a second copy.
+    observe: |
+      The LMS draft file manager, its upload progress/errors, the assignment
+      name/URL and the untouched official Save/Submit controls in the right pane.
+    expected: |
+      Exactly the chosen workspace files appear in the requested assignment's
+      draft. Only user action can save or submit; unsupported uploads show the
+      normal LMS error. Reopening does not duplicate files.
+    why_manual: |
+      Requires real authenticated Moodle uploads and WebKit drag-transfer APIs.
+      Headless tests verify injection and routing but cannot execute the remote
+      uploader, site restrictions or the signed native browser.
+    covers:
+      - crates/isct-core/src/workspaces.rs
+      - crates/isct-core/src/school_browser/policy.rs
+      - crates/isct-core/src/school_browser/engine.rs
+      - crates/isct-core/src/school_browser/submission.rs
+      - crates/isct-core/src/school_browser/assets/assignment-upload.js
+      - apps/desktop/src-tauri/src/workspaces.rs
+      - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
+    verified: null

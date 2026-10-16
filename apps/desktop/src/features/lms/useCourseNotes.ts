@@ -7,13 +7,13 @@ import {
   type CourseFolder,
   type LocalFile,
 } from "./files";
-import type { ViewTab } from "./reading-state";
+import type { OpenedContent } from "./reading-state";
 
 export function useCourseNotes(
   folder: CourseFolder,
   sections: LmsSection[],
   active: boolean,
-  open: (tab: ViewTab) => void,
+  open: (content: OpenedContent) => void,
 ) {
   const [notes, setNotes] = useState<LocalFile[]>([]);
   const [noteError, setNoteError] = useState("");

@@ -260,7 +260,7 @@ describe("school URL sanitisation", () => {
       (match) => match[1],
     );
     expect(identifierKeys).toEqual(["id", "course", "page", "section"]);
-    expect(exactKeys).toEqual(["jwc", "lang", "plang"]);
+    expect(exactKeys).toEqual(["action", "jwc", "lang", "plang"]);
     expect([...identifierKeys, ...exactKeys]).not.toContain("x");
     // Bounds the values must satisfy, and the fragment/query rewrite.
     expect(body).toMatch(/value\.len\(\)\s*<=\s*128/);
@@ -1324,5 +1324,101 @@ describe("reminder log migration", () => {
       { getItem: () => "invalid", removeItem: () => undefined },
     );
     expect(bootstrap).toHaveBeenCalledWith({});
+  });
+});
+
+/* Assignment draft upload: the external Moodle uploader owns the network work. */
+describe("assignment upload injection", () => {
+  function uploadPage(
+    url = "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission",
+    loaded = true,
+  ) {
+    const page = new JSDOM(
+      `<form><div class="fitem"><input name="files_filemanager"><div class="filemanager ${loaded ? "fm-loaded" : "fm-loading"}"><div class="filemanager-container"></div></div></div><button type="submit" id="final-submit">Submit</button></form>`,
+      { url, runScripts: "outside-only" },
+    );
+    loginPages.push(page);
+    const w = page.window;
+    // jsdom has no drag-transfer APIs; retain real File, DOM events and the injected script.
+    w.DataTransfer = class {
+      files: File[] = [];
+      types = ["Files"];
+      items = { add: (file: File) => this.files.push(file) };
+    };
+    w.DragEvent = class extends w.Event {
+      dataTransfer: unknown;
+      constructor(type: string, options: { dataTransfer: unknown }) {
+        super(type, options);
+        this.dataTransfer = options.dataTransfer;
+      }
+    };
+    const drops: File[][] = [];
+    w.document
+      .querySelector(".filemanager-container")!
+      .addEventListener("drop", (event: Event) => {
+        event.preventDefault();
+        drops.push([
+          ...(event as unknown as { dataTransfer: { files: File[] } })
+            .dataTransfer.files,
+        ]);
+      });
+    const submitted = vi.fn((event: Event) => event.preventDefault());
+    w.document.querySelector("form")!.addEventListener("submit", submitted);
+    const start = () =>
+      w.eval(
+        `${readScript("assignment-upload.js")}(${JSON.stringify({ request: "test-upload", url: "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission", files: [{ name: "report.txt", data: Buffer.from("my report").toString("base64") }], messages: { waiting: "waiting", queued: "Review and submit yourself.", failed: "Choose files in LMS." } })})`,
+      );
+    return { w, drops, submitted, start };
+  }
+
+  it("hands files to Moodle once and leaves the final submission to the user", () => {
+    const page = uploadPage();
+    page.start();
+    page.start();
+    expect(page.drops).toHaveLength(1);
+    expect(page.drops[0][0].name).toBe("report.txt");
+    expect(page.drops[0][0].size).toBe(9);
+    expect(page.w.document.querySelector('[role="status"]')?.textContent).toBe(
+      "Review and submit yourself.",
+    );
+    expect(page.submitted).not.toHaveBeenCalled();
+    page.w.document.querySelector("#final-submit")!.click();
+    expect(page.submitted).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=200&action=editsubmission",
+    "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
+    "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&id=200&action=editsubmission",
+    "https://example.com/2025/mod/assign/view.php?id=100&action=editsubmission",
+  ])("never transfers files on an unrequested page: %s", (url) => {
+    const page = uploadPage(url);
+    page.start();
+    expect(page.drops).toHaveLength(0);
+    expect(page.submitted).not.toHaveBeenCalled();
+  });
+
+  it("waits for Moodle initialization and cancels on navigation", async () => {
+    const page = uploadPage(undefined, false);
+    page.start();
+    expect(page.drops).toHaveLength(0);
+    page.w.document.querySelector(".filemanager")!.className =
+      "filemanager fm-loaded";
+    await Promise.resolve();
+    expect(page.drops).toHaveLength(1);
+    const leaving = uploadPage(undefined, false);
+    leaving.start();
+    leaving.w.dispatchEvent(new leaving.w.Event("pagehide"));
+    leaving.w.document.querySelector(".filemanager")!.className =
+      "filemanager fm-loaded";
+    await Promise.resolve();
+    expect(leaving.drops).toHaveLength(0);
+    const changed = uploadPage(undefined, false);
+    changed.start();
+    changed.w.history.replaceState(null, "", "?id=200&action=editsubmission");
+    changed.w.document.querySelector(".filemanager")!.className =
+      "filemanager fm-loaded";
+    await Promise.resolve();
+    expect(changed.drops).toHaveLength(0);
   });
 });

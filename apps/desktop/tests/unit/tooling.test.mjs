@@ -4,6 +4,9 @@
 // the real generators in `scripts/` and `design/` and read committed files
 // through the harness. Plain node: nothing here touches the DOM.
 import path from "node:path";
+import os from "node:os";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 import { readRepoFile, repositoryRoot } from "@tests/harness";
@@ -252,4 +255,77 @@ describe("manual acceptance table", () => {
     }
     expect(sheet).toContain("--result <pass|fail|unreached>");
   });
+});
+
+describe("desktop release publication", () => {
+  it.each([
+    ["v1.0.0", "--prerelease=false", "--latest=true"],
+    ["v1.0.0-rc.4", "--prerelease", "--latest=false"],
+  ])(
+    "publishes %s with the correct release status",
+    (tag, prerelease, latest) => {
+      const workflow = parseYaml(
+        readRepoFile(".github/workflows/desktop-release.yml"),
+      );
+      const script = workflow.jobs.publish.steps.find(
+        (step) => step.name === "Upload complete release as a draft",
+      ).run;
+      const dir = mkdtempSync(path.join(os.tmpdir(), "isct-release-"));
+      try {
+        // GitHub has no offline publication mode. Keep the shipped shell script
+        // real, replacing only the external CLI so this test never publishes.
+        writeFileSync(
+          path.join(dir, "gh"),
+          String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + '\n');
+if (args[0] === 'release' && args[1] === 'view') process.exit(1);
+`,
+          { mode: 0o755 },
+        );
+        const log = path.join(dir, "calls.jsonl");
+        const result = spawnSync("bash", ["-c", script], {
+          cwd: dir,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+            GH_CALL_LOG: log,
+            RELEASE_TAG: tag,
+            GH_REPO: "example/distribution",
+            BUILD_REPO: "example/source",
+            SOURCE_SHA: "abc123",
+            MACOS_SIGNING_STATUS: "signed-notarized",
+            REPLACE_EXISTING: "false",
+          },
+        });
+        expect(result.status, result.stderr).toBe(0);
+        const calls = readFileSync(log, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        const create = calls.find(
+          (args) => args[0] === "release" && args[1] === "create",
+        );
+        const edit = calls.find(
+          (args) => args[0] === "release" && args[1] === "edit",
+        );
+        expect(create).toContain("--draft");
+        expect(create).toContain(prerelease);
+        expect(edit).toContain(prerelease);
+        expect(edit).toContain(latest);
+        expect(edit).toContain("--draft=false");
+        const upload = calls.findIndex(
+          (args) => args[0] === "release" && args[1] === "upload",
+        );
+        expect(upload).toBeLessThan(calls.indexOf(edit));
+        expect(
+          readFileSync(path.join(dir, "release-notes.md"), "utf8"),
+        ).toContain("desktop installers only");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

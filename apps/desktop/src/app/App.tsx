@@ -1,3 +1,5 @@
+import { ResizableWorkspace } from "../components/ResizableWorkspace";
+import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
@@ -209,6 +211,7 @@ const icons: Record<Page, React.ReactElement> = {
 export function WorkspaceApp() {
   useTranslation();
   const formFactor = useFormFactor();
+  const wideHome = useMediaQuery("(min-width: 1001px)");
   const scienceSession = useSchoolSession(desktopBridge, "science");
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
   const store = useWorkspace((state) => state);
@@ -242,6 +245,7 @@ export function WorkspaceApp() {
         })),
       }
     : undefined;
+  const [lectureRailHovered, setLectureRailHovered] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -911,6 +915,7 @@ export function WorkspaceApp() {
     );
   const lecturesPage = (
     <LectureDesk
+      railHovered={lectureRailHovered}
       data={data}
       term={todayTerm}
       entry={
@@ -944,7 +949,7 @@ export function WorkspaceApp() {
           .then(() => closeTo(paths.lectures()))
           .catch(notify.error)
       }
-      renderWorkspace={(entry, active) => {
+      renderWorkspace={(entry, active, sidebarToggle) => {
         const course = data.courses.find(
           (c) => c.id === entry.courseId && !c.deletedAt,
         );
@@ -963,6 +968,7 @@ export function WorkspaceApp() {
               entry={entry}
               active={active}
               navigationProvided
+              headerStart={sidebarToggle}
               openOfficial={
                 formFactor === "mobile"
                   ? (url) => openWeb(url, "lectures")
@@ -1061,196 +1067,209 @@ export function WorkspaceApp() {
           </UiButton>
         </aside>
       )}
-      <div className="homeDay">
-        <Today
-          active={page === "home"}
-          data={data}
-          term={todayTerm}
-          open={(courseId, _tab, context) => openLecture(courseId, context)}
-          openEvent={(event) =>
-            !readOnly && setEventEditor({ event, term: event.termId })
-          }
-          openPlan={(plan) => !readOnly && setPlanEditor(plan)}
-          openTask={(assignmentId) => {
-            const assignment = data.assignments.find(
-              (item) => item.id === assignmentId,
-            );
-            if (assignment) openLecture(assignment.courseId, { assignmentId });
-          }}
-          pinAssignment={(assignmentId) =>
-            void academicIntent({
-              kind: "setAssignmentMark",
-              assignmentId,
-              pinned: !data.assignments.find((item) => item.id === assignmentId)
-                ?.pinned,
-            })
-          }
-          hideAssignment={(assignmentId) =>
-            void academicIntent({
-              kind: "setAssignmentMark",
-              assignmentId,
-              hidden: true,
-            })
-          }
-          openSchedule={() => void navigate(paths.home("week"))}
-        />
-      </div>
-      <div className="homeWeek">
-        <UiButton
-          className="textButton homeBack"
-          onClick={() => closeTo(paths.home())}
-        >
-          ‹ {t("Today")}
-        </UiButton>
-        <Courses
-          compact={formFactor === "mobile"}
-          editing={planning}
-          onEditingChange={(value) => {
-            setEditMode(value);
-            setOfferingPanel(null);
-            setPanelCourseId(null);
-          }}
-          openPlan={(plan) => !readOnly && setPlanEditor(plan)}
-          newPlan={() => !readOnly && setPlanEditor("new")}
-          side={
-            <CourseFinder
-              key={courseTerm}
-              year={Number(courseTerm.slice(0, 4))}
-              term={courseTerm}
-              summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
-              language={contentLanguage(data.settings)}
-              keys={finderKeys}
-              edit={finderEdits.run}
-              replaceKeys={finderEdits.replace}
-              openCourse={(course) => {
-                setPanelCourseId(null);
-                setOfferingPanel(course);
-              }}
-              activeId={offeringPanel?.id}
-              readOnly={readOnly}
-              add={addFinderCourses}
-              undo={(rows) =>
-                academicIntentOrThrow({
-                  kind: "undoCatalogCourses",
-                  termId: courseTerm,
-                  offeringIds: rows.map((row) => row.id),
-                })
-              }
-              manual={
-                readOnly
-                  ? undefined
-                  : () => setCourseEditor({ term: courseTerm })
-              }
-              query={desktopBridge?.catalogQuery}
-              syncDetails={desktopBridge?.catalogSyncOfferings}
-            />
-          }
-          leftPanel={
-            offeringPanel && (
-              <OfferingPanel
-                key={offeringPanel.id}
-                course={offeringPanel}
-                language={contentLanguage(data.settings)}
-                placed={finderPlaced.has(offeringPanel.code)}
-                replaces={(
-                  finderView.value?.replacements[offeringPanel.id] ?? []
-                ).map(
-                  (id) =>
-                    data.courses.find((course) => course.id === id)?.title ??
-                    "",
-                )}
-                readOnly={readOnly}
-                close={() => setOfferingPanel(null)}
-                add={() => {
-                  void addFinderCourses([offeringPanel]).catch(notify.error);
-                }}
-              />
-            )
-          }
-          panel={
-            panelCourse && (
-              <CoursePanel
-                key={panelCourse.id}
-                course={panelCourse}
-                data={data}
-                readOnly={readOnly || !planning}
-                close={() => setPanelCourseId(null)}
-                remove={() => void removeFromTimetable(panelCourse)}
-                editIntensive={() => setIntensiveCourseId(panelCourse.id)}
-                lmsUrl={lmsUrlFor(panelCourse)}
-                openWeb={(url) => openWeb(url)}
-                fetchLms={
-                  desktopBridge?.pullSchool ? () => void fetchLms() : undefined
-                }
-                progress={lmsProgress}
-              />
-            )
-          }
-          data={data}
-          currentTerm={currentTerm}
-          readOnly={readOnly}
-          mutate={async (intent) => {
-            try {
-              return await academicIntentOrThrow(intent);
-            } catch (error) {
-              notify.error(error);
-              throw error;
+      <ResizableWorkspace
+        id="home"
+        enabled={wideHome && !planning}
+        firstSize={360}
+        firstMin={240}
+        firstMax="50%"
+        secondMin="45%"
+      >
+        <div className="homeDay">
+          <Today
+            active={page === "home"}
+            data={data}
+            term={todayTerm}
+            open={(courseId, _tab, context) => openLecture(courseId, context)}
+            openEvent={(event) =>
+              !readOnly && setEventEditor({ event, term: event.termId })
             }
-          }}
-          open={(courseId) => {
-            if (planning) {
+            openPlan={(plan) => !readOnly && setPlanEditor(plan)}
+            openTask={(assignmentId) => {
+              const assignment = data.assignments.find(
+                (item) => item.id === assignmentId,
+              );
+              if (assignment)
+                openLecture(assignment.courseId, { assignmentId });
+            }}
+            pinAssignment={(assignmentId) =>
+              void academicIntent({
+                kind: "setAssignmentMark",
+                assignmentId,
+                pinned: !data.assignments.find(
+                  (item) => item.id === assignmentId,
+                )?.pinned,
+              })
+            }
+            hideAssignment={(assignmentId) =>
+              void academicIntent({
+                kind: "setAssignmentMark",
+                assignmentId,
+                hidden: true,
+              })
+            }
+            openSchedule={() => void navigate(paths.home("week"))}
+          />
+        </div>
+        <div className="homeWeek">
+          <UiButton
+            className="textButton homeBack"
+            onClick={() => closeTo(paths.home())}
+          >
+            ‹ {t("Today")}
+          </UiButton>
+          <Courses
+            compact={formFactor === "mobile"}
+            editing={planning}
+            onEditingChange={(value) => {
+              setEditMode(value);
               setOfferingPanel(null);
-              setPanelCourseId(courseId);
-            } else openLecture(courseId);
-          }}
-          openEvent={(event, term) =>
-            !readOnly && setEventEditor({ event, term })
-          }
-          onSlot={toggleFinderSlot}
-          activeSlots={finderSlots}
-          onIntensive={(append) => pickFinderTime("集中", append)}
-          intensiveActive={finderKeys.includes("集中")}
-          addTerm={() => setTermDialog(true)}
-          pullLms={
-            desktopBridge?.pullSchool && !readOnly
-              ? (scope) => void pullLms(scope)
-              : undefined
-          }
-          pullProgress={lmsProgress}
-          register={
-            desktopBridge?.setKyomuGuide
-              ? (term) => void openRegistration(term)
-              : undefined
-          }
-          academic={
-            <AcademicSummary
-              summaries={data.gpaSummary}
-              termCredits={termCredits}
-              availability={schoolRecords?.pageAvailability?.["kyomu:gpa"]}
-              progress={kyomuProgress ?? (pulling ? 0 : null)}
-              refresh={
-                desktopBridge?.pullSchool
-                  ? () => void refreshKyomu()
-                  : undefined
+              setPanelCourseId(null);
+            }}
+            openPlan={(plan) => !readOnly && setPlanEditor(plan)}
+            newPlan={() => !readOnly && setPlanEditor("new")}
+            side={
+              <CourseFinder
+                key={courseTerm}
+                year={Number(courseTerm.slice(0, 4))}
+                term={courseTerm}
+                summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
+                language={contentLanguage(data.settings)}
+                keys={finderKeys}
+                edit={finderEdits.run}
+                replaceKeys={finderEdits.replace}
+                openCourse={(course) => {
+                  setPanelCourseId(null);
+                  setOfferingPanel(course);
+                }}
+                activeId={offeringPanel?.id}
+                readOnly={readOnly}
+                add={addFinderCourses}
+                undo={(rows) =>
+                  academicIntentOrThrow({
+                    kind: "undoCatalogCourses",
+                    termId: courseTerm,
+                    offeringIds: rows.map((row) => row.id),
+                  })
+                }
+                manual={
+                  readOnly
+                    ? undefined
+                    : () => setCourseEditor({ term: courseTerm })
+                }
+                query={desktopBridge?.catalogQuery}
+                syncDetails={desktopBridge?.catalogSyncOfferings}
+              />
+            }
+            leftPanel={
+              offeringPanel && (
+                <OfferingPanel
+                  key={offeringPanel.id}
+                  course={offeringPanel}
+                  language={contentLanguage(data.settings)}
+                  placed={finderPlaced.has(offeringPanel.code)}
+                  replaces={(
+                    finderView.value?.replacements[offeringPanel.id] ?? []
+                  ).map(
+                    (id) =>
+                      data.courses.find((course) => course.id === id)?.title ??
+                      "",
+                  )}
+                  readOnly={readOnly}
+                  close={() => setOfferingPanel(null)}
+                  add={() => {
+                    void addFinderCourses([offeringPanel]).catch(notify.error);
+                  }}
+                />
+              )
+            }
+            panel={
+              panelCourse && (
+                <CoursePanel
+                  key={panelCourse.id}
+                  course={panelCourse}
+                  data={data}
+                  readOnly={readOnly || !planning}
+                  close={() => setPanelCourseId(null)}
+                  remove={() => void removeFromTimetable(panelCourse)}
+                  editIntensive={() => setIntensiveCourseId(panelCourse.id)}
+                  lmsUrl={lmsUrlFor(panelCourse)}
+                  openWeb={(url) => openWeb(url)}
+                  fetchLms={
+                    desktopBridge?.pullSchool
+                      ? () => void fetchLms()
+                      : undefined
+                  }
+                  progress={lmsProgress}
+                />
+              )
+            }
+            data={data}
+            currentTerm={currentTerm}
+            readOnly={readOnly}
+            mutate={async (intent) => {
+              try {
+                return await academicIntentOrThrow(intent);
+              } catch (error) {
+                notify.error(error);
+                throw error;
               }
-              openOfficial={() => openWeb(KYOMU_GPA)}
-            />
-          }
-          exportIcs={(term, scope = "courses") =>
-            saveExportFile(
-              `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
-              () =>
-                scheduleQuery<string>({
-                  kind: "quarterIcs",
-                  term,
-                  scope,
-                  generatedAt: new Date().toISOString(),
-                }),
-              notify.info,
-            )
-          }
-        />
-      </div>
+            }}
+            open={(courseId) => {
+              if (planning) {
+                setOfferingPanel(null);
+                setPanelCourseId(courseId);
+              } else openLecture(courseId);
+            }}
+            openEvent={(event, term) =>
+              !readOnly && setEventEditor({ event, term })
+            }
+            onSlot={toggleFinderSlot}
+            activeSlots={finderSlots}
+            onIntensive={(append) => pickFinderTime("集中", append)}
+            intensiveActive={finderKeys.includes("集中")}
+            addTerm={() => setTermDialog(true)}
+            pullLms={
+              desktopBridge?.pullSchool && !readOnly
+                ? (scope) => void pullLms(scope)
+                : undefined
+            }
+            pullProgress={lmsProgress}
+            register={
+              desktopBridge?.setKyomuGuide
+                ? (term) => void openRegistration(term)
+                : undefined
+            }
+            academic={
+              <AcademicSummary
+                summaries={data.gpaSummary}
+                termCredits={termCredits}
+                availability={schoolRecords?.pageAvailability?.["kyomu:gpa"]}
+                progress={kyomuProgress ?? (pulling ? 0 : null)}
+                refresh={
+                  desktopBridge?.pullSchool
+                    ? () => void refreshKyomu()
+                    : undefined
+                }
+                openOfficial={() => openWeb(KYOMU_GPA)}
+              />
+            }
+            exportIcs={(term, scope = "courses") =>
+              saveExportFile(
+                `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
+                () =>
+                  scheduleQuery<string>({
+                    kind: "quarterIcs",
+                    term,
+                    scope,
+                    generatedAt: new Date().toISOString(),
+                  }),
+                notify.info,
+              )
+            }
+          />
+        </div>
+      </ResizableWorkspace>
     </div>
   );
   const webPage = (
@@ -1629,6 +1648,22 @@ export function WorkspaceApp() {
               className={page === p ? "active" : ""}
               onClick={() => navigatePage(p)}
               key={p}
+              onPointerEnter={
+                p === "lectures" ? () => setLectureRailHovered(true) : undefined
+              }
+              onPointerLeave={
+                p === "lectures"
+                  ? () => setLectureRailHovered(false)
+                  : undefined
+              }
+              onFocus={
+                p === "lectures" ? () => setLectureRailHovered(true) : undefined
+              }
+              onBlur={
+                p === "lectures"
+                  ? () => setLectureRailHovered(false)
+                  : undefined
+              }
               title={`${navigation[p]} (⌘${i + 1})`}
             >
               {icons[p]}

@@ -567,7 +567,6 @@ export type Settings = {
   textSize?: "small" | "medium" | "large";
   restoreSchoolPage?: boolean;
   activeSchoolSite?: string;
-  schoolServiceWidth?: number;
   schoolWebZoom?: number;
   showGrades?: boolean;
   siteConsents?: SiteConsents;
@@ -1536,7 +1535,6 @@ export const EMPTY_WORKSPACE: Workspace = {
       localPermission: "default",
     },
     restoreSchoolPage: false,
-    schoolServiceWidth: 168,
     schoolWebZoom: 1,
     showGrades: false,
     siteConsents: {

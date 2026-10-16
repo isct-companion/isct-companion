@@ -2,11 +2,15 @@ mod assets;
 mod engine;
 mod policy;
 mod port;
+#[cfg(feature = "desktop-workspaces")]
+mod submission;
 
 pub use assets::{ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN};
 pub use engine::SchoolBrowserEngine;
 pub use policy::{is_login_url, sanitize_school_url, SCHOOL_HOSTS};
 pub use port::*;
+#[cfg(feature = "desktop-workspaces")]
+pub use submission::{SubmissionError, SubmissionMessages};
 
 use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};
 use serde::{Deserialize, Serialize};

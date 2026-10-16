@@ -166,7 +166,6 @@ fn initial_workspace_value(date: chrono::NaiveDate, device_id: &str, updated_at:
         &mut workspace["settings"],
         json!({
             "restoreSchoolPage": false,
-            "schoolServiceWidth": 168,
             "schoolWebZoom": 1,
             "showGrades": false,
             "siteConsents": {"portal": false, "lms": false, "syllabus": false},

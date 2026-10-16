@@ -1,3 +1,4 @@
+import { ReaderTools } from "./ReaderPane";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
@@ -228,7 +229,7 @@ export function PdfDocument({ src, title, fileToolbar }: { src: string; title: s
     finally { if (task === searchTask.current) setFinding(false); }
   }
   return <div className="lmsPdfReader">
-    <div className="lmsPdfHeader">
+    <ReaderTools><div className="lmsPdfHeader">
     {fileToolbar}
     <div className="lmsPdfControls" role="toolbar" aria-label="PDF tools">
       <div className="lmsPdfPagination"><input aria-label={t("Page")} type="number" min="1" max={pdf?.numPages || 1} value={pageInput} onChange={e => setPageInput(e.target.value)} onBlur={goToPage} onKeyDown={e => { if (e.key === "Enter") goToPage(); }} /><span>/ {pdf?.numPages || "—"}</span></div>
@@ -236,6 +237,7 @@ export function PdfDocument({ src, title, fileToolbar }: { src: string; title: s
       <button className="lmsPdfFindToggle" aria-label={t("Find in document")} aria-expanded={searchOpen} onClick={() => setSearchOpen(value => !value)}>⌕</button>
     </div>
     </div>
+    </ReaderTools>
     {searchOpen && <form className="lmsPdfSearch" role="search" onSubmit={event => { event.preventDefault(); void findNext(); }}><input aria-label={t("Find in document")} placeholder={t("Find in document")} value={search} onChange={e => { searchTask.current++; setFinding(false); setSearch(e.target.value); setSearchStatus(""); }} /><span role="status">{searchStatus}</span><button disabled={finding || !pdf || !search.trim()}>{t(finding ? "Searching…" : "Find next")}</button><button type="button" aria-label={t("Close search")} onClick={() => setSearchOpen(false)}>×</button></form>}
     <div className="lmsPdfDocument" ref={host} aria-label={title}>
       <div className="lmsPdfPages" style={{ width: `${zoom * 100}%` }}>

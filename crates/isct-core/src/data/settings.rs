@@ -20,7 +20,6 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "textSize": settings.get("textSize"),
         "restoreSchoolPage": settings.get("restoreSchoolPage"),
         "activeSchoolSite": settings.get("activeSchoolSite"),
-        "schoolServiceWidth": settings.get("schoolServiceWidth"),
         "schoolWebZoom": settings.get("schoolWebZoom"),
         "showGrades": settings.get("showGrades"),
         "siteConsents": settings.get("siteConsents"),

@@ -1,3 +1,4 @@
+import { ReaderTools } from "./ReaderPane";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { readNote, saveNote, moveNote, type CourseFolder } from "./files";
@@ -176,7 +177,7 @@ export function NoteEditor({
   };
   return (
     <div className="lmsNoteEditor">
-      <div className="lmsSourceBar">
+      <ReaderTools><div className="lmsSourceBar">
         <span>{t("Local note · stored only on this device")}</span>
         <span role="status">{t(status)}</span>
         <button
@@ -190,6 +191,7 @@ export function NoteEditor({
         </button>
         {onDeleted && <button type="button" disabled={deleting || text === undefined} onClick={() => void remove()}>{t(deleting ? "Deleting…" : "Delete note")}</button>}
       </div>
+      </ReaderTools>
       {text !== undefined && (
         <Suspense fallback={<p>{t("Loading editor…")}</p>}>
           <MarkdownDocument

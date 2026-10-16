@@ -12,6 +12,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+pub const MAX_SUBMISSION_FILES: usize = 32;
+pub const MAX_SUBMISSION_BYTES: usize = 20 * 1024 * 1024;
+
 const META: &str = ".workspace.json";
 const SUBMIT_DIR: &str = "submit";
 const BRIEF: &str = "ASSIGNMENT.md";
@@ -58,6 +61,17 @@ pub struct WorkspaceInfo {
     pub submit_files: Vec<String>,
     pub zip: bool,
     pub zip_name: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SubmissionFile {
+    pub name: String,
+    pub data: String,
+}
+
+pub struct PreparedUpload {
+    pub info: WorkspaceInfo,
+    pub files: Vec<SubmissionFile>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -191,6 +205,67 @@ impl Workspaces {
         Ok(PreparedSubmission {
             info: current,
             target,
+        })
+    }
+
+    /// Read only the files explicitly placed in this assignment's submission area.
+    pub fn prepare_upload(
+        &self,
+        path: &str,
+        assignment: &str,
+    ) -> Result<PreparedUpload, WorkspaceError> {
+        use base64::Engine;
+        let (_, meta) = self.workspace_dir(path)?;
+        if meta.assignment != assignment {
+            return Err(WorkspaceError::Input(
+                "This workspace belongs to a different assignment.".into(),
+            ));
+        }
+        let prepared = self.prepare(path)?;
+        let paths = match prepared.target {
+            SubmissionTarget::Archive(path) => vec![path],
+            SubmissionTarget::Folder(path) => prepared
+                .info
+                .submit_files
+                .iter()
+                .map(|name| path.join(name))
+                .collect(),
+        };
+        if paths.len() > MAX_SUBMISSION_FILES {
+            return Err(WorkspaceError::Input(
+                "Upload up to 32 files, or use ZIP.".into(),
+            ));
+        }
+        let mut total = 0;
+        let mut files = Vec::new();
+        for path in paths {
+            if fs::symlink_metadata(&path).map_err(storage_error)?.is_dir() {
+                return Err(WorkspaceError::Input("Use ZIP to upload folders.".into()));
+            }
+            let path = storage::stored_file(&self.root, &path.to_string_lossy())?;
+            let mut bytes = Vec::new();
+            fs::File::open(&path)
+                .map_err(storage_error)?
+                .take(MAX_SUBMISSION_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(storage_error)?;
+            total += bytes.len();
+            if total > MAX_SUBMISSION_BYTES {
+                return Err(WorkspaceError::Input("Upload assistance supports at most 20 MiB. Use the LMS file picker for larger files.".into()));
+            }
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| WorkspaceError::Input("Invalid submission file name.".into()))?
+                .to_owned();
+            files.push(SubmissionFile {
+                name,
+                data: base64::engine::general_purpose::STANDARD.encode(bytes),
+            });
+        }
+        Ok(PreparedUpload {
+            info: prepared.info,
+            files,
         })
     }
 

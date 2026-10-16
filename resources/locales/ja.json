@@ -1,4 +1,5 @@
 {
+  "Toggle sidebar": "サイドバーを切り替え",
   "Today": "今日",
   "Courses": "授業",
   "Web": "ウェブ",
@@ -876,5 +877,17 @@
   "Connect your school accounts": "学校アカウントを接続して始めましょう",
   "Connect school accounts": "学校アカウントを接続",
   "Connect Science Tokyo for LMS courses and assignments, and Tokyo Tech for registration and grades. Your first full LMS sync builds your timetable automatically.": "Science Tokyo を接続すると LMS の授業と課題を、Tokyo Tech を接続すると履修登録と成績を取得できます。初回の LMS 全体同期で時間割が自動的に作成されます。",
-  "Preparing your timetable": "時間割を作成中"
+  "Preparing your timetable": "時間割を作成中",
+  "Resize workspace": "ワークスペースの幅を調整",
+  "Drag to resize · Double-click to reset": "ドラッグで幅を調整 · ダブルクリックでリセット",
+  "Markdown tools": "Markdown ツール",
+  "Bold": "太字",
+  "Italic": "斜体",
+  "Inline code": "インラインコード",
+  "Bullet list": "箇条書き",
+  "Preparing your LMS upload…": "LMS アップロードを準備中…",
+  "Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself.": "ファイルをアップロード領域に送りました。LMS の処理完了後、ファイルを確認してご自身で提出してください。",
+  "The upload area is not available. Choose the files in LMS.": "アップロード領域を利用できません。LMS でファイルを選択してください。",
+  "Files upload to the LMS draft. Review and submit in LMS.": "ファイルは LMS の下書きにアップロードされます。LMS で確認して提出してください。",
+  "Prepare in LMS": "LMS で提出を準備"
 }

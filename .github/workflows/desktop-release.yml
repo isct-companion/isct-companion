@@ -255,15 +255,17 @@ jobs:
         run: |
           set -euo pipefail
           cat > release-notes.md <<'NOTES'
-          Desktop preview for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
+          IsctCompanion 1.0 desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
 
-          RC3 adds study-stage history for undergraduate, master's, doctoral and transfer students. Course eligibility now uses the profile for the planned term, with shared validation for desktop and MCP, class-number suffixes, multi-quarter additions and clear paste feedback.
+          - Schedule and ICS export share one calendar calculation, including teaching-day replacements, holidays and configurable class times.
+          - First sign-in can pull the full LMS data and populate the current quarter's timetable.
+          - Resizable course workspaces include a collapsible lecture sidebar, floating course list and document-specific tool panels.
+          - Assignment workspaces can prepare files or a ZIP in the official LMS draft area. Review the upload and click Save/Submit yourself in LMS.
+          - Academic profiles support study-stage history, term-specific eligibility and quarter-start overrides.
 
-          It also removes redundant workspace reloads while preserving updates from other clients, protects study history during calendar edits and backup restoration, and fixes native SDK cancellation coverage. Existing profiles remain compatible; add your study stages in Settings > Study to enable identity-specific checks.
+          This 1.0 release includes desktop installers only. Mobile 1.0 will be published separately when ready.
 
-          Desktop MCP uses the local HTTP server. Existing workspace data is preserved; OCR stays optional on supported architectures. This release contains desktop installers only.
-
-          Download the installer for your architecture. Intel Mac builds currently do not include campus-card OCR. Build success does not replace testing on each supported operating system.
+          Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.
 
           Read the license documents bundled with the app before installing. Third-party notices are included in the app.
           NOTES
@@ -271,7 +273,12 @@ jobs:
           if [[ "$MACOS_SIGNING_STATUS" == signed-notarized ]]; then
             echo 'Mac installers are signed with Developer ID and notarized by Apple. The Windows installer is unsigned.' >> release-notes.md
           else
-            echo 'These preview installers are unsigned; Mac installers are not notarized. Operating-system security prompts may appear.' >> release-notes.md
+            echo 'These installers are unsigned; Mac installers are not notarized. Operating-system security prompts may appear.' >> release-notes.md
+          fi
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            release_flags=(--prerelease --latest=false)
+          else
+            release_flags=(--prerelease=false --latest=true)
           fi
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > draft-state.txt 2>/dev/null; then
             [[ "$(cat draft-state.txt)" == true || "$REPLACE_EXISTING" == true ]] || { echo 'A published release exists; enable replace_existing or use a new version.'; exit 1; }
@@ -282,7 +289,7 @@ jobs:
             if ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
               tag_args=(--target "$SOURCE_SHA")
             fi
-            gh release create "$RELEASE_TAG" "${tag_args[@]}" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft --prerelease
+            gh release create "$RELEASE_TAG" "${tag_args[@]}" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft "${release_flags[0]}"
           fi
           gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe --clobber
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          gh release edit "$RELEASE_TAG" --draft=false "${release_flags[@]}"

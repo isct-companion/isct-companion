@@ -55,8 +55,9 @@ For the separate distribution repository:
 All desktop builds must succeed before publication. Only `.dmg` and `.exe`
 installers are uploaded as Release assets. Native mobile release pipelines
 will be introduced with the SwiftUI and Compose apps.
-The job creates a draft, uploads the complete set, then publishes it as a
-prerelease. An existing published version is protected by default. An explicit
+The job creates a draft, uploads the complete set, then publishes it. Versions
+with a prerelease suffix remain prereleases; stable versions such as `1.0.0`
+are marked Latest. An existing published version is protected by default. An explicit
 manual dispatch with `replace_existing=true` can refresh that version's assets.
 New source-repository release tags point at the verified build commit. Existing
 tags are preserved, and release notes record the exact source build commit.

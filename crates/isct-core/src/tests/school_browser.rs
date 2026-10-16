@@ -210,6 +210,78 @@ fn engine() -> (
     engine_with_auth(Arc::new(SchoolAuthService::new(EmptyVault)))
 }
 
+#[cfg(feature = "desktop-workspaces")]
+#[tokio::test]
+async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinations() {
+    use crate::workspaces::SubmissionFile;
+    let (engine, browser, _, _) = engine();
+    let files = || {
+        vec![SubmissionFile {
+            name: "report.txt".into(),
+            data: "bXkgcmVwb3J0".into(),
+        }]
+    };
+    let messages = || SubmissionMessages {
+        waiting: "waiting".into(),
+        queued: "queued".into(),
+        failed: "failed".into(),
+    };
+    for invalid in [
+        "https://example.com/mod/assign/view.php?id=100",
+        "http://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
+        "https://lms.s.isct.ac.jp/2025/course/view.php?id=100",
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&id=200",
+    ] {
+        assert!(engine
+            .prepare_submission(invalid, files(), messages())
+            .is_err());
+    }
+    let target = engine
+        .prepare_submission(
+            "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
+            files(),
+            messages(),
+        )
+        .unwrap();
+    assert_eq!(
+        target,
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission"
+    );
+    engine
+        .open(SchoolSite::ScienceLms, Some(target.clone()))
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    // Follow the URL actually sent to the native browser, not a synthetic target.
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), target);
+    engine.navigate(SchoolSite::ScienceLms, &target).unwrap();
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), target);
+    let count_uploads = || {
+        browser.commands.lock().unwrap().iter().filter(|command| matches!(&command.command, BrowserAction::Eval(script) if script.contains("__isctAssignmentUpload"))).count()
+    };
+    let listener = browser.listener();
+    for (sequence, url) in [
+        (
+            1,
+            "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=200&action=editsubmission",
+        ),
+        (2, target.as_str()),
+        (3, target.as_str()),
+    ] {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence,
+            },
+            cause: None,
+            url: Url::parse(url).unwrap(),
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(count_uploads(), if sequence == 1 { 0 } else { 1 });
+    }
+    engine.shutdown().await;
+}
+
 fn engine_with_auth(
     auth: Arc<SchoolAuthService>,
 ) -> (

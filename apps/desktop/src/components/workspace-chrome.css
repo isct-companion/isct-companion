@@ -1,0 +1,134 @@
+/* One visual foundation for embedded web pages and course readers. */
+.workspacePane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-2);
+  container-type: inline-size;
+  container-name: workspace;
+}
+.workspaceTabStrip {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: var(--workspace-bar-height);
+  padding: 6px 6px 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-3);
+}
+.workspaceToolPanel {
+  display: flex;
+  align-items: flex-start;
+  flex: 0 0 auto;
+  gap: 8px;
+  min-width: 0;
+  min-height: var(--workspace-bar-height);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-3);
+}
+.lmsReaderTitle {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.lmsReaderToolSlot {
+  flex: 1;
+  min-width: 0;
+}
+.lmsReaderToolSlot:empty {
+  display: none;
+}
+.lmsReaderTools:has(> .lmsReaderToolSlot:not(:empty)) > .lmsReaderTitle {
+  display: none;
+}
+.lmsReaderToolSlot .lmsPdfHeader,
+.lmsReaderToolSlot .lmsSourceBar {
+  position: static;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.lmsReaderToolSlot .lmsFileAddress {
+  flex: 1 1 100%;
+}
+.lmsReaderToolSlot .lmsPdfHeader {
+  gap: 8px 12px;
+}
+.lmsReaderToolSlot .lmsFileToolbar {
+  flex: 1 1 220px;
+}
+.lmsReaderToolSlot .lmsPdfControls {
+  margin-left: auto;
+}
+.lmsMarkdownTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+}
+.lmsMarkdownTools button {
+  min-width: 30px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+}
+.lmsMarkdownTools button:hover {
+  background: var(--accent-soft);
+}
+.workspaceCurrentTab {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 80%;
+  min-height: var(--workspace-control-height);
+  padding: 0 var(--workspace-gutter);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  background: var(--surface-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 550;
+}
+.webWorkspace .webToolbar {
+  flex: 0 0 auto;
+  min-height: var(--workspace-bar-height);
+  padding: 4px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+.webWorkspace .webAddress {
+  min-height: var(--workspace-control-height);
+  padding-left: 8px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.servicesBody .webWorkspace .webHost {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+}
+@container workspace (max-width: 520px) {
+  .webToolbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .lmsFileToolbar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+}

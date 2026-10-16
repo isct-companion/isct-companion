@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 23 checks must be re-run before the next release.**
+**7 of 25 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**15 checks have never been run or could not be run:**
+**17 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -44,6 +44,8 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `RELEASE-INSTALL` — never verified
+- `WORKSPACE-NATIVE-RESIZE` — never verified
+- `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
 
 ## Status
 
@@ -72,6 +74,8 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
+| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
+| `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 
 ## Personas
 
@@ -1237,5 +1241,114 @@ runtime compatibility.
 
 - `scripts/desktop/desktop-release.mjs`
 - `.github/workflows/desktop-release.yml`
+
+**Last recorded** never run
+
+### Resize a workspace containing the native school browser (`WORKSPACE-NATIVE-RESIZE`)
+
+**Area** native · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Run the updated signed macOS desktop build with a school account available.
+
+**Steps**
+
+1. Open a school service in Web, drag the separator in both directions,
+   and move the pointer across the school page before releasing it.
+   - *Why:* WKWebView is a separate native surface and can intercept the pointer;
+     a DOM splitter test cannot prove that the drag stays captured.
+2. Open an official LMS page in a lecture reader, resize its left outline,
+   then shrink and widen the window across the compact breakpoint.
+   - *Why:* The native page must follow the actual reader bounds, including the
+     relocated search field and tool panel, without covering either toolbar.
+3. With an official LMS page open, collapse the lecture sidebar, hover
+   Lectures, move into the floating list, then toggle it back to pinned.
+   - *Why:* Confirms the floating DOM list remains reachable beside the native
+     browser surface, which headless layout tests cannot display.
+
+**Where to look**
+
+The native page edges, workspace separator, Web service header and
+the document tool panel in the lecture reader.
+
+**Expected**
+
+The separator follows the pointer until release. The native page stays
+inside its content area and both toolbars remain clickable after resizing.
+
+**Why this is manual**
+
+Requires a signed native shell and a real WKWebView over authenticated
+school content; jsdom and the browser preview render only the DOM host.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src/components/ResizableWorkspace.tsx`
+- `apps/desktop/src/pages/web/WebPage.tsx`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/pages/lectures/lectures.css`
+- `apps/desktop/src/features/lms/OfficialLmsView.tsx`
+- `apps/desktop/src/features/lms/ReaderPane.tsx`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/components/workspace-chrome.css`
+
+**Last recorded** never run
+
+### Prepare assignment files in the official LMS draft area (`SCHOOL-ASSIGNMENT-UPLOAD`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Updated signed desktop bundle, a real LMS account, an open assignment
+accepting test files, and a workspace with files in submit/.
+
+**Steps**
+
+1. Choose Prepare in LMS from the assignment workspace. Inspect the
+   right-hand official LMS page without clicking Save or Submit.
+   - *Why:* Verifies that the injected drag reaches Moodle's authenticated uploader
+     and that assistance stops before the user commits the submission.
+2. Compare every displayed draft filename and size with submit/. Repeat
+   using ZIP, then try a file type the assignment rejects.
+   - *Why:* Confirms the uploaded data and archive selection, and that Moodle's
+     own restrictions and error UI still govern the upload.
+3. Start from another assignment page, then prepare this assignment.
+   Close and reopen the reader while the official form is visible.
+   - *Why:* Checks target binding and native navigation: files must only enter
+     the requested assignment, and reopening must not upload a second copy.
+
+**Where to look**
+
+The LMS draft file manager, its upload progress/errors, the assignment
+name/URL and the untouched official Save/Submit controls in the right pane.
+
+**Expected**
+
+Exactly the chosen workspace files appear in the requested assignment's
+draft. Only user action can save or submit; unsupported uploads show the
+normal LMS error. Reopening does not duplicate files.
+
+**Why this is manual**
+
+Requires real authenticated Moodle uploads and WebKit drag-transfer APIs.
+Headless tests verify injection and routing but cannot execute the remote
+uploader, site restrictions or the signed native browser.
+
+**Covers**
+
+- `crates/isct-core/src/workspaces.rs`
+- `crates/isct-core/src/school_browser/policy.rs`
+- `crates/isct-core/src/school_browser/engine.rs`
+- `crates/isct-core/src/school_browser/submission.rs`
+- `crates/isct-core/src/school_browser/assets/assignment-upload.js`
+- `apps/desktop/src-tauri/src/workspaces.rs`
+- `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
 
 **Last recorded** never run

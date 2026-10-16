@@ -63,6 +63,11 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
             (matches!(key.as_ref(), "id" | "course" | "page" | "section") && identifier)
+                // Keep only the draft editor action on the LMS assignment route.
+                || (key == "action"
+                    && value == "editsubmission"
+                    && url.host_str() == Some("lms.s.isct.ac.jp")
+                    && url.path().ends_with("/mod/assign/view.php"))
                 || (key == "jwc"
                     && value.len() == 9
                     && value.bytes().all(|byte| byte.is_ascii_digit()))
