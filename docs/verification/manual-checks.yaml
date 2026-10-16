@@ -415,6 +415,56 @@ checks:
       - apps/desktop/src/lib/departments.ts
     verified: null
 
+  - id: IDENTITY-PERIOD-OVERRIDE-UI
+    area: identity
+    title: A stored teaching-period override reaches the timetable
+    persona: undergraduate-senior
+    preconditions: |
+      A study profile whose teaching periods differ from the official table,
+      stored through Settings, and at least one course on the timetable.
+    steps:
+      - action: |
+          Edit the teaching periods in Settings so one block starts at a time
+          the official table does not use, and save.
+        reason: |
+          The override has to be persisted, not merely accepted by the form. An
+          unsaved edit would make the next step pass for the wrong reason.
+      - action: |
+          Open the timetable and compare block positions with the times just
+          entered.
+        reason: |
+          This is the gap. The shell derives its slot geometry from the
+          generated default table, so a stored override is ignored today. The
+          step makes the omission visible instead of assuming it away.
+      - action: |
+          Restart the app and look again.
+        reason: |
+          Separates "the form kept the value" from "the resolved table reaches
+          the view"; those fail independently.
+    observe: |
+      The teaching-period table in Settings, and the vertical position of the
+      timetable blocks against the clock.
+    expected: |
+      The timetable reflects the stored periods rather than the official
+      defaults.
+    why_manual: |
+      Confirming that a student's own table changes the timetable they see
+      needs the real app holding a stored profile. The wiring becomes
+      automatable once the shell is given the resolved table, which is why this
+      is recorded as an unreached gap rather than an automated test.
+    covers:
+      - crates/isct-core/src/schedule/timing.rs
+      - apps/desktop/src/lib/timetable-layout.ts
+    verified:
+      version: 1.0.0-rc.3
+      date: 2026-10-16
+      commit: 8ae53c3
+      by: human
+      result: unreached
+      blocked_by: The shell reads a static generated table, so a stored override does not reach the timetable geometry.
+      notes: Found while merging origin/main. Core supports the override; the view does not read it.
+      evidence: docs/verification/manual-acceptance.md
+
   - id: SCHOOL-KYOMU-GRADUATE-TABLES
     area: school
     title: Graduate 教務Web tables against a real graduate account
