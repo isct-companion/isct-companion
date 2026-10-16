@@ -97,6 +97,7 @@ import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
+import { traceRouter } from "./interaction-trace";
 import { useFormFactor } from "./form-factor";
 import { MobileShell } from "../layouts/compact/MobileShell";
 import { openExternalUrl } from "../components/ExternalLink";
@@ -1756,8 +1757,12 @@ export function WorkspaceApp() {
 }
 
 let defaultRouter: ReturnType<typeof createHashRouter> | undefined;
-const getDefaultRouter = () =>
-  (defaultRouter ??= createHashRouter(workspaceRoutes(WorkspaceApp)));
+const getDefaultRouter = () => {
+  if (defaultRouter) return defaultRouter;
+  defaultRouter = createHashRouter(workspaceRoutes(WorkspaceApp));
+  if (import.meta.env.DEV) traceRouter(defaultRouter);
+  return defaultRouter;
+};
 
 export default function App({
   router: providedRouter,
