@@ -1,3 +1,8 @@
+import { useDesktopUpdates } from "./useDesktopUpdates";
+import { formatJst } from "../lib/civil-date";
+import { CalendarView } from "../pages/today/CalendarView";
+import { ResizableWorkspace } from "../components/ResizableWorkspace";
+import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
@@ -88,9 +93,7 @@ import {
 import { subscriptionNetwork } from "../platform/subscription-polling";
 
 import { CourseFinder } from "../pages/courses/CourseFinder";
-import { LmsMergeDialog } from "../pages/courses/LmsMergeDialog";
 import { AcademicSummary } from "../pages/courses/AcademicSummary";
-import { type MergeDiff } from "../lib/lms-merge";
 import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
@@ -142,10 +145,10 @@ function sessionStatusLabel(
   state: SchoolSessionState | undefined,
   detail?: string,
 ) {
-  if (state === "active") return "Signed in";
-  if (state === "failed") return detail || "Sign-in failed";
-  if (state === "not-configured") return "Not configured";
-  return detail || "Checking session";
+  if (state === "active") return t("Signed in");
+  if (state === "failed") return t(detail || "Sign-in failed");
+  if (state === "not-configured") return t("Not configured");
+  return t(detail || "Checking session");
 }
 
 function pullScienceLms(options?: SchoolPullOptions) {
@@ -176,9 +179,15 @@ async function refreshReferenceSubscriptions(force = false): Promise<string> {
 /** A school service named in the route, or null when it names none. */
 const schoolSite = (value?: string): SchoolSite | null =>
   value && value in official ? (value as SchoolSite) : null;
-const pages: Page[] = ["home", "lectures", "web"];
+const pages: Page[] = ["home", "timetable", "lectures", "web"];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
+  timetable: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M7 3v4M17 3v4M3 11h18M9 11v10M15 11v10" />
+    </svg>
+  ),
   home: (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 10.5 12 4l8 6.5V19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
@@ -209,10 +218,15 @@ const icons: Record<Page, React.ReactElement> = {
 export function WorkspaceApp() {
   useTranslation();
   const formFactor = useFormFactor();
+  const wideHome = useMediaQuery("(min-width: 1001px)");
   const scienceSession = useSchoolSession(desktopBridge, "science");
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
   const store = useWorkspace((state) => state);
   const sourceData = store.workspace;
+  useDesktopUpdates(
+    Boolean(sourceData),
+    sourceData?.settings.automaticAppUpdates,
+  );
   const overview = useScheduleQuery<WorkspaceOverview>(
     { kind: "workspaceOverview", term: "" },
     Boolean(sourceData),
@@ -242,22 +256,26 @@ export function WorkspaceApp() {
         })),
       }
     : undefined;
+  const [lectureRailHovered, setLectureRailHovered] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
+  const timetableMatch = useMatch(routePatterns.timetable);
   const homeMatch = useMatch(`${routePatterns.home}/*`);
   const lecturesMatch = useMatch(`${routePatterns.lectures}/*`);
   const webMatch = useMatch(`${routePatterns.web}/*`);
   const settingsMatch = useMatch(`${routePatterns.settings}/*`);
   const weekMatch = useMatch(routePatterns.week);
-  const page: Page = lecturesMatch
-    ? "lectures"
-    : webMatch
-      ? "web"
-      : settingsMatch
-        ? "settings"
-        : "home";
+  const page: Page = timetableMatch
+    ? "timetable"
+    : lecturesMatch
+      ? "lectures"
+      : webMatch
+        ? "web"
+        : settingsMatch
+          ? "settings"
+          : "home";
   const section = (params.section ?? "accounts") as Section;
   const homeView = homeMatch && weekMatch ? "week" : "day";
   const [searchParams, setSearchParams] = useSearchParams();
@@ -406,7 +424,7 @@ export function WorkspaceApp() {
   const finderView = useFinderQuery(
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
-    Boolean(overview.value && editMode && page === "home"),
+    Boolean(overview.value && editMode && page === "timetable"),
   );
   const finderEdits = useFinderEditQueue({
     year: finderYear,
@@ -429,7 +447,6 @@ export function WorkspaceApp() {
   } = usePullState();
   const pulling = lmsProgress !== null;
   useCoreLifecycle();
-  const [mergeDiff, setMergeDiff] = useState<MergeDiff | null>(null);
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
   /** After a pull settles the timetable, ask once for the physics group of
    * a current or later semester that has none. */
@@ -452,35 +469,48 @@ export function WorkspaceApp() {
         )
           ingestedOnWeb.current = true;
         if (outcome.state === "ok" || outcome.state === "unavailable")
-          void workspaceActions.refreshSchool().catch(() => undefined);
+          void workspaceActions
+            .refreshSchool()
+            .then(() => {
+              if (outcome.site === "science-lms" && outcome.state === "ok")
+                notify.updated(outcome.changed);
+            })
+            .catch(() => undefined);
       }),
     [],
   );
   const { schedulerState, nativeCapabilities, nativeCapabilitiesReady } =
     useWorkspaceRuntime(sourceData);
-  // Courses of the quarter on screen, a 3Q–4Q course in each of its quarters.
-  const termCourseKey = overview.value?.termCourseIds.join("\n");
+  const missingNamesKey =
+    sourceData?.courses
+      .filter(
+        (course) =>
+          !course.deletedAt && course.offeringId && !course.names?.title?.en,
+      )
+      .map((course) => course.offeringId!)
+      .sort()
+      .join(",") ?? "";
   useEffect(() => {
-    if (!sourceData || !desktopBridge || !nativeCapabilities?.syllabusSearch)
+    if (
+      !missingNamesKey ||
+      !desktopBridge?.catalogSyncOfferings ||
+      !nativeCapabilities?.syllabusSearch
+    )
       return;
-    const termCourses = new Set(termCourseKey?.split("\n") ?? []);
-    for (const course of sourceData.courses.filter(
-      (course) =>
-        !course.deletedAt &&
-        termCourses.has(course.id) &&
-        isSyllabusCourse(course) &&
-        course.url,
-    ))
-      void desktopBridge
-        .syllabusCourse(course.url!, contentLanguage(sourceData.settings))
-        .catch(() => undefined);
-  }, [
-    termCourseKey,
-    sourceData?.settings.locale,
-    sourceData?.settings.contentLanguage,
-    sourceData?.courses,
-    nativeCapabilities?.syllabusSearch,
-  ]);
+    let active = true;
+    const ids = missingNamesKey.split(",");
+    void (async () => {
+      for (let start = 0; active && start < ids.length; start += 20) {
+        await desktopBridge.catalogSyncOfferings!(
+          ids.slice(start, start + 20),
+        ).catch(() => undefined);
+      }
+      if (active) await workspaceStore.reload();
+    })().catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [missingNamesKey, nativeCapabilities?.syllabusSearch]);
   useAppearance(data);
   useEffect(() => {
     if (store.error && sourceData)
@@ -493,16 +523,31 @@ export function WorkspaceApp() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeDrawer();
-      if ((e.metaKey || e.ctrlKey) && ["1", "2", "3", "4"].includes(e.key)) {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        ["1", "2", "3", "4", "5"].includes(e.key)
+      ) {
         e.preventDefault();
         const next: Page =
-          e.key === "4" ? "settings" : pages[Number(e.key) - 1];
+          e.key === "5" ? "settings" : pages[Number(e.key) - 1];
         void navigate(pagePath(next));
       }
     };
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
   }, [navigate, closeDrawer]);
+  const lmsRecordFor = (course: Course) => {
+    const records = schoolRecords?.lmsCourses ?? [];
+    return (
+      records.find((item) => item.lmsId === course.lmsCourseId) ??
+      records.find(
+        (item) =>
+          (course.offeringId && item.offeringId === course.offeringId) ||
+          (course.source.provider === "lms" &&
+            String(item.lmsId) === course.source.externalId),
+      )
+    );
+  };
   // Pulls across courses leave material details out (files, pages,
   // announcements); opening a lecture fills in its own, once per session.
   useEffect(() => {
@@ -510,13 +555,7 @@ export function WorkspaceApp() {
     const course = sourceData.courses.find(
       (item) => item.id === lectureEntry.courseId && !item.deletedAt,
     );
-    const record =
-      course &&
-      schoolRecords?.lmsCourses.find(
-        (item) =>
-          (course.offeringId && item.offeringId === course.offeringId) ||
-          String(item.lmsId) === course.source.externalId,
-      );
+    const record = course && lmsRecordFor(course);
     if (!record) return;
     void desktopBridge
       ?.schoolRefreshEvent?.({ kind: "lecture-opened", courseId: record.lmsId })
@@ -555,11 +594,10 @@ export function WorkspaceApp() {
     performAction("edit-academic-data", platform, () =>
       workspaceActions.mutate(intent),
     );
-  const advancedCalendarUpdate = (fn: (d: Workspace) => Workspace) => {
-    void performAction("edit-calendar-advanced", platform, () =>
+  const advancedCalendarUpdate = (fn: (d: Workspace) => Workspace) =>
+    performAction("edit-calendar-advanced", platform, () =>
       workspaceActions.editCalendar(fn),
-    ).catch((error) => notify.error(error));
-  };
+    );
   const caps = resolveCapabilities(
     platform,
     data.syncStatus.state === "idle" && Boolean(data.syncStatus.lastSyncedAt),
@@ -575,7 +613,8 @@ export function WorkspaceApp() {
     },
   );
   const navigation = {
-    home: t("Home"),
+    home: t("Today"),
+    timetable: t("Timetable"),
     lectures: t("Lectures"),
     web: t("Web"),
     settings: t("Settings"),
@@ -738,81 +777,12 @@ export function WorkspaceApp() {
       state: { lectureRequest: Date.now(), lectureContext: timing },
     });
   };
-  /** LMS pull, then a review dialog when the timetable and LMS differ. */
-  // All triggers use the native coordinator and receive the shared result.
-  // `quiet` (TTL refresh) reports only a review dialog, never a toast.
-  const pullLms = async (
-    scope: "term" | "all",
-    quiet = false,
-    term = courseTerm,
-  ) => {
-    if (!desktopBridge?.pullSchool)
-      return quiet || notify.info("LMS pull needs the desktop app.");
-    setLmsPhase(
-      scope === "all" ? "Scanning all LMS quarters" : `Scanning LMS · ${term}`,
-    );
-    setLmsProgress(5);
-    try {
-      const outcomes = await pullScienceLms();
-      const problem = pullProblem(outcomes);
-      if (problem) {
-        setLmsPhase(problem);
-        return quiet || notify.info(problem);
-      }
-      setLmsPhase("LMS scan complete · reading course data");
-      setLmsProgress(45);
-      let preview = await desktopBridge.lmsMergePreview(scope, term);
-      const missing = preview.detailIds;
-      for (let index = 0; index < missing.length; index += 4) {
-        setLmsPhase(
-          `Loading syllabus details · ${Math.min(index, missing.length)}/${missing.length}`,
-        );
-        await Promise.all(
-          missing
-            .slice(index, index + 4)
-            .map((id) =>
-              desktopBridge
-                ?.syllabusCourse(id, contentLanguage(data.settings))
-                .catch(() => undefined),
-            ),
-        );
-        setLmsProgress(
-          45 + (45 * Math.min(index + 4, missing.length)) / missing.length,
-        );
-      }
-      if (missing.length)
-        preview = await desktopBridge.lmsMergePreview(scope, term);
-      setLmsPhase("Comparing LMS with your timetable");
-      setLmsProgress(95);
-      const diff: MergeDiff = {
-        ...preview,
-        conflicts: new Map(Object.entries(preview.conflicts)),
-      };
-      if (preview.hasDifferences) {
-        setMergeDiff(diff);
-        setLmsPhase("Review ready · timetable changes found");
-      } else {
-        await academicIntentOrThrow({
-          kind: "applyLmsMerge",
-          terms: diff.terms,
-          add: [],
-          keep: [],
-          retime: [],
-        });
-        setLmsPhase(`Up to date · ${diff.common.length} courses matched`);
-        if (!quiet)
-          notify.info(`Timetable matches LMS (${diff.common.length})`);
-        await askClassGroup();
-      }
-    } catch (error) {
-      setLmsPhase(`Update failed · ${errorText(error) ?? t("unknown error")}`);
-      if (!quiet) notify.error(error);
-    } finally {
-      setLmsProgress(null);
-    }
-  };
   /** Assignments and materials only; the timetable stays as it is. */
-  const fetchLms = async (quiet = false, lmsCourseId?: number) => {
+  const fetchLms = async (
+    quiet = false,
+    lmsCourseId?: number,
+    currentOnly = false,
+  ) => {
     if (!desktopBridge?.pullSchool) return false;
     setLmsPhase(
       lmsCourseId
@@ -821,7 +791,7 @@ export function WorkspaceApp() {
     );
     setLmsProgress(5);
     try {
-      const outcomes = await pullScienceLms({ lmsCourseId });
+      const outcomes = await pullScienceLms({ lmsCourseId, currentOnly });
       const problem = pullProblem(outcomes);
       setLmsPhase(problem ?? "Saving LMS changes");
       setLmsProgress(90);
@@ -845,6 +815,7 @@ export function WorkspaceApp() {
       const problem = pullProblem(outcomes);
 
       if (!quiet) notify.info(problem ?? "教務Web updated");
+      if (!problem) await askClassGroup();
     } catch (error) {
       if (!quiet) notify.error(error);
     } finally {
@@ -890,12 +861,7 @@ export function WorkspaceApp() {
       course.url?.includes("lms.s.isct.ac.jp")
     )
       return course.url;
-    const row = schoolRecords?.lmsCourses.find(
-      (item) =>
-        (course.offeringId && item.offeringId === course.offeringId) ||
-        (course.source.provider === "lms" &&
-          String(item.lmsId) === course.source.externalId),
-    );
+    const row = lmsRecordFor(course);
     return row?.url;
   };
 
@@ -912,6 +878,7 @@ export function WorkspaceApp() {
     );
   const lecturesPage = (
     <LectureDesk
+      railHovered={lectureRailHovered}
       data={data}
       term={todayTerm}
       entry={
@@ -945,16 +912,12 @@ export function WorkspaceApp() {
           .then(() => closeTo(paths.lectures()))
           .catch(notify.error)
       }
-      renderWorkspace={(entry, active) => {
+      renderWorkspace={(entry, active, sidebarToggle) => {
         const course = data.courses.find(
           (c) => c.id === entry.courseId && !c.deletedAt,
         );
         if (!course) return null;
-        const record = schoolRecords?.lmsCourses.find(
-          (item) =>
-            (course.offeringId && item.offeringId === course.offeringId) ||
-            String(item.lmsId) === course.source.externalId,
-        );
+        const record = lmsRecordFor(course);
         return (
           <Suspense fallback={<p role="status">{t("Loading…")}</p>}>
             <LmsWorkspace
@@ -964,6 +927,7 @@ export function WorkspaceApp() {
               entry={entry}
               active={active}
               navigationProvided
+              headerStart={sidebarToggle}
               openOfficial={
                 formFactor === "mobile"
                   ? (url) => openWeb(url, "lectures")
@@ -977,7 +941,8 @@ export function WorkspaceApp() {
               }
               refresh={
                 desktopBridge?.pullSchool && record
-                  ? () => void fetchLms(false, record.lmsId)
+                  ? (currentOnly) =>
+                      void fetchLms(false, undefined, currentOnly)
                   : undefined
               }
               progress={lmsProgress}
@@ -995,13 +960,13 @@ export function WorkspaceApp() {
                         // Say which class the mark is for: today's, or a later one.
                         const when = new Date(occurrence);
                         const format = (options: Intl.DateTimeFormatOptions) =>
-                          new Intl.DateTimeFormat(data.settings.locale, {
+                          formatJst(when, data.settings.locale, {
                             ...options,
                             hour: "2-digit",
                             minute: "2-digit",
                             hourCycle: "h23",
                             timeZone: "Asia/Tokyo",
-                          }).format(when);
+                          });
                         notify.info(
                           occurrence.startsWith(jstDate(new Date()))
                             ? t(
@@ -1033,200 +998,246 @@ export function WorkspaceApp() {
   );
   // Phones view the timetable; planning stays on the workstation.
   const planning = editMode && formFactor !== "mobile";
+  const showSchoolSetup =
+    !readOnly &&
+    !planning &&
+    !data.importStatus.timetableReviewedAt &&
+    !data.courses.some((course) => !course.deletedAt) &&
+    tokyoTechSession !== "active";
   const homePage = (
     <div
-      className={`homePage ${renderedRoutes.current.homeView}${planning ? " planning" : ""}`}
+      className={`homePage ${renderedRoutes.current.homeView}${showSchoolSetup ? " needsSetup" : ""}`}
     >
-      <div className="homeDay">
-        <Today
-          active={page === "home"}
-          data={data}
-          term={todayTerm}
-          open={(courseId, _tab, context) => openLecture(courseId, context)}
-          openEvent={(event) =>
-            !readOnly && setEventEditor({ event, term: event.termId })
-          }
-          openPlan={(plan) => !readOnly && setPlanEditor(plan)}
-          openTask={(assignmentId) => {
-            const assignment = data.assignments.find(
-              (item) => item.id === assignmentId,
-            );
-            if (assignment) openLecture(assignment.courseId, { assignmentId });
-          }}
-          pinAssignment={(assignmentId) =>
-            void academicIntent({
-              kind: "setAssignmentMark",
-              assignmentId,
-              pinned: !data.assignments.find((item) => item.id === assignmentId)
-                ?.pinned,
-            })
-          }
-          hideAssignment={(assignmentId) =>
-            void academicIntent({
-              kind: "setAssignmentMark",
-              assignmentId,
-              hidden: true,
-            })
-          }
-          openSchedule={() => void navigate(paths.home("week"))}
-        />
-      </div>
-      <div className="homeWeek">
-        <UiButton
-          className="textButton homeBack"
-          onClick={() => closeTo(paths.home())}
-        >
-          ‹ {t("Today")}
-        </UiButton>
-        <Courses
-          compact={formFactor === "mobile"}
-          editing={planning}
-          onEditingChange={(value) => {
-            setEditMode(value);
-            setOfferingPanel(null);
-            setPanelCourseId(null);
-          }}
-          openPlan={(plan) => !readOnly && setPlanEditor(plan)}
-          newPlan={() => !readOnly && setPlanEditor("new")}
-          side={
-            <CourseFinder
-              key={courseTerm}
-              year={Number(courseTerm.slice(0, 4))}
-              term={courseTerm}
-              summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
-              language={contentLanguage(data.settings)}
-              keys={finderKeys}
-              edit={finderEdits.run}
-              replaceKeys={finderEdits.replace}
-              openCourse={(course) => {
-                setPanelCourseId(null);
-                setOfferingPanel(course);
-              }}
-              activeId={offeringPanel?.id}
-              readOnly={readOnly}
-              add={addFinderCourses}
-              undo={(rows) =>
-                academicIntentOrThrow({
-                  kind: "undoCatalogCourses",
-                  termId: courseTerm,
-                  offeringIds: rows.map((row) => row.id),
-                })
-              }
-              manual={
-                readOnly
-                  ? undefined
-                  : () => setCourseEditor({ term: courseTerm })
-              }
-              query={desktopBridge?.catalogQuery}
-              syncDetails={desktopBridge?.catalogSyncOfferings}
-            />
-          }
-          leftPanel={
-            offeringPanel && (
-              <OfferingPanel
-                key={offeringPanel.id}
-                course={offeringPanel}
-                language={contentLanguage(data.settings)}
-                placed={finderPlaced.has(offeringPanel.code)}
-                replaces={(
-                  finderView.value?.replacements[offeringPanel.id] ?? []
-                ).map(
-                  (id) =>
-                    data.courses.find((course) => course.id === id)?.title ??
-                    "",
-                )}
-                readOnly={readOnly}
-                close={() => setOfferingPanel(null)}
-                add={() => {
-                  void addFinderCourses([offeringPanel]).catch(notify.error);
-                }}
-              />
-            )
-          }
-          panel={
-            panelCourse && (
-              <CoursePanel
-                key={panelCourse.id}
-                course={panelCourse}
-                data={data}
-                readOnly={readOnly || !planning}
-                close={() => setPanelCourseId(null)}
-                remove={() => void removeFromTimetable(panelCourse)}
-                editIntensive={() => setIntensiveCourseId(panelCourse.id)}
-                lmsUrl={lmsUrlFor(panelCourse)}
-                openWeb={(url) => openWeb(url)}
-                fetchLms={
-                  desktopBridge?.pullSchool ? () => void fetchLms() : undefined
-                }
-                progress={lmsProgress}
-              />
-            )
-          }
-          data={data}
-          currentTerm={currentTerm}
-          readOnly={readOnly}
-          mutate={async (intent) => {
-            try {
-              return await academicIntentOrThrow(intent);
-            } catch (error) {
-              notify.error(error);
-              throw error;
+      {showSchoolSetup && (
+        <aside className="homeSetup" aria-label={t("School account setup")}>
+          <div>
+            <b>{t("Connect your school accounts")}</b>
+            <p>
+              {t(
+                "Connect Tokyo Tech for your timetable and course search, and Science Tokyo for course materials and assignments.",
+              )}
+            </p>
+          </div>
+          <UiButton
+            className="button primary"
+            onClick={() => void navigate(paths.settings("accounts"))}
+          >
+            {t("Connect school accounts")}
+          </UiButton>
+        </aside>
+      )}
+      <ResizableWorkspace
+        id="home"
+        enabled={wideHome}
+        firstSize={360}
+        firstMin={240}
+        firstMax="50%"
+        secondMin="45%"
+      >
+        <div className="homeDay">
+          <Today
+            active={page === "home"}
+            data={data}
+            term={todayTerm}
+            open={(courseId, _tab, context) => openLecture(courseId, context)}
+            openEvent={(event) =>
+              !readOnly && setEventEditor({ event, term: event.termId })
             }
-          }}
-          open={(courseId) => {
-            if (planning) {
-              setOfferingPanel(null);
-              setPanelCourseId(courseId);
-            } else openLecture(courseId);
-          }}
-          openEvent={(event, term) =>
-            !readOnly && setEventEditor({ event, term })
-          }
-          onSlot={toggleFinderSlot}
-          activeSlots={finderSlots}
-          onIntensive={(append) => pickFinderTime("集中", append)}
-          intensiveActive={finderKeys.includes("集中")}
-          addTerm={() => setTermDialog(true)}
-          pullLms={
-            desktopBridge?.pullSchool && !readOnly
-              ? (scope) => void pullLms(scope)
-              : undefined
-          }
-          pullProgress={lmsProgress}
-          register={
-            desktopBridge?.setKyomuGuide
-              ? (term) => void openRegistration(term)
-              : undefined
-          }
-          academic={
-            <AcademicSummary
-              summaries={data.gpaSummary}
-              termCredits={termCredits}
-              availability={schoolRecords?.pageAvailability?.["kyomu:gpa"]}
-              progress={kyomuProgress ?? (pulling ? 0 : null)}
-              refresh={
-                desktopBridge?.pullSchool
-                  ? () => void refreshKyomu()
-                  : undefined
+            openPlan={(plan) => !readOnly && setPlanEditor(plan)}
+            openTask={(assignmentId) => {
+              const assignment = data.assignments.find(
+                (item) => item.id === assignmentId,
+              );
+              if (assignment)
+                openLecture(assignment.courseId, { assignmentId });
+            }}
+            pinAssignment={(assignmentId) =>
+              void academicIntent({
+                kind: "setAssignmentMark",
+                assignmentId,
+                pinned: !data.assignments.find(
+                  (item) => item.id === assignmentId,
+                )?.pinned,
+              })
+            }
+            hideAssignment={(assignmentId) =>
+              void academicIntent({
+                kind: "setAssignmentMark",
+                assignmentId,
+                hidden: true,
+              })
+            }
+            openSchedule={() => void navigate(paths.home("week"))}
+          />
+        </div>
+        <div className="homeWeek">
+          <UiButton
+            className="textButton homeBack"
+            onClick={() => closeTo(paths.home())}
+          >
+            ‹ {t("Today")}
+          </UiButton>
+          <CalendarView
+            data={data}
+            open={(block) => {
+              if (block.kind === "course") openLecture(block.id);
+              else if (block.kind === "plan") {
+                const plan = data.plans.find((row) => row.id === block.id);
+                if (plan && !readOnly) setPlanEditor(plan);
+              } else {
+                const event = data.events.find((row) => row.id === block.id);
+                if (event && !readOnly)
+                  setEventEditor({ event, term: event.termId });
               }
-              openOfficial={() => openWeb(KYOMU_GPA)}
+            }}
+          />
+        </div>
+      </ResizableWorkspace>
+    </div>
+  );
+  const timetablePage = (
+    <div className="quarterPage">
+      {" "}
+      <Courses
+        compact={formFactor === "mobile"}
+        editing={planning}
+        onEditingChange={(value) => {
+          setEditMode(value);
+          setOfferingPanel(null);
+          setPanelCourseId(null);
+        }}
+        openPlan={(plan) => !readOnly && setPlanEditor(plan)}
+        newPlan={() => !readOnly && setPlanEditor("new")}
+        side={
+          <CourseFinder
+            key={courseTerm}
+            year={Number(courseTerm.slice(0, 4))}
+            term={courseTerm}
+            summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
+            language={contentLanguage(data.settings)}
+            keys={finderKeys}
+            edit={finderEdits.run}
+            replaceKeys={finderEdits.replace}
+            openCourse={(course) => {
+              setPanelCourseId(null);
+              setOfferingPanel(course);
+            }}
+            activeId={offeringPanel?.id}
+            readOnly={readOnly}
+            add={addFinderCourses}
+            undo={(rows) =>
+              academicIntentOrThrow({
+                kind: "undoCatalogCourses",
+                termId: courseTerm,
+                offeringIds: rows.map((row) => row.id),
+              })
+            }
+            manual={
+              readOnly ? undefined : () => setCourseEditor({ term: courseTerm })
+            }
+            query={desktopBridge?.catalogQuery}
+          />
+        }
+        leftPanel={
+          offeringPanel && (
+            <OfferingPanel
+              key={offeringPanel.id}
+              course={offeringPanel}
+              language={contentLanguage(data.settings)}
+              placed={finderPlaced.has(offeringPanel.code)}
+              replaces={(
+                finderView.value?.replacements[offeringPanel.id] ?? []
+              ).map(
+                (id) =>
+                  data.courses.find((course) => course.id === id)?.title ?? "",
+              )}
+              readOnly={readOnly}
+              close={() => setOfferingPanel(null)}
+              add={() => {
+                void addFinderCourses([offeringPanel]).catch(notify.error);
+              }}
             />
+          )
+        }
+        panel={
+          panelCourse && (
+            <CoursePanel
+              key={panelCourse.id}
+              course={panelCourse}
+              data={data}
+              readOnly={readOnly || !planning}
+              close={() => setPanelCourseId(null)}
+              remove={() => void removeFromTimetable(panelCourse)}
+              editIntensive={() => setIntensiveCourseId(panelCourse.id)}
+              lmsUrl={lmsUrlFor(panelCourse)}
+              openWeb={(url) => openWeb(url)}
+              fetchLms={
+                desktopBridge?.pullSchool ? () => void fetchLms() : undefined
+              }
+              progress={lmsProgress}
+            />
+          )
+        }
+        data={data}
+        currentTerm={currentTerm}
+        readOnly={readOnly}
+        mutate={async (intent) => {
+          try {
+            return await academicIntentOrThrow(intent);
+          } catch (error) {
+            notify.error(error);
+            throw error;
           }
-          exportIcs={(term, scope = "courses") =>
-            saveExportFile(
-              `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
-              () =>
-                scheduleQuery<string>({
-                  kind: "quarterIcs",
-                  term,
-                  scope,
-                  generatedAt: new Date().toISOString(),
-                }),
-              notify.info,
-            )
-          }
-        />
-      </div>
+        }}
+        open={(courseId) => {
+          if (planning) {
+            setOfferingPanel(null);
+            setPanelCourseId(courseId);
+          } else openLecture(courseId);
+        }}
+        openEvent={(event, term) =>
+          !readOnly && setEventEditor({ event, term })
+        }
+        onSlot={toggleFinderSlot}
+        activeSlots={finderSlots}
+        onIntensive={(append) => pickFinderTime("集中", append)}
+        intensiveActive={finderKeys.includes("集中")}
+        addTerm={() => setTermDialog(true)}
+        refreshSchedule={
+          desktopBridge?.pullSchool ? () => void refreshKyomu() : undefined
+        }
+        pullProgress={kyomuProgress}
+        register={
+          desktopBridge?.setKyomuGuide
+            ? (term) => void openRegistration(term)
+            : undefined
+        }
+        academic={
+          <AcademicSummary
+            summaries={data.gpaSummary}
+            termCredits={termCredits}
+            availability={schoolRecords?.pageAvailability?.["kyomu:gpa"]}
+            progress={kyomuProgress ?? (pulling ? 0 : null)}
+            refresh={
+              desktopBridge?.pullSchool ? () => void refreshKyomu() : undefined
+            }
+            openOfficial={() => openWeb(KYOMU_GPA)}
+          />
+        }
+        exportIcs={(term, scope = "courses") =>
+          saveExportFile(
+            `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
+            () =>
+              scheduleQuery<string>({
+                kind: "quarterIcs",
+                term,
+                scope,
+                generatedAt: new Date().toISOString(),
+              }),
+            notify.info,
+          )
+        }
+      />
     </div>
   );
   const webPage = (
@@ -1314,7 +1325,7 @@ export function WorkspaceApp() {
         <CourseDrawer
           course={drawerCourse}
           data={data}
-          readOnly={readOnly || (page === "home" && !planning)}
+          readOnly={readOnly || (page === "timetable" && !planning)}
           onTimetable={workspaceView.onTimetableCourseIds.includes(
             drawerCourse.id,
           )}
@@ -1347,29 +1358,6 @@ export function WorkspaceApp() {
         />
       )}
       {/* Editors show a failed submission inline and stay open. */}
-      {mergeDiff && (
-        <LmsMergeDialog
-          diff={mergeDiff}
-          close={async () => {
-            await workspaceActions.markTimetableReviewed();
-            setMergeDiff(null);
-            await askClassGroup();
-          }}
-          apply={async (add, keep, retime) => {
-            const diff = mergeDiff;
-            await academicIntentOrThrow({
-              kind: "applyLmsMerge",
-              terms: diff.terms,
-              add: [...add],
-              keep: [...keep],
-              retime: [...retime],
-            });
-            setMergeDiff(null);
-            notify.info("Timetable updated from LMS");
-            await askClassGroup();
-          }}
-        />
-      )}
       {groupPrompt && (
         <ClassGroupPrompt
           choice={groupPrompt}
@@ -1559,6 +1547,7 @@ export function WorkspaceApp() {
         }
         pages={{
           home: keep("home", homePage),
+          timetable: keep("timetable", timetablePage),
           lectures: keep("lectures", lecturesPage),
           web: keep("web", webPage),
           settings: keep("settings", settingsPage),
@@ -1605,6 +1594,22 @@ export function WorkspaceApp() {
               className={page === p ? "active" : ""}
               onClick={() => navigatePage(p)}
               key={p}
+              onPointerEnter={
+                p === "lectures" ? () => setLectureRailHovered(true) : undefined
+              }
+              onPointerLeave={
+                p === "lectures"
+                  ? () => setLectureRailHovered(false)
+                  : undefined
+              }
+              onFocus={
+                p === "lectures" ? () => setLectureRailHovered(true) : undefined
+              }
+              onBlur={
+                p === "lectures"
+                  ? () => setLectureRailHovered(false)
+                  : undefined
+              }
               title={`${navigation[p]} (⌘${i + 1})`}
             >
               {icons[p]}
@@ -1650,6 +1655,7 @@ export function WorkspaceApp() {
       >
         {keep("lectures", lecturesPage)}
         {keep("home", homePage)}
+        {keep("timetable", timetablePage)}
         {keep("web", webPage)}
         {keep("settings", settingsPage)}
       </AppShell.Main>
@@ -1714,7 +1720,7 @@ export default function App({
       defaultColorScheme="light"
     >
       <Notifications
-        position="bottom-center"
+        position="bottom-right"
         className="appNotifications"
         limit={1}
         transitionDuration={0}

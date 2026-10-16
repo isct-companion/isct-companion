@@ -64,8 +64,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-const PAGE_SIZE = 25;
-const DETAIL_BATCH = 6;
+const RENDER_BATCH = 100;
 const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
 
@@ -74,6 +73,10 @@ type Remote =
   | { state: "searching" }
   | { state: "unsupported"; why: "empty" | "too-many" }
   | { state: "done"; ids: Set<string>; total: number; truncated: boolean };
+type NextPage = {
+  query: Parameters<NonNullable<DesktopBridge["catalogQuery"]>>[1];
+  cursor: string;
+};
 
 /**
  * Browser-address-bar style course search: type, pick a suggestion, conditions become
@@ -95,7 +98,6 @@ export function CourseFinder({
   activeId,
   readOnly = false,
   query,
-  syncDetails,
 }: {
   year: number;
   term: TermId;
@@ -113,10 +115,8 @@ export function CourseFinder({
   readOnly?: boolean;
   /** What is on this quarter's timetable, e.g. "3 on timetable · 6 credits". */
   summary?: string;
-  /** One official syllabus search; absent outside the desktop app. */
+  /** One authenticated 教務 search; absent outside the desktop app. */
   query?: NonNullable<DesktopBridge["catalogQuery"]>;
-  /** Detail pages (schedule, credits) for stored search rows. */
-  syncDetails?: NonNullable<DesktopBridge["catalogSyncOfferings"]>;
 }) {
   const [catalogRevision, setCatalogRevision] = useState(0);
   const [error, setError] = useState("");
@@ -127,11 +127,13 @@ export function CourseFinder({
   const [lastAdded, setLastAdded] = useState<FinderCourse[] | null>(null);
   const [mutating, setMutating] = useState(false);
   const [remote, setRemote] = useState<Remote>({ state: "idle" });
-  const [details, setDetails] = useState<{
-    done: number;
-    total: number;
-  } | null>(null);
-  const [page, setPage] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
+  const [nextPages, setNextPages] = useState<NextPage[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState(false);
+  const morePending = useRef(false);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const loadGeneration = useRef(0);
   const [refresh, setRefresh] = useState(0);
   const [showUnavailable, setShowUnavailable] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -227,17 +229,22 @@ export function CourseFinder({
   const unavailableLabel = (id: string) =>
     eligibilityLabel(id) ?? t("Not available for this study profile");
 
-  // Pills the syllabus understands become one search (no paging, ≤100 rows);
-  // detail pages are then fetched for those rows only, a few at a time.
+  // 教務 returns schedule and credits with the result. Syllabus details
+  // are fetched when the person opens a course.
   useEffect(() => {
     if (!plan) return;
-    setPage(0);
+    const generation = ++loadGeneration.current;
+    setVisibleCount(RENDER_BATCH);
+    setNextPages([]);
+    setLoadingMore(false);
+    setMoreError(false);
+    morePending.current = false;
+    resultsRef.current?.scrollTo?.({ top: 0 });
     if ("unsupported" in plan)
       return setRemote({ state: "unsupported", why: plan.unsupported });
     if (!query) return setRemote({ state: "idle" });
     let cancelled = false;
     setRemote({ state: "searching" });
-    setDetails(null);
     setError("");
     const timer = setTimeout(async () => {
       try {
@@ -246,42 +253,20 @@ export function CourseFinder({
         );
         if (cancelled) return;
         const ids = new Set(results.flatMap((r) => r.ids));
+        setNextPages(
+          results.flatMap((r, index) =>
+            r.nextCursor
+              ? [{ query: plan.queries[index], cursor: r.nextCursor }]
+              : [],
+          ),
+        );
         setRemote({
           state: "done",
           ids,
-          total: results.reduce((sum, r) => sum + r.total, 0),
+          total: ids.size,
           truncated: results.some((r) => r.truncated),
         });
         await reload();
-        if (cancelled || !syncDetails) return;
-        const pending = (
-          await finderQuery({
-            year,
-            term,
-            keys,
-            includeIneligible: showUnavailable,
-            remoteIds: [...ids],
-          })
-        ).detailIds;
-        if (!pending.length) return;
-        const problems: string[] = [];
-        setDetails({ done: 0, total: pending.length });
-        for (let i = 0; i < pending.length && !cancelled; i += DETAIL_BATCH) {
-          const batch = pending.slice(i, i + DETAIL_BATCH);
-          problems.push(
-            ...(await syncDetails(batch).catch((reason) => [message(reason)])),
-          );
-          if (cancelled) return;
-          setDetails({
-            done: Math.min(i + DETAIL_BATCH, pending.length),
-            total: pending.length,
-          });
-          await reload();
-        }
-        if (!cancelled) {
-          setDetails(null);
-          if (problems.length) setError(problems.slice(0, 3).join(" · "));
-        }
       } catch (reason) {
         if (!cancelled) {
           setRemote({ state: "idle" });
@@ -291,16 +276,91 @@ export function CourseFinder({
     }, 250);
     return () => {
       cancelled = true;
+      if (loadGeneration.current === generation) loadGeneration.current += 1;
       clearTimeout(timer);
     };
   }, [planKey, year, refresh, showUnavailable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const live = view?.live ?? "";
   const rows = view?.rows ?? [];
-  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const shown = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  useEffect(() => setPage(0), [live]);
-  const suggestions: Suggestion[] = open ? (view?.suggestions ?? []) : [];
+  const shown = rows.slice(0, visibleCount);
+  const loadMore = async (automatic = false) => {
+    if (result.pending || (automatic && moreError)) return;
+    if (visibleCount < rows.length) {
+      setVisibleCount((count) => count + RENDER_BATCH);
+      return;
+    }
+    if (
+      !query ||
+      remote.state !== "done" ||
+      !nextPages.length ||
+      morePending.current
+    )
+      return;
+    const generation = loadGeneration.current;
+    const next = nextPages[0];
+    morePending.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await query(year, { ...next.query, cursor: next.cursor });
+      if (generation !== loadGeneration.current) return;
+      setRemote((current) => {
+        if (current.state !== "done") return current;
+        const ids = new Set([...current.ids, ...page.ids]);
+        return {
+          ...current,
+          ids,
+          total: ids.size,
+          truncated: current.truncated || page.truncated,
+        };
+      });
+      setMoreError(false);
+      setNextPages((current) => [
+        ...current.slice(1),
+        ...(page.nextCursor
+          ? [{ query: next.query, cursor: page.nextCursor }]
+          : []),
+      ]);
+      setVisibleCount((count) => count + RENDER_BATCH);
+      await reload();
+    } catch (reason) {
+      if (generation === loadGeneration.current) {
+        setError(message(reason));
+        setMoreError(true);
+      }
+    } finally {
+      if (generation === loadGeneration.current) {
+        morePending.current = false;
+        setLoadingMore(false);
+      }
+    }
+  };
+  // IntersectionObserver follows the scroll container in both workstation and
+  // compact layouts. A button exposes the same action to keyboard users.
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!sentinel.current || typeof IntersectionObserver === "undefined")
+      return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore(true);
+      },
+      { root: resultsRef.current, rootMargin: "240px" },
+    );
+    observer.observe(sentinel.current);
+    return () => observer.disconnect();
+  }, [
+    visibleCount,
+    rows.length,
+    nextPages,
+    loadingMore,
+    remote.state,
+    result.pending,
+    moreError,
+  ]);
+  useEffect(() => setVisibleCount(RENDER_BATCH), [live]);
+  const availableSuggestions = view?.suggestions ?? [];
+  const suggestions: Suggestion[] = open ? availableSuggestions : [];
   const byId = useMemo(() => new Map(list.map((c) => [c.id, c])), [list]);
   const chosen = [...selected]
     .map((id) => byId.get(id))
@@ -376,34 +436,44 @@ export function CourseFinder({
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
-      if (!suggestions.length) return;
+      addSelected();
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!availableSuggestions.length) return;
       setOpen(true);
-      setActive(
-        (i) =>
-          (i + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) %
-          suggestions.length,
+      setActive((i) =>
+        !open
+          ? event.key === "ArrowDown"
+            ? 0
+            : availableSuggestions.length - 1
+          : (i +
+              (event.key === "ArrowDown" ? 1 : -1) +
+              availableSuggestions.length) %
+            availableSuggestions.length,
       );
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (!input.trim() && chosen.length) addSelected();
-      else apply(suggestions[active]);
+      else if (suggestions[active]) apply(suggestions[active]);
+      else if (input.trim()) commit(input.trim());
     } else if (event.key === "Tab" && input.trim() && suggestions.length) {
       event.preventDefault();
-      apply(suggestions.find((s) => s.kind !== "course") ?? suggestions[0]);
+      apply(suggestions[active] ?? suggestions[0]);
     } else if (event.key === "Escape") {
       setOpen(false);
     } else if (event.key === "Backspace" && !input && keys.length) {
       replaceKeys((current) => current.slice(0, -1));
     }
   };
-  const onChange = (value: string) => {
+  const onChange = (value: string, composing = false) => {
     const sequence = ++editSequence.current;
     setInput(value);
     setActive(0);
     setOpen(true);
-    if (/\s$/.test(value) && value.trim()) {
+    if (!composing && /\s$/.test(value) && value.trim()) {
       void finderQuery({
         year,
         term,
@@ -477,14 +547,12 @@ export function CourseFinder({
           </b>
           <span>
             {remote.state === "searching"
-              ? t("Searching the syllabus…")
-              : details
-                ? `${t("Loading details")} ${details.done}/${details.total}`
-                : remote.state === "done"
-                  ? `${remote.total} ${t("in syllabus")}`
-                  : courses
-                    ? `${list.length} ${t("stored")}`
-                    : t("Loading…")}
+              ? t("Searching 教務Web…")
+              : remote.state === "done"
+                ? `${remote.total} ${t("in 教務Web")}`
+                : courses
+                  ? `${list.length} ${t("stored")}`
+                  : t("Loading…")}
           </span>
         </div>
         <div className="courseListTools">
@@ -553,8 +621,15 @@ export function CourseFinder({
             aria-label={t("Find courses")}
             autoComplete="off"
             spellCheck={false}
-            placeholder={keys.length ? "" : t("Title, code, 火3-4, rec…")}
-            onChange={(event) => onChange(event.target.value)}
+            placeholder={
+              keys.length ? "" : t("Title, code, 火3-4, teacher:小林, room:W9…")
+            }
+            onChange={(event) =>
+              onChange(
+                event.target.value,
+                (event.nativeEvent as InputEvent).isComposing,
+              )
+            }
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             onFocus={() => setOpen(true)}
@@ -639,7 +714,7 @@ export function CourseFinder({
                         <span>
                           {s.key.startsWith("!")
                             ? `${t("Not")} “${query}”`
-                            : `${t("Search the syllabus for")} “${query}”`}
+                            : `${t("Search 教務Web for")} “${query}”`}
                         </span>
                         {s.count >= 0 && (
                           <small className={s.count ? "" : "zero"}>
@@ -687,7 +762,7 @@ export function CourseFinder({
         {remote.state === "done" && remote.truncated && (
           <span className="finderWarn">
             {t(
-              "The syllabus returns at most 100 of {{total}} — narrow with a code, 番台 or word.",
+              "教務Web limited these results. Narrow with a department, code or instructor.",
               { total: remote.total },
             )}
           </span>
@@ -699,7 +774,7 @@ export function CourseFinder({
         )}
       </div>
 
-      <div className="finderResults">
+      <div className="finderResults" ref={resultsRef} aria-busy={loadingMore}>
         {!courses && !error && <div className="empty">{t("Loading…")}</div>}
         {courses && rows.length === 0 && (
           <div className="empty finderEmpty">
@@ -707,19 +782,15 @@ export function CourseFinder({
               <span>
                 {remote.why === "too-many"
                   ? t(
-                      "Unsupported search: the syllabus takes at most 4 department × code combinations. Narrow it down.",
+                      "Use at most 4 department × code combinations. Narrow the conditions.",
                     )
-                  : t(
-                      "Unsupported search: the syllabus needs a department, a code or a word. Add one or change the conditions.",
-                    )}
+                  : t("Choose a condition or enter a course name.")}
               </span>
             ) : remote.state === "searching" ? (
-              <span>{t("Searching the syllabus…")}</span>
-            ) : details ? (
-              <span>{t("Loading schedules from the syllabus…")}</span>
+              <span>{t("Searching 教務Web…")}</span>
             ) : remote.state === "done" && remote.total === 0 ? (
               <span>
-                {t("The syllabus found nothing. Change or remove a condition.")}
+                {t("教務Web found nothing. Change or remove a condition.")}
               </span>
             ) : (
               <span>
@@ -781,7 +852,7 @@ export function CourseFinder({
                         ? " ◎"
                         : rec.mark
                           ? " ○"
-                          : " Guide"}
+                          : " 教務"}
                     </i>
                   )}
                   {clash && <i className="clash">{t("Conflict")}</i>}
@@ -815,31 +886,18 @@ export function CourseFinder({
             </div>
           );
         })}
+        <div ref={sentinel} className="finderLoadMore">
+          {(shown.length < rows.length || nextPages.length > 0) && (
+            <UiButton
+              className="textButton"
+              disabled={loadingMore}
+              onClick={() => void loadMore()}
+            >
+              {loadingMore ? t("Loading…") : t("Load more courses")}
+            </UiButton>
+          )}
+        </div>
       </div>
-
-      {pages > 1 && (
-        <nav className="finderPager" aria-label={t("Pages")}>
-          <button
-            type="button"
-            className="textButton"
-            disabled={page === 0}
-            onClick={() => setPage(page - 1)}
-          >
-            ‹ {t("Prev")}
-          </button>
-          <span>
-            {page + 1} / {pages}
-          </span>
-          <button
-            type="button"
-            className="textButton"
-            disabled={page >= pages - 1}
-            onClick={() => setPage(page + 1)}
-          >
-            {t("Next")} ›
-          </button>
-        </nav>
-      )}
 
       <footer className="finderFoot">
         {lastAdded ? (

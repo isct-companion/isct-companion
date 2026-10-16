@@ -31,3 +31,24 @@ fn school_urls_keep_only_bounded_domain_parameters() {
     assert!(sanitize_school_url("https://user:secret@lms.s.isct.ac.jp/2025/").is_none());
     assert!(sanitize_school_url("https://example.com/").is_none());
 }
+
+#[test]
+fn only_the_lms_assignment_draft_action_survives_navigation() {
+    let base = "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100";
+    assert_eq!(
+        sanitize_school_url(&format!("{base}&action=editsubmission&sesskey=secret")).unwrap(),
+        format!("{base}&action=editsubmission")
+    );
+    for action in ["submit", "savesubmission", "delete", "editsubmission_extra"] {
+        assert_eq!(
+            sanitize_school_url(&format!("{base}&action={action}")).unwrap(),
+            base
+        );
+    }
+    for raw in [
+        "https://lms.s.isct.ac.jp/2025/course/view.php?id=100&action=editsubmission",
+        "https://syllabus.s.isct.ac.jp/mod/assign/view.php?id=100&action=editsubmission",
+    ] {
+        assert!(!sanitize_school_url(raw).unwrap().contains("action="));
+    }
+}

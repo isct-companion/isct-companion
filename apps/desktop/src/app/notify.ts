@@ -14,7 +14,27 @@ const show = (message: React.ReactNode) => {
     classNames: { root: "workspaceNotice", description: "workspaceNoticeText" },
   });
 };
+let changedItems = 0;
+let changedTimer: ReturnType<typeof setTimeout> | undefined;
 export const notify = {
+  updated: (count: number) => {
+    if (count <= 0) return;
+    changedItems += count;
+    clearTimeout(changedTimer);
+    changedTimer = setTimeout(() => {
+      notifications.show({
+        id: "school-update",
+        message: t("Updated {{count}} items", { count: changedItems }),
+        autoClose: 1800,
+        withCloseButton: false,
+        classNames: {
+          root: "workspaceNotice",
+          description: "workspaceNoticeText",
+        },
+      });
+      changedItems = 0;
+    }, 600);
+  },
   info: (message: string) => show(t(message)),
   error: (error: unknown, retry?: () => void) => {
     const message = t(errorText(error) ?? "unknown error");

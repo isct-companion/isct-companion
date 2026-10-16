@@ -151,6 +151,16 @@ pub(super) fn remove_placements(
     course_id: &str,
     term: Option<&str>,
 ) -> Result<(), DataError> {
+    if rows(current, "memberships")?.any(|row| {
+        is_live(row)
+            && row.get("courseId").and_then(Value::as_str) == Some(course_id)
+            && term.is_none_or(|term| row.get("termId").and_then(Value::as_str) == Some(term))
+            && row.pointer("/evidence/provider").and_then(Value::as_str) == Some("kyomu")
+    }) {
+        return Err(DataError::InvalidInput(
+            "This course is on your official timetable. Change enrollment in 教務Web and refresh the timetable.".into(),
+        ));
+    }
     for (field, table) in [
         ("memberships", "manual_memberships"),
         ("planItems", "plan_items"),

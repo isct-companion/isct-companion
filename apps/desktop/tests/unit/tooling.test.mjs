@@ -4,6 +4,17 @@
 // the real generators in `scripts/` and `design/` and read committed files
 // through the harness. Plain node: nothing here touches the DOM.
 import path from "node:path";
+import os from "node:os";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  mkdirSync,
+  cpSync,
+  existsSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 import { readRepoFile, repositoryRoot } from "@tests/harness";
@@ -251,5 +262,155 @@ describe("manual acceptance table", () => {
       expect(sheet).toContain(step.reason.trim());
     }
     expect(sheet).toContain("--result <pass|fail|unreached>");
+  });
+});
+
+describe("desktop release publication", () => {
+  it.each([
+    ["v1.0.0", "--prerelease=false", "--latest=true"],
+    ["v1.0.0-rc.4", "--prerelease", "--latest=false"],
+  ])(
+    "publishes %s with the correct release status",
+    (tag, prerelease, latest) => {
+      const workflow = parseYaml(
+        readRepoFile(".github/workflows/desktop-release.yml"),
+      );
+      const script = workflow.jobs.publish.steps.find(
+        (step) => step.name === "Upload complete release as a draft",
+      ).run;
+      const dir = mkdtempSync(path.join(os.tmpdir(), "isct-release-"));
+      try {
+        // GitHub has no offline publication mode. Keep the shipped shell script
+        // real, replacing only the external CLI so this test never publishes.
+        writeFileSync(
+          path.join(dir, "gh"),
+          String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + '\n');
+if (args[0] === 'release' && args[1] === 'view') process.exit(1);
+`,
+          { mode: 0o755 },
+        );
+        const log = path.join(dir, "calls.jsonl");
+        const result = spawnSync("bash", ["-c", script], {
+          cwd: dir,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+            GH_CALL_LOG: log,
+            RELEASE_TAG: tag,
+            GH_REPO: "example/distribution",
+            BUILD_REPO: "example/source",
+            SOURCE_SHA: "abc123",
+            MACOS_SIGNING_STATUS: "signed-notarized",
+            REPLACE_EXISTING: "false",
+          },
+        });
+        expect(result.status, result.stderr).toBe(0);
+        const calls = readFileSync(log, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        const create = calls.find(
+          (args) => args[0] === "release" && args[1] === "create",
+        );
+        const edit = calls.find(
+          (args) => args[0] === "release" && args[1] === "edit",
+        );
+        expect(create).toContain("--draft");
+        expect(create).toContain(prerelease);
+        expect(edit).toContain(prerelease);
+        expect(edit).toContain(latest);
+        expect(edit).toContain("--draft=false");
+        const upload = calls.findIndex(
+          (args) => args[0] === "release" && args[1] === "upload",
+        );
+        expect(upload).toBeLessThan(calls.indexOf(edit));
+        expect(
+          readFileSync(path.join(dir, "release-notes.md"), "utf8"),
+        ).toContain("desktop installers only");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
+describe("desktop update distribution", () => {
+  it("pairs native update bundles with signatures and rejects an incomplete signed build", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "isct-release-"));
+    const put = (name, text) => {
+      const dest = path.join(root, name);
+      mkdirSync(path.dirname(dest), { recursive: true });
+      writeFileSync(dest, text);
+    };
+    try {
+      for (const name of [
+        "package.json",
+        "apps/desktop/package.json",
+        "apps/desktop/src-tauri/tauri.conf.json",
+        "apps/desktop/src-tauri/Cargo.toml",
+        "docs/legal/EULA.md",
+        "docs/legal/EULA.ja.md",
+        "docs/distribution/README.md",
+        "scripts/desktop/desktop-release.mjs",
+      ]) {
+        const dest = path.join(root, name);
+        mkdirSync(path.dirname(dest), { recursive: true });
+        cpSync(path.join(repositoryRoot, name), dest);
+      }
+      put("apps/desktop/dist/THIRD-PARTY-NOTICES.txt", "Test notices");
+      const version = JSON.parse(readRepoFile("package.json")).version;
+      // The collector packages existing bundles. Native compilation and cryptographic
+      // verification belong to Tauri; these bytes are explicitly inert fixtures.
+      for (const [target, format, extension, updateFormat, updateExtension] of [
+        ["aarch64-apple-darwin", "dmg", ".dmg", "macos", ".app.tar.gz"],
+        ["x86_64-apple-darwin", "dmg", ".dmg", "macos", ".app.tar.gz"],
+        ["x86_64-pc-windows-msvc", "nsis", ".exe", "nsis", ".exe"],
+      ]) {
+        put(
+          `target/${target}/release/bundle/${format}/fixture${extension}`,
+          "test installer",
+        );
+        const bundle = `target/${target}/release/bundle/${updateFormat}/fixture${updateExtension}`;
+        put(bundle, "test update");
+        put(`${bundle}.sig`, "test signature");
+        const run = () =>
+          spawnSync(
+            process.execPath,
+            [
+              path.join(root, "scripts/desktop/desktop-release.mjs"),
+              "collect",
+              target,
+            ],
+            {
+              encoding: "utf8",
+              env: {
+                ...process.env,
+                GITHUB_REF: "",
+                ISCT_UPDATER_PUBLIC_KEY: "test public key",
+              },
+            },
+          );
+        expect(run().status).toBe(0);
+        const output = path.join(
+          root,
+          `artifacts/desktop/${target}/IsctCompanion_${version}_${target}${updateExtension}`,
+        );
+        expect(readFileSync(output, "utf8")).toBe("test update");
+        expect(readFileSync(`${output}.sig`, "utf8")).toBe("test signature");
+        rmSync(path.join(root, `${bundle}.sig`));
+        const missing = run();
+        expect(missing.status).not.toBe(0);
+        expect(missing.stderr).toContain("missing its signed bundle");
+        expect(
+          existsSync(path.join(root, "artifacts/desktop", target, "LICENSE")),
+        ).toBe(true);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

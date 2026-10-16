@@ -128,9 +128,27 @@ impl SchoolCredentials {
     }
 }
 
+// Undergraduate student numbers identify the guide cohort (e.g. 25Bxxxxx).
+// Graduate numbers identify a different degree's entry, so cannot supply this cohort.
+fn student_admission_year(username: &str) -> Option<i32> {
+    let number = username.trim().as_bytes();
+    if number.len() != 8
+        || !matches!(number[2], b'B' | b'b')
+        || !number[..2]
+            .iter()
+            .chain(number[3..].iter())
+            .all(u8::is_ascii_digit)
+    {
+        return None;
+    }
+    Some(2000 + i32::from(number[0] - b'0') * 10 + i32::from(number[1] - b'0'))
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolCredentialStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_admission_year: Option<i32>,
     pub science: CredentialSummary,
     pub tokyo_tech: CredentialSummary,
 }
@@ -551,6 +569,7 @@ impl SchoolAuthService {
                     summary.availability = CredentialAvailability::NotConfigured;
                 }
             }
+            status.suggested_admission_year = student_admission_year(&status.tokyo_tech.username);
             return Ok(status);
         }
         let summary = |credentials: Option<SchoolCredentials>| match credentials {
@@ -563,10 +582,12 @@ impl SchoolAuthService {
             },
             None => CredentialSummary::default(),
         };
-        let status = SchoolCredentialStatus {
+        let mut status = SchoolCredentialStatus {
             science: summary(self.load(SchoolAuthProfile::Science)?),
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
+            ..Default::default()
         };
+        status.suggested_admission_year = student_admission_year(&status.tokyo_tech.username);
         self.write_status(&status);
         Ok(status)
     }

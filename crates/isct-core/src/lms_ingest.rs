@@ -182,11 +182,6 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       datedEvents = (Array.isArray(upcoming?.events) ? upcoming.events.slice(0, 5000) : []).map(event => ({
         ...pick(event, ['id','instance','modulename','name','timesort','eventtype','url']), course:{id:event.course?.id}}));
     }
-    const now = new Date();
-    const academicYear = now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear();
-    const category = now.getMonth() < 2 ? 4 : now.getMonth() < 5 ? 1
-      : now.getMonth() < 8 ? 2 : now.getMonth() < 11 ? 3 : 4;
-    const wanted = new Set([category, category === 4 ? 1 : category + 1]);
     // The category name is the course's quarter ("1"…"4").
     const structures = [];
     let contentBudget = 3000000;
@@ -197,12 +192,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       return {year, quarter, term:Number.isInteger(year) && quarter >= 1 && quarter <= 4 ? year + '-' + quarter + 'Q' : ''};
     };
     const selectedCourses = courses.filter(course => {
-      const {year, quarter} = courseContext(course);
-      const nextYear = category === 4 ? academicYear + 1 : academicYear;
-      return requestedCourseId
-        ? Number(course.id) === requestedCourseId
-        : fullScan && ((year === academicYear && wanted.has(quarter))
-          || (category === 4 && year === nextYear && quarter === 1));
+      return requestedCourseId ? Number(course.id) === requestedCourseId : fullScan;
     });
     let structuresDone = 0;
     const loadStructure = async course => {
@@ -247,7 +237,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     // Details are written onto the returned state's own module objects. Each
     // course gets its own share, newest modules first, so a large or
     // fast-loading course cannot starve the rest; cached details fill gaps.
-    const detailModules = requestedCourseId
+    const detailModules = requestedCourseId || fullScan
       ? ['resource','folder','url','page','forum','assign']
       : ['assign'];
     const detailCms = structures.flatMap(item => (item.state?.cm || [])
@@ -343,6 +333,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     for (let index = 0; index < assignIds.length; index += 4)
       await Promise.all(assignIds.slice(index, index + 4).map(readStatus));
     return {status:'ok', sourceUrl, language:String(cfg.language || ''), coursesComplete,
+      fullScan:fullScan && !requestedCourseId,
       courses, structures, actionEvents, datedEvents, timetable, assignStatus};
   } catch (error) {
     return {status:String(error?.message || error) === 'reconnect-required' ? 'login' : 'error',
@@ -576,7 +567,12 @@ pub fn apply_lms_payload(
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
-    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'lms','full','running',?2)", params![run_id, started]).map_err(IngestError::from)?;
+    let scope = if payload.full_scan && payload.courses_complete {
+        "all"
+    } else {
+        "summary"
+    };
+    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'lms',?2,'running',?3)", params![run_id, scope, started]).map_err(IngestError::from)?;
     let action_ids: HashSet<u64> = payload
         .action_events
         .iter()

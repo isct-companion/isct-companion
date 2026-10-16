@@ -199,7 +199,16 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         return {
           revision: core.revision,
           values: (args.queries as unknown[]).map((query) => ({
-            kind: (query as { kind?: string }).kind,
+            // These requests return a normalized value with a different tag,
+            // matching WorkspaceQueryResult on the native side.
+            kind:
+              (
+                {
+                  validateAcademicProfile: "academicProfile",
+                  academicTermForDate: "academicTerm",
+                } as Record<string, string>
+              )[(query as { kind: string }).kind] ??
+              (query as { kind: string }).kind,
             value: answerQuery(query),
           })),
         };
@@ -208,6 +217,15 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
           options.finder?.(args.request as Record<string, unknown>, core) ??
           null
         );
+      case "check_app_update":
+      case "app_update_state":
+        return {
+          phase: "current",
+          version: "1.0.0",
+          signedUpdates: true,
+          releaseUrl:
+            "https://github.com/isct-companion/isct-companion/releases/latest",
+        };
       case "runtime_capabilities":
         return options.capabilities ?? {};
       case "school_credential_status":

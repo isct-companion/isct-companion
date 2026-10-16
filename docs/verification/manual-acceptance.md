@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 24 checks must be re-run before the next release.**
+**7 of 29 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,13 +27,12 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**16 checks have never been run or could not be run:**
+**20 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
 - `IDENTITY-DOCTORAL-RULES` — never verified
 - `IDENTITY-TRANSFER-COHORT` — never verified
-- `IDENTITY-PERIOD-OVERRIDE-UI` — unreached: The shell reads a static generated table, so a stored override does not reach the timetable geometry.
 - `SCHOOL-KYOMU-GRADUATE-TABLES` — unreached: No graduate account available; a borrowed account is pending.
 - `IDENTITY-LANGUAGE-SWITCH` — never verified
 - `CLOUD-DRIVE-WRITE` — never verified
@@ -45,6 +44,11 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `RELEASE-INSTALL` — never verified
+- `WORKSPACE-NATIVE-RESIZE` — never verified
+- `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
+- `DESKTOP-REMINDER-TIMES` — never verified
+- `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
+- `DESKTOP-WINDOWS-LAUNCH` — never verified
 
 ## Status
 
@@ -56,7 +60,6 @@ an unverified area becomes an assumed-good one.
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-TRANSFER-COHORT` | identity | 編入生 | —<br>not run | crates/isct-core/src/subscriptions.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/lib/departments.ts |
-| `IDENTITY-PERIOD-OVERRIDE-UI` | identity | 理工学系 3年生・履修計画期 | **unreached**<br>2026-10-16 · human · `8ae53c3` | crates/isct-core/src/schedule/timing.rs<br>apps/desktop/src/lib/timetable-layout.ts |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/isct-core/src/kyomu_ingest.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/study_profile.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
 | `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
@@ -73,7 +76,13 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
-| `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
+| `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
+| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
+| `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
+| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
+| `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 
 ## Personas
 
@@ -240,11 +249,14 @@ The account from SCHOOL-SIGNIN-SCIENCE is Signed in.
 
 **Steps**
 
-1. Trigger a full LMS pull and leave the window alone until it ends.
+1. In a fresh disposable workspace, sign in and let the initial automatic
+   full LMS pull finish. Then use Pull from LMS and verify it defaults
+   to all courses, including quarters outside the current semester.
    - *Why:* The uninterrupted path establishes the baseline the interrupted path
      is compared against.
-2. Compare the pulled course list and assignments with the LMS open in
-   another browser.
+2. Compare courses and assignments with the authenticated LMS. Select
+   Pull current quarter only, then reopen a previously cached lecture.
+   Keep reading while the later partial background refresh finishes.
    - *Why:* A pull that "succeeds" with silently dropped courses is the failure
      this step catches; matching counts alone would not.
 3. Open a visible school page in the middle of a second pull.
@@ -258,8 +270,10 @@ visible school page that interrupted the second pull.
 
 **Expected**
 
-The first pull matches the LMS exactly and advances its timestamp; the
-interrupted pull leaves the previous rows intact and resumes.
+The first pull matches the LMS course list and advances its timestamp;
+current-only reads the actual current quarter. Cached lecture content
+remains usable during refresh and changed content produces one quiet,
+short in-app update notice. Interrupted work retains old rows and resumes.
 
 **Why this is manual**
 
@@ -462,62 +476,6 @@ but which one applies is only knowable from the account.
 - `apps/desktop/src/lib/departments.ts`
 
 **Last recorded** never run
-
-### A stored teaching-period override reaches the timetable (`IDENTITY-PERIOD-OVERRIDE-UI`)
-
-**Area** identity · **Persona** 理工学系 3年生・履修計画期 · **Result** **unreached**
-
-> Not verified: unreached: The shell reads a static generated table, so a stored override does not reach the timetable geometry.
-
-**Preconditions**
-
-A study profile whose teaching periods differ from the official table,
-stored through Settings, and at least one course on the timetable.
-
-**Steps**
-
-1. Edit the teaching periods in Settings so one block starts at a time
-   the official table does not use, and save.
-   - *Why:* The override has to be persisted, not merely accepted by the form. An
-     unsaved edit would make the next step pass for the wrong reason.
-2. Open the timetable and compare block positions with the times just
-   entered.
-   - *Why:* This is the gap. The shell derives its slot geometry from the
-     generated default table, so a stored override is ignored today. The
-     step makes the omission visible instead of assuming it away.
-3. Restart the app and look again.
-   - *Why:* Separates "the form kept the value" from "the resolved table reaches
-     the view"; those fail independently.
-
-**Where to look**
-
-The teaching-period table in Settings, and the vertical position of the
-timetable blocks against the clock.
-
-**Expected**
-
-The timetable reflects the stored periods rather than the official
-defaults.
-
-**Why this is manual**
-
-Confirming that a student's own table changes the timetable they see
-needs the real app holding a stored profile. The wiring becomes
-automatable once the shell is given the resolved table, which is why this
-is recorded as an unreached gap rather than an automated test.
-
-**Covers**
-
-- `crates/isct-core/src/schedule/timing.rs`
-- `apps/desktop/src/lib/timetable-layout.ts`
-
-**Last recorded** unreached · 2026-10-16 · human · `8ae53c3` · `1.0.0-rc.3`
-
-Blocked by: The shell reads a static generated table, so a stored override does not reach the timetable geometry.
-
-Found while merging origin/main. Core supports the override; the view does not read it.
-
-Evidence: `docs/verification/manual-acceptance.md`
 
 ### Graduate 教務Web tables against a real graduate account (`SCHOOL-KYOMU-GRADUATE-TABLES`)
 
@@ -1262,7 +1220,8 @@ Needs Apple credentials and the notarization service.
 
 **Preconditions**
 
-The published installers and a machine that has never run the app.
+The published installers, a clean machine and a separate installation with
+an existing workspace (including schema 6 for the 1.0 update).
 
 **Steps**
 
@@ -1270,9 +1229,15 @@ The published installers and a machine that has never run the app.
    - *Why:* Build success does not establish runtime compatibility; the release
      notes say so explicitly.
 2. Launch, complete first-run, and open a workspace from a backup.
-   - *Why:* An existing workspace must import into a fresh install, which is the
-     upgrade path every current user takes.
-3. Observe the Gatekeeper and SmartScreen prompts.
+   - *Why:* An existing workspace must import into a fresh install, independently of the
+     normal update path.
+3. On the existing installation, change a timetable and a preference,
+   quit, replace the application with the new installer, and relaunch
+   without exporting or importing a backup.
+   - *Why:* Checks that an actual OS installer uses the same application-data
+     directory and retains data across a normal update. SQL migration
+     tests cannot exercise app replacement and installed identities.
+4. Observe the Gatekeeper and SmartScreen prompts.
    - *Why:* The release notes promise a specific prompt behaviour; a mismatch
      makes the notes wrong rather than the build.
 
@@ -1284,7 +1249,7 @@ workspace.
 **Expected**
 
 Installation succeeds, the OS prompts match the release notes, and
-existing workspace data imports.
+existing workspace data imports and survives ordinary app updates.
 
 **Why this is manual**
 
@@ -1293,7 +1258,299 @@ runtime compatibility.
 
 **Covers**
 
+- `crates/isct-core/src/data/migrations.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
 - `scripts/desktop/desktop-release.mjs`
+- `.github/workflows/desktop-release.yml`
+
+**Last recorded** never run
+
+### Resize a workspace containing the native school browser (`WORKSPACE-NATIVE-RESIZE`)
+
+**Area** native · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Run the updated signed macOS desktop build with a school account available.
+
+**Steps**
+
+1. Open a school service in Web, drag the separator in both directions,
+   and move the pointer across the school page before releasing it.
+   - *Why:* WKWebView is a separate native surface and can intercept the pointer;
+     a DOM splitter test cannot prove that the drag stays captured.
+2. Open an official LMS page in a lecture reader, resize its left outline,
+   then shrink and widen the window across the compact breakpoint.
+   - *Why:* The native page must follow the actual reader bounds, including the
+     relocated search field and tool panel, without covering either toolbar.
+3. With an official LMS page open, collapse the lecture sidebar, hover
+   Lectures, move into the floating list, then toggle it back to pinned.
+   - *Why:* Confirms the floating DOM list remains reachable beside the native
+     browser surface, which headless layout tests cannot display.
+
+**Where to look**
+
+The native page edges, workspace separator, Web service header and
+the document tool panel in the lecture reader.
+
+**Expected**
+
+The separator follows the pointer until release. The native page stays
+inside its content area and both toolbars remain clickable after resizing.
+
+**Why this is manual**
+
+Requires a signed native shell and a real WKWebView over authenticated
+school content; jsdom and the browser preview render only the DOM host.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src/components/ResizableWorkspace.tsx`
+- `apps/desktop/src/pages/web/WebPage.tsx`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/pages/lectures/lectures.css`
+- `apps/desktop/src/features/lms/OfficialLmsView.tsx`
+- `apps/desktop/src/features/lms/ReaderPane.tsx`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/components/workspace-chrome.css`
+
+**Last recorded** never run
+
+### Prepare assignment files in the official LMS draft area (`SCHOOL-ASSIGNMENT-UPLOAD`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Updated signed desktop bundle, a real LMS account, an open assignment
+accepting test files, and a workspace with files in submit/.
+
+**Steps**
+
+1. Choose Prepare in LMS from the assignment workspace. Inspect the
+   right-hand official LMS page without clicking Save or Submit.
+   - *Why:* Verifies that the injected drag reaches Moodle's authenticated uploader
+     and that assistance stops before the user commits the submission.
+2. Compare every displayed draft filename and size with submit/. Repeat
+   using ZIP, then try a file type the assignment rejects.
+   - *Why:* Confirms the uploaded data and archive selection, and that Moodle's
+     own restrictions and error UI still govern the upload.
+3. Start from another assignment page, then prepare this assignment.
+   Close and reopen the reader while the official form is visible.
+   - *Why:* Checks target binding and native navigation: files must only enter
+     the requested assignment, and reopening must not upload a second copy.
+
+**Where to look**
+
+The LMS draft file manager, its upload progress/errors, the assignment
+name/URL and the untouched official Save/Submit controls in the right pane.
+
+**Expected**
+
+Exactly the chosen workspace files appear in the requested assignment's
+draft. Only user action can save or submit; unsupported uploads show the
+normal LMS error. Reopening does not duplicate files.
+
+**Why this is manual**
+
+Requires real authenticated Moodle uploads and WebKit drag-transfer APIs.
+Headless tests verify injection and routing but cannot execute the remote
+uploader, site restrictions or the signed native browser.
+
+**Covers**
+
+- `crates/isct-core/src/workspaces.rs`
+- `crates/isct-core/src/school_browser/policy.rs`
+- `crates/isct-core/src/school_browser/engine.rs`
+- `crates/isct-core/src/school_browser/submission.rs`
+- `crates/isct-core/src/school_browser/assets/assignment-upload.js`
+- `apps/desktop/src-tauri/src/workspaces.rs`
+- `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
+
+**Last recorded** never run
+
+### Deliver class and assignment reminders at the selected times (`DESKTOP-REMINDER-TIMES`)
+
+**Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An updated native desktop build and OS notification permission available.
+
+**Steps**
+
+1. Grant notification permission, enable both reminder types, and choose
+   a class lead time plus a non-default assignment lead time.
+   - *Why:* Real OS consent and notification delivery are unavailable to the
+     headless settings and reminder-plan tests.
+2. Arrange the class start and assignment deadline so their selected
+   reminder times occur shortly, then leave the app in the background.
+   - *Why:* Verifies that native lifecycle wakeups deliver the selected times
+     even when the settings page and the application window are inactive.
+
+**Where to look**
+
+The operating system notification centre and the selected reminder times
+in Settings > Notifications after reopening the page.
+
+**Expected**
+
+Each native notification arrives at the configured time with the correct
+class or assignment title, and selected times remain saved.
+
+**Why this is manual**
+
+Requires actual OS notification permission, background lifecycle callbacks
+and native notification delivery; tests use a headless notification sink.
+
+**Covers**
+
+- `apps/desktop/src/pages/settings/NotificationSettings.tsx`
+- `apps/desktop/src-tauri/src/commands/notifications.rs`
+- `crates/isct-core/src/schedule/reminders.rs`
+
+**Last recorded** never run
+
+### Official course search and enrollment use the authenticated native session (`SCHOOL-OFFICIAL-COURSE-PAGES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An updated native desktop build, a real Tokyo Tech account, and the
+student's registered timetable available in 教務Web. Use a disposable
+local workspace for the fresh-profile check.
+
+**Steps**
+
+1. Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
+   the department, admission year and current timetable with the source.
+   - *Why:* Only a real account exposes the current programme and the registered
+     timetable. It also exercises native redirects and the hidden reader.
+2. Search a broad course prefix with more than 100 results, scroll to
+   load another page, then narrow by teacher, quarter and start period.
+   - *Why:* Exercises live ASP.NET paging and session form state in the native
+     hidden browser; fixture tests cannot prove the university accepts
+     those postbacks. Changing conditions must start a fresh query.
+3. Open one result's syllabus details and one registered course's LMS
+   materials; refresh LMS and reopen the timetable.
+   - *Why:* Real school sessions must support both content destinations without
+     a detail refresh or LMS membership changing official enrollment.
+
+**Where to look**
+
+Settings > Study, Schedule, the course search list and the native school
+browser. Compare the same course code, quarter, time and room in 教務Web.
+
+**Expected**
+
+Fresh profile fields match 教務Web; current enrollment and rooms match
+its timetable. Search appends at most 100 courses per batch without
+duplicates, changes filters on the server, and preserves loaded rows.
+Syllabus details and LMS materials open for the same course; LMS refresh
+leaves the official timetable intact. No university registration is changed.
+
+**Why this is manual**
+
+Requires real student authentication, native hidden-browser ownership,
+the live university postback state and authenticated content destinations.
+Headless tests exercise the parser, shared projections and UI paging only.
+
+**Covers**
+
+- `crates/isct-core/src/school_browser/engine/extraction.rs`
+- `crates/isct-core/src/school_browser/assets/kyomu-search.js`
+- `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
+- `crates/isct-core/src/data/kyomu_projection.rs`
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
+
+**Last recorded** never run
+
+### Signed macOS updates preserve the existing workspace (`DESKTOP-SIGNED-UPDATES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** pass
+
+**Preconditions**
+
+An installed Developer-ID-signed macOS update-enabled bundle, a newer
+version signed with the configured updater key, and a rollback copy of
+the app and its data. A debug build may use the strictly loopback fixture
+origin; release builds always use the source repository.
+
+**Steps**
+
+1. Detect an update, download a tampered copy, then retry with the valid signed bundle.
+   - *Why:* The real native updater must reject modified bytes before permitting installation; fixtures alone do not exercise the packaged app and key.
+2. Enable automatic updates, quit through the app menu or Cmd-Q, and reopen.
+   - *Why:* Cocoa's predefined Quit can bypass ExitRequested; the native menu must enter owned shutdown before installing verified bytes.
+3. Compare the installed version, login state, saved settings, timetable and course records with the rollback copy.
+   - *Why:* A real bundle replacement must preserve the same app-data and Keychain access; an isolated parser test cannot verify that.
+
+**Where to look**
+
+Settings > About, the application bundle version, updater-install-result.json in app data, and the retained workspace.
+
+**Expected**
+
+Tampered content is rejected, the valid bundle installs through Cmd-Q,
+the new version reopens and saved data and login credentials remain.
+A source repository with no stable release is reported as unpublished.
+
+**Why this is manual**
+
+Requires Developer ID signing, real macOS menu dispatch, Keychain access and native app-bundle replacement.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/desktop_updates.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/tauri.conf.json`
+
+**Last recorded** pass · 2026-10-16 · agent · `af4f026b552d2e36e830966df9b74dad96eb8fb2` · `1.0.1-dev.1`
+
+Developer-ID-signed local 1.0.0 to 1.0.1-dev.1; tampered archive rejected; Cmd-Q automatic install and reopen succeeded; original IDs, settings and both logins retained.
+
+Evidence: `docs/verification/desktop-updater.md`
+
+### Windows release launches without a companion terminal (`DESKTOP-WINDOWS-LAUNCH`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Windows release installer built from the current desktop source and a real Windows desktop.
+
+**Steps**
+
+1. Install the release, launch it from Explorer, and open a course workspace file.
+   - *Why:* Windows subsystem and child-process consoles cannot be observed by headless Unix tests.
+
+**Where to look**
+
+The Windows desktop, app window and taskbar.
+
+**Expected**
+
+The app and workspace open without an accompanying console window.
+
+**Why this is manual**
+
+Requires a native Windows release executable, Explorer and the real desktop shell.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/main.rs`
 - `.github/workflows/desktop-release.yml`
 
 **Last recorded** never run

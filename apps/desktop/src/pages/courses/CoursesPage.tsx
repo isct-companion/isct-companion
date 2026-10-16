@@ -1,4 +1,4 @@
-import { intlLocale } from "../../i18n/locale";
+import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
 import { useState, type ReactNode } from "react";
 import {
@@ -12,7 +12,7 @@ import {
   Modal,
   TextInput,
 } from "@mantine/core";
-import { useLocalStorage } from "@mantine/hooks";
+import { useMediaQuery, useLocalStorage } from "@mantine/hooks";
 
 import {
   WeekTimetable,
@@ -21,21 +21,16 @@ import {
 
 import type { PersonalEvent, Plan, TermId, Workspace } from "../../lib/model";
 
-import {
-  agendaColumns,
-  planningColumns,
-} from "../../components/timetable/workspace";
+import { planningColumns } from "../../components/timetable/workspace";
 import type { CalendarExportScope } from "../../generated/persistence";
 import { resolvedTeachingPeriods } from "../../lib/timetable-layout";
 import { UiButton } from "../../components/mantine";
-import { addCivilDays as addDays, tokyoDate } from "../../lib/civil-date";
 import { YearQuarterPicker } from "./YearQuarterPicker";
 import { PullRing } from "../../components/PullRing";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import {
   useScheduleQueries,
   type PlanningWeek,
-  type ScheduleView,
   type WorkspaceOverview,
 } from "../../platform/core-query";
 
@@ -60,7 +55,7 @@ export function Courses({
   activeSlots,
   onIntensive,
   intensiveActive,
-  pullLms,
+  refreshSchedule,
   pullProgress = null,
   register,
   academic,
@@ -95,9 +90,9 @@ export function Courses({
   /** The 集中 lane toggles the intensive condition. */
   onIntensive?: (append: boolean) => void;
   intensiveActive?: boolean;
-  /** Pulls LMS courses for the quarter on screen, or every quarter. */
-  pullLms?: (scope: "term" | "all") => void;
-  /** 0–100 while an LMS pull runs, else null. */
+  /** Refreshes official enrollment and times from 教務Web. */
+  refreshSchedule?: () => void;
+  /** 0–100 while an official pull runs, else null. */
   pullProgress?: number | null;
   /** Opens 教務Web registration with this quarter's planned courses queued. */
   register?: (term: TermId) => void;
@@ -107,50 +102,20 @@ export function Courses({
   compact?: boolean;
 }) {
   const selection = useScheduleQueries<[WorkspaceOverview]>([
-    { kind: "workspaceOverview", term: currentTerm },
+    { kind: "workspaceOverview", term: "" },
   ]).value?.[0];
   const term = selection?.coursesTerm ?? currentTerm;
   const canEdit = editing && !readOnly;
-  const [weekAnchor, setWeekAnchor] = useState<{
-    term: TermId;
-    date: string;
-  }>();
-  const today = tokyoDate(new Date());
-  const overview = useScheduleQueries<[WorkspaceOverview]>([
-    { kind: "workspaceOverview", term },
+  const wide = useMediaQuery("(min-width: 761px)");
+  const overview = selection;
+  const terms = overview?.allTerms ?? [currentTerm];
+  const planning = useScheduleQueries<[PlanningWeek]>([
+    { kind: "planningWeek", term },
   ]).value?.[0];
-  const terms = overview?.allTerms ?? selection?.allTerms ?? [currentTerm];
-  const range = overview?.range;
-  const anchorDate =
-    weekAnchor?.term === term
-      ? weekAnchor.date
-      : range && today >= range.from && today <= range.to
-        ? today
-        : (range?.from ?? today);
-  const moveWeek = (days: number) =>
-    setWeekAnchor({ term, date: addDays(anchorDate, days) });
-  const anchorDay = new Date(`${anchorDate}T12:00:00Z`).getUTCDay();
-  const weekFrom = addDays(anchorDate, anchorDay === 0 ? -6 : 1 - anchorDay);
-  const schedule = useScheduleQueries<[ScheduleView]>(
-    [
-      {
-        kind: "scheduleView",
-        term,
-        from: weekFrom,
-        to: addDays(weekFrom, 6),
-        includePersonal: true,
-      },
-    ],
-    !editing,
-  ).value?.[0];
-  const planning = useScheduleQueries<[PlanningWeek]>(
-    [{ kind: "planningWeek", term }],
-    editing,
-  ).value?.[0];
   // Courses of this quarter, a 3Q–4Q course in each of its quarters.
   const courseCount = overview?.termCourseIds.length ?? 0;
   const events = data.events.filter((e) => e.termId === term && !e.deletedAt);
-  const scheduled = (editing ? planning?.courses : overview?.courses) ?? [];
+  const scheduled = planning?.courses ?? [];
   // Intensive or unpublished times have no grid cell; they get their own lane.
   const unscheduled = scheduled.filter((course) => !course.meetings.length);
   const conflictCount = editing ? (planning?.conflictCount ?? 0) : 0;
@@ -158,26 +123,12 @@ export function Courses({
     key: "isct-companion-courses-week-length",
     defaultValue: "5",
   });
-  const allColumns = editing
-    ? planningColumns(planning)
-    : agendaColumns(schedule?.agendas ?? []);
-  const dateFormat = new Intl.DateTimeFormat(intlLocale(data.settings.locale), {
-    day: "numeric",
-    month: "short",
-    timeZone: "Asia/Tokyo",
-  });
-  const weekLabel = editing
-    ? ""
-    : allColumns.length === 7
-      ? `${dateFormat.format(new Date(`${allColumns[0].date}T12:00:00+09:00`))} – ${dateFormat.format(new Date(`${allColumns[6].date}T12:00:00+09:00`))}`
-      : t("Loading…");
-  // Weekdays only, unless a weekend day actually has something on it.
+  const allColumns = planningColumns(planning);
   const columns =
-    !editing || weekLength === "7"
+    weekLength === "7"
       ? allColumns
       : allColumns.slice(
           0,
-          // Slot clicks use the column position as the weekday, so keep it contiguous.
           allColumns[6]?.blocks.length
             ? 7
             : allColumns[5]?.blocks.length
@@ -199,8 +150,8 @@ export function Courses({
       );
       if (plan) openPlan?.(plan);
     } else {
-      const event = events.find((e) => e.id === block.id);
-      if (event) openEvent(event, term);
+      const event = data.events.find((e) => !e.deletedAt && e.id === block.id);
+      if (event) openEvent(event, event.termId);
     }
   };
   const exportMenu = (target: ReactNode) => (
@@ -218,7 +169,7 @@ export function Courses({
   );
   const header = compact ? (
     <header className="scheduleCompactBar">
-      <h1>{t("Schedule")}</h1>
+      <h1>{t("Timetable")}</h1>
       <YearQuarterPicker
         terms={terms}
         selected={term}
@@ -246,12 +197,8 @@ export function Courses({
       {header}
       <div className="scheduleTitleRow" hidden={compact}>
         <div>
-          <h1>{t("Schedule")}</h1>
-          <span>
-            {editing
-              ? t("Plan courses for this quarter")
-              : t("Courses and personal plans for the week")}
-          </span>
+          <h1>{t("Timetable")}</h1>
+          <span>{t("Plan courses for this quarter")}</span>
         </div>
         <Switch
           label={t("Edit")}
@@ -271,43 +218,23 @@ export function Courses({
         />
         <div className="pageBarRight">
           {academic}
-          {canEdit && pullLms && (
-            <Button.Group>
-              <Button
-                size="xs"
-                variant="default"
-                disabled={pullProgress !== null}
-                leftSection={
-                  pullProgress !== null ? (
-                    <PullRing value={pullProgress} />
-                  ) : undefined
-                }
-                onClick={() => pullLms("term")}
-                title={t("Pull this quarter's courses from LMS")}
-              >
-                {pullProgress !== null
-                  ? `${Math.round(pullProgress)}%`
-                  : t("Pull from LMS")}
-              </Button>
-              <Menu position="bottom-end" withinPortal>
-                <Menu.Target>
-                  <Button
-                    size="xs"
-                    variant="default"
-                    disabled={pullProgress !== null}
-                    aria-label={t("More pull options")}
-                    px={6}
-                  >
-                    ▾
-                  </Button>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Item onClick={() => pullLms("all")}>
-                    {t("Pull all quarters")}
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            </Button.Group>
+          {refreshSchedule && (
+            <Button
+              size="xs"
+              variant="default"
+              disabled={pullProgress !== null}
+              leftSection={
+                pullProgress !== null ? (
+                  <PullRing value={pullProgress} />
+                ) : undefined
+              }
+              onClick={refreshSchedule}
+              title={t("Refresh timetable from 教務Web")}
+            >
+              {pullProgress !== null
+                ? `${Math.round(pullProgress)}%`
+                : t("Refresh timetable")}
+            </Button>
           )}
           {register && canEdit && (
             <UiButton
@@ -334,22 +261,7 @@ export function Courses({
               {conflictCount} conflict{conflictCount > 1 ? "s" : ""}
             </Badge>
           )}
-          {!editing && Boolean(schedule?.problems.length) && (
-            <Badge
-              variant="light"
-              color="orange"
-              title={schedule!.problems
-                .map(
-                  (problem) =>
-                    `${problem.title || problem.id}: ${problem.message}`,
-                )
-                .join("\n")}
-            >
-              {t("{{count}} items not shown", {
-                count: schedule!.problems.length,
-              })}
-            </Badge>
-          )}
+
           {removable && canEdit && (
             <UiButton
               className="button"
@@ -407,116 +319,97 @@ export function Courses({
         </div>
       </header>
       <div className={`coursesBody${editing ? "" : " viewing"}`}>
-        <div className="coursesLeft">
-          <Paper
-            component="section"
-            className="ttCard"
-            withBorder
-            shadow="xs"
-            radius="md"
-          >
-            <div className="timetableViewBar">
-              <b>{editing ? t("Quarter template") : weekLabel}</b>
-              {!editing && (
-                <div className="scheduleControls">
+        <ResizableWorkspace
+          id="planner"
+          enabled={wide && editing}
+          secondSize={320}
+          firstMin="40%"
+          secondMin={240}
+          secondMax="55%"
+        >
+          <div className="coursesLeft">
+            <Paper
+              component="section"
+              className="ttCard"
+              withBorder
+              shadow="xs"
+              radius="md"
+            >
+              <div className="timetableViewBar">
+                <b>{t("Quarter template")}</b>
+              </div>
+              {
+                <div className="intensiveLane">
+                  {canEdit && onIntensive ? (
+                    <UiButton
+                      type="button"
+                      className={`intensiveToggle${intensiveActive ? " active" : ""}`}
+                      aria-pressed={Boolean(intensiveActive)}
+                      title={t("Find intensive courses")}
+                      onClick={(event) =>
+                        onIntensive(event.metaKey || event.ctrlKey)
+                      }
+                    >
+                      {t("集中・時間未定")}
+                    </UiButton>
+                  ) : (
+                    <b>{t("集中・時間未定")}</b>
+                  )}
+                  <div>
+                    {unscheduled.map((course) => (
+                      <UiButton
+                        key={course.id}
+                        type="button"
+                        style={
+                          { "--course": course.color } as React.CSSProperties
+                        }
+                        onClick={() => open(course.id)}
+                      >
+                        {course.title}
+                      </UiButton>
+                    ))}
+                    {!unscheduled.length && <small>{t("None")}</small>}
+                  </div>
                   <UiButton
                     type="button"
-                    aria-label={t("Previous week")}
-                    onClick={() => moveWeek(-7)}
-                  >
-                    ←
-                  </UiButton>
-                  <UiButton
-                    type="button"
-                    onClick={() => {
-                      void mutate({
-                        kind: "selectTerm",
-                        termId: currentTerm,
-                      }).catch(() => undefined);
-                      setWeekAnchor({ term: currentTerm, date: today });
-                    }}
-                  >
-                    {t("This week")}
-                  </UiButton>
-                  <UiButton
-                    type="button"
-                    aria-label={t("Next week")}
-                    onClick={() => moveWeek(7)}
-                  >
-                    →
-                  </UiButton>
-                </div>
-              )}
-            </div>
-            {editing && (
-              <div className="intensiveLane">
-                {canEdit && onIntensive ? (
-                  <UiButton
-                    type="button"
-                    className={`intensiveToggle${intensiveActive ? " active" : ""}`}
-                    aria-pressed={Boolean(intensiveActive)}
-                    title={t("Find intensive courses")}
-                    onClick={(event) =>
-                      onIntensive(event.metaKey || event.ctrlKey)
+                    className="weekLength"
+                    aria-pressed={weekLength === "7"}
+                    title={t("Show the weekend")}
+                    onClick={() =>
+                      setWeekLength(weekLength === "7" ? "5" : "7")
                     }
                   >
-                    {t("集中・時間未定")}
+                    {weekLength === "7" ? t("7 days") : t("5 days")}
                   </UiButton>
-                ) : (
-                  <b>{t("集中・時間未定")}</b>
-                )}
-                <div>
-                  {unscheduled.map((course) => (
-                    <UiButton
-                      key={course.id}
-                      type="button"
-                      style={
-                        { "--course": course.color } as React.CSSProperties
-                      }
-                      onClick={() => open(course.id)}
-                    >
-                      {course.title}
-                    </UiButton>
-                  ))}
-                  {!unscheduled.length && <small>{t("None")}</small>}
                 </div>
-                <UiButton
-                  type="button"
-                  className="weekLength"
-                  aria-pressed={weekLength === "7"}
-                  title={t("Show the weekend")}
-                  onClick={() => setWeekLength(weekLength === "7" ? "5" : "7")}
-                >
-                  {weekLength === "7" ? t("7 days") : t("5 days")}
-                </UiButton>
-              </div>
+              }
+              <WeekTimetable
+                days={columns}
+                teachingPeriods={resolvedTeachingPeriods(
+                  data.academicProfile.teachingPeriods,
+                )}
+                onSelect={select}
+                emptyLabel="Nothing scheduled this day"
+                showNow={false}
+                onSlot={canEdit ? onSlot : undefined}
+                activeSlots={editing ? activeSlots : undefined}
+              />
+            </Paper>
+            {editing && leftPanel && (
+              <div className="coursesSidePanel">{leftPanel}</div>
             )}
-            <WeekTimetable
-              days={columns}
-              teachingPeriods={resolvedTeachingPeriods(
-                data.academicProfile.teachingPeriods,
-              )}
-              onSelect={select}
-              emptyLabel="Nothing scheduled this day"
-              showNow={!editing}
-              onSlot={canEdit ? onSlot : undefined}
-              activeSlots={editing ? activeSlots : undefined}
-            />
-          </Paper>
-          {editing && leftPanel && (
-            <div className="coursesSidePanel">{leftPanel}</div>
-          )}
-        </div>
-        {editing && (
-          <div className="coursesSide">
-            <div className="coursesInspector">
-              {editing && side}
-              {editing && panel && (
-                <div className="coursesSidePanel">{panel}</div>
-              )}
-            </div>
           </div>
-        )}
+          {editing && (
+            <div className="coursesSide">
+              <div className="coursesInspector">
+                {editing && side}
+                {editing && panel && (
+                  <div className="coursesSidePanel">{panel}</div>
+                )}
+              </div>
+            </div>
+          )}
+        </ResizableWorkspace>
       </div>
       <Modal
         opened={Boolean(preview)}

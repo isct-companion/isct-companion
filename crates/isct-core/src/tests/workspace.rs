@@ -221,11 +221,13 @@ fn settings_replacement_clears_keys_and_core_validates_every_value() {
 }
 
 #[test]
-fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
+fn study_profile_and_calendar_edits_preserve_the_other_profile_fields() {
     let service = service("study-profile");
-    let legacy = json!({
+    let profile = json!({
         "name":"My program",
         "admissionYear":2024,
+        "studyEnrollments":[],
+        "teachingPeriods":crate::schedule::default_teaching_periods(),
         "gradePath":[{"grade":"B2","academicYear":2025}],
         "years":[{"academicYear":2026,"quarterStarts":{
             "1Q":"2026-04-01","2Q":"2026-06-01","3Q":"2026-10-01","4Q":"2026-12-01"
@@ -233,12 +235,13 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
     });
     service
         .store
-        .put_workspace_setting("academicProfile", legacy.clone(), "test")
+        .put_workspace_setting("academicProfile", profile.clone(), "test")
         .unwrap();
     let old = service.snapshot().unwrap();
-    assert!(old.workspace["academicProfile"]
-        .get("studyEnrollments")
-        .is_none());
+    assert_eq!(
+        old.workspace["academicProfile"]["studyEnrollments"],
+        json!([])
+    );
 
     let saved = run(
         &service,
@@ -261,9 +264,9 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
         },
     )
     .unwrap();
-    assert_eq!(saved["academicProfile"]["name"], legacy["name"]);
-    assert_eq!(saved["academicProfile"]["gradePath"], legacy["gradePath"]);
-    assert_eq!(saved["academicProfile"]["years"], legacy["years"]);
+    assert_eq!(saved["academicProfile"]["name"], profile["name"]);
+    assert_eq!(saved["academicProfile"]["gradePath"], profile["gradePath"]);
+    assert_eq!(saved["academicProfile"]["years"], profile["years"]);
     assert_eq!(
         saved["academicProfile"]["studyEnrollments"]
             .as_array()
@@ -271,13 +274,17 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
             .len(),
         2
     );
+    assert_eq!(
+        saved["academicProfile"]["teachingPeriods"],
+        profile["teachingPeriods"]
+    );
+    let mut edited = saved["academicProfile"].clone();
+    edited["name"] = json!("Renamed program");
+    edited["teachingPeriods"] = Value::Null;
     let calendar = run(
         &service,
         WorkspaceIntent::EditAcademicCalendar {
-            academic_profile: json!({
-                "name":"Renamed program", "admissionYear":2024,
-                "gradePath":legacy["gradePath"], "years":legacy["years"]
-            }),
+            academic_profile: edited,
             exceptions: vec![],
         },
     )
@@ -285,7 +292,11 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
     assert_eq!(
         calendar["academicProfile"]["studyEnrollments"],
         saved["academicProfile"]["studyEnrollments"],
-        "an older calendar editor must preserve the stage history"
+        "calendar edits include the complete profile"
+    );
+    assert_eq!(
+        crate::schedule::teaching_periods(&calendar).unwrap(),
+        crate::schedule::default_teaching_periods()
     );
 }
 
@@ -653,6 +664,53 @@ fn catalog_course_preserves_localized_fields_credits_rooms_and_long_period_range
     assert_eq!(converted["credits"], 2.0);
     assert_eq!(converted["meetings"][0]["endTime"], "17:05");
     assert_eq!(converted["content"]["summary"]["ja"], "内容");
+    // A language change reprojects every quarter, including a non-current one.
+    let mut offering = service
+        .store
+        .catalog_offering("202600001")
+        .unwrap()
+        .unwrap();
+    offering["id"] = json!("202600002");
+    offering["code"] = json!("CSC.T364");
+    offering["quarters"] = json!(["4Q"]);
+    service
+        .store
+        .catalog_upsert_offerings(&[offering.clone()])
+        .unwrap();
+    mutate(
+        &service,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-4Q".into(),
+            offerings: vec![offering],
+        },
+    );
+    let before_language = service.snapshot().unwrap();
+    let japanese = mutate(
+        &service,
+        WorkspaceIntent::ReplaceSettings {
+            settings: settings_with(&before_language, |settings| {
+                settings["contentLanguage"] = json!("ja")
+            }),
+        },
+    );
+    let rows = japanese.workspace["courses"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert_eq!(row["title"], "演習");
+        assert_eq!(row["meetings"][0]["room"], "西講義棟");
+    }
+    let english = mutate(
+        &service,
+        WorkspaceIntent::ReplaceSettings {
+            settings: settings_with(&japanese, |settings| {
+                settings["contentLanguage"] = json!("en")
+            }),
+        },
+    );
+    for row in english.workspace["courses"].as_array().unwrap() {
+        assert_eq!(row["title"], "Exercise");
+        assert_eq!(row["instructor"], "Teacher One / Teacher Two");
+    }
 }
 
 #[test]
@@ -1400,4 +1458,36 @@ fn lms_merge_adds_memberships_joins_quarters_retimes_refreshes_and_relinks() {
     )
     .unwrap();
     assert!(placed_terms(&off, "2026-202630001").is_empty());
+}
+
+#[test]
+fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
+    let service = service("reminder-times");
+    let initial = service.snapshot().unwrap();
+    let settings = settings_with(&initial, |settings| {
+        settings["notifications"]["assignmentLeadMinutes"] = json!([180, 30])
+    });
+    let saved = service
+        .mutate(WorkspaceMutation {
+            expected_revision: initial.revision,
+            intent: WorkspaceIntent::ReplaceSettings { settings },
+        })
+        .unwrap();
+    assert_eq!(
+        service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
+        json!([180, 30])
+    );
+    let invalid = settings_with(&saved, |settings| {
+        settings["notifications"]["assignmentLeadMinutes"] = json!([])
+    });
+    assert!(service
+        .mutate(WorkspaceMutation {
+            expected_revision: saved.revision,
+            intent: WorkspaceIntent::ReplaceSettings { settings: invalid }
+        })
+        .is_err());
+    assert_eq!(
+        service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
+        json!([180, 30])
+    );
 }

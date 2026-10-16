@@ -78,6 +78,7 @@ contract!(SourceRef {
 contract!(CreditSplit { pub lecture: f64, pub exercise: f64, pub lab: f64, });
 contract!(Meeting {
     pub days: Vec<u8>, pub periods: Vec<u8>, pub start_time: String, pub end_time: String,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub term_ids: Option<Vec<String>>,
     pub room: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub room_names: Option<Localized>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub valid_from: Option<String>,
@@ -100,6 +101,7 @@ contract!(Course {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub offering_id: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub names: Option<CourseNames>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub lms_course_id: Option<u64>,
     pub code: String, pub title: String, pub instructor: String, pub credits: f64,
     pub credit_split: CreditSplit, pub instruction_language: InstructionLanguage,
     pub color: String, pub meetings: Vec<Meeting>, pub source: SourceRef,
@@ -419,6 +421,7 @@ contract!(AgentAccess { pub enabled: bool, #[serde(default)] pub last_writes: Ve
 contract!(Notifications {
     pub classes: bool, pub assignments: bool,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_lead_minutes: Option<u32>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub assignment_lead_minutes: Option<Vec<u32>>,
     #[cfg_attr(feature = "ts", ts(type = "NotificationPermission"))] pub local_permission: String,
 });
 contract!(CloudSettings {
@@ -448,9 +451,9 @@ contract!(Settings {
     #[cfg_attr(feature = "ts", ts(type = "\"system\" | \"light\" | \"dark\""))] pub appearance: String,
     #[cfg_attr(feature = "ts", ts(type = "\"comfortable\" | \"compact\""))] pub density: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"small\" | \"medium\" | \"large\""))] pub text_size: Option<String>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub automatic_app_updates: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub restore_school_page: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub active_school_site: Option<String>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub school_service_width: Option<f64>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub school_web_zoom: Option<f64>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub show_grades: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub site_consents: Option<SiteConsents>,
@@ -472,7 +475,7 @@ contract!(AcademicProfile {
     pub name: String, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub admission_year: Option<i32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "StudyEnrollment[]"))]
     pub study_enrollments: Option<Vec<crate::study_profile::StudyEnrollment>>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "TeachingPeriod[]"))]
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "TeachingPeriod[] | null"))]
     pub teaching_periods: Option<Vec<crate::schedule::TeachingPeriod>>,
     pub grade_path: Vec<GradePathEntry>, pub years: Vec<AcademicYearConfig>,
 });

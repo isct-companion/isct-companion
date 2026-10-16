@@ -53,6 +53,8 @@ pub struct LmsPayload {
     #[serde(default)]
     pub courses_complete: bool,
     #[serde(default)]
+    pub full_scan: bool,
+    #[serde(default)]
     pub courses: Vec<LmsCourse>,
     #[serde(default)]
     pub structures: Vec<LmsStructure>,
@@ -77,6 +79,8 @@ struct RawLmsPayload {
     language: String,
     #[serde(default)]
     courses_complete: bool,
+    #[serde(default)]
+    full_scan: bool,
     #[serde(default)]
     courses: Vec<Value>,
     #[serde(default)]
@@ -479,6 +483,7 @@ pub fn parse_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), School
             source_url: raw.source_url,
             language: raw.language,
             courses_complete: raw.courses_complete && !skipped_courses,
+            full_scan: raw.full_scan,
             courses,
             structures,
             action_events,

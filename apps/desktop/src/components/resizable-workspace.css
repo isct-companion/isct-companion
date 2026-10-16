@@ -1,0 +1,62 @@
+.splitWorkspace {
+  grid-column: 1 / -1;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.splitPane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.splitWorkspace[data-resizable="true"] .splitPane > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.workspaceSeparator {
+  position: relative;
+  width: var(--workspace-splitter-width);
+  touch-action: none;
+  outline: none;
+}
+.workspaceSeparator::after {
+  content: "";
+  position: absolute;
+  inset: 4px 9px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background 120ms ease;
+}
+.workspaceSeparator:focus-visible { outline: none; }
+.workspaceSeparator:hover::after,
+.workspaceSeparator:focus-visible::after,
+.workspaceSeparator[data-separator="active"]::after {
+  background: var(--accent);
+}
+/* Let each page's existing single-column layout own compact presentation.
+   Keeping these wrappers avoids remounting a note or native webview on resize. */
+.splitWorkspace[data-resizable="false"],
+.splitWorkspace[data-resizable="false"] > [data-panel],
+.splitWorkspace[data-resizable="false"] .splitPane {
+  display: contents !important;
+}
+.splitWorkspace[data-resizable="false"] > .workspaceSeparator {
+  display: none;
+}
+.splitWorkspace[data-resizable="true"] .homeDay,
+.splitWorkspace[data-resizable="true"] .lectureList {
+  padding-right: 0;
+  border-right: 0;
+}
+.lectureDesk:has(> .splitWorkspace[data-resizable="true"]) {
+  gap: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspaceSeparator::after {
+    transition: none;
+  }
+}

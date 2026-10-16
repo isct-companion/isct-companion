@@ -141,6 +141,12 @@ describe("JST timestamp display", () => {
     expect(formatTimestamp("2026-12-31T15:01:00Z", "en-GB")).toBe(
       "1 Jan 2027, 00:01",
     );
+    for (const locale of ["zh", "ja"]) {
+      const text = formatTimestamp("2026-12-31T15:01:00Z", locale)!;
+      expect(text).toContain("2027");
+      expect(text).toContain("00:01");
+      expect(text).not.toContain("2026");
+    }
   });
 
   it("ignores a caller-supplied time zone and always renders Japan time", () => {

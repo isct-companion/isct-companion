@@ -11,6 +11,7 @@ fn invalid_item_payload() -> LmsPayload {
         source_url: "https://lms.s.isct.ac.jp/2025/my/".into(),
         language: "en".into(),
         courses_complete: false,
+        full_scan: false,
         courses: vec![LmsCourse {
             id: 42,
             fullname: "Test".into(),
@@ -45,7 +46,8 @@ fn extractor_routes_work_by_loaded_page_and_explicit_scope() {
     assert!(LMS_EXTRACT_SCRIPT
         .contains("const requestedCourseId = explicitCourseId || (!fullScan ? pageCourseId : 0)"));
     assert!(LMS_EXTRACT_SCRIPT.contains("'core_calendar_get_action_events_by_course'"));
-    assert!(LMS_EXTRACT_SCRIPT.contains("fullScan && ((year === academicYear"));
+    assert!(LMS_EXTRACT_SCRIPT
+        .contains("return requestedCourseId ? Number(course.id) === requestedCourseId : fullScan"));
 }
 
 #[test]
@@ -102,4 +104,29 @@ fn graded_assignment_and_grade_survive_missing_page_then_accept_reopened_state()
             assert!(value.get("grade").is_none());
         }
     }
+}
+
+#[test]
+fn page_captures_do_not_make_the_full_refresh_look_fresh() {
+    let path = std::env::temp_dir().join(format!("isct-lms-scope-{}.db", uuid::Uuid::new_v4()));
+    let store = crate::data::DataStore::initialize(path).unwrap().0;
+    let mut connection = Connection::open(store.path()).unwrap();
+    let raw = json!({"status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","coursesComplete":true,"courses":[]});
+    let (_, payload) = crate::school_parser::lms::parse_payload(&raw.to_string()).unwrap();
+    let mut payload = payload.unwrap();
+    apply_lms_payload(&mut connection, &payload).unwrap();
+    let runs = store.last_import_runs().unwrap();
+    assert!(runs["lms:summary"].is_string());
+    assert!(runs["lms:all"].is_null());
+    payload.full_scan = true;
+    apply_lms_payload(&mut connection, &payload).unwrap();
+    let full = store.last_import_runs().unwrap()["lms:all"].clone();
+    assert!(full.is_string());
+    payload.full_scan = false;
+    apply_lms_payload(&mut connection, &payload).unwrap();
+    assert_eq!(store.last_import_runs().unwrap()["lms:all"], full);
+    payload.full_scan = true;
+    payload.courses_complete = false;
+    apply_lms_payload(&mut connection, &payload).unwrap();
+    assert_eq!(store.last_import_runs().unwrap()["lms:all"], full);
 }

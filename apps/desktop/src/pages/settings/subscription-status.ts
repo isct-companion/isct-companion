@@ -1,7 +1,11 @@
 import { intlLocale } from "../../i18n/locale";
 import type { Subscription, Workspace } from "../../lib/model";
 import { useScheduleQuery } from "../../platform/core-query";
-import { isCivilDate, parseIsoTimestamp } from "../../lib/civil-date";
+import {
+  formatJst,
+  isCivilDate,
+  parseIsoTimestamp,
+} from "../../lib/civil-date";
 
 export const subscriptionRow = (data: Workspace, kind: Subscription["kind"]) =>
   data.subscriptions.find((row) => row.kind === kind && !row.deletedAt);
@@ -18,12 +22,12 @@ export function formatDay(
     ? new Date(`${value}T12:00:00+09:00`)
     : parseIsoTimestamp(value);
   if (!date) return value;
-  return new Intl.DateTimeFormat(languageTag(locale), {
+  return formatJst(date, locale, {
     month: "short",
     day: "numeric",
     timeZone: "Asia/Tokyo",
     ...options,
-  }).format(date);
+  });
 }
 
 export type SubscriptionState =

@@ -136,6 +136,26 @@ impl Core {
         Ok(engine)
     }
 
+    /// Desktop and foreign shells share the same authenticated page and cursor policy.
+    pub async fn catalog_query(
+        &self,
+        query: String,
+        year: u16,
+        filters: Option<crate::catalog::CatalogFilters>,
+        cursor: Option<String>,
+    ) -> Result<crate::catalog::CatalogPage, crate::catalog::CatalogError> {
+        crate::catalog::kyomu_query(
+            self.store.clone(),
+            self.school_browser()?,
+            self.runtime.coordinator.clone(),
+            query,
+            year,
+            filters,
+            cursor,
+        )
+        .await
+    }
+
     pub fn school_browser(&self) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
         self.school_browser
             .lock()
@@ -221,6 +241,7 @@ impl Core {
         }
         let mut snapshot = self.workspace.snapshot()?;
         snapshot.workspace["registrations"] = snapshot.school_records["registrations"].clone();
+        snapshot.workspace["grades"] = snapshot.school_records["grades"].clone();
         let values = queries
             .into_iter()
             .map(|query| crate::schedule::query(&snapshot.workspace, query))

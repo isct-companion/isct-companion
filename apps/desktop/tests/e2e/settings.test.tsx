@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buttonByText,
   click,
+  typeInto,
+  courseFor,
+  offering,
   flush,
   mountApp,
   overviewFor,
@@ -122,6 +125,7 @@ function mountSettings(
     capabilities?: Record<string, unknown>;
     handle?: Handler;
     apply?: Apply;
+    queries?: FakeCoreOptions["queries"];
   } = {},
 ): Promise<MountedApp> {
   return mountApp(
@@ -133,6 +137,7 @@ function mountSettings(
         planningWeek: (_query, core) => planningWeekFor(core.workspace),
         scheduleView: (_query, core) => scheduleViewFor(core.workspace),
         academicYears: { currentYear: YEAR },
+        ...options.queries,
       },
       handle: withDefaults(options.handle),
       apply: options.apply,
@@ -1134,7 +1139,7 @@ function studyWorkspace(): Workspace {
 
 const stageSelect = (pane: HTMLElement) =>
   pane.querySelector<HTMLSelectElement>(
-    '[aria-label="Degree stage, stage 1"]',
+    '[aria-label="Degree programme, entry 1"]',
   )!;
 
 const departmentSelect = (pane: HTMLElement) =>
@@ -1164,6 +1169,85 @@ function studyIntents(mounted: MountedApp) {
 }
 
 describe("Study profile", () => {
+  it("persists a department selection after the controlled field rerenders", async () => {
+    const mounted = await mountStudy(studyWorkspace(), {
+      apply: (intent, core) => {
+        if (intent.kind === "replaceSettings")
+          core.publish(
+            {
+              ...core.workspace,
+              settings: intent.settings as Workspace["settings"],
+            },
+            "revision:profile-edit",
+          );
+      },
+    });
+    const pane = settingsPane(mounted);
+    await change(departmentSelect(pane), "cs");
+    await wait(() =>
+      expect(mounted.core.workspace.settings.departmentId).toBe("cs"),
+    );
+    expect(departmentSelect(pane).value).toBe("cs");
+  });
+
+  it("prefills the detected entry year and saves it only on request", async () => {
+    const workspace = studyWorkspace();
+    delete workspace.academicProfile.admissionYear;
+    const mounted = await mountStudy(workspace, {
+      apply: (intent, core) => {
+        if (intent.kind === "setStudyProfile")
+          core.publish(
+            {
+              ...core.workspace,
+              academicProfile: {
+                ...core.workspace.academicProfile,
+                admissionYear: intent.admissionYear ?? undefined,
+                studyEnrollments: intent.studyEnrollments,
+              },
+            },
+            "revision:profile-edit",
+          );
+      },
+      handle: (command) => {
+        if (command === "school_credential_status")
+          return { ...matrixStatus(), suggestedAdmissionYear: 2025 };
+      },
+    });
+    const pane = settingsPane(mounted);
+    await wait(() =>
+      expect(
+        pane.querySelector<HTMLSelectElement>(
+          '[data-setting="admission-year"] select',
+        )!.value,
+      ).toBe("2025"),
+    );
+    expect(studyIntents(mounted)).toHaveLength(0);
+    await clickButton(pane, "Save enrollment details");
+    await wait(() =>
+      expect(mounted.core.workspace.academicProfile.admissionYear).toBe(2025),
+    );
+  });
+
+  it("keeps a manually saved admission year when a different year is detected", async () => {
+    const workspace = studyWorkspace();
+    workspace.academicProfile.admissionYear = 2024;
+    const mounted = await mountStudy(workspace, {
+      handle: (command) => {
+        if (command === "school_credential_status")
+          return { ...matrixStatus(), suggestedAdmissionYear: 2025 };
+      },
+    });
+    const pane = settingsPane(mounted);
+    await flush();
+    expect(
+      pane.querySelector<HTMLSelectElement>(
+        '[data-setting="admission-year"] select',
+      )!.value,
+    ).toBe("2024");
+    expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true);
+    expect(studyIntents(mounted)).toHaveLength(0);
+  });
+
   it(
     "saves consecutive stage edits as one profile without losing any field",
     async () => {
@@ -1172,20 +1256,20 @@ describe("Study profile", () => {
 
       const stage = stageSelect(pane);
       const kind = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Entry kind, stage 1"]',
+        '[aria-label="Entry route, entry 1"]',
       )!;
       const grade = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Entry grade, stage 1"]',
+        '[aria-label="Starting year of study, entry 1"]',
       )!;
       const term = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Stage admission term, stage 1"]',
+        '[aria-label="Admission term, entry 1"]',
       )!;
       await change(stage, "professional");
       await change(kind, "transfer");
       await change(grade, "2");
       await change(term, "2026-2Q");
 
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       await wait(() => expect(studyIntents(mounted)).toHaveLength(1));
       // One save carries every edit, so a field cannot be lost half-way.
       expect(studyIntents(mounted)[0]).toEqual({
@@ -1227,11 +1311,11 @@ describe("Study profile", () => {
       const pane = settingsPane(mounted);
 
       await change(stageSelect(pane), "doctoral");
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       await wait(() => expect(stageSelect(pane).disabled).toBe(true));
       expect(
         pane.querySelector<HTMLSelectElement>(
-          '[aria-label="Entry kind, stage 1"]',
+          '[aria-label="Entry route, entry 1"]',
         )!.disabled,
       ).toBe(true);
       expect(buttonIn(pane, "Saving…").disabled).toBe(true);
@@ -1254,7 +1338,7 @@ describe("Study profile", () => {
       const pane = settingsPane(mounted);
 
       await change(stageSelect(pane), "doctoral");
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
         const alert = pane.querySelector('[role="alert"]');
         if (!alert) throw new Error("The rejection is not reported yet.");
@@ -1262,7 +1346,7 @@ describe("Study profile", () => {
       });
       expect(error.textContent).toContain("duplicate term");
       expect(stageSelect(pane).value).toBe("doctoral");
-      expect(buttonIn(pane, "Save study profile").disabled).toBe(false);
+      expect(buttonIn(pane, "Save enrollment details").disabled).toBe(false);
     },
     TIMEOUT,
   );
@@ -1291,7 +1375,7 @@ describe("Study profile", () => {
       // has really been adopted before Save is pressed.
       await wait(() => expect(departmentSelect(pane).value).toBe("physics"));
 
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
         const alert = pane.querySelector('[role="alert"]');
         if (!alert) throw new Error("The conflict is not reported yet.");
@@ -1321,9 +1405,9 @@ describe("Study profile", () => {
       const pane = settingsPane(mounted);
 
       await change(stageSelect(pane), "master");
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       await wait(() =>
-        expect(buttonIn(pane, "Save study profile").disabled).toBe(true),
+        expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true),
       );
       expect(stageSelect(pane).value).toBe("master");
 
@@ -1435,6 +1519,211 @@ describe("Agent access", () => {
       expect(pane.querySelector("code")).toBeNull();
       expect(pane.querySelector('[role="alert"]')).toBeNull();
       expect(pane.textContent).not.toContain("Copy token");
+    },
+    TIMEOUT,
+  );
+});
+
+describe("Academic calendar profile", () => {
+  it(
+    "saves custom class times, uses them on the view axis, and restores official times",
+    async () => {
+      const course = courseFor(offering("clock", "CSC.T271", "Clock course"));
+      const workspace = workspaceFixture({ courses: [course] });
+      workspace.academicProfile.studyEnrollments = [
+        { stage: "master", entryKind: "regular", admittedTerm: "2026-1Q" },
+      ];
+      let rejectSave = true;
+      const mounted = await mountSettings(paths.settings("developer"), {
+        workspace,
+        queries: {
+          // Native validation is covered in Rust. This host supplies its accepted
+          // profile so this case exercises the real form, mutation and view wiring.
+          validateAcademicProfile: (query) =>
+            (query as { profile: Workspace["academicProfile"] }).profile,
+          scheduleView: (_query, core) =>
+            scheduleViewFor(core.workspace, {
+              agendas: [
+                {
+                  date: "2026-10-12",
+                  noClasses: false,
+                  importantDates: [],
+                  occurrences: [],
+                },
+              ],
+            }),
+        },
+        handle: (command) => {
+          if (command === "mutate_workspace" && rejectSave)
+            throw new Error("Cannot save profile");
+          return undefined;
+        },
+        apply: (intent, core) => {
+          if (intent.kind === "editAcademicCalendar") {
+            core.publish(
+              {
+                ...core.workspace,
+                academicProfile:
+                  intent.academicProfile as Workspace["academicProfile"],
+              },
+              `${core.revision}+saved`,
+            );
+          }
+        },
+      });
+      app = mounted;
+      const pane = settingsPane(mounted);
+      await click(pane.querySelector('[data-setting="developer-mode"] input'));
+      const start = () =>
+        pane.querySelector<HTMLInputElement>(
+          '[aria-label="Periods 1–2 start time"]',
+        )!;
+      await wait(() => expect(start()?.value).toBe("08:50"));
+      expect(pane.textContent).toContain("Using official quarter dates");
+      expect(pane.textContent).not.toContain("Grade path");
+      await typeInto(start(), "07:30");
+      await clickButton(pane, "Save");
+      await wait(() =>
+        expect(pane.querySelector('[role="alert"]')?.textContent).toContain(
+          "Cannot save profile",
+        ),
+      );
+      expect(start().value).toBe("07:30");
+      rejectSave = false;
+      await clickButton(pane, "Save");
+      await wait(() =>
+        expect(
+          mounted.core.workspace.academicProfile.teachingPeriods?.[0].startTime,
+        ).toBe("07:30"),
+      );
+      expect(mounted.core.workspace.academicProfile.studyEnrollments).toEqual(
+        workspace.academicProfile.studyEnrollments,
+      );
+      await mounted.go(paths.home("week"));
+      await wait(() =>
+        expect(mounted.host.querySelector(".ttAxis")?.textContent).toContain(
+          "07:30",
+        ),
+      );
+      // Reopening the editor reads the committed profile, not the previous draft.
+      await mounted.go(paths.settings("developer"));
+      await wait(() => expect(start()?.value).toBe("07:30"));
+      await clickButton(pane, "Use official times");
+      expect(start().value).toBe("08:50");
+      await clickButton(pane, "Save");
+      await wait(() =>
+        expect(
+          mounted.core.workspace.academicProfile.teachingPeriods,
+        ).toBeNull(),
+      );
+      await mounted.go(paths.home("week"));
+      await wait(() => {
+        expect(mounted.host.querySelector(".ttAxis")?.textContent).toContain(
+          "08:50",
+        );
+        expect(
+          mounted.host.querySelector(".ttAxis")?.textContent,
+        ).not.toContain("07:30");
+      });
+    },
+    TIMEOUT,
+  );
+});
+
+describe("Notification preferences", () => {
+  it("groups lead times under each reminder and persists both choices", async () => {
+    app = await mountSettings(paths.settings("notifications"), {
+      apply: (intent, core) => {
+        if (intent.kind === "replaceSettings")
+          core.publish(
+            {
+              ...core.workspace,
+              settings: intent.settings as Workspace["settings"],
+            },
+            "revision:reminders",
+          );
+      },
+    });
+    const pane = settingsPane(app);
+    const classTime = pane.querySelector<HTMLSelectElement>(
+      '[data-setting="class-lead"] select',
+    )!;
+    expect(
+      classTime.closest('[role="group"]')!.getAttribute("aria-label"),
+    ).toBe("Class reminders");
+    await change(classTime, "30");
+    await wait(() =>
+      expect(app!.core.workspace.settings.notifications.classLeadMinutes).toBe(
+        30,
+      ),
+    );
+    const assignmentTime = pane.querySelector<HTMLInputElement>(
+      '[aria-label="Assignment reminder times"]',
+    )!;
+    expect(
+      assignmentTime.closest(".settingsSuboptions")!.getAttribute("aria-label"),
+    ).toBe("Assignment reminders");
+    await click(assignmentTime);
+    const option = await wait(() => {
+      const option = [
+        ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ].find((item) => item.textContent === "3 hours before");
+      if (!option) throw new Error("Reminder choice not visible");
+      return option;
+    });
+    await click(option);
+    await wait(() =>
+      expect(
+        app!.core.workspace.settings.notifications.assignmentLeadMinutes,
+      ).toEqual([1440, 60, 180]),
+    );
+    const assignments = pane.querySelector(
+      '[data-setting="assignments"] input',
+    )!;
+    await click(assignments);
+    await wait(() =>
+      expect(pane.querySelector('[data-setting="assignment-lead"]')).toBeNull(),
+    );
+    await click(assignments);
+    await wait(() =>
+      expect(
+        pane.querySelector('[data-setting="assignment-lead"]'),
+      ).not.toBeNull(),
+    );
+    expect(
+      app.core.workspace.settings.notifications.assignmentLeadMinutes,
+    ).toEqual([1440, 60, 180]);
+  });
+});
+
+describe("desktop app updates", () => {
+  it(
+    "shows an unpublished stable channel without claiming the app is up to date",
+    async () => {
+      const workspace = workspaceFixture();
+      workspace.settings.locale = "zh";
+      app = await mountSettings(paths.settings("about"), {
+        workspace,
+        handle: (command) => {
+          if (command === "check_app_update" || command === "app_update_state")
+            return {
+              phase: "unpublished",
+              signedUpdates: true,
+              releaseUrl:
+                "https://github.com/isct-companion/isct-companion/releases/latest",
+            };
+          return undefined;
+        },
+      });
+      await wait(() =>
+        expect(app!.host.textContent).toContain("尚未发布稳定版"),
+      );
+      expect(app.host.textContent).not.toContain("已是最新版本");
+      expect(buttonByText(app.host, "下载更新")).toBeUndefined();
+      await clickButton(app.host, "检查更新");
+      await wait(() =>
+        expect(app!.host.textContent).toContain("尚未发布稳定版"),
+      );
     },
     TIMEOUT,
   );

@@ -30,8 +30,14 @@ const campusBlue = Object.values(
 export const appTheme = createTheme({
   primaryColor: "campus",
   colors: { campus: campusBlue },
-  fontFamily: tokens.font.family.sans,
+  fontFamily: "var(--font-sans)",
   defaultRadius: "md",
+  radius: {
+    xs: tokens.radius.chip,
+    sm: tokens.radius.control,
+    md: tokens.radius.surface,
+    lg: tokens.radius.panel,
+  },
   cursorType: "pointer",
   focusRing: "auto",
   components: {

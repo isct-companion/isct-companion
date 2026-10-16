@@ -8,7 +8,9 @@ mod course_detail;
 mod credits;
 mod ics;
 mod occurrence;
+mod range;
 mod reminders;
+pub(crate) use reminders::assignment_lead_minutes;
 mod requests;
 mod tasks;
 
@@ -33,11 +35,12 @@ pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
     CalendarDayView, QuarterRange, QuarterView, TeachingRange,
 };
+pub(crate) use calendar::{content_language, localized};
 pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use course_detail::{course_detail, CourseDetail};
 pub use credits::declared_term_credits;
-pub use ics::{export_quarter_ics, CalendarExportScope};
+pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
     course_terms, course_timeline, intensive_days, next_plan_occurrences, occurrences_on_date,
@@ -46,10 +49,11 @@ pub use occurrence::{
     OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek, ScheduleProblem,
     ScheduleProblemKind,
 };
+pub use range::calendar_between;
 pub use reminders::{
     glance, notification_plan, GlanceSnapshot, NotificationItem, NotificationLocale,
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
-    ReminderService,
+    ReminderService, DEFAULT_ASSIGNMENT_LEADS,
 };
 pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
 pub(crate) use tasks::assignment_submitted;
@@ -121,6 +125,7 @@ pub enum WorkspaceQuery {
         course_id: String,
     },
     ScheduleView {
+        /// Toolbar/credit context only; agendas include every term in the date range.
         term: String,
         from: String,
         to: String,
@@ -367,86 +372,18 @@ pub fn query(
             include_personal,
         } => {
             let term = Term::parse(&term)?;
-            let from_date = parse_civil_date(&from)?;
-            let to_date = parse_civil_date(&to)?;
-            let days = (to_date - from_date).num_days();
-            if !(0..=366).contains(&days) {
-                return Err(ScheduleError::InvalidInput(
-                    "date range must be ordered and no longer than 367 days".into(),
-                ));
-            }
             let term_id = term.to_string();
             let overview = workspace_overview(workspace, &term_id)?;
             let courses = overview.courses.clone();
-            let mut agendas = Vec::with_capacity((days + 1) as usize);
-            for offset in 0..=days {
-                let date = (from_date + chrono::Duration::days(offset)).to_string();
-                let calendar_state = calendar::calendar_state(workspace, &date);
-                let outside_teaching = calendar::quarter_range(workspace, &term.to_string())?
-                    .is_some_and(|range| {
-                        date.as_str() >= range.from.as_str()
-                            && date.as_str() <= range.to.as_str()
-                            && range.teaching_ranges.is_some_and(|ranges| {
-                                calendar_state.as_ref().and_then(|row| text(row, "type"))
-                                    != Some("replacement")
-                                    && !ranges
-                                        .iter()
-                                        .any(|range| date >= range.start && date <= range.end)
-                            })
+            let mut agendas = calendar_between(workspace, &from, &to)?;
+            if !include_personal {
+                for agenda in &mut agendas {
+                    agenda.occurrences.retain(|block| {
+                        matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
                     });
-                let no_classes = outside_teaching
-                    || calendar_state
-                        .as_ref()
-                        .and_then(|row| text(row, "type"))
-                        .is_some_and(|kind| matches!(kind, "holiday" | "no-class" | "break"));
-                let locale = calendar::content_language(workspace);
-                let mut notices = Vec::new();
-                if let Some(state) = calendar_state.as_ref() {
-                    let label = calendar::localized(state.get("label"), locale, "");
-                    if !label.is_empty() {
-                        notices.push(label);
-                    }
+                    agenda.occurrences =
+                        occurrence::finalize_agenda(std::mem::take(&mut agenda.occurrences))?;
                 }
-                let important_dates: Vec<_> = array(workspace, "importantDates")
-                    .iter()
-                    .filter(|row| {
-                        visible(row)
-                            && text(row, "startDate").is_some_and(|from| date.as_str() >= from)
-                            && text(row, "endDate").is_some_and(|to| date.as_str() <= to)
-                    })
-                    .cloned()
-                    .collect();
-                notices.extend(important_dates.iter().filter_map(|row| {
-                    let label = calendar::localized(row.get("label"), locale, "");
-                    (!label.is_empty()).then_some(label)
-                }));
-                if notices.is_empty() && no_classes {
-                    notices.push(
-                        if locale == "ja" {
-                            "授業なし"
-                        } else {
-                            "No classes"
-                        }
-                        .into(),
-                    );
-                }
-                agendas.push(DatedAgenda {
-                    occurrences: resolve_day_agenda(
-                        workspace,
-                        &term.to_string(),
-                        &date,
-                        AgendaOptions {
-                            include_personal,
-                            include_cancelled_courses: true,
-                            ..AgendaOptions::default()
-                        },
-                    )?,
-                    important_dates,
-                    calendar_state,
-                    no_classes,
-                    calendar_notice: (!notices.is_empty()).then(|| notices.join(" · ")),
-                    date,
-                });
             }
             Ok(WorkspaceQueryResult::ScheduleView(ScheduleView {
                 term: term.to_string(),
@@ -586,7 +523,9 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
     );
     on_timetable_course_ids.sort();
     on_timetable_course_ids.dedup();
+    let earned = credits::earned_credits_by_term(array(workspace, "grades"));
     let mut all_terms: Vec<String> = placement_terms(workspace).map(str::to_owned).collect();
+    all_terms.extend(earned.keys().cloned());
     all_terms.extend(
         array(workspace, "terms")
             .iter()
@@ -603,12 +542,7 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
         .filter(|course| visible(course))
         .filter_map(|course| Some((text(course, "id")?.to_owned(), display_color(course))))
         .collect();
-    // Today and Lecture Desk follow the current quarter once it has courses.
-    let today_term = if !term_courses(workspace, &current_term).is_empty() {
-        current_term.clone()
-    } else {
-        selected_term.clone()
-    };
+    let today_term = current_term.clone();
     let courses_term = if all_terms.contains(&selected_term) {
         selected_term.clone()
     } else {
@@ -631,7 +565,16 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
         .filter_map(|row| text(row, "courseId").map(str::to_owned))
         .collect();
     let declared_credits = declared_term_credits(array(workspace, "registrations"), &term)?;
-    let term_credits = declared_credits.unwrap_or_else(|| {
+    let current = Term::parse(&current_term)?;
+    let selected = Term::parse(&term)?;
+    let current_semester =
+        current.year == selected.year && (current.quarter - 1) / 2 == (selected.quarter - 1) / 2;
+    let term_credits = if current_semester {
+        declared_credits.or_else(|| earned.get(&term).copied())
+    } else {
+        earned.get(&term).copied().or(declared_credits)
+    }
+    .unwrap_or_else(|| {
         courses
             .iter()
             .filter_map(|course| course.get("credits").and_then(Value::as_f64))

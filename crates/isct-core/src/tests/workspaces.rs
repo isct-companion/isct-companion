@@ -146,3 +146,56 @@ fn workspace_validation_rejects_symlinked_or_outside_paths() {
         .workspace_path(&fixture.0.to_string_lossy())
         .is_err());
 }
+
+#[test]
+fn upload_reads_only_the_matching_assignments_submit_files_and_supports_zip() {
+    use base64::Engine;
+    let fixture = Fixture::new("upload");
+    let service = Workspaces::new(fixture.0.clone());
+    let workspace = service
+        .create(
+            &course(),
+            "a1".into(),
+            "Report".into(),
+            String::new(),
+            vec![],
+        )
+        .unwrap();
+    let root = PathBuf::from(&workspace.path);
+    fs::write(root.join("private.txt"), "not for submission").unwrap();
+    fs::write(root.join("submit/report.txt"), "my report").unwrap();
+    assert!(service
+        .prepare_upload(&workspace.path, "another-assignment")
+        .is_err());
+    let uploaded = service.prepare_upload(&workspace.path, "a1").unwrap();
+    assert_eq!(uploaded.files.len(), 1);
+    assert_eq!(uploaded.files[0].name, "report.txt");
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(&uploaded.files[0].data)
+            .unwrap(),
+        b"my report"
+    );
+    fs::create_dir(root.join("submit/src")).unwrap();
+    fs::write(root.join("submit/src/Main.java"), "class Main {}").unwrap();
+    assert!(service.prepare_upload(&workspace.path, "a1").is_err());
+    service
+        .set_submission(&workspace.path, true, "student.zip")
+        .unwrap();
+    let zip = service.prepare_upload(&workspace.path, "a1").unwrap();
+    assert_eq!(zip.files.len(), 1);
+    assert_eq!(zip.files[0].name, "student.zip");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&zip.files[0].data)
+        .unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    assert!(archive.by_name("src/Main.java").is_ok());
+    assert!(archive.by_name("private.txt").is_err());
+    service.set_submission(&workspace.path, false, "").unwrap();
+    fs::remove_dir_all(root.join("submit/src")).unwrap();
+    fs::File::create(root.join("submit/large.bin"))
+        .unwrap()
+        .set_len(20 * 1024 * 1024 + 1)
+        .unwrap();
+    assert!(service.prepare_upload(&workspace.path, "a1").is_err());
+}

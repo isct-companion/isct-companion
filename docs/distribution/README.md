@@ -1,12 +1,12 @@
 # IsctCompanion
 
 A local-first companion for Institute of Science Tokyo schedules, courses and
-school services. This is the public download repository maintained by
+school services. Source and desktop releases are maintained here by
 [@Gliese129](https://github.com/Gliese129) and [@OHNope](https://github.com/OHNope).
 
 ## Downloads
 
-Get the 1.0 release candidate from [Releases](https://github.com/isct-companion/Isct-Companion-App/releases).
+Get desktop releases from [Releases](https://github.com/isct-companion/isct-companion/releases).
 
 | System | Download filename contains | Requirements |
 | --- | --- | --- |
@@ -17,11 +17,11 @@ Get the 1.0 release candidate from [Releases](https://github.com/isct-companion/
 On Mac, open the disk image and drag the app to Applications. On Windows, run
 the installer; it installs WebView2 if needed (an internet connection may be
 required). Intel Mac builds currently omit campus-card OCR.
-Native iOS and Android applications are being prepared. New desktop releases
-no longer build the retired Tauri mobile packages.
+Mobile 1.0 for iOS and Android will be published separately when ready.
+This release includes desktop installers only.
 
-The 1.0 release candidates are prereleases. Each Release states its signing
-and notarization status; unsigned installers may display security prompts.
+Each Release states its signing and notarization status; unsigned installers
+may display security prompts.
 Compatibility listed above is the build target; runtime testing on each system
 is ongoing.
 
@@ -39,7 +39,7 @@ IsctCompanion is an independent project and is not an official university app.
 
 ## Support
 
-Report problems in [Issues](https://github.com/isct-companion/Isct-Companion-App/issues).
+Report problems in [Issues](https://github.com/isct-companion/isct-companion/issues).
 Include your app version, operating system and steps to reproduce. Keep
 passwords, authentication tokens and private school records out of reports.
 

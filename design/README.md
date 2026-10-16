@@ -14,7 +14,7 @@ yarn design:tokens
 |---|---|
 | `tokens/color.light.json`, `tokens/color.dark.json` | Neutrals, accent, ok / warn / danger pairs, shadow; one file per theme with the same names |
 | `tokens/course.json` | Course palette (core picks the entry) and the two tint strengths |
-| `tokens/shape.json` | Radius by role, desktop font stack, Mantine's tonal accent scale |
+| `tokens/shape.json` | Radius by role, desktop workspace metrics, font stack and Mantine's tonal accent scale |
 | `platforms/mobile.json` | Phone values for the same roles (radius); never new names |
 | `build.mjs` | Style Dictionary config and the few custom formats |
 
@@ -48,3 +48,19 @@ Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
   what we draw and the neutrals behind it.
 - Changing a palette value changes every course's colour on every surface;
   core's tests pin the hash, not the colours.
+
+## Desktop workspaces
+
+The shared workspace treatment lives in
+`apps/desktop/src/components/workspace-chrome.css`; `ResizableWorkspace` owns
+column sizing and local layout persistence. Web and course readers share
+`workspacePane`; their headers use `workspaceTabStrip` or `workspaceToolPanel`.
+Keep the outer panel rounder than its controls, use one quiet border, and reserve the accent for interaction.
+Readers open one document at a time. PDF, file and Markdown tools render into
+the fixed tool panel through `ReaderTools`; only the content scrolls. Web keeps
+its service title above the address tools. The lesson progress rail stays above
+the two columns, and search stays in the outline. A narrow pane wraps tools instead of clipping
+operations. Compact layouts keep the same content mounted while showing one pane.
+
+Change geometry in `tokens/shape.json` and regenerate; do not add page-specific
+copies of the same radius or header dimensions.

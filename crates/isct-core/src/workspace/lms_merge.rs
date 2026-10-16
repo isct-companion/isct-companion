@@ -590,13 +590,7 @@ pub(super) fn lms_diff(
                 .and_then(|row| row.get("code"))
                 .and_then(Value::as_str)
                 .map(str::to_string)
-                .unwrap_or_else(|| {
-                    shortname
-                        .strip_suffix(']')
-                        .and_then(|value| value.rsplit_once('[').map(|(head, _)| head.trim()))
-                        .unwrap_or(shortname)
-                        .to_string()
-                });
+                .unwrap_or_else(|| crate::data::lms_course_code(shortname));
             remote.push(json!({
                 "key":format!("lms:{}:{term}", row.get("lmsId").and_then(Value::as_u64).unwrap_or_default()),
                 "termId":term, "lms":row, "offering":offering, "title":title,

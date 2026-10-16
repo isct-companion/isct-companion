@@ -1,5 +1,17 @@
+import { ReaderTools } from "./ReaderPane";
+import { t } from "../../i18n";
+import {
+  toggleStrongCommand,
+  toggleEmphasisCommand,
+  toggleInlineCodeCommand,
+  wrapInBulletListCommand,
+} from "@milkdown/kit/preset/commonmark";
 import { useEffect, useRef, useState } from "react";
-import { LanguageDescription, LanguageSupport, StreamLanguage } from "@codemirror/language";
+import {
+  LanguageDescription,
+  LanguageSupport,
+  StreamLanguage,
+} from "@codemirror/language";
 import { CrepeBuilder } from "@milkdown/crepe/builder";
 import { blockEdit } from "@milkdown/crepe/feature/block-edit";
 import { codeMirror } from "@milkdown/crepe/feature/code-mirror";
@@ -8,9 +20,13 @@ import { listItem } from "@milkdown/crepe/feature/list-item";
 import { linkTooltip } from "@milkdown/crepe/feature/link-tooltip";
 import { table } from "@milkdown/crepe/feature/table";
 import { toolbar } from "@milkdown/crepe/feature/toolbar";
-import { editorViewOptionsCtx, serializerCtx } from "@milkdown/kit/core";
+import {
+  editorViewCtx,
+  editorViewOptionsCtx,
+  serializerCtx,
+} from "@milkdown/kit/core";
 import { Plugin } from "@milkdown/kit/prose/state";
-import { $prose, replaceAll } from "@milkdown/kit/utils";
+import { $prose, replaceAll, callCommand } from "@milkdown/kit/utils";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import "katex/dist/katex.min.css";
@@ -30,6 +46,7 @@ export function MarkdownDocument({
     value: string;
     replacing: boolean;
   }>(null);
+  const [toolsReady, setToolsReady] = useState(false);
   const [error, setError] = useState<string>();
   const editable = Boolean(onChange);
   const scroll = useRef(0);
@@ -44,12 +61,36 @@ export function MarkdownDocument({
     const instance = { editor, value: state.current.value, replacing: false };
     let disposed = false;
     setError(undefined);
+    setToolsReady(false);
     editor.addFeature(codeMirror, {
       languages: [
-        LanguageDescription.of({name:"C / C++",alias:["c","cpp","c++"],extensions:["c","cpp","h","hpp"],load:()=>import("@codemirror/lang-cpp").then(m=>m.cpp())}),
-        LanguageDescription.of({name:"Java",alias:["java"],extensions:["java"],load:()=>import("@codemirror/lang-java").then(m=>m.java())}),
-        LanguageDescription.of({name:"Python",alias:["py","python"],extensions:["py"],load:()=>import("@codemirror/lang-python").then(m=>m.python())}),
-        LanguageDescription.of({name:"R",alias:["r"],extensions:["r","R"],load:()=>import("@codemirror/legacy-modes/mode/r").then(m=>new LanguageSupport(StreamLanguage.define(m.r)))}),
+        LanguageDescription.of({
+          name: "C / C++",
+          alias: ["c", "cpp", "c++"],
+          extensions: ["c", "cpp", "h", "hpp"],
+          load: () => import("@codemirror/lang-cpp").then((m) => m.cpp()),
+        }),
+        LanguageDescription.of({
+          name: "Java",
+          alias: ["java"],
+          extensions: ["java"],
+          load: () => import("@codemirror/lang-java").then((m) => m.java()),
+        }),
+        LanguageDescription.of({
+          name: "Python",
+          alias: ["py", "python"],
+          extensions: ["py"],
+          load: () => import("@codemirror/lang-python").then((m) => m.python()),
+        }),
+        LanguageDescription.of({
+          name: "R",
+          alias: ["r"],
+          extensions: ["r", "R"],
+          load: () =>
+            import("@codemirror/legacy-modes/mode/r").then(
+              (m) => new LanguageSupport(StreamLanguage.define(m.r)),
+            ),
+        }),
       ],
       previewOnlyByDefault: true,
     });
@@ -100,6 +141,7 @@ export function MarkdownDocument({
       .then(() => {
         if (!disposed) {
           current.current = instance;
+          setToolsReady(true);
           if (root.current) root.current.scrollTop = scroll.current;
           if (state.current.value !== instance.value) {
             instance.replacing = true;
@@ -134,9 +176,51 @@ export function MarkdownDocument({
       instance.replacing = false;
     }
   }, [value]);
+  const tools = [
+    { label: "Bold", text: <b>B</b>, command: toggleStrongCommand },
+    { label: "Italic", text: <i>I</i>, command: toggleEmphasisCommand },
+    {
+      label: "Inline code",
+      text: <code>&lt;/&gt;</code>,
+      command: toggleInlineCodeCommand,
+    },
+    { label: "Bullet list", text: "• ≡", command: wrapInBulletListCommand },
+  ];
   return (
-    <div className="lmsMarkdownDocument" ref={root}>
-      {error && <p role="alert">{error}</p>}
-    </div>
+    <>
+      {editable && (
+        <ReaderTools>
+          <div
+            className="lmsMarkdownTools"
+            role="toolbar"
+            aria-label={t("Markdown tools")}
+          >
+            {tools.map(({ label, text, command }) => (
+              <button
+                type="button"
+                key={label}
+                aria-label={t(label)}
+                title={t(label)}
+                disabled={!toolsReady}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  const instance = current.current;
+                  if (!instance) return;
+                  instance.editor.editor.action(callCommand(command.key));
+                  instance.editor.editor.action((ctx) =>
+                    ctx.get(editorViewCtx).focus(),
+                  );
+                }}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+        </ReaderTools>
+      )}
+      <div className="lmsMarkdownDocument" ref={root}>
+        {error && <p role="alert">{error}</p>}
+      </div>
+    </>
   );
 }

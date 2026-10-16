@@ -40,6 +40,7 @@ export type Meeting = {
   periods: Array<number>;
   startTime: string;
   endTime: string;
+  termIds?: Array<string>;
   room: string;
   roomNames?: Localized;
   validFrom?: string;
@@ -63,6 +64,7 @@ export type Course = {
   sourceKey?: string;
   offeringId?: string;
   names?: CourseNames;
+  lmsCourseId?: number;
   code: string;
   title: string;
   instructor: string;
@@ -515,6 +517,7 @@ export type Notifications = {
   classes: boolean;
   assignments: boolean;
   classLeadMinutes?: number;
+  assignmentLeadMinutes?: Array<number>;
   localPermission: NotificationPermission;
 };
 
@@ -565,9 +568,9 @@ export type Settings = {
   appearance: "system" | "light" | "dark";
   density: "comfortable" | "compact";
   textSize?: "small" | "medium" | "large";
+  automaticAppUpdates?: boolean;
   restoreSchoolPage?: boolean;
   activeSchoolSite?: string;
-  schoolServiceWidth?: number;
   schoolWebZoom?: number;
   showGrades?: boolean;
   siteConsents?: SiteConsents;
@@ -597,7 +600,7 @@ export type AcademicProfile = {
   name: string;
   admissionYear?: number;
   studyEnrollments?: StudyEnrollment[];
-  teachingPeriods?: TeachingPeriod[];
+  teachingPeriods?: TeachingPeriod[] | null;
   gradePath: Array<GradePathEntry>;
   years: Array<AcademicYearConfig>;
 };
@@ -978,6 +981,7 @@ export type CourseTimeline = {
 
 export type TaskDeadlineView = {
   at: string;
+  remainingMilliseconds: number;
   label: string;
   tone: string;
   countdownLabel: string;
@@ -1069,6 +1073,9 @@ export type WorkspaceQuery =
   | { kind: "courseDetail"; courseId: string }
   | {
       kind: "scheduleView";
+      /**
+       * Toolbar/credit context only; agendas include every term in the date range.
+       */
       term: string;
       from: string;
       to: string;
@@ -1273,7 +1280,13 @@ export type Suggestion =
   | { kind: "text"; key: string; count: number };
 
 export type RemoteQuery = {
+  quarters?: Array<number>;
+  days?: Array<number>;
+  periodStarts?: Array<number>;
+  language?: string;
+  requirementGroups?: Array<string>;
   q: string;
+  teacher?: string;
   scope?: string;
   code?: string;
   groups?: Array<string>;
@@ -1295,6 +1308,7 @@ export type FinderDepartment = {
   id: string;
   name: { [key in string]?: string };
   unitCode: string;
+  codePrefix: string;
   scope: string | null;
 };
 
@@ -1405,6 +1419,8 @@ export const COURSE_PALETTE = [
   "#806a9d",
   "#5c7d93",
 ] as const;
+
+export const DEFAULT_ASSIGNMENT_LEADS = [1440, 60] as const;
 
 export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
   {
@@ -1533,7 +1549,6 @@ export const EMPTY_WORKSPACE: Workspace = {
       localPermission: "default",
     },
     restoreSchoolPage: false,
-    schoolServiceWidth: 168,
     schoolWebZoom: 1,
     showGrades: false,
     siteConsents: {
@@ -1559,7 +1574,6 @@ export const PUBLIC_DATA_INDEX =
 
 export const REFERENCE_KINDS = [
   "calendar",
-  "departments",
   "important-dates",
   "exams",
   "class-schedules",

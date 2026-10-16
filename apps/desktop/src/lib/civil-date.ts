@@ -1,3 +1,4 @@
+import { intlLocale } from "../i18n/locale";
 export const JST = "Asia/Tokyo";
 
 /** Parse machine timestamps with an explicit offset, never locale date text. */
@@ -59,15 +60,53 @@ export function formatTimestamp(
 ): string | undefined {
   const date = parseIsoTimestamp(value);
   return date
-    ? new Intl.DateTimeFormat(locale, {
+    ? formatJst(date, locale, {
         year: "numeric",
         month: "short",
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
         ...options,
-        timeZone: JST,
-        calendar: "gregory",
-      }).format(date)
+      })
     : undefined;
+}
+
+/** One display boundary for academic civil dates; an ISO date is JST midnight. */
+export function formatCivilDate(
+  value: string,
+  locale: string,
+  options: Intl.DateTimeFormatOptions = {},
+): string {
+  if (!isCivilDate(value)) return "";
+  return (
+    formatTimestamp(`${value}T00:00:00+09:00`, locale, {
+      year: undefined,
+      month: "short",
+      day: "numeric",
+      hour: undefined,
+      minute: undefined,
+      ...options,
+    }) ?? ""
+  );
+}
+
+/** Locale affects presentation only; every instant and civil date is shown in JST. */
+export function formatJst(
+  value: Date | string,
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): string {
+  const date =
+    value instanceof Date
+      ? value
+      : isCivilDate(value)
+        ? parseIsoTimestamp(`${value}T00:00:00+09:00`)
+        : parseIsoTimestamp(value);
+  if (!date || !Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat(intlLocale(locale), {
+    hourCycle: "h23",
+    ...options,
+    timeZone: JST,
+    calendar: "gregory",
+  }).format(date);
 }

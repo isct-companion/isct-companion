@@ -210,6 +210,78 @@ fn engine() -> (
     engine_with_auth(Arc::new(SchoolAuthService::new(EmptyVault)))
 }
 
+#[cfg(feature = "desktop-workspaces")]
+#[tokio::test]
+async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinations() {
+    use crate::workspaces::SubmissionFile;
+    let (engine, browser, _, _) = engine();
+    let files = || {
+        vec![SubmissionFile {
+            name: "report.txt".into(),
+            data: "bXkgcmVwb3J0".into(),
+        }]
+    };
+    let messages = || SubmissionMessages {
+        waiting: "waiting".into(),
+        queued: "queued".into(),
+        failed: "failed".into(),
+    };
+    for invalid in [
+        "https://example.com/mod/assign/view.php?id=100",
+        "http://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
+        "https://lms.s.isct.ac.jp/2025/course/view.php?id=100",
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&id=200",
+    ] {
+        assert!(engine
+            .prepare_submission(invalid, files(), messages())
+            .is_err());
+    }
+    let target = engine
+        .prepare_submission(
+            "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
+            files(),
+            messages(),
+        )
+        .unwrap();
+    assert_eq!(
+        target,
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission"
+    );
+    engine
+        .open(SchoolSite::ScienceLms, Some(target.clone()))
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    // Follow the URL actually sent to the native browser, not a synthetic target.
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), target);
+    engine.navigate(SchoolSite::ScienceLms, &target).unwrap();
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), target);
+    let count_uploads = || {
+        browser.commands.lock().unwrap().iter().filter(|command| matches!(&command.command, BrowserAction::Eval(script) if script.contains("__isctAssignmentUpload"))).count()
+    };
+    let listener = browser.listener();
+    for (sequence, url) in [
+        (
+            1,
+            "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=200&action=editsubmission",
+        ),
+        (2, target.as_str()),
+        (3, target.as_str()),
+    ] {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence,
+            },
+            cause: None,
+            url: Url::parse(url).unwrap(),
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(count_uploads(), if sequence == 1 { 0 } else { 1 });
+    }
+    engine.shutdown().await;
+}
+
 fn engine_with_auth(
     auth: Arc<SchoolAuthService>,
 ) -> (
@@ -1722,5 +1794,59 @@ async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
         cause: None,
         url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx").unwrap(),
     });
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn full_lms_pull_updates_content_without_owning_the_timetable() {
+    let (engine, browser, events, store) = engine();
+    let coordinator = PullCoordinator::default();
+    let request = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::automatic(),
+    );
+    let navigation = browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap(),
+    });
+    let relay = extraction_relay(
+        &browser.extraction_script().await,
+        serde_json::json!({
+            "status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","language":"en",
+            "fullScan":true,"coursesComplete":true,
+            "courses":[{"id":99,"fullname":"Algorithms","shortname":"CSC.T271[2026]","coursecategory":3,
+                "viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=99"}],
+            "timetable":{"year":2026,"quarter":"3","slots":[
+                {"courseId":99,"day":5,"period":5},{"courseId":99,"day":5,"period":6}
+            ]}
+        }),
+    );
+    browser.listener().decide_navigation(
+        PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        relay,
+        true,
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), request)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let workspace = store.load_workspace().unwrap();
+    assert!(workspace["importStatus"]["timetableReviewedAt"].is_null());
+    assert!(workspace["memberships"].as_array().unwrap().is_empty());
+    assert_eq!(store.table_rows("lms_courses").unwrap().len(), 1);
+    assert!(store.last_import_runs().unwrap()["lms:all"].is_string());
+    assert!(!events.0.lock().unwrap().iter().any(|event| matches!(event,
+        CoreEvent::SchoolPullProgress(progress) if progress.phase == "timetable")));
     engine.shutdown().await;
 }

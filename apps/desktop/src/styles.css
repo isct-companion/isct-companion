@@ -1,5 +1,6 @@
 @import "./generated/design/tokens.css";
 @import "./generated/design/tokens.dark.css";
+@import "./components/workspace-chrome.css";
 
 /* Colours, radii, shadow and font come from design/tokens (yarn design:tokens). */
 :root {
@@ -1889,6 +1890,8 @@ p {
 }
 .todaySection > header {
   display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
   justify-content: space-between;
   align-items: center;
   min-height: 34px;
@@ -2313,8 +2316,7 @@ p {
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: var(--service-width, 168px) 6px minmax(0, 1fr);
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr);
 }
 .servicePicker {
   min-width: 0;
@@ -2374,24 +2376,6 @@ p {
 .servicePicker button[data-frequency="low"] {
   color: color-mix(in srgb, var(--muted) 72%, transparent);
 }
-.serviceResizeHandle {
-  position: relative;
-  cursor: col-resize;
-  touch-action: none;
-  border-radius: 99px;
-}
-.serviceResizeHandle::after {
-  content: "";
-  position: absolute;
-  inset: 4px 2px;
-  border-radius: 99px;
-  background: var(--line);
-  transition: background 120ms ease;
-}
-.serviceResizeHandle:hover::after,
-.serviceResizeHandle:focus-visible::after {
-  background: var(--accent);
-}
 .servicesBody .webHost {
   min-width: 0;
   min-height: 0;
@@ -2437,9 +2421,6 @@ p {
   }
   .servicePicker button {
     min-width: max-content;
-  }
-  .serviceResizeHandle {
-    display: none;
   }
   .servicesPage {
     padding: 20px 20px 82px;
@@ -2548,28 +2529,6 @@ p {
 .finderWarn {
   color: var(--warn);
   flex-basis: 100%;
-}
-.finderPager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 6px;
-  border-top: 1px solid var(--line);
-  font-size: calc(12px * var(--text));
-  color: var(--muted);
-}
-.finderPager .textButton {
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-}
-.finderPager .textButton:disabled {
-  color: var(--muted);
-  opacity: 0.5;
-  cursor: default;
 }
 .courseFinder .finderResults {
   flex: 1;
@@ -3311,6 +3270,8 @@ p {
 }
 .dueScope {
   display: inline-flex;
+  flex-shrink: 0;
+  max-width: 100%;
   margin-left: auto;
   padding: 2px;
   gap: 2px;
@@ -4137,6 +4098,25 @@ p {
   display: grid;
   gap: 14px;
 }
+.profileFields {
+  display: grid;
+  gap: 20px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.profileTimes {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.profileTimes.columnHeads,
+.profileFields small {
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+}
 .profileForm section {
   display: grid;
   gap: 6px;
@@ -4518,6 +4498,37 @@ textarea.codeArea {
   min-width: 0;
   min-height: 0;
 }
+.homePage.needsSetup {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.homeSetup {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.homeSetup > div {
+  flex: 1;
+  min-width: 0;
+}
+.homeSetup p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--text));
+}
+.homeSetup > button {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .homeSetup {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 .homeDay {
   display: flex;
   min-height: 0;
@@ -4591,4 +4602,39 @@ textarea.codeArea {
 .dueChip.urgent {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.finderLoadMore {
+  display: flex;
+  justify-content: center;
+}
+.finderLoadMore:has(button) {
+  padding: 12px;
+}
+
+.quarterPage,
+.calendarWorkspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.calendarWorkspace {
+  gap: 16px;
+}
+.calendarWorkspace .ttCard {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+:lang(zh) {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+:lang(ja) {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI",
+    "Meiryo", "Noto Sans CJK JP", system-ui, sans-serif;
 }

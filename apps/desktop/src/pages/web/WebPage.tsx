@@ -1,11 +1,6 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type FormEvent,
-  type PointerEvent,
-} from "react";
+import { ResizableWorkspace } from "../../components/ResizableWorkspace";
+import { useMediaQuery } from "@mantine/hooks";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Drawer } from "@mantine/core";
 import { UiButton, UiInput } from "../../components/mantine";
 import { MobileWebList } from "../../layouts/compact/MobileWeb";
@@ -99,19 +94,13 @@ export function Web({
   notifyRef.current = notify;
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [address, setAddress] = useState(initialUrl);
-  const serviceWidth = data.settings.schoolServiceWidth ?? 168;
+  const wide = useMediaQuery("(min-width: 761px)");
   const zoom = data.settings.schoolWebZoom ?? 1;
-  const setServiceWidth = (value: number) =>
-    update((draft) => {
-      draft.settings.schoolServiceWidth = value;
-      return draft;
-    });
   const setZoom = (value: number) =>
     update((draft) => {
       draft.settings.schoolWebZoom = value;
       return draft;
     });
-  const resolvedServiceWidth = clamp(serviceWidth, 132, 360);
   const resolvedZoom = clamp(zoom, 0.5, 2);
   const host = useRef<HTMLDivElement>(null);
   const owner = useRef(Symbol("web-page"));
@@ -406,20 +395,6 @@ export function Web({
         .catch(() => setStatus("Zoom could not be changed."));
   };
 
-  const startResize = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    const startX = event.clientX;
-    const startWidth = resolvedServiceWidth;
-    const move = (moveEvent: globalThis.PointerEvent) =>
-      setServiceWidth(clamp(startWidth + moveEvent.clientX - startX, 132, 360));
-    const stop = () => {
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", stop);
-    };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", stop, { once: true });
-  };
-
   const targetUrl = currentUrl || official[site].url;
   const openOutside = () => {
     if (desktopBridge && schoolWebAvailable && !embedded) {
@@ -536,212 +511,208 @@ export function Web({
     );
   return (
     <div className="page web servicesPage">
-      <form className="webToolbar" onSubmit={(event) => void navigate(event)}>
-        <div className="webAddress">
-          {onReturn && (
-            <UiButton
-              type="button"
-              className="iconButton"
-              title={`Back to ${returnLabel}`}
-              aria-label={`Back to ${returnLabel}`}
-              onClick={onReturn}
-            >
-              ←
-            </UiButton>
-          )}
-          <span className="webSecure" aria-hidden="true">
-            ⌁
-          </span>
-          <UiInput
-            ref={addressInput}
-            className="webAddressInput"
-            aria-label="Current URL"
-            spellCheck={false}
-            value={address}
-            onChange={(event) => setAddress(event.currentTarget.value)}
-            onFocus={(event) => {
-              editingAddress.current = true;
-              event.currentTarget.select();
-            }}
-            onBlur={() => {
-              editingAddress.current = false;
-              if (addressInput.current) addressInput.current.scrollLeft = 0;
-            }}
-          />
-          <span className="webStatus" role="status">
-            {status}
-          </span>
-          {savedFile && desktopBridge?.revealSchoolDownload && (
-            <UiButton
-              type="button"
-              title={`Show ${savedFile.name} in Finder`}
-              onClick={() => void revealSaved(savedFile.path)}
-            >
-              Reveal
-            </UiButton>
-          )}
-          {embedded && desktopBridge?.schoolWebBack && (
-            <UiButton
-              type="button"
-              className="iconButton"
-              title="Previous page"
-              aria-label="Previous page"
-              onClick={() => void goBack()}
-            >
-              ←
-            </UiButton>
-          )}
-          {embedded && desktopBridge?.schoolWebForward && (
-            <UiButton
-              type="button"
-              className="iconButton"
-              title="Next page"
-              aria-label="Next page"
-              onClick={() => void goForward()}
-            >
-              →
-            </UiButton>
-          )}
-          {embedded && desktopBridge?.reloadSchoolWeb && (
-            <UiButton
-              type="button"
-              className="iconButton"
-              title="Reload"
-              aria-label="Reload"
-              onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
-            >
-              ↻
-            </UiButton>
-          )}
-          {embedded && site === "kyomu" && (
-            <UiButton
-              type="button"
-              title="教務Web top page"
-              onClick={() =>
-                void openTarget(official.kyomu.url, "kyomu").catch((error) =>
-                  setStatus(errorText(error) ?? "Unavailable"),
-                )
-              }
-            >
-              Top
-            </UiButton>
-          )}
-        </div>
-        <div className="webZoom" aria-label="Page zoom">
-          <UiButton
-            type="button"
-            className="iconButton"
-            aria-label="Zoom out"
-            title="Zoom out"
-            disabled={resolvedZoom <= 0.5}
-            onClick={() => setPageZoom(resolvedZoom - 0.1)}
-          >
-            −
-          </UiButton>
-          <UiButton
-            type="button"
-            className="zoomValue"
-            title="Reset zoom"
-            onClick={() => setPageZoom(1)}
-          >
-            {Math.round(resolvedZoom * 100)}%
-          </UiButton>
-          <UiButton
-            type="button"
-            className="iconButton"
-            aria-label="Zoom in"
-            title="Zoom in"
-            disabled={resolvedZoom >= 2}
-            onClick={() => setPageZoom(resolvedZoom + 0.1)}
-          >
-            +
-          </UiButton>
-        </div>
-        <UiButton
-          type="button"
-          className="iconButton webOpenOutside"
-          title="Open in browser"
-          aria-label="Open in browser"
-          onClick={openOutside}
+      <div className="servicesBody">
+        <ResizableWorkspace
+          id="web"
+          enabled={wide}
+          firstSize={168}
+          firstMin={132}
+          firstMax={360}
+          secondMin="40%"
         >
-          ↗
-        </UiButton>
-      </form>
-
-      <div
-        className="servicesBody"
-        style={
-          {
-            "--service-width": `${resolvedServiceWidth}px`,
-          } as CSSProperties
-        }
-      >
-        <nav className="servicePicker" aria-label="School services">
-          {serviceTiers.map((tier, tierIndex) => (
-            <div className="serviceTier" key={tier.frequency}>
-              {tierIndex > 0 && <div className="serviceDivider" />}
-              {tier.sites.map((key) => (
+          <nav className="servicePicker" aria-label="School services">
+            {serviceTiers.map((tier, tierIndex) => (
+              <div className="serviceTier" key={tier.frequency}>
+                {tierIndex > 0 && <div className="serviceDivider" />}
+                {tier.sites.map((key) => (
+                  <UiButton
+                    type="button"
+                    className={site === key ? "active" : ""}
+                    data-frequency={tier.frequency}
+                    title={`${official[key].name} · ${tier.frequency} frequency`}
+                    onClick={() => choose(key)}
+                    key={key}
+                  >
+                    <i aria-hidden="true" />
+                    <span>{official[key].name}</span>
+                  </UiButton>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <section
+            className="workspacePane webWorkspace"
+            aria-label={official[site].name}
+          >
+            <header className="workspaceTabStrip">
+              <span className="workspaceCurrentTab">{official[site].name}</span>
+            </header>
+            <form
+              className="webToolbar"
+              onSubmit={(event) => void navigate(event)}
+            >
+              <div className="webAddress">
+                {onReturn && (
+                  <UiButton
+                    type="button"
+                    className="iconButton"
+                    title={`Back to ${returnLabel}`}
+                    aria-label={`Back to ${returnLabel}`}
+                    onClick={onReturn}
+                  >
+                    ←
+                  </UiButton>
+                )}
+                <span className="webSecure" aria-hidden="true">
+                  ⌁
+                </span>
+                <UiInput
+                  ref={addressInput}
+                  className="webAddressInput"
+                  aria-label="Current URL"
+                  spellCheck={false}
+                  value={address}
+                  onChange={(event) => setAddress(event.currentTarget.value)}
+                  onFocus={(event) => {
+                    editingAddress.current = true;
+                    event.currentTarget.select();
+                  }}
+                  onBlur={() => {
+                    editingAddress.current = false;
+                    if (addressInput.current)
+                      addressInput.current.scrollLeft = 0;
+                  }}
+                />
+                <span className="webStatus" role="status">
+                  {status}
+                </span>
+                {savedFile && desktopBridge?.revealSchoolDownload && (
+                  <UiButton
+                    type="button"
+                    title={`Show ${savedFile.name} in Finder`}
+                    onClick={() => void revealSaved(savedFile.path)}
+                  >
+                    Reveal
+                  </UiButton>
+                )}
+                {embedded && desktopBridge?.schoolWebBack && (
+                  <UiButton
+                    type="button"
+                    className="iconButton"
+                    title="Previous page"
+                    aria-label="Previous page"
+                    onClick={() => void goBack()}
+                  >
+                    ←
+                  </UiButton>
+                )}
+                {embedded && desktopBridge?.schoolWebForward && (
+                  <UiButton
+                    type="button"
+                    className="iconButton"
+                    title="Next page"
+                    aria-label="Next page"
+                    onClick={() => void goForward()}
+                  >
+                    →
+                  </UiButton>
+                )}
+                {embedded && desktopBridge?.reloadSchoolWeb && (
+                  <UiButton
+                    type="button"
+                    className="iconButton"
+                    title="Reload"
+                    aria-label="Reload"
+                    onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
+                  >
+                    ↻
+                  </UiButton>
+                )}
+                {embedded && site === "kyomu" && (
+                  <UiButton
+                    type="button"
+                    title="教務Web top page"
+                    onClick={() =>
+                      void openTarget(official.kyomu.url, "kyomu").catch(
+                        (error) => setStatus(errorText(error) ?? "Unavailable"),
+                      )
+                    }
+                  >
+                    Top
+                  </UiButton>
+                )}
+              </div>
+              <div className="webZoom" aria-label="Page zoom">
                 <UiButton
                   type="button"
-                  className={site === key ? "active" : ""}
-                  data-frequency={tier.frequency}
-                  title={`${official[key].name} · ${tier.frequency} frequency`}
-                  onClick={() => choose(key)}
-                  key={key}
+                  className="iconButton"
+                  aria-label="Zoom out"
+                  title="Zoom out"
+                  disabled={resolvedZoom <= 0.5}
+                  onClick={() => setPageZoom(resolvedZoom - 0.1)}
                 >
-                  <i aria-hidden="true" />
-                  <span>{official[key].name}</span>
+                  −
                 </UiButton>
-              ))}
-            </div>
-          ))}
-        </nav>
-        <div
-          className="serviceResizeHandle"
-          role="separator"
-          aria-label="Resize service list"
-          aria-orientation="vertical"
-          aria-valuemin={132}
-          aria-valuemax={360}
-          aria-valuenow={resolvedServiceWidth}
-          tabIndex={0}
-          onPointerDown={startResize}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowLeft")
-              setServiceWidth(clamp(resolvedServiceWidth - 12, 132, 360));
-            if (event.key === "ArrowRight")
-              setServiceWidth(clamp(resolvedServiceWidth + 12, 132, 360));
-          }}
-        />
-        <div className="webHost" ref={host}>
-          {embedded ? null : platform === "browser-preview" && frameable ? (
-            <iframe
-              key={`${site}:${targetUrl}`}
-              title={official[site].name}
-              src={targetUrl}
-              referrerPolicy="no-referrer"
-              style={{
-                zoom: resolvedZoom,
-                width: `${100 / resolvedZoom}%`,
-                height: `${100 / resolvedZoom}%`,
-              }}
-            />
-          ) : (
-            <div className="webFallback">
-              <b>{official[site].name}</b>
-              <p>
-                {platform === "browser-preview"
-                  ? "T2SCHOLA does not allow embedding in a browser."
-                  : desktopBridge
-                    ? "This build opens school pages in a separate window."
-                    : "School pages need the desktop app."}
-              </p>
-              <UiButton className="button primary" onClick={openOutside}>
-                Open {official[site].name} ↗
+                <UiButton
+                  type="button"
+                  className="zoomValue"
+                  title="Reset zoom"
+                  onClick={() => setPageZoom(1)}
+                >
+                  {Math.round(resolvedZoom * 100)}%
+                </UiButton>
+                <UiButton
+                  type="button"
+                  className="iconButton"
+                  aria-label="Zoom in"
+                  title="Zoom in"
+                  disabled={resolvedZoom >= 2}
+                  onClick={() => setPageZoom(resolvedZoom + 0.1)}
+                >
+                  +
+                </UiButton>
+              </div>
+              <UiButton
+                type="button"
+                className="iconButton webOpenOutside"
+                title="Open in browser"
+                aria-label="Open in browser"
+                onClick={openOutside}
+              >
+                ↗
               </UiButton>
+            </form>
+            <div className="webHost" ref={host}>
+              {embedded ? null : platform === "browser-preview" && frameable ? (
+                <iframe
+                  key={`${site}:${targetUrl}`}
+                  title={official[site].name}
+                  src={targetUrl}
+                  referrerPolicy="no-referrer"
+                  style={{
+                    zoom: resolvedZoom,
+                    width: `${100 / resolvedZoom}%`,
+                    height: `${100 / resolvedZoom}%`,
+                  }}
+                />
+              ) : (
+                <div className="webFallback">
+                  <b>{official[site].name}</b>
+                  <p>
+                    {platform === "browser-preview"
+                      ? "T2SCHOLA does not allow embedding in a browser."
+                      : desktopBridge
+                        ? "This build opens school pages in a separate window."
+                        : "School pages need the desktop app."}
+                  </p>
+                  <UiButton className="button primary" onClick={openOutside}>
+                    Open {official[site].name} ↗
+                  </UiButton>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </section>
+        </ResizableWorkspace>
       </div>
     </div>
   );

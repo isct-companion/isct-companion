@@ -14,6 +14,7 @@ pub enum OperationResult {
     Workspace { snapshot: WorkspaceSnapshot },
     Schedule { snapshot: ScheduleSnapshot },
     Finder { view: FinderView },
+    Catalog { page: CatalogPage },
     Credentials { status: SchoolCredentialStatus },
     SchoolSession { snapshot: SchoolSessionSnapshot },
     SchoolWeb { result: SchoolWebResult },

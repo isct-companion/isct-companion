@@ -158,7 +158,7 @@ async function build(out) {
               destination: name(outputs.desktopCss),
               format: "css/variables",
               filter: (token) =>
-                group("color", "shadow", "radius", "font")(token) ||
+                group("color", "shadow", "radius", "font", "workspace")(token) ||
                 isTint(token),
             },
             {

@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -58,7 +58,7 @@ struct RefreshIntent {
     profiles: HashSet<SchoolAuthProfile>,
     pending: HashSet<SchoolAuthProfile>,
     details: VecDeque<(u64, Instant)>,
-    seen: HashSet<u64>,
+    seen: HashMap<u64, Instant>,
     network: PullNetwork,
     foreground: bool,
     /// One automatic batch at a time, so its order is the admission order.
@@ -74,7 +74,7 @@ impl SchoolRefresh {
             profiles: HashSet::new(),
             pending: HashSet::new(),
             details: VecDeque::new(),
-            seen: HashSet::new(),
+            seen: HashMap::new(),
             network: initial_network,
             foreground: true,
             running: false,
@@ -100,7 +100,13 @@ impl SchoolRefresh {
             RefreshKind::Background => queue.foreground = false,
             RefreshKind::LectureOpened => {
                 if let Some(course_id) = event.course_id.filter(|id| *id > 0) {
-                    if queue.seen.insert(course_id) {
+                    let now = Instant::now();
+                    if queue
+                        .seen
+                        .get(&course_id)
+                        .is_none_or(|last| now.duration_since(*last) >= Duration::from_secs(60))
+                    {
+                        queue.seen.insert(course_id, now);
                         queue
                             .details
                             .push_back((course_id, Instant::now() + Duration::from_secs(2)));
@@ -342,17 +348,25 @@ fn stale(last: Option<&str>, ttl: u64, now: DateTime<Utc>) -> bool {
 
 fn due(profile: SchoolAuthProfile, runs: &Value, now: DateTime<Utc>) -> bool {
     match profile {
-        SchoolAuthProfile::Science => stale(runs["lms:full"].as_str(), LMS_STALE_SECONDS, now),
+        SchoolAuthProfile::Science => {
+            runs["lms:all"].is_null()
+                || stale(
+                    [runs["lms:summary"].as_str(), runs["lms:all"].as_str()]
+                        .into_iter()
+                        .flatten()
+                        .max(),
+                    LMS_STALE_SECONDS,
+                    now,
+                )
+        }
         SchoolAuthProfile::TokyoTech => {
-            ["gpa", "registrations", "declared", "grades", "requirements"]
-                .iter()
-                .any(|page| {
-                    stale(
-                        runs[format!("kyomu:{page}")].as_str(),
-                        KYOMU_STALE_SECONDS,
-                        now,
-                    )
-                })
+            crate::school_parser::kyomu::PAGES.iter().any(|(_, page)| {
+                stale(
+                    runs[format!("kyomu:{page}")].as_str(),
+                    KYOMU_STALE_SECONDS,
+                    now,
+                )
+            })
         }
     }
 }

@@ -49,6 +49,12 @@ fn main() {
             .expect("serialize course palette"),
     );
     output.push_str(" as const;\n");
+    output.push_str("\nexport const DEFAULT_ASSIGNMENT_LEADS = ");
+    output.push_str(
+        &serde_json::to_string(&isct_core::schedule::DEFAULT_ASSIGNMENT_LEADS)
+            .expect("serialize reminder defaults"),
+    );
+    output.push_str(" as const;\n");
     output.push_str("\nexport const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = ");
     output.push_str(
         &serde_json::to_string_pretty(&isct_core::schedule::default_teaching_periods())

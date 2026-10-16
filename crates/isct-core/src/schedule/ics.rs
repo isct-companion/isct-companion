@@ -5,7 +5,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::calendar::quarter_range;
-use super::{add_days, resolve_day_agenda, AgendaOptions, OccurrenceKind, ScheduleError, Term};
+use super::{calendar_between, OccurrenceKind, ScheduleError, Term};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -26,13 +26,17 @@ pub fn export_quarter_ics(
     let range = quarter_range(workspace, term)?.ok_or_else(|| {
         ScheduleError::InvalidInput("Configure this quarter's dates before exporting it.".into())
     })?;
-    let days =
-        (super::parse_civil_date(&range.to)? - super::parse_civil_date(&range.from)?).num_days();
-    if !(0..=366).contains(&days) {
-        return Err(ScheduleError::InvalidInput(
-            "Invalid quarter date range.".into(),
-        ));
-    }
+    export_calendar_ics(workspace, &range.from, &range.to, scope, generated_at)
+}
+
+pub fn export_calendar_ics(
+    workspace: &Value,
+    from: &str,
+    to: &str,
+    scope: CalendarExportScope,
+    generated_at: DateTime<FixedOffset>,
+) -> Result<String, ScheduleError> {
+    let agendas = calendar_between(workspace, from, to)?;
     let mut lines = vec![
         "BEGIN:VCALENDAR".into(),
         "VERSION:2.0".into(),
@@ -52,17 +56,12 @@ pub fn export_quarter_ics(
         .with_timezone(&Utc)
         .format("%Y%m%dT%H%M%SZ")
         .to_string();
-    for offset in 0..=days {
-        let date = add_days(&range.from, offset)?;
-        for block in resolve_day_agenda(
-            workspace,
-            term,
-            &date,
-            AgendaOptions {
-                include_personal: matches!(scope, CalendarExportScope::CoursesAndPlans),
-                ..AgendaOptions::default()
-            },
-        )? {
+    for agenda in agendas {
+        let date = agenda.date;
+        for block in agenda.occurrences {
+            if block.cancelled == Some(true) {
+                continue;
+            }
             if block.kind != OccurrenceKind::Course
                 && !(matches!(scope, CalendarExportScope::CoursesAndPlans)
                     && block.kind == OccurrenceKind::Plan)

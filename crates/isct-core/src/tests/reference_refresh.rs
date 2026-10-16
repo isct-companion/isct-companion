@@ -209,7 +209,8 @@ async fn batch_probes_a_shared_index_once_and_skips_disabled_sources() {
 
     assert_eq!(transport.probes.load(Ordering::Relaxed), 1);
     let calls = transport.calls();
-    assert_eq!(calls.len(), 4);
+    assert_eq!(calls.len(), 3);
+    assert!(!calls.iter().any(|call| call.0 == "departments"));
     assert!(!calls.iter().any(|call| call.0 == "important-dates"));
 
     service(&store, transport.clone())
@@ -217,7 +218,7 @@ async fn batch_probes_a_shared_index_once_and_skips_disabled_sources() {
         .await
         .unwrap();
     assert_eq!(transport.probes.load(Ordering::Relaxed), 2);
-    assert_eq!(transport.calls().len(), 8);
+    assert_eq!(transport.calls().len(), 6);
 }
 
 #[tokio::test]
@@ -645,7 +646,7 @@ fn restored_hashes_require_all_valid_quarter_boundaries() {
 #[test]
 fn restored_metadata_never_replaces_local_materialization_evidence() {
     let source = store("restored-metadata");
-    for kind in ["departments", "important-dates", "exams"] {
+    for kind in ["important-dates", "exams", "class-schedules"] {
         let request = request(kind, 2026, false);
         let workspace = source.load_workspace().unwrap();
         assert!(!cache_present(&source, &workspace, &request).unwrap());
@@ -662,7 +663,7 @@ fn restored_metadata_never_replaces_local_materialization_evidence() {
         assert!(cache_present(&source, &workspace, &request).unwrap());
         let mut changed = workspace;
         let field = match kind {
-            "departments" => "departments",
+            "class-schedules" => "classSchedules",
             "exams" => "exams",
             _ => "importantDates",
         };

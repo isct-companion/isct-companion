@@ -1,3 +1,5 @@
+import { deadlineText } from "../../lib/deadline-text";
+import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
 import { SwipeActions } from "../../components/SwipeActions";
@@ -184,13 +186,13 @@ export function Today({
             <time
               className={`dueChip ${due.countdownTone}`}
               dateTime={assignment.dueAt!}
-              title={due.label}
+              title={deadlineText(due, data.settings.locale).label}
             >
-              {due.countdownLabel}
+              {deadlineText(due, data.settings.locale).countdownLabel}
             </time>
           ) : (
             <time className={due.overdue ? "overdue" : due.tone}>
-              {due.label}
+              {deadlineText(due, data.settings.locale).label}
             </time>
           )}
         </UiButton>
@@ -273,17 +275,17 @@ export function Today({
       <header className="todayHeader">
         <div className="daySwap" key={viewIso} style={swap}>
           <p className="todayEyebrow">
-            {new Intl.DateTimeFormat("en-GB", {
+            {formatJst(viewDate, data.settings.locale, {
               weekday: "long",
               timeZone: "Asia/Tokyo",
-            }).format(viewDate)}
+            })}
           </p>
           <h1>
-            {new Intl.DateTimeFormat("en-GB", {
+            {formatJst(viewDate, data.settings.locale, {
               day: "numeric",
               month: "long",
               timeZone: "Asia/Tokyo",
-            }).format(viewDate)}
+            })}
           </h1>
         </div>
         {!compact && (

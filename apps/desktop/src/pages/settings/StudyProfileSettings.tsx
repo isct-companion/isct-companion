@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { desktopBridge } from "../../app/native";
 import { t } from "../../i18n";
 import {
   contentLanguage,
@@ -30,7 +31,6 @@ export function StudyProfileSettings({
   data,
   update,
   setStudyProfile,
-  refreshReferences,
   openSection,
 }: {
   data: Workspace;
@@ -39,7 +39,6 @@ export function StudyProfileSettings({
     admissionYear: number | undefined,
     studyEnrollments: StudyEnrollment[],
   ) => Promise<void>;
-  refreshReferences?: () => Promise<string>;
   /** Opens the academic calendar; absent where it is not available. */
   openSection?: (section: "calendar") => void;
 }) {
@@ -56,6 +55,27 @@ export function StudyProfileSettings({
   const [awaitingKey, setAwaitingKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [suggestedYear, setSuggestedYear] = useState<number>();
+  const suggested = useRef(false);
+  useEffect(() => {
+    let active = true;
+    void desktopBridge
+      ?.schoolCredentialStatus()
+      .then((status) => {
+        if (active) setSuggestedYear(status.suggestedAdmissionYear);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (admissionYear || dirty || !suggestedYear || suggested.current) return;
+    suggested.current = true;
+    setDraft((current) => ({ ...current, admissionYear: suggestedYear }));
+    setDirty(true);
+  }, [admissionYear, dirty, suggestedYear]);
+
   useEffect(() => {
     if (dirty) return;
     // The mutation promise may resolve one render before the parent adopts
@@ -77,8 +97,8 @@ export function StudyProfileSettings({
   const thisYear =
     yearIndex?.currentYear ?? Number(data.selectedTerm.slice(0, 4));
   const years = Array.from({ length: 10 }, (_, index) => thisYear + 1 - index);
-  if (admissionYear && !years.includes(admissionYear))
-    years.push(admissionYear);
+  if (draft.admissionYear && !years.includes(draft.admissionYear))
+    years.push(draft.admissionYear);
   for (const enrollment of draft.enrollments) {
     const year = Number(enrollment.admittedTerm.slice(0, 4));
     if (Number.isFinite(year) && !years.includes(year)) years.push(year);
@@ -120,7 +140,7 @@ export function StudyProfileSettings({
       return;
     }
     if (draft.enrollments.some((enrollment) => !enrollment.admittedTerm)) {
-      setError(t("Choose an admission term for every study stage."));
+      setError(t("Choose an admission term for every degree programme."));
       return;
     }
     setSaving(true);
@@ -136,8 +156,6 @@ export function StudyProfileSettings({
           left.admittedTerm.localeCompare(right.admittedTerm),
         );
       await setStudyProfile(draft.admissionYear, submitted);
-      if (draft.admissionYear !== admissionYear)
-        await refreshReferences?.().catch(() => undefined);
       setDraft((current) => ({
         ...current,
         enrollments: draftEnrollments(submitted),
@@ -158,12 +176,13 @@ export function StudyProfileSettings({
         <Row id="department" title="Department">
           <UiSelect
             value={department?.id ?? ""}
-            onChange={(event) =>
+            onChange={(event) => {
+              const departmentId = event.target.value || undefined;
               update((draft) => {
-                draft.settings.departmentId = event.target.value || undefined;
+                draft.settings.departmentId = departmentId;
                 return draft;
-              })
-            }
+              });
+            }}
           >
             <option value="">{t("Not selected")}</option>
             {SYLLABUS_DEPARTMENTS.map((item) => (
@@ -177,7 +196,7 @@ export function StudyProfileSettings({
             ))}
           </UiSelect>
         </Row>
-        <Row id="admission-year" title="Study-guide cohort year">
+        <Row id="admission-year" title="Admission year">
           <UiSelect
             disabled={saving}
             value={draft.admissionYear ?? ""}
@@ -198,18 +217,13 @@ export function StudyProfileSettings({
             ))}
           </UiSelect>
         </Row>
-        <Row id="study-stages" title="Study stages" group>
+        <Row id="study-stages" title="Degree programme" group>
           <div className="studyStages">
-            <p className="settingsNote">
-              {t(
-                "Used for course eligibility by term. Missing details stay unknown.",
-              )}
-            </p>
             {draft.enrollments.map((enrollment, index) => (
               <div className="studyStage" key={enrollment.uiId}>
                 <UiSelect
                   disabled={saving}
-                  aria-label={t("Degree stage, stage {{stage}}", {
+                  aria-label={t("Degree programme, entry {{stage}}", {
                     stage: index + 1,
                   })}
                   value={enrollment.stage}
@@ -221,7 +235,9 @@ export function StudyProfileSettings({
                     })
                   }
                 >
-                  <option value="unknown">{t("Stage not set")}</option>
+                  <option value="unknown">
+                    {t("Choose degree programme")}
+                  </option>
                   <option value="undergraduate">{t("Undergraduate")}</option>
                   <option value="master">{t("Master")}</option>
                   <option value="professional">
@@ -231,7 +247,7 @@ export function StudyProfileSettings({
                 </UiSelect>
                 <UiSelect
                   disabled={saving}
-                  aria-label={t("Entry kind, stage {{stage}}", {
+                  aria-label={t("Entry route, entry {{stage}}", {
                     stage: index + 1,
                   })}
                   value={enrollment.entryKind}
@@ -249,7 +265,7 @@ export function StudyProfileSettings({
                 </UiSelect>
                 <UiSelect
                   disabled={saving}
-                  aria-label={t("Entry grade, stage {{stage}}", {
+                  aria-label={t("Starting year of study, entry {{stage}}", {
                     stage: index + 1,
                   })}
                   value={enrollment.entryGrade ?? ""}
@@ -262,18 +278,18 @@ export function StudyProfileSettings({
                     })
                   }
                 >
-                  <option value="">{t("Grade not set")}</option>
+                  <option value="">{t("Starting year not set")}</option>
                   {Array.from({ length: 9 }, (_, grade) => grade + 1).map(
                     (grade) => (
                       <option key={grade} value={grade}>
-                        {t("Grade {{grade}}", { grade })}
+                        {t("Year {{grade}}", { grade })}
                       </option>
                     ),
                   )}
                 </UiSelect>
                 <UiSelect
                   disabled={saving}
-                  aria-label={t("Stage admission term, stage {{stage}}", {
+                  aria-label={t("Admission term, entry {{stage}}", {
                     stage: index + 1,
                   })}
                   value={enrollment.admittedTerm}
@@ -296,7 +312,7 @@ export function StudyProfileSettings({
                   type="button"
                   className="textButton"
                   disabled={saving}
-                  aria-label={t("Remove stage {{stage}}", {
+                  aria-label={t("Remove entry {{stage}}", {
                     stage: index + 1,
                   })}
                   onClick={() =>
@@ -331,7 +347,7 @@ export function StudyProfileSettings({
                 ]);
               }}
             >
-              {t("Add study stage")}
+              {t("Add degree programme")}
             </UiButton>
             <div className="studyStageActions">
               <UiButton
@@ -347,7 +363,7 @@ export function StudyProfileSettings({
                 disabled={!dirty || saving}
                 onClick={() => void save()}
               >
-                {saving ? t("Saving…") : t("Save study profile")}
+                {saving ? t("Saving…") : t("Save enrollment details")}
               </UiButton>
             </div>
             {error && (

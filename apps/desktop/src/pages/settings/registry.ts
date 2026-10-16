@@ -104,6 +104,18 @@ export type SettingEntry = {
 
 export const SETTING_ENTRIES: SettingEntry[] = [
   {
+    section: "about",
+    id: "updates",
+    title: "App updates",
+    terms: "version update download 更新 版本",
+  },
+  {
+    section: "about",
+    id: "automatic-updates",
+    title: "Automatic updates",
+    terms: "background install 自动更新 自動更新",
+  },
+  {
     section: "accounts",
     id: "science",
     title: "Science Tokyo account",
@@ -130,13 +142,13 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "study",
     id: "admission-year",
-    title: "Study-guide cohort year",
+    title: "Admission year",
     terms: "admission entry cohort guide 入学 年度 学修案内",
   },
   {
     section: "study",
     id: "study-stages",
-    title: "Study stages",
+    title: "Degree programme",
     terms:
       "undergraduate master professional doctoral transfer grade 学士 修士 専門職 博士 編入 年次",
   },
@@ -163,6 +175,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "assignments",
     title: "Assignment reminders",
     terms: "deadline due 課題 締切",
+  },
+  {
+    section: "notifications",
+    id: "assignment-lead",
+    title: "Assignment reminder times",
+    terms: "deadline minutes hours days before 提前 作业 提醒 締切",
   },
   {
     section: "calendar",
@@ -289,7 +307,8 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     section: "developer",
     id: "profile",
     title: "Academic profile",
-    terms: "grade quarter starts json 学年",
+    terms:
+      "quarter starts class times teaching periods timetable json 校历 時限 节次 上课时间",
   },
   {
     section: "developer",

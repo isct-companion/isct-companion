@@ -14,6 +14,8 @@ mod campus_wifi;
 mod cloud;
 mod cloud_sync;
 mod commands;
+#[cfg(desktop)]
+mod desktop_updates;
 pub use isct_core::contracts;
 pub use isct_core::data;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -121,6 +123,37 @@ impl<R: tauri::Runtime> tauri::plugin::Plugin<R> for RustOnlyPlugin<R> {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem};
+    let menu = Menu::default(app)?;
+    let entries = menu.items()?;
+    let app_menu = entries
+        .first()
+        .and_then(|item| item.as_submenu())
+        .ok_or_else(|| std::io::Error::other("The application menu is unavailable."))?;
+    let items = app_menu.items()?;
+    let position = items
+        .len()
+        .checked_sub(1)
+        .ok_or_else(|| std::io::Error::other("The application Quit item is unavailable."))?;
+    let label = items[position]
+        .as_predefined_menuitem()
+        .ok_or_else(|| std::io::Error::other("The application Quit item is not predefined."))?
+        .text()?;
+    // Cocoa's predefined Quit calls terminate: directly, bypassing ExitRequested.
+    // Keep the native menu, but route Quit / Cmd-Q through our owned shutdown.
+    app_menu.remove_at(position)?;
+    app_menu.append(&MenuItem::with_id(
+        app,
+        "owned-quit",
+        label,
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?)?;
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -162,9 +195,19 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default());
     #[cfg(target_os = "macos")]
-    let builder = builder.manage(campus_wifi::CampusWifi::default());
+    let builder = builder
+        .manage(campus_wifi::CampusWifi::default())
+        .menu(owned_macos_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == "owned-quit" {
+                app.exit(0);
+            }
+        });
     #[cfg(desktop)]
-    let builder = builder.manage(lms_downloader::SessionView::default());
+    let builder = builder
+        .manage(lms_downloader::SessionView::default())
+        .manage(desktop_updates::DesktopUpdates::default())
+        .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_school_web::init());
     #[cfg(mobile)]
@@ -173,6 +216,12 @@ pub fn run() {
     let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
     builder
         .invoke_handler(tauri::generate_handler![
+            #[cfg(desktop)]
+            commands::platform::check_app_update,
+            #[cfg(desktop)]
+            commands::platform::app_update_state,
+            #[cfg(desktop)]
+            commands::platform::install_app_update,
             commands::platform::runtime_capabilities,
             lms_files::course_storage_info,
             lms_files::choose_course_storage,
@@ -268,14 +317,8 @@ pub fn run() {
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
-            let (data_store, rebuilt) = data::DataStore::initialize(app_data_dir.join("school.db"))
+            let (data_store, _) = data::DataStore::initialize(app_data_dir.join("school.db"))
                 .map_err(std::io::Error::other)?;
-            if rebuilt {
-                let path = app_data_dir.join("workspace.json");
-                if path.is_file() {
-                    std::fs::remove_file(path)?;
-                }
-            }
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
             app.manage(
@@ -383,6 +426,8 @@ pub fn run() {
                             }
                             let runtime = app.state::<core_ports::DesktopRuntime>();
                             runtime.mark_stopped();
+                            #[cfg(desktop)]
+                            desktop_updates::install_on_exit(&app);
                             app.exit(code);
                         });
                     }

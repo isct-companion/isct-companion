@@ -453,3 +453,13 @@ pub(super) fn save_setting(
         .map_err(DataError::from)?;
     Ok(true)
 }
+
+/// Remove the LMS academic-year suffix while retaining the class section.
+pub(crate) fn lms_course_code(shortname: &str) -> String {
+    let shortname = shortname.trim();
+    shortname
+        .strip_suffix(']')
+        .and_then(|s| s.rsplit_once('[').map(|(head, _)| head.trim()))
+        .unwrap_or(shortname)
+        .to_ascii_uppercase()
+}

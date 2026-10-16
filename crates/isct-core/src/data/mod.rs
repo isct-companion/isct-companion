@@ -1,6 +1,7 @@
 mod backup_store;
 mod catalog_store;
 mod defaults;
+mod kyomu_projection;
 mod lms_store;
 mod records;
 mod settings;
@@ -9,7 +10,7 @@ mod snapshot;
 pub use defaults::initial_workspace;
 use defaults::*;
 use records::*;
-pub(crate) use records::{canonical_course_id, resolve_course_id};
+pub(crate) use records::{canonical_course_id, lms_course_code, resolve_course_id};
 pub(crate) use settings::ADMISSION_YEARS;
 use settings::*;
 
@@ -793,7 +794,7 @@ impl DataStore {
             std::fs::create_dir_all(parent).map_err(DataError::from)?;
         }
         let mut connection = Connection::open(&path).map_err(DataError::from)?;
-        let rebuilt = migrations::migrate(&mut connection)?;
+        let schema_changed = migrations::migrate(&mut connection)?;
         // Catalog offerings are never deleted by the person; earlier workspace
         // saves tombstoned rows the window had not loaded yet. Restore them.
         connection
@@ -805,7 +806,7 @@ impl DataStore {
             .map_err(DataError::from)?;
         let store = Self { path };
         store.ensure_defaults()?;
-        Ok((store, rebuilt))
+        Ok((store, schema_changed))
     }
 
     fn open(&self) -> Result<Connection, DataError> {

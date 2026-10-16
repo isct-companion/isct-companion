@@ -305,6 +305,24 @@ impl Session {
             })
         })
     }
+    pub fn catalog_query(
+        &self,
+        query: String,
+        year: u16,
+        filters: Option<CatalogFilters>,
+        cursor: Option<String>,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let page = i
+                .core
+                .catalog_query(query, year, project_input(filters)?, cursor)
+                .await?;
+            Ok(OperationResult::Catalog {
+                page: project(page)?,
+            })
+        })
+    }
+
     pub fn lms_merge_preview(
         &self,
         scope: String,

@@ -67,7 +67,7 @@ export function LmsPreview() {
         title: `講義資料 · ${i + 1}`,
         type: "link",
         module: "page",
-        bodyHtml: `<h3>Preview · lecture ${i + 1}</h3><p>This sample verifies the reading area and tab navigation. It is not a downloaded lecture file.</p><pre><code>Q = {q0, q1}\nΣ = {0, 1}\nδ : Q × Σ → Q</code></pre>`,
+        bodyHtml: `<h3>Preview · lecture ${i + 1}</h3><p>This sample verifies the reading area and tool panel. It is not a downloaded lecture file.</p><pre><code>Q = {q0, q1}\nΣ = {0, 1}\nδ : Q × Σ → Q</code></pre>`,
       })),
       ...["oop2026-schedule", "discord"].map((name, i): Material => ({
         ...meta,
@@ -120,7 +120,7 @@ export function LmsPreview() {
         type: "link",
         module: "forum",
         bodyHtml:
-          "<h3>Preview announcement</h3><p>Forum content remains in the course workspace. This is sample content.</p>",
+          '<article id="announcement-preview"><h5>Week 1 · Reading guide</h5><time>16 October</time><p>Review the lecture notes before the next class.</p><h3>State transitions</h3><p>A finite automaton moves between states as it reads each symbol. Start with the diagram, then trace one input at a time.</p><ul><li>Identify the initial and accepting states.</li><li>Follow the transition for each input symbol.</li><li>Compare the final state with the accepting set.</li></ul><p>This is isolated preview content.</p></article>',
       },
     ];
     workspace.assignments = [

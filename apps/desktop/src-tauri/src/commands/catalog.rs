@@ -92,13 +92,17 @@ pub(crate) async fn catalog_query(
     app: tauri::AppHandle,
     query: String,
     year: u16,
-    filters: Option<syllabus::SyllabusFilters>,
-) -> Result<syllabus::CatalogSearchResult, String> {
+    filters: Option<isct_core::catalog::CatalogFilters>,
+    cursor: Option<String>,
+) -> Result<isct_core::catalog::CatalogPage, String> {
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
     let runtime = core.runtime.clone();
-    runtime.run(async move { isct_core::catalog::catalog_query(&core.store, query, year, filters).await })
-        .await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+    runtime
+        .run(async move { core.catalog_query(query, year, filters, cursor).await })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

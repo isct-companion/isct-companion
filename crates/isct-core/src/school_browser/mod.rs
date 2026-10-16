@@ -2,11 +2,15 @@ mod assets;
 mod engine;
 mod policy;
 mod port;
+#[cfg(feature = "desktop-workspaces")]
+mod submission;
 
 pub use assets::{ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN};
 pub use engine::SchoolBrowserEngine;
 pub use policy::{is_login_url, sanitize_school_url, SCHOOL_HOSTS};
 pub use port::*;
+#[cfg(feature = "desktop-workspaces")]
+pub use submission::{SubmissionError, SubmissionMessages};
 
 use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};
 use serde::{Deserialize, Serialize};
@@ -132,3 +136,9 @@ impl From<BrowserError> for SchoolBrowserError {
 #[cfg(test)]
 #[path = "../tests/school_browser.rs"]
 mod tests;
+
+impl From<SchoolBrowserError> for crate::pull_coordinator::PullError {
+    fn from(error: SchoolBrowserError) -> Self {
+        crate::school_service::map_executor_error(engine::map_executor(error))
+    }
+}

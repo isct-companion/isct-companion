@@ -407,3 +407,18 @@ fn denied_unlock_can_be_retried_and_forget_clears_the_session_copy() {
         .is_none());
     assert_eq!(inspect.reads.load(SeqCst), 6);
 }
+
+#[test]
+fn undergraduate_student_numbers_suggest_only_the_guide_entry_year() {
+    for (number, expected) in [
+        ("25B12345", Some(2025)),
+        (" 24b54321 ", Some(2024)),
+        ("25M12345", None),
+        ("25D12345", None),
+        ("student", None),
+        ("25B1234", None),
+        ("25B1234x", None),
+    ] {
+        assert_eq!(student_admission_year(number), expected);
+    }
+}

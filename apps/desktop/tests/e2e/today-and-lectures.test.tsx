@@ -192,6 +192,7 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
             at: row.dueAt ?? "",
             label: "Due soon",
             tone: "normal",
+            remainingMilliseconds: 86400000,
             countdownLabel: "1d",
             countdownTone: "soon",
             overdue: overdue.includes(row.id),
@@ -556,6 +557,7 @@ function lectureTasks(workspace: Workspace): TaskView {
         at: "2026-10-08T15:00:00Z",
         label: "Due soon",
         tone: "normal",
+        remainingMilliseconds: 129600000,
         countdownLabel: "1d 12h",
         countdownTone: "soon",
         overdue: false,
@@ -761,7 +763,7 @@ async function mountGrades(
       queries: homeQueries,
       handle: nativeNoise,
     },
-    { route: paths.home() },
+    { route: paths.timetable() },
   );
   app = mounted;
 

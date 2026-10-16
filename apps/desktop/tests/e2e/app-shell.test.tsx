@@ -281,61 +281,64 @@ it("replaces a clashing course and Undo restores the previous one", async () => 
     planItems: [planItemFor(clashingCourse)],
   });
 
-  app = await mountApp({
-    workspace: before,
-    queries: {
-      workspaceOverview: (_query, core) => overviewFor(core.workspace),
-      planningWeek: (_query, core) => planningWeekFor(core.workspace),
-      scheduleView: (_query, core) => scheduleViewFor(core.workspace),
-    },
-    finder: (request) => ({
-      context: {
-        currentQuarter: 3,
-        recommended: {},
-        departments: [],
-        busy: [{ day: 2, from: 7, to: 8 }],
+  app = await mountApp(
+    {
+      workspace: before,
+      queries: {
+        workspaceOverview: (_query, core) => overviewFor(core.workspace),
+        planningWeek: (_query, core) => planningWeekFor(core.workspace),
+        scheduleView: (_query, core) => scheduleViewFor(core.workspace),
       },
-      courses: [placed, clashing],
-      factors: [],
-      duplicates: 0,
-      keys: request.keys ?? [],
-      plan: { unsupported: "empty" },
-      rows: [placed, clashing].map((course) => ({ course, matched: [] })),
-      suggestions: [],
-      live: String(request.input ?? ""),
-      clashes: [clashing.id],
-      ineligibleIds: [],
-      eligibility: {},
-      replacements: { [clashing.id]: [placedCourse.id] },
-      credits: { [placed.id]: 2, [clashing.id]: 2 },
-      onTimetable: [placedCourse.code],
-      activeSlots: ["火7-8"],
-      pasteHandled: false,
-      pastedIds: [],
-      missingCodes: [],
-      ineligibleCodes: [],
-      detailIds: [],
-    }),
-    handle: (command) => {
-      if (command === "catalog_offerings") return [placed, clashing];
-      if (command === "catalog_query")
-        return {
-          items: [{ id: placed.id }],
-          total: 1,
-          returned: 1,
-          truncated: false,
-        };
-      return undefined;
+      finder: (request) => ({
+        context: {
+          currentQuarter: 3,
+          recommended: {},
+          departments: [],
+          busy: [{ day: 2, from: 7, to: 8 }],
+        },
+        courses: [placed, clashing],
+        factors: [],
+        duplicates: 0,
+        keys: request.keys ?? [],
+        plan: { unsupported: "empty" },
+        rows: [placed, clashing].map((course) => ({ course, matched: [] })),
+        suggestions: [],
+        live: String(request.input ?? ""),
+        clashes: [clashing.id],
+        ineligibleIds: [],
+        eligibility: {},
+        replacements: { [clashing.id]: [placedCourse.id] },
+        credits: { [placed.id]: 2, [clashing.id]: 2 },
+        onTimetable: [placedCourse.code],
+        activeSlots: ["火7-8"],
+        pasteHandled: false,
+        pastedIds: [],
+        missingCodes: [],
+        ineligibleCodes: [],
+        detailIds: [],
+      }),
+      handle: (command) => {
+        if (command === "catalog_offerings") return [placed, clashing];
+        if (command === "catalog_query")
+          return {
+            items: [{ id: placed.id }],
+            total: 1,
+            returned: 1,
+            truncated: false,
+          };
+        return undefined;
+      },
+      // Core commits the replacement (or the undo) and returns the new snapshot.
+      apply: (intent, core) => {
+        if (intent.kind === "addCatalogCourses") {
+          core.publish(after, "revision:after");
+        } else if (intent.kind === "undoCatalogCourses") {
+          core.publish(before, "revision:undo");
+        }
+      },
     },
-    // Core commits the replacement (or the undo) and returns the new snapshot.
-    apply: (intent, core) => {
-      if (intent.kind === "addCatalogCourses") {
-        core.publish(after, "revision:after");
-      } else if (intent.kind === "undoCatalogCourses") {
-        core.publish(before, "revision:undo");
-      }
-    },
-  });
+    { route: paths.timetable() },
+  );
   const { host, core } = app;
 
   const editSwitch = await vi.waitFor(() => {
@@ -759,7 +762,7 @@ describe("shell navigation", () => {
  * ------------------------------------------------------------------ */
 
 describe("keyboard shortcuts", () => {
-  it("routes ⌘1–4 and Escape, replacing the section and cycling all four drawer tabs", async () => {
+  it("routes ⌘1–5 and Escape, replacing the section and cycling all four drawer tabs", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture({ courses: [placedCourse] }),
@@ -803,9 +806,10 @@ describe("keyboard shortcuts", () => {
 
     for (const [index, target] of [
       paths.home(),
+      paths.timetable(),
       paths.lectures(),
       paths.web(),
-      // ⌘4 returns to the section left above.
+      // ⌘5 returns to the section left above.
       paths.settings("study"),
     ].entries()) {
       await act(async () => {
@@ -900,7 +904,7 @@ describe("native listener ordering", () => {
           return baseHandle(command, args, core);
         },
       }),
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host, core } = app;
     // The planner timetable is the person-visible view of the workspace rows.
@@ -1096,7 +1100,7 @@ describe("Chinese UI", () => {
     const { host, core } = app;
 
     await until(() => expect(document.documentElement.lang).toBe("zh"));
-    expect(host.querySelector(".rail button")?.textContent).toContain("首页");
+    expect(host.querySelector(".rail button")?.textContent).toContain("今天");
     expect(document.body.textContent).toContain("中文");
     expect(
       host
@@ -1143,7 +1147,7 @@ describe("mobile shell", () => {
       `the ${label} tab`,
     );
 
-  it("drops the fixed status bar and shows four bottom tabs", async () => {
+  it("drops the fixed status bar and shows the primary bottom tabs", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture(),
@@ -1160,7 +1164,7 @@ describe("mobile shell", () => {
       [...host.querySelectorAll(".mobileTabs button")].map(
         (button) => button.textContent,
       ),
-    ).toEqual(["Home", "Lectures", "Web", "Settings"]);
+    ).toEqual(["Today", "Timetable", "Lectures", "Web", "Settings"]);
     expect(host.querySelector(".mobileStatusDot")).not.toBeNull();
   }, 20_000);
 
@@ -1256,7 +1260,7 @@ describe("mobile shell", () => {
     await until(() =>
       expect(window.location.hash).toBe(`#${paths.home("week")}`),
     );
-    await click(await tab(host, "Home"));
+    await click(await tab(host, "Today"));
     await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
   }, 20_000);
 
@@ -1822,6 +1826,59 @@ describe("schedule query caches", () => {
     ).toEqual(["late-quarter", "quick-quarter"]);
   }, 20_000);
 
+  it("retains the last complete calendar while a replacement is pending", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    installFakeCore({
+      workspace,
+      revision: "rev:retained-quarter",
+      handle: (command, args, live) => {
+        if (command !== "schedule_query") return undefined;
+        const term = (args.queries as { term: string }[])[0].term;
+        const answer = () =>
+          scheduleAnswer(
+            "workspaceOverview",
+            overviewFor(live.workspace, { term }),
+            "rev:retained-quarter",
+          );
+        return term === "replacement-quarter" ? gate.then(answer) : answer();
+      },
+    });
+    probe = await mount(
+      <ScheduleSwitchProbe
+        initial="retained-quarter"
+        next="replacement-quarter"
+      />,
+    );
+    await until(() =>
+      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
+        "retained-quarter",
+      ),
+    );
+    await click(probe.host.querySelector(".probeSwitch"));
+    expect(probe.host.querySelector(".probeTerm")?.textContent).toBe(
+      "retained-quarter",
+    );
+    expect(
+      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
+    ).toBe("yes");
+    await act(async () => {
+      release();
+      await gate;
+    });
+    await until(() =>
+      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
+        "replacement-quarter",
+      ),
+    );
+    expect(
+      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
+    ).toBe("no");
+  }, 20_000);
+
   it("retry re-issues the read without a remount and clears the error", async () => {
     const workspace = workspaceFixture({ courses: [placedCourse] });
     let failed = false;
@@ -2036,4 +2093,288 @@ describe("finder query caches", () => {
       keys: ["X"],
     });
   }, 20_000);
+});
+
+describe("First school connection", () => {
+  it("offers account setup on an empty Home and opens the real account page", async () => {
+    app = await mountShell(shellOptions({ workspace: workspaceFixture() }), {
+      route: paths.home(),
+    });
+    const setup = await until(() => {
+      const element = app!.host.querySelector(
+        '[aria-label="School account setup"]',
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(setup.textContent).toContain(
+      "Tokyo Tech for your timetable and course search",
+    );
+    await click(setup.querySelector("button"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
+    );
+    await until(() =>
+      expect(app!.host.querySelector(".settingsPane")?.textContent).toContain(
+        "Science Tokyo Portal",
+      ),
+    );
+  });
+
+  it("keeps the setup prompt out of an existing timetable", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    app = await mountShell(shellOptions({ workspace }), {
+      route: paths.home(),
+    });
+    expect(
+      app.host.querySelector('[aria-label="School account setup"]'),
+    ).toBeNull();
+  });
+});
+
+describe("workspace column sizing", () => {
+  it("resizes, sticks then collapses, preserves content, and reveals the lecture sidebar from the rail", async () => {
+    const { ResizableWorkspace } =
+      await import("@app/components/ResizableWorkspace");
+    // jsdom has no layout engine; give the real splitter a measured 1000px workspace.
+    const width = vi
+      .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.matches("[data-separator]")
+          ? 20
+          : this.matches("[data-panel]")
+            ? 490
+            : 1000;
+      });
+    const height = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockReturnValue(600);
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.matches('[data-panel][id$="-first"]'))
+          return new DOMRect(0, 0, 392, 600);
+        if (this.matches('[data-panel][id$="-second"]'))
+          return new DOMRect(412, 0, 588, 600);
+        if (this.matches("[data-separator]"))
+          return new DOMRect(392, 0, 20, 600);
+        return new DOMRect(0, 0, 1000, 600);
+      });
+    const left = vi
+      .spyOn(HTMLElement.prototype, "offsetLeft", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.matches('[data-panel][id$="-second"]')
+          ? 412
+          : this.matches("[data-separator]")
+            ? 392
+            : 0;
+      });
+    const browserObserver = window.ResizeObserver;
+    window.ResizeObserver = class implements ResizeObserver {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        queueMicrotask(() =>
+          this.callback(
+            [
+              {
+                target,
+                contentRect: new DOMRect(0, 0, 1000, 600),
+                borderBoxSize: [{ inlineSize: 1000, blockSize: 600 }],
+              } as unknown as ResizeObserverEntry,
+            ],
+            this,
+          ),
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+    localStorage.clear();
+    function Workbench({ enabled = true }: { enabled?: boolean }) {
+      const [collapsed, setCollapsed] = useState(false);
+      return (
+        <ResizableWorkspace
+          id="test-columns"
+          firstCollapsible
+          onFirstCollapse={setCollapsed}
+          enabled={enabled}
+          firstSize="40%"
+          firstMin="20%"
+          secondMin="30%"
+        >
+          <textarea aria-label="Draft" defaultValue="Unsaved draft" />
+          <p>Reading pane {collapsed ? "collapsed" : "expanded"}</p>
+        </ResizableWorkspace>
+      );
+    }
+    try {
+      probe = await mount(<Workbench />);
+      const separator = () =>
+        probe!.host.querySelector<HTMLElement>('[role="separator"]')!;
+      const beforeDrag = Number(separator().getAttribute("aria-valuenow"));
+      const pointer = (kind: string, x: number) =>
+        Object.assign(
+          new MouseEvent(kind, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: 200,
+            buttons: kind === "pointerup" ? 0 : 1,
+          }),
+          { pointerId: 1, pointerType: "mouse", isPrimary: true },
+        );
+      await act(async () => {
+        separator().dispatchEvent(pointer("pointerdown", 402));
+        separator().dispatchEvent(pointer("pointermove", 450));
+        separator().dispatchEvent(pointer("pointerup", 450));
+      });
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBeGreaterThan(
+        beforeDrag,
+      );
+      const initial = Number(separator().getAttribute("aria-valuenow"));
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        ),
+      );
+      const resized = Number(separator().getAttribute("aria-valuenow"));
+      expect(resized).toBeGreaterThan(initial);
+
+      // The minimum holds for a short drag, then gives way to collapse.
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+        ),
+      );
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        ),
+      );
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(20);
+      await act(async () => {
+        separator().dispatchEvent(pointer("pointerdown", 402));
+        separator().dispatchEvent(pointer("pointermove", 382));
+      });
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(20);
+      await act(async () => {
+        separator().dispatchEvent(pointer("pointermove", 342));
+        separator().dispatchEvent(pointer("pointerup", 342));
+      });
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(0);
+      expect(probe.host.textContent).toContain("Reading pane collapsed");
+      await probe.unmount();
+      probe = await mount(<Workbench />);
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(0);
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        ),
+      );
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBeGreaterThan(
+        0,
+      );
+      expect(probe.host.textContent).toContain("Reading pane expanded");
+      const expanded = Number(separator().getAttribute("aria-valuenow"));
+      const draft = probe.host.querySelector("textarea")!;
+      await typeInto(draft, "Still writing");
+      await act(async () => probe!.root.render(<Workbench enabled={false} />));
+      expect(probe.host.querySelector("textarea")).toBe(draft);
+      expect(draft.value).toBe("Still writing");
+      await act(async () => probe!.root.render(<Workbench />));
+      expect(probe.host.querySelector("textarea")).toBe(draft);
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(expanded);
+      await probe.unmount();
+      probe = await mount(<Workbench />);
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(expanded);
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+        ),
+      );
+      expect(
+        Number(separator().getAttribute("aria-valuenow")),
+      ).toBeLessThanOrEqual(70);
+      await probe.unmount();
+      probe = undefined;
+      const matchMedia = vi
+        .spyOn(window, "matchMedia")
+        .mockImplementation((query) => ({
+          matches: query === "(min-width: 769px)",
+          media: query,
+          onchange: null,
+          addEventListener() {},
+          removeEventListener() {},
+          addListener() {},
+          removeListener() {},
+          dispatchEvent: () => false,
+        }));
+      try {
+        app = await mountShell(
+          shellOptions({
+            workspace: workspaceFixture({ courses: [placedCourse] }),
+          }),
+          { route: paths.lectures() },
+        );
+        await click(
+          await required(
+            () => app!.host.querySelector<HTMLButtonElement>(".lectureRow"),
+            "lecture row",
+          ),
+        );
+        const toggle = await required(
+          () =>
+            app!.host.querySelector<HTMLButtonElement>(
+              '[aria-label="Toggle sidebar"]',
+            ),
+          "sidebar toggle",
+        );
+        expect(toggle.closest(".lmsWorkspaceHeader")).not.toBeNull();
+        const list = app.host.querySelector<HTMLElement>("#lecture-sidebar")!;
+        const filter = list.querySelector<HTMLInputElement>(
+          'input[type="search"]',
+        )!;
+        await typeInto(filter, "Keep this filter");
+        await click(toggle);
+        await until(() =>
+          expect(toggle.getAttribute("aria-expanded")).toBe("false"),
+        );
+        expect(list.hasAttribute("inert")).toBe(true);
+        const rail = app.host.querySelector<HTMLButtonElement>(
+          '.rail button[title^="Lectures"]',
+        )!;
+        await act(async () =>
+          rail.dispatchEvent(new Event("pointerover", { bubbles: true })),
+        );
+        expect(
+          app.host
+            .querySelector(".lectureDesk")!
+            .getAttribute("data-sidebar-floating"),
+        ).toBe("true");
+        expect(list.hasAttribute("inert")).toBe(false);
+        await act(async () =>
+          rail.dispatchEvent(new Event("pointerout", { bubbles: true })),
+        );
+        await advance(250);
+        expect(list.hasAttribute("inert")).toBe(true);
+        await click(toggle);
+        expect(toggle.getAttribute("aria-expanded")).toBe("true");
+        expect(app.host.querySelector("#lecture-sidebar")).toBe(list);
+        expect(filter.value).toBe("Keep this filter");
+      } finally {
+        await app?.unmount();
+        app = undefined;
+        matchMedia.mockRestore();
+      }
+    } finally {
+      await probe?.unmount();
+      probe = undefined;
+      width.mockRestore();
+      height.mockRestore();
+      rect.mockRestore();
+      left.mockRestore();
+      window.ResizeObserver = browserObserver;
+      localStorage.clear();
+    }
+  });
 });

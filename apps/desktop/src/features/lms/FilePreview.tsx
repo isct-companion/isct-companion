@@ -1,3 +1,4 @@
+import { ReaderTools } from "./ReaderPane";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { desktopBridge } from "../../app/native";
 import { nativeOs } from "../../platform/desktop-bridge";
@@ -152,7 +153,7 @@ export function FilePreview({
       </div>
     );
   }
-  const toolbar = <Toolbar title={title} url={url}>{actions}</Toolbar>;
+  const toolbar = <Toolbar title={title} url={url} inline={kind === "pdf"}>{actions}</Toolbar>;
   if (kind === "pdf")
     return <Suspense fallback={<p className="lmsQuiet lmsLoading">{t("Loading preview…")}</p>}><PdfDocument src={src} title={title} fileToolbar={toolbar} /></Suspense>;
   return (
@@ -273,13 +274,12 @@ export function FilePopover({
   );
 }
 
-function Toolbar({ title, url, children }: { title: string; url: string; children: ReactNode }) {
-  return (
-    <div className="lmsSourceBar lmsFileToolbar">
-      <div className="lmsFileAddress" title={url}><span>{title}</span></div>
-      {children}
-    </div>
-  );
+function Toolbar({ title, url, children, inline = false }: { title: string; url: string; children: ReactNode; inline?: boolean }) {
+  const tools = <div className="lmsSourceBar lmsFileToolbar">
+    <div className="lmsFileAddress" title={url}><span>{title}</span></div>
+    {children}
+  </div>;
+  return inline ? tools : <ReaderTools>{tools}</ReaderTools>;
 }
 
 /**
