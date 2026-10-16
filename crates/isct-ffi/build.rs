@@ -33,6 +33,22 @@ impl VisitMut for ForeignTypes {
             Type::Reference(_) => *ty = syn::parse_quote!(String),
             Type::Tuple(_) => *ty = syn::parse_quote!(JsonValue),
             Type::Path(path) if path.path.is_ident("Value") => *ty = syn::parse_quote!(JsonValue),
+            // Persisted document inputs keep their existing SDK JSON representation.
+            // Core validates them against its typed serde contracts on entry.
+            Type::Path(path)
+                if path
+                    .path
+                    .segments
+                    .first()
+                    .is_some_and(|part| part.ident == "crate")
+                    && path
+                        .path
+                        .segments
+                        .iter()
+                        .any(|part| part.ident == "contracts") =>
+            {
+                *ty = syn::parse_quote!(JsonValue);
+            }
             Type::Path(path) if path.path.is_ident("usize") => *ty = syn::parse_quote!(u64),
             Type::Path(path) if path.path.is_ident("Task") => *ty = syn::parse_quote!(CloudTask),
             Type::Path(path) => {
@@ -54,12 +70,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "study_profile.rs",
         "schedule/mod.rs",
         "schedule/timing.rs",
+        "schedule/requests.rs",
+        "schedule/course_detail.rs",
         "schedule/calendar.rs",
         "schedule/occurrence.rs",
         "schedule/tasks.rs",
         "schedule/reminders.rs",
         "schedule/ics.rs",
         "course_query/mod.rs",
+        "course_query/contracts.rs",
         "school_auth.rs",
         "school_service.rs",
         "school_browser/mod.rs",
@@ -90,6 +109,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     && a.to_token_stream().to_string().contains("Deserialize")
                         }) =>
                 {
+                    if name == "course_query/contracts.rs" && item.ident != "FinderRow" {
+                        continue;
+                    }
                     if name == "school_parser/lms.rs" && item.ident != "ResolvedFile" {
                         continue;
                     }
@@ -125,6 +147,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         a.path().is_ident("derive")
                             && a.to_token_stream().to_string().contains("Default")
                     });
+                    if name == "course_query/contracts.rs" && item.ident != "Suggestion" {
+                        continue;
+                    }
                     if name == "school_parser/lms.rs" {
                         continue;
                     }

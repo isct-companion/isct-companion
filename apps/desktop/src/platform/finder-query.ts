@@ -12,48 +12,22 @@ import { useWorkspace } from "../store/useWorkspace";
 import { getDesktopBridge } from "./desktop-bridge";
 import type { QueryState } from "./core-query";
 
-export type FinderAction =
-  | { kind: "commit"; key: string }
-  | { kind: "toggleTime"; key: string; append: boolean }
-  | { kind: "paste"; text: string };
-export type FinderRequest = {
-  year: number;
-  term: string;
-  includeIneligible?: boolean;
-  keys: string[];
-  input?: string;
-  remoteIds?: string[];
-  action?: FinderAction;
-};
-export type FinderView = {
-  context: Omit<FinderContext, "recommended"> & {
-    recommended: Record<
-      string,
-      { group: string; mark?: "required" | "recommended" }
-    >;
-  };
-  courses: FinderCourse[];
-  factors: Factor[];
-  duplicates: number;
-  keys: string[];
-  plan: RemotePlan;
-  rows: FinderRow[];
-  suggestions: Suggestion[];
-  live: string;
-  clashes: string[];
-  ineligibleIds: string[];
-  eligibility: Record<string, CourseEligibility>;
-  replacements: Record<string, string[]>;
-  credits: Record<string, number>;
-  onTimetable: string[];
-  activeSlots: string[];
-  commitKey?: string | null;
-  pasteHandled: boolean;
-  pastedIds: string[];
-  missingCodes: string[];
-  ineligibleCodes: string[];
-  detailIds: string[];
-};
+export type { FinderAction, FinderView } from "../generated/persistence";
+import type {
+  FinderAction,
+  FinderRequest as CoreFinderRequest,
+  FinderView,
+} from "../generated/persistence";
+export type FinderRequest = Omit<
+  CoreFinderRequest,
+  "includeIneligible" | "keys" | "input" | "remoteIds" | "action"
+> &
+  Partial<
+    Pick<
+      CoreFinderRequest,
+      "includeIneligible" | "keys" | "input" | "remoteIds" | "action"
+    >
+  >;
 
 export function finderQuery(request: FinderRequest): Promise<FinderView> {
   const bridge = getDesktopBridge();

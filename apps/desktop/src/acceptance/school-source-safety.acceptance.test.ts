@@ -7,15 +7,16 @@ import { describe, expect, it } from "vitest";
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-function rustRawString(
-  sourcePath: string,
-  constant: string,
-): string {
+function rustRawString(sourcePath: string, constant: string): string {
   const source = read(sourcePath);
   const match = source.match(
     new RegExp(`pub const ${constant}: &str = r#\\"([\\s\\S]*?)\\"#;`),
   );
   if (match) return match[1];
+  const included = source.match(
+    new RegExp(`pub const ${constant}: &str = include_str!\\("([^"]+)"\\);`),
+  );
+  if (included) return read(join(dirname(sourcePath), included[1]));
   const start = source.indexOf(`pub const ${constant}: &str = concat!(`);
   const ending =
     start < 0 ? undefined : source.slice(start).match(/\}\)\(\)"#\s*\);/);
