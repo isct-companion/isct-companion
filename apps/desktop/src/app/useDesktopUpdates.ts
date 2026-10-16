@@ -27,7 +27,7 @@ export const useAppUpdate = create<{
             message: String(error),
             signedUpdates: false,
             releaseUrl:
-              "https://github.com/isct-companion/Isct-Companion-App/releases/latest",
+              "https://github.com/isct-companion/isct-companion/releases/latest",
           },
         });
     } finally {

@@ -1009,5 +1009,6 @@
   "{{count}}m": "{{count}}分钟",
   "{{duration}} ago": "{{duration}}前",
   "Due in {{duration}}": "{{duration}}后截止",
-  "Due {{date}}": "截止于 {{date}}"
+  "Due {{date}}": "截止于 {{date}}",
+  "No stable release has been published yet": "尚未发布稳定版"
 }

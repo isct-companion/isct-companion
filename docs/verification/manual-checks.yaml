@@ -697,7 +697,8 @@ checks:
       commit: 7fdf1b6
       by: human
       result: pass
-      notes: 67 expected cells recognised, no wrong accepted cells; private image not committed.
+      notes: 67 expected cells recognised, no wrong accepted cells; private image not
+        committed.
       evidence: docs/verification/core-consolidation.md#automated-acceptance
 
   - id: DESKTOP-SCHOOL-WEBVIEW
@@ -1264,26 +1265,65 @@ checks:
 
   - id: DESKTOP-SIGNED-UPDATES
     area: desktop
-    title: Signed native updates preserve the existing workspace
+    title: Signed macOS updates preserve the existing workspace
     persona: undergraduate-senior
     preconditions: |
-      An installed update-enabled desktop bundle, a newer signed desktop release,
-      and a disposable workspace containing a timetable and a saved note.
-      Update signing secrets must already be configured by the maintainer.
+      An installed Developer-ID-signed macOS update-enabled bundle, a newer
+      version signed with the configured updater key, and a rollback copy of
+      the app and its data. A debug build may use the strictly loopback fixture
+      origin; release builds always use the source repository.
     steps:
-      - action: Check for updates in Settings > About and download the offered update.
-        reason: Only a signed native bundle exercises updater signature verification and the OS installer.
-      - action: Enable automatic updates, quit, reopen, and inspect the timetable and saved note.
-        reason: Verifies installation goes through native shutdown and retains the same application-data directory.
-      - action: On Windows, launch the release installer build from Explorer and open a workspace file.
-        reason: A headless Unix test cannot detect an unwanted Windows console or child-process console.
-    observe: Settings > About, the native app window, Windows desktop, and the saved workspace.
+      - action: Detect an update, download a tampered copy, then retry with the valid
+          signed bundle.
+        reason: The real native updater must reject modified bytes before permitting
+          installation; fixtures alone do not exercise the packaged app and key.
+      - action: Enable automatic updates, quit through the app menu or Cmd-Q, and
+          reopen.
+        reason: Cocoa's predefined Quit can bypass ExitRequested; the native menu must
+          enter owned shutdown before installing verified bytes.
+      - action: Compare the installed version, login state, saved settings, timetable
+          and course records with the rollback copy.
+        reason: A real bundle replacement must preserve the same app-data and Keychain
+          access; an isolated parser test cannot verify that.
+    observe: Settings > About, the application bundle version,
+      updater-install-result.json in app data, and the retained workspace.
     expected: |
-      The newer version installs on exit without losing saved data. A signature
-      mismatch is rejected. Windows release launches have no accompanying terminal.
-    why_manual: Requires signed release artifacts, native installers and a real Windows desktop.
+      Tampered content is rejected, the valid bundle installs through Cmd-Q,
+      the new version reopens and saved data and login credentials remain.
+      A source repository with no stable release is reported as unpublished.
+    why_manual: Requires Developer ID signing, real macOS menu dispatch, Keychain
+      access and native app-bundle replacement.
     covers:
       - apps/desktop/src-tauri/src/desktop_updates.rs
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/tauri.conf.json
+    verified:
+      version: 1.0.1-dev.1
+      date: 2026-10-16
+      commit: af4f026b552d2e36e830966df9b74dad96eb8fb2
+      by: agent
+      result: pass
+      notes: Developer-ID-signed local 1.0.0 to 1.0.1-dev.1; tampered archive
+        rejected; Cmd-Q automatic install and reopen succeeded; original IDs,
+        settings and both logins retained.
+      evidence: docs/verification/desktop-updater.md
+
+  - id: DESKTOP-WINDOWS-LAUNCH
+    area: desktop
+    title: Windows release launches without a companion terminal
+    persona: undergraduate-senior
+    preconditions: A Windows release installer built from the current desktop source
+      and a real Windows desktop.
+    steps:
+      - action: Install the release, launch it from Explorer, and open a course
+          workspace file.
+        reason: Windows subsystem and child-process consoles cannot be observed by
+          headless Unix tests.
+    observe: The Windows desktop, app window and taskbar.
+    expected: The app and workspace open without an accompanying console window.
+    why_manual: Requires a native Windows release executable, Explorer and the real
+      desktop shell.
+    covers:
       - apps/desktop/src-tauri/src/main.rs
       - .github/workflows/desktop-release.yml
     verified: null

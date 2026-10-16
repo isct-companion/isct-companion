@@ -217,6 +217,15 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
           options.finder?.(args.request as Record<string, unknown>, core) ??
           null
         );
+      case "check_app_update":
+      case "app_update_state":
+        return {
+          phase: "current",
+          version: "1.0.0",
+          signedUpdates: true,
+          releaseUrl:
+            "https://github.com/isct-companion/isct-companion/releases/latest",
+        };
       case "runtime_capabilities":
         return options.capabilities ?? {};
       case "school_credential_status":

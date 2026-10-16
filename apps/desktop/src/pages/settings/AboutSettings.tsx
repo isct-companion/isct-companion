@@ -21,6 +21,7 @@ export function AboutSettings({
   const { status, pending, check } = useAppUpdate();
   const labels = {
     idle: "Check for updates",
+    unpublished: "No stable release has been published yet",
     checking: "Checking for updates…",
     current: "You're up to date",
     available: "Update available",

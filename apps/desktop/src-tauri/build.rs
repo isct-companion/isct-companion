@@ -1,5 +1,4 @@
 fn main() {
-    println!("cargo:rerun-if-env-changed=ISCT_UPDATER_PUBLIC_KEY");
     // Mirrors isct-ocr's default backend support: no prebuilt ONNX Runtime
     // exists for Intel macOS, so the scan command is unavailable there.
     println!("cargo::rustc-check-cfg=cfg(matrix_ocr)");

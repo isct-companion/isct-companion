@@ -349,6 +349,7 @@ export interface AppUpdateStatus {
   phase:
     | "idle"
     | "checking"
+    | "unpublished"
     | "current"
     | "available"
     | "downloading"

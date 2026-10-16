@@ -64,8 +64,11 @@ Desktop updates use Tauri's signature verifier and the existing owned shutdown.
 CI accepts `ISCT_UPDATER_PUBLIC_KEY` as a repository variable and
 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` as secrets;
 only a complete signed set for both Mac architectures and Windows produces an
-update manifest. No signing key was generated or uploaded in this change.
-An unsigned-config build can check releases and open the download page, but
-cannot enable automatic installation. Native installation remains a manual check.
+update manifest. The follow-up configured an encrypted signing key and separate
+Actions secrets with maintainer authorization. The public key lives in Tauri's
+updater configuration so the runtime and bundler read the same build setting.
+Updates and release publication now target the source repository; desktop CI is
+manual-only and no remote build was dispatched during local verification.
+Native installation remains a manual check.
 
 Follow-up code accounting (documentation excluded): production +1771 / −537 lines; tests +325 / −84 lines; generated +259 / −11 lines. No test was removed; existing suites were updated for the separate timetable route and extended for fractional/historical credits, all-quarter localization, retained query results and signed artifact collection.

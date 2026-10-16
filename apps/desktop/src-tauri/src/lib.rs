@@ -123,6 +123,37 @@ impl<R: tauri::Runtime> tauri::plugin::Plugin<R> for RustOnlyPlugin<R> {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem};
+    let menu = Menu::default(app)?;
+    let entries = menu.items()?;
+    let app_menu = entries
+        .first()
+        .and_then(|item| item.as_submenu())
+        .ok_or_else(|| std::io::Error::other("The application menu is unavailable."))?;
+    let items = app_menu.items()?;
+    let position = items
+        .len()
+        .checked_sub(1)
+        .ok_or_else(|| std::io::Error::other("The application Quit item is unavailable."))?;
+    let label = items[position]
+        .as_predefined_menuitem()
+        .ok_or_else(|| std::io::Error::other("The application Quit item is not predefined."))?
+        .text()?;
+    // Cocoa's predefined Quit calls terminate: directly, bypassing ExitRequested.
+    // Keep the native menu, but route Quit / Cmd-Q through our owned shutdown.
+    app_menu.remove_at(position)?;
+    app_menu.append(&MenuItem::with_id(
+        app,
+        "owned-quit",
+        label,
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?)?;
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -164,7 +195,14 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default());
     #[cfg(target_os = "macos")]
-    let builder = builder.manage(campus_wifi::CampusWifi::default());
+    let builder = builder
+        .manage(campus_wifi::CampusWifi::default())
+        .menu(owned_macos_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == "owned-quit" {
+                app.exit(0);
+            }
+        });
     #[cfg(desktop)]
     let builder = builder
         .manage(lms_downloader::SessionView::default())
