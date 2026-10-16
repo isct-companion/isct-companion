@@ -882,6 +882,66 @@ checks:
       - apps/desktop/src-tauri/src/school_downloads.rs
     verified: null
 
+  - id: DESKTOP-PULL-STRESS
+    area: desktop
+    title: Fast navigation while a live LMS pull lands data
+    persona: undergraduate-senior
+    preconditions: |
+      A development build started with `VITE_INTERACTION_TRACE=1 yarn
+      desktop:dev`, the account from SCHOOL-SIGNIN-SCIENCE signed in, and at
+      least two quarters that have courses, one of them with open assignments.
+    steps:
+      - action: |
+          Confirm the dev terminal prints `[trace] recording to
+          tmp/interaction-trace/…`.
+        reason: |
+          A crash found by hand is only useful if the steps before it can be
+          read back. The 2026-10-16 Lecture Desk crash looked random until its
+          timeline showed the quarter change that triggered it.
+      - action: |
+          Start a full LMS pull. While it runs, open several lectures in quick
+          succession, toggle Lectures and Assignments, change the quarter in
+          both modes, and jump to Home and Web and back.
+        reason: |
+          Each ingest publishes a new revision while revision-keyed queries
+          refetch, so a view that joins two queries can render with one
+          answered and the other still loading. That only happens when an
+          ingest lands in the middle of input, which no scripted run times.
+      - action: |
+          Keep going until the trace shows at least two `school-ingest` events
+          that arrived between your clicks.
+        reason: |
+          One ingest can fall into a pause between clicks and prove nothing.
+          The trace, not a feeling of having clicked enough, decides when the
+          overlap actually happened.
+      - action: |
+          After the pull ends, compare Lectures (both modes, every quarter) and
+          Home with the same pages after a cold relaunch.
+        reason: |
+          The quieter failure is a view that survives but keeps the rows it
+          skipped while data was loading. Work hidden during a load has to
+          reappear once its course arrives.
+    observe: |
+      Every page for "This page hit an error"; the dev terminal for `[trace]`
+      error blocks; `error`, `rejected` and `console.error` entries in the
+      newest tmp/interaction-trace/*.jsonl.
+    expected: |
+      No page error and no error entries in the trace; after the pull, each
+      page matches the cold relaunch.
+    why_manual: |
+      The interleaving comes from a real, account-scoped LMS pull meeting
+      human input at real timing. The e2e harness scripts revisions but not
+      that race. A failure found here that reproduces deterministically moves
+      into a suite, as the quarter-switch case did in
+      tests/e2e/today-and-lectures.test.tsx.
+    covers:
+      - apps/desktop/src/store/workspace.ts
+      - apps/desktop/src/platform/core-query.ts
+      - apps/desktop/src/app/usePullState.ts
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/app/interaction-trace.ts
+    verified: null
+
   - id: NATIVE-IOS-SIMULATOR
     area: native
     title: Swift SDK and OCR on an iOS simulator

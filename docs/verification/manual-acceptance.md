@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 25 checks must be re-run before the next release.**
+**7 of 26 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**17 checks have never been run or could not be run:**
+**18 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -41,6 +41,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-COMPACT-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
+- `DESKTOP-PULL-STRESS` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `RELEASE-INSTALL` — never verified
@@ -69,6 +70,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/usePullState.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
@@ -1015,6 +1017,72 @@ and was never covered by a live run.
 
 - `apps/desktop/src/features/lms/PdfDocument.tsx`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+
+**Last recorded** never run
+
+### Fast navigation while a live LMS pull lands data (`DESKTOP-PULL-STRESS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A development build started with `VITE_INTERACTION_TRACE=1 yarn
+desktop:dev`, the account from SCHOOL-SIGNIN-SCIENCE signed in, and at
+least two quarters that have courses, one of them with open assignments.
+
+**Steps**
+
+1. Confirm the dev terminal prints `[trace] recording to
+   tmp/interaction-trace/…`.
+   - *Why:* A crash found by hand is only useful if the steps before it can be
+     read back. The 2026-10-16 Lecture Desk crash looked random until its
+     timeline showed the quarter change that triggered it.
+2. Start a full LMS pull. While it runs, open several lectures in quick
+   succession, toggle Lectures and Assignments, change the quarter in
+   both modes, and jump to Home and Web and back.
+   - *Why:* Each ingest publishes a new revision while revision-keyed queries
+     refetch, so a view that joins two queries can render with one
+     answered and the other still loading. That only happens when an
+     ingest lands in the middle of input, which no scripted run times.
+3. Keep going until the trace shows at least two `school-ingest` events
+   that arrived between your clicks.
+   - *Why:* One ingest can fall into a pause between clicks and prove nothing.
+     The trace, not a feeling of having clicked enough, decides when the
+     overlap actually happened.
+4. After the pull ends, compare Lectures (both modes, every quarter) and
+   Home with the same pages after a cold relaunch.
+   - *Why:* The quieter failure is a view that survives but keeps the rows it
+     skipped while data was loading. Work hidden during a load has to
+     reappear once its course arrives.
+
+**Where to look**
+
+Every page for "This page hit an error"; the dev terminal for `[trace]`
+error blocks; `error`, `rejected` and `console.error` entries in the
+newest tmp/interaction-trace/*.jsonl.
+
+**Expected**
+
+No page error and no error entries in the trace; after the pull, each
+page matches the cold relaunch.
+
+**Why this is manual**
+
+The interleaving comes from a real, account-scoped LMS pull meeting
+human input at real timing. The e2e harness scripts revisions but not
+that race. A failure found here that reproduces deterministically moves
+into a suite, as the quarter-switch case did in
+tests/e2e/today-and-lectures.test.tsx.
+
+**Covers**
+
+- `apps/desktop/src/store/workspace.ts`
+- `apps/desktop/src/platform/core-query.ts`
+- `apps/desktop/src/app/usePullState.ts`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/app/interaction-trace.ts`
 
 **Last recorded** never run
 
