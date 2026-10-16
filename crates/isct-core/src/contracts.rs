@@ -472,7 +472,7 @@ contract!(AcademicProfile {
     pub name: String, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub admission_year: Option<i32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "StudyEnrollment[]"))]
     pub study_enrollments: Option<Vec<crate::study_profile::StudyEnrollment>>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "TeachingPeriod[]"))]
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "TeachingPeriod[] | null"))]
     pub teaching_periods: Option<Vec<crate::schedule::TeachingPeriod>>,
     pub grade_path: Vec<GradePathEntry>, pub years: Vec<AcademicYearConfig>,
 });

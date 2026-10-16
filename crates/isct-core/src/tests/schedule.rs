@@ -1146,3 +1146,178 @@ fn query_request_contracts_reject_unstructured_inputs() {
     assert_eq!(value.date, "2026-10-16");
     assert_eq!(value.time, "09:00");
 }
+
+#[test]
+fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
+    let mut data = workspace();
+    data["academicCalendar"] = json!([
+        {"id":"calendar:2026:quarter-start:3Q","academicYear":2026,"quarter":"3Q","date":"2026-09-28","type":"quarter-start"},
+        {"id":"calendar:2026:quarter-end:3Q","academicYear":2026,"quarter":"3Q","date":"2026-12-02","type":"quarter-end"},
+        {"id":"calendar:2026:quarter-start:4Q","academicYear":2026,"quarter":"4Q","date":"2026-12-03","type":"quarter-start"},
+        {"id":"calendar:2026:quarter-end:4Q","academicYear":2026,"quarter":"4Q","date":"2027-02-08","type":"quarter-end"},
+        {"id":"off","date":"2026-12-01","type":"holiday","label":{"en":"Rest day"}}
+    ]);
+    data["courses"][0]["termId"] = json!("2026-3Q");
+    data["courses"][0]["meetings"] = json!([
+        {"days":[1,2],"periods":[1,2]}, {"days":[3],"periods":[3,4]}
+    ]);
+    let mut fourth = data["courses"][0].clone();
+    fourth["id"] = json!("fourth");
+    fourth["termId"] = json!("2026-4Q");
+    fourth["meetings"] = json!([{"days":[4,5],"periods":[1,2]}]);
+    data["courses"].as_array_mut().unwrap().push(fourth);
+    data["memberships"] = json!([
+        {"id":"m3","courseId":"course","termId":"2026-3Q"},
+        {"id":"m4","courseId":"fourth","termId":"2026-4Q"}
+    ]);
+    data["plans"] = json!([{"id":"daily","title":"Walk","start":"2026-11-30T18:00:00+09:00","duration":30,"rrule":"FREQ=DAILY;COUNT=7"}]);
+    data["events"] = json!([
+        {"id":"weekly3","termId":"2026-3Q","title":"Third-quarter event","days":[1],"startTime":"12:30","endTime":"13:00"},
+        {"id":"weekly4","termId":"2026-4Q","title":"Fourth-quarter event","days":[1],"startTime":"12:30","endTime":"13:00"},
+        {"id":"dated","termId":"2026-4Q","title":"Dated event","date":"2026-12-02","startTime":"12:30","endTime":"13:00"}
+    ]);
+    data["scheduleOverrides"] = json!([{"id":"move","targetKind":"course","targetKey":"course-weekly-1-2026-12-02","date":"2026-12-04","periods":[3,4]}]);
+    let agendas = calendar_between(&data, "2026-11-30", "2026-12-06").unwrap();
+    assert_eq!(agendas.len(), 7);
+    assert!(agendas[0].occurrences.iter().any(|b| b.id == "course"));
+    assert!(agendas[0].occurrences.iter().any(|b| b.id == "weekly3"));
+    assert!(!agendas[0].occurrences.iter().any(|b| b.id == "weekly4"));
+    assert_eq!(agendas[1].calendar_notice.as_deref(), Some("Rest day"));
+    assert!(agendas[1].no_classes);
+    assert!(agendas[1]
+        .occurrences
+        .iter()
+        .any(|b| b.id == "course" && b.cancelled == Some(true)));
+    assert!(!agendas[2].occurrences.iter().any(|b| b.id == "course"));
+    assert!(agendas[2].occurrences.iter().any(|b| b.id == "dated"));
+    assert!(agendas[3].occurrences.iter().any(|b| b.id == "fourth"));
+    assert!(agendas[4]
+        .occurrences
+        .iter()
+        .any(|b| b.id == "course" && b.overridden == Some(true)));
+    for day in &agendas {
+        assert_eq!(
+            day.occurrences.iter().filter(|b| b.id == "daily").count(),
+            1
+        );
+    }
+    // Changing the selected quarter must never change a date's content.
+    for term in ["2026-3Q", "2026-4Q"] {
+        let WorkspaceQueryResult::ScheduleView(view) = query(
+            &data,
+            WorkspaceQuery::ScheduleView {
+                term: term.into(),
+                from: "2026-11-30".into(),
+                to: "2026-12-06".into(),
+                include_personal: true,
+            },
+        )
+        .unwrap() else {
+            panic!("view expected")
+        };
+        assert_eq!(
+            serde_json::to_value(view.agendas).unwrap(),
+            serde_json::to_value(&agendas).unwrap()
+        );
+    }
+    let ics = export_calendar_ics(
+        &data,
+        "2026-11-30",
+        "2026-12-06",
+        CalendarExportScope::CoursesAndPlans,
+        DateTime::parse_from_rfc3339("2026-10-16T00:00:00Z").unwrap(),
+    )
+    .unwrap();
+    let expected: Vec<_> = agendas
+        .iter()
+        .flat_map(|day| &day.occurrences)
+        .filter(|b| {
+            b.cancelled != Some(true)
+                && matches!(b.kind, OccurrenceKind::Course | OccurrenceKind::Plan)
+        })
+        .collect();
+    assert_eq!(ics.matches("BEGIN:VEVENT").count(), expected.len());
+    for block in expected {
+        assert!(ics.contains(&format!("UID:{}@isctcompanion.local", block.key)));
+    }
+    assert!(!ics.contains("UID:course-weekly-0-2026-12-01@"));
+    // A quarter export uses the same range resolver, including an incoming move.
+    let fourth_ics = export_quarter_ics(
+        &data,
+        "2026-4Q",
+        CalendarExportScope::Courses,
+        DateTime::parse_from_rfc3339("2026-10-16T00:00:00Z").unwrap(),
+    )
+    .unwrap();
+    assert!(fourth_ics.contains("UID:course-weekly-1-2026-12-02@"));
+    assert!(!fourth_ics.contains("UID:course-weekly-0-2026-11-30@"));
+    assert!(calendar_between(&data, "2026-12-06", "2026-11-30").is_err());
+    assert!(calendar_between(&data, "2026-01-01", "2027-01-03").is_err());
+}
+
+#[test]
+fn profile_form_preserves_identity_and_validates_or_resets_the_clock() {
+    // An otherwise-default profile can change class times without inventing
+    // grade labels or overriding the official quarter calendar.
+    let mut profile = json!({"name":"Personal program","gradePath":[],"years":[],
+        "studyEnrollments":[{"stage":"master","entryKind":"regular","entryGrade":1,"admittedTerm":"2026-1Q"}]});
+    let mut table = default_teaching_periods();
+    table[0].start_time = "07:30".into();
+    profile["teachingPeriods"] = serde_json::to_value(&table).unwrap();
+    let normalized = validate_academic_profile(&profile).unwrap();
+    assert_eq!(normalized["studyEnrollments"], profile["studyEnrollments"]);
+    let WorkspaceQueryResult::AcademicProfile(wire) = query(
+        &workspace(),
+        WorkspaceQuery::ValidateAcademicProfile {
+            profile: serde_json::from_value(profile.clone()).unwrap(),
+        },
+    )
+    .unwrap() else {
+        panic!("profile expected")
+    };
+    assert_eq!(wire, normalized);
+    let mut data = workspace();
+    data["academicProfile"] = normalized;
+    data["courses"][0]["meetings"][0]["periods"] = json!([1, 2]);
+    assert_eq!(
+        calendar_between(&data, "2026-04-13", "2026-04-13").unwrap()[0].occurrences[0].start_time,
+        "07:30"
+    );
+    table[0].end_time = "11:00".into(); // overlaps 3–4
+    profile["teachingPeriods"] = serde_json::to_value(&table).unwrap();
+    assert!(validate_academic_profile(&profile).is_err());
+    profile["teachingPeriods"] = Value::Null;
+    data["academicProfile"] = validate_academic_profile(&profile).unwrap();
+    assert_eq!(teaching_periods(&data).unwrap(), default_teaching_periods());
+    profile["studyEnrollments"][0]["admittedTerm"] = json!("bad-term");
+    assert!(validate_academic_profile(&profile).is_err());
+}
+
+#[test]
+fn date_range_crosses_academic_years_and_merges_conflicts_once() {
+    let mut data = workspace();
+    data["academicCalendar"] = json!([
+        {"id":"calendar:2026:quarter-start:4Q","academicYear":2026,"quarter":"4Q","date":"2026-12-03","type":"quarter-start"},
+        {"id":"calendar:2026:quarter-end:4Q","academicYear":2026,"quarter":"4Q","date":"2027-03-31","type":"quarter-end"},
+        {"id":"calendar:2027:quarter-start:1Q","academicYear":2027,"quarter":"1Q","date":"2027-04-01","type":"quarter-start"},
+        {"id":"calendar:2027:quarter-end:1Q","academicYear":2027,"quarter":"1Q","date":"2027-06-09","type":"quarter-end"}
+    ]);
+    data["courses"][0]["termId"] = json!("2026-4Q");
+    data["courses"][0]["meetings"][0]["days"] = json!([1, 4]);
+    // One course is placed in both academic years; do not show its 4Q
+    // template on Thursday before/after the actual quarter boundary.
+    data["memberships"] = json!([
+        {"id":"old","courseId":"course","termId":"2026-4Q"},
+        {"id":"new","courseId":"course","termId":"2027-1Q"}
+    ]);
+    data["plans"] = json!([{"id":"plan","title":"Appointment","start":"2027-04-01T09:00:00+09:00","duration":30}]);
+    let days = calendar_between(&data, "2027-03-29", "2027-04-04").unwrap();
+    assert_eq!(days[0].occurrences.len(), 1);
+    assert_eq!(days[3].occurrences.len(), 2);
+    assert!(days[3].occurrences.iter().all(|b| b.conflict == Some(true)));
+    // At an overlapping configured boundary, the same source occurrence and
+    // its conflicts still appear only once.
+    data["academicCalendar"][1]["date"] = json!("2027-04-02");
+    let overlap = calendar_between(&data, "2027-04-01", "2027-04-01").unwrap();
+    assert_eq!(overlap[0].occurrences.len(), 2);
+}

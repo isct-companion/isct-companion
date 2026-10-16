@@ -4137,6 +4137,25 @@ p {
   display: grid;
   gap: 14px;
 }
+.profileFields {
+  display: grid;
+  gap: 20px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.profileTimes {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.profileTimes.columnHeads,
+.profileFields small {
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+}
 .profileForm section {
   display: grid;
   gap: 6px;

@@ -199,7 +199,16 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         return {
           revision: core.revision,
           values: (args.queries as unknown[]).map((query) => ({
-            kind: (query as { kind?: string }).kind,
+            // These requests return a normalized value with a different tag,
+            // matching WorkspaceQueryResult on the native side.
+            kind:
+              (
+                {
+                  validateAcademicProfile: "academicProfile",
+                  academicTermForDate: "academicTerm",
+                } as Record<string, string>
+              )[(query as { kind: string }).kind] ??
+              (query as { kind: string }).kind,
             value: answerQuery(query),
           })),
         };

@@ -101,7 +101,7 @@ export function Settings({
   /** Preferences and device state. */
   update: Update;
   /** Calendar overrides, academic profile and subscription rows. */
-  advancedCalendarUpdate: Update;
+  advancedCalendarUpdate: (f: (d: Workspace) => Workspace) => Promise<unknown>;
   caps: ReturnType<typeof resolveCapabilities>;
   section: Section;
   setSection: (s: Section) => void;

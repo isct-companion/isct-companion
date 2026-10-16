@@ -555,11 +555,10 @@ export function WorkspaceApp() {
     performAction("edit-academic-data", platform, () =>
       workspaceActions.mutate(intent),
     );
-  const advancedCalendarUpdate = (fn: (d: Workspace) => Workspace) => {
-    void performAction("edit-calendar-advanced", platform, () =>
+  const advancedCalendarUpdate = (fn: (d: Workspace) => Workspace) =>
+    performAction("edit-calendar-advanced", platform, () =>
       workspaceActions.editCalendar(fn),
-    ).catch((error) => notify.error(error));
-  };
+    );
   const caps = resolveCapabilities(
     platform,
     data.syncStatus.state === "idle" && Boolean(data.syncStatus.lastSyncedAt),

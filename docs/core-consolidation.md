@@ -554,6 +554,20 @@ tests with the same cases).
      priority, with time, title, body and deep-link target. Platform limits
      (iOS 64 pending) are applied by the shell, not core.
 
+The dated calendar uses `schedule::calendar_between(workspace, from, to)` with
+inclusive civil dates. It returns dated agendas across quarters and academic
+years, including cancelled class context, calendar notices and important dates.
+`ScheduleView.term` supplies toolbar/credit context, never an agenda filter.
+ICS consumes the same agendas and omits cancelled classes; the quarter export
+only converts a quarter to its date bounds. Personal plans are resolved once
+per date and conflicts are calculated after the calendars are merged.
+`planning_week(term)` remains the recurring quarter template.
+
+The former `IDENTITY-PERIOD-OVERRIDE-UI` manual gap is automated by
+`apps/desktop/tests/e2e/settings.test.tsx` (save failure, persisted class times,
+view axis and restore official times), with clock validation and actual course
+occurrences covered in `crates/isct-core/src/tests/schedule.rs`.
+
 Preserve strict civil-date/timestamp parsing and JST academic semantics when
 moving calendar functions. Delete obsolete TS policy and mutation paths once
 Rust serves the corresponding read model or intent.

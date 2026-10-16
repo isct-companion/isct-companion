@@ -221,11 +221,13 @@ fn settings_replacement_clears_keys_and_core_validates_every_value() {
 }
 
 #[test]
-fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
+fn study_profile_and_calendar_edits_preserve_the_other_profile_fields() {
     let service = service("study-profile");
-    let legacy = json!({
+    let profile = json!({
         "name":"My program",
         "admissionYear":2024,
+        "studyEnrollments":[],
+        "teachingPeriods":crate::schedule::default_teaching_periods(),
         "gradePath":[{"grade":"B2","academicYear":2025}],
         "years":[{"academicYear":2026,"quarterStarts":{
             "1Q":"2026-04-01","2Q":"2026-06-01","3Q":"2026-10-01","4Q":"2026-12-01"
@@ -233,12 +235,13 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
     });
     service
         .store
-        .put_workspace_setting("academicProfile", legacy.clone(), "test")
+        .put_workspace_setting("academicProfile", profile.clone(), "test")
         .unwrap();
     let old = service.snapshot().unwrap();
-    assert!(old.workspace["academicProfile"]
-        .get("studyEnrollments")
-        .is_none());
+    assert_eq!(
+        old.workspace["academicProfile"]["studyEnrollments"],
+        json!([])
+    );
 
     let saved = run(
         &service,
@@ -261,9 +264,9 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
         },
     )
     .unwrap();
-    assert_eq!(saved["academicProfile"]["name"], legacy["name"]);
-    assert_eq!(saved["academicProfile"]["gradePath"], legacy["gradePath"]);
-    assert_eq!(saved["academicProfile"]["years"], legacy["years"]);
+    assert_eq!(saved["academicProfile"]["name"], profile["name"]);
+    assert_eq!(saved["academicProfile"]["gradePath"], profile["gradePath"]);
+    assert_eq!(saved["academicProfile"]["years"], profile["years"]);
     assert_eq!(
         saved["academicProfile"]["studyEnrollments"]
             .as_array()
@@ -271,13 +274,17 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
             .len(),
         2
     );
+    assert_eq!(
+        saved["academicProfile"]["teachingPeriods"],
+        profile["teachingPeriods"]
+    );
+    let mut edited = saved["academicProfile"].clone();
+    edited["name"] = json!("Renamed program");
+    edited["teachingPeriods"] = Value::Null;
     let calendar = run(
         &service,
         WorkspaceIntent::EditAcademicCalendar {
-            academic_profile: json!({
-                "name":"Renamed program", "admissionYear":2024,
-                "gradePath":legacy["gradePath"], "years":legacy["years"]
-            }),
+            academic_profile: edited,
             exceptions: vec![],
         },
     )
@@ -285,7 +292,11 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
     assert_eq!(
         calendar["academicProfile"]["studyEnrollments"],
         saved["academicProfile"]["studyEnrollments"],
-        "an older calendar editor must preserve the stage history"
+        "calendar edits include the complete profile"
+    );
+    assert_eq!(
+        crate::schedule::teaching_periods(&calendar).unwrap(),
+        crate::schedule::default_teaching_periods()
     );
 }
 
