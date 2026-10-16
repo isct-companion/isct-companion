@@ -2,9 +2,8 @@ use serde_json::Value;
 
 use super::text;
 
-pub const COURSE_PALETTE: [&str; 8] = [
-    "#355ba7", "#4f8a8b", "#668879", "#7b8f3a", "#b0713f", "#a34e5d", "#806a9d", "#5c7d93",
-];
+// The palette is a design token shared with every shell (design/tokens/course.json).
+include!("course_palette.rs");
 
 const IMPORT_DEFAULTS: [&str; 2] = ["#526e91", "#556b8d"];
 
