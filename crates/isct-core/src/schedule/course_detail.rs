@@ -14,6 +14,54 @@ pub struct CourseDetail {
     pub assignment_ids: Vec<String>,
     pub exam_ids: Vec<String>,
     pub offering_id: Option<String>,
+    /// The course's T2SCHOLA page, from the course itself or its LMS record.
+    pub lms_url: Option<String>,
+    pub syllabus_url: Option<String>,
+}
+
+const LMS_HOST: &str = "lms.s.isct.ac.jp";
+const SYLLABUS: &str = "https://syllabus.s.isct.ac.jp/";
+
+fn lms_url(workspace: &Value, course: &Value) -> Option<String> {
+    let provider = course.pointer("/source/provider").and_then(Value::as_str);
+    if let Some(url) =
+        text(course, "url").filter(|url| provider == Some("lms") && url.contains(LMS_HOST))
+    {
+        return Some(url.into());
+    }
+    let offering = text(course, "offeringId");
+    let external = course.pointer("/source/externalId").and_then(Value::as_str);
+    array(workspace, "lmsCourses")
+        .iter()
+        .find(|row| {
+            (offering.is_some() && text(row, "offeringId") == offering)
+                || (provider == Some("lms")
+                    && row
+                        .get("lmsId")
+                        .and_then(Value::as_i64)
+                        .is_some_and(|id| Some(id.to_string().as_str()) == external))
+        })
+        .and_then(|row| text(row, "url"))
+        .map(str::to_owned)
+}
+
+fn syllabus_url(workspace: &Value, course: &Value, materials: &[&Value]) -> Option<String> {
+    let offering = text(course, "offeringId");
+    array(workspace, "offerings")
+        .iter()
+        .find(|row| offering.is_some() && text(row, "id") == offering)
+        .and_then(|row| text(row, "syllabusUrl"))
+        .filter(|url| !url.is_empty())
+        .or_else(|| text(course, "url").filter(|url| url.starts_with(SYLLABUS)))
+        .map(str::to_owned)
+        .or_else(|| offering.map(|id| format!("{SYLLABUS}courses/-/-/-/{id}")))
+        .or_else(|| {
+            materials
+                .iter()
+                .filter_map(|row| text(row, "resourceUrl"))
+                .find(|url| url.starts_with(SYLLABUS))
+                .map(str::to_owned)
+        })
 }
 
 pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
@@ -32,6 +80,8 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
                 && !matches!(text(row, "module"), Some("assign" | "quiz"))
         })
         .collect();
+    let syllabus_url = syllabus_url(workspace, course, &materials);
+    let lms_url = lms_url(workspace, course);
     let section = |row: &&Value| {
         row.get("sectionNumber")
             .and_then(Value::as_i64)
@@ -83,6 +133,8 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
             .find(|row| visible(row) && text(row, "id") == text(course, "offeringId"))
             .and_then(|row| text(row, "id"))
             .map(str::to_owned),
+        lms_url,
+        syllabus_url,
     }
 }
 

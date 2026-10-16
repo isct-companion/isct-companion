@@ -412,6 +412,33 @@ impl isct_core::cloud_sync::CloudTransport for Cloud {
     }
 }
 
+/// Keychain location of a `NativeVault` account, shared with the desktop app.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct VaultItem {
+    pub service: String,
+    pub key: String,
+    /// Store as an iCloud Keychain / backed-up item rather than device-only.
+    pub synchronized: bool,
+}
+
+#[uniffi::export]
+pub fn vault_item(account: String) -> Result<VaultItem, SdkError> {
+    let item = core::vault_item(&account).map_err(|e| SdkError::InvalidInput {
+        detail: e.to_string(),
+    })?;
+    Ok(VaultItem {
+        service: item.service.into(),
+        key: item.key,
+        synchronized: item.synchronized,
+    })
+}
+
+/// Map search text for a room's building, as on Today's class cards.
+#[uniffi::export]
+pub fn room_map_query(room: String) -> Option<String> {
+    isct_core::schedule::room_map_query(&room)
+}
+
 /// Install these shared scripts at document start before navigating a school view.
 #[uniffi::export]
 pub fn school_browser_initialization() -> Result<Vec<String>, SdkError> {

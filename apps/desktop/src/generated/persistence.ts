@@ -967,6 +967,11 @@ export type CourseDetail = {
   assignmentIds: Array<string>;
   examIds: Array<string>;
   offeringId: string | null;
+  /**
+   * The course's T2SCHOLA page, from the course itself or its LMS record.
+   */
+  lmsUrl: string | null;
+  syllabusUrl: string | null;
 };
 
 export type CourseTimeline = {
@@ -1006,6 +1011,121 @@ export type TaskView = {
   submittedIds: Array<string>;
   nearestByCourse: { [key in string]?: string };
   byTerm: { [key in string]?: TermTaskView };
+};
+
+export type TodayPhase =
+  "beforeClasses" | "betweenClasses" | "inClass" | "afterClasses" | "noClasses";
+
+export type TodayClass = {
+  occurrence: Occurrence;
+  /**
+   * Teaching periods the class spans, when its times match the period table.
+   */
+  periods: [number, number] | null;
+  startsAt: string;
+  endsAt: string;
+  /**
+   * Map search for the room's building; shells open it in their maps app.
+   */
+  mapQuery: string | null;
+};
+
+export type DeadlineItem = {
+  assignmentId: string;
+  courseId: string | null;
+  courseTitle: string | null;
+  color: string | null;
+  title: string;
+  dueAt: string | null;
+  overdue: boolean;
+  /**
+   * `past`, `urgent` (< 24 h), `soon` (< 72 h) or `normal`.
+   */
+  tone: string;
+  pinned: boolean;
+  submitted: boolean;
+  hidden: boolean;
+  grade: string | null;
+  sourceUrl: string | null;
+};
+
+export type MaterialItem = {
+  materialId: string;
+  courseId: string;
+  courseTitle: string | null;
+  color: string | null;
+  title: string;
+  /**
+   * `pdf`, `link` or `video`.
+   */
+  kind: string;
+  section: bigint | null;
+  sectionTitle: string | null;
+  url: string | null;
+  updatedAt: string | null;
+  addedToday: boolean;
+};
+
+export type RecentItem =
+  ({ kind: "grade" } & DeadlineItem) | ({ kind: "material" } & MaterialItem);
+
+export type TodayView = {
+  date: string;
+  term: string;
+  /**
+   * Week of the quarter, counted from its first day.
+   */
+  teachingWeek: number | null;
+  noClasses: boolean;
+  calendarNotice: string | null;
+  phase: TodayPhase;
+  /**
+   * The current class while in class, otherwise the next one today.
+   */
+  hero: TodayClass | null;
+  /**
+   * Today's classes after the hero.
+   */
+  later: Array<TodayClass>;
+  /**
+   * In class: the current course's newest materials and open work.
+   */
+  classMaterials: Array<MaterialItem>;
+  classAssignments: Array<DeadlineItem>;
+  /**
+   * After classes: the nearest open deadline before midnight.
+   */
+  deadlineHero: DeadlineItem | null;
+  deadlines: Array<DeadlineItem>;
+  /**
+   * No classes: grades and materials that changed recently.
+   */
+  recent: Array<RecentItem>;
+  /**
+   * After classes or on a day without classes: the first class of the next class day.
+   */
+  nextClass: TodayClass | null;
+  /**
+   * When the phase or hero changes next; shells re-query then.
+   */
+  nextBoundary: string | null;
+};
+
+export type AssignmentBoard = {
+  term: string;
+  pinned: Array<DeadlineItem>;
+  overdue: Array<DeadlineItem>;
+  today: Array<DeadlineItem>;
+  /**
+   * Due within seven days, after today.
+   */
+  thisWeek: Array<DeadlineItem>;
+  /**
+   * Due later, then assignments without a deadline.
+   */
+  later: Array<DeadlineItem>;
+  submitted: Array<DeadlineItem>;
+  hidden: Array<DeadlineItem>;
 };
 
 export type AcademicYearIndex = { currentYear: number; years: Array<number> };
@@ -1065,6 +1185,8 @@ export type WorkspaceQuery =
       afterDays: number;
     }
   | { kind: "taskView"; now: string }
+  | { kind: "today"; now: string }
+  | { kind: "assignmentBoard"; now: string }
   | { kind: "courseDetail"; courseId: string }
   | {
       kind: "scheduleView";
@@ -1121,6 +1243,8 @@ export type WorkspaceQueryResult =
   | { kind: "planCivilStart"; value: PlanCivilStart }
   | { kind: "courseTimeline"; value: CourseTimeline }
   | { kind: "taskView"; value: TaskView }
+  | { kind: "today"; value: TodayView }
+  | { kind: "assignmentBoard"; value: AssignmentBoard }
   | { kind: "courseDetail"; value: CourseDetail }
   | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }

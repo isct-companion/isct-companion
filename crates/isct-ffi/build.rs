@@ -6,7 +6,10 @@ use syn::{visit_mut::VisitMut, Attribute, Item, Type};
 
 fn attrs(attrs: &mut Vec<Attribute>) {
     attrs.retain(|a| {
-        a.path().is_ident("serde") || a.path().is_ident("doc") || a.path().is_ident("default")
+        a.path().is_ident("serde")
+            || a.path().is_ident("doc")
+            || a.path().is_ident("default")
+            || a.path().is_ident("allow")
     });
     // Defaults affect deserializing the transport, not domain validation. Generated
     // records receive complete fields from UniFFI, so callers must supply domain
@@ -76,6 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schedule/occurrence.rs",
         "schedule/alternation.rs",
         "schedule/tasks.rs",
+        "schedule/today.rs",
         "schedule/reminders.rs",
         "schedule/ics.rs",
         "course_query/mod.rs",

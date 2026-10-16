@@ -1,4 +1,4 @@
-use isct_core::ports::{SecretError, SecretVault};
+use isct_core::ports::{vault_item, vault_key, SecretError, SecretVault, VAULT_SERVICE};
 use tauri::AppHandle;
 use tauri_plugin_secure_storage::{OptionsRequest, SecureStorageExt};
 
@@ -6,7 +6,7 @@ const LEGACY_SERVICES: &[&str] = &["app.isctcompanion.legacy", "jp.ac.isct.works
 const PREVIOUS_APP_ID: &str = "app.campuslife.sciencetokyo";
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 const PREVIOUS_PRODUCT_NAME: &str = "Campus Life";
-const APP_ID: &str = "app.isctcompanion";
+const APP_ID: &str = VAULT_SERVICE;
 
 fn access(message: impl Into<String>) -> SecretError {
     SecretError::Access(message.into())
@@ -31,21 +31,11 @@ impl OsSecretVault {
 }
 
 fn secure_key(account: &str) -> Result<String, SecretError> {
-    secure_key_for(APP_ID, account)
+    vault_item(account).map(|item| item.key)
 }
 
 fn secure_key_for(app_id: &str, account: &str) -> Result<String, SecretError> {
-    let suffix = match account {
-        "school-accounts" => "passwords.school-accounts",
-        "school-science" => "passwords.isct-portal",
-        "school-tokyo-tech" => "passwords.titech-portal",
-        "google-drive" => "passwords.google-drive",
-        "onedrive" => "passwords.onedrive",
-        "icloud" => "passwords.icloud",
-        "cloud-credential-sync" => "passwords.cloud-credential-sync",
-        _ => return Err(SecretError::InvalidAccount),
-    };
-    Ok(format!("{app_id}.{suffix}"))
+    vault_key(app_id, account)
 }
 
 fn request(account: &str, data: Option<String>) -> Result<OptionsRequest, SecretError> {
@@ -67,10 +57,7 @@ fn apple_keychain_sync(account: &str) -> bool {
     cfg!(any(
         all(target_os = "macos", not(debug_assertions)),
         target_os = "ios"
-    )) && matches!(
-        account,
-        "school-accounts" | "school-science" | "school-tokyo-tech"
-    )
+    )) && vault_item(account).is_ok_and(|item| item.synchronized)
 }
 
 impl SecretVault for OsSecretVault {

@@ -17,8 +17,8 @@ export const outputs = {
   desktopDarkCss: "apps/desktop/src/generated/design/tokens.dark.css",
   desktopJson: "apps/desktop/src/generated/design/tokens.json",
   corePalette: "crates/isct-core/src/schedule/course_palette.rs",
-  swiftLight: "design/dist/ios/IsctTokens.swift",
-  swiftDark: "design/dist/ios/IsctTokensDark.swift",
+  swiftLight: "apps/ios/IsctCompanion/Design/Generated/IsctTokens.swift",
+  swiftDark: "apps/ios/IsctCompanion/Design/Generated/IsctTokensDark.swift",
   composeLight: "design/dist/android/IsctTokens.kt",
   composeDark: "design/dist/android/IsctTokensDark.kt",
 };

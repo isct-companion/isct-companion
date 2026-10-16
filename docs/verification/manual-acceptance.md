@@ -71,7 +71,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
-| `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
+| `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/ios/**<br>bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
@@ -1122,9 +1122,18 @@ A signed build, provisioning, and physical iOS and Android devices.
 1. Install the build on each device and complete first-run.
    - *Why:* Installation and the OS authorization prompts are outside anything
      the repository can simulate.
-2. Walk sign-in, workspace, LMS, files and reminders.
+2. On an iPhone signed in to the same Apple ID as a Mac whose desktop
+   app is already connected, open 設定 → 学校アカウント before typing
+   anything.
+   - *Why:* School logins are synchronized iCloud Keychain items named by Core
+     (`vault_item`). Showing 未接続 here means the iOS item identity or
+     access group drifted from the desktop's.
+3. Walk sign-in, pull to refresh on 今日, the ウェブ tab, a course's
+   T2SCHOLA link, hiding an assignment, and turning on reminders.
    - *Why:* The native shells render independently of the desktop frontend, so
-     desktop acceptance says nothing about them.
+     desktop acceptance says nothing about them. Pulls run through the
+     WKWebView browser port, which only a real identity provider and OTP
+     exercise.
 
 **Where to look**
 
@@ -1134,15 +1143,18 @@ it delivers.
 **Expected**
 
 The flows work with the platform's own UI, authorization prompts and
-notification delivery.
+notification delivery; school pages open inside the app, never in
+Safari, and a pull fills 今日 and 課題.
 
 **Why this is manual**
 
-The SwiftUI and Compose shells are not implemented yet, and physical
-device acceptance requires signing, provisioning and real hardware.
+Needs a real student id and OTP, iCloud Keychain on two devices, signing
+and provisioning for physical hardware. The Compose shell is not
+implemented yet.
 
 **Covers**
 
+- `apps/ios/**`
 - `bindings/**`
 - `crates/isct-ffi/**`
 
