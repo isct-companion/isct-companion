@@ -37,6 +37,7 @@ pub enum CloudWakeError {
 }
 
 #[cfg(test)]
+#[path = "tests/runtime.rs"]
 mod tests;
 
 pub struct CoreRuntime {

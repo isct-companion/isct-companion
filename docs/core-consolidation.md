@@ -396,16 +396,26 @@ cargo test --workspace --locked
 ```
 
 ```bash
-./node_modules/.bin/vitest run --exclude 'artifacts/**'
+yarn test
 ```
 
 ```bash
-./node_modules/.bin/tsc -b
+yarn test:types
 ```
 
 Desktop manual smoke test: launch, sign in, pull LMS and 教務Web, open Today,
 refresh subscriptions, exercise active workspace/file workflows, and run OCR
 on supported desktop targets. Preserve backups and sync compatibility.
+
+The smoke test is the part automation cannot reach. Since the test
+consolidation it is recorded as a row in
+[`verification/manual-checks.yaml`](verification/manual-checks.yaml) rather than
+prose here: each check names a persona, states why each step exists, says where
+to observe the result, and records its outcome with evidence. Run
+`yarn verify:manual stale` after a change to see which checks it invalidated, and
+`yarn verify:manual sheet <ID>` to get a run sheet to follow. Automated tests
+live under `apps/desktop/tests/`; see
+[apps/desktop/tests/README.md](../apps/desktop/tests/README.md).
 
 Cross-target checks validate core/FFI portability to `aarch64-apple-ios`,
 `aarch64-apple-ios-sim` and `aarch64-linux-android`. Existing CI already checks

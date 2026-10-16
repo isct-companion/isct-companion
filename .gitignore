@@ -47,6 +47,7 @@ secrets.json
 .vscode/
 *.log
 *.swp
+__pycache__/
 scripts/research/syllabus-sample-output/
 
 # Future native-shell build outputs

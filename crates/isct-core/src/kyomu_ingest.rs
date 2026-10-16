@@ -518,52 +518,5 @@ pub fn record_kyomu_unavailable(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn graduate_grade_identity_survives_reordering_and_display_value_changes() {
-        let original = json!({
-            "title":" 先端システム論 ","instructor":"架空 教員",
-            "result":"B","completed":"2026年度 1Q"
-        });
-        let changed = json!({
-            "title":"先端システム論","instructor":"別の 教員",
-            "result":"A","completed":"2026年度 1Q"
-        });
-        assert_eq!(
-            grade_row_id(true, "graduate", &original, 7).unwrap(),
-            grade_row_id(true, "graduate", &changed, 0).unwrap()
-        );
-        assert_ne!(
-            grade_row_id(true, "graduate", &changed, 0).unwrap(),
-            grade_row_id(
-                true,
-                "graduate",
-                &json!({"title":"別科目","completed":"2026年度 1Q"}),
-                0
-            )
-            .unwrap()
-        );
-    }
-
-    #[test]
-    fn duplicate_graduate_grade_identity_rolls_back_the_page() {
-        let path = std::env::temp_dir().join(format!("isct-grade-id-{}.db", Uuid::new_v4()));
-        let store = crate::data::DataStore::initialize(path).unwrap().0;
-        let row = json!({"title":"先端システム論","completed":"2026年度 1Q","result":"A"});
-        let payload = KyomuPayload {
-            status: "ok".into(),
-            source_url: "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx".into(),
-            kind: "grades".into(),
-            data: json!({
-                "complete":true,"shape":"graduate-flat","empty":false,
-                "groups":[{"section":"graduate","category":"大学院科目","rows":[row.clone(),row]}]
-            }),
-            message: String::new(),
-        };
-        let mut connection = Connection::open(store.path()).unwrap();
-        assert!(apply_kyomu_payload(&mut connection, &payload).is_err());
-        assert!(store.table_rows("grades").unwrap().is_empty());
-    }
-}
+#[path = "tests/kyomu_ingest.rs"]
+mod tests;

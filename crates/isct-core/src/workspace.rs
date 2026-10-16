@@ -726,4 +726,5 @@ fn object_mut<'a>(
 }
 
 #[cfg(test)]
+#[path = "tests/workspace.rs"]
 mod tests;

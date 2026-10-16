@@ -334,18 +334,7 @@ pub async fn clean_course_materials(
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
 }
+
 #[cfg(all(test, windows))]
-mod tests {
-    use super::*;
-    #[test]
-    fn hides_extended_windows_prefix_and_uses_unambiguous_separators() {
-        assert_eq!(
-            display_root(Path::new(r"\\?\E:\IsctCompanion")),
-            "E:/IsctCompanion"
-        );
-        assert_eq!(
-            display_root(Path::new(r"\\?\UNC\server\courses")),
-            "//server/courses"
-        );
-    }
-}
+#[path = "tests/lms_files.rs"]
+mod tests;

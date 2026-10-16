@@ -94,4 +94,5 @@ impl BackupService {
 }
 
 #[cfg(test)]
+#[path = "../tests/backup.rs"]
 mod tests;

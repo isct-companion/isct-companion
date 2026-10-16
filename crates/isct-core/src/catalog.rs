@@ -286,46 +286,5 @@ pub fn finder_offerings(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    #[tokio::test]
-    async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
-        let root = std::env::temp_dir().join(format!("isct-catalog-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let store = data::DataStore::initialize(root.join("school.db"))
-            .unwrap()
-            .0;
-        let now = chrono::Utc::now().to_rfc3339();
-        let value = json!({
-            "id":"202602431", "year":2026, "quarters":["3Q"], "code":"TEST.1",
-            "title":{"en":"Test"}, "instructors":[], "instructionLanguage":"en",
-            "format":{"kinds":[]}, "media":{}, "credits":{"lecture":2,"exercise":0,"lab":0},
-            "schedule":[], "academicUnit":{}, "intensive":false,
-            "syllabusUrl":"https://example.invalid/202602431", "fetchedAt":{"ja":now,"en":now}
-        });
-        store.catalog_upsert_offerings(&[value]).unwrap();
-        let content = ["ja","en"].map(|lang| json!({"offeringId":"202602431","lang":lang,"content":{
-            "schemaVersion":1,"sourceUrl":"https://example.invalid/202602431","sourceLanguage":lang,
-            "fetchedAt":now,"sourceUpdated":null,"metadata":[],"sections":[],"lecturePlan":[],"competencies":[]
-        }}));
-        store.upsert_offering_content(&content).unwrap();
-        let result = catalog_sync_offering(&store, "https://example.invalid/202602431".into())
-            .await
-            .unwrap();
-        assert_eq!(result.offering.id, "202602431");
-        assert_eq!(result.content.len(), 2);
-        assert!(result.warnings.is_empty());
-        assert_eq!(offerings(&store, 2026).unwrap().len(), 1);
-        assert!(offerings(&store, 2025).unwrap().is_empty());
-        let warnings = catalog_sync_offerings(&store, vec!["202602431".into(), "missing".into()])
-            .await
-            .unwrap();
-        assert_eq!(warnings, vec!["missing: not in the catalog"]);
-        assert!(matches!(
-            catalog_sync_offerings(&store, vec![String::new(); 21]).await,
-            Err(CatalogError::InvalidInput(_))
-        ));
-        std::fs::remove_dir_all(root).unwrap();
-    }
-}
+#[path = "tests/catalog.rs"]
+mod tests;

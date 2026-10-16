@@ -1,0 +1,1071 @@
+# Manual acceptance checks.
+#
+# Source of truth for the behaviour CI cannot reach: real school credentials,
+# provider consent screens, signed bundles, hardware and the native shells.
+# These checks are written to be executed by a person or by an agent driving
+# the real GUI (computer use). `docs/verification/manual-acceptance.md` is
+# rendered from this file.
+#
+#   yarn verify:manual render            regenerate the rendered table
+#   yarn verify:manual validate          check this file's structure
+#   yarn verify:manual stale             which checks a pending change invalidates
+#   yarn verify:manual sheet <ID>        a run sheet for one check and its persona
+#   yarn verify:manual record <ID> ...   record a result
+#
+# Rules that keep this file honest:
+#
+# 1. Every step states its `reason`. A step without a reason is either
+#    redundant or its author did not know what it was looking for; the check is
+#    rejected. The reason names the failure the step would expose, so a
+#    transcript can be reviewed for understanding rather than compliance.
+# 2. Every check names a `persona` and says where to `observe` the result.
+#    Behaviour is only meaningful relative to who is using the app, and a
+#    result nobody can point at is not evidence.
+# 3. Every check justifies itself in `why_manual`. If the flow could be driven
+#    from `tests/`, it belongs there instead: a check whose `covers` paths are
+#    all already exercised by automated suites is rejected.
+# 4. `result` is `pass`, `fail` or `unreached`. `unreached` is for a flow that
+#    could not be attempted at all (no account, no device); it is recorded with
+#    `blocked_by` rather than left blank, because a silently missing row is how
+#    an unverified area becomes an assumed-good one.
+#
+# Evidence: every recorded result points at something a reviewer can open — a
+# transcript, screenshots or a note under the ignored `artifacts/` directory.
+#
+# 医歯学系 (Dream Campus, Web Class) is deliberately outside this file. Those
+# hosts are allowlisted so a school page can hand off to them, but there is no
+# adapter, no site mapping and no account, so nothing about them is verified.
+# The allowlist entry itself is pinned by
+# `apps/desktop/tests/unit/school-sites.test.ts`.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Personas
+#
+# A persona fixes the identity, the language, the device and the habits of the
+# simulated user. An agent running a check adopts the persona entirely: it
+# knows only what that person would know, reads only what that person could
+# read, and makes that person's mistakes. The identity personas follow the
+# study stages the app itself models, because the eligibility rules differ by
+# stage and those rules are what most of these checks are about.
+# ---------------------------------------------------------------------------
+
+personas:
+  - id: undergraduate-first-term
+    label: 理工学系 1年生・初学期
+    identity: undergraduate
+    context: |
+      First quarter of the first year. Has never used this app; signed in once
+      during orientation and does not remember which systems exist. Japanese
+      UI and Japanese school content. Uses a trackpad, not the keyboard.
+    behaviour: |
+      Reads every label before clicking. Tries to add a course that is
+      obviously above their year. Expects the app to explain refusals rather
+      than only disabling a control. Abandons a flow that offers no obvious
+      next step.
+    language: ja
+    device: macos-arm64
+
+  - id: undergraduate-senior
+    label: 理工学系 3年生・履修計画期
+    identity: undergraduate
+    context: |
+      Third year, planning next quarter. Knows the syllabus site and the
+      timetable well. Japanese UI, mixes Japanese and English course content.
+      Works fast and expects the keyboard to work.
+    behaviour: |
+      Types course codes from memory instead of browsing. Opens details in
+      quick succession. Adds a course that clashes with an existing one and
+      expects to be told which one. Uses Undo immediately after a mistake.
+    language: ja
+    device: macos-arm64
+
+  - id: masters-student
+    label: 修士課程 1年・前期課程
+    identity: masters
+    context: |
+      First year of a master's programme, first semester. Has an undergraduate
+      record from the same institution that is already in the workspace.
+      Japanese UI. Cares about credit requirements and about 500-level rules.
+    behaviour: |
+      Checks the grade and GPA panels first. Looks for requirements that apply
+      only after the first semester. Notices when an undergraduate-only count
+      or table is assumed.
+    language: ja
+    device: macos-arm64
+
+  - id: doctoral-student
+    label: 博士後期課程
+    identity: doctoral
+    context: |
+      Doctoral programme, several years in. Reads the app mostly for research
+      scheduling and for the few courses that require doctoral registration.
+      Japanese UI.
+    behaviour: |
+      Ignores the timetable and goes straight to the requirement and
+      registration panels. Expects doctoral-specific approval rules to be
+      stated rather than silently enforced.
+    language: ja
+    device: macos-arm64
+
+  - id: transfer-student
+    label: 編入生
+    identity: transfer
+    context: |
+      Transferred into the third year from another institution. Admission year
+      differs from the cohort year of the courses being planned.
+    behaviour: |
+      Looks for their own admission cohort's guidance. Notices when a guide or
+      requirement set from the wrong admission year is applied.
+    language: ja
+    device: macos-arm64
+
+  - id: international-student
+    label: International student
+    identity: undergraduate
+    context: |
+      Reads English better than Japanese. Sets the UI to English and the
+      school content to English where a translation exists. Signs in from a
+      laptop on the campus network.
+    behaviour: |
+      Never switches to Japanese to decode a message. Reads error text
+      literally. Notices untranslated strings, Japanese leaking into an
+      English page, and dates that are ambiguous because the format is not
+      stated.
+    language: en
+    device: macos-x64
+
+  - id: careless-multidevice
+    label: Two devices, interrupted work
+    identity: masters
+    context: |
+      Uses the desktop app on two machines with cloud backup enabled. Quits
+      mid-operation, sleeps the laptop, and lets the network drop.
+    behaviour: |
+      Closes the window while something is still running. Reopens and expects
+      to see the result. Edits the same record on both machines on purpose.
+    language: ja
+    device: macos-arm64
+
+  - id: narrow-window-keyboard
+    label: Narrow window, keyboard only
+    identity: undergraduate
+    context: |
+      Uses a small window on a laptop with an external monitor. Navigates by
+      keyboard and never touches the mouse.
+    behaviour: |
+      Resizes the window until the layout changes. Uses the number shortcuts
+      and Escape. Tabs through a form and expects focus to stay visible.
+    language: en
+    device: macos-arm64
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
+
+checks:
+  - id: SCHOOL-SIGNIN-SCIENCE
+    area: school
+    title: Real sign-in to the Science Tokyo portal and LMS
+    persona: undergraduate-first-term
+    preconditions: |
+      Signed desktop bundle, campus network or VPN, a live student id and the
+      current OTP factor.
+    steps:
+      - action: |
+          Cold-launch the bundle and wait for the first screen.
+        reason: |
+          Cold launch is where a stale keychain entry or a launch-order bug
+          shows up; a warm relaunch hides both.
+      - action: |
+          Open Settings → Accounts and connect the Science Tokyo account.
+          Enter the student id, then the OTP when asked.
+        reason: |
+          The identity provider is tried first by design. Asking for a
+          password before the id would mean the identity-first order regressed.
+      - action: |
+          Wait for the badge, then open the LMS from the site list.
+        reason: |
+          Distinguishes "signed in" from "the session reaches the LMS". A badge
+          that settles while the LMS still shows a login form is the failure
+          this step exists to catch.
+      - action: |
+          Look over the whole screen and the logs for the student id, the
+          password or any OTP value.
+        reason: |
+          Credential material must never be rendered. A run that passes while
+          leaking a value into the UI or a log is a failure.
+    observe: |
+      Settings → Accounts badge; the LMS page body; the app window and any
+      console output.
+    expected: |
+      The account reaches Signed in without a second prompt, the LMS page
+      loads authenticated, and no credential material appears anywhere.
+    why_manual: |
+      Needs a real student id, a live OTP factor and the campus network. The
+      identity provider cannot be replayed offline and the OTP window makes a
+      recorded flow expire immediately.
+    covers:
+      - crates/isct-core/src/school_auth.rs
+      - crates/isct-core/src/school_browser/engine/**
+      - crates/isct-core/src/school_service.rs
+    verified:
+      version: 1.0.0-rc.1
+      date: 2026-10-14
+      commit: 7fdf1b6
+      by: human
+      result: pass
+      notes: Recorded in docs/verification/core-consolidation.md.
+      evidence: docs/verification/core-consolidation.md#live-macos-acceptance
+
+  - id: SCHOOL-LMS-PULL
+    area: school
+    title: Full LMS pull against a real account
+    persona: undergraduate-senior
+    preconditions: |
+      The account from SCHOOL-SIGNIN-SCIENCE is Signed in.
+    steps:
+      - action: |
+          Trigger a full LMS pull and leave the window alone until it ends.
+        reason: |
+          The uninterrupted path establishes the baseline the interrupted path
+          is compared against.
+      - action: |
+          Compare the pulled course list and assignments with the LMS open in
+          another browser.
+        reason: |
+          A pull that "succeeds" with silently dropped courses is the failure
+          this step catches; matching counts alone would not.
+      - action: |
+          Open a visible school page in the middle of a second pull.
+        reason: |
+          Hidden work must yield to the visible page and resume afterwards.
+          Without this step the preemption contract is only asserted by tests.
+    observe: |
+      The LMS page course and assignment lists, the refresh timestamp, and the
+      visible school page that interrupted the second pull.
+    expected: |
+      The first pull matches the LMS exactly and advances its timestamp; the
+      interrupted pull leaves the previous rows intact and resumes.
+    why_manual: |
+      Depends on the authenticated Moodle session above. The AJAX surface is
+      read-only but account-scoped, so no fixture can stand in for a real
+      enrolment.
+    covers:
+      - crates/isct-core/src/lms_ingest.rs
+      - crates/isct-core/src/lms_session.rs
+      - crates/isct-core/src/school_parser/lms.rs
+    verified:
+      version: 1.0.0-rc.1
+      date: 2026-10-14
+      commit: 7fdf1b6
+      by: human
+      result: pass
+      notes: 7 matched courses, no differences.
+      evidence: docs/verification/core-consolidation.md#live-macos-acceptance
+
+  - id: IDENTITY-FIRST-YEAR-GATE
+    area: identity
+    title: A first-year student is refused an upper-level course with a reason
+    persona: undergraduate-first-term
+    preconditions: |
+      A study profile with the undergraduate stage and the current admission
+      year. A course placed at a level above that stage.
+    steps:
+      - action: |
+          Open the planner and search for a course only open to later years.
+        reason: |
+          Establishes what the app shows before any action: a row that is
+          offered at all is the precondition for testing the refusal.
+      - action: |
+          Try to add it, by clicking and by pasting its course code.
+        reason: |
+          Both paths must be gated. A refusal on one path and a silent accept
+          on the other is the classic version of this bug.
+      - action: |
+          Read the text of the refusal.
+        reason: |
+          "Cannot add" with no reason is a failure for this persona: the check
+          is about whether the app explains the rule, not whether it blocks.
+    observe: |
+      The planner result row, the add buttons and their tooltips, and the
+      notification or inline message the refusal produces.
+    expected: |
+      Every add path is refused or disabled, and the message names the rule
+      (the study stage or year the course requires) rather than only failing.
+    why_manual: |
+      The rule itself is unit-tested, but whether a student understands the
+      refusal is a judgement about wording and placement that only a rendered
+      screen can show.
+    covers:
+      - crates/isct-core/src/study_profile.rs
+      - crates/isct-core/src/course_query/mod.rs
+      - apps/desktop/src/pages/courses/**
+    verified: null
+
+  - id: IDENTITY-MASTERS-CREDITS
+    area: identity
+    title: Master's requirements and 500-level rules after the first semester
+    persona: masters-student
+    preconditions: |
+      A master's study profile with an undergraduate record already imported.
+    steps:
+      - action: |
+          Open the grades and GPA panels and compare them with 教務Web.
+        reason: |
+          The master's panels must not be computed from the undergraduate
+          table; a plausible-looking number from the wrong table is the
+          failure here.
+      - action: |
+          Try to register a 500-level course before and after the first
+          semester boundary (or with the profile set to each state).
+        reason: |
+          The rule is semester-dependent, so a single-point test cannot tell
+          "allowed" from "allowed too early".
+      - action: |
+          Open the requirement panels and read which requirements apply.
+        reason: |
+          Requirements that apply only to a master's student must be visible
+          as such; silently omitting them is the failure the automated rules
+          cannot express.
+    observe: |
+      The grades, GPA and requirements panels for the master's profile, and
+      the registration outcome for the 500-level course.
+    expected: |
+      Credits and GPA come from the master's record, the 500-level rule
+      applies from the correct semester, and the applicable requirements are
+      named.
+    why_manual: |
+      Needs a real master's account so the 教務Web tables and the requirement
+      set are the ones a master's student actually receives.
+    covers:
+      - crates/isct-core/src/study_profile.rs
+      - crates/isct-core/src/kyomu_ingest.rs
+      - apps/desktop/src/pages/courses/**
+    verified: null
+
+  - id: IDENTITY-DOCTORAL-RULES
+    area: identity
+    title: Doctoral registration and approval rules are stated
+    persona: doctoral-student
+    preconditions: |
+      A doctoral study profile.
+    steps:
+      - action: |
+          Open the registration and requirement panels.
+        reason: |
+          Doctoral students reach a different panel than master's students; a
+          wrong panel means the identity is not driving the view.
+      - action: |
+          Attempt a course whose registration requires doctoral approval.
+        reason: |
+          The rule is an approval, not a hard block, so the check is whether
+          the app says so rather than refusing silently.
+    observe: |
+      The requirement and registration panels, and the message shown for the
+      approval-gated course.
+    expected: |
+      The doctoral-specific requirement is visible, and an approval-gated
+      course explains that approval is needed.
+    why_manual: |
+      Needs a real doctoral account; the rule set is account-specific and the
+      current fixtures do not represent it.
+    covers:
+      - crates/isct-core/src/study_profile.rs
+      - apps/desktop/src/pages/courses/**
+    verified: null
+
+  - id: IDENTITY-TRANSFER-COHORT
+    area: identity
+    title: A transfer student sees their own admission cohort's guidance
+    persona: transfer-student
+    preconditions: |
+      A transfer study profile whose admission year differs from the cohort
+      year of the courses being planned.
+    steps:
+      - action: |
+          Open the recommended-courses and guidance panel.
+        reason: |
+          The panel is keyed by admission cohort; the wrong key silently
+          produces a plausible list from another cohort's guide.
+      - action: |
+          Confirm the guide PDF and the recommended list match the transfer
+          admission year, not the course year.
+        reason: |
+          This is the exact confusion the cohort namespacing exists to
+          prevent, and it is invisible without reading the guide.
+      - action: |
+          Edit the admission year and reopen the panel.
+        reason: |
+          Confirms the key is read from the profile rather than cached from
+          the first open.
+    observe: |
+      The recommended-courses panel, the cited guide PDF name and path, and
+      the admission year shown in the study profile.
+    expected: |
+      The guidance and recommendations come from the transfer admission
+      cohort's dataset, and changing the admission year changes them.
+    why_manual: |
+      Requires a real transfer record; the bundled cohort datasets are real
+      but which one applies is only knowable from the account.
+    covers:
+      - crates/isct-core/src/subscriptions.rs
+      - crates/isct-core/src/course_query/mod.rs
+      - apps/desktop/src/lib/departments.ts
+    verified: null
+
+  - id: SCHOOL-KYOMU-GRADUATE-TABLES
+    area: school
+    title: Graduate 教務Web tables against a real graduate account
+    persona: masters-student
+    preconditions: |
+      A graduate account, Signed in, with a real grade history.
+    steps:
+      - action: |
+          Refresh 教務Web and open the grades, GPA and requirements panels.
+        reason: |
+          Confirms the graduate tables are read at all, before anything is
+          compared.
+      - action: |
+          Compare each panel with 教務Web in another browser.
+        reason: |
+          The extractor must not assume an undergraduate shape. A panel that
+          looks plausible but omits a graduate table is the failure here.
+      - action: |
+          Interrupt a second refresh by opening a visible school page, then
+          return and look at the rows again.
+        reason: |
+          A failed or partial import must never delete the last valid rows;
+          this is the one guarantee that silently destroys data when it breaks.
+    observe: |
+      The grades, GPA and requirements panels, and 教務Web itself in another
+      browser window.
+    expected: |
+      Graduate grades, GPA and requirements import with no layout warning, and
+      an interrupted refresh leaves the previous rows untouched.
+    why_manual: |
+      The committed graduate fixture was transcribed from a public student
+      manual published in 2017, so it exercises the documented shape but not
+      the current live DOM. No graduate account was available at the last
+      checkpoint; a borrowed account is the intended verification.
+    covers:
+      - crates/isct-core/src/kyomu_ingest.rs
+      - crates/isct-core/src/school_parser/kyomu.rs
+      - crates/isct-core/src/study_profile.rs
+    verified:
+      version: 1.0.0-rc.3
+      date: 2026-10-16
+      commit: b598ae6
+      by: human
+      result: unreached
+      blocked_by: No graduate account available; a borrowed account is pending.
+      notes: The 2017 manual fixture covers the documented shape only.
+      evidence: docs/verification/native-sdk.md
+
+  - id: IDENTITY-LANGUAGE-SWITCH
+    area: identity
+    title: English UI and English content stay English
+    persona: international-student
+    preconditions: |
+      The UI language set to English and the school-content language set to
+      English.
+    steps:
+      - action: |
+          Walk the main screens: today, courses, a syllabus page, the LMS, and
+          settings.
+        reason: |
+          Untranslated strings cluster on the screens nobody visits during a
+          happy-path demo, so the walk has to be broad rather than deep.
+      - action: |
+          Open a syllabus page that has an English page and read every date.
+        reason: |
+          The failure mode is not a Japanese word but a date whose format is
+          unstated, which reads as correct to whoever wrote it.
+      - action: |
+          Trigger a refusal or an error on purpose.
+        reason: |
+          Error text is where translations are most often missing, and it is
+          exactly where this persona cannot afford to guess.
+    observe: |
+      Every screen text, the syllabus page in English, and the error or refusal
+      message.
+    expected: |
+      No Japanese appears in the English UI or in English content, dates state
+      or unambiguously imply their format, and error messages are translated.
+    why_manual: |
+      Needs the real school content in English; the shipped English content
+      only exists for courses that publish it, so completeness can only be
+      judged against the live catalogue.
+    covers:
+      - resources/locales/**
+      - apps/desktop/src/i18n/**
+      - apps/desktop/src/lib/model.ts
+    verified: null
+
+  - id: SCHOOL-LMS-YEAR-ROLLOVER
+    area: school
+    title: LMS pull after the academic year moves
+    persona: undergraduate-senior
+    preconditions: |
+      The school has moved the LMS to a new academic-year path.
+    steps:
+      - action: |
+          Run `yarn test:live` and read the LMS year it reports.
+        reason: |
+          The pinned year must come from the site, not from memory. This step
+          is the trigger for the rest of the check.
+      - action: |
+          If it differs from the pinned year, update LMS_HOME in
+          crates/isct-core/src/lms_session.rs and the path literals in
+          crates/isct-core/src/lms_ingest.rs.
+        reason: |
+          A stale literal does not fail loudly; it silently extracts nothing.
+          The edit is mechanical, which is exactly why it must be paired with
+          the real pull below rather than trusted.
+      - action: |
+          Sign in again and repeat SCHOOL-LMS-PULL.
+        reason: |
+          Only a real account proves the new path is the right one; a fixture
+          cannot tell a moved site from a removed one.
+    observe: |
+      The `yarn test:live` output and the course list after the repeated pull.
+    expected: |
+      The live suite reports one year for both the redirect and every path
+      literal, and the repeated pull matches the LMS again.
+    why_manual: |
+      The school has served the LMS under a fixed 2025 path since the merger,
+      so the path is pinned rather than derived. When it moves, the automated
+      suite fails but only a real account can confirm the new path works.
+    covers:
+      - crates/isct-core/src/lms_session.rs
+      - crates/isct-core/src/lms_ingest.rs
+    verified:
+      version: 1.0.0-rc.3
+      date: 2026-10-16
+      commit: b598ae6
+      by: agent
+      result: pass
+      notes: The LMS root still redirects to /2025/ and every pinned literal agrees.
+      evidence: apps/desktop/tests/live/school-site.test.ts
+
+  - id: CLOUD-DRIVE-WRITE
+    area: cloud
+    title: Google Drive upload, pull and restore through the consent screen
+    persona: careless-multidevice
+    preconditions: |
+      A real Google account; a workspace with at least one editable record.
+    steps:
+      - action: |
+          Enable Google Drive in Settings → Backup and complete the consent
+          screen in the real browser.
+        reason: |
+          The consent hand-off is the part no test can drive. A failure here
+          is a redirect or scope problem, not a sync problem.
+      - action: |
+          Upload, edit a record, then pull.
+        reason: |
+          Confirms the document round-trips through the provider's private app
+          folder rather than a general folder.
+      - action: |
+          Restore from the uploaded document and confirm the replacement.
+        reason: |
+          Restore is the only operation that can destroy local data; it must
+          be confirmed and must replace exactly what it claims.
+      - action: |
+          Drop the network mid-upload and restore it.
+        reason: |
+          A delivery that silently gives up looks identical to one that
+          succeeded until the next device pulls stale content.
+    observe: |
+      The consent screen, the provider's app folder listing, the local record
+      after restore, and the delivery state after the network returns.
+    expected: |
+      The consent screen returns to the app, IsctCompanion.json appears in the
+      private app folder, pull and restore change only what they claim, and
+      the interrupted upload retries without duplicating the document.
+    why_manual: |
+      Requires a real Google account and an interactive OAuth consent screen
+      that cannot be automated without live credentials.
+    covers:
+      - crates/isct-core/src/cloud_sync/**
+      - apps/desktop/src-tauri/src/cloud.rs
+    verified: null
+
+  - id: CLOUD-ONEDRIVE-WRITE
+    area: cloud
+    title: OneDrive upload, pull and restore
+    persona: careless-multidevice
+    preconditions: |
+      A real Microsoft account.
+    steps:
+      - action: |
+          Enable OneDrive in Settings → Backup and complete the consent
+          screen.
+        reason: |
+          The second provider has its own redirect and scope rules; a fix for
+          Drive has broken OneDrive before.
+      - action: |
+          Upload, edit a record, pull, then restore.
+        reason: |
+          Same contract as Drive, asserted independently so a provider-specific
+          regression cannot hide behind the other provider passing.
+    observe: |
+      The consent screen, the OneDrive app folder, and the local record after
+      restore.
+    expected: |
+      The same contract as the Drive path, against the second provider.
+    why_manual: |
+      Second interactive provider; shares the consent-screen constraint.
+    covers:
+      - crates/isct-core/src/cloud_sync/**
+    verified: null
+
+  - id: CLOUD-RESILIENCE
+    area: cloud
+    title: Cloud delivery across a sleep and resume
+    persona: careless-multidevice
+    preconditions: |
+      Cloud backup enabled and a pending delivery.
+    steps:
+      - action: |
+          Start an upload, then put the machine to sleep mid-flight and wake
+          it.
+        reason: |
+          Delivery state must be durable across a power transition. An
+          in-memory queue would lose the delivery only in this situation,
+          which is why the manual path exists.
+      - action: |
+          On a second device, pull and confirm which content won.
+        reason: |
+          Resuming must not resurrect stale content or produce two documents.
+    observe: |
+      The delivery state after the wake, the provider's document list, and the
+      content on the second device.
+    expected: |
+      The delivery completes after the wake without duplicating the document,
+      and the second device converges on the newer content.
+    why_manual: |
+      Needs OS-level power transitions and a real provider session.
+    covers:
+      - crates/isct-core/src/cloud_sync/**
+    verified: null
+
+  - id: OCR-CAMPUS-CARD
+    area: ocr
+    title: Campus-card OCR on a physical card
+    persona: undergraduate-first-term
+    preconditions: |
+      A supported desktop target with OCR, a physical campus card, and a
+      camera or a photo of the card.
+    steps:
+      - action: |
+          Open the matrix OCR flow and supply a photo of a real card.
+        reason: |
+          Synthetic tensors and the private parity image already cover the
+          pipeline; a real card is what exposes lighting, angle and printing
+          variation that no fixture reproduces.
+      - action: |
+          Review the recognised cells and compare them with the card.
+        reason: |
+          The contract is "no wrong accepted cell", not "most cells right". A
+          misread cell that is accepted is worse than a rejected one, so the
+          comparison has to be cell by cell.
+      - action: |
+          Correct a cell and save.
+        reason: |
+          Confirms the manual correction path, which the fixtures never take.
+    observe: |
+      The recognised cell grid beside the physical card, and the saved values.
+    expected: |
+      Every expected cell is recognised, no wrong cell is accepted, and the
+      corrected values are what get saved.
+    why_manual: |
+      Needs a physical card and a camera. Intel Mac builds ship without the
+      OCR runtime, so the target must be chosen deliberately.
+    covers:
+      - crates/isct-ocr/**
+      - apps/desktop/src/lib/matrix-ocr.ts
+    verified:
+      version: 1.0.0-rc.1
+      date: 2026-10-14
+      commit: 7fdf1b6
+      by: human
+      result: pass
+      notes: 67 expected cells recognised, no wrong accepted cells; private image not committed.
+      evidence: docs/verification/core-consolidation.md#automated-acceptance
+
+  - id: DESKTOP-SCHOOL-WEBVIEW
+    area: desktop
+    title: School WebView navigation, popups and download hand-off
+    persona: undergraduate-senior
+    preconditions: |
+      A Signed in account; at least one course with downloadable material.
+    steps:
+      - action: |
+          Open each school site from the site list and follow an in-page link.
+        reason: |
+          Establishes that in-page navigation is allowed for official origins
+          and that no site is mis-mapped.
+      - action: |
+          Open a same-site popup, then go Back.
+        reason: |
+          Back must load a fresh GET, not replay a 教務Web POST. Replaying a
+          POST can repeat an action on the school's side, which is the most
+          consequential failure in this check.
+      - action: |
+          Download a material and choose Show in Finder / Show in Explorer.
+        reason: |
+          The file lands in Downloads through the native layer; only the OS
+          reveal proves the hand-off, not the download counter.
+    observe: |
+      The WebView address and page body, the popup's return to its opener, the
+      download list, and the OS file manager.
+    expected: |
+      Navigation stays inside the school origins, Back does not replay a POST,
+      the popup returns to its opener, and the OS reveals the saved file.
+    why_manual: |
+      Depends on the platform WebView, its popup handling and the OS file
+      manager. jsdom cannot produce native navigation, popups or a reveal.
+    covers:
+      - crates/isct-core/src/school_browser/engine/**
+      - apps/desktop/src-tauri/src/school_web.rs
+      - apps/desktop/src-tauri/src/school_downloads.rs
+    verified:
+      version: 1.0.0-rc.1
+      date: 2026-10-14
+      commit: 7fdf1b6
+      by: human
+      result: pass
+      notes: Recorded in docs/verification/core-consolidation.md.
+      evidence: docs/verification/core-consolidation.md#live-macos-acceptance
+
+  - id: DESKTOP-COMPACT-LAYOUT
+    area: desktop
+    title: Keyboard-only use in a narrow window
+    persona: narrow-window-keyboard
+    preconditions: |
+      A desktop build and a resizable window.
+    steps:
+      - action: |
+          Resize the window until the layout switches to the compact shell.
+        reason: |
+          The switch is the boundary where a page that fits the workstation
+          layout starts scrolling or clipping instead.
+      - action: |
+          Navigate with the number shortcuts and Escape, then open a course.
+        reason: |
+          Keyboard reachability is invisible to a DOM test that fires clicks;
+          only real focus and real shortcuts prove the wiring.
+      - action: |
+          Tab through the course editor and place a course.
+        reason: |
+          Focus must stay visible and land in a sensible order, which a
+          rendered-DOM assertion cannot establish.
+    observe: |
+      The window at each size, the focus ring, and the page that each shortcut
+      reaches.
+    expected: |
+      Every screen fits without page scroll, focus stays visible, and the
+      shortcuts reach the same destinations as the tabs.
+    why_manual: |
+      Depends on real window sizing, real focus and real keyboard events.
+    covers:
+      - apps/desktop/src/layouts/compact/**
+      - apps/desktop/src/app/routes.ts
+    verified: null
+
+  - id: DESKTOP-CAMPUS-WIFI
+    area: desktop
+    title: Campus Wi-Fi join from the app
+    persona: undergraduate-first-term
+    preconditions: |
+      A desktop build on campus with the campus network in range.
+    steps:
+      - action: |
+          Open Settings → Campus Wi-Fi and connect.
+        reason: |
+          The join goes through OS-level WPA configuration, which has no
+          in-process substitute.
+      - action: |
+          Compare the reported state and address ranges with the NOC guide.
+        reason: |
+          The ranges are hard-coded; a mismatch means the app would offer the
+          connection on a network it cannot reach.
+    observe: |
+      The Settings → Campus Wi-Fi state, the OS network list, and the NOC
+      guide's published ranges.
+    expected: |
+      The join succeeds, the state reflects the connection, and the ranges
+      match the NOC guide.
+    why_manual: |
+      Requires the campus network and OS-level wireless configuration.
+    covers:
+      - apps/desktop/src-tauri/src/campus_wifi.rs
+    verified: null
+
+  - id: DESKTOP-MCP-LIVE
+    area: desktop
+    title: Desktop MCP endpoint against a real client
+    persona: narrow-window-keyboard
+    preconditions: |
+      A built desktop app and a real MCP client.
+    steps:
+      - action: |
+          Enable AI agent access, copy the token, and point the client at
+          http://127.0.0.1:47832/mcp.
+        reason: |
+          Initialization and the tool list are negotiated by the client, not
+          by our tests; a real client is the only way to see that handshake.
+      - action: |
+          Read today and the schedule through the client and compare with the
+          app window.
+        reason: |
+          The point of the endpoint is parity with the UI. A read that differs
+          from the window would go unnoticed by a protocol-only test.
+      - action: |
+          Retry with a wrong token and with a hostile Origin header, then
+          check the token file's permissions.
+        reason: |
+          Authorization and file mode are the security boundary; 401, 403 and
+          mode 0600 must all hold together.
+    observe: |
+      The client's initialization and tool list, the values it reads beside
+      the app window, the HTTP status of each retry, and the token file mode.
+    expected: |
+      Initialization and the tool list succeed, the reads match the app, the
+      wrong token returns 401, the hostile Origin returns 403, and the token
+      file stays mode 0600.
+    why_manual: |
+      Confirming a real client negotiates the protocol and that the OS file
+      mode holds needs the built app.
+    covers:
+      - apps/desktop/src-tauri/src/agent_server.rs
+      - crates/isct-core/src/agent/**
+    verified:
+      version: 1.0.0-rc.1
+      date: 2026-10-14
+      commit: 7fdf1b6
+      by: human
+      result: pass
+      notes: 17 tools, today/grades/GPA reads, 401 and 403 confirmed.
+      evidence: docs/verification/core-consolidation.md#live-macos-acceptance
+
+  - id: DESKTOP-PDF-TOOLBAR
+    area: desktop
+    title: PDF viewer save toolbar and a large cached document
+    persona: undergraduate-senior
+    preconditions: |
+      A course with a large cached PDF material.
+    steps:
+      - action: |
+          Open the PDF, scroll to the end and search for a term.
+        reason: |
+          Confirms rendering and search hold across the whole document rather
+          than only the first page.
+      - action: |
+          Use the viewer's own save toolbar.
+        reason: |
+          The toolbar was excluded from the last checkpoint's live coverage
+          and depends on the platform save dialog.
+    observe: |
+      The rendered pages, the search results, and the file the save toolbar
+      writes.
+    expected: |
+      The document renders, paging and search work throughout, and the save
+      toolbar writes the file.
+    why_manual: |
+      The viewer's separate save toolbar depends on the platform save dialog
+      and was never covered by a live run.
+    covers:
+      - apps/desktop/src/features/lms/PdfDocument.tsx
+      - apps/desktop/src-tauri/src/school_pdf_save.rs
+    verified: null
+
+  - id: NATIVE-IOS-SIMULATOR
+    area: native
+    title: Swift SDK and OCR on an iOS simulator
+    persona: narrow-window-keyboard
+    preconditions: |
+      macOS with Xcode, an installed simulator runtime, and the generated
+      framework.
+    steps:
+      - action: |
+          Run `yarn sdk:ios`, then `node scripts/bindings/ios-smoke.mjs`.
+        reason: |
+          Confirms the generated Swift package links against the packaged
+          XCFramework rather than the host build.
+      - action: |
+          Read the smoke client's output for its pass marker.
+        reason: |
+          A build that succeeds while the client never runs proves nothing
+          about the binding; the marker is the difference.
+    observe: |
+      The build output and the simulator's console for the pass marker.
+    expected: |
+      The Swift package builds against the XCFramework, the smoke client
+      passes, and OCR preparation and inference run on the simulator.
+    why_manual: |
+      Needs macOS, Xcode, a simulator runtime and a generated framework.
+    covers:
+      - crates/isct-ffi/**
+      - bindings/swift/**
+      - scripts/bindings/build-ios.mjs
+    verified:
+      version: 1.0.0-rc.1
+      date: 2026-10-15
+      commit: 7fdf1b6
+      by: human
+      result: pass
+      notes: Recorded in docs/verification/native-sdk.md.
+      evidence: docs/verification/native-sdk.md
+
+  - id: NATIVE-ANDROID-EMULATOR
+    area: native
+    title: Kotlin AAR on an Android emulator
+    persona: narrow-window-keyboard
+    preconditions: |
+      Android SDK, NDK, a running emulator with KVM acceleration.
+    steps:
+      - action: |
+          Build the AAR, then run `node scripts/bindings/android-smoke.mjs`.
+        reason: |
+          Loading the AAR on ART exercises the Kotlin and native library
+          wiring, which a host JVM run does not.
+      - action: |
+          Read the device output for the pass marker and check the ABI.
+        reason: |
+          A wrong ABI silently loads the host library on one machine and fails
+          on a device; the ABI assertion is what catches that.
+    observe: |
+      The build output, the device's `logcat`/stdout, and the reported ABI.
+    expected: |
+      The AAR loads its libraries on ART, the smoke client prints its pass
+      marker, and the ABI is arm64-v8a or x86_64.
+    why_manual: |
+      Needs the Android SDK, an NDK and a KVM-accelerated emulator.
+    covers:
+      - crates/isct-ffi/**
+      - bindings/kotlin/**
+      - scripts/bindings/build-android.mjs
+    verified:
+      version: 1.0.0-rc.1
+      date: 2026-10-15
+      commit: 7fdf1b6
+      by: human
+      result: pass
+      notes: Recorded in docs/verification/native-sdk.md.
+      evidence: docs/verification/native-sdk.md
+
+  - id: NATIVE-DEVICE-FLOWS
+    area: native
+    title: Native shells on physical devices
+    persona: undergraduate-first-term
+    preconditions: |
+      A signed build, provisioning, and physical iOS and Android devices.
+    steps:
+      - action: |
+          Install the build on each device and complete first-run.
+        reason: |
+          Installation and the OS authorization prompts are outside anything
+          the repository can simulate.
+      - action: |
+          Walk sign-in, workspace, LMS, files and reminders.
+        reason: |
+          The native shells render independently of the desktop frontend, so
+          desktop acceptance says nothing about them.
+    observe: |
+      Each device's screens, its authorization prompts, and the notifications
+      it delivers.
+    expected: |
+      The flows work with the platform's own UI, authorization prompts and
+      notification delivery.
+    why_manual: |
+      The SwiftUI and Compose shells are not implemented yet, and physical
+      device acceptance requires signing, provisioning and real hardware.
+    covers:
+      - bindings/**
+      - crates/isct-ffi/**
+    verified:
+      version: 1.0.0-rc.3
+      date: 2026-10-16
+      commit: b598ae6
+      by: human
+      result: unreached
+      blocked_by: The SwiftUI and Compose shells do not exist yet.
+      notes: Recorded so the boundary stays visible.
+      evidence: docs/verification/native-sdk.md
+
+  - id: RELEASE-SIGNING
+    area: release
+    title: Signed and notarized macOS installers
+    persona: narrow-window-keyboard
+    preconditions: |
+      The seven Apple secrets configured on the release runner.
+    steps:
+      - action: |
+          Dispatch the Desktop release workflow with sign_macos enabled.
+        reason: |
+          The signing path only runs when asked; a default build would pass
+          while the signed path is broken.
+      - action: |
+          Read the workflow log for codesign verification, the notarization
+          result and the stapled ticket.
+        reason: |
+          Notarization acceptance and stapling are separate outcomes; a build
+          that notarizes but does not staple fails on a fresh machine.
+      - action: |
+          Remove one Apple secret and dispatch again.
+        reason: |
+          A signed build must fail rather than silently fall back to unsigned;
+          this is the only step that proves the failure mode.
+    observe: |
+      The workflow log, the notarization report, and the stapler validation
+      output.
+    expected: |
+      All seven secrets are required, the identity is a Developer ID
+      Application identity, and signature, notarization and stapling all pass
+      before publication.
+    why_manual: |
+      Needs Apple credentials and the notarization service.
+    covers:
+      - scripts/desktop/macos-signing.mjs
+      - .github/workflows/desktop-release.yml
+      - .github/workflows/apple-signing-check.yml
+    verified: null
+
+  - id: RELEASE-INSTALL
+    area: release
+    title: Installers on a clean machine of each platform
+    persona: careless-multidevice
+    preconditions: |
+      The published installers and a machine that has never run the app.
+    steps:
+      - action: |
+          Install on macOS (both architectures) and Windows x64.
+        reason: |
+          Build success does not establish runtime compatibility; the release
+          notes say so explicitly.
+      - action: |
+          Launch, complete first-run, and open a workspace from a backup.
+        reason: |
+          An existing workspace must import into a fresh install, which is the
+          upgrade path every current user takes.
+      - action: |
+          Observe the Gatekeeper and SmartScreen prompts.
+        reason: |
+          The release notes promise a specific prompt behaviour; a mismatch
+          makes the notes wrong rather than the build.
+    observe: |
+      Each installer's prompts, the first-run screens, and the imported
+      workspace.
+    expected: |
+      Installation succeeds, the OS prompts match the release notes, and
+      existing workspace data imports.
+    why_manual: |
+      Requires clean machines and real installers; build success is not
+      runtime compatibility.
+    covers:
+      - scripts/desktop/desktop-release.mjs
+      - .github/workflows/desktop-release.yml
+    verified: null

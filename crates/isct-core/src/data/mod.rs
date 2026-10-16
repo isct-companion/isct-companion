@@ -1155,4 +1155,5 @@ fn normalize_meeting_clocks(workspace: &mut Value) -> Result<(), DataError> {
 }
 
 #[cfg(test)]
+#[path = "../tests/data.rs"]
 mod tests;
