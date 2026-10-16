@@ -888,21 +888,6 @@ export function WorkspaceApp() {
     }
     openWeb(KYOMU_REGISTRATION);
   };
-  const lmsUrlFor = (course: Course) => {
-    if (
-      course.source.provider === "lms" &&
-      course.url?.includes("lms.s.isct.ac.jp")
-    )
-      return course.url;
-    const row = schoolRecords?.lmsCourses.find(
-      (item) =>
-        (course.offeringId && item.offeringId === course.offeringId) ||
-        (course.source.provider === "lms" &&
-          String(item.lmsId) === course.source.externalId),
-    );
-    return row?.url;
-  };
-
   const navigatePage = (next: Page) => {
     if (next === "web") setWebContext(null);
     void navigate(pagePath(next));
@@ -1194,7 +1179,6 @@ export function WorkspaceApp() {
                   close={() => setPanelCourseId(null)}
                   remove={() => void removeFromTimetable(panelCourse)}
                   editIntensive={() => setIntensiveCourseId(panelCourse.id)}
-                  lmsUrl={lmsUrlFor(panelCourse)}
                   openWeb={(url) => openWeb(url)}
                   fetchLms={
                     desktopBridge?.pullSchool
@@ -1379,7 +1363,6 @@ export function WorkspaceApp() {
           }}
           toggle={() => toggleTimetable(drawerCourse)}
           editIntensive={() => setIntensiveCourseId(drawerCourse.id)}
-          lmsUrl={lmsUrlFor(drawerCourse)}
           openWeb={(url) => {
             const from = pageRef.current;
             openWeb(url, from === "lectures" ? "lectures" : "home");

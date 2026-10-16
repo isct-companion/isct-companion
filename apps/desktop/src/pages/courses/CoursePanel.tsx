@@ -18,7 +18,6 @@ export function CoursePanel({
   close,
   remove,
   editIntensive,
-  lmsUrl,
   openWeb,
   fetchLms,
   progress,
@@ -29,8 +28,6 @@ export function CoursePanel({
   close: () => void;
   remove: () => void;
   editIntensive: () => void;
-  /** The course's LMS page, when it is linked to one. */
-  lmsUrl?: string;
   /** Opens an official URL in the Web page. */
   openWeb: (url: string) => void;
   /** Pulls LMS (assignments and materials) without changing the timetable. */
@@ -70,7 +67,6 @@ export function CoursePanel({
         key={course.id}
         course={course}
         data={data}
-        lmsUrl={lmsUrl}
         openWeb={openWeb}
         fetchLms={fetchLms}
         progress={progress}

@@ -15,7 +15,6 @@ export function CourseDrawer({
   edit,
   toggle,
   editIntensive,
-  lmsUrl,
   openWeb,
   fetchLms,
   progress,
@@ -30,7 +29,6 @@ export function CourseDrawer({
   edit: () => void;
   toggle: () => void;
   editIntensive: () => void;
-  lmsUrl?: string;
   openWeb: (url: string) => void;
   fetchLms?: () => void;
   progress?: number | null;
@@ -70,7 +68,6 @@ export function CourseDrawer({
         data={data}
         initialTab={initialTab}
         onTabChange={onTabChange}
-        lmsUrl={lmsUrl}
         openWeb={openWeb}
         fetchLms={fetchLms}
         progress={progress}

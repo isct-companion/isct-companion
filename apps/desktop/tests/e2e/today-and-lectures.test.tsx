@@ -965,7 +965,11 @@ describe("syllabus details", () => {
       {
         workspace: workspaceFixture({ courses: [course] }),
         revision: freshRevision(),
-        queries: homeQueries,
+        // Core derives the locator from the offering id; the drawer shows it.
+        queries: {
+          ...homeQueries,
+          courseDetail: { syllabusUrl: SYLLABUS_LOCATOR },
+        },
         handle: (command) => {
           if (command === "syllabus_course") return englishSyllabus();
           return nativeNoise(command);

@@ -25,17 +25,6 @@ import {
 import { useClock } from "../../platform/use-clock";
 import { SyllabusDetails } from "./syllabus-details";
 
-/** The course's official syllabus page: its own URL when that is one, else by offering id. */
-export function syllabusUrl(
-  course: Pick<Course, "url" | "offeringId">,
-): string | undefined {
-  if (course.url?.startsWith("https://syllabus.s.isct.ac.jp/"))
-    return course.url;
-  return /^\d{9}$/.test(course.offeringId ?? "")
-    ? `https://syllabus.s.isct.ac.jp/courses/-/-/-/${course.offeringId}`
-    : undefined;
-}
-
 export type CourseTab = "overview" | "materials" | "assignments" | "syllabus";
 
 /** Stored LMS item fields beyond the `Material` type. */
@@ -92,7 +81,6 @@ export function CourseDetails({
   data,
   initialTab = "overview",
   onTabChange,
-  lmsUrl,
   openWeb,
   fetchLms,
   progress = null,
@@ -101,8 +89,6 @@ export function CourseDetails({
   data: Workspace;
   initialTab?: CourseTab;
   onTabChange?: (tab: CourseTab) => void;
-  /** The course's LMS page, when it is linked to one. */
-  lmsUrl?: string;
   openWeb: (url: string) => void;
   /** Pulls LMS materials and assignments (the timetable is unchanged). */
   fetchLms?: () => void;
@@ -258,8 +244,12 @@ export function CourseDetails({
               )}
             </dl>
             <div className="courseDetailsLinks">
-              {lmsUrl && (
-                <OfficialLink url={lmsUrl} label="LMS" openWeb={openWeb} />
+              {detail?.lmsUrl && (
+                <OfficialLink
+                  url={detail.lmsUrl}
+                  label="LMS"
+                  openWeb={openWeb}
+                />
               )}
             </div>
           </>
@@ -345,9 +335,9 @@ export function CourseDetails({
           </div>
         )}
         {tab === "syllabus" &&
-          (syllabusUrl(course) ? (
+          (detail?.syllabusUrl ? (
             <SyllabusDetails
-              url={syllabusUrl(course)!}
+              url={detail.syllabusUrl}
               fetchCourse={
                 bridge
                   ? (url) => bridge.syllabusCourse(url, language)

@@ -60,6 +60,7 @@ import {
 } from "./lessons";
 import {
   useScheduleQuery,
+  type CourseDetail,
   type CourseTimeline,
   type TaskView,
 } from "../../platform/core-query";
@@ -304,17 +305,10 @@ export function LmsWorkspace({
       ),
     [data.materials, course.id],
   );
-  const offeringSyllabus = data.offerings.find(
-    (o) => o.id === course.offeringId,
-  )?.syllabusUrl;
-  const syllabus =
-    offeringSyllabus ||
-    (course.url?.startsWith("https://syllabus.s.isct.ac.jp/")
-      ? course.url
-      : course.offeringId
-        ? `https://syllabus.s.isct.ac.jp/courses/-/-/-/${course.offeringId}`
-        : data.materials.find((m) => m.courseId === course.id && isSyllabus(m))
-            ?.resourceUrl);
+  const syllabus = useScheduleQuery<CourseDetail>({
+    kind: "courseDetail",
+    courseId: course.id,
+  }).value?.syllabusUrl;
   const announcementCards = useMemo(
     () =>
       materials
