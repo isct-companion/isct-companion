@@ -291,7 +291,6 @@ pub fn declarations() -> Vec<String> {
 #[derive(Clone)]
 pub struct WorkspaceService {
     store: DataStore,
-    events: Option<Arc<dyn crate::ports::EventSink>>,
     /// What the last `AddCatalogCourses` placed and replaced, so
     /// `UndoCatalogCourses` reverses exactly that add.  Like the finder's undo
     /// toast it lasts for this session only.
@@ -313,15 +312,6 @@ impl WorkspaceService {
     pub fn new(store: DataStore) -> Self {
         Self {
             store,
-            events: None,
-            catalog_undo: Arc::default(),
-        }
-    }
-
-    pub fn with_events(store: DataStore, events: Arc<dyn crate::ports::EventSink>) -> Self {
-        Self {
-            store,
-            events: Some(events),
             catalog_undo: Arc::default(),
         }
     }
@@ -337,12 +327,10 @@ impl WorkspaceService {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
-        let result = self.store.workspace_write(
+        let (workspace, school_records, revision) = self.store.workspace_write(
             &mutation.expected_revision,
             |write, current, school_records| {
-                apply_intent(write, current, school_records, mutation.intent, &mut undo)?;
-                let (workspace, school_records, revision) = write.snapshot_parts()?;
-                snapshot(workspace, school_records, revision)
+                apply_intent(write, current, school_records, mutation.intent, &mut undo)
             },
         )?;
         // Only a committed add or undo changes what Undo reverses.
@@ -350,13 +338,7 @@ impl WorkspaceService {
             .catalog_undo
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = undo;
-        if let Some(events) = &self.events {
-            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged {
-                source: crate::events::WorkspaceChangeSource::UserIntent,
-                revision: Some(result.revision.clone()),
-            });
-        }
-        Ok(result)
+        snapshot(workspace, school_records, revision).map_err(WorkspaceError::from)
     }
 }
 

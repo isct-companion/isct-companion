@@ -1,7 +1,7 @@
 use crate::data::{resolve_course_id, versioned::content_hash, DataError};
 use chrono::{Datelike, NaiveDate, NaiveTime, Utc};
 use reqwest::{Client, Url};
-use rusqlite::{Connection, OptionalExtension, Transaction};
+use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -1160,7 +1160,7 @@ fn apply_row(
 }
 
 pub fn apply_reference(
-    connection: &mut Connection,
+    tx: &Transaction<'_>,
     selected_calendar: Option<&AcademicCalendar>,
     selected_departments: Option<&Departments>,
 ) -> Result<usize, SubscriptionError> {
@@ -1185,7 +1185,6 @@ pub fn apply_reference(
     let departments_value = serde_json::to_value(departments).map_err(SubscriptionError::from)?;
     let calendar_hash = content_hash(&calendar_value)?;
     let guide_hash = content_hash(&departments_value)?;
-    let tx = connection.transaction().map_err(SubscriptionError::from)?;
     let mut changed = 0;
     let mut calendar_ids = HashSet::new();
     for (quarter, range) in &calendar.quarters {
@@ -1203,7 +1202,7 @@ pub fn apply_reference(
                 }
             }
             changed += usize::from(apply_row(
-                &tx,
+                tx,
                 "academic_calendar",
                 &id,
                 &value,
@@ -1231,7 +1230,7 @@ pub fn apply_reference(
         object.insert("academicYear".into(), calendar.academic_year.into());
         object.insert("provenance".into(), json!({"source":calendar.source}));
         changed += usize::from(apply_row(
-            &tx,
+            tx,
             "academic_calendar",
             &id,
             &value,
@@ -1278,14 +1277,7 @@ pub fn apply_reference(
         object.insert("admissionYear".into(), departments.admission_year.into());
         object.insert("cohortYear".into(), departments.admission_year.into());
         object.insert("provenance".into(), json!({"source":departments.source}));
-        changed += usize::from(apply_row(
-            &tx,
-            "departments",
-            &id,
-            &value,
-            &guide_hash,
-            &[],
-        )?);
+        changed += usize::from(apply_row(tx, "departments", &id, &value, &guide_hash, &[])?);
         for course in &department.recommended {
             let id = format!(
                 "cohort:{}:recommended:{}:{}:{}",
@@ -1311,7 +1303,7 @@ pub fn apply_reference(
                 json!({"source":departments.source,"guidePdf":department.guide_pdf}),
             );
             changed += usize::from(apply_row(
-                &tx,
+                tx,
                 "recommended_courses",
                 &id,
                 &value,
@@ -1369,7 +1361,6 @@ pub fn apply_reference(
             changed+=tx.execute(&format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),rusqlite::params![id,missing]).map_err(SubscriptionError::from)?;
         }
     }
-    tx.commit().map_err(SubscriptionError::from)?;
     Ok(changed)
 }
 
@@ -1399,12 +1390,11 @@ fn mark_missing(
 }
 
 pub fn apply_important_dates(
-    connection: &mut Connection,
+    tx: &Transaction<'_>,
     feed: &ImportantDates,
 ) -> Result<usize, SubscriptionError> {
     let feed_value = serde_json::to_value(feed).map_err(SubscriptionError::from)?;
     let source_hash = content_hash(&feed_value)?;
-    let tx = connection.transaction().map_err(SubscriptionError::from)?;
     let mut changed = 0;
     let mut live = HashSet::new();
     for entry in &feed.entries {
@@ -1424,7 +1414,7 @@ pub fn apply_important_dates(
         );
         object.insert("provenance".into(), json!({"source":feed.source}));
         changed += usize::from(apply_row(
-            &tx,
+            tx,
             "important_dates",
             &id,
             &value,
@@ -1438,22 +1428,20 @@ pub fn apply_important_dates(
         )?);
     }
     changed += mark_missing(
-        &tx,
+        tx,
         "important_dates",
         &format!("important-date:{}:%", feed.academic_year),
         &live,
     )?;
-    tx.commit().map_err(SubscriptionError::from)?;
     Ok(changed)
 }
 
 pub fn apply_class_schedules(
-    connection: &mut Connection,
+    tx: &Transaction<'_>,
     feed: &ClassSchedules,
 ) -> Result<usize, SubscriptionError> {
     let feed_value = serde_json::to_value(feed).map_err(SubscriptionError::from)?;
     let source_hash = content_hash(&feed_value)?;
-    let tx = connection.transaction().map_err(SubscriptionError::from)?;
     let mut changed = 0;
     let mut live = HashSet::new();
     for entry in &feed.entries {
@@ -1473,7 +1461,7 @@ pub fn apply_class_schedules(
         );
         object.insert("provenance".into(), json!({"source":feed.source}));
         changed += usize::from(apply_row(
-            &tx,
+            tx,
             "class_schedules",
             &id,
             &value,
@@ -1485,22 +1473,20 @@ pub fn apply_class_schedules(
         )?);
     }
     changed += mark_missing(
-        &tx,
+        tx,
         "class_schedules",
         &format!("class-schedule:{}:%", feed.academic_year),
         &live,
     )?;
-    tx.commit().map_err(SubscriptionError::from)?;
     Ok(changed)
 }
 
 pub fn apply_exam_feed(
-    connection: &mut Connection,
+    tx: &Transaction<'_>,
     published: &PublishedExamFeed,
 ) -> Result<usize, SubscriptionError> {
     let feed_value = serde_json::to_value(&published.feed).map_err(SubscriptionError::from)?;
     let source_hash = content_hash(&feed_value)?;
-    let tx = connection.transaction().map_err(SubscriptionError::from)?;
     let mut changed = 0;
     let mut live = HashSet::new();
     for entry in &published.feed.entries {
@@ -1516,7 +1502,7 @@ pub fn apply_exam_feed(
         object.insert("level".into(), published.level.clone().into());
         if let Some(offering_id) = entry.syllabus_course_id.as_deref() {
             let course_id = resolve_course_id(
-                &tx,
+                tx,
                 "syllabus",
                 offering_id,
                 published.feed.academic_year,
@@ -1537,7 +1523,7 @@ pub fn apply_exam_feed(
             json!({"source":published.feed.source,"dataUrl":published.url}),
         );
         changed += usize::from(apply_row(
-            &tx,
+            tx,
             "exams",
             &id,
             &value,
@@ -1556,8 +1542,7 @@ pub fn apply_exam_feed(
         "exam:{}:{}:{}:%",
         published.feed.academic_year, published.level, published.quarter
     );
-    changed += mark_missing(&tx, "exams", &prefix, &live)?;
-    tx.commit().map_err(SubscriptionError::from)?;
+    changed += mark_missing(tx, "exams", &prefix, &live)?;
     Ok(changed)
 }
 

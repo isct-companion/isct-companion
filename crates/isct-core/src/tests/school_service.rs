@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ports::{EventError, SecretError, SecretVault},
+    ports::{SecretError, SecretVault},
     pull_coordinator::{PullPriority, PullState},
 };
 use std::sync::Mutex;
@@ -24,16 +24,6 @@ impl SecretVault for MemoryVault {
 
     fn delete(&self, _account: &str) -> Result<(), SecretError> {
         *self.0.lock().unwrap() = None;
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct RecordingEvents(Mutex<Vec<CoreEvent>>);
-
-impl EventSink for RecordingEvents {
-    fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
-        self.0.lock().unwrap().push(event);
         Ok(())
     }
 }
@@ -137,7 +127,7 @@ fn outcome(state: IngestState) -> IngestOutcome {
 }
 
 fn service(coordinator: PullCoordinator, auth: Arc<SchoolAuthService>) -> SchoolService {
-    SchoolService::new(coordinator, auth, Arc::new(RecordingEvents::default()))
+    SchoolService::new(coordinator, auth)
 }
 
 #[tokio::test]

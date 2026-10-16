@@ -363,7 +363,7 @@ impl SchoolBrowserEngine {
         // The write gate covers this page's commit only; the next 教務Web page
         // can be cancelled again.
         context.applied().await;
-        let outcome = applied.map_err(|_| SchoolBrowserError::Stopped)??;
+        let outcome = applied.map_err(|_| SchoolBrowserError::Stopped)?;
         let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
         Ok(outcome)
     }
@@ -469,16 +469,16 @@ pub(super) fn ingestion_script(raw: &str) -> Option<&'static str> {
     .then_some(KYOMU_EXTRACT_SCRIPT)
 }
 
-pub(super) fn apply_raw(
-    store: &DataStore,
-    site: SchoolSite,
-    raw: &str,
-) -> Result<IngestOutcome, SchoolBrowserError> {
-    let mut connection = rusqlite::Connection::open(store.path())
-        .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
+/// Applies one extracted page through the store's commit path, so a visible
+/// page and a hidden pull publish the same workspace change.
+pub(super) fn apply_raw(store: &DataStore, site: SchoolSite, raw: &str) -> IngestOutcome {
+    let source = Some(WorkspaceChangeSource::SchoolPull);
     let applied = if site == SchoolSite::ScienceLms {
         match parse_lms_payload(raw) {
-            Ok((LmsStage::Ready, Some(payload))) => apply_lms_payload(&mut connection, &payload)
+            Ok((LmsStage::Ready, Some(payload))) => store
+                .write(source, |transaction| {
+                    apply_lms_payload(transaction, &payload)
+                })
                 .map(|changed| ("lms".to_string(), changed))
                 .map_err(|error| ("lms".to_string(), Some(error.to_string()))),
             Ok(_) => Err(("lms".into(), None)),
@@ -498,15 +498,20 @@ pub(super) fn apply_raw(
         match parse_kyomu_payload(raw) {
             Ok((KyomuStage::Ready, Some(payload))) => {
                 let kind = payload.kind.clone();
-                apply_kyomu_payload(&mut connection, &payload)
+                store
+                    .write(source, |transaction| {
+                        apply_kyomu_payload(transaction, &payload)
+                    })
                     .map(|changed| (kind.clone(), changed))
                     .map_err(|error| (kind, Some(error.to_string())))
             }
             Ok((KyomuStage::Unavailable, Some(payload))) => {
                 let kind = payload.kind.clone();
                 let message = payload.message.clone();
-                return Ok(match record_kyomu_unavailable(&connection, &payload) {
-                    Ok(()) => IngestOutcome {
+                return match store.write(source, |transaction| {
+                    record_kyomu_unavailable(transaction, &payload)
+                }) {
+                    Ok(_) => IngestOutcome {
                         site,
                         kind,
                         state: IngestState::Unavailable,
@@ -520,7 +525,7 @@ pub(super) fn apply_raw(
                         changed: 0,
                         message: error.to_string(),
                     },
-                });
+                };
             }
             Ok((_, payload)) => Err((
                 payload
@@ -531,7 +536,7 @@ pub(super) fn apply_raw(
             Err(error) => Err(("unknown".into(), Some(error.to_string()))),
         }
     };
-    Ok(match applied {
+    match applied {
         Ok((kind, changed)) => IngestOutcome {
             site,
             kind,
@@ -548,7 +553,7 @@ pub(super) fn apply_raw(
             changed: 0,
             message,
         },
-    })
+    }
 }
 
 pub(super) fn sign_in_required(site: SchoolSite, kind: &str) -> IngestOutcome {

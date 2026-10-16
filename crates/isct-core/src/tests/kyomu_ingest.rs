@@ -41,8 +41,12 @@ fn duplicate_graduate_grade_identity_rolls_back_the_page() {
             }),
             message: String::new(),
         };
-    let mut connection = Connection::open(store.path()).unwrap();
-    assert!(apply_kyomu_payload(&mut connection, &payload).is_err());
+    assert!(store
+        .write(None, |transaction| apply_kyomu_payload(
+            transaction,
+            &payload
+        ))
+        .is_err());
     assert!(store.table_rows("grades").unwrap().is_empty());
 }
 

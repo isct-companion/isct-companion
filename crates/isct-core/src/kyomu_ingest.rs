@@ -2,7 +2,7 @@ use crate::data::{resolve_course_id, versioned::content_hash};
 use crate::lms_ingest::IngestError;
 use crate::school_parser::kyomu::KyomuPayload;
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -291,11 +291,11 @@ fn grade_row_id(
     Ok(format!("kyomu-grade:flat:{identity}"))
 }
 
+/// Projects one 教務Web page inside the caller's transaction.
 pub fn apply_kyomu_payload(
-    connection: &mut Connection,
+    tx: &Transaction<'_>,
     payload: &KyomuPayload,
 ) -> Result<usize, IngestError> {
-    let tx = connection.transaction().map_err(IngestError::from)?;
     let run = Uuid::new_v4().to_string();
     tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'kyomu',?2,'running',?3)",params![run,payload.kind,Utc::now().to_rfc3339()]).map_err(IngestError::from)?;
     let mut changed = 0;
@@ -309,7 +309,7 @@ pub fn apply_kyomu_payload(
                 if let Some(o) = value.as_object_mut() {
                     o.insert("id".into(), id.into());
                 }
-                changed += usize::from(upsert(&tx, "registration_states", id, &value, &[])?);
+                changed += usize::from(upsert(tx, "registration_states", id, &value, &[])?);
             }
             let mut ids = HashSet::new();
             for course in payload
@@ -323,7 +323,7 @@ pub fn apply_kyomu_payload(
                     continue;
                 };
                 if let Some(Ok(year)) = offering.get(..4).map(str::parse::<i32>) {
-                    resolve_course_id(&tx, "kyomu", offering, year, Some(offering))?;
+                    resolve_course_id(tx, "kyomu", offering, year, Some(offering))?;
                 }
                 let id = format!("kyomu-registration:{offering}");
                 ids.insert(id.clone());
@@ -331,11 +331,11 @@ pub fn apply_kyomu_payload(
                 if let Some(o) = value.as_object_mut() {
                     o.insert("id".into(), id.clone().into());
                 }
-                changed += usize::from(upsert(&tx, "registrations", &id, &value, &[])?);
+                changed += usize::from(upsert(tx, "registrations", &id, &value, &[])?);
             }
-            changed += mark_missing(&tx, "registrations", "kyomu-registration:", &ids)?;
+            changed += mark_missing(tx, "registrations", "kyomu-registration:", &ids)?;
             changed += mark_missing(
-                &tx,
+                tx,
                 "registration_states",
                 "kyomu-registration-state",
                 &state_ids,
@@ -349,7 +349,7 @@ pub fn apply_kyomu_payload(
                 .collect();
             for row in &rows {
                 let id = row["id"].as_str().unwrap_or_default();
-                changed += usize::from(upsert(&tx, "registrations", id, row, &[])?);
+                changed += usize::from(upsert(tx, "registrations", id, row, &[])?);
             }
             // The page lists every declaration; withdrawn ones leave it.
             let mut statement = tx
@@ -400,10 +400,10 @@ pub fn apply_kyomu_payload(
                         o.insert("id".into(), id.clone().into());
                         o.insert("category".into(), json!({"ja":category}));
                     }
-                    changed += usize::from(upsert(&tx, "grades", &id, &value, &[])?);
+                    changed += usize::from(upsert(tx, "grades", &id, &value, &[])?);
                 }
             }
-            changed += mark_missing(&tx, "grades", "kyomu-grade:", &live)?;
+            changed += mark_missing(tx, "grades", "kyomu-grade:", &live)?;
         }
         "requirements" => {
             let mut live = HashSet::new();
@@ -442,11 +442,11 @@ pub fn apply_kyomu_payload(
                         live.insert(id.clone());
                         let record = json!({"id":id,"table":table_index,"category":category,"label":label,"value":value});
                         changed +=
-                            usize::from(upsert(&tx, "requirement_progress", &id, &record, &[])?);
+                            usize::from(upsert(tx, "requirement_progress", &id, &record, &[])?);
                     }
                 }
             }
-            changed += mark_missing(&tx, "requirement_progress", "kyomu-requirement:", &live)?;
+            changed += mark_missing(tx, "requirement_progress", "kyomu-requirement:", &live)?;
         }
         "gpa" => {
             let mut summary_ids = HashSet::new();
@@ -455,7 +455,7 @@ pub fn apply_kyomu_payload(
                 summary_ids.insert(id.clone());
                 let scope = summary["scope"].as_str().unwrap_or_default().to_string();
                 changed += usize::from(upsert(
-                    &tx,
+                    tx,
                     "gpa_summary",
                     &id,
                     &summary,
@@ -474,10 +474,10 @@ pub fn apply_kyomu_payload(
                 let id = format!("kyomu-gpa-term:{index}");
                 term_ids.insert(id.clone());
                 let value = json!({"id":id,"cells":row});
-                changed += usize::from(upsert(&tx, "gpa_by_term", &id, &value, &[])?);
+                changed += usize::from(upsert(tx, "gpa_by_term", &id, &value, &[])?);
             }
-            changed += mark_missing(&tx, "gpa_summary", "kyomu-gpa:", &summary_ids)?;
-            changed += mark_missing(&tx, "gpa_by_term", "kyomu-gpa-term:", &term_ids)?;
+            changed += mark_missing(tx, "gpa_summary", "kyomu-gpa:", &summary_ids)?;
+            changed += mark_missing(tx, "gpa_by_term", "kyomu-gpa-term:", &term_ids)?;
         }
         _ => return Err("unsupported kyomu payload".into()),
     }
@@ -490,7 +490,6 @@ pub fn apply_kyomu_payload(
         ],
     )
     .map_err(IngestError::from)?;
-    tx.commit().map_err(IngestError::from)?;
     Ok(changed)
 }
 
@@ -498,22 +497,21 @@ pub fn apply_kyomu_payload(
 /// to this account. Existing page-owned rows remain untouched, while refresh
 /// freshness and the UI can distinguish retained data from a current result.
 pub fn record_kyomu_unavailable(
-    connection: &Connection,
+    tx: &Transaction<'_>,
     payload: &KyomuPayload,
 ) -> Result<(), IngestError> {
     let now = Utc::now().to_rfc3339();
-    connection
-        .execute(
-            "INSERT INTO import_runs(id,provider,scope,state,started_at,finished_at,message)
+    tx.execute(
+        "INSERT INTO import_runs(id,provider,scope,state,started_at,finished_at,message)
              VALUES(?1,'kyomu',?2,'unavailable',?3,?3,?4)",
-            params![
-                Uuid::new_v4().to_string(),
-                payload.kind,
-                now,
-                payload.message
-            ],
-        )
-        .map_err(IngestError::from)?;
+        params![
+            Uuid::new_v4().to_string(),
+            payload.kind,
+            now,
+            payload.message
+        ],
+    )
+    .map_err(IngestError::from)?;
     Ok(())
 }
 

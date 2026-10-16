@@ -17,32 +17,32 @@ impl DataStore {
         Ok((workspace, school_records, revision))
     }
 
-    pub(crate) fn workspace_write<T>(
+    /// Applies one user intent after checking the revision it was made
+    /// against, and returns `(workspace, school records, revision)` as
+    /// committed.
+    pub(crate) fn workspace_write(
         &self,
         expected_revision: &str,
-        operation: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value, &Value) -> Result<T, DataError>,
-    ) -> Result<T, DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)?;
-        let actual = intent_revision(&transaction)?;
-        if actual != expected_revision {
-            return Err(DataError::conflict(format!(
-                "workspace revision conflict: expected {expected_revision}, actual {actual}"
-            )));
-        }
-        let current = Self::load_workspace_from(&transaction)?;
-        let school_records = Self::school_records_from(&transaction)?;
-        let result = operation(
-            &WorkspaceWrite {
-                transaction: &transaction,
-            },
-            &current,
-            &school_records,
-        )?;
-        transaction.commit().map_err(DataError::from)?;
-        Ok(result)
+        operation: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value, &Value) -> Result<(), DataError>,
+    ) -> Result<(Value, Value, String), DataError> {
+        self.write_revision(Some(WorkspaceChangeSource::UserIntent), |transaction| {
+            let actual = intent_revision(transaction)?;
+            if actual != expected_revision {
+                return Err(DataError::conflict(format!(
+                    "workspace revision conflict: expected {expected_revision}, actual {actual}"
+                )));
+            }
+            let current = Self::load_workspace_from(transaction)?;
+            let school_records = Self::school_records_from(transaction)?;
+            operation(&WorkspaceWrite { transaction }, &current, &school_records)?;
+            let revision = intent_revision(transaction)?;
+            let parts = (
+                Self::load_workspace_from(transaction)?,
+                Self::school_records_from(transaction)?,
+                revision.clone(),
+            );
+            Ok((parts, Some(revision)))
+        })
     }
 
     pub(super) fn load_workspace_from(connection: &Connection) -> Result<Value, DataError> {

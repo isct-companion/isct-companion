@@ -1,9 +1,7 @@
 //! Coordinated school extraction independent of the native webview implementation.
 
 use crate::{
-    events::{CoreEvent, WorkspaceChangeSource},
     lifecycle::SchoolSite,
-    ports::EventSink,
     pull_coordinator::{PullContext, PullCoordinator, PullError, PullOptions, PullTarget},
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
 };
@@ -152,20 +150,11 @@ impl From<PullError> for SchoolError {
 pub struct SchoolService {
     coordinator: PullCoordinator,
     auth: Arc<SchoolAuthService>,
-    events: Arc<dyn EventSink>,
 }
 
 impl SchoolService {
-    pub fn new(
-        coordinator: PullCoordinator,
-        auth: Arc<SchoolAuthService>,
-        events: Arc<dyn EventSink>,
-    ) -> Self {
-        Self {
-            coordinator,
-            auth,
-            events,
-        }
+    pub fn new(coordinator: PullCoordinator, auth: Arc<SchoolAuthService>) -> Self {
+        Self { coordinator, auth }
     }
 
     pub async fn pull(
@@ -236,14 +225,6 @@ impl SchoolService {
                                 context.clone(),
                             )
                             .await;
-                        // 教務Web commits per page, so a run cancelled between pages
-                        // may already have changed rows.
-                        if matches!(result, Ok(_) | Err(SchoolExecutorError::Cancelled)) {
-                            let _ = service.events.emit(CoreEvent::WorkspaceChanged {
-                                source: WorkspaceChangeSource::SchoolPull,
-                                revision: None,
-                            });
-                        }
                         let result = result.map_err(map_executor_error)?;
                         if context.is_cancelled() {
                             return Err(PullError::Cancelled);

@@ -16,7 +16,6 @@ impl Fixture {
             .put_workspace_setting(
                 "devicePreferences",
                 json!({"agentAccess":{"enabled":true,"lastWrites":[]}}),
-                "test",
             )
             .unwrap();
         Self { root, store }
@@ -134,7 +133,7 @@ fn plan_tools_share_civil_jst_time_and_invalid_updates_do_not_commit() {
                 "title":"Excluded legacy", "start":"2026-10-14T11:00", "duration":30,
                 "exdates":["2026-10-14"]
             }),
-            "test",
+            crate::data::WorkspaceChangeSource::UserIntent,
         )
         .unwrap();
     let schedule = service
@@ -231,7 +230,6 @@ fn authorization_and_write_policy_fail_before_mutation() {
         .put_workspace_setting(
             "devicePreferences",
             json!({"agentAccess":{"enabled":false,"lastWrites":[]}}),
-            "test",
         )
         .unwrap();
     assert!(matches!(
@@ -248,7 +246,6 @@ fn transaction_rechecks_revoked_access_before_running_the_write() {
         .put_workspace_setting(
             "devicePreferences",
             json!({"agentAccess":{"enabled":false,"lastWrites":[]}}),
-            "test",
         )
         .unwrap();
     let ran = std::cell::Cell::new(false);
@@ -334,7 +331,6 @@ fn plan_add_uses_the_shared_first_year_gate_before_writing() {
                      "admittedTerm":"2026-4Q"}
                 ]
             }),
-            "test",
         )
         .unwrap();
     fixture
@@ -466,7 +462,11 @@ fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
     let course = fixture.store.user_rows("manual_courses").unwrap().remove(0);
     fixture
         .store
-        .delete_user_record("manual_courses", course["id"].as_str().unwrap(), "test")
+        .delete_user_record(
+            "manual_courses",
+            course["id"].as_str().unwrap(),
+            crate::data::WorkspaceChangeSource::UserIntent,
+        )
         .unwrap();
     // The school lists the same offering as a registered course.
     let mut school = course.clone();

@@ -1,78 +1,8 @@
 use super::*;
-use crate::ports::{EventError, EventSink};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-struct MutationEvents {
-    count: AtomicUsize,
-    fail: bool,
-}
-
-impl EventSink for MutationEvents {
-    fn emit(&self, event: crate::events::CoreEvent) -> Result<(), EventError> {
-        assert!(matches!(
-            event,
-            crate::events::CoreEvent::WorkspaceChanged {
-                source: crate::events::WorkspaceChangeSource::UserIntent,
-                revision: Some(_),
-            }
-        ));
-        self.count.fetch_add(1, Ordering::Relaxed);
-        if self.fail {
-            Err(EventError::Delivery("synthetic delivery failure".into()))
-        } else {
-            Ok(())
-        }
-    }
-}
 
 fn service(name: &str) -> WorkspaceService {
     let path = std::env::temp_dir().join(format!("isct-workspace-{name}-{}.db", Uuid::new_v4()));
     WorkspaceService::new(DataStore::initialize(path).unwrap().0)
-}
-
-#[test]
-fn committed_mutations_emit_once_and_delivery_does_not_change_the_result() {
-    let path = std::env::temp_dir().join(format!("isct-workspace-events-{}.db", Uuid::new_v4()));
-    let store = DataStore::initialize(path).unwrap().0;
-    let events = Arc::new(MutationEvents {
-        count: AtomicUsize::new(0),
-        fail: false,
-    });
-    let service = WorkspaceService::with_events(store, events.clone());
-    let initial = service.snapshot().unwrap();
-    let committed = service
-        .mutate(WorkspaceMutation {
-            expected_revision: initial.revision,
-            intent: WorkspaceIntent::SetAdmissionYear {
-                admission_year: Some(2026),
-            },
-        })
-        .unwrap();
-    assert_eq!(events.count.load(Ordering::Relaxed), 1);
-
-    let failed = service.mutate(WorkspaceMutation {
-        expected_revision: "stale".into(),
-        intent: WorkspaceIntent::SetAdmissionYear {
-            admission_year: Some(2025),
-        },
-    });
-    assert!(matches!(failed, Err(WorkspaceError::Conflict(_))));
-    assert_eq!(events.count.load(Ordering::Relaxed), 1);
-
-    let failing_events = Arc::new(MutationEvents {
-        count: AtomicUsize::new(0),
-        fail: true,
-    });
-    let service = WorkspaceService::with_events(service.store.clone(), failing_events.clone());
-    assert!(service
-        .mutate(WorkspaceMutation {
-            expected_revision: committed.revision,
-            intent: WorkspaceIntent::SetAdmissionYear {
-                admission_year: Some(2027),
-            },
-        })
-        .is_ok());
-    assert_eq!(failing_events.count.load(Ordering::Relaxed), 1);
 }
 
 fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) -> Value {
@@ -192,7 +122,7 @@ fn settings_replacement_clears_keys_and_core_validates_every_value() {
     assert!(matches!(
         service
             .store
-            .put_workspace_setting("devicePreferences", json!({"locale":"xx"}), "test"),
+            .put_workspace_setting("devicePreferences", json!({"locale":"xx"})),
         Err(DataError::InvalidInput(_))
     ));
     assert_eq!(service.snapshot().unwrap().revision, before.revision);
@@ -233,7 +163,7 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
     });
     service
         .store
-        .put_workspace_setting("academicProfile", legacy.clone(), "test")
+        .put_workspace_setting("academicProfile", legacy.clone())
         .unwrap();
     let old = service.snapshot().unwrap();
     assert!(old.workspace["academicProfile"]
@@ -791,7 +721,12 @@ fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
     task["lastResult"] = json!("Done");
     service
         .store
-        .put_user_record_checked("scheduled_tasks", task, "scheduler", rev)
+        .put_user_record_checked(
+            "scheduled_tasks",
+            task,
+            crate::data::WorkspaceChangeSource::Scheduler,
+            rev,
+        )
         .unwrap();
     let ingested = service.snapshot().unwrap();
     assert_ne!(ingested.content_revision, before.content_revision);

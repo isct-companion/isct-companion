@@ -199,7 +199,6 @@ pub async fn save_course_note(
             })
             .await
             .map_err(|error| error.to_string())??;
-            crate::cloud_sync::CloudSync::changed(&app).await;
             Ok::<LocalFile, String>(file)
         })
         .await
@@ -241,7 +240,6 @@ pub async fn move_course_note(
             })
             .await
             .map_err(|error| error.to_string())??;
-            crate::cloud_sync::CloudSync::changed(&app).await;
             Ok::<bool, String>(moved)
         })
         .await

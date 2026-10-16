@@ -1,7 +1,7 @@
 use crate::data::{resolve_course_id, versioned::content_hash, DataError};
 use crate::school_parser::lms::{id_of, lms_url, AssignState, LmsPayload};
 use chrono::{Datelike, Utc};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -566,13 +566,9 @@ fn write_assignment(
     )
 }
 
-pub fn apply_lms_payload(
-    connection: &mut Connection,
-    payload: &LmsPayload,
-) -> Result<usize, IngestError> {
-    let tx = connection
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(IngestError::from)?;
+/// Projects one LMS payload inside the caller's transaction; the run
+/// commits or rolls back as a whole.
+pub fn apply_lms_payload(tx: &Transaction<'_>, payload: &LmsPayload) -> Result<usize, IngestError> {
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
@@ -675,7 +671,7 @@ pub fn apply_lms_payload(
             "quarters":quarter_of(year,course.coursecategory),"url":course.viewurl,"hidden":course.hidden,
             "timetables":timetables,"sections":sections});
         changed += usize::from(upsert_versioned(
-            &tx,
+            tx,
             "lms_courses",
             &lms_course_id,
             &value,
@@ -684,10 +680,10 @@ pub fn apply_lms_payload(
         let offering_id = value.get("offeringId").and_then(Value::as_str);
         let lms_id = course.id.to_string();
         let academic_year = year.unwrap_or_else(|| Utc::now().year() as u32) as i32;
-        let course_id = resolve_course_id(&tx, "lms", &lms_id, academic_year, offering_id)?;
+        let course_id = resolve_course_id(tx, "lms", &lms_id, academic_year, offering_id)?;
         if let Some(offering_id) = offering_id {
             resolve_course_id(
-                &tx,
+                tx,
                 "syllabus",
                 offering_id,
                 academic_year,
@@ -781,7 +777,7 @@ pub fn apply_lms_payload(
                 "sectionId":id_of(cm.get("sectionid")),"bodyHtml":body,"resourceUrl":resource_url,"folderFiles":folder_files,"sectionTitle":section.0,"module":module,"name":cm.get("name").and_then(Value::as_str).unwrap_or(""),
                 "session":section.1,"title":name,"type":"link","url":url,"visible":cm.get("visible").and_then(Value::as_bool).unwrap_or(false) && cm.get("uservisible").and_then(Value::as_bool).unwrap_or(false)});
             changed += usize::from(upsert_versioned(
-                &tx,
+                tx,
                 "lms_items",
                 &item_id,
                 &item,
@@ -790,7 +786,7 @@ pub fn apply_lms_payload(
             if matches!(module, "assign" | "quiz") {
                 let title = cm.get("name").and_then(Value::as_str).unwrap_or("");
                 changed += usize::from(write_assignment(
-                    &tx,
+                    tx,
                     &AssignmentSource {
                         cmid,
                         lms_course: structure.course_id,
@@ -860,7 +856,7 @@ pub fn apply_lms_payload(
             .and_then(Value::as_str)
             .unwrap_or("");
         changed += usize::from(write_assignment(
-            &tx,
+            tx,
             &AssignmentSource {
                 cmid,
                 lms_course,
@@ -883,7 +879,6 @@ pub fn apply_lms_payload(
         ],
     )
     .map_err(IngestError::from)?;
-    tx.commit().map_err(IngestError::from)?;
     Ok(changed)
 }
 

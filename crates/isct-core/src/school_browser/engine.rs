@@ -7,7 +7,7 @@ use super::{
     SchoolSessionSnapshot, SchoolSessionState, SchoolSessionStates, SchoolWebResult,
 };
 use crate::{
-    data::DataStore,
+    data::{DataStore, WorkspaceChangeSource},
     events::CoreEvent,
     kyomu_ingest::{apply_kyomu_payload, record_kyomu_unavailable, KYOMU_EXTRACT_SCRIPT},
     lifecycle::SchoolSite,
@@ -774,11 +774,10 @@ impl Inner {
                                 let site = page.browser.site;
                                 let _entered = self.runtime.enter();
                                 self.tasks.spawn(async move {
-                                    if let Ok(Ok(outcome)) =
-                                        tokio::task::spawn_blocking(move || {
-                                            apply_raw(&store, site, &raw)
-                                        })
-                                        .await
+                                    if let Ok(outcome) = tokio::task::spawn_blocking(move || {
+                                        apply_raw(&store, site, &raw)
+                                    })
+                                    .await
                                     {
                                         let _ = events.emit(CoreEvent::SchoolIngest(outcome));
                                     }

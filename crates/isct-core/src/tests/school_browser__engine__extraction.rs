@@ -15,7 +15,7 @@ fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
             }]}]
         }
     });
-    let outcome = apply_raw(&store, SchoolSite::Kyomu, &ready.to_string()).unwrap();
+    let outcome = apply_raw(&store, SchoolSite::Kyomu, &ready.to_string());
     assert_eq!(outcome.state, IngestState::Ok);
     assert_eq!(store.table_rows("grades").unwrap().len(), 1);
 
@@ -23,7 +23,7 @@ fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
         "status":"unavailable","sourceUrl":source,"kind":"grades",
         "message":"このページは利用できません","data":{}
     });
-    let outcome = apply_raw(&store, SchoolSite::Kyomu, &unavailable.to_string()).unwrap();
+    let outcome = apply_raw(&store, SchoolSite::Kyomu, &unavailable.to_string());
     assert_eq!(outcome.state, IngestState::Unavailable);
     assert_eq!(store.table_rows("grades").unwrap().len(), 1);
     let (_, records, _) = store.workspace_snapshot_parts().unwrap();
@@ -37,7 +37,7 @@ fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
         "status":"ok","sourceUrl":source,"kind":"grades",
         "data":{"complete":true,"shape":"future-layout","empty":true,"groups":[]}
     });
-    let outcome = apply_raw(&store, SchoolSite::Kyomu, &invalid.to_string()).unwrap();
+    let outcome = apply_raw(&store, SchoolSite::Kyomu, &invalid.to_string());
     assert_eq!(outcome.state, IngestState::Error);
     assert_eq!(store.table_rows("grades").unwrap().len(), 1);
 }

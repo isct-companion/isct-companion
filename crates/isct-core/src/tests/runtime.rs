@@ -35,15 +35,6 @@ impl SecretVault for MemoryVault {
 }
 
 #[derive(Default)]
-struct NoopEvents;
-
-impl EventSink for NoopEvents {
-    fn emit(&self, _event: CoreEvent) -> Result<(), EventError> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
 struct PullEvents(AtomicUsize);
 
 impl EventSink for PullEvents {
@@ -97,7 +88,12 @@ fn disable_background_work(store: &DataStore) {
             let revision = row["rev"].as_u64().unwrap();
             row["enabled"] = Value::Bool(false);
             store
-                .put_user_record_checked(table, row, "test", Some(revision))
+                .put_user_record_checked(
+                    table,
+                    row,
+                    crate::data::WorkspaceChangeSource::UserIntent,
+                    Some(revision),
+                )
                 .unwrap();
         }
     }
@@ -108,23 +104,16 @@ fn services(
     store: &DataStore,
     exporter: Arc<dyn ScheduledExporter>,
 ) -> SchedulerServices {
-    let events: Arc<dyn EventSink> = Arc::new(NoopEvents);
     SchedulerServices {
         store: store.clone(),
-        references: ReferenceService::new(
-            store.clone(),
-            runtime.coordinator.clone(),
-            events.clone(),
-        ),
+        references: ReferenceService::new(store.clone(), runtime.coordinator.clone()),
         school: SchoolService::new(
             runtime.coordinator.clone(),
             Arc::new(SchoolAuthService::new(MemoryVault)),
-            events.clone(),
         ),
         refresh: runtime.refresh.clone(),
         executor: Arc::new(NoopExecutor),
         exporter,
-        events,
     }
 }
 
@@ -142,7 +131,7 @@ fn add_launch_task(store: &DataStore, id: &str) {
                 "schedule": "launch",
                 "enabled": true
             }),
-            "test",
+            crate::data::WorkspaceChangeSource::UserIntent,
         )
         .unwrap();
 }

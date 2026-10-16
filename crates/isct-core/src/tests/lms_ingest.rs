@@ -5,6 +5,20 @@ use rusqlite::Connection;
 use serde_json::json;
 use std::collections::HashMap;
 
+/// Runs an ingest executor the way `DataStore::write` does: inside one
+/// transaction that commits only on success.
+fn apply_committed<T, E>(
+    connection: &mut Connection,
+    apply: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T, E>,
+) -> Result<T, E> {
+    let transaction = connection.transaction().unwrap();
+    let result = apply(&transaction);
+    if result.is_ok() {
+        transaction.commit().unwrap();
+    }
+    result
+}
+
 fn invalid_item_payload() -> LmsPayload {
     LmsPayload {
         status: "ok".into(),
@@ -53,14 +67,14 @@ fn ingest_error_distinguishes_payload_rejection_from_storage_failure() {
     let payload = invalid_item_payload();
     let mut missing_schema = Connection::open_in_memory().unwrap();
     assert!(matches!(
-        apply_lms_payload(&mut missing_schema, &payload),
+        apply_committed(&mut missing_schema, |tx| apply_lms_payload(tx, &payload)),
         Err(IngestError::Storage(_))
     ));
 
     let mut connection = Connection::open_in_memory().unwrap();
     migrations::migrate(&mut connection).unwrap();
     assert!(matches!(
-        apply_lms_payload(&mut connection, &payload),
+        apply_committed(&mut connection, |tx| apply_lms_payload(tx, &payload)),
         Err(IngestError::InvalidPayload(_))
     ));
 }
@@ -85,7 +99,10 @@ fn graded_assignment_and_grade_survive_missing_page_then_accept_reopened_state()
             raw["assignStatus"] = json!([{"cmid":7,"submission":"open"}]);
         }
         let (_, payload) = crate::school_parser::lms::parse_payload(&raw.to_string()).unwrap();
-        apply_lms_payload(&mut connection, &payload.unwrap()).unwrap();
+        apply_committed(&mut connection, |tx| {
+            apply_lms_payload(tx, &payload.unwrap())
+        })
+        .unwrap();
         let value: String = connection
             .query_row(
                 "SELECT value FROM assignments WHERE lms_cmid=7",

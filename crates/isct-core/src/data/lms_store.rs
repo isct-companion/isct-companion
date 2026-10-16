@@ -59,8 +59,7 @@ impl DataStore {
         key: &str,
         detail: Value,
     ) -> Result<bool, DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection.transaction().map_err(DataError::from)?;
+        self.write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
         let stored: Option<(String, String, u64)> = transaction
             .query_row(
                 "SELECT id,value,rev FROM lms_items WHERE cmid=?1 AND missing_since IS NULL LIMIT 1",
@@ -116,7 +115,7 @@ impl DataStore {
                 ],
             )
             .map_err(DataError::from)?;
-        transaction.commit().map_err(DataError::from)?;
         Ok(true)
+        })
     }
 }

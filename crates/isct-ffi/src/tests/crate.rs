@@ -561,19 +561,46 @@ async fn local_backup_application_emits_its_own_source_and_keeps_the_session_usa
     else {
         panic!("wrong backup result")
     };
+    // Core publishes only writes that change rows, so the backup carries a
+    // plan this device does not have yet.
+    let mut document: serde_json::Value = serde_json::from_str(&value).unwrap();
+    document["tables"]["plans"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id": "restored-plan",
+            "rev": 1,
+            "updatedAt": "2026-10-13T01:00:00Z",
+            "updatedBy": "other-device",
+            "source": {"provider": "manual"},
+            "title": "Restored",
+            "start": "2026-10-13T10:00:00+09:00",
+            "duration": 60,
+            "exdates": []
+        }));
     let events = f.session.subscribe().unwrap();
     f.session
-        .apply_backup(JsonValue(serde_json::from_str(&value).unwrap()))
+        .apply_backup(JsonValue(document))
         .unwrap()
         .await_result()
         .await
         .unwrap();
-    let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+    let StreamUpdate::Event { event } =
+        tokio::time::timeout(std::time::Duration::from_secs(2), events.next())
+            .await
+            .expect("restore event within two seconds")
+            .unwrap()
+    else {
         panic!("missing restore event")
     };
     assert_eq!(event.name, "workspace-changed");
     assert_eq!(event.payload.0, json!({"source":"local-restore"}));
-    let _ = f.snapshot().await;
+    let snapshot = f.snapshot().await;
+    assert!(snapshot.workspace.0["plans"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|plan| plan["id"] == "restored-plan"));
     f.finish().await;
 }
 struct BrokenVault;

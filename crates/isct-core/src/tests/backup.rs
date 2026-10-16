@@ -27,7 +27,7 @@ impl Fixture {
         self.notes.merge(&[note]).unwrap();
     }
     fn add_plan(&self, title: &str) {
-        self.store.put_user_record("plans", json!({"title": title, "start":"2026-10-13T10:00:00+09:00", "duration":60, "exdates":[]}), "test").unwrap();
+        self.store.put_user_record("plans", json!({"title": title, "start":"2026-10-13T10:00:00+09:00", "duration":60, "exdates":[]}), crate::data::WorkspaceChangeSource::UserIntent).unwrap();
     }
 }
 impl Drop for Fixture {
@@ -45,12 +45,18 @@ fn backup_roundtrip_preserves_notes_records_identity_and_later_edits() {
     BackupService::validate(&document).unwrap();
     let target = Fixture::new();
     let identity = target.backup.device_id().unwrap();
-    target.backup.apply(&document).unwrap();
+    target
+        .backup
+        .apply(&document, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
     assert_eq!(target.notes.export().unwrap()[0].text, "# A preserved note");
     assert_eq!(target.store.user_rows("plans").unwrap().len(), 1);
     assert_eq!(target.backup.device_id().unwrap(), identity);
     target.add_plan("edited while remote request was running");
-    target.backup.apply(&document).unwrap();
+    target
+        .backup
+        .apply(&document, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
     assert_eq!(target.store.user_rows("plans").unwrap().len(), 2);
 }
 
@@ -65,9 +71,18 @@ fn replayed_restore_generation_cannot_resurrect_removed_notes_or_records() {
     restored["tables"]["plans"] = json!([]);
     restored["sync"] =
         json!({"workspaceId":"workspace", "generation":{"counter":1,"id":"restore"}});
-    fixture.backup.apply(&restored).unwrap();
-    fixture.backup.apply(&restored).unwrap();
-    fixture.backup.apply(&old).unwrap();
+    fixture
+        .backup
+        .apply(&restored, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    fixture
+        .backup
+        .apply(&restored, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    fixture
+        .backup
+        .apply(&old, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
     assert!(fixture.notes.export().unwrap().is_empty());
     assert!(fixture.store.user_rows("plans").unwrap().is_empty());
 }
@@ -82,7 +97,10 @@ fn invalid_notes_are_rejected_before_any_local_changes() {
     invalid["localNotes"][0]["term"] = json!("../../outside");
     invalid["tables"]["plans"] = json!([]);
     assert!(BackupService::validate(&invalid).is_err());
-    assert!(fixture.backup.apply(&invalid).is_err());
+    assert!(fixture
+        .backup
+        .apply(&invalid, crate::data::WorkspaceChangeSource::CloudSync)
+        .is_err());
     assert_eq!(
         cloud_merge::contents(&fixture.backup.snapshot().unwrap()),
         cloud_merge::contents(&before)

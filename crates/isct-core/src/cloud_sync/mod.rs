@@ -4,8 +4,8 @@ mod journal;
 
 use crate::{
     backup::{BackupError, BackupService},
-    data::cloud_merge,
-    events::{CoreEvent, WorkspaceChangeSource},
+    data::{cloud_merge, WorkspaceChangeSource},
+    events::CoreEvent,
     ports::EventSink,
     runtime_tasks::{RuntimeTaskError, RuntimeTasks},
 };
@@ -231,6 +231,13 @@ impl CloudSync {
         Ok(true)
     }
 
+    /// Make the next `tick` capture without waiting out the interval.
+    pub fn request_capture(&self) {
+        if let Ok(mut next) = self.0.next_tick.lock() {
+            *next = Instant::now();
+        }
+    }
+
     pub async fn changed(&self, services: CloudServices) -> Result<(), CloudSyncError> {
         let service = self.clone();
         self.0
@@ -424,13 +431,6 @@ impl CloudSync {
         let state = self.state()?;
         let _ = services.events.emit(CoreEvent::CloudSyncState(state));
         Ok(())
-    }
-
-    fn publish_workspace(&self, services: &CloudServices, source: WorkspaceChangeSource) {
-        let _ = services.events.emit(CoreEvent::WorkspaceChanged {
-            source,
-            revision: None,
-        });
     }
 
     fn provider_result_inner(
@@ -813,9 +813,9 @@ impl CloudSync {
         if cloud_merge::contents(&latest) != cloud_merge::contents(&merged) {
             self.checkpoint(&latest).await?;
         }
-        self.apply_document(services, &merged).await?;
+        self.apply_document(services, &merged, WorkspaceChangeSource::CloudSync)
+            .await?;
         self.capture_inner(services, false).await?;
-        self.publish_workspace(services, WorkspaceChangeSource::CloudSync);
         let versions = self
             .remote(
                 services.transport.versions(provider),
@@ -859,6 +859,7 @@ impl CloudSync {
         &self,
         services: &CloudServices,
         document: &Value,
+        source: WorkspaceChangeSource,
     ) -> Result<(), CloudSyncError> {
         let validated = document.clone();
         blocking(move || BackupService::validate(&validated).map_err(backup_compatibility)).await?;
@@ -866,17 +867,27 @@ impl CloudSync {
             journal.pending_apply = Some(document.clone());
             Ok(())
         })?;
-        self.finish_apply(services).await
+        self.apply_pending(services, source).await
     }
 
+    /// Replays an apply interrupted before it was recorded as finished.
     async fn finish_apply(&self, services: &CloudServices) -> Result<(), CloudSyncError> {
+        self.apply_pending(services, WorkspaceChangeSource::CloudSync)
+            .await
+    }
+
+    async fn apply_pending(
+        &self,
+        services: &CloudServices,
+        source: WorkspaceChangeSource,
+    ) -> Result<(), CloudSyncError> {
         let pending = self
             .0
             .journal
             .read(|journal| journal.pending_apply.clone())?;
         if let Some(document) = pending {
             let backup = services.backup.clone();
-            blocking(move || backup.apply(&document).map_err(backup_storage)).await?;
+            blocking(move || backup.apply(&document, source).map_err(backup_storage)).await?;
             self.0.journal.change(|journal| {
                 journal.pending_apply = None;
                 Ok(())
@@ -1028,9 +1039,9 @@ impl CloudSync {
         self.0
             .journal
             .change(|journal| journal.enqueue(restored.clone(), Direction::Upload))?;
-        self.apply_document(services, &restored).await?;
+        self.apply_document(services, &restored, WorkspaceChangeSource::CloudRestore)
+            .await?;
         self.capture_inner(services, false).await?;
-        self.publish_workspace(services, WorkspaceChangeSource::CloudRestore);
         self.publish(services)?;
         drop(_run);
         self.resume_inner(services).await

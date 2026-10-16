@@ -2,6 +2,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 
+pub use crate::data::WorkspaceChangeSource;
 use crate::{
     cloud_sync::SyncState,
     lifecycle::SchoolSite,
@@ -9,20 +10,6 @@ use crate::{
     school_browser::{SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent},
     school_service::IngestOutcome,
 };
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum WorkspaceChangeSource {
-    UserIntent,
-    ReferencePull,
-    ReferencePoll,
-    SchoolPull,
-    Scheduler,
-    Mcp,
-    CloudSync,
-    CloudRestore,
-    LocalRestore,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]

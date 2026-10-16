@@ -1,5 +1,20 @@
 use super::*;
 use crate::data::migrations;
+use rusqlite::Connection;
+
+/// Runs an ingest executor the way `DataStore::write` does: inside one
+/// transaction that commits only on success.
+fn apply_committed<T, E>(
+    connection: &mut Connection,
+    apply: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T, E>,
+) -> Result<T, E> {
+    let transaction = connection.transaction().unwrap();
+    let result = apply(&transaction);
+    if result.is_ok() {
+        transaction.commit().unwrap();
+    }
+    result
+}
 
 const FIXTURE_INDEX: &str = include_str!("../../tests/fixtures/subscriptions/index.json");
 const FIXTURE_INDEX_HASH: &str = include_str!("../../tests/fixtures/subscriptions/index.sha256");
@@ -75,7 +90,10 @@ fn validates_and_versions_an_exam_scope() {
     };
     let mut connection = Connection::open_in_memory().unwrap();
     migrations::migrate(&mut connection).unwrap();
-    assert_eq!(apply_exam_feed(&mut connection, &published).unwrap(), 1);
+    assert_eq!(
+        apply_committed(&mut connection, |tx| apply_exam_feed(tx, &published)).unwrap(),
+        1
+    );
     let value: String = connection
         .query_row("SELECT value FROM exams", [], |row| row.get(0))
         .unwrap();
@@ -247,8 +265,14 @@ fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
     let (_, departments_2026) = fixture_selection(2026, 2026).unwrap();
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     migrations::migrate(&mut connection).expect("schema v3");
-    apply_reference(&mut connection, Some(&calendar), Some(&departments_2025)).unwrap();
-    apply_reference(&mut connection, Some(&calendar), Some(&departments_2026)).unwrap();
+    apply_committed(&mut connection, |tx| {
+        apply_reference(tx, Some(&calendar), Some(&departments_2025))
+    })
+    .unwrap();
+    apply_committed(&mut connection, |tx| {
+        apply_reference(tx, Some(&calendar), Some(&departments_2026))
+    })
+    .unwrap();
 
     let mut statement = connection
         .prepare(
@@ -282,9 +306,22 @@ fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     migrations::migrate(&mut connection).expect("schema v3");
 
-    assert!(apply_reference(&mut connection, Some(&calendar), Some(&departments)).unwrap() > 0);
+    assert!(
+        apply_committed(&mut connection, |tx| apply_reference(
+            tx,
+            Some(&calendar),
+            Some(&departments)
+        ))
+        .unwrap()
+            > 0
+    );
     assert_eq!(
-        apply_reference(&mut connection, Some(&calendar), Some(&departments)).unwrap(),
+        apply_committed(&mut connection, |tx| apply_reference(
+            tx,
+            Some(&calendar),
+            Some(&departments)
+        ))
+        .unwrap(),
         0,
         "the same source hash must not rewrite rows"
     );
@@ -292,7 +329,12 @@ fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
     let mut changed = calendar.clone();
     changed.days[0].label.en = Some("Updated official label".into());
     assert_eq!(
-        apply_reference(&mut connection, Some(&changed), Some(&departments)).unwrap(),
+        apply_committed(&mut connection, |tx| apply_reference(
+            tx,
+            Some(&changed),
+            Some(&departments)
+        ))
+        .unwrap(),
         1,
         "one changed calendar day must produce one changed row"
     );
@@ -322,7 +364,10 @@ fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
     let (calendar, departments) = fixture_selection(2026, 2026).unwrap();
     let mut connection = Connection::open_in_memory().unwrap();
     migrations::migrate(&mut connection).unwrap();
-    apply_reference(&mut connection, Some(&calendar), Some(&departments)).unwrap();
+    apply_committed(&mut connection, |tx| {
+        apply_reference(tx, Some(&calendar), Some(&departments))
+    })
+    .unwrap();
     let count = |db: &Connection| {
         db.query_row(
             "SELECT COUNT(*) FROM recommended_courses WHERE deleted_at IS NULL",
@@ -333,10 +378,18 @@ fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
     };
     let before = count(&connection);
     assert!(before > 0);
-    apply_reference(&mut connection, Some(&calendar), None).unwrap();
+    apply_committed(&mut connection, |tx| {
+        apply_reference(tx, Some(&calendar), None)
+    })
+    .unwrap();
     assert_eq!(count(&connection), before);
     assert_eq!(
-        apply_reference(&mut connection, None, Some(&departments)).unwrap(),
+        apply_committed(&mut connection, |tx| apply_reference(
+            tx,
+            None,
+            Some(&departments)
+        ))
+        .unwrap(),
         0
     );
 }

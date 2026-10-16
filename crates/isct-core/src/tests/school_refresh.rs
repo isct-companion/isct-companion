@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
-    events::CoreEvent,
-    ports::{EventError, EventSink, SecretError, SecretVault},
+    ports::{SecretError, SecretVault},
     pull_coordinator::PullContext,
     school_auth::SchoolAuthService,
     school_service::{IngestOutcome, IngestState, SchoolExecution, SchoolExecutorError},
@@ -26,14 +25,6 @@ impl SecretVault for EmptyVault {
     }
 
     fn delete(&self, _account: &str) -> Result<(), SecretError> {
-        Ok(())
-    }
-}
-
-struct NoopEvents;
-
-impl EventSink for NoopEvents {
-    fn emit(&self, _event: CoreEvent) -> Result<(), EventError> {
         Ok(())
     }
 }
@@ -196,11 +187,7 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
             allow_cellular: false,
         })
         .await;
-    let service = SchoolService::new(
-        coordinator,
-        Arc::new(SchoolAuthService::new(EmptyVault)),
-        Arc::new(NoopEvents),
-    );
+    let service = SchoolService::new(coordinator, Arc::new(SchoolAuthService::new(EmptyVault)));
     let executor = Arc::new(SequencedExecutor {
         calls: AtomicUsize::new(0),
         results: Mutex::new(VecDeque::from([
@@ -307,11 +294,7 @@ async fn tick_runs_science_then_kyomu_then_details_in_order() {
             allow_cellular: false,
         })
         .await;
-    let service = SchoolService::new(
-        coordinator,
-        Arc::new(SchoolAuthService::new(EmptyVault)),
-        Arc::new(NoopEvents),
-    );
+    let service = SchoolService::new(coordinator, Arc::new(SchoolAuthService::new(EmptyVault)));
     let refresh = SchoolRefresh::new(PullNetwork::Wifi);
     refresh
         .event(RefreshEvent {

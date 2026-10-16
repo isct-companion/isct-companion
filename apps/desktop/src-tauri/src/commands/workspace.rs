@@ -20,7 +20,7 @@ pub(crate) async fn mutate_workspace(
 ) -> Result<WorkspaceSnapshot, String> {
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
-    let snapshot = run_data_command(move || {
+    run_data_command(move || {
         core.workspace
             .mutate(mutation)
             .map_err(|error| match error {
@@ -30,9 +30,7 @@ pub(crate) async fn mutate_workspace(
                 error => error.to_string(),
             })
     })
-    .await?;
-    cloud_sync::CloudSync::changed(&app).await;
-    Ok(snapshot)
+    .await
 }
 
 #[tauri::command]
@@ -70,9 +68,5 @@ pub(crate) async fn reset_workspace(
         .prepare_reset(&app)
         .await?;
     let store = store.inner().clone();
-    let result =
-        run_data_command(move || store.reset_workspace().map_err(|error| error.to_string()))
-            .await?;
-    cloud_sync::CloudSync::changed(&app).await;
-    Ok(result)
+    run_data_command(move || store.reset_workspace().map_err(|error| error.to_string())).await
 }

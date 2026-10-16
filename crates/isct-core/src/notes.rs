@@ -64,6 +64,9 @@ struct NoteStoreInner {
     gate: Mutex<()>,
     /// Short-lived metadata lock; never held during filesystem I/O.
     selected: Mutex<Option<PathBuf>>,
+    /// Told after a note is saved or moved; Core uses it to schedule cloud
+    /// capture.
+    changed: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl NoteStore {
@@ -76,6 +79,16 @@ impl NoteStore {
         Notes {
             root,
             store: self.clone(),
+        }
+    }
+
+    pub(crate) fn on_change(&self, changed: impl Fn() + Send + Sync + 'static) {
+        let _ = self.0.changed.set(Box::new(changed));
+    }
+
+    fn changed(&self) {
+        if let Some(changed) = self.0.changed.get() {
+            changed();
         }
     }
 
@@ -135,6 +148,7 @@ impl Notes {
         let path = self.note_path(&context, &id)?;
         write_note(&path, text.as_bytes())?;
         stamp_note(&path, device_id)?;
+        self.store.changed();
         describe(path, id, context.section, false, false).map_err(NoteError::from)
     }
 
@@ -186,6 +200,7 @@ impl Notes {
             .map_err(storage_error)?;
         stamp_note(&target, device_id)?;
         let _ = fs::remove_file(source_meta);
+        self.store.changed();
         Ok(true)
     }
 

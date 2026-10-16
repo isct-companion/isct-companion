@@ -7,6 +7,20 @@ use isct_core::school_parser::{
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
+/// Runs an ingest executor the way `DataStore::write` does: inside one
+/// transaction that commits only on success.
+fn apply_committed<T, E>(
+    connection: &mut Connection,
+    apply: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T, E>,
+) -> Result<T, E> {
+    let transaction = connection.transaction().unwrap();
+    let result = apply(&transaction);
+    if result.is_ok() {
+        transaction.commit().unwrap();
+    }
+    result
+}
+
 #[test]
 fn lms_preserves_independent_sections_and_cached_bodies_on_an_outline_only_refresh() {
     let mut connection = Connection::open_in_memory().unwrap();
@@ -20,7 +34,7 @@ fn lms_preserves_independent_sections_and_cached_bodies_on_an_outline_only_refre
         }}]
     });
     let (_, first) = parse_lms_payload(&base.to_string()).unwrap();
-    apply_lms_payload(&mut connection, &first.unwrap()).unwrap();
+    apply_committed(&mut connection, |tx| apply_lms_payload(tx, &first.unwrap())).unwrap();
     let mut refresh = base.clone();
     refresh["structures"][0]["state"]["section"][0]
         .as_object_mut()
@@ -32,7 +46,10 @@ fn lms_preserves_independent_sections_and_cached_bodies_on_an_outline_only_refre
     cm.remove("bodyHtml");
     cm.remove("resourceUrl");
     let (_, second) = parse_lms_payload(&refresh.to_string()).unwrap();
-    apply_lms_payload(&mut connection, &second.unwrap()).unwrap();
+    apply_committed(&mut connection, |tx| {
+        apply_lms_payload(tx, &second.unwrap())
+    })
+    .unwrap();
     let course: String = connection
         .query_row(
             "SELECT value FROM lms_courses WHERE id='lms-course:42'",
@@ -166,7 +183,10 @@ fn validated_lms_payload_projects_to_workspace_course_material_assignment_and_me
             rusqlite::params![owned_id, owned.to_string()],
         )
         .unwrap();
-    apply_lms_payload(&mut connection, &payload.unwrap()).expect("atomic LMS projection");
+    apply_committed(&mut connection, |tx| {
+        apply_lms_payload(tx, &payload.unwrap())
+    })
+    .expect("atomic LMS projection");
 
     let row = |table: &str, id: &str| -> Value {
         let raw: String = connection
@@ -321,7 +341,7 @@ fn real_moodle_shapes_keep_good_records_and_aggregate_everything() {
 
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     data::migrations::migrate(&mut connection).expect("schema v3");
-    apply_lms_payload(&mut connection, &payload).expect("apply");
+    apply_committed(&mut connection, |tx| apply_lms_payload(tx, &payload)).expect("apply");
     let value = |table: &str, id: &str| -> Value {
         let raw: String = connection
             .query_row(

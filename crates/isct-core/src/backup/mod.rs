@@ -1,6 +1,6 @@
 //! One backup contract for export, recovery and cloud application.
 use crate::{
-    data::{self, cloud_merge, DataError, DataStore},
+    data::{self, cloud_merge, DataError, DataStore, WorkspaceChangeSource},
     notes::{LocalNoteBackup, NoteError, Notes},
 };
 use serde_json::Value;
@@ -52,7 +52,11 @@ impl BackupService {
 
     /// The sync journal records pending_apply before entering this operation.
     /// Replay is idempotent across the filesystem and SQLite commit boundary.
-    pub fn apply(&self, document: &Value) -> Result<(), BackupError> {
+    pub fn apply(
+        &self,
+        document: &Value,
+        source: WorkspaceChangeSource,
+    ) -> Result<(), BackupError> {
         Self::validate(document)?;
         self.notes.transaction(|notes| {
             let local = self
@@ -67,7 +71,7 @@ impl BackupService {
                 notes.merge(&incoming)?;
             }
             // DataStore rechecks current rows under an IMMEDIATE transaction.
-            self.store.merge_cloud_data(&merged)?;
+            self.store.merge_cloud_data(&merged, source)?;
             Ok(())
         })
     }
