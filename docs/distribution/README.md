@@ -6,7 +6,7 @@ school services. This is the public download repository maintained by
 
 ## Downloads
 
-Get the 1.0 release candidate from [Releases](https://github.com/isct-companion/Isct-Companion-App/releases).
+Get the 1.0 desktop release from [Releases](https://github.com/isct-companion/Isct-Companion-App/releases).
 
 | System | Download filename contains | Requirements |
 | --- | --- | --- |
@@ -17,11 +17,11 @@ Get the 1.0 release candidate from [Releases](https://github.com/isct-companion/
 On Mac, open the disk image and drag the app to Applications. On Windows, run
 the installer; it installs WebView2 if needed (an internet connection may be
 required). Intel Mac builds currently omit campus-card OCR.
-Native iOS and Android applications are being prepared. New desktop releases
-no longer build the retired Tauri mobile packages.
+Mobile 1.0 for iOS and Android will be published separately when ready.
+This release includes desktop installers only.
 
-The 1.0 release candidates are prereleases. Each Release states its signing
-and notarization status; unsigned installers may display security prompts.
+Each Release states its signing and notarization status; unsigned installers
+may display security prompts.
 Compatibility listed above is the build target; runtime testing on each system
 is ongoing.
 
