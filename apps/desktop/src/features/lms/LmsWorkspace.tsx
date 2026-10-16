@@ -26,6 +26,7 @@ import {
   useRef,
   useState,
   type WheelEvent,
+  type ReactNode,
 } from "react";
 import { contentLanguage } from "../../lib/model";
 import type { Assignment, Course, Material, Workspace } from "../../lib/model";
@@ -200,6 +201,7 @@ export function LmsWorkspace({
   progress,
   markLesson,
   navigationProvided = false,
+  headerStart,
   openOfficial,
 }: {
   course: Course;
@@ -209,6 +211,7 @@ export function LmsWorkspace({
   active: boolean;
   schoolWebAvailable: boolean;
   navigationProvided?: boolean;
+  headerStart?: ReactNode;
   close: () => void;
   refresh?: () => void;
   progress?: number | null;
@@ -1256,6 +1259,7 @@ export function LmsWorkspace({
       className={`lmsWorkspace${narrow ? " narrowReader" : ""}${opened ? " hasViewer" : ""}${mobileViewer ? " viewing" : ""}`}
     >
       <header className="lmsWorkspaceHeader">
+        {headerStart}
         {!navigationProvided && (
           <button type="button" className="lmsBack" onClick={close}>
             <LmsIcon name="back" /> {t("Today")}

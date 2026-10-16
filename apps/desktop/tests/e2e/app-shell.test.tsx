@@ -2076,7 +2076,7 @@ describe("First school connection", () => {
 });
 
 describe("workspace column sizing", () => {
-  it("resizes with the keyboard, restores the chosen width, and keeps content mounted in compact mode", async () => {
+  it("resizes, sticks then collapses, preserves content, and reveals the lecture sidebar from the rail", async () => {
     const { ResizableWorkspace } =
       await import("@app/components/ResizableWorkspace");
     // jsdom has no layout engine; give the real splitter a measured 1000px workspace.
@@ -2121,6 +2121,7 @@ describe("workspace column sizing", () => {
             [
               {
                 target,
+                contentRect: new DOMRect(0, 0, 1000, 600),
                 borderBoxSize: [{ inlineSize: 1000, blockSize: 600 }],
               } as unknown as ResizeObserverEntry,
             ],
@@ -2133,16 +2134,19 @@ describe("workspace column sizing", () => {
     };
     localStorage.clear();
     function Workbench({ enabled = true }: { enabled?: boolean }) {
+      const [collapsed, setCollapsed] = useState(false);
       return (
         <ResizableWorkspace
           id="test-columns"
+          firstCollapsible
+          onFirstCollapse={setCollapsed}
           enabled={enabled}
           firstSize="40%"
           firstMin="20%"
           secondMin="30%"
         >
           <textarea aria-label="Draft" defaultValue="Unsaved draft" />
-          <p>Reading pane</p>
+          <p>Reading pane {collapsed ? "collapsed" : "expanded"}</p>
         </ResizableWorkspace>
       );
     }
@@ -2178,6 +2182,43 @@ describe("workspace column sizing", () => {
       );
       const resized = Number(separator().getAttribute("aria-valuenow"));
       expect(resized).toBeGreaterThan(initial);
+
+      // The minimum holds for a short drag, then gives way to collapse.
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+        ),
+      );
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        ),
+      );
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(20);
+      await act(async () => {
+        separator().dispatchEvent(pointer("pointerdown", 402));
+        separator().dispatchEvent(pointer("pointermove", 382));
+      });
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(20);
+      await act(async () => {
+        separator().dispatchEvent(pointer("pointermove", 342));
+        separator().dispatchEvent(pointer("pointerup", 342));
+      });
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(0);
+      expect(probe.host.textContent).toContain("Reading pane collapsed");
+      await probe.unmount();
+      probe = await mount(<Workbench />);
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(0);
+      await act(async () =>
+        separator().dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        ),
+      );
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBeGreaterThan(
+        0,
+      );
+      expect(probe.host.textContent).toContain("Reading pane expanded");
+      const expanded = Number(separator().getAttribute("aria-valuenow"));
       const draft = probe.host.querySelector("textarea")!;
       await typeInto(draft, "Still writing");
       await act(async () => probe!.root.render(<Workbench enabled={false} />));
@@ -2185,10 +2226,10 @@ describe("workspace column sizing", () => {
       expect(draft.value).toBe("Still writing");
       await act(async () => probe!.root.render(<Workbench />));
       expect(probe.host.querySelector("textarea")).toBe(draft);
-      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(resized);
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(expanded);
       await probe.unmount();
       probe = await mount(<Workbench />);
-      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(resized);
+      expect(Number(separator().getAttribute("aria-valuenow"))).toBe(expanded);
       await act(async () =>
         separator().dispatchEvent(
           new KeyboardEvent("keydown", { key: "End", bubbles: true }),
@@ -2197,6 +2238,77 @@ describe("workspace column sizing", () => {
       expect(
         Number(separator().getAttribute("aria-valuenow")),
       ).toBeLessThanOrEqual(70);
+      await probe.unmount();
+      probe = undefined;
+      const matchMedia = vi
+        .spyOn(window, "matchMedia")
+        .mockImplementation((query) => ({
+          matches: query === "(min-width: 769px)",
+          media: query,
+          onchange: null,
+          addEventListener() {},
+          removeEventListener() {},
+          addListener() {},
+          removeListener() {},
+          dispatchEvent: () => false,
+        }));
+      try {
+        app = await mountShell(
+          shellOptions({
+            workspace: workspaceFixture({ courses: [placedCourse] }),
+          }),
+          { route: paths.lectures() },
+        );
+        await click(
+          await required(
+            () => app!.host.querySelector<HTMLButtonElement>(".lectureRow"),
+            "lecture row",
+          ),
+        );
+        const toggle = await required(
+          () =>
+            app!.host.querySelector<HTMLButtonElement>(
+              '[aria-label="Toggle sidebar"]',
+            ),
+          "sidebar toggle",
+        );
+        expect(toggle.closest(".lmsWorkspaceHeader")).not.toBeNull();
+        const list = app.host.querySelector<HTMLElement>("#lecture-sidebar")!;
+        const filter = list.querySelector<HTMLInputElement>(
+          'input[type="search"]',
+        )!;
+        await typeInto(filter, "Keep this filter");
+        await click(toggle);
+        await until(() =>
+          expect(toggle.getAttribute("aria-expanded")).toBe("false"),
+        );
+        expect(list.hasAttribute("inert")).toBe(true);
+        const rail = app.host.querySelector<HTMLButtonElement>(
+          '.rail button[title^="Lectures"]',
+        )!;
+        await act(async () =>
+          rail.dispatchEvent(new Event("pointerover", { bubbles: true })),
+        );
+        expect(
+          app.host
+            .querySelector(".lectureDesk")!
+            .getAttribute("data-sidebar-floating"),
+        ).toBe("true");
+        expect(list.hasAttribute("inert")).toBe(false);
+        await act(async () =>
+          rail.dispatchEvent(new Event("pointerout", { bubbles: true })),
+        );
+        await advance(250);
+        expect(list.hasAttribute("inert")).toBe(true);
+        await click(toggle);
+        expect(toggle.getAttribute("aria-expanded")).toBe("true");
+        expect(app.host.querySelector("#lecture-sidebar")).toBe(list);
+        expect(filter.value).toBe("Keep this filter");
+      } finally {
+        await app?.unmount();
+        app = undefined;
+        matchMedia.mockRestore();
+      }
     } finally {
       await probe?.unmount();
       probe = undefined;

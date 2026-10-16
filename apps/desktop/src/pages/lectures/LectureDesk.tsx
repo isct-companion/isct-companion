@@ -1,5 +1,6 @@
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
+import { usePanelRef } from "react-resizable-panels";
 import { useMediaQuery } from "@mantine/hooks";
 import {
   Activity,
@@ -47,20 +48,49 @@ export function LectureDesk({
   active,
   renderWorkspace,
   restoreAssignment,
+  railHovered = false,
 }: {
+  railHovered?: boolean;
   data: Workspace;
   term: TermId;
   entry: CourseEntry | null;
   select: (courseId: string, assignmentId?: string) => void;
   clear: () => void;
   active: boolean;
-  renderWorkspace: (entry: CourseEntry, active: boolean) => ReactNode;
+  renderWorkspace: (
+    entry: CourseEntry,
+    active: boolean,
+    sidebarToggle?: ReactNode,
+  ) => ReactNode;
   /** Brings a hidden assignment back to Today and this list. */
   restoreAssignment?: (assignmentId: string) => void;
 }) {
   // Single-column layouts open the lecture as a dialog over the list.
   const wide = useMediaQuery("(min-width: 769px)");
   const stacked = useFormFactor() === "mobile";
+  const sidebar = usePanelRef();
+  const [collapsed, setCollapsed] = useState(false);
+  const [floating, setFloating] = useState(false);
+  const [listHovered, setListHovered] = useState(false);
+  const [listFocused, setListFocused] = useState(false);
+  useEffect(() => {
+    if (!wide || !active || !collapsed) {
+      setFloating(false);
+      return;
+    }
+    if (railHovered || listHovered || listFocused) {
+      setFloating(true);
+      return;
+    }
+    // Bridge the gap between the rail and the floating list.
+    const timer = window.setTimeout(() => setFloating(false), 200);
+    return () => window.clearTimeout(timer);
+  }, [wide, active, collapsed, railHovered, listHovered, listFocused]);
+  const choose = (courseId: string, assignmentId?: string) => {
+    setFloating(false);
+    select(courseId, assignmentId);
+  };
+
   // The quarter shown here is browsed on its own; it starts at the current one.
   const [shownTerm, setShownTerm] = useState(term);
   const lastTerm = useRef(term);
@@ -200,18 +230,73 @@ export function LectureDesk({
       ].slice(-2)
     : recent;
 
+  const sidebarToggle = wide ? (
+    <button
+      type="button"
+      className="lectureSidebarToggle"
+      aria-label={t("Toggle sidebar")}
+      aria-expanded={!collapsed}
+      aria-controls="lecture-sidebar"
+      title={t("Toggle sidebar")}
+      onClick={() => {
+        setFloating(false);
+        if (sidebar.current?.isCollapsed()) sidebar.current.expand();
+        else sidebar.current?.collapse();
+      }}
+    >
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        aria-hidden="true"
+      >
+        <rect x="3" y="4" width="18" height="16" rx="3" />
+        <path d="M9 4v16" />
+      </svg>
+    </button>
+  ) : undefined;
+
   return (
-    <div className={`page lectureDesk${entry ? " open" : ""}`}>
+    <div
+      className={`page lectureDesk${entry ? " open" : ""}`}
+      data-sidebar-collapsed={wide && collapsed}
+      data-sidebar-floating={wide && collapsed && floating}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && floating) {
+          setFloating(false);
+          setListFocused(false);
+        }
+      }}
+    >
       <ResizableWorkspace
         id="lectures"
         enabled={wide}
         firstSize={220}
+        firstCollapsible
+        firstPanelRef={sidebar}
+        onFirstCollapse={setCollapsed}
         firstMin={170}
         firstMax="45%"
         secondMin="45%"
       >
-        <nav className="lectureList" aria-label={t("Lectures")}>
+        <nav
+          id="lecture-sidebar"
+          className="lectureList"
+          aria-label={t("Lectures")}
+          inert={wide && collapsed && !floating}
+          onPointerEnter={() => setListHovered(true)}
+          onPointerLeave={() => setListHovered(false)}
+          onFocusCapture={() => setListFocused(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget))
+              setListFocused(false);
+          }}
+        >
           <header>
+            {wide && collapsed && floating && sidebarToggle}
             <h1>{t("Lecture Desk")}</h1>
             <UiSelect
               className="lectureTerm"
@@ -269,7 +354,7 @@ export function LectureDesk({
                   entry?.assignmentId === assignment.id ? "true" : undefined
                 }
                 style={{ "--course": course.color } as React.CSSProperties}
-                onClick={() => select(course.id, assignment.id)}
+                onClick={() => choose(course.id, assignment.id)}
               >
                 <b>{assignment.title}</b>
                 <small>{course.title}</small>
@@ -331,7 +416,7 @@ export function LectureDesk({
                   entry?.courseId === lecture.id ? "true" : undefined
                 }
                 style={{ "--course": lecture.color } as React.CSSProperties}
-                onClick={() => select(lecture.id)}
+                onClick={() => choose(lecture.id)}
               >
                 <b>{lecture.title}</b>
                 <small>
@@ -360,6 +445,9 @@ export function LectureDesk({
           role={stacked && entry ? "dialog" : undefined}
           aria-modal={stacked && entry ? true : undefined}
         >
+          {!entry && wide && (
+            <header className="lectureEmptyHeader">{sidebarToggle}</header>
+          )}
           {entry && (
             <button type="button" className="lectureBack" onClick={clear}>
               ‹ {t("Lectures")}
@@ -381,6 +469,7 @@ export function LectureDesk({
                 {renderWorkspace(
                   item,
                   active && entry?.courseId === item.courseId,
+                  entry?.courseId === item.courseId ? sidebarToggle : undefined,
                 )}
               </Activity>
             </div>

@@ -260,7 +260,7 @@ describe("school URL sanitisation", () => {
       (match) => match[1],
     );
     expect(identifierKeys).toEqual(["id", "course", "page", "section"]);
-    expect(exactKeys).toEqual(["jwc", "lang", "plang"]);
+    expect(exactKeys).toEqual(["action", "jwc", "lang", "plang"]);
     expect([...identifierKeys, ...exactKeys]).not.toContain("x");
     // Bounds the values must satisfy, and the fragment/query rewrite.
     expect(body).toMatch(/value\.len\(\)\s*<=\s*128/);

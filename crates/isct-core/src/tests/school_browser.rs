@@ -252,6 +252,10 @@ async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinat
         .await
         .unwrap();
     let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    // Follow the URL actually sent to the native browser, not a synthetic target.
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), target);
+    engine.navigate(SchoolSite::ScienceLms, &target).unwrap();
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), target);
     let count_uploads = || {
         browser.commands.lock().unwrap().iter().filter(|command| matches!(&command.command, BrowserAction::Eval(script) if script.contains("__isctAssignmentUpload"))).count()
     };

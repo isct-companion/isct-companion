@@ -245,6 +245,7 @@ export function WorkspaceApp() {
         })),
       }
     : undefined;
+  const [lectureRailHovered, setLectureRailHovered] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -914,6 +915,7 @@ export function WorkspaceApp() {
     );
   const lecturesPage = (
     <LectureDesk
+      railHovered={lectureRailHovered}
       data={data}
       term={todayTerm}
       entry={
@@ -947,7 +949,7 @@ export function WorkspaceApp() {
           .then(() => closeTo(paths.lectures()))
           .catch(notify.error)
       }
-      renderWorkspace={(entry, active) => {
+      renderWorkspace={(entry, active, sidebarToggle) => {
         const course = data.courses.find(
           (c) => c.id === entry.courseId && !c.deletedAt,
         );
@@ -966,6 +968,7 @@ export function WorkspaceApp() {
               entry={entry}
               active={active}
               navigationProvided
+              headerStart={sidebarToggle}
               openOfficial={
                 formFactor === "mobile"
                   ? (url) => openWeb(url, "lectures")
@@ -1645,6 +1648,22 @@ export function WorkspaceApp() {
               className={page === p ? "active" : ""}
               onClick={() => navigatePage(p)}
               key={p}
+              onPointerEnter={
+                p === "lectures" ? () => setLectureRailHovered(true) : undefined
+              }
+              onPointerLeave={
+                p === "lectures"
+                  ? () => setLectureRailHovered(false)
+                  : undefined
+              }
+              onFocus={
+                p === "lectures" ? () => setLectureRailHovered(true) : undefined
+              }
+              onBlur={
+                p === "lectures"
+                  ? () => setLectureRailHovered(false)
+                  : undefined
+              }
               title={`${navigation[p]} (⌘${i + 1})`}
             >
               {icons[p]}

@@ -1089,6 +1089,12 @@ checks:
         reason: |
           The native page must follow the actual reader bounds, including the
           relocated search field and tool panel, without covering either toolbar.
+      - action: |
+          With an official LMS page open, collapse the lecture sidebar, hover
+          Lectures, move into the floating list, then toggle it back to pinned.
+        reason: |
+          Confirms the floating DOM list remains reachable beside the native
+          browser surface, which headless layout tests cannot display.
     observe: |
       The native page edges, workspace separator, Web service header and
       the document tool panel in the lecture reader.
@@ -1102,6 +1108,8 @@ checks:
       - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src/components/ResizableWorkspace.tsx
       - apps/desktop/src/pages/web/WebPage.tsx
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/pages/lectures/lectures.css
       - apps/desktop/src/features/lms/OfficialLmsView.tsx
       - apps/desktop/src/features/lms/ReaderPane.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
@@ -1147,6 +1155,8 @@ checks:
       uploader, site restrictions or the signed native browser.
     covers:
       - crates/isct-core/src/workspaces.rs
+      - crates/isct-core/src/school_browser/policy.rs
+      - crates/isct-core/src/school_browser/engine.rs
       - crates/isct-core/src/school_browser/submission.rs
       - crates/isct-core/src/school_browser/assets/assignment-upload.js
       - apps/desktop/src-tauri/src/workspaces.rs
