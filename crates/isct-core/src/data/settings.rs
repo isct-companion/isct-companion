@@ -144,6 +144,8 @@ pub(super) fn validate_setting(key: &str, value: &Value) -> Result<(), DataError
     match key {
         "userPreferences" | "devicePreferences" => validate_preference_values(value),
         "cloud" => validate_choices(value, CLOUD_CHOICES),
+        "classGroups" => crate::schedule::validate_class_groups(value)
+            .map_err(|error| DataError::InvalidInput(error.to_string())),
         "academicProfile" => {
             validate_admission_year(value)?;
             validate_study_enrollments(value)?;

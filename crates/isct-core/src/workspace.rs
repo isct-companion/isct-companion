@@ -11,12 +11,14 @@ mod lms_merge;
 
 use calendar::*;
 pub use catalog::catalog_course;
+pub(crate) use catalog::planned_catalog_course;
 use catalog::*;
 use courses::*;
 pub use lms_merge::lms_merge_preview;
 use lms_merge::*;
 
 use crate::data::{DataError, DataStore, WorkspaceWrite};
+use crate::schedule::ClassGroup;
 use crate::study_profile::StudyEnrollment;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -231,6 +233,12 @@ pub enum WorkspaceIntent {
         section_id: u64,
     },
     MarkTimetableReviewed,
+    /// Chooses (or clears) the 物理学演習・実験 group of one semester,
+    /// such as "2026-3Q4Q".
+    SetClassGroup {
+        semester: String,
+        group: Option<ClassGroup>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -638,6 +646,24 @@ fn apply_intent(
             );
             write.save_setting("importStatus", &status)
         }
+        WorkspaceIntent::SetClassGroup { semester, group } => {
+            crate::schedule::validate_semester(&semester)
+                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            let mut groups = current
+                .get("classGroups")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let groups_object = object_mut(&mut groups, "class groups")?;
+            match group {
+                Some(group) => {
+                    groups_object.insert(semester, serde_json::to_value(group)?);
+                }
+                None => {
+                    groups_object.remove(&semester);
+                }
+            }
+            write.save_setting("classGroups", &groups)
+        }
     }
 }
 
@@ -654,7 +680,7 @@ fn localized(value: Option<&Value>, locale: &str) -> String {
         .to_string()
 }
 
-fn workspace_content_locale(workspace: &Value) -> &'static str {
+pub(crate) fn workspace_content_locale(workspace: &Value) -> &'static str {
     match workspace
         .pointer("/settings/contentLanguage")
         .and_then(Value::as_str)

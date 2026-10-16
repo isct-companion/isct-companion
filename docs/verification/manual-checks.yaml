@@ -879,7 +879,7 @@ checks:
       and was never covered by a live run.
     covers:
       - apps/desktop/src/features/lms/PdfDocument.tsx
-      - apps/desktop/src-tauri/src/school_pdf_save.rs
+      - apps/desktop/src-tauri/src/school_downloads.rs
     verified: null
 
   - id: NATIVE-IOS-SIMULATOR

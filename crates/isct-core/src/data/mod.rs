@@ -47,6 +47,7 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("recommendedCourses", "recommended_courses"),
     ("importantDates", "important_dates"),
     ("exams", "exams"),
+    ("classSchedules", "class_schedules"),
     ("scheduleOverrides", "schedule_overrides"),
     ("subscriptions", "subscriptions"),
     ("scheduledTasks", "scheduled_tasks"),
@@ -70,6 +71,7 @@ const SCHOOL_CACHE_TABLES: &[&str] = &[
     "recommended_courses",
     "important_dates",
     "exams",
+    "class_schedules",
 ];
 
 /// Local backup payload. School/reference caches are intentionally absent:
@@ -121,6 +123,7 @@ const INTENT_SETTINGS: &[&str] = &[
     "selectedTerm",
     "terms",
     "academicProfile",
+    "classGroups",
     "settings",
     "userPreferences",
     "devicePreferences",
@@ -163,7 +166,8 @@ fn intent_revision(connection: &Connection) -> Result<String, DataError> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-pub(crate) const USER_BACKUP_SETTINGS: &[&str] = &["userPreferences", "academicProfile", "terms"];
+pub(crate) const USER_BACKUP_SETTINGS: &[&str] =
+    &["userPreferences", "academicProfile", "terms", "classGroups"];
 const BACKUP_KIND: &str = "IsctCompanion.local-backup";
 const BACKUP_SCHEMA_VERSION: u64 = 6;
 
@@ -575,6 +579,7 @@ impl WorkspaceWrite<'_, '_> {
             "selectedTerm"
                 | "terms"
                 | "academicProfile"
+                | "classGroups"
                 | "userPreferences"
                 | "devicePreferences"
                 | "cloud"
@@ -824,6 +829,7 @@ impl DataStore {
                 "selectedTerm",
                 "terms",
                 "academicProfile",
+                "classGroups",
                 "importStatus",
                 "syncStatus",
                 "logs",
@@ -1036,6 +1042,7 @@ impl DataStore {
             "selectedTerm"
                 | "terms"
                 | "academicProfile"
+                | "classGroups"
                 | "userPreferences"
                 | "devicePreferences"
                 | "cloud"

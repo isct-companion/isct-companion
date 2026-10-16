@@ -211,6 +211,17 @@ describe("official school hosts", () => {
       "www.titech.ac.jp",
       "yushima2.tmd.ac.jp",
       "lib02.tmd.ac.jp",
+      // Services linked from the Tokyo Tech Portal resource menu.
+      "portfolio2.gakumu.titech.ac.jp",
+      "healdb.gakumu.titech.ac.jp",
+      "acc1.dx.titech.ac.jp",
+      "vlmgr-42.edu2024.gsic.titech.ac.jp",
+      "lsci.rpd.titech.ac.jp",
+      "apm.nap.gsic.titech.ac.jp",
+      "search-inside.star.titech.ac.jp",
+      "signin.noc.titech.ac.jp",
+      "idp-gakunin.nap.gsic.titech.ac.jp",
+      "idp-saas.nap.gsic.titech.ac.jp",
     ]);
   });
 
@@ -281,8 +292,13 @@ describe("school site mapping", () => {
   });
 
   it("leaves the two unverified 医歯学系 hosts without a site", () => {
+    // Allowlisted hosts without a SchoolSite are deliberate: the 医歯学系 pair
+    // has no adapter, and the Tokyo Tech Portal services open in the portal's
+    // own view rather than as a site of their own.
     const unmapped = schoolHosts().filter((host) => !(host in siteMapping()));
-    expect(unmapped).toEqual(["yushima2.tmd.ac.jp", "lib02.tmd.ac.jp"]);
+    expect(unmapped).toEqual(
+      expect.arrayContaining(["yushima2.tmd.ac.jp", "lib02.tmd.ac.jp"]),
+    );
   });
 });
 

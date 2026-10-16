@@ -17,11 +17,10 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**8 of 23 checks must be re-run before the next release.**
+**7 of 23 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
-- `SCHOOL-LMS-YEAR-ROLLOVER` — covered paths changed after b598ae6
 - `OCR-CAMPUS-CARD` — covered paths changed after 7fdf1b6
 - `DESKTOP-SCHOOL-WEBVIEW` — covered paths changed after 7fdf1b6
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
@@ -58,7 +57,7 @@ an unverified area becomes an assumed-good one.
 | `IDENTITY-TRANSFER-COHORT` | identity | 編入生 | —<br>not run | crates/isct-core/src/subscriptions.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/lib/departments.ts |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/isct-core/src/kyomu_ingest.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/study_profile.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
-| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
+| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
@@ -67,7 +66,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
-| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_pdf_save.rs |
+| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
@@ -566,9 +565,7 @@ judged against the live catalogue.
 
 ### LMS pull after the academic year moves (`SCHOOL-LMS-YEAR-ROLLOVER`)
 
-**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass ⚠
-
-> Needs re-running: covered paths changed after b598ae6
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass
 
 **Preconditions**
 
@@ -1013,7 +1010,7 @@ and was never covered by a live run.
 **Covers**
 
 - `apps/desktop/src/features/lms/PdfDocument.tsx`
-- `apps/desktop/src-tauri/src/school_pdf_save.rs`
+- `apps/desktop/src-tauri/src/school_downloads.rs`
 
 **Last recorded** never run
 

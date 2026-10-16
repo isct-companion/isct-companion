@@ -1,4 +1,4 @@
-//! Desktop school-download handling, including the macOS PDF viewer save hook.
+//! Desktop school-download handling, including the macOS WebKit hooks.
 
 use isct_core::{
     events::{CoreEvent, SchoolDownloadEvent, SchoolDownloadState},
@@ -22,8 +22,8 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 #[cfg(target_os = "macos")]
-#[path = "school_pdf_save.rs"]
-mod pdf_save;
+#[path = "school_webkit.rs"]
+mod webkit;
 
 const DOWNLOAD_NAME_LIMIT: usize = 200;
 
@@ -33,7 +33,7 @@ struct DownloadState {
     pending: Vec<(String, PathBuf)>,
     saved: HashSet<PathBuf>,
     #[cfg(target_os = "macos")]
-    delegates: HashMap<SchoolSite, pdf_save::DelegateHandle>,
+    delegates: HashMap<SchoolSite, webkit::DelegateHandle>,
 }
 
 #[derive(Default)]
@@ -108,7 +108,7 @@ impl SchoolDownloads {
     /// Writes bytes supplied by WebKit's built-in PDF viewer without blocking
     /// the main thread. The owned task is drained during shutdown.
     #[cfg(target_os = "macos")]
-    fn save_viewer_data(&self, app: &AppHandle, site: SchoolSite, saved: pdf_save::SavedData) {
+    fn save_viewer_data(&self, app: &AppHandle, site: SchoolSite, saved: webkit::SavedData) {
         let active = self.0.state.lock().ok().and_then(|state| state.active);
         let allowed = saved
             .origin
@@ -166,7 +166,7 @@ impl SchoolDownloads {
         }
     }
 
-    /// Installs and retains the macOS PDF viewer save shim for this view.
+    /// Installs and retains the macOS WebKit hooks for this view.
     #[cfg(target_os = "macos")]
     pub(crate) fn install(
         &self,
@@ -185,7 +185,7 @@ impl SchoolDownloads {
             });
             // SAFETY: `inner()` is this view's live WKWebView, and
             // `with_webview` invokes this closure on the main thread.
-            let delegate = unsafe { pdf_save::install(platform.inner(), on_save) };
+            let delegate = unsafe { webkit::install(platform.inner(), on_save) };
             if let (Some(downloads), Some(delegate)) = (downloads.upgrade(), delegate) {
                 if let Ok(mut state) = downloads.state.lock() {
                     state.delegates.insert(site, delegate);
@@ -193,7 +193,7 @@ impl SchoolDownloads {
             }
         });
         if let Err(error) = result {
-            eprintln!("[school-download] {site:?} PDF save hook unavailable: {error}");
+            eprintln!("[school-download] {site:?} WebKit hooks unavailable: {error}");
         }
     }
 

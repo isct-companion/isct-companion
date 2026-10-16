@@ -1,3 +1,4 @@
+use crate::schedule::ClassGroup;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
@@ -319,6 +320,23 @@ contract!(ImportantDate {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_seen_at: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub missing_since: Option<String>,
 });
+// Dated sessions of an alternating course, published in Isct-Data.
+contract!(ClassSession {
+    pub date: String,
+    #[cfg_attr(feature = "ts", ts(type = "\"orientation\" | \"exercise\" | \"lab\" | \"exam\" | \"no-class\""))] pub kind: String,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub group: Option<ClassGroup>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub number: Option<String>,
+});
+contract!(ClassSchedule {
+    #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
+    pub academic_year: i32, pub course_code: String,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_label: Option<Localized>,
+    pub offering_ids: Vec<String>, pub quarters: Vec<Quarter>, pub source_ids: Vec<String>,
+    pub sessions: Vec<ClassSession>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_seen_at: Option<String>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub missing_since: Option<String>,
+});
 contract!(Exam {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     pub academic_year: i32,
@@ -363,7 +381,7 @@ impl ScheduleOverride {
 contract!(Subscription {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub data_url: Option<String>, pub url: String,
-    #[cfg_attr(feature = "ts", ts(type = "\"calendar\" | \"departments\" | \"important-dates\" | \"exams\""))] pub kind: String, pub enabled: bool,
+    #[cfg_attr(feature = "ts", ts(type = "(typeof REFERENCE_KINDS)[number]"))] pub kind: String, pub enabled: bool,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub index_hash: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub remote_hash: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_ts: Option<String>,
@@ -486,6 +504,10 @@ contract!(Workspace {
     pub academic_calendar: Vec<AcademicCalendarDay>, pub gpa_summary: Vec<GpaSummary>,
     pub departments: Vec<Department>, pub recommended_courses: Vec<RecommendedCourse>,
     pub important_dates: Vec<ImportantDate>, pub exams: Vec<Exam>,
+    pub class_schedules: Vec<ClassSchedule>,
+    /// The red/white group chosen for each semester ("2026-3Q4Q") of
+    /// alternating 物理学演習・実験 classes.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "Partial<Record<string, ClassGroup>>"))] pub class_groups: Option<std::collections::BTreeMap<String, ClassGroup>>,
     pub schedule_overrides: Vec<ScheduleOverride>,
     pub subscriptions: Vec<Subscription>, pub scheduled_tasks: Vec<ScheduledTask>,
     pub settings: Settings, pub academic_profile: AcademicProfile,
@@ -602,6 +624,8 @@ pub fn declarations() -> Vec<String> {
         Department::decl(),
         RecommendedCourse::decl(),
         ImportantDate::decl(),
+        ClassSession::decl(),
+        ClassSchedule::decl(),
         Exam::decl(),
         ScheduleOverride::decl(),
         Subscription::decl(),

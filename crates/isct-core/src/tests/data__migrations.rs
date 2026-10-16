@@ -1,13 +1,13 @@
 use super::*;
 
 #[test]
-fn creates_schema_six() {
+fn creates_schema_seven() {
     let mut connection = Connection::open_in_memory().unwrap();
     assert!(migrate(&mut connection).unwrap());
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     let count: i64 = connection
         .query_row(
             "SELECT count(*) FROM sqlite_master WHERE name = 'timetable_courses'",
