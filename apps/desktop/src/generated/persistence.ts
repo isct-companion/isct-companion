@@ -450,12 +450,7 @@ export type ScheduleOverride = {
 export type Subscription = {
   dataUrl?: string;
   url: string;
-  kind:
-    | "calendar"
-    | "departments"
-    | "important-dates"
-    | "exams"
-    | "class-schedules";
+  kind: (typeof REFERENCE_KINDS)[number];
   enabled: boolean;
   indexHash?: string;
   remoteHash?: string;
@@ -813,11 +808,16 @@ export type ClassGroupSession = {
 
 export type ClassGroupChoice = {
   semester: string;
+  /**
+   * The semester's two quarter ids, such as ["2026-3Q", "2026-4Q"].
+   */
+  terms: Array<string>;
   group: ClassGroup | null;
   /**
-   * The semester ended before the current quarter.
+   * No group is chosen yet for the current quarter's semester or a later
+   * one, so the person should be asked.
    */
-  past: boolean;
+  needsChoice: boolean;
   courses: Array<ClassGroupCourse>;
   next: ClassGroupSession | null;
 };
@@ -1223,4 +1223,23 @@ export const COURSE_PALETTE = [
   "#a34e5d",
   "#806a9d",
   "#5c7d93",
+] as const;
+
+export const PERIOD_CLOCKS = [
+  ["08:50", "10:30"],
+  ["10:45", "12:25"],
+  ["13:30", "15:10"],
+  ["15:25", "17:05"],
+  ["17:15", "18:55"],
+] as const;
+
+export const PUBLIC_DATA_INDEX =
+  "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
+
+export const REFERENCE_KINDS = [
+  "calendar",
+  "departments",
+  "important-dates",
+  "exams",
+  "class-schedules",
 ] as const;

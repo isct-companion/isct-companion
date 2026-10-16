@@ -17,7 +17,8 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use tokio::sync::Mutex;
 
-const PUBLIC_INDEX: &str =
+/// The public Isct-Data index every reference subscription starts from.
+pub const PUBLIC_INDEX: &str =
     "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
 /// Every reference dataset kind a subscription can follow.
 pub const REFERENCE_KINDS: [&str; 5] = [

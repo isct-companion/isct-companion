@@ -1,19 +1,39 @@
-export const teachingPeriods = [
-  { label: "1-2", periods: [1, 2], start: "08:50", end: "10:30" },
-  { label: "3-4", periods: [3, 4], start: "10:45", end: "12:25" },
-  { label: "Lunch", periods: [], start: "12:25", end: "13:30" },
-  { label: "5-6", periods: [5, 6], start: "13:30", end: "15:10" },
-  { label: "7-8", periods: [7, 8], start: "15:25", end: "17:05" },
-  { label: "9-10", periods: [9, 10], start: "17:15", end: "18:55" },
-] as const;
+import { PERIOD_CLOCKS } from "../generated/persistence";
 
-/** Teaching slots only (no lunch); used by the course editor. */
-export const classSlots = teachingPeriods.filter(
-  (period) => period.periods.length > 0,
+type PeriodRow = {
+  label: string;
+  periods: readonly number[];
+  start: string;
+  end: string;
+};
+
+/** Teaching slots only (no lunch), from Core's period clock; used by the
+ * course editor. */
+export const classSlots: readonly PeriodRow[] = PERIOD_CLOCKS.map(
+  ([start, end], index) => ({
+    label: `${index * 2 + 1}-${index * 2 + 2}`,
+    periods: [index * 2 + 1, index * 2 + 2],
+    start,
+    end,
+  }),
 );
 
-export const timetableStartMinutes = 8 * 60 + 50;
-export const timetableEndMinutes = 18 * 60 + 55;
+/** Timetable rows: the slots with the lunch break after 3-4. */
+export const teachingPeriods: readonly PeriodRow[] = [
+  ...classSlots.slice(0, 2),
+  {
+    label: "Lunch",
+    periods: [],
+    start: classSlots[1].end,
+    end: classSlots[2].start,
+  },
+  ...classSlots.slice(2),
+];
+
+export const timetableStartMinutes = clockMinutes(classSlots[0].start);
+export const timetableEndMinutes = clockMinutes(
+  classSlots[classSlots.length - 1].end,
+);
 
 export function clockMinutes(value: string): number {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value);

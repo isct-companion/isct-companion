@@ -13,8 +13,8 @@ import {
 import {
   PUBLIC_DATA_INDEX,
   REFERENCE_KINDS,
-  subscriptionNetwork,
-} from "../../platform/subscription-polling";
+} from "../../generated/persistence";
+import { subscriptionNetwork } from "../../platform/subscription-polling";
 import type { Platform } from "../../app/shared";
 import {
   formatDay,

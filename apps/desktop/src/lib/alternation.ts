@@ -32,8 +32,9 @@ export function alternationLabel(alternation: Alternation): string {
     .join(" · ");
 }
 
-/** "2026-3Q4Q" → "2026 3–4Q". */
-export function semesterLabel(semester: string): string {
-  const [year, quarters] = semester.split("-");
-  return `${year} ${quarters === "1Q2Q" ? "1–2Q" : "3–4Q"}`;
+/** A semester's quarter ids from Core, as "2026 3Q–4Q". */
+export function semesterLabel(terms: readonly string[]): string {
+  return terms
+    .map((term, index) => (index ? term.slice(5) : term.replace("-", " ")))
+    .join("–");
 }

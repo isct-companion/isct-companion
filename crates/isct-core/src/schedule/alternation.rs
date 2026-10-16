@@ -86,7 +86,7 @@ pub(crate) enum Resolution {
 }
 
 /// "2026-1Q2Q" or "2026-3Q4Q": the two quarters a group choice covers.
-pub fn semester_of(term: &str) -> Option<String> {
+fn semester_of(term: &str) -> Option<String> {
     let term = Term::parse(term).ok()?;
     Some(if term.quarter <= 2 {
         format!("{}-1Q2Q", term.year)
@@ -95,17 +95,23 @@ pub fn semester_of(term: &str) -> Option<String> {
     })
 }
 
-pub fn validate_semester(semester: &str) -> Result<(), ScheduleError> {
-    let valid = semester.split_once('-').is_some_and(|(year, quarters)| {
-        year.len() == 4
-            && year.bytes().all(|b| b.is_ascii_digit())
-            && matches!(quarters, "1Q2Q" | "3Q4Q")
-    });
-    if valid {
-        Ok(())
-    } else {
-        Err(ScheduleError::InvalidInput("semester is invalid".into()))
+/// The two quarter ids ("2026-3Q", "2026-4Q") of a semester key.
+fn semester_terms(semester: &str) -> Option<[String; 2]> {
+    let (year, quarters) = semester.split_once('-')?;
+    if year.len() != 4 || !year.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
     }
+    match quarters {
+        "1Q2Q" => Some([format!("{year}-1Q"), format!("{year}-2Q")]),
+        "3Q4Q" => Some([format!("{year}-3Q"), format!("{year}-4Q")]),
+        _ => None,
+    }
+}
+
+pub fn validate_semester(semester: &str) -> Result<(), ScheduleError> {
+    semester_terms(semester)
+        .map(|_| ())
+        .ok_or_else(|| ScheduleError::InvalidInput("semester is invalid".into()))
 }
 
 /// `classGroups` maps semesters to "red" or "white".
@@ -260,9 +266,12 @@ pub struct ClassGroupSession {
 #[serde(rename_all = "camelCase")]
 pub struct ClassGroupChoice {
     pub semester: String,
+    /// The semester's two quarter ids, such as ["2026-3Q", "2026-4Q"].
+    pub terms: Vec<String>,
     pub group: Option<ClassGroup>,
-    /// The semester ended before the current quarter.
-    pub past: bool,
+    /// No group is chosen yet for the current quarter's semester or a later
+    /// one, so the person should be asked.
+    pub needs_choice: bool,
     pub courses: Vec<ClassGroupCourse>,
     pub next: Option<ClassGroupSession>,
 }
@@ -302,9 +311,12 @@ pub fn class_group_choices(workspace: &Value, today: &str) -> Vec<ClassGroupChoi
             let index = match choices.iter().position(|row| row.semester == semester) {
                 Some(index) => index,
                 None => {
+                    let group = chosen_group(workspace, &semester);
+                    let past = current.as_ref().is_some_and(|current| &semester < current);
                     choices.push(ClassGroupChoice {
-                        group: chosen_group(workspace, &semester),
-                        past: current.as_ref().is_some_and(|current| &semester < current),
+                        terms: semester_terms(&semester).map(Vec::from).unwrap_or_default(),
+                        needs_choice: group.is_none() && !past,
+                        group,
                         semester,
                         courses: Vec::new(),
                         next: None,
@@ -405,7 +417,8 @@ mod tests {
         let choices = class_group_choices(&workspace(), "2026-10-15");
         assert_eq!(choices.len(), 1);
         assert_eq!(choices[0].semester, "2026-3Q4Q");
-        assert!(choices[0].group.is_none() && !choices[0].past && choices[0].courses[0].scheduled);
+        assert!(choices[0].needs_choice && choices[0].courses[0].scheduled);
+        assert_eq!(choices[0].terms, ["2026-3Q", "2026-4Q"]);
         let next = choices[0].next.as_ref().unwrap();
         assert_eq!((next.date.as_str(), next.turn), ("2026-10-16", Turn::Red));
     }

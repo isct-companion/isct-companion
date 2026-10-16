@@ -39,6 +39,24 @@ fn main() {
             .expect("serialize course palette"),
     );
     output.push_str(" as const;\n");
+    output.push_str("\nexport const PERIOD_CLOCKS = ");
+    output.push_str(
+        &serde_json::to_string(&isct_core::schedule::PERIOD_CLOCKS)
+            .expect("serialize period clocks"),
+    );
+    output.push_str(" as const;\n");
+    output.push_str("\nexport const PUBLIC_DATA_INDEX = ");
+    output.push_str(
+        &serde_json::to_string(isct_core::reference_refresh::PUBLIC_INDEX)
+            .expect("serialize public index"),
+    );
+    output.push_str(";\n");
+    output.push_str("\nexport const REFERENCE_KINDS = ");
+    output.push_str(
+        &serde_json::to_string(&isct_core::reference_refresh::REFERENCE_KINDS)
+            .expect("serialize reference kinds"),
+    );
+    output.push_str(" as const;\n");
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../apps/desktop/src/generated/persistence.ts");
     std::fs::create_dir_all(path.parent().expect("generated directory"))

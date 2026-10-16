@@ -20,15 +20,15 @@ use thiserror::Error;
 use ts_rs::TS;
 
 pub use alternation::{
-    class_group_choices, semester_of, validate_class_groups, validate_semester, Alternation,
-    ClassGroup, ClassGroupChoice, ClassGroupCourse, ClassGroupSession, Turn,
+    class_group_choices, validate_class_groups, validate_semester, Alternation, ClassGroup,
+    ClassGroupChoice, ClassGroupCourse, ClassGroupSession, Turn,
 };
 pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
     CalendarDayView, QuarterRange, QuarterView, TeachingRange,
 };
 pub(crate) use civil::clock_for_periods;
-pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
+pub use civil::{add_days, parse_civil_date, tokyo_date, Term, PERIOD_CLOCKS};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use credits::declared_term_credits;
 pub use ics::{export_quarter_ics, CalendarExportScope};

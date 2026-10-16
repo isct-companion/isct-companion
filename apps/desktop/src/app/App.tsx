@@ -556,9 +556,7 @@ export function WorkspaceApp() {
       kind: "classGroups",
       today: tokyoDate(new Date()),
     }).catch(() => []);
-    setGroupPrompt(
-      choices.find((choice) => !choice.group && !choice.past) ?? null,
-    );
+    setGroupPrompt(choices.find((choice) => choice.needsChoice) ?? null);
   };
   const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const loadSchoolRecords = () => workspaceActions.refreshSchool();

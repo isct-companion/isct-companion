@@ -381,7 +381,7 @@ impl ScheduleOverride {
 contract!(Subscription {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub data_url: Option<String>, pub url: String,
-    #[cfg_attr(feature = "ts", ts(type = "\"calendar\" | \"departments\" | \"important-dates\" | \"exams\" | \"class-schedules\""))] pub kind: String, pub enabled: bool,
+    #[cfg_attr(feature = "ts", ts(type = "(typeof REFERENCE_KINDS)[number]"))] pub kind: String, pub enabled: bool,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub index_hash: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub remote_hash: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_ts: Option<String>,

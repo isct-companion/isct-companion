@@ -50,7 +50,7 @@ export function ClassGroupSwitch({
         }))}
       />
       <Text size="xs" c="dimmed">
-        {semesterLabel(choice.semester)}
+        {semesterLabel(choice.terms)}
         {unlisted(choice)
           ? ` · ${t("This class's dates are not listed yet, so it shows every week.")}`
           : ""}
@@ -74,7 +74,7 @@ export function ClassGroupPrompt({
     <Modal
       opened
       onClose={later}
-      title={`${t("Physics group")} · ${semesterLabel(choice.semester)}`}
+      title={`${t("Physics group")} · ${semesterLabel(choice.terms)}`}
     >
       <Stack gap="sm">
         <Text size="sm">

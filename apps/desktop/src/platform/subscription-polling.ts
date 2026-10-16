@@ -1,15 +1,3 @@
-import type { Subscription } from "../lib/model";
-
-export const PUBLIC_DATA_INDEX =
-  "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
-export const REFERENCE_KINDS = [
-  "calendar",
-  "departments",
-  "important-dates",
-  "exams",
-  "class-schedules",
-] as const satisfies readonly Subscription["kind"][];
-
 type NetworkInformation = {
   type?: string;
   saveData?: boolean;
