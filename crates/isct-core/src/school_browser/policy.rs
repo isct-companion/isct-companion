@@ -15,6 +15,18 @@ pub const SCHOOL_HOSTS: &[&str] = &[
     "request.libra.titech.ac.jp",
     "portal.t4.gsic.titech.ac.jp",
     "www.titech.ac.jp",
+    // Services linked from the Tokyo Tech Portal resource menu, which open
+    // in the portal's own view.
+    "portfolio2.gakumu.titech.ac.jp",
+    "healdb.gakumu.titech.ac.jp",
+    "acc1.dx.titech.ac.jp",
+    "vlmgr-42.edu2024.gsic.titech.ac.jp",
+    "lsci.rpd.titech.ac.jp",
+    "apm.nap.gsic.titech.ac.jp",
+    "search-inside.star.titech.ac.jp",
+    "signin.noc.titech.ac.jp",
+    "idp-gakunin.nap.gsic.titech.ac.jp",
+    "idp-saas.nap.gsic.titech.ac.jp",
 ];
 
 pub fn sanitize_school_url(raw: &str) -> Option<String> {
