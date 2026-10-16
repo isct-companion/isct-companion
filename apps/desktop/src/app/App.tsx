@@ -47,6 +47,7 @@ import { LectureDesk } from "../pages/lectures/LectureDesk";
 import { Courses } from "../pages/courses/CoursesPage";
 import { CourseDrawer } from "../pages/courses/CourseDrawer";
 import { Web } from "../pages/web/WebPage";
+import { SchoolFilePreview } from "../features/school-preview/SchoolFilePreview";
 import { Settings } from "../pages/settings/SettingsPage";
 import { PlanEditor, type PlanDraft } from "../pages/schedule/PlanEditor";
 import { IntensiveEditor } from "../pages/courses/IntensiveEditor";
@@ -1931,6 +1932,7 @@ export default function App({
       />
       <ModalsProvider>
         <RouterProvider router={router} />
+        <SchoolFilePreview />
       </ModalsProvider>
     </MantineProvider>
   );

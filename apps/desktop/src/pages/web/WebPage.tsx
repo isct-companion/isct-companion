@@ -22,6 +22,7 @@ import {
   official,
 } from "../../app/native";
 import { errorText, type Platform } from "../../app/shared";
+import { useSchoolFilePreviewOpen } from "../../features/school-preview/SchoolFilePreview";
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -73,6 +74,7 @@ export function Web({
   sitesRequest?: number;
 }) {
   const mobile = layout === "mobile";
+  const previewOpen = useSchoolFilePreviewOpen();
   const browsing = !mobile || Boolean(mobileSite);
   const [sitesOpen, setSitesOpen] = useState(false);
   const shownRequest = useRef(sitesRequest);
@@ -174,6 +176,8 @@ export function Web({
       window.clearTimeout(hide);
       setSavedFile(undefined);
       if (event.state === "started") setStatus(`Downloading ${event.name}…`);
+      // Shown by SchoolFilePreview; nothing was saved yet.
+      else if (event.state === "done" && event.preview) setStatus("");
       else if (event.state === "done") {
         setStatus("");
         notifyRef.current(`Saved ${event.name}`);
@@ -199,7 +203,7 @@ export function Web({
   };
 
   // A sheet over the page must hide the native view, which sits above the DOM.
-  const viewActive = active && browsing && !sitesOpen;
+  const viewActive = active && browsing && !sitesOpen && !previewOpen;
   useEffect(() => {
     if (!embedded || !desktopBridge || !viewActive) return;
     const target =

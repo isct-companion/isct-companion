@@ -846,5 +846,7 @@
   "This class's dates are not listed yet, so it shows every week.": "この授業の日程はまだ収録されていないため、毎週表示しています。",
   "You can change this later in the course details.": "あとから授業の詳細で変更できます。",
   "Later": "あとで",
-  "Alternating class schedules": "隔週授業の日程"
+  "Alternating class schedules": "隔週授業の日程",
+  "Save to Downloads": "ダウンロードに保存",
+  "This file can no longer be saved.": "このファイルはもう保存できません。"
 }

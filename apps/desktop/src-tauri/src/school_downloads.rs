@@ -1,16 +1,17 @@
-//! Desktop school-download handling, including the macOS PDF viewer save hook.
+//! Desktop school-download handling: downloads, attachments shown in the
+//! app's viewer (macOS), and the macOS PDF viewer save hook.
 
+#[cfg(target_os = "macos")]
+use isct_core::school_browser::{attachment_action, AttachmentAction};
 use isct_core::{
     events::{CoreEvent, SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
-    school_browser::sanitize_school_url,
+    school_browser::{sanitize_school_url, AttachmentPreview},
 };
-#[cfg(target_os = "macos")]
-use std::collections::HashMap;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
@@ -22,18 +23,32 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 #[cfg(target_os = "macos")]
-#[path = "school_pdf_save.rs"]
-mod pdf_save;
+#[path = "school_webkit.rs"]
+mod webkit;
 
 const DOWNLOAD_NAME_LIMIT: usize = 200;
+/// Under the app cache directory; cleared at a session's first preview and at quit.
+const PREVIEW_DIR: &str = "school-previews";
+
+struct Pending {
+    url: String,
+    destination: PathBuf,
+    preview: Option<AttachmentPreview>,
+}
 
 #[derive(Default)]
 struct DownloadState {
     active: Option<SchoolSite>,
-    pending: Vec<(String, PathBuf)>,
+    pending: Vec<Pending>,
+    /// Attachment responses turned into downloads to preview, by URL.
+    attachments: HashMap<String, AttachmentPreview>,
     saved: HashSet<PathBuf>,
+    /// Temporary preview copies and their site, which `save_preview` accepts.
+    previews: HashMap<PathBuf, SchoolSite>,
+    /// Set once the previous session's previews were cleared.
+    preview_root: Option<PathBuf>,
     #[cfg(target_os = "macos")]
-    delegates: HashMap<SchoolSite, pdf_save::DelegateHandle>,
+    delegates: HashMap<SchoolSite, webkit::DelegateHandle>,
 }
 
 #[derive(Default)]
@@ -65,10 +80,21 @@ impl SchoolDownloads {
                 let accepted = download_dir
                     .is_some_and(|directory| download_destination_ok(destination, &directory))
                     && self.0.state.lock().ok().is_some_and(|mut state| {
+                        let preview = state.attachments.remove(url.as_str());
                         if !download_allowed(url.as_str(), site, state.active) {
                             return false;
                         }
-                        state.pending.push((url.to_string(), destination.clone()));
+                        if preview.is_some() {
+                            match preview_destination(app, &mut state, destination) {
+                                Some(path) => *destination = path,
+                                None => return false,
+                            }
+                        }
+                        state.pending.push(Pending {
+                            url: url.to_string(),
+                            destination: destination.clone(),
+                            preview,
+                        });
                         true
                     });
                 if !accepted {
@@ -87,17 +113,21 @@ impl SchoolDownloads {
                 true
             }
             DownloadEvent::Finished { url, success, .. } => {
-                let destination = self.0.state.lock().ok().and_then(|mut state| {
+                let pending = self.0.state.lock().ok().and_then(|mut state| {
                     let index = state
                         .pending
                         .iter()
-                        .position(|(pending, _)| pending == url.as_str())?;
-                    Some(state.pending.remove(index).1)
+                        .position(|pending| pending.url == url.as_str())?;
+                    Some(state.pending.remove(index))
                 });
                 // Refused downloads also finish unsuccessfully, but were never announced.
-                if let Some(destination) = destination {
-                    let name = file_name(&destination);
-                    self.finish(app, site, name, success.then_some(destination));
+                if let Some(pending) = pending {
+                    let name = file_name(&pending.destination);
+                    let saved = success.then_some(pending.destination);
+                    match pending.preview {
+                        Some(preview) => self.finish_preview(app, site, name, saved, preview),
+                        None => self.finish(app, site, name, saved),
+                    }
                 }
                 true
             }
@@ -108,7 +138,7 @@ impl SchoolDownloads {
     /// Writes bytes supplied by WebKit's built-in PDF viewer without blocking
     /// the main thread. The owned task is drained during shutdown.
     #[cfg(target_os = "macos")]
-    fn save_viewer_data(&self, app: &AppHandle, site: SchoolSite, saved: pdf_save::SavedData) {
+    fn save_viewer_data(&self, app: &AppHandle, site: SchoolSite, saved: webkit::SavedData) {
         let active = self.0.state.lock().ok().and_then(|state| state.active);
         let allowed = saved
             .origin
@@ -120,6 +150,12 @@ impl SchoolDownloads {
         }
 
         let name = download_file_name(&saved.suggested_name, &saved.mime_type);
+        self.write_download(app, site, name, saved.bytes);
+    }
+
+    /// Writes `bytes` to a new file in the download folder without blocking
+    /// the calling (main) thread. The owned task is drained during shutdown.
+    fn write_download(&self, app: &AppHandle, site: SchoolSite, name: String, bytes: Vec<u8>) {
         let Ok(directory) = app.path().download_dir() else {
             emit_download(app, site, SchoolDownloadState::Failed, name, None, None);
             return;
@@ -132,21 +168,20 @@ impl SchoolDownloads {
         let runtime = tauri::async_runtime::handle();
         let _runtime_guard = runtime.inner().enter();
         let spawned = self.0.tasks.spawn(async move {
-            let written = match tokio::task::spawn_blocking(move || {
-                write_unique(&directory, &name, &saved.bytes)
-            })
-            .await
-            {
-                Ok(Ok(path)) => Some(path),
-                Ok(Err(error)) => {
-                    eprintln!("[school-download] {site:?} PDF save failed: {error}");
-                    None
-                }
-                Err(error) => {
-                    eprintln!("[school-download] {site:?} PDF save task failed: {error}");
-                    None
-                }
-            };
+            let written =
+                match tokio::task::spawn_blocking(move || write_unique(&directory, &name, &bytes))
+                    .await
+                {
+                    Ok(Ok(path)) => Some(path),
+                    Ok(Err(error)) => {
+                        eprintln!("[school-download] {site:?} save failed: {error}");
+                        None
+                    }
+                    Err(error) => {
+                        eprintln!("[school-download] {site:?} save task failed: {error}");
+                        None
+                    }
+                };
             let name = written
                 .as_ref()
                 .and_then(|path| path.file_name())
@@ -166,7 +201,24 @@ impl SchoolDownloads {
         }
     }
 
-    /// Installs and retains the macOS PDF viewer save shim for this view.
+    /// Asks Core what to do with a main-frame response; attachments become
+    /// downloads, remembered by URL when they are to be previewed.
+    #[cfg(target_os = "macos")]
+    fn attachment_response(&self, response: webkit::MainFrameResponse) -> bool {
+        let Some(action) = attachment_action(
+            response.disposition.as_deref(),
+            response.mime_type.as_deref(),
+            &response.suggested_name,
+        ) else {
+            return false;
+        };
+        if let (AttachmentAction::Preview(preview), Ok(mut state)) = (action, self.0.state.lock()) {
+            state.attachments.insert(response.url, preview);
+        }
+        true
+    }
+
+    /// Installs and retains the macOS WebKit hooks for this view.
     #[cfg(target_os = "macos")]
     pub(crate) fn install(
         &self,
@@ -183,9 +235,15 @@ impl SchoolDownloads {
                     SchoolDownloads(downloads).save_viewer_data(&app, site, saved);
                 }
             });
+            let downloads_for_response = downloads.clone();
+            let on_response = Box::new(move |response| {
+                downloads_for_response.upgrade().is_some_and(|downloads| {
+                    SchoolDownloads(downloads).attachment_response(response)
+                })
+            });
             // SAFETY: `inner()` is this view's live WKWebView, and
             // `with_webview` invokes this closure on the main thread.
-            let delegate = unsafe { pdf_save::install(platform.inner(), on_save) };
+            let delegate = unsafe { webkit::install(platform.inner(), on_save, on_response) };
             if let (Some(downloads), Some(delegate)) = (downloads.upgrade(), delegate) {
                 if let Ok(mut state) = downloads.state.lock() {
                     state.delegates.insert(site, delegate);
@@ -193,8 +251,28 @@ impl SchoolDownloads {
             }
         });
         if let Err(error) = result {
-            eprintln!("[school-download] {site:?} PDF save hook unavailable: {error}");
+            eprintln!("[school-download] {site:?} WebKit hooks unavailable: {error}");
         }
+    }
+
+    /// Copies a previewed attachment into the download folder.
+    pub(crate) fn save_preview(&self, app: &AppHandle, path: &str) -> Result<bool, String> {
+        let path = PathBuf::from(path);
+        let site = self
+            .0
+            .state
+            .lock()
+            .map_err(|_| "School download state is unavailable.")?
+            .previews
+            .get(&path)
+            .copied();
+        let Some(site) = site else {
+            return Ok(false);
+        };
+        let name = file_name(&path);
+        let bytes = fs::read(&path).map_err(|_| "The preview is no longer available.")?;
+        self.write_download(app, site, name, bytes);
+        Ok(true)
     }
 
     /// Shows a file saved from a school page this session in Finder. Unknown
@@ -220,12 +298,47 @@ impl SchoolDownloads {
     pub(crate) async fn shutdown(&self) {
         self.0.tasks.close();
         self.0.tasks.wait().await;
-        if let Ok(mut state) = self.0.state.lock() {
+        let preview_root = self.0.state.lock().ok().and_then(|mut state| {
             state.active = None;
             state.pending.clear();
+            state.attachments.clear();
+            state.previews.clear();
             #[cfg(target_os = "macos")]
             state.delegates.clear();
+            state.preview_root.take()
+        });
+        if let Some(root) = preview_root {
+            let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(root)).await;
         }
+    }
+
+    fn finish_preview(
+        &self,
+        app: &AppHandle,
+        site: SchoolSite,
+        name: String,
+        saved: Option<PathBuf>,
+        preview: AttachmentPreview,
+    ) {
+        let shown = saved.filter(|path| app.asset_protocol_scope().allow_file(path).is_ok());
+        let Some(path) = shown else {
+            emit_download(app, site, SchoolDownloadState::Failed, name, None, None);
+            return;
+        };
+        if let Ok(mut state) = self.0.state.lock() {
+            state.previews.insert(path.clone(), site);
+        }
+        emit(
+            app,
+            SchoolDownloadEvent {
+                site,
+                state: SchoolDownloadState::Done,
+                name,
+                url: None,
+                path: path.to_str().map(str::to_string),
+                preview: Some(preview),
+            },
+        );
     }
 
     fn finish(&self, app: &AppHandle, site: SchoolSite, name: String, saved: Option<PathBuf>) {
@@ -256,16 +369,53 @@ fn emit_download(
     url: Option<String>,
     path: Option<&Path>,
 ) {
-    eprintln!("[school-download] {site:?} {state:?} {name}");
-    let _ = crate::core_ports::DesktopEvents(app.clone()).emit(CoreEvent::SchoolDownload(
+    emit(
+        app,
         SchoolDownloadEvent {
             site,
             state,
             name,
             url,
             path: path.and_then(Path::to_str).map(str::to_string),
+            preview: None,
         },
-    ));
+    );
+}
+
+fn emit(app: &AppHandle, event: SchoolDownloadEvent) {
+    eprintln!(
+        "[school-download] {:?} {:?} {}{}",
+        event.site,
+        event.state,
+        event.name,
+        if event.preview.is_some() {
+            " (preview)"
+        } else {
+            ""
+        }
+    );
+    let _ = crate::core_ports::DesktopEvents(app.clone()).emit(CoreEvent::SchoolDownload(event));
+}
+
+/// A fresh folder for one preview, keeping WebKit's file name. The first call
+/// of a session clears what an earlier session left behind.
+fn preview_destination(
+    app: &AppHandle,
+    state: &mut DownloadState,
+    suggested: &Path,
+) -> Option<PathBuf> {
+    let root = match &state.preview_root {
+        Some(root) => root.clone(),
+        None => {
+            let root = app.path().app_cache_dir().ok()?.join(PREVIEW_DIR);
+            let _ = fs::remove_dir_all(&root);
+            state.preview_root = Some(root.clone());
+            root
+        }
+    };
+    let directory = root.join(uuid::Uuid::new_v4().to_string());
+    fs::create_dir_all(&directory).ok()?;
+    Some(directory.join(suggested.file_name()?))
 }
 
 fn download_allowed(raw_url: &str, site: SchoolSite, active: Option<SchoolSite>) -> bool {

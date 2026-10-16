@@ -1,9 +1,11 @@
 mod assets;
+mod attachment;
 mod engine;
 mod policy;
 mod port;
 
 pub use assets::{ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN};
+pub use attachment::{attachment_action, AttachmentAction, AttachmentPreview};
 pub use engine::SchoolBrowserEngine;
 pub use policy::{is_login_url, sanitize_school_url, SCHOOL_HOSTS};
 pub use port::*;

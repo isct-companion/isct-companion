@@ -846,5 +846,7 @@
   "This class's dates are not listed yet, so it shows every week.": "这门课的日程尚未收录，所以每周都会显示。",
   "You can change this later in the course details.": "之后可以在课程详情里修改。",
   "Later": "稍后",
-  "Alternating class schedules": "隔周课程日程"
+  "Alternating class schedules": "隔周课程日程",
+  "Save to Downloads": "保存到下载",
+  "This file can no longer be saved.": "此文件已无法保存。"
 }

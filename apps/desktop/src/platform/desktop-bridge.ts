@@ -41,13 +41,18 @@ export type SchoolSite =
   | "tsubame"
   | "syllabus"
   | "study-guide";
-/** A file a school page saved to Downloads (download or PDF viewer ↓). */
+/** A file a school page handed over (download, attachment, PDF viewer ↓). */
 export type SchoolDownloadEvent = {
   site: SchoolSite;
   state: "started" | "done" | "failed";
   name: string;
-  /** Set on `done`: the saved file, accepted by `revealSchoolDownload`. */
+  /**
+   * Set on `done`: the saved file, accepted by `revealSchoolDownload`; with
+   * `preview`, a temporary copy accepted by `saveSchoolPreview`.
+   */
   path?: string;
+  /** An attachment the app shows in its own viewer instead of the page. */
+  preview?: "pdf" | "image";
 };
 export type SchoolAuthProfile = "science" | "tokyo-tech";
 export type SchoolCredentials = {
@@ -430,6 +435,8 @@ export interface DesktopBridge {
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Shows a file saved from a school page this session in Finder; false for any other path. */
   revealSchoolDownload?(path: string): Promise<boolean>;
+  /** Saves an attachment preview to Downloads; false for any other path. */
+  saveSchoolPreview?(path: string): Promise<boolean>;
   schoolSessionSnapshot(): Promise<SchoolSessionSnapshot>;
   schoolSessionLifecycle(event: SchoolSessionLifecycle): Promise<void>;
   onSchoolSession(
@@ -758,13 +765,17 @@ export function createTauriDesktopBridge(
             payload.state === "failed") &&
           typeof payload.name === "string" &&
           (payload.path === undefined || typeof payload.path === "string") &&
-          (payload.state !== "done" || typeof payload.path === "string")
+          (payload.state !== "done" || typeof payload.path === "string") &&
+          (payload.preview === undefined ||
+            payload.preview === "pdf" ||
+            payload.preview === "image")
         )
           callback({
             site: payload.site,
             state: payload.state,
             name: payload.name,
             path: payload.path,
+            preview: payload.preview,
           });
       }).then((fn) => {
         if (disposed) quietly(fn);
@@ -777,6 +788,8 @@ export function createTauriDesktopBridge(
     },
     revealSchoolDownload: (path) =>
       booleanCommand("reveal_school_download", { path }),
+    saveSchoolPreview: (path) =>
+      booleanCommand("save_school_preview", { path }),
     pullSchool: async (site, options) => {
       const value = await invokeCommand("pull_school", {
         site,

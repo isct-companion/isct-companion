@@ -273,7 +273,7 @@ export function FilePopover({
   );
 }
 
-function Toolbar({ title, url, children }: { title: string; url: string; children: ReactNode }) {
+export function Toolbar({ title, url, children }: { title: string; url: string; children: ReactNode }) {
   return (
     <div className="lmsSourceBar lmsFileToolbar">
       <div className="lmsFileAddress" title={url}><span>{title}</span></div>
@@ -302,7 +302,7 @@ function useReleaseSource<T extends HTMLImageElement | HTMLMediaElement>() {
 }
 
 /** Fit to the pane; click toggles actual size for large scans. */
-function ImageView({ src, title, onBroken }: { src: string; title: string; onBroken: () => void }) {
+export function ImageView({ src, title, onBroken }: { src: string; title: string; onBroken: () => void }) {
   const [actual, setActual] = useState(false);
   const image = useReleaseSource<HTMLImageElement>();
   return (

@@ -202,7 +202,8 @@ mod tests {
         pull_coordinator::{PullPriority, PullSnapshot, PullState, PullTarget},
         school_auth::SchoolAuthProfile,
         school_browser::{
-            SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent, SchoolSessionState,
+            AttachmentPreview, SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent,
+            SchoolSessionState,
         },
         school_service::{IngestOutcome, IngestState},
     };
@@ -314,10 +315,11 @@ mod tests {
                     state: SchoolDownloadState::Done,
                     name: "notes.pdf".into(),
                     url: None,
-                    path: Some("/Downloads/notes.pdf".into()),
+                    path: Some("/Caches/notes.pdf".into()),
+                    preview: Some(AttachmentPreview::Pdf),
                 }),
                 "school-download",
-                json!({"site":"science-lms","state":"done","name":"notes.pdf","path":"/Downloads/notes.pdf"}),
+                json!({"site":"science-lms","state":"done","name":"notes.pdf","path":"/Caches/notes.pdf","preview":"pdf"}),
             ),
             (
                 CoreEvent::PullStateChanged(vec![PullSnapshot {
