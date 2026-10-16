@@ -62,3 +62,6 @@ bindings/swift/.build/
 bindings/swift/Sources/IsctCore/Generated.swift
 bindings/kotlin/src/main/kotlin/app/isctcompanion/core/isct_ffi.kt
 bindings/kotlin/artifacts/
+
+# Local encrypted updater signing key and public companion file
+.update/

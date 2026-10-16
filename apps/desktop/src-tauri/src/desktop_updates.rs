@@ -12,15 +12,81 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-const RELEASE_API: &str =
-    "https://api.github.com/repos/isct-companion/Isct-Companion-App/releases/latest";
-const MANIFEST: &str =
-    "https://github.com/isct-companion/Isct-Companion-App/releases/latest/download/latest.json";
-const RELEASES: &str = "https://github.com/isct-companion/Isct-Companion-App/releases/latest";
-const PUBLIC_KEY: &str = match option_env!("ISCT_UPDATER_PUBLIC_KEY") {
-    Some(key) => key,
-    None => "",
-};
+const REPOSITORY: &str = "isct-companion/isct-companion";
+const RELEASES: &str = "https://github.com/isct-companion/isct-companion/releases/latest";
+
+struct UpdateSource {
+    release_api: String,
+    manifest: String,
+    fixture_origin: Option<reqwest::Url>,
+}
+impl UpdateSource {
+    fn current(_app: &AppHandle) -> Result<Self, String> {
+        // Manual native verification uses signed fixtures on loopback. This
+        // override is absent from release builds; the signature check is shared.
+        #[cfg(debug_assertions)]
+        if let Some(origin) = _app
+            .config()
+            .plugins
+            .0
+            .get("updater-test-fixture")
+            .and_then(|config| config.get("origin"))
+            .and_then(serde_json::Value::as_str)
+        {
+            let url = reqwest::Url::parse(&origin).map_err(|e| e.to_string())?;
+            if url.scheme() != "http"
+                || url.host_str() != Some("127.0.0.1")
+                || url.port().is_none()
+                || url.path() != "/"
+                || url.query().is_some()
+                || url.fragment().is_some()
+                || !url.username().is_empty()
+                || url.password().is_some()
+            {
+                return Err("The updater fixture must use a loopback HTTP origin.".into());
+            }
+            return Ok(Self {
+                release_api: url
+                    .join("release.json")
+                    .map_err(|e| e.to_string())?
+                    .to_string(),
+                manifest: url
+                    .join("latest.json")
+                    .map_err(|e| e.to_string())?
+                    .to_string(),
+                fixture_origin: Some(url),
+            });
+        }
+        Ok(Self {
+            release_api: format!("https://api.github.com/repos/{REPOSITORY}/releases/latest"),
+            manifest: format!(
+                "https://github.com/{REPOSITORY}/releases/latest/download/latest.json"
+            ),
+            fixture_origin: None,
+        })
+    }
+    fn approves(&self, url: &reqwest::Url) -> bool {
+        if let Some(origin) = &self.fixture_origin {
+            return url.origin() == origin.origin() && url.path().starts_with("/bundles/");
+        }
+        url.scheme() == "https"
+            && url.host_str() == Some("github.com")
+            && url
+                .path()
+                .starts_with(&format!("/{REPOSITORY}/releases/download/"))
+    }
+}
+fn public_key(app: &AppHandle) -> Option<String> {
+    app.config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|config| config.get("pubkey"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,7 +104,7 @@ impl Default for UpdateStatus {
             version: None,
             message: None,
             release_url: RELEASES,
-            signed_updates: !PUBLIC_KEY.trim().is_empty(),
+            signed_updates: false,
         }
     }
 }
@@ -65,7 +131,11 @@ pub fn snapshot(app: &AppHandle) -> Result<UpdateStatus, String> {
     app.state::<DesktopUpdates>()
         .state
         .lock()
-        .map(|s| s.status.clone())
+        .map(|s| {
+            let mut status = s.status.clone();
+            status.signed_updates = public_key(app).is_some();
+            status
+        })
         .map_err(|_| "Update state is unavailable.".into())
 }
 fn phase(
@@ -79,6 +149,7 @@ fn phase(
         .state
         .lock()
         .map_err(|_| "Update state is unavailable.")?;
+    state.status.signed_updates = public_key(app).is_some();
     state.status.phase = phase;
     state.status.version = version;
     state.status.message = message;
@@ -117,17 +188,25 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
     }
     phase(&app, "checking", None, None)?;
     let result = async {
+        let source = UpdateSource::current(&app)?;
         let response = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
             .user_agent(concat!("IsctCompanion/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| e.to_string())?
-            .get(RELEASE_API)
+            .get(&source.release_api)
             .send()
             .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
             .map_err(|e| e.to_string())?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            updates
+                .state
+                .lock()
+                .map_err(|_| "Update state is unavailable.")?
+                .last_checked = Some(chrono::Utc::now().to_rfc3339());
+            return phase(&app, "unpublished", None, None);
+        }
+        let response = response.error_for_status().map_err(|e| e.to_string())?;
         let release: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
         let version = release["tag_name"]
             .as_str()
@@ -136,8 +215,11 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
         if release["draft"] == true || release["prerelease"] == true {
             return Err("The release channel is not stable.".into());
         }
-        let newer = isct_core::app_updates::newer_release(env!("CARGO_PKG_VERSION"), &version)
-            .map_err(|e| e.to_string())?;
+        let newer = isct_core::app_updates::newer_release(
+            &app.package_info().version.to_string(),
+            &version,
+        )
+        .map_err(|e| e.to_string())?;
         updates
             .state
             .lock()
@@ -147,13 +229,14 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
             return phase(&app, "current", Some(version), None);
         }
         phase(&app, "available", Some(version.clone()), None)?;
-        if PUBLIC_KEY.trim().is_empty() {
+        let Some(public_key) = public_key(&app) else {
             return snapshot(&app);
-        }
+        };
         let update = app
             .updater_builder()
-            .pubkey(PUBLIC_KEY)
-            .endpoints(vec![MANIFEST
+            .pubkey(public_key)
+            .endpoints(vec![source
+                .manifest
                 .parse()
                 .map_err(|_| "Invalid update endpoint.")?])
             .map_err(|e| e.to_string())?
@@ -164,13 +247,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
             .await
             .map_err(|e| e.to_string())?
             .ok_or("The signed update manifest is not available.")?;
-        if update.download_url.scheme() != "https"
-            || update.download_url.host_str() != Some("github.com")
-            || !update
-                .download_url
-                .path()
-                .starts_with("/isct-companion/Isct-Companion-App/releases/download/")
-        {
+        if !source.approves(&update.download_url) {
             return Err("The update download source is not approved.".into());
         }
         if isct_core::app_updates::automatic_updates(&workspace) || download {
@@ -230,8 +307,25 @@ pub fn install_on_exit(app: &AppHandle) {
         }
     });
     if let Some((update, bytes)) = pending {
-        if let Err(error) = update.install(bytes) {
-            eprintln!("[updater] installation failed: {error}");
+        record_install(app, "installing", &update.version, None);
+        match update.install(bytes) {
+            Ok(()) => record_install(app, "installed", &update.version, None),
+            Err(error) => {
+                record_install(app, "error", &update.version, Some(error.to_string()));
+                eprintln!("[updater] installation failed: {error}");
+            }
+        }
+    }
+}
+
+fn record_install(app: &AppHandle, phase: &str, version: &str, message: Option<String>) {
+    if let Ok(directory) = app.path().app_data_dir() {
+        let result = serde_json::json!({"phase":phase,"version":version,"message":message,"at":chrono::Utc::now().to_rfc3339()});
+        if let Err(error) = std::fs::write(
+            directory.join("updater-install-result.json"),
+            result.to_string(),
+        ) {
+            eprintln!("[updater] could not record installation result: {error}");
         }
     }
 }

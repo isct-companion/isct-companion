@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 28 checks must be re-run before the next release.**
+**7 of 29 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**20 checks have never been run or could not be run:**
+**21 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -49,6 +49,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-REMINDER-TIMES` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
 - `DESKTOP-SIGNED-UPDATES` — never verified
+- `DESKTOP-WINDOWS-LAUNCH` — never verified
 
 ## Status
 
@@ -81,7 +82,8 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
-| `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
+| `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
+| `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 
 ## Personas
 
@@ -1474,7 +1476,7 @@ Headless tests exercise the parser, shared projections and UI paging only.
 
 **Last recorded** never run
 
-### Signed native updates preserve the existing workspace (`DESKTOP-SIGNED-UPDATES`)
+### Signed macOS updates preserve the existing workspace (`DESKTOP-SIGNED-UPDATES`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -1482,35 +1484,71 @@ Headless tests exercise the parser, shared projections and UI paging only.
 
 **Preconditions**
 
-An installed update-enabled desktop bundle, a newer signed desktop release,
-and a disposable workspace containing a timetable and a saved note.
-Update signing secrets must already be configured by the maintainer.
+An installed Developer-ID-signed macOS update-enabled bundle, a newer
+version signed with the configured updater key, and a rollback copy of
+the app and its data. A debug build may use the strictly loopback fixture
+origin; release builds always use the source repository.
 
 **Steps**
 
-1. Check for updates in Settings > About and download the offered update.
-   - *Why:* Only a signed native bundle exercises updater signature verification and the OS installer.
-2. Enable automatic updates, quit, reopen, and inspect the timetable and saved note.
-   - *Why:* Verifies installation goes through native shutdown and retains the same application-data directory.
-3. On Windows, launch the release installer build from Explorer and open a workspace file.
-   - *Why:* A headless Unix test cannot detect an unwanted Windows console or child-process console.
+1. Detect an update, download a tampered copy, then retry with the valid signed bundle.
+   - *Why:* The real native updater must reject modified bytes before permitting installation; fixtures alone do not exercise the packaged app and key.
+2. Enable automatic updates, quit through the app menu or Cmd-Q, and reopen.
+   - *Why:* Cocoa's predefined Quit can bypass ExitRequested; the native menu must enter owned shutdown before installing verified bytes.
+3. Compare the installed version, login state, saved settings, timetable and course records with the rollback copy.
+   - *Why:* A real bundle replacement must preserve the same app-data and Keychain access; an isolated parser test cannot verify that.
 
 **Where to look**
 
-Settings > About, the native app window, Windows desktop, and the saved workspace.
+Settings > About, the application bundle version, updater-install-result.json in app data, and the retained workspace.
 
 **Expected**
 
-The newer version installs on exit without losing saved data. A signature
-mismatch is rejected. Windows release launches have no accompanying terminal.
+Tampered content is rejected, the valid bundle installs through Cmd-Q,
+the new version reopens and saved data and login credentials remain.
+A source repository with no stable release is reported as unpublished.
 
 **Why this is manual**
 
-Requires signed release artifacts, native installers and a real Windows desktop.
+Requires Developer ID signing, real macOS menu dispatch, Keychain access and native app-bundle replacement.
 
 **Covers**
 
 - `apps/desktop/src-tauri/src/desktop_updates.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/tauri.conf.json`
+
+**Last recorded** never run
+
+### Windows release launches without a companion terminal (`DESKTOP-WINDOWS-LAUNCH`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Windows release installer built from the current desktop source and a real Windows desktop.
+
+**Steps**
+
+1. Install the release, launch it from Explorer, and open a course workspace file.
+   - *Why:* Windows subsystem and child-process consoles cannot be observed by headless Unix tests.
+
+**Where to look**
+
+The Windows desktop, app window and taskbar.
+
+**Expected**
+
+The app and workspace open without an accompanying console window.
+
+**Why this is manual**
+
+Requires a native Windows release executable, Explorer and the real desktop shell.
+
+**Covers**
+
 - `apps/desktop/src-tauri/src/main.rs`
 - `.github/workflows/desktop-release.yml`
 

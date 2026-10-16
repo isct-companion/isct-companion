@@ -1695,3 +1695,36 @@ describe("Notification preferences", () => {
     ).toEqual([1440, 60, 180]);
   });
 });
+
+describe("desktop app updates", () => {
+  it(
+    "shows an unpublished stable channel without claiming the app is up to date",
+    async () => {
+      const workspace = workspaceFixture();
+      workspace.settings.locale = "zh";
+      app = await mountSettings(paths.settings("about"), {
+        workspace,
+        handle: (command) => {
+          if (command === "check_app_update" || command === "app_update_state")
+            return {
+              phase: "unpublished",
+              signedUpdates: true,
+              releaseUrl:
+                "https://github.com/isct-companion/isct-companion/releases/latest",
+            };
+          return undefined;
+        },
+      });
+      await wait(() =>
+        expect(app!.host.textContent).toContain("尚未发布稳定版"),
+      );
+      expect(app.host.textContent).not.toContain("已是最新版本");
+      expect(buttonByText(app.host, "下载更新")).toBeUndefined();
+      await clickButton(app.host, "检查更新");
+      await wait(() =>
+        expect(app!.host.textContent).toContain("尚未发布稳定版"),
+      );
+    },
+    TIMEOUT,
+  );
+});
