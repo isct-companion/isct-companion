@@ -1207,3 +1207,52 @@ checks:
       - apps/desktop/src-tauri/src/commands/notifications.rs
       - crates/isct-core/src/schedule/reminders.rs
     verified: null
+
+  - id: SCHOOL-OFFICIAL-COURSE-PAGES
+    area: desktop
+    title: Official course search and enrollment use the authenticated native session
+    persona: undergraduate-senior
+    preconditions: |
+      An updated native desktop build, a real Tokyo Tech account, and the
+      student's registered timetable available in 教務Web. Use a disposable
+      local workspace for the fresh-profile check.
+    steps:
+      - action: |
+          Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
+          the department, admission year and current timetable with the source.
+        reason: |
+          Only a real account exposes the current programme and the registered
+          timetable. It also exercises native redirects and the hidden reader.
+      - action: |
+          Search a broad course prefix with more than 100 results, scroll to
+          load another page, then narrow by teacher, quarter and start period.
+        reason: |
+          Exercises live ASP.NET paging and session form state in the native
+          hidden browser; fixture tests cannot prove the university accepts
+          those postbacks. Changing conditions must start a fresh query.
+      - action: |
+          Open one result's syllabus details and one registered course's LMS
+          materials; refresh LMS and reopen the timetable.
+        reason: |
+          Real school sessions must support both content destinations without
+          a detail refresh or LMS membership changing official enrollment.
+    observe: |
+      Settings > Study, Schedule, the course search list and the native school
+      browser. Compare the same course code, quarter, time and room in 教務Web.
+    expected: |
+      Fresh profile fields match 教務Web; current enrollment and rooms match
+      its timetable. Search appends at most 100 courses per batch without
+      duplicates, changes filters on the server, and preserves loaded rows.
+      Syllabus details and LMS materials open for the same course; LMS refresh
+      leaves the official timetable intact. No university registration is changed.
+    why_manual: |
+      Requires real student authentication, native hidden-browser ownership,
+      the live university postback state and authenticated content destinations.
+      Headless tests exercise the parser, shared projections and UI paging only.
+    covers:
+      - crates/isct-core/src/school_browser/engine/extraction.rs
+      - crates/isct-core/src/school_browser/assets/kyomu-search.js
+      - crates/isct-core/src/school_browser/assets/kyomu-extract.js
+      - crates/isct-core/src/data/kyomu_projection.rs
+      - apps/desktop/src/pages/courses/CourseFinder.tsx
+    verified: null

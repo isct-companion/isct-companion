@@ -299,6 +299,130 @@ function plannerQueries(allTerms: TermId[] = [FALLBACK]) {
  * ------------------------------------------------------------------ */
 
 describe("the course planner", () => {
+  it("keeps IME confirmation out of the search and reopens suggestions for keyboard selection", async () => {
+    app = await mountApp(
+      {
+        revision: freshRevision(),
+        workspace: workspaceFixture(),
+        queries: plannerQueries(),
+        handle: finderHandler({
+          courses: [eligible],
+          suggestions: [
+            { kind: "text", key: "teacher:Tanaka", count: 1 },
+            { kind: "text", key: "room:W9", count: 1 },
+          ],
+        }),
+      },
+      { route: paths.home() },
+    );
+    const input = await enablePlanning(app);
+    await typeInto(input, "teacher:");
+    await settled(() =>
+      expect(app!.host.querySelectorAll('[role="option"]')).toHaveLength(2),
+    );
+    const key = async (value: string, composing = false) =>
+      act(async () => {
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: value,
+            bubbles: true,
+            isComposing: composing,
+          }),
+        );
+      });
+    await key("Enter", true);
+    expect(
+      app.core.calls.filter(
+        (c) =>
+          c.command === "finder_query" &&
+          (c.args.request as { action?: unknown }).action,
+      ),
+    ).toHaveLength(0);
+    await key("Escape");
+    expect(app.host.querySelectorAll('[role="option"]')).toHaveLength(0);
+    await key("ArrowDown");
+    await key("ArrowDown");
+    await key("Tab");
+    await settled(() =>
+      expect(
+        app!.core.calls.some(
+          (c) =>
+            c.command === "finder_query" &&
+            (c.args.request as { action?: FinderAction }).action?.kind ===
+              "commit",
+        ),
+      ).toBe(true),
+    );
+    const commits = app.core.calls.filter(
+      (c) =>
+        c.command === "finder_query" &&
+        (c.args.request as { action?: FinderAction }).action?.kind === "commit",
+    );
+    expect(
+      (commits[0].args.request as { action: FinderAction }).action,
+    ).toEqual({ kind: "commit", key: "room:W9" });
+  });
+
+  it("appends official search pages without replacing earlier rows", async () => {
+    const courses = Array.from({ length: 150 }, (_, index) =>
+      offering(
+        String(202600000 + index),
+        `CSC.T${index}`,
+        `Official course ${index}`,
+      ),
+    );
+    const cursor = "d80b803a-7694-49db-bd3a-e634d329fb0c";
+    app = await mountApp(
+      {
+        revision: freshRevision(),
+        workspace: workspaceFixture(),
+        queries: plannerQueries(),
+        handle: (command, args, core) => {
+          if (command === "finder_query") {
+            const request = args.request as Record<string, unknown>;
+            const result = finderView({ courses }, request, core);
+            const ids = request.remoteIds as string[] | undefined;
+            return {
+              ...result,
+              plan: { queries: [{ q: ".", code: "CSC" }] },
+              rows: result.rows.filter(
+                ({ course }) => !ids || ids.includes(course.id),
+              ),
+            };
+          }
+          if (command === "catalog_query") {
+            const next = Boolean(args.cursor);
+            return {
+              ids: courses
+                .slice(next ? 100 : 0, next ? 150 : 100)
+                .map((row) => row.id),
+              nextCursor: next ? null : cursor,
+              truncated: false,
+            };
+          }
+          return undefined;
+        },
+      },
+      { route: paths.home() },
+    );
+    await enablePlanning(app);
+    await settled(() =>
+      expect(app!.host.querySelectorAll(".finderRow")).toHaveLength(100),
+    );
+    await click(buttonByText(app.host, "Load more courses")!);
+    await settled(() =>
+      expect(app!.host.querySelectorAll(".finderRow")).toHaveLength(150),
+    );
+    expect(app.host.textContent).toContain("Official course 0");
+    expect(app.host.textContent).toContain("Official course 149");
+    expect(app.host.textContent).not.toContain("Load more courses");
+    const requests = app.core.calls.filter(
+      (call) => call.command === "catalog_query",
+    );
+    expect(requests).toHaveLength(2);
+    expect(requests[1].args.cursor).toBe(cursor);
+  });
+
   it("shows syllabus results on the right and places an eligible course when its row Add is clicked", async () => {
     app = await mountApp(
       {

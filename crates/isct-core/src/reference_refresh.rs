@@ -8,8 +8,8 @@ use crate::{
         PullContext, PullCoordinator, PullError, PullOptions, PullPriority, PullTarget,
     },
     subscriptions::{
-        self, AcademicCalendar, ClassSchedules, Departments, ImportantDates, PublishedExamFeed,
-        ReferenceFetch, SubscriptionClient, SubscriptionError,
+        self, AcademicCalendar, ClassSchedules, ImportantDates, PublishedExamFeed, ReferenceFetch,
+        SubscriptionClient, SubscriptionError,
     },
 };
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -21,13 +21,7 @@ use tokio::sync::Mutex;
 pub const PUBLIC_INDEX: &str =
     "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
 /// Every reference dataset kind a subscription can follow.
-pub const REFERENCE_KINDS: [&str; 5] = [
-    "calendar",
-    "departments",
-    "important-dates",
-    "exams",
-    "class-schedules",
-];
+pub const REFERENCE_KINDS: [&str; 4] = ["calendar", "important-dates", "exams", "class-schedules"];
 type ReferenceTransportFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, SubscriptionError>> + Send + 'a>>;
 type Probes = Arc<Mutex<HashMap<String, Result<String, ReferenceError>>>>;
@@ -111,7 +105,6 @@ impl From<ReferenceError> for PullError {
 #[derive(Clone, Debug)]
 enum ReferencePayload {
     Calendar(AcademicCalendar),
-    Departments(Departments),
     ImportantDates(ImportantDates),
     Exams(Vec<PublishedExamFeed>),
     ClassSchedules(ClassSchedules),
@@ -142,11 +135,6 @@ where
 impl From<AcademicCalendar> for ReferencePayload {
     fn from(value: AcademicCalendar) -> Self {
         Self::Calendar(value)
-    }
-}
-impl From<Departments> for ReferencePayload {
-    fn from(value: Departments) -> Self {
-        Self::Departments(value)
     }
 }
 impl From<ImportantDates> for ReferencePayload {
@@ -201,10 +189,6 @@ impl ReferenceTransport for HttpReferenceTransport {
             match kind {
                 "calendar" => Ok(client
                     .fetch_calendar(index_url, year, Some(expected_index_hash), known_hash)
-                    .await?
-                    .into()),
-                "departments" => Ok(client
-                    .fetch_departments(index_url, year, Some(expected_index_hash), known_hash)
                     .await?
                     .into()),
                 "important-dates" => Ok(client
@@ -270,7 +254,7 @@ impl ReferenceService {
             if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
                 continue;
             }
-            let Some(year) = subscription_year(&workspace, kind) else {
+            let Some(year) = subscription_year(&workspace) else {
                 continue;
             };
             let index_url = row
@@ -506,9 +490,6 @@ impl ReferenceService {
             Some(ReferencePayload::Calendar(value)) => {
                 subscriptions::apply_reference(&mut connection, Some(value), None)?
             }
-            Some(ReferencePayload::Departments(value)) => {
-                subscriptions::apply_reference(&mut connection, None, Some(value))?
-            }
             Some(ReferencePayload::ImportantDates(value)) => {
                 subscriptions::apply_important_dates(&mut connection, value)?
             }
@@ -542,20 +523,12 @@ struct ReferenceRequest {
     force: bool,
 }
 
-/// Departments follow the admission year; term-based references follow the
-/// term the person is viewing (`selectedTerm`), for every kind of run.
-fn subscription_year(workspace: &Value, kind: &str) -> Option<i32> {
-    let year = if kind == "departments" {
-        workspace
-            .pointer("/academicProfile/admissionYear")
-            .and_then(Value::as_i64)
-    } else {
-        workspace["selectedTerm"]
-            .as_str()
-            .and_then(|term| term.get(..4))
-            .and_then(|year| year.parse().ok())
-    };
-    year.and_then(|year| i32::try_from(year).ok())
+/// References follow the term the person is viewing for every kind of run.
+fn subscription_year(workspace: &Value) -> Option<i32> {
+    workspace["selectedTerm"]
+        .as_str()
+        .and_then(|term| term.get(..4))
+        .and_then(|year| year.parse::<i32>().ok())
         .filter(|year| *year > 0)
 }
 
@@ -564,7 +537,7 @@ pub fn subscription_views(workspace: &Value) -> Value {
     let mut views = serde_json::Map::new();
     for kind in REFERENCE_KINDS {
         let row = subscription_row(workspace, kind);
-        let year = subscription_year(workspace, kind);
+        let year = subscription_year(workspace);
         let enabled = row.and_then(|row| row["enabled"].as_bool()).unwrap_or(true);
         let state = if !enabled {
             json!({"state":"off"})
@@ -652,7 +625,6 @@ pub fn reference_due_at_launch(task: &Value, started_at: DateTime<Utc>) -> bool 
 fn cache_fingerprint(workspace: &Value, kind: &str, year: i32) -> Result<String, ReferenceError> {
     let fields: &[&str] = match kind {
         "calendar" => &["academicCalendar"],
-        "departments" => &["departments", "recommendedCourses"],
         "important-dates" => &["importantDates"],
         "exams" => &["exams"],
         "class-schedules" => &["classSchedules"],
@@ -662,11 +634,7 @@ fn cache_fingerprint(workspace: &Value, kind: &str, year: i32) -> Result<String,
             ))
         }
     };
-    let year_field = if kind == "departments" {
-        "cohortYear"
-    } else {
-        "academicYear"
-    };
+    let year_field = "academicYear";
     let mut rows: Vec<_> = fields
         .iter()
         .flat_map(|field| {

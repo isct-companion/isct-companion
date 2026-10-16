@@ -2530,28 +2530,6 @@ p {
   color: var(--warn);
   flex-basis: 100%;
 }
-.finderPager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 6px;
-  border-top: 1px solid var(--line);
-  font-size: calc(12px * var(--text));
-  color: var(--muted);
-}
-.finderPager .textButton {
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-}
-.finderPager .textButton:disabled {
-  color: var(--muted);
-  opacity: 0.5;
-  cursor: default;
-}
 .courseFinder .finderResults {
   flex: 1;
   min-height: 0;
@@ -4625,3 +4603,6 @@ textarea.codeArea {
   background: var(--danger-soft);
   color: var(--danger);
 }
+
+.finderLoadMore { display: flex; justify-content: center; }
+.finderLoadMore:has(button) { padding: 12px; }

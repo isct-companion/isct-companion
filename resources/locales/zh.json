@@ -907,5 +907,19 @@
   "{{days}} days before": "提前 {{days}} 天",
   "1 hour before": "提前 1 小时",
   "{{hours}} hours before": "提前 {{hours}} 小时",
-  "Assignment reminder times": "作业提醒时间"
+  "Assignment reminder times": "作业提醒时间",
+  "Searching 教務Web…": "正在查询教务…",
+  "in 教務Web": "门教务课程",
+  "Search 教務Web for": "在教务中搜索",
+  "教務Web limited these results. Narrow with a department, code or instructor.": "教务限制了结果数量，请用学系、课程编号或教师缩小范围。",
+  "Use at most 4 department × code combinations. Narrow the conditions.": "最多支持 4 组学系与课程编号组合，请缩小范围。",
+  "Choose a condition or enter a course name.": "选择筛选条件或输入课程名称。",
+  "Loading course details…": "正在读取课程详情…",
+  "教務Web found nothing. Change or remove a condition.": "教务没有匹配课程，请修改或移除筛选条件。",
+  "Title, code, 火3-4, teacher:小林, room:W9…": "课程名、编号、火3-4、teacher:小林、room:W9…",
+  "Calendars and exam timetables come from a public, reviewed data set. The app checks for changes once a day.": "校历和考试安排来自公开审核的数据集，每天检查一次更新。",
+  "Load more courses": "加载更多课程",
+  "Connect Tokyo Tech for your timetable and course search, and Science Tokyo for course materials and assignments.": "连接 Tokyo Tech 获取课表和搜索课程，连接 Science Tokyo 获取课件与作业。",
+  "Refresh timetable from 教務Web": "从教务更新课表",
+  "Refresh timetable": "更新课表"
 }

@@ -344,15 +344,13 @@ fn due(profile: SchoolAuthProfile, runs: &Value, now: DateTime<Utc>) -> bool {
     match profile {
         SchoolAuthProfile::Science => stale(runs["lms:full"].as_str(), LMS_STALE_SECONDS, now),
         SchoolAuthProfile::TokyoTech => {
-            ["gpa", "registrations", "declared", "grades", "requirements"]
-                .iter()
-                .any(|page| {
-                    stale(
-                        runs[format!("kyomu:{page}")].as_str(),
-                        KYOMU_STALE_SECONDS,
-                        now,
-                    )
-                })
+            crate::school_parser::kyomu::PAGES.iter().any(|(_, page)| {
+                stale(
+                    runs[format!("kyomu:{page}")].as_str(),
+                    KYOMU_STALE_SECONDS,
+                    now,
+                )
+            })
         }
     }
 }

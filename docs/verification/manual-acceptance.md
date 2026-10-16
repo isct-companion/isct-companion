@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 26 checks must be re-run before the next release.**
+**7 of 27 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**18 checks have never been run or could not be run:**
+**19 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -47,6 +47,7 @@ an unverified area becomes an assumed-good one.
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
 - `DESKTOP-REMINDER-TIMES` — never verified
+- `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
 
 ## Status
 
@@ -78,6 +79,7 @@ an unverified area becomes an assumed-good one.
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 
 ## Personas
 
@@ -1405,5 +1407,62 @@ and native notification delivery; tests use a headless notification sink.
 - `apps/desktop/src/pages/settings/NotificationSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/notifications.rs`
 - `crates/isct-core/src/schedule/reminders.rs`
+
+**Last recorded** never run
+
+### Official course search and enrollment use the authenticated native session (`SCHOOL-OFFICIAL-COURSE-PAGES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An updated native desktop build, a real Tokyo Tech account, and the
+student's registered timetable available in 教務Web. Use a disposable
+local workspace for the fresh-profile check.
+
+**Steps**
+
+1. Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
+   the department, admission year and current timetable with the source.
+   - *Why:* Only a real account exposes the current programme and the registered
+     timetable. It also exercises native redirects and the hidden reader.
+2. Search a broad course prefix with more than 100 results, scroll to
+   load another page, then narrow by teacher, quarter and start period.
+   - *Why:* Exercises live ASP.NET paging and session form state in the native
+     hidden browser; fixture tests cannot prove the university accepts
+     those postbacks. Changing conditions must start a fresh query.
+3. Open one result's syllabus details and one registered course's LMS
+   materials; refresh LMS and reopen the timetable.
+   - *Why:* Real school sessions must support both content destinations without
+     a detail refresh or LMS membership changing official enrollment.
+
+**Where to look**
+
+Settings > Study, Schedule, the course search list and the native school
+browser. Compare the same course code, quarter, time and room in 教務Web.
+
+**Expected**
+
+Fresh profile fields match 教務Web; current enrollment and rooms match
+its timetable. Search appends at most 100 courses per batch without
+duplicates, changes filters on the server, and preserves loaded rows.
+Syllabus details and LMS materials open for the same course; LMS refresh
+leaves the official timetable intact. No university registration is changed.
+
+**Why this is manual**
+
+Requires real student authentication, native hidden-browser ownership,
+the live university postback state and authenticated content destinations.
+Headless tests exercise the parser, shared projections and UI paging only.
+
+**Covers**
+
+- `crates/isct-core/src/school_browser/engine/extraction.rs`
+- `crates/isct-core/src/school_browser/assets/kyomu-search.js`
+- `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
+- `crates/isct-core/src/data/kyomu_projection.rs`
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
 
 **Last recorded** never run

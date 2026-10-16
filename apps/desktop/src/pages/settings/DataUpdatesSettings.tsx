@@ -35,7 +35,6 @@ const DATASETS: Record<
     title: "Alternating class schedules",
     follows: "academic",
   },
-  departments: { title: "Study guide", follows: "admission" },
 };
 
 /** Official reference data from the public Isct-Data repository. */
@@ -74,7 +73,7 @@ export function DataUpdatesSettings({
     <>
       <SettingsHeader
         title="Data updates"
-        description="Calendars, exam timetables and study guides come from a public, reviewed data set. The app checks for changes once a day."
+        description="Calendars and exam timetables come from a public, reviewed data set. The app checks for changes once a day."
         actions={
           refreshReferences && (
             <UiButton

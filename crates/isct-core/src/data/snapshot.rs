@@ -93,6 +93,29 @@ impl DataStore {
                 }
             }
         }
+        for key in [
+            "deviceId",
+            "selectedTerm",
+            "terms",
+            "settings",
+            "academicProfile",
+            "importStatus",
+            "syncStatus",
+            "logs",
+        ] {
+            if let Some(value) = read_setting(connection, key)? {
+                workspace[key] = value;
+            }
+        }
+        for key in ["userPreferences", "devicePreferences"] {
+            if let Some(value) = read_setting(connection, key)? {
+                apply_preferences(&mut workspace["settings"], value);
+            }
+        }
+        if let Some(value) = read_setting(connection, "cloud")? {
+            workspace["settings"]["cloud"] = value;
+        }
+        kyomu_projection::project(connection, &mut workspace)?;
         let overrides = read_rows(connection, "course_overrides")?;
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
             for course in courses {
@@ -121,28 +144,6 @@ impl DataStore {
                     }
                 }
             }
-        }
-        for key in [
-            "deviceId",
-            "selectedTerm",
-            "terms",
-            "settings",
-            "academicProfile",
-            "importStatus",
-            "syncStatus",
-            "logs",
-        ] {
-            if let Some(value) = read_setting(connection, key)? {
-                workspace[key] = value;
-            }
-        }
-        for key in ["userPreferences", "devicePreferences"] {
-            if let Some(value) = read_setting(connection, key)? {
-                apply_preferences(&mut workspace["settings"], value);
-            }
-        }
-        if let Some(value) = read_setting(connection, "cloud")? {
-            workspace["settings"]["cloud"] = value;
         }
         let today_jst = (Utc::now() + chrono::Duration::hours(9)).date_naive();
         workspace["currentTerm"] = Value::String(

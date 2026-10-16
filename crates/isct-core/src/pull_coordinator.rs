@@ -67,6 +67,10 @@ type PullWork = Arc<dyn Fn(PullContext) -> PullFuture + Send + Sync>;
     rename_all_fields = "camelCase"
 )]
 pub enum PullTarget {
+    Catalog {
+        year: u16,
+        query: String,
+    },
     School {
         site: SchoolSite,
         course_id: Option<u64>,
@@ -81,6 +85,12 @@ pub enum PullTarget {
 impl PullTarget {
     pub fn normalized(self) -> Result<Self, PullError> {
         match self {
+            Self::Catalog { year, query } => {
+                if !(2020..=2200).contains(&year) || query.len() > 4096 {
+                    return Err(PullError::InvalidTarget("Invalid course search.".into()));
+                }
+                Ok(Self::Catalog { year, query })
+            }
             Self::Reference {
                 kind,
                 index_url,
@@ -132,7 +142,7 @@ impl PullTarget {
 
     fn lane(&self) -> PullLane {
         match self {
-            Self::School { .. } => PullLane::School,
+            Self::School { .. } | Self::Catalog { .. } => PullLane::School,
             Self::Reference { .. } => PullLane::Http,
         }
     }

@@ -907,5 +907,19 @@
   "{{days}} days before": "{{days}}日前",
   "1 hour before": "1時間前",
   "{{hours}} hours before": "{{hours}}時間前",
-  "Assignment reminder times": "課題の通知タイミング"
+  "Assignment reminder times": "課題の通知タイミング",
+  "Searching 教務Web…": "教務Webで検索中…",
+  "in 教務Web": "件（教務Web）",
+  "Search 教務Web for": "教務Webで検索",
+  "教務Web limited these results. Narrow with a department, code or instructor.": "教務Webの表示上限です。系・科目コード・教員で絞り込んでください。",
+  "Use at most 4 department × code combinations. Narrow the conditions.": "系と科目コードの組み合わせは4件までです。条件を絞り込んでください。",
+  "Choose a condition or enter a course name.": "条件を選ぶか、授業科目名を入力してください。",
+  "Loading course details…": "授業詳細を読み込み中…",
+  "教務Web found nothing. Change or remove a condition.": "教務Webに該当科目がありません。条件を変更してください。",
+  "Title, code, 火3-4, teacher:小林, room:W9…": "科目名・コード・火3-4・teacher:小林・room:W9…",
+  "Calendars and exam timetables come from a public, reviewed data set. The app checks for changes once a day.": "学年暦と試験時間割は公開・確認済みデータから取得し、毎日更新を確認します。",
+  "Load more courses": "さらに読み込む",
+  "Connect Tokyo Tech for your timetable and course search, and Science Tokyo for course materials and assignments.": "Tokyo Techで時間割・科目検索、Science Tokyoで教材・課題を利用できます。",
+  "Refresh timetable from 教務Web": "教務Webから時間割を更新",
+  "Refresh timetable": "時間割を更新"
 }

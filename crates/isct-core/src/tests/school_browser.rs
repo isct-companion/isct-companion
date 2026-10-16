@@ -1798,7 +1798,7 @@ async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
 }
 
 #[tokio::test]
-async fn first_automatic_full_pull_also_builds_the_timetable() {
+async fn full_lms_pull_updates_content_without_owning_the_timetable() {
     let (engine, browser, events, store) = engine();
     let coordinator = PullCoordinator::default();
     let request = spawn_pull(
@@ -1842,13 +1842,11 @@ async fn first_automatic_full_pull_also_builds_the_timetable() {
         .unwrap()
         .unwrap();
     let workspace = store.load_workspace().unwrap();
-    assert!(workspace["importStatus"]["timetableReviewedAt"].is_string());
-    let week = crate::schedule::planning_week(&workspace, "2026-3Q").unwrap();
-    assert_eq!(week.days[4].blocks.len(), 1);
-    assert_eq!(week.days[4].blocks[0].title, "Algorithms");
-    assert_eq!(week.days[4].blocks[0].start_time, "13:30");
+    assert!(workspace["importStatus"]["timetableReviewedAt"].is_null());
+    assert!(workspace["memberships"].as_array().unwrap().is_empty());
+    assert_eq!(store.table_rows("lms_courses").unwrap().len(), 1);
     assert!(store.last_import_runs().unwrap()["lms:full"].is_string());
-    assert!(events.0.lock().unwrap().iter().any(|event| matches!(event,
+    assert!(!events.0.lock().unwrap().iter().any(|event| matches!(event,
         CoreEvent::SchoolPullProgress(progress) if progress.phase == "timetable")));
     engine.shutdown().await;
 }

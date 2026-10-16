@@ -31,7 +31,6 @@ export function StudyProfileSettings({
   data,
   update,
   setStudyProfile,
-  refreshReferences,
   openSection,
 }: {
   data: Workspace;
@@ -40,7 +39,6 @@ export function StudyProfileSettings({
     admissionYear: number | undefined,
     studyEnrollments: StudyEnrollment[],
   ) => Promise<void>;
-  refreshReferences?: () => Promise<string>;
   /** Opens the academic calendar; absent where it is not available. */
   openSection?: (section: "calendar") => void;
 }) {
@@ -158,8 +156,6 @@ export function StudyProfileSettings({
           left.admittedTerm.localeCompare(right.admittedTerm),
         );
       await setStudyProfile(draft.admissionYear, submitted);
-      if (draft.admissionYear !== admissionYear)
-        await refreshReferences?.().catch(() => undefined);
       setDraft((current) => ({
         ...current,
         enrollments: draftEnrollments(submitted),

@@ -90,9 +90,7 @@ import {
 import { subscriptionNetwork } from "../platform/subscription-polling";
 
 import { CourseFinder } from "../pages/courses/CourseFinder";
-import { LmsMergeDialog } from "../pages/courses/LmsMergeDialog";
 import { AcademicSummary } from "../pages/courses/AcademicSummary";
-import { type MergeDiff } from "../lib/lms-merge";
 import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
@@ -433,7 +431,6 @@ export function WorkspaceApp() {
   } = usePullState();
   const pulling = lmsProgress !== null;
   useCoreLifecycle();
-  const [mergeDiff, setMergeDiff] = useState<MergeDiff | null>(null);
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
   /** After a pull settles the timetable, ask once for the physics group of
    * a current or later semester that has none. */
@@ -507,6 +504,18 @@ export function WorkspaceApp() {
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
   }, [navigate, closeDrawer]);
+  const lmsRecordFor = (course: Course) => {
+    const records = schoolRecords?.lmsCourses ?? [];
+    return (
+      records.find((item) => item.lmsId === course.lmsCourseId) ??
+      records.find(
+        (item) =>
+          (course.offeringId && item.offeringId === course.offeringId) ||
+          (course.source.provider === "lms" &&
+            String(item.lmsId) === course.source.externalId),
+      )
+    );
+  };
   // Pulls across courses leave material details out (files, pages,
   // announcements); opening a lecture fills in its own, once per session.
   useEffect(() => {
@@ -514,13 +523,7 @@ export function WorkspaceApp() {
     const course = sourceData.courses.find(
       (item) => item.id === lectureEntry.courseId && !item.deletedAt,
     );
-    const record =
-      course &&
-      schoolRecords?.lmsCourses.find(
-        (item) =>
-          (course.offeringId && item.offeringId === course.offeringId) ||
-          String(item.lmsId) === course.source.externalId,
-      );
+    const record = course && lmsRecordFor(course);
     if (!record) return;
     void desktopBridge
       ?.schoolRefreshEvent?.({ kind: "lecture-opened", courseId: record.lmsId })
@@ -741,79 +744,6 @@ export function WorkspaceApp() {
       state: { lectureRequest: Date.now(), lectureContext: timing },
     });
   };
-  /** LMS pull, then a review dialog when the timetable and LMS differ. */
-  // All triggers use the native coordinator and receive the shared result.
-  // `quiet` (TTL refresh) reports only a review dialog, never a toast.
-  const pullLms = async (
-    scope: "term" | "all",
-    quiet = false,
-    term = courseTerm,
-  ) => {
-    if (!desktopBridge?.pullSchool)
-      return quiet || notify.info("LMS pull needs the desktop app.");
-    setLmsPhase(
-      scope === "all" ? "Scanning all LMS quarters" : `Scanning LMS · ${term}`,
-    );
-    setLmsProgress(5);
-    try {
-      const outcomes = await pullScienceLms();
-      const problem = pullProblem(outcomes);
-      if (problem) {
-        setLmsPhase(problem);
-        return quiet || notify.info(problem);
-      }
-      setLmsPhase("LMS scan complete · reading course data");
-      setLmsProgress(45);
-      let preview = await desktopBridge.lmsMergePreview(scope, term);
-      const missing = preview.detailIds;
-      for (let index = 0; index < missing.length; index += 4) {
-        setLmsPhase(
-          `Loading syllabus details · ${Math.min(index, missing.length)}/${missing.length}`,
-        );
-        await Promise.all(
-          missing
-            .slice(index, index + 4)
-            .map((id) =>
-              desktopBridge
-                ?.syllabusCourse(id, contentLanguage(data.settings))
-                .catch(() => undefined),
-            ),
-        );
-        setLmsProgress(
-          45 + (45 * Math.min(index + 4, missing.length)) / missing.length,
-        );
-      }
-      if (missing.length)
-        preview = await desktopBridge.lmsMergePreview(scope, term);
-      setLmsPhase("Comparing LMS with your timetable");
-      setLmsProgress(95);
-      const diff: MergeDiff = {
-        ...preview,
-        conflicts: new Map(Object.entries(preview.conflicts)),
-      };
-      if (preview.hasDifferences) {
-        setMergeDiff(diff);
-        setLmsPhase("Review ready · timetable changes found");
-      } else {
-        await academicIntentOrThrow({
-          kind: "applyLmsMerge",
-          terms: diff.terms,
-          add: [],
-          keep: [],
-          retime: [],
-        });
-        setLmsPhase(`Up to date · ${diff.common.length} courses matched`);
-        if (!quiet)
-          notify.info(`Timetable matches LMS (${diff.common.length})`);
-        await askClassGroup();
-      }
-    } catch (error) {
-      setLmsPhase(`Update failed · ${errorText(error) ?? t("unknown error")}`);
-      if (!quiet) notify.error(error);
-    } finally {
-      setLmsProgress(null);
-    }
-  };
   /** Assignments and materials only; the timetable stays as it is. */
   const fetchLms = async (quiet = false, lmsCourseId?: number) => {
     if (!desktopBridge?.pullSchool) return false;
@@ -848,6 +778,7 @@ export function WorkspaceApp() {
       const problem = pullProblem(outcomes);
 
       if (!quiet) notify.info(problem ?? "教務Web updated");
+      if (!problem) await askClassGroup();
     } catch (error) {
       if (!quiet) notify.error(error);
     } finally {
@@ -893,12 +824,7 @@ export function WorkspaceApp() {
       course.url?.includes("lms.s.isct.ac.jp")
     )
       return course.url;
-    const row = schoolRecords?.lmsCourses.find(
-      (item) =>
-        (course.offeringId && item.offeringId === course.offeringId) ||
-        (course.source.provider === "lms" &&
-          String(item.lmsId) === course.source.externalId),
-    );
+    const row = lmsRecordFor(course);
     return row?.url;
   };
 
@@ -954,11 +880,7 @@ export function WorkspaceApp() {
           (c) => c.id === entry.courseId && !c.deletedAt,
         );
         if (!course) return null;
-        const record = schoolRecords?.lmsCourses.find(
-          (item) =>
-            (course.offeringId && item.offeringId === course.offeringId) ||
-            String(item.lmsId) === course.source.externalId,
-        );
+        const record = lmsRecordFor(course);
         return (
           <Suspense fallback={<p role="status">{t("Loading…")}</p>}>
             <LmsWorkspace
@@ -1043,8 +965,7 @@ export function WorkspaceApp() {
     !planning &&
     !data.importStatus.timetableReviewedAt &&
     !data.courses.some((course) => !course.deletedAt) &&
-    !schoolRecords?.lmsCourses.length &&
-    scienceSession !== "active";
+    tokyoTechSession !== "active";
   const homePage = (
     <div
       className={`homePage ${renderedRoutes.current.homeView}${planning ? " planning" : ""}${showSchoolSetup ? " needsSetup" : ""}`}
@@ -1055,7 +976,7 @@ export function WorkspaceApp() {
             <b>{t("Connect your school accounts")}</b>
             <p>
               {t(
-                "Connect Science Tokyo for LMS courses and assignments, and Tokyo Tech for registration and grades. Your first full LMS sync builds your timetable automatically.",
+                "Connect Tokyo Tech for your timetable and course search, and Science Tokyo for course materials and assignments.",
               )}
             </p>
           </div>
@@ -1158,7 +1079,6 @@ export function WorkspaceApp() {
                     : () => setCourseEditor({ term: courseTerm })
                 }
                 query={desktopBridge?.catalogQuery}
-                syncDetails={desktopBridge?.catalogSyncOfferings}
               />
             }
             leftPanel={
@@ -1229,12 +1149,10 @@ export function WorkspaceApp() {
             onIntensive={(append) => pickFinderTime("集中", append)}
             intensiveActive={finderKeys.includes("集中")}
             addTerm={() => setTermDialog(true)}
-            pullLms={
-              desktopBridge?.pullSchool && !readOnly
-                ? (scope) => void pullLms(scope)
-                : undefined
+            refreshSchedule={
+              desktopBridge?.pullSchool ? () => void refreshKyomu() : undefined
             }
-            pullProgress={lmsProgress}
+            pullProgress={kyomuProgress}
             register={
               desktopBridge?.setKyomuGuide
                 ? (term) => void openRegistration(term)
@@ -1390,29 +1308,6 @@ export function WorkspaceApp() {
         />
       )}
       {/* Editors show a failed submission inline and stay open. */}
-      {mergeDiff && (
-        <LmsMergeDialog
-          diff={mergeDiff}
-          close={async () => {
-            await workspaceActions.markTimetableReviewed();
-            setMergeDiff(null);
-            await askClassGroup();
-          }}
-          apply={async (add, keep, retime) => {
-            const diff = mergeDiff;
-            await academicIntentOrThrow({
-              kind: "applyLmsMerge",
-              terms: diff.terms,
-              add: [...add],
-              keep: [...keep],
-              retime: [...retime],
-            });
-            setMergeDiff(null);
-            notify.info("Timetable updated from LMS");
-            await askClassGroup();
-          }}
-        />
-      )}
       {groupPrompt && (
         <ClassGroupPrompt
           choice={groupPrompt}

@@ -430,7 +430,7 @@ impl SchoolExecutor for SchoolBrowserEngine {
     }
 }
 
-fn map_executor(error: SchoolBrowserError) -> SchoolExecutorError {
+pub(crate) fn map_executor(error: SchoolBrowserError) -> SchoolExecutorError {
     match error {
         SchoolBrowserError::InvalidInput(message) => SchoolExecutorError::InvalidInput(message),
         SchoolBrowserError::Storage(message) => SchoolExecutorError::Storage(message),
@@ -565,6 +565,7 @@ impl Inner {
                     baseline: event.page.sequence.saturating_sub(1),
                     target: event.url.to_string(),
                     visible: true,
+                    catalog_page: None,
                 });
             }
             let popup_return = match state.popup_return.get(&event.page.browser.site).cloned() {
@@ -692,8 +693,16 @@ impl Inner {
                     .unwrap_or_else(|| {
                         "delete globalThis.__ISCT_COMPANION_LMS_COURSE_ID__;".into()
                     });
+                let catalog_page = serde_json::to_string(&extraction.catalog_page)
+                    .unwrap_or_else(|_| "null".into());
+                let course =
+                    format!("{course}globalThis.__ISCT_COMPANION_KYOMU_PAGE__={catalog_page};");
                 let quoted_run =
                     serde_json::to_string(&extraction.run).unwrap_or_else(|_| "\"\"".into());
+                let course = format!(
+                    "{course}globalThis.__ISCT_COMPANION_KYOMU_HIDDEN__={};",
+                    !extraction.visible
+                );
                 let setup = format!("{course}globalThis.__ISCT_COMPANION_LMS_FULL__={};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>{{if(v&&typeof v==='object')v._isctExtractionRun={quoted_run};document.title='{progress_relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}};", extraction.full);
                 let relay = self.state.with(|state| {
                     state

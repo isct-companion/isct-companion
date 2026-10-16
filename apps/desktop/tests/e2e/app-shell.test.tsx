@@ -2051,7 +2051,7 @@ describe("First school connection", () => {
       return element!;
     });
     expect(setup.textContent).toContain(
-      "first full LMS sync builds your timetable automatically",
+      "Tokyo Tech for your timetable and course search",
     );
     await click(setup.querySelector("button"));
     await until(() =>

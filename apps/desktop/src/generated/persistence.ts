@@ -40,6 +40,7 @@ export type Meeting = {
   periods: Array<number>;
   startTime: string;
   endTime: string;
+  termIds?: Array<string>;
   room: string;
   roomNames?: Localized;
   validFrom?: string;
@@ -63,6 +64,7 @@ export type Course = {
   sourceKey?: string;
   offeringId?: string;
   names?: CourseNames;
+  lmsCourseId?: number;
   code: string;
   title: string;
   instructor: string;
@@ -1276,7 +1278,13 @@ export type Suggestion =
   | { kind: "text"; key: string; count: number };
 
 export type RemoteQuery = {
+  quarters?: Array<number>;
+  days?: Array<number>;
+  periodStarts?: Array<number>;
+  language?: string;
+  requirementGroups?: Array<string>;
   q: string;
+  teacher?: string;
   scope?: string;
   code?: string;
   groups?: Array<string>;
@@ -1298,6 +1306,7 @@ export type FinderDepartment = {
   id: string;
   name: { [key in string]?: string };
   unitCode: string;
+  codePrefix: string;
   scope: string | null;
 };
 
@@ -1563,7 +1572,6 @@ export const PUBLIC_DATA_INDEX =
 
 export const REFERENCE_KINDS = [
   "calendar",
-  "departments",
   "important-dates",
   "exams",
   "class-schedules",

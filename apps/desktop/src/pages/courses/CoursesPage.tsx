@@ -61,7 +61,7 @@ export function Courses({
   activeSlots,
   onIntensive,
   intensiveActive,
-  pullLms,
+  refreshSchedule,
   pullProgress = null,
   register,
   academic,
@@ -96,9 +96,9 @@ export function Courses({
   /** The 集中 lane toggles the intensive condition. */
   onIntensive?: (append: boolean) => void;
   intensiveActive?: boolean;
-  /** Pulls LMS courses for the quarter on screen, or every quarter. */
-  pullLms?: (scope: "term" | "all") => void;
-  /** 0–100 while an LMS pull runs, else null. */
+  /** Refreshes official enrollment and times from 教務Web. */
+  refreshSchedule?: () => void;
+  /** 0–100 while an official pull runs, else null. */
   pullProgress?: number | null;
   /** Opens 教務Web registration with this quarter's planned courses queued. */
   register?: (term: TermId) => void;
@@ -273,43 +273,23 @@ export function Courses({
         />
         <div className="pageBarRight">
           {academic}
-          {canEdit && pullLms && (
-            <Button.Group>
-              <Button
-                size="xs"
-                variant="default"
-                disabled={pullProgress !== null}
-                leftSection={
-                  pullProgress !== null ? (
-                    <PullRing value={pullProgress} />
-                  ) : undefined
-                }
-                onClick={() => pullLms("term")}
-                title={t("Pull this quarter's courses from LMS")}
-              >
-                {pullProgress !== null
-                  ? `${Math.round(pullProgress)}%`
-                  : t("Pull from LMS")}
-              </Button>
-              <Menu position="bottom-end" withinPortal>
-                <Menu.Target>
-                  <Button
-                    size="xs"
-                    variant="default"
-                    disabled={pullProgress !== null}
-                    aria-label={t("More pull options")}
-                    px={6}
-                  >
-                    ▾
-                  </Button>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Item onClick={() => pullLms("all")}>
-                    {t("Pull all quarters")}
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            </Button.Group>
+          {refreshSchedule && (
+            <Button
+              size="xs"
+              variant="default"
+              disabled={pullProgress !== null}
+              leftSection={
+                pullProgress !== null ? (
+                  <PullRing value={pullProgress} />
+                ) : undefined
+              }
+              onClick={refreshSchedule}
+              title={t("Refresh timetable from 教務Web")}
+            >
+              {pullProgress !== null
+                ? `${Math.round(pullProgress)}%`
+                : t("Refresh timetable")}
+            </Button>
           )}
           {register && canEdit && (
             <UiButton

@@ -207,7 +207,6 @@ export function Settings({
         data={data}
         update={update}
         setStudyProfile={setStudyProfile}
-        refreshReferences={refreshReferences}
         openSection={sectionSupported("calendar", context) ? open : undefined}
       />
     ) : current === "notifications" ? (

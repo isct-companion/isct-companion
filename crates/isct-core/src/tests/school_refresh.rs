@@ -66,7 +66,14 @@ fn store(name: &str) -> DataStore {
 fn freshness_checks_all_five_kyomu_pages_and_exact_ttl() {
     let now: DateTime<Utc> = "2026-10-12T00:00:00Z".parse().unwrap();
     let mut runs = json!({});
-    for page in ["gpa", "registrations", "declared", "grades", "requirements"] {
+    for page in [
+        "gpa",
+        "registrations",
+        "declared",
+        "profile",
+        "grades",
+        "requirements",
+    ] {
         runs[format!("kyomu:{page}")] = json!(now.to_rfc3339());
     }
     assert!(!due(SchoolAuthProfile::TokyoTech, &runs, now));

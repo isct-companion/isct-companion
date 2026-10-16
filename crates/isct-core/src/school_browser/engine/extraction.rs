@@ -3,16 +3,6 @@ use super::*;
 
 const KYOMU_ROOT: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/";
 
-const KYOMU_PULL_PAGES: [&str; 5] = [
-    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx",
-    "Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx",
-    "Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_1.aspx",
-    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx",
-    "Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_6.aspx",
-];
-
-const KYOMU_PULL_KINDS: [&str; 5] = ["gpa", "registrations", "declared", "grades", "requirements"];
-
 const OPEN_TIMEOUT: Duration = Duration::from_secs(150);
 
 const PAGE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -26,6 +16,14 @@ pub(super) struct Extraction {
     pub(super) baseline: u64,
     pub(super) target: String,
     pub(super) visible: bool,
+    pub(super) catalog_page: Option<CatalogPage>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CatalogPage {
+    cursor: Option<String>,
+    next_cursor: String,
 }
 
 /// A hidden pull navigation. It owns automatic sign-in in its view and is
@@ -82,6 +80,76 @@ pub(super) enum HiddenLoad<T> {
 }
 
 impl SchoolBrowserEngine {
+    pub async fn catalog_search(
+        &self,
+        url: &str,
+        cursor: Option<String>,
+        context: &PullContext,
+    ) -> Result<serde_json::Value, SchoolBrowserError> {
+        if cursor
+            .as_ref()
+            .is_some_and(|cursor| uuid::Uuid::parse_str(cursor).is_err())
+        {
+            return Err(SchoolBrowserError::InvalidInput(
+                "Invalid course page cursor.".into(),
+            ));
+        }
+        let page = CatalogPage {
+            cursor,
+            next_cursor: new_id(),
+        };
+        tokio::time::timeout(OPEN_TIMEOUT, async {
+            loop {
+                self.wait_until_hidden(context).await?;
+                let lane = self.acquire_pull_lane(context).await?;
+                let result = self
+                    .capture_page(
+                        SchoolSite::Kyomu,
+                        Some(page.clone()),
+                        url,
+                        None,
+                        false,
+                        PAGE_TIMEOUT,
+                        context,
+                    )
+                    .await;
+                drop(lane);
+                match result {
+                    Err(SchoolBrowserError::Preempted) if !context.is_cancelled() => continue,
+                    Err(error) => return Err(error),
+                    Ok(HiddenLoad::SignInRequired) => {
+                        return Err(SchoolBrowserError::Auth(
+                            "Sign in to 教務Web in Settings to search courses.".into(),
+                        ))
+                    }
+                    Ok(HiddenLoad::Ready(raw)) => {
+                        let (stage, payload) = parse_kyomu_payload(&raw)
+                            .map_err(|e| SchoolBrowserError::InvalidInput(e.to_string()))?;
+                        if stage != KyomuStage::Ready {
+                            return Err(SchoolBrowserError::Auth(
+                                "Reconnect 教務Web to search courses.".into(),
+                            ));
+                        }
+                        return payload
+                            .filter(|p| p.kind == "catalog")
+                            .map(|p| p.data)
+                            .ok_or_else(|| {
+                                SchoolBrowserError::InvalidInput(
+                                    "The official course result is incomplete.".into(),
+                                )
+                            });
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|_| {
+            SchoolBrowserError::Timeout(
+                "Course search timed out. Close the school browser panel and try again.".into(),
+            )
+        })?
+    }
+
     pub(super) async fn pull_once(
         &self,
         site: SchoolSite,
@@ -119,12 +187,12 @@ impl SchoolBrowserEngine {
                     return Ok(vec![outcome]);
                 }
                 let mut outcomes = Vec::new();
-                for (page, kind) in KYOMU_PULL_PAGES.into_iter().zip(KYOMU_PULL_KINDS) {
+                for (page, kind) in crate::school_parser::kyomu::PAGES {
                     let outcome = self
                         .extract_page(
                             site,
                             kind,
-                            &format!("{KYOMU_ROOT}{page}"),
+                            &format!("https://kyomu0.gakumu.titech.ac.jp{page}"),
                             None,
                             false,
                             PAGE_TIMEOUT,
@@ -250,16 +318,16 @@ impl SchoolBrowserEngine {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn extract_page(
+    pub(super) async fn capture_page(
         &self,
         site: SchoolSite,
-        kind: &str,
+        catalog_page: Option<CatalogPage>,
         url: &str,
         course_id: Option<u64>,
         full: bool,
         timeout: Duration,
         context: &PullContext,
-    ) -> Result<IngestOutcome, SchoolBrowserError> {
+    ) -> Result<HiddenLoad<String>, SchoolBrowserError> {
         let parsed = safe_url(url)?;
         let mut traces = self.hidden_traces()?;
         let browser = self.ensure_browser(site, parsed.clone())?;
@@ -284,6 +352,7 @@ impl SchoolBrowserEngine {
                 baseline,
                 target: parsed.to_string(),
                 visible: false,
+                catalog_page,
             });
             state.hidden = Some(HiddenWork {
                 browser,
@@ -345,6 +414,23 @@ impl SchoolBrowserEngine {
                 "The school page did not answer in time. Check the account in Settings.".into(),
             )
         })??;
+        Ok(raw)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn extract_page(
+        &self,
+        site: SchoolSite,
+        kind: &str,
+        url: &str,
+        course_id: Option<u64>,
+        full: bool,
+        timeout: Duration,
+        context: &PullContext,
+    ) -> Result<IngestOutcome, SchoolBrowserError> {
+        let raw = self
+            .capture_page(site, None, url, course_id, full, timeout, context)
+            .await?;
         let raw = match raw {
             HiddenLoad::Ready(raw) => raw,
             HiddenLoad::SignInRequired => {
@@ -365,82 +451,8 @@ impl SchoolBrowserEngine {
         context.applied().await;
         let outcome = applied.map_err(|_| SchoolBrowserError::Stopped)??;
         let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
-        if site == SchoolSite::ScienceLms
-            && full
-            && outcome.state == IngestState::Ok
-            && parse_lms_payload(&raw).is_ok_and(|(_, payload)| {
-                payload.is_some_and(|payload| payload.full_scan && payload.courses_complete)
-            })
-        {
-            self.initialize_timetable(context).await?;
-        }
         Ok(outcome)
     }
-
-    async fn initialize_timetable(&self, context: &PullContext) -> Result<(), SchoolBrowserError> {
-        let store = self.0.store.clone();
-        let preview = tokio::task::spawn_blocking(move || {
-            crate::workspace::WorkspaceService::new(store).initial_lms_preview()
-        })
-        .await
-        .map_err(|_| SchoolBrowserError::Stopped)?
-        .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
-        let Some(preview) = preview else {
-            return Ok(());
-        };
-        let ids = preview["detailIds"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        let report = |completed| {
-            let _ = self
-                .0
-                .events
-                .emit(CoreEvent::SchoolPullProgress(SchoolPullProgress {
-                    site: SchoolSite::ScienceLms,
-                    phase: "timetable".into(),
-                    completed,
-                    total: ids.len(),
-                    course_id: 0,
-                    course_title: String::new(),
-                    term: String::new(),
-                    item_title: String::new(),
-                }));
-        };
-        report(0);
-        for (index, batch) in ids.chunks(4).enumerate() {
-            if context.is_cancelled() {
-                return Err(SchoolBrowserError::Cancelled);
-            }
-            let results = futures_util::future::join_all(
-                batch
-                    .iter()
-                    .filter_map(serde_json::Value::as_str)
-                    .map(|id| crate::catalog::catalog_sync_offering(&self.0.store, id.to_owned())),
-            )
-            .await;
-            for result in results {
-                if let Err(error) = result {
-                    crate::diagnostics::report("initial-timetable", &error);
-                }
-            }
-            report(((index + 1) * 4).min(ids.len()));
-        }
-        if !context.applying().await {
-            return Err(SchoolBrowserError::Cancelled);
-        }
-        let store = self.0.store.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            crate::workspace::WorkspaceService::new(store).initialize_lms_timetable()
-        })
-        .await;
-        context.applied().await;
-        result
-            .map_err(|_| SchoolBrowserError::Stopped)?
-            .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
-        Ok(())
-    }
-
     /// Records that a hidden navigation landed on an identity-provider sign-in
     /// page. Returns `true` when saved credentials cannot recover it: the
     /// profile's automatic sign-in is blocked after a failure.
@@ -535,10 +547,15 @@ pub(super) fn ingestion_script(raw: &str) -> Option<&'static str> {
     {
         return Some(LMS_EXTRACT_SCRIPT);
     }
+    if url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
+        && url
+            .path()
+            .eq_ignore_ascii_case(crate::catalog::KYOMU_SEARCH_PATH)
+    {
+        return Some(include_str!("../assets/kyomu-search.js"));
+    }
     (url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
-        && KYOMU_PULL_PAGES
-            .iter()
-            .any(|page| url.path() == format!("/Titech/{page}")))
+        && crate::school_parser::kyomu::expected_kind(url.path()).is_some())
     .then_some(KYOMU_EXTRACT_SCRIPT)
 }
 
@@ -547,6 +564,25 @@ pub(super) fn apply_raw(
     site: SchoolSite,
     raw: &str,
 ) -> Result<IngestOutcome, SchoolBrowserError> {
+    if site == SchoolSite::Kyomu {
+        if let Ok((KyomuStage::Ready, Some(payload))) = parse_kyomu_payload(raw) {
+            if payload.kind == "catalog" {
+                let rows = payload.data["courses"].as_array().ok_or_else(|| {
+                    SchoolBrowserError::InvalidInput("Missing official courses.".into())
+                })?;
+                let changed = store
+                    .catalog_upsert_offerings(rows)
+                    .map_err(|e| SchoolBrowserError::Storage(e.to_string()))?;
+                return Ok(IngestOutcome {
+                    site,
+                    kind: "catalog".into(),
+                    state: IngestState::Ok,
+                    changed,
+                    message: format!("{changed} courses updated"),
+                });
+            }
+        }
+    }
     let mut connection = rusqlite::Connection::open(store.path())
         .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
     let applied = if site == SchoolSite::ScienceLms {

@@ -510,11 +510,16 @@ export interface DesktopBridge {
   }>;
   /** Every stored offering of a year, for the course finder's local search. */
   catalogOfferings?(year: number): Promise<FinderCourse[]>;
-  /** One official syllabus search (≤100 rows, no paging); rows are stored. */
+  /** One authenticated official page of up to 100 courses; timings are stored. */
   catalogQuery?(
     year: number,
-    query: { q: string; scope?: string; code?: string; groups?: string[] },
-  ): Promise<{ ids: string[]; total: number; truncated: boolean }>;
+    query: import("../generated/persistence").RemoteQuery & { cursor?: string },
+  ): Promise<{
+    ids: string[];
+    total: number;
+    truncated: boolean;
+    nextCursor?: string;
+  }>;
   /** Fetches detail pages (schedule, credits) for up to 20 stored offerings. */
   catalogSyncOfferings?(ids: string[]): Promise<string[]>;
 }
@@ -947,22 +952,24 @@ export function createTauriDesktopBridge(
       result("syllabus_course", { id: url, language }),
     catalogSyncDepartment: (year, scopePath, quarter) =>
       result("catalog_sync_department", { year, scopePath, quarter }),
-    catalogQuery: async (year, { q, scope, code, groups }) => {
+    catalogQuery: async (year, { q, scope, cursor, ...filters }) => {
       const response = requireObject<{
-        items: { id: string }[];
-        total: number;
+        nextCursor?: string;
+        ids: string[];
         truncated: boolean;
       }>(
         "catalog_query",
         await invokeCommand("catalog_query", {
           query: q,
+          cursor,
           year,
-          filters: { department: scope, code, groups },
+          filters: { ...filters, department: scope },
         }),
       );
       return {
-        ids: response.items.map((item) => item.id),
-        total: response.total,
+        nextCursor: response.nextCursor,
+        ids: response.ids,
+        total: response.ids.length,
         truncated: response.truncated,
       };
     },

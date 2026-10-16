@@ -264,7 +264,7 @@ impl SchoolService {
     }
 }
 
-fn map_executor_error(error: SchoolExecutorError) -> PullError {
+pub(crate) fn map_executor_error(error: SchoolExecutorError) -> PullError {
     match error {
         SchoolExecutorError::InvalidInput(message) => PullError::InvalidInput(message),
         SchoolExecutorError::Authentication(message) => PullError::Authentication(message),

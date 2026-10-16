@@ -472,7 +472,7 @@ pub(crate) fn planned_catalog_course(
         "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
         "color":"#556b8d", "meetings":catalog_meetings(offering, locale, teaching_periods)?,
         "url":offering.get("syllabusUrl"),
-        "source":{"provider":"syllabus","externalId":offering_id}
+        "source":{"provider":if offering.get("kyomu").is_some() { "kyomu" } else { "syllabus" },"externalId":offering_id}
     }))
 }
 
