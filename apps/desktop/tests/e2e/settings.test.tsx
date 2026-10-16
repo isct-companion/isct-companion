@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buttonByText,
   click,
+  typeInto,
+  courseFor,
+  offering,
   flush,
   mountApp,
   overviewFor,
@@ -122,6 +125,7 @@ function mountSettings(
     capabilities?: Record<string, unknown>;
     handle?: Handler;
     apply?: Apply;
+    queries?: FakeCoreOptions["queries"];
   } = {},
 ): Promise<MountedApp> {
   return mountApp(
@@ -133,6 +137,7 @@ function mountSettings(
         planningWeek: (_query, core) => planningWeekFor(core.workspace),
         scheduleView: (_query, core) => scheduleViewFor(core.workspace),
         academicYears: { currentYear: YEAR },
+        ...options.queries,
       },
       handle: withDefaults(options.handle),
       apply: options.apply,
@@ -1435,6 +1440,112 @@ describe("Agent access", () => {
       expect(pane.querySelector("code")).toBeNull();
       expect(pane.querySelector('[role="alert"]')).toBeNull();
       expect(pane.textContent).not.toContain("Copy token");
+    },
+    TIMEOUT,
+  );
+});
+
+describe("Academic calendar profile", () => {
+  it(
+    "saves custom class times, uses them on the view axis, and restores official times",
+    async () => {
+      const course = courseFor(offering("clock", "CSC.T271", "Clock course"));
+      const workspace = workspaceFixture({ courses: [course] });
+      workspace.academicProfile.studyEnrollments = [
+        { stage: "master", entryKind: "regular", admittedTerm: "2026-1Q" },
+      ];
+      let rejectSave = true;
+      const mounted = await mountSettings(paths.settings("developer"), {
+        workspace,
+        queries: {
+          // Native validation is covered in Rust. This host supplies its accepted
+          // profile so this case exercises the real form, mutation and view wiring.
+          validateAcademicProfile: (query) =>
+            (query as { profile: Workspace["academicProfile"] }).profile,
+          scheduleView: (_query, core) =>
+            scheduleViewFor(core.workspace, {
+              agendas: [
+                {
+                  date: "2026-10-12",
+                  noClasses: false,
+                  importantDates: [],
+                  occurrences: [],
+                },
+              ],
+            }),
+        },
+        handle: (command) => {
+          if (command === "mutate_workspace" && rejectSave)
+            throw new Error("Cannot save profile");
+          return undefined;
+        },
+        apply: (intent, core) => {
+          if (intent.kind === "editAcademicCalendar") {
+            core.publish(
+              {
+                ...core.workspace,
+                academicProfile:
+                  intent.academicProfile as Workspace["academicProfile"],
+              },
+              `${core.revision}+saved`,
+            );
+          }
+        },
+      });
+      app = mounted;
+      const pane = settingsPane(mounted);
+      await click(pane.querySelector('[data-setting="developer-mode"] input'));
+      const start = () =>
+        pane.querySelector<HTMLInputElement>(
+          '[aria-label="Periods 1–2 start time"]',
+        )!;
+      await wait(() => expect(start()?.value).toBe("08:50"));
+      expect(pane.textContent).toContain("Using official quarter dates");
+      expect(pane.textContent).not.toContain("Grade path");
+      await typeInto(start(), "07:30");
+      await clickButton(pane, "Save");
+      await wait(() =>
+        expect(pane.querySelector('[role="alert"]')?.textContent).toContain(
+          "Cannot save profile",
+        ),
+      );
+      expect(start().value).toBe("07:30");
+      rejectSave = false;
+      await clickButton(pane, "Save");
+      await wait(() =>
+        expect(
+          mounted.core.workspace.academicProfile.teachingPeriods?.[0].startTime,
+        ).toBe("07:30"),
+      );
+      expect(mounted.core.workspace.academicProfile.studyEnrollments).toEqual(
+        workspace.academicProfile.studyEnrollments,
+      );
+      await mounted.go(paths.home("week"));
+      await wait(() =>
+        expect(mounted.host.querySelector(".ttAxis")?.textContent).toContain(
+          "07:30",
+        ),
+      );
+      // Reopening the editor reads the committed profile, not the previous draft.
+      await mounted.go(paths.settings("developer"));
+      await wait(() => expect(start()?.value).toBe("07:30"));
+      await clickButton(pane, "Use official times");
+      expect(start().value).toBe("08:50");
+      await clickButton(pane, "Save");
+      await wait(() =>
+        expect(
+          mounted.core.workspace.academicProfile.teachingPeriods,
+        ).toBeNull(),
+      );
+      await mounted.go(paths.home("week"));
+      await wait(() => {
+        expect(mounted.host.querySelector(".ttAxis")?.textContent).toContain(
+          "08:50",
+        );
+        expect(
+          mounted.host.querySelector(".ttAxis")?.textContent,
+        ).not.toContain("07:30");
+      });
     },
     TIMEOUT,
   );

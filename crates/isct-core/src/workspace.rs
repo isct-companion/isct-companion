@@ -442,24 +442,10 @@ fn apply_intent(
             write.save_setting("academicProfile", &Value::Object(profile.clone()))
         }
         WorkspaceIntent::EditAcademicCalendar {
-            mut academic_profile,
+            academic_profile,
             exceptions,
         } => {
             require_object(&academic_profile, "academic profile")?;
-            // Older shells do not know the degree-stage history. A calendar
-            // edit from one must not erase identity saved by a newer shell.
-            if academic_profile.get("studyEnrollments").is_none() {
-                if let Some(history) = current.pointer("/academicProfile/studyEnrollments") {
-                    academic_profile["studyEnrollments"] = history.clone();
-                }
-            }
-            // Older calendar editors also predate configurable teaching
-            // periods and must not erase a newer profile's complete table.
-            if academic_profile.get("teachingPeriods").is_none() {
-                if let Some(periods) = current.pointer("/academicProfile/teachingPeriods") {
-                    academic_profile["teachingPeriods"] = periods.clone();
-                }
-            }
             write.save_setting("academicProfile", &academic_profile)?;
             replace_records(
                 write,

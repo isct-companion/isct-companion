@@ -597,7 +597,7 @@ export type AcademicProfile = {
   name: string;
   admissionYear?: number;
   studyEnrollments?: StudyEnrollment[];
-  teachingPeriods?: TeachingPeriod[];
+  teachingPeriods?: TeachingPeriod[] | null;
   gradePath: Array<GradePathEntry>;
   years: Array<AcademicYearConfig>;
 };
@@ -1069,6 +1069,9 @@ export type WorkspaceQuery =
   | { kind: "courseDetail"; courseId: string }
   | {
       kind: "scheduleView";
+      /**
+       * Toolbar/credit context only; agendas include every term in the date range.
+       */
       term: string;
       from: string;
       to: string;

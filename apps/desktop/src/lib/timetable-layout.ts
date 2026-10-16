@@ -13,7 +13,7 @@ export type ClassSlot = {
 export type TimetableBounds = { start: number; end: number };
 
 export const resolvedTeachingPeriods = (
-  periods: readonly TeachingPeriod[] | undefined,
+  periods: readonly TeachingPeriod[] | null | undefined,
 ): readonly TeachingPeriod[] => periods ?? DEFAULT_TEACHING_PERIODS;
 
 export const classSlots = (periods: readonly TeachingPeriod[]): ClassSlot[] =>

@@ -535,52 +535,64 @@ pub fn occurrences_on_date(
                 .cloned()
                 .collect()
         });
-        for event in events.iter().filter(|row| visible(row)) {
-            let occurs = text(event, "date").map_or_else(
-                || {
-                    event
-                        .get("days")
-                        .and_then(Value::as_array)
-                        .is_some_and(|days| days.iter().any(|v| v.as_u64() == Some(u64::from(day))))
-                },
-                |value| value == date,
-            );
-            if !occurs {
-                continue;
-            }
-            let id = text(event, "id").unwrap_or_default();
-            blocks.push(Occurrence {
-                key: format!("{id}-{date}"),
-                id: id.into(),
-                kind: OccurrenceKind::Event,
-                course_id: None,
-                date: date.into(),
-                title: text(event, "title").unwrap_or_default().into(),
-                subtitle: None,
-                room: text(event, "room").unwrap_or_default().into(),
-                start_time: text(event, "startTime").unwrap_or_default().into(),
-                end_time: text(event, "endTime").unwrap_or_default().into(),
-                end_date: None,
-                color: "#8a887f".into(),
-                conflict: None,
-                dim: None,
-                cancelled: None,
-                time_label: None,
-                conflict_with: None,
-                overridden: None,
-                alternation: None,
-            });
-        }
-        for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
-            // A stored plan that cannot be evaluated is reported by
-            // `schedule_problems`; it must not hide every other block.
-            if let Ok(Some(block)) = plan_occurrence(plan, date) {
-                blocks.push(block);
-            }
-        }
+        blocks.extend(personal_occurrences(workspace, date, &events)?);
     }
     mark_conflicts(&mut blocks)?;
     blocks.sort_by(|a, b| a.start_time.cmp(&b.start_time).then(a.key.cmp(&b.key)));
+    Ok(blocks)
+}
+
+/// Personal items are resolved once per civil date, independently of course terms.
+pub(crate) fn personal_occurrences(
+    workspace: &Value,
+    date: &str,
+    events: &[Value],
+) -> Result<Vec<Occurrence>, ScheduleError> {
+    let day = weekday(date)?;
+    let mut blocks = Vec::new();
+    for event in events.iter().filter(|row| visible(row)) {
+        let occurs = text(event, "date").map_or_else(
+            || {
+                event
+                    .get("days")
+                    .and_then(Value::as_array)
+                    .is_some_and(|days| days.iter().any(|v| v.as_u64() == Some(u64::from(day))))
+            },
+            |value| value == date,
+        );
+        if !occurs {
+            continue;
+        }
+        let id = text(event, "id").unwrap_or_default();
+        blocks.push(Occurrence {
+            key: format!("{id}-{date}"),
+            id: id.into(),
+            kind: OccurrenceKind::Event,
+            course_id: None,
+            date: date.into(),
+            title: text(event, "title").unwrap_or_default().into(),
+            subtitle: None,
+            room: text(event, "room").unwrap_or_default().into(),
+            start_time: text(event, "startTime").unwrap_or_default().into(),
+            end_time: text(event, "endTime").unwrap_or_default().into(),
+            end_date: None,
+            color: "#8a887f".into(),
+            conflict: None,
+            dim: None,
+            cancelled: None,
+            time_label: None,
+            conflict_with: None,
+            overridden: None,
+            alternation: None,
+        });
+    }
+    for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
+        // A stored plan that cannot be evaluated is reported by
+        // `schedule_problems`; it must not hide every other block.
+        if let Ok(Some(block)) = plan_occurrence(plan, date) {
+            blocks.push(block);
+        }
+    }
     Ok(blocks)
 }
 
@@ -969,9 +981,17 @@ pub fn resolve_day_agenda(
             alternation: None,
         });
     }
-    let exam_ids: HashSet<_> = exams
+    blocks.extend(exams);
+    finalize_agenda(blocks)
+}
+
+pub(crate) fn finalize_agenda(
+    mut blocks: Vec<Occurrence>,
+) -> Result<Vec<Occurrence>, ScheduleError> {
+    let exam_ids: HashSet<_> = blocks
         .iter()
-        .filter_map(|e| e.course_id.as_deref())
+        .filter(|block| block.kind == OccurrenceKind::Exam)
+        .filter_map(|e| e.course_id.clone())
         .collect();
     blocks.retain(|b| {
         b.kind != OccurrenceKind::Course
@@ -980,7 +1000,10 @@ pub fn resolve_day_agenda(
                 .as_deref()
                 .is_some_and(|id| exam_ids.contains(id))
     });
-    blocks.extend(exams);
+    for block in &mut blocks {
+        block.conflict = None;
+        block.conflict_with = None;
+    }
     mark_conflicts(&mut blocks)?;
     for i in 0..blocks.len() {
         if blocks[i].kind != OccurrenceKind::Exam {
@@ -1203,7 +1226,7 @@ pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError
     let grade_path = required_array(
         input,
         "gradePath",
-        "Academic profile needs at least one grade path entry",
+        "Academic profile needs a grade path array",
     )?;
     let mut grades = HashSet::new();
     let mut normalized_grades = Vec::new();
@@ -1242,7 +1265,7 @@ pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError
     let years = required_array(
         input,
         "years",
-        "Academic profile needs at least one configured year",
+        "Academic profile needs a configured years array",
     )?;
     let mut configured = HashSet::new();
     let mut normalized_years = Vec::new();
@@ -1295,17 +1318,6 @@ pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError
         }
         normalized_years.push(serde_json::json!({"academicYear":year,"quarterStarts":starts}));
     }
-    if normalized_grades.iter().any(|row| {
-        !configured.contains(
-            &row.get("academicYear")
-                .and_then(Value::as_i64)
-                .unwrap_or_default(),
-        )
-    }) {
-        return Err(ScheduleError::InvalidInput(
-            "Every grade path year must have quarter starts".into(),
-        ));
-    }
     normalized_years.sort_by_key(|r| r.get("academicYear").and_then(Value::as_i64));
     let mut output = Map::new();
     output.insert("name".into(), Value::String(name.into()));
@@ -1314,6 +1326,32 @@ pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError
     }
     output.insert("gradePath".into(), Value::Array(normalized_grades));
     output.insert("years".into(), Value::Array(normalized_years));
+    let periods: Option<Vec<TeachingPeriod>> =
+        serde_json::from_value(input.get("teachingPeriods").cloned().unwrap_or(Value::Null))
+            .map_err(|error| ScheduleError::InvalidInput(error.to_string()))?;
+    if let Some(table) = &periods {
+        super::validate_teaching_periods(table)?;
+    }
+    output.insert(
+        "teachingPeriods".into(),
+        serde_json::to_value(periods)
+            .map_err(|error| ScheduleError::Compatibility(error.to_string()))?,
+    );
+    let mut enrollments: Vec<crate::study_profile::StudyEnrollment> = serde_json::from_value(
+        input
+            .get("studyEnrollments")
+            .filter(|value| !value.is_null())
+            .cloned()
+            .unwrap_or_else(|| Value::Array(vec![])),
+    )
+    .map_err(|error| ScheduleError::InvalidInput(error.to_string()))?;
+    crate::study_profile::canonicalize_study_enrollments(&mut enrollments)
+        .map_err(|error| ScheduleError::InvalidInput(error.to_string()))?;
+    output.insert(
+        "studyEnrollments".into(),
+        serde_json::to_value(enrollments)
+            .map_err(|error| ScheduleError::Compatibility(error.to_string()))?,
+    );
     Ok(Value::Object(output))
 }
 fn required_array<'a>(
@@ -1324,6 +1362,5 @@ fn required_array<'a>(
     input
         .get(key)
         .and_then(Value::as_array)
-        .filter(|v| !v.is_empty())
         .ok_or_else(|| ScheduleError::InvalidInput(message.into()))
 }

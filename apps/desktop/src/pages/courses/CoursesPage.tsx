@@ -199,8 +199,8 @@ export function Courses({
       );
       if (plan) openPlan?.(plan);
     } else {
-      const event = events.find((e) => e.id === block.id);
-      if (event) openEvent(event, term);
+      const event = data.events.find((e) => !e.deletedAt && e.id === block.id);
+      if (event) openEvent(event, event.termId);
     }
   };
   const exportMenu = (target: ReactNode) => (

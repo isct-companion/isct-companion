@@ -289,7 +289,8 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     section: "developer",
     id: "profile",
     title: "Academic profile",
-    terms: "grade quarter starts json 学年",
+    terms:
+      "quarter starts class times teaching periods timetable json 校历 時限 节次 上课时间",
   },
   {
     section: "developer",

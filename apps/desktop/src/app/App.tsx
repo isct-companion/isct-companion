@@ -555,11 +555,10 @@ export function WorkspaceApp() {
     performAction("edit-academic-data", platform, () =>
       workspaceActions.mutate(intent),
     );
-  const advancedCalendarUpdate = (fn: (d: Workspace) => Workspace) => {
-    void performAction("edit-calendar-advanced", platform, () =>
+  const advancedCalendarUpdate = (fn: (d: Workspace) => Workspace) =>
+    performAction("edit-calendar-advanced", platform, () =>
       workspaceActions.editCalendar(fn),
-    ).catch((error) => notify.error(error));
-  };
+    );
   const caps = resolveCapabilities(
     platform,
     data.syncStatus.state === "idle" && Boolean(data.syncStatus.lastSyncedAt),
@@ -1033,10 +1032,35 @@ export function WorkspaceApp() {
   );
   // Phones view the timetable; planning stays on the workstation.
   const planning = editMode && formFactor !== "mobile";
+  const showSchoolSetup =
+    !readOnly &&
+    !planning &&
+    !data.importStatus.timetableReviewedAt &&
+    !data.courses.some((course) => !course.deletedAt) &&
+    !schoolRecords?.lmsCourses.length &&
+    scienceSession !== "active";
   const homePage = (
     <div
-      className={`homePage ${renderedRoutes.current.homeView}${planning ? " planning" : ""}`}
+      className={`homePage ${renderedRoutes.current.homeView}${planning ? " planning" : ""}${showSchoolSetup ? " needsSetup" : ""}`}
     >
+      {showSchoolSetup && (
+        <aside className="homeSetup" aria-label={t("School account setup")}>
+          <div>
+            <b>{t("Connect your school accounts")}</b>
+            <p>
+              {t(
+                "Connect Science Tokyo for LMS courses and assignments, and Tokyo Tech for registration and grades. Your first full LMS sync builds your timetable automatically.",
+              )}
+            </p>
+          </div>
+          <UiButton
+            className="button primary"
+            onClick={() => void navigate(paths.settings("accounts"))}
+          >
+            {t("Connect school accounts")}
+          </UiButton>
+        </aside>
+      )}
       <div className="homeDay">
         <Today
           active={page === "home"}

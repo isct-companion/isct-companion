@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { desktopBridge } from "./native";
+import { t } from "../i18n";
 import { decodeEntities } from "../lib/text";
 import {
   schoolPullForDisplay,
@@ -76,6 +77,7 @@ export function usePullState() {
         course: [8, 25],
         material: [25, 38],
         assignment: [38, 44],
+        timetable: [44, 95],
       } as const;
       const [start, end] = ranges[progress.phase];
       setNativeLmsProgress((current) =>
@@ -88,13 +90,15 @@ export function usePullState() {
         ? `${progress.completed}/${progress.total}`
         : "0/0";
       const label =
-        progress.phase === "catalog"
-          ? "Reading enrolled courses"
-          : progress.phase === "course"
-            ? "Loading course"
-            : progress.phase === "material"
-              ? "Reading material"
-              : "Checking assignment";
+        progress.phase === "timetable"
+          ? t("Preparing your timetable")
+          : progress.phase === "catalog"
+            ? "Reading enrolled courses"
+            : progress.phase === "course"
+              ? "Loading course"
+              : progress.phase === "material"
+                ? "Reading material"
+                : "Checking assignment";
       setLmsPhase(`${label} · ${context || "LMS"} · ${count}`);
     });
     return () => {

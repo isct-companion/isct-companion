@@ -1724,3 +1724,59 @@ async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
     });
     engine.shutdown().await;
 }
+
+#[tokio::test]
+async fn first_automatic_full_pull_also_builds_the_timetable() {
+    let (engine, browser, events, store) = engine();
+    let coordinator = PullCoordinator::default();
+    let request = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::automatic(),
+    );
+    let navigation = browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap(),
+    });
+    let relay = extraction_relay(
+        &browser.extraction_script().await,
+        serde_json::json!({
+            "status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","language":"en",
+            "fullScan":true,"coursesComplete":true,
+            "courses":[{"id":99,"fullname":"Algorithms","shortname":"CSC.T271[2026]","coursecategory":3,
+                "viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=99"}],
+            "timetable":{"year":2026,"quarter":"3","slots":[
+                {"courseId":99,"day":5,"period":5},{"courseId":99,"day":5,"period":6}
+            ]}
+        }),
+    );
+    browser.listener().decide_navigation(
+        PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        relay,
+        true,
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), request)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let workspace = store.load_workspace().unwrap();
+    assert!(workspace["importStatus"]["timetableReviewedAt"].is_string());
+    let week = crate::schedule::planning_week(&workspace, "2026-3Q").unwrap();
+    assert_eq!(week.days[4].blocks.len(), 1);
+    assert_eq!(week.days[4].blocks[0].title, "Algorithms");
+    assert_eq!(week.days[4].blocks[0].start_time, "13:30");
+    assert!(store.last_import_runs().unwrap()["lms:full"].is_string());
+    assert!(events.0.lock().unwrap().iter().any(|event| matches!(event,
+        CoreEvent::SchoolPullProgress(progress) if progress.phase == "timetable")));
+    engine.shutdown().await;
+}

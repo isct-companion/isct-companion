@@ -554,6 +554,31 @@ tests with the same cases).
      priority, with time, title, body and deep-link target. Platform limits
      (iOS 64 pending) are applied by the shell, not core.
 
+The dated calendar uses `schedule::calendar_between(workspace, from, to)` with
+inclusive civil dates. It returns dated agendas across quarters and academic
+years, including cancelled class context, calendar notices and important dates.
+`ScheduleView.term` supplies toolbar/credit context, never an agenda filter.
+ICS consumes the same agendas and omits cancelled classes; the quarter export
+only converts a quarter to its date bounds. Personal plans are resolved once
+per date and conflicts are calculated after the calendars are merged.
+`planning_week(term)` remains the recurring quarter template.
+
+On first school connection, `AccountActive` admits the existing automatic full
+LMS pull. Passive dashboard/course captures record `lms:summary`; only a complete
+explicit full scan updates `lms:full`, so passive ingestion cannot suppress it.
+After that first full scan, core enriches the all-quarter syllabus metadata and
+initializes an unreviewed timetable with no scheduled meeting times, using the
+same diff/apply implementation as the manual review. It checks that condition
+again inside the write transaction and records `timetableReviewedAt`. Later
+pulls preserve the user's timetable decisions and use the existing review flow.
+The shell exposes account setup from empty Home and renders the timetable
+preparation progress; it does not orchestrate the initial merge.
+
+The former `IDENTITY-PERIOD-OVERRIDE-UI` manual gap is automated by
+`apps/desktop/tests/e2e/settings.test.tsx` (save failure, persisted class times,
+view axis and restore official times), with clock validation and actual course
+occurrences covered in `crates/isct-core/src/tests/schedule.rs`.
+
 Preserve strict civil-date/timestamp parsing and JST academic semantics when
 moving calendar functions. Delete obsolete TS policy and mutation paths once
 Rust serves the corresponding read model or intent.

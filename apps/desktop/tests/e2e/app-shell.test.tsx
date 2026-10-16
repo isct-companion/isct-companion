@@ -2037,3 +2037,40 @@ describe("finder query caches", () => {
     });
   }, 20_000);
 });
+
+describe("First school connection", () => {
+  it("offers account setup on an empty Home and opens the real account page", async () => {
+    app = await mountShell(shellOptions({ workspace: workspaceFixture() }), {
+      route: paths.home(),
+    });
+    const setup = await until(() => {
+      const element = app!.host.querySelector(
+        '[aria-label="School account setup"]',
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(setup.textContent).toContain(
+      "first full LMS sync builds your timetable automatically",
+    );
+    await click(setup.querySelector("button"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
+    );
+    await until(() =>
+      expect(app!.host.querySelector(".settingsPane")?.textContent).toContain(
+        "Science Tokyo Portal",
+      ),
+    );
+  });
+
+  it("keeps the setup prompt out of an existing timetable", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    app = await mountShell(shellOptions({ workspace }), {
+      route: paths.home(),
+    });
+    expect(
+      app.host.querySelector('[aria-label="School account setup"]'),
+    ).toBeNull();
+  });
+});

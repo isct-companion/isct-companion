@@ -221,11 +221,13 @@ fn settings_replacement_clears_keys_and_core_validates_every_value() {
 }
 
 #[test]
-fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
+fn study_profile_and_calendar_edits_preserve_the_other_profile_fields() {
     let service = service("study-profile");
-    let legacy = json!({
+    let profile = json!({
         "name":"My program",
         "admissionYear":2024,
+        "studyEnrollments":[],
+        "teachingPeriods":crate::schedule::default_teaching_periods(),
         "gradePath":[{"grade":"B2","academicYear":2025}],
         "years":[{"academicYear":2026,"quarterStarts":{
             "1Q":"2026-04-01","2Q":"2026-06-01","3Q":"2026-10-01","4Q":"2026-12-01"
@@ -233,12 +235,13 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
     });
     service
         .store
-        .put_workspace_setting("academicProfile", legacy.clone(), "test")
+        .put_workspace_setting("academicProfile", profile.clone(), "test")
         .unwrap();
     let old = service.snapshot().unwrap();
-    assert!(old.workspace["academicProfile"]
-        .get("studyEnrollments")
-        .is_none());
+    assert_eq!(
+        old.workspace["academicProfile"]["studyEnrollments"],
+        json!([])
+    );
 
     let saved = run(
         &service,
@@ -261,9 +264,9 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
         },
     )
     .unwrap();
-    assert_eq!(saved["academicProfile"]["name"], legacy["name"]);
-    assert_eq!(saved["academicProfile"]["gradePath"], legacy["gradePath"]);
-    assert_eq!(saved["academicProfile"]["years"], legacy["years"]);
+    assert_eq!(saved["academicProfile"]["name"], profile["name"]);
+    assert_eq!(saved["academicProfile"]["gradePath"], profile["gradePath"]);
+    assert_eq!(saved["academicProfile"]["years"], profile["years"]);
     assert_eq!(
         saved["academicProfile"]["studyEnrollments"]
             .as_array()
@@ -271,13 +274,17 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
             .len(),
         2
     );
+    assert_eq!(
+        saved["academicProfile"]["teachingPeriods"],
+        profile["teachingPeriods"]
+    );
+    let mut edited = saved["academicProfile"].clone();
+    edited["name"] = json!("Renamed program");
+    edited["teachingPeriods"] = Value::Null;
     let calendar = run(
         &service,
         WorkspaceIntent::EditAcademicCalendar {
-            academic_profile: json!({
-                "name":"Renamed program", "admissionYear":2024,
-                "gradePath":legacy["gradePath"], "years":legacy["years"]
-            }),
+            academic_profile: edited,
             exceptions: vec![],
         },
     )
@@ -285,7 +292,11 @@ fn study_profile_is_backward_compatible_and_preserves_calendar_fields() {
     assert_eq!(
         calendar["academicProfile"]["studyEnrollments"],
         saved["academicProfile"]["studyEnrollments"],
-        "an older calendar editor must preserve the stage history"
+        "calendar edits include the complete profile"
+    );
+    assert_eq!(
+        crate::schedule::teaching_periods(&calendar).unwrap(),
+        crate::schedule::default_teaching_periods()
     );
 }
 
@@ -1400,4 +1411,114 @@ fn lms_merge_adds_memberships_joins_quarters_retimes_refreshes_and_relinks() {
     )
     .unwrap();
     assert!(placed_terms(&off, "2026-202630001").is_empty());
+}
+
+#[test]
+fn initial_lms_import_builds_every_quarter_and_never_resurrects_reviewed_courses() {
+    let service = service("initial-lms");
+    assert!(service.initial_lms_preview().unwrap().is_none());
+    service.store.put_workspace_setting("academicProfile", json!({"name":"Test","gradePath":[],"studyEnrollments":[],"years":[{
+        "academicYear":2026,"quarterStarts":{"1Q":"2026-04-01","2Q":"2026-06-01","3Q":"2026-09-28","4Q":"2026-12-03"}
+    }]}), "test").unwrap();
+    for (id, quarter, day) in [(41, "3Q", 5), (42, "4Q", 2)] {
+        let term = format!("2026-{quarter}");
+        insert_school_row(
+            &service,
+            "lms_courses",
+            json!({
+                "id":format!("lms-course:{id}"),"lmsId":id,"year":2026,"quarters":[quarter],
+                "shortname":format!("CSC.T{id}[2026]"),"title":{"en":format!("Course {id}")},
+                "timetables":{term:[{"day":day,"periods":[5,6]}]}
+            }),
+        );
+    }
+    let preview = service.initial_lms_preview().unwrap().unwrap();
+    assert_eq!(preview["lmsOnly"].as_array().unwrap().len(), 2);
+    assert!(service.initialize_lms_timetable().unwrap());
+    let snapshot = service.snapshot().unwrap();
+    assert!(snapshot.workspace["importStatus"]["timetableReviewedAt"].is_string());
+    assert_eq!(
+        crate::schedule::scheduled_courses(&snapshot.workspace, "2026-3Q").len(),
+        1
+    );
+    assert_eq!(
+        crate::schedule::planning_week(&snapshot.workspace, "2026-4Q")
+            .unwrap()
+            .days[1]
+            .blocks
+            .len(),
+        1
+    );
+    let calendar =
+        crate::schedule::calendar_between(&snapshot.workspace, "2026-10-16", "2026-10-16").unwrap();
+    assert_eq!(calendar[0].occurrences[0].start_time, "13:30");
+    assert_eq!(calendar[0].occurrences[0].title, "Course 41");
+    // A later automatic full scan may refresh assignments, but removing a
+    // course is a user decision and must survive that scan.
+    run(
+        &service,
+        WorkspaceIntent::SetCourseOnTimetable {
+            course_id: "2026-lms-41".into(),
+            on_timetable: false,
+        },
+    )
+    .unwrap();
+    assert!(service.initial_lms_preview().unwrap().is_none());
+    assert!(!service.initialize_lms_timetable().unwrap());
+    assert!(
+        crate::schedule::scheduled_courses(&service.snapshot().unwrap().workspace, "2026-3Q")
+            .is_empty()
+    );
+}
+
+#[test]
+fn initial_import_fills_missing_times_but_defers_an_existing_plan_to_review() {
+    for occupied in [false, true] {
+        let service = service(if occupied {
+            "initial-planned"
+        } else {
+            "initial-missing-time"
+        });
+        let meetings = if occupied {
+            json!([{"days":[1],"periods":[1,2],"startTime":"08:50","endTime":"10:30","room":""}])
+        } else {
+            json!([])
+        };
+        let before = run(
+            &service,
+            WorkspaceIntent::SaveCourse {
+                term_id: "2026-3Q".into(),
+                existing_id: None,
+                draft: json!({"code":"CSC.T271","title":"Algorithms","meetings":meetings}),
+            },
+        )
+        .unwrap();
+        let course_id = before["courses"][0]["id"].as_str().unwrap().to_owned();
+        insert_school_row(
+            &service,
+            "lms_courses",
+            json!({
+                "id":"lms-course:99","lmsId":99,"year":2026,"quarters":["3Q"],
+                "shortname":"CSC.T271[2026]","title":{"en":"Algorithms"},
+                "timetables":{"2026-3Q":[{"day":5,"periods":[5,6]}]}
+            }),
+        );
+        assert_eq!(service.initial_lms_preview().unwrap().is_none(), occupied);
+        assert_eq!(service.initialize_lms_timetable().unwrap(), !occupied);
+        let after = service.snapshot().unwrap().workspace;
+        let course = after["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == course_id)
+            .unwrap();
+        if occupied {
+            assert_eq!(course["meetings"], meetings);
+            assert!(after["importStatus"]["timetableReviewedAt"].is_null());
+        } else {
+            assert_eq!(course["meetings"][0]["days"], json!([5]));
+            assert_eq!(course["meetings"][0]["startTime"], "13:30");
+            assert_eq!(after["courses"].as_array().unwrap().len(), 1);
+        }
+    }
 }
