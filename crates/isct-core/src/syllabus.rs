@@ -56,9 +56,5 @@ pub use model::{CatalogSearchItem, CatalogSearchResult, DepartmentSyncResult, Sy
 pub(crate) use api::utc_now;
 
 #[cfg(test)]
-#[path = "tests/syllabus__language_tests.rs"]
-mod language_tests;
-
-#[cfg(test)]
 #[path = "tests/syllabus.rs"]
 mod tests;

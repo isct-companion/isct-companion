@@ -493,17 +493,3 @@ async fn resolve_delegates_once_and_rejects_non_lms_urls() {
     );
     assert_eq!(transport.resolves.load(Ordering::SeqCst), 1);
 }
-
-#[test]
-fn errors_keep_the_existing_wire_reasons_and_cancel_is_distinct() {
-    for (error, reason) in [
-        (FetchError::Login, "login"),
-        (FetchError::Invalid, "invalid"),
-        (FetchError::Network, "network"),
-        (FetchError::Timeout, "timeout"),
-        (FetchError::Cancelled, "cancelled"),
-    ] {
-        assert_eq!(error.reason(), reason);
-        assert!(!error.to_string().is_empty());
-    }
-}

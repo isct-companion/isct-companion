@@ -138,23 +138,47 @@ fn exam_and_exam_week_class_feeds_validate_and_store_apart() {
 
 #[test]
 fn validates_important_date_ranges_and_sources() {
-    let raw = json!({
-        "schemaVersion": 1,
-        "academicYear": 2026,
-        "timezone": "Asia/Tokyo",
-        "source": source(),
-        "entries": [{
-            "id": "festival",
-            "startDate": "2026-11-01",
-            "endDate": "2026-11-02",
-            "label": {"ja": "工大祭"},
-            "category": "campus-festival",
-            "sourceIds": ["official"]
-        }]
-    })
-    .to_string();
-    let value = validate_important_dates(&raw, 2026).unwrap();
+    let entry = json!({
+        "id": "festival",
+        "startDate": "2026-11-01",
+        "endDate": "2026-11-02",
+        "label": {"ja": "工大祭"},
+        "category": "campus-festival",
+        "sourceIds": ["official"]
+    });
+    let feed = |entries: Value| {
+        json!({
+            "schemaVersion": 1,
+            "academicYear": 2026,
+            "timezone": "Asia/Tokyo",
+            "source": source(),
+            "entries": entries
+        })
+        .to_string()
+    };
+    let value = validate_important_dates(&feed(json!([entry])), 2026).unwrap();
     assert_eq!(value.entries.len(), 1);
+    assert!(validate_important_dates(&feed(json!([entry])), 2025).is_err());
+
+    let with = |field: &str, replacement: Value| {
+        let mut changed = entry.clone();
+        changed[field] = replacement;
+        feed(json!([changed]))
+    };
+    for (case, raw) in [
+        ("reversed range", with("startDate", json!("2026-11-03"))),
+        (
+            "outside the academic year",
+            with("endDate", json!("2027-04-01")),
+        ),
+        ("unknown source", with("sourceIds", json!(["unlisted"]))),
+        ("no source", with("sourceIds", json!([]))),
+        ("unknown category", with("category", json!("holiday"))),
+        ("blank label", with("label", json!({"ja": " "}))),
+        ("duplicate id", feed(json!([entry, entry]))),
+    ] {
+        assert!(validate_important_dates(&raw, 2026).is_err(), "{case}");
+    }
 }
 
 fn fixture_selection(

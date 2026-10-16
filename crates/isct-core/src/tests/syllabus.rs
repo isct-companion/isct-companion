@@ -1,4 +1,4 @@
-use super::api::{merge_detail, search_url, single_detail};
+use super::api::{localized_search_url, merge_detail, search_url, single_detail};
 use super::model::Credits;
 use super::parser::{self, parse_detail, parse_search};
 use super::transport::ORIGIN;
@@ -290,4 +290,23 @@ fn parses_optional_live_capture() {
     let result = parse_search(&html, 2026, 12).unwrap();
     assert!(!result.rows.is_empty());
     assert!(result.total >= result.rows.len());
+}
+
+#[test]
+fn language_url_preserves_filters_and_validates_locale() {
+    let filters = SyllabusFilters::default();
+    let url = localized_search_url("parallel", 2026, &filters, "ja").unwrap();
+    assert_eq!(
+        url.query_pairs()
+            .filter(|(k, _)| k == "hl")
+            .collect::<Vec<_>>()
+            .len(),
+        1
+    );
+    assert_eq!(url.query_pairs().find(|(k, _)| k == "hl").unwrap().1, "ja");
+    assert_eq!(
+        url.query_pairs().find(|(k, _)| k == "q").unwrap().1,
+        "parallel"
+    );
+    assert!(localized_search_url("parallel", 2026, &filters, "xx").is_err());
 }
