@@ -760,4 +760,5 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
 }
 
 #[cfg(test)]
+#[path = "../tests/agent.rs"]
 mod tests;

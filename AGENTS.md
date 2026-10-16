@@ -55,3 +55,60 @@ Preserve active desktop behaviour and stored-data compatibility at each tested
 checkpoint, then commit. Remove superseded implementations and state owners;
 record production-code reduction separately from tests and generated code.
 Mobile shells will be redesigned; old mobile UI parity is not required.
+
+## 5. Keep every test in one place, and pick the layer before writing it
+
+All JavaScript/TypeScript tests live under `apps/desktop/tests/`, grouped by the behaviour
+they protect. Do not add a `*.test.ts(x)` beside the module it exercises, and do
+not add a suite for a new file. Read `apps/desktop/tests/README.md` before writing one: it
+lists the suites, the shared harness, and the rule that `unit/` never mounts a
+React component while `e2e/` mounts the real shell over a scripted host.
+
+Rust test code lives in `src/tests/` for each crate. A test module stays a child
+of the module it tests — that is what keeps private items reachable — but the
+file itself lives in that one folder.
+
+Prefer the real thing over a mock: a suite that replaces the code under test
+with a mock proves nothing about the app. Reach for the harness first, and mock
+only a dependency with no headless mode, with a comment saying why.
+
+Then decide whether the behaviour belongs in a test at all:
+
+- Automatable and cheap to run every commit: put it in `apps/desktop/tests/unit`
+  or `apps/desktop/tests/e2e`.
+- Needs real credentials, a consent screen, hardware, a signed bundle or a native
+  shell: add a check to `docs/verification/manual-checks.yaml`, not a test. Each
+  check names a persona, states why each step exists, says where to observe the
+  result, and justifies in `why_manual` why automation cannot reach it. Run
+  `yarn verify:manual stale` to see which checks a change invalidated.
+
+A check whose covered paths are all already exercised by the suites is rejected,
+and so is a step with no reason: "the manual table" must not become the place
+where hard tests go to be forgotten.
+
+## 6. A new test has to earn its place, and an old one has to keep it
+
+Tests are a cost that compounds, and a suite that only grows stops being read.
+Before adding a case, name the behaviour it protects and the bug it would catch.
+If an existing case already covers that behaviour, extend it rather than adding a
+sibling; if nothing covers it, add it.
+
+The same bar removes:
+
+- A test whose body says nothing beyond the line it calls: one `assert_eq!` over
+  an inline literal, a getter round-trip, a constant restated. Delete it.
+- A test a sibling already covers, in the same file, crate or suite. Fold in
+  whatever it asserted that the survivor does not, then delete it.
+
+Every removal needs a named survivor, or the statement that nothing covered it
+and it asserted only a literal. If you cannot point at one of those, keep the
+test and say why in your report. Dropping an assertion you cannot justify is
+worse than keeping a redundant one.
+
+Two things this is not. It is not licence to delete a boundary case, a rejection
+path or a safety invariant because it looks small — an ignored test that needs a
+private image is not redundant with a synthetic one. And it is not compression
+for its own sake: consolidating a scattered suite into fewer, larger files will
+usually add lines while raising coverage, and that is the intended outcome. The
+thing to drive down is the number of places a reader has to look, not the number
+of assertions.

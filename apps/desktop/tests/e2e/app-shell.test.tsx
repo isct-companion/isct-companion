@@ -1,0 +1,2039 @@
+// @vitest-environment jsdom
+import { act, useState } from "react";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import {
+  advance,
+  click,
+  courseFor,
+  emptySchoolRecords,
+  installFakeCore,
+  mount,
+  mountApp,
+  offering,
+  overviewFor,
+  planItemFor,
+  planningWeekFor,
+  scheduleViewFor,
+  typeInto,
+  until,
+  watchConsoleErrors,
+  workspaceFixture,
+  type FakeCore,
+  type FakeCoreOptions,
+  type Mounted,
+  type MountedApp,
+  type QueryTable,
+} from "@tests/harness";
+import { paths } from "@app/app/routes";
+import { STACKED_QUERY } from "@app/app/form-factor";
+import { notify } from "@app/app/notify";
+import { SwipeActions } from "@app/components/SwipeActions";
+import i18n from "@app/i18n";
+import type { Workspace } from "@app/lib/model";
+import type { FinderAction } from "@app/generated/persistence";
+import type { ScheduleQuery } from "@app/platform/core-query";
+import type { FinderRequest } from "@app/platform/finder-query";
+
+/**
+ * The whole shell over a scripted Core: hash routing, page retention, keyboard
+ * shortcuts, the native-navigation blocker, the mobile back stack, swipe rows
+ * and the query caches that only exist inside React hooks. These assert what a
+ * person sees, not which component rendered.
+ *
+ * Local helpers exist where the harness has no builder: `shellOptions` (a
+ * navigable workspace with the school-web commands answered), `mountShell`
+ * (adopts this test's workspace before mounting, because the harness reuses one
+ * module-level store), `emptyFinder`, the `Schedule*` / `Finder*` probe
+ * components, and the touch/pointer gesture dispatchers.
+ */
+
+const placed = offering("202602421", "CSC.T252", "Placed");
+const clashing = offering("202600009", "CSC.T999", "Clashing");
+const placedCourse = courseFor(placed);
+const clashingCourse = courseFor(clashing);
+
+/**
+ * The store and query modules capture the Tauri bridge the first time they
+ * load, so a scripted host must already be installed when this suite imports
+ * them. A static import would run before any test and bind the browser-preview
+ * service, which is exactly what `mountApp`'s ordering rule protects against.
+ */
+let coreQuery: typeof import("@app/platform/core-query");
+let finderQuery: typeof import("@app/platform/finder-query");
+let storeModule: typeof import("@app/store/workspace");
+
+beforeAll(async () => {
+  installFakeCore({ workspace: workspaceFixture() });
+  coreQuery = await import("@app/platform/core-query");
+  finderQuery = await import("@app/platform/finder-query");
+  storeModule = await import("@app/store/workspace");
+  // Warm the shell's module graph too, so the first mounted test does not pay
+  // the whole transform cost inside its own timeout.
+  await Promise.all([
+    import("@app/app/App"),
+    import("@app/app/routes"),
+    import("react-router"),
+  ]);
+}, 60_000);
+
+let app: MountedApp | undefined;
+let probe: Mounted | undefined;
+let consoleWatch: ReturnType<typeof watchConsoleErrors> | undefined;
+const desktopMatchMedia = window.matchMedia;
+
+afterEach(async () => {
+  await probe?.unmount();
+  probe = undefined;
+  await app?.unmount();
+  app = undefined;
+  consoleWatch?.restore();
+  consoleWatch = undefined;
+  await i18n.changeLanguage("en");
+  window.matchMedia = desktopMatchMedia;
+  delete (window as unknown as Record<string, unknown>)
+    .__ISCT_COMPANION_NATIVE_TARGET__;
+});
+
+function titles(host: HTMLElement): string[] {
+  return [
+    ...new Set(
+      [...host.querySelectorAll(".ttBlock b")].map(
+        (node) => node.textContent ?? "",
+      ),
+    ),
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * A navigable shell over the scripted host.
+ * ------------------------------------------------------------------ */
+
+const CAPABILITIES = {
+  schoolImport: true,
+  schoolWeb: true,
+  notifications: false,
+  backgroundSchedule: false,
+  cloudSync: false,
+  syllabusSearch: false,
+  matrixOcr: false,
+};
+
+type Handle = NonNullable<FakeCoreOptions["handle"]>;
+
+/** Answers every non-query command the shell issues on the routes we cover. */
+const baseHandle: Handle = (command, args) => {
+  switch (command) {
+    case "bootstrap_reminders":
+    case "hide_school_web":
+    case "configure_school_web_policy":
+    case "set_school_web_zoom":
+    case "set_school_web_bounds":
+    case "set_kyomu_guide":
+    case "reload_school_web":
+    case "navigate_school_web":
+    case "school_web_back":
+    case "school_web_forward":
+      return true;
+    case "open_school_site": {
+      const target = args.targetUrl as string | null | undefined;
+      return {
+        site: args.site,
+        url: target ?? "https://portal.isct.ac.jp/resident",
+        phase: "pageLoaded",
+      };
+    }
+    case "resolve_school_url": {
+      const url = String(args.url);
+      return {
+        site: url.includes("lms") ? "science-lms" : "science-portal",
+        url,
+      };
+    }
+    case "school_credential_status":
+      return {
+        science: {
+          availability: "not-configured",
+          saved: false,
+          username: "",
+          hasOtp: false,
+          hasMatrix: false,
+        },
+        tokyoTech: {
+          availability: "not-configured",
+          saved: false,
+          username: "",
+          hasOtp: false,
+          hasMatrix: false,
+        },
+      };
+    case "school_session_snapshot":
+      return {
+        revision: 0,
+        states: { science: "pending", tokyoTech: "pending" },
+      };
+    default:
+      return undefined;
+  }
+};
+
+function shellQueries(): QueryTable {
+  return {
+    workspaceOverview: (_query: unknown, core: FakeCore) =>
+      overviewFor(core.workspace),
+    scheduleView: (_query: unknown, core: FakeCore) =>
+      scheduleViewFor(core.workspace),
+    planningWeek: (_query: unknown, core: FakeCore) =>
+      planningWeekFor(core.workspace),
+    taskView: {
+      byTerm: {},
+      nearestByCourse: {},
+      deadlines: {},
+      submittedIds: [],
+    },
+  };
+}
+
+/** The finder view Core returns when nothing is placed and nothing searched. */
+const emptyFinder = (request: Record<string, unknown>) => ({
+  context: { currentQuarter: 3, recommended: {}, departments: [], busy: [] },
+  courses: [],
+  factors: [],
+  duplicates: 0,
+  keys: request.keys ?? [],
+  plan: { unsupported: "empty" },
+  rows: [],
+  suggestions: [],
+  live: String(request.input ?? ""),
+  clashes: [],
+  ineligibleIds: [],
+  eligibility: {},
+  replacements: {},
+  credits: {},
+  onTimetable: [],
+  activeSlots: [],
+  pasteHandled: false,
+  pastedIds: [],
+  missingCodes: [],
+  ineligibleCodes: [],
+  detailIds: [],
+});
+
+function shellOptions(
+  options: Partial<FakeCoreOptions> & { workspace: Workspace },
+): FakeCoreOptions {
+  return {
+    capabilities: CAPABILITIES,
+    queries: shellQueries(),
+    handle: baseHandle,
+    ...options,
+  };
+}
+
+/**
+ * `mountApp` reuses one module-level workspace store across a suite, so a later
+ * mount would briefly validate routes against the previous test's snapshot and
+ * replace a deep link before the new data arrived. Adopt this test's workspace
+ * first, then hand off to the harness's mount helper.
+ */
+async function mountShell(
+  options: FakeCoreOptions,
+  appOptions?: { route?: string; strict?: boolean },
+): Promise<MountedApp> {
+  installFakeCore(options);
+  await act(async () => {
+    await storeModule.workspaceStore.reload();
+  });
+  return mountApp(options, appOptions);
+}
+
+/** An element a component must render before the test can proceed. */
+function required<T extends Element>(
+  find: () => T | null | undefined,
+  what: string,
+): Promise<T> {
+  return until(() => {
+    const found = find();
+    if (!found) throw new Error(`${what} is not ready`);
+    return found;
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * The planner's replace and undo path (established by the earlier agent).
+ * ------------------------------------------------------------------ */
+
+it("replaces a clashing course and Undo restores the previous one", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const before = workspaceFixture({
+    courses: [placedCourse],
+    planItems: [planItemFor(placedCourse)],
+  });
+  const after = workspaceFixture({
+    courses: [clashingCourse],
+    planItems: [planItemFor(clashingCourse)],
+  });
+
+  app = await mountApp({
+    workspace: before,
+    queries: {
+      workspaceOverview: (_query, core) => overviewFor(core.workspace),
+      planningWeek: (_query, core) => planningWeekFor(core.workspace),
+      scheduleView: (_query, core) => scheduleViewFor(core.workspace),
+    },
+    finder: (request) => ({
+      context: {
+        currentQuarter: 3,
+        recommended: {},
+        departments: [],
+        busy: [{ day: 2, from: 7, to: 8 }],
+      },
+      courses: [placed, clashing],
+      factors: [],
+      duplicates: 0,
+      keys: request.keys ?? [],
+      plan: { unsupported: "empty" },
+      rows: [placed, clashing].map((course) => ({ course, matched: [] })),
+      suggestions: [],
+      live: String(request.input ?? ""),
+      clashes: [clashing.id],
+      ineligibleIds: [],
+      eligibility: {},
+      replacements: { [clashing.id]: [placedCourse.id] },
+      credits: { [placed.id]: 2, [clashing.id]: 2 },
+      onTimetable: [placedCourse.code],
+      activeSlots: ["火7-8"],
+      pasteHandled: false,
+      pastedIds: [],
+      missingCodes: [],
+      ineligibleCodes: [],
+      detailIds: [],
+    }),
+    handle: (command) => {
+      if (command === "catalog_offerings") return [placed, clashing];
+      if (command === "catalog_query")
+        return {
+          items: [{ id: placed.id }],
+          total: 1,
+          returned: 1,
+          truncated: false,
+        };
+      return undefined;
+    },
+    // Core commits the replacement (or the undo) and returns the new snapshot.
+    apply: (intent, core) => {
+      if (intent.kind === "addCatalogCourses") {
+        core.publish(after, "revision:after");
+      } else if (intent.kind === "undoCatalogCourses") {
+        core.publish(before, "revision:undo");
+      }
+    },
+  });
+  const { host, core } = app;
+
+  const editSwitch = await vi.waitFor(() => {
+    const input = host.querySelector<HTMLInputElement>('input[role="switch"]');
+    if (!input) throw new Error("edit switch not ready");
+    return input;
+  });
+  await act(async () => editSwitch.click());
+
+  const input = await vi.waitFor(() => {
+    const element = host.querySelector<HTMLInputElement>(
+      "#course-finder-input",
+    );
+    if (!element) throw new Error("finder input not ready");
+    return element;
+  });
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input, "CSC ");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(titles(host)).toEqual(["Placed"]);
+
+  const replace = await vi.waitFor(
+    () => {
+      const button = [
+        ...host.querySelectorAll<HTMLButtonElement>(".finderAdd"),
+      ].find((candidate) => candidate.textContent === "Replace");
+      if (!button) throw new Error("no Replace action yet");
+      return button;
+    },
+    { timeout: 5000 },
+  );
+  await act(async () => replace.click());
+  await vi.waitFor(() => expect(titles(host)).toEqual(["Clashing"]));
+
+  const undo = await vi.waitFor(() => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent === "Undo",
+    );
+    if (!button) throw new Error("Undo is not offered after a replacement");
+    return button;
+  });
+  await act(async () => undo.click());
+  await vi.waitFor(() => expect(titles(host)).toEqual(["Placed"]));
+
+  expect(core.intents.map((intent) => intent.kind)).toEqual([
+    "addCatalogCourses",
+    "undoCatalogCourses",
+  ]);
+  expect(host.querySelector(".pageError")).toBeNull();
+  const unexpected = errors.mock.calls.filter(
+    (call) => !String(call[0]).includes("not wrapped in act"),
+  );
+  expect(unexpected).toEqual([]);
+  errors.mockRestore();
+}, 20_000);
+
+/* ------------------------------------------------------------------ *
+ * Shell navigation.
+ * ------------------------------------------------------------------ */
+
+describe("shell navigation", () => {
+  it("opens the workspace route named in the hash and restores it after a remount", async () => {
+    const workspace = workspaceFixture({
+      courses: [placedCourse],
+      planItems: [planItemFor(placedCourse)],
+    });
+    app = await mountShell(shellOptions({ workspace, revision: "rev:route" }), {
+      route: paths.home("week"),
+    });
+    await until(() =>
+      expect(app!.host.querySelector(".homeMain")).not.toBeNull(),
+    );
+    expect(app.host.querySelector(".homePage.week")).not.toBeNull();
+
+    await app.unmount();
+    app = await mountShell(shellOptions({ workspace, revision: "rev:route" }), {
+      route: paths.home("week"),
+    });
+    await until(() =>
+      expect(app!.host.querySelector(".homePage.week")).not.toBeNull(),
+    );
+    expect(window.location.hash).toBe(`#${paths.home("week")}`);
+  }, 20_000);
+
+  it("opens the settings section named in the hash", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:section",
+      }),
+      { route: paths.settings("appearance") },
+    );
+    const { host } = app;
+    await until(() =>
+      expect(host.querySelector(".settingsMain")).not.toBeNull(),
+    );
+    expect(
+      host.querySelector(".settingsNav button.active")?.textContent,
+    ).toContain("Appearance");
+    expect(host.querySelector('input[value="zh"]')).not.toBeNull();
+  }, 20_000);
+
+  it("replaces unknown, unsupported and deleted-course routes", async () => {
+    consoleWatch = watchConsoleErrors();
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    app = await mountShell(
+      shellOptions({ workspace, revision: "rev:redirect" }),
+      { route: paths.home() },
+    );
+    const { host, core, router } = app;
+    await until(() => expect(host.querySelector(".homeMain")).not.toBeNull());
+
+    await app.go("/settings/not-a-section");
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
+    );
+    expect(router.state.historyAction).toBe("REPLACE");
+
+    // A developer-tier page stays closed until Developer options are on.
+    await app.go(paths.settings("diagnostics"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
+    );
+
+    await app.go("/decidedly-not-a-route");
+    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+
+    // A lecture naming a deleted course falls back to the lecture list.
+    await act(async () => {
+      core.publish(
+        workspaceFixture({
+          courses: [{ ...placedCourse, deletedAt: "2026-10-02T00:00:00Z" }],
+        }),
+        "rev:redirect-2",
+      );
+      await storeModule.workspaceStore.reload();
+    });
+    await app.go(paths.lectures(placedCourse.id));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.lectures()}`),
+    );
+    expect(host.querySelector(".lectureDesk.open")).toBeNull();
+
+    consoleWatch.expectClean();
+    consoleWatch.restore();
+    consoleWatch = undefined;
+  }, 20_000);
+
+  it("keeps a desktop settings section and replaces one this build lacks", async () => {
+    const options = shellOptions({
+      workspace: workspaceFixture(),
+      revision: "rev:platform",
+    });
+    app = await mountShell(options, { route: paths.settings("files") });
+    await until(() =>
+      expect(app!.host.querySelector(".settingsMain")).not.toBeNull(),
+    );
+    // Course files are a desktop page, so this build keeps it.
+    expect(window.location.hash).toBe(`#${paths.settings("files")}`);
+
+    // The native bootstrap injects the build target; a preview build without
+    // desktop file settings must not leave the person on an unknown page.
+    await app.unmount();
+    (
+      window as unknown as Record<string, unknown>
+    ).__ISCT_COMPANION_NATIVE_TARGET__ = "browser-preview";
+    app = await mountShell(options, { route: paths.settings("files") });
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
+    );
+    expect(app.router.state.historyAction).toBe("REPLACE");
+  }, 20_000);
+
+  it("returns each page to where it was left when switching pages", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    app = await mountShell(
+      shellOptions({ workspace, revision: "rev:return" }),
+      { route: paths.lectures(placedCourse.id) },
+    );
+    const { host } = app;
+    await until(() =>
+      expect(host.querySelector(".lecturesMain")).not.toBeNull(),
+    );
+
+    const rail = (label: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>(".rail button")].find(
+        (button) => button.textContent?.includes(label),
+      )!;
+
+    await click(rail("Settings"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
+    );
+    await app.go(paths.settings("appearance"));
+    await click(rail("Lectures"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.lectures(placedCourse.id)}`),
+    );
+    await click(rail("Settings"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings("appearance")}`),
+    );
+  }, 20_000);
+
+  it("retains settings disclosure, scroll and controls while the page is hidden", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:retain-settings",
+      }),
+      { route: paths.settings("appearance") },
+    );
+    const { host } = app;
+    const disclosure = await required(
+      () => host.querySelector<HTMLDetailsElement>(".settingsPane details"),
+      "the folded options",
+    );
+    disclosure.open = true;
+    const pane = await required(
+      () => host.querySelector<HTMLElement>(".settingsPane"),
+      "the settings pane",
+    );
+    pane.scrollTop = 164;
+    const language = await required(
+      () => host.querySelector<HTMLInputElement>('input[value="zh"]'),
+      "the Chinese language choice",
+    );
+
+    await app.go(paths.home());
+    await app.go(paths.settings("appearance"));
+
+    expect(host.querySelector('input[value="zh"]')).toBe(language);
+    expect(host.querySelector(".settingsPane details")).toBe(disclosure);
+    expect(disclosure.open).toBe(true);
+    expect(pane.scrollTop).toBe(164);
+  }, 20_000);
+
+  it("retains lecture filter, scroll and chosen quarter while the page is hidden", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    app = await mountShell(
+      shellOptions({
+        workspace,
+        revision: "rev:retain-lectures",
+        queries: {
+          ...shellQueries(),
+          scheduleView: (_query: unknown, core: FakeCore) =>
+            scheduleViewFor(core.workspace, {
+              allTerms: ["2026-3Q", "2026-2Q"],
+            }),
+        },
+      }),
+      { route: paths.lectures(placedCourse.id) },
+    );
+    const { host } = app;
+    const filter = await required(
+      () => host.querySelector<HTMLInputElement>('input[aria-label="Filter"]'),
+      "the lecture filter",
+    );
+    await typeInto(filter, "graph");
+    const list = await required(
+      () => host.querySelector<HTMLElement>(".lectureList"),
+      "the lecture list",
+    );
+    list.scrollTop = 128;
+    const term = await required(
+      () =>
+        host.querySelector<HTMLSelectElement>(
+          ".lectureTerm select, select.lectureTerm",
+        ),
+      "the quarter picker",
+    );
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )!.set!.call(term, "2026-2Q");
+      term.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await app.go(paths.home());
+    await app.go(paths.lectures(placedCourse.id));
+
+    expect(host.querySelector('input[aria-label="Filter"]')).toBe(filter);
+    expect(filter.value).toBe("graph");
+    expect(host.querySelector(".lectureList")).toBe(list);
+    expect(list.scrollTop).toBe(128);
+    expect(host.querySelector(".lectureTerm select, select.lectureTerm")).toBe(
+      term,
+    );
+    expect(term.value).toBe("2026-2Q");
+  }, 20_000);
+
+  it("blocks Back while the Web page owns the native view and restores the URL when hiding fails", async () => {
+    let hideFails = false;
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:blocker",
+        handle: (command, args, core) => {
+          if (command === "hide_school_web" && hideFails)
+            throw new Error("Native hide failed");
+          return baseHandle(command, args, core);
+        },
+      }),
+      { route: paths.home() },
+    );
+    const { host, core } = app;
+    await app.go(paths.web());
+    await until(() =>
+      expect(core.commands("open_school_site").length).toBeGreaterThan(0),
+    );
+
+    hideFails = true;
+    await act(async () => {
+      window.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    await until(() =>
+      expect(document.body.textContent).toContain("Native hide failed"),
+    );
+    expect(window.location.hash).toBe(`#${paths.web()}`);
+    expect(host.querySelector(".webMain")).not.toBeNull();
+    expect(core.commands("open_school_site").length).toBeGreaterThan(0);
+
+    hideFails = false;
+    await act(async () => {
+      window.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+    // The native view is hidden, not destroyed: the page and its address stay.
+    expect(host.querySelector('[aria-label="Current URL"]')).not.toBeNull();
+  }, 20_000);
+
+  it("keeps an open lecture when hiding the native view fails", async () => {
+    let hideFails = true;
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture({ courses: [placedCourse] }),
+        revision: "rev:blocker-lecture",
+        handle: (command, args, core) => {
+          if (command === "hide_school_web" && hideFails)
+            throw new Error("Lecture hide failed");
+          return baseHandle(command, args, core);
+        },
+      }),
+      { route: paths.lectures(placedCourse.id) },
+    );
+    const { host } = app;
+    await until(() =>
+      expect(host.querySelector(".lectureDesk.open")).not.toBeNull(),
+    );
+
+    await app.go(paths.home());
+    await until(() =>
+      expect(document.body.textContent).toContain("Lecture hide failed"),
+    );
+    expect(window.location.hash).toBe(`#${paths.lectures(placedCourse.id)}`);
+    expect(host.querySelector(".lecturesMain")).not.toBeNull();
+  }, 20_000);
+
+  it("waits for native hiding and reloads ingested data in the background when leaving Web", async () => {
+    let holdHide = true;
+    let releaseHide!: () => void;
+    const hidden = new Promise<boolean>((resolve) => {
+      releaseHide = () => {
+        holdHide = false;
+        resolve(true);
+      };
+    });
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:ingest",
+        handle: (command, args, core) => {
+          if (command === "hide_school_web") return holdHide ? hidden : true;
+          return baseHandle(command, args, core);
+        },
+      }),
+      { route: paths.web() },
+    );
+    const { host, core } = app;
+    await until(() =>
+      expect(core.commands("open_school_site").length).toBeGreaterThan(0),
+    );
+
+    await act(async () => {
+      core.emit("school-ingest", {
+        site: "kyomu",
+        kind: "registrations",
+        state: "ok",
+        changed: 1,
+        message: "Updated",
+      });
+    });
+    const before = core.commands("workspace_snapshot").length;
+
+    await app.go(paths.home());
+    expect(window.location.hash).toBe(`#${paths.web()}`);
+    expect(host.querySelector(".webMain")).not.toBeNull();
+
+    await act(async () => {
+      releaseHide();
+      await hidden;
+    });
+    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+    await until(() =>
+      expect(core.commands("workspace_snapshot").length).toBeGreaterThan(
+        before,
+      ),
+    );
+  }, 20_000);
+});
+
+/* ------------------------------------------------------------------ *
+ * Keyboard shortcuts.
+ * ------------------------------------------------------------------ */
+
+describe("keyboard shortcuts", () => {
+  it("routes ⌘1–4 and Escape, replacing the section and cycling all four drawer tabs", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture({ courses: [placedCourse] }),
+        revision: "rev:keys",
+      }),
+      { route: paths.settings("appearance") },
+    );
+    const { host, router } = app;
+
+    const study = await required(
+      () =>
+        [
+          ...host.querySelectorAll<HTMLButtonElement>(".settingsNav button"),
+        ].find((button) => button.textContent?.trim() === "Study"),
+      "the Study settings entry",
+    );
+    await click(study);
+    expect(window.location.hash).toBe(`#${paths.settings("study")}`);
+    expect(router.state.historyAction).toBe("REPLACE");
+
+    await app.go(paths.drawer(paths.home(), placedCourse.id, "overview"));
+    for (const label of ["Materials", "Assignments", "Syllabus", "Overview"]) {
+      const tab = await required(
+        () =>
+          [
+            ...document.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+          ].find((button) => button.textContent?.includes(label)),
+        `the ${label} drawer tab`,
+      );
+      await click(tab);
+      expect(window.location.hash).toContain(`tab=${label.toLowerCase()}`);
+      expect(router.state.historyAction).toBe("REPLACE");
+    }
+
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+
+    for (const [index, target] of [
+      paths.home(),
+      paths.lectures(),
+      paths.web(),
+      // ⌘4 returns to the section left above.
+      paths.settings("study"),
+    ].entries()) {
+      await act(async () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: String(index + 1),
+            metaKey: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await until(() => expect(window.location.hash).toBe(`#${target}`));
+    }
+  }, 20_000);
+});
+
+/* ------------------------------------------------------------------ *
+ * Native listener ordering.
+ * ------------------------------------------------------------------ */
+
+describe("native listener ordering", () => {
+  it("subscribes to native changes before the recovery read that follows registration", async () => {
+    let releaseListener!: () => void;
+    const listenerRegistered = new Promise<void>((resolve) => {
+      releaseListener = resolve;
+    });
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture({ courses: [placedCourse] }),
+        revision: "rev:ordering",
+        handle: (command, args, core) => {
+          if (
+            command === "plugin:event|listen" &&
+            args.event === "workspace-changed"
+          )
+            return listenerRegistered.then(() => 1);
+          return baseHandle(command, args, core);
+        },
+      }),
+      { route: paths.home() },
+    );
+    const { core } = app;
+    await until(() =>
+      expect(app!.host.querySelector(".homeMain")).not.toBeNull(),
+    );
+
+    const listenIndex = () =>
+      core.calls.findIndex(
+        (call) =>
+          call.command === "plugin:event|listen" &&
+          call.args.event === "workspace-changed",
+      );
+    const readsAfterListen = () =>
+      core.calls.filter(
+        (call, index) =>
+          index > listenIndex() && call.command === "workspace_snapshot",
+      ).length;
+
+    await until(() => expect(listenIndex()).toBeGreaterThanOrEqual(0));
+    // Registration is still in flight: the shell must not read yet.
+    expect(readsAfterListen()).toBe(0);
+
+    await act(async () => {
+      releaseListener();
+      await listenerRegistered;
+    });
+    await until(() => expect(readsAfterListen()).toBeGreaterThan(0));
+  }, 20_000);
+
+  it("discards a late stale snapshot instead of overwriting the newer state", async () => {
+    const before = workspaceFixture({ courses: [placedCourse] });
+    const after = workspaceFixture({ courses: [clashingCourse] });
+    let gateStale = false;
+    let releaseStale!: () => void;
+    const staleGate = new Promise<void>((resolve) => {
+      releaseStale = resolve;
+    });
+    const staleSnapshot = {
+      revision: "revision:stale",
+      contentRevision: "revision:stale",
+      workspace: before,
+      schoolRecords: emptySchoolRecords(),
+    };
+    app = await mountShell(
+      shellOptions({
+        workspace: before,
+        revision: "rev:stale",
+        finder: emptyFinder,
+        handle: (command, args, core) => {
+          if (command === "workspace_snapshot" && gateStale)
+            return staleGate.then(() => staleSnapshot);
+          return baseHandle(command, args, core);
+        },
+      }),
+      { route: paths.home() },
+    );
+    const { host, core } = app;
+    // The planner timetable is the person-visible view of the workspace rows.
+    const edit = await required(
+      () => host.querySelector<HTMLInputElement>('input[role="switch"]'),
+      "the Edit switch",
+    );
+    await click(edit);
+    await until(() => expect(titles(host)).toEqual(["Placed"]));
+
+    gateStale = true;
+    await act(async () => {
+      // A school pull starts: its snapshot hangs.
+      core.emit("workspace-changed", { source: "school-pull" });
+      await Promise.resolve();
+      // Meanwhile another writer publishes a newer revision and asks again.
+      core.publish(after, "revision:new");
+      core.emit("workspace-changed", { source: "school-pull" });
+      await Promise.resolve();
+    });
+    gateStale = false;
+    await act(async () => {
+      releaseStale();
+      await staleGate;
+    });
+
+    await until(() => expect(titles(host)).toEqual(["Clashing"]));
+    expect(titles(host)).not.toEqual(["Placed"]);
+    expect(core.workspace.courses[0].title).toBe("Clashing");
+  }, 20_000);
+});
+
+/* ------------------------------------------------------------------ *
+ * Web-page residency.
+ * ------------------------------------------------------------------ */
+
+describe("web-page residency", () => {
+  it("keeps an open school page resident and hides rather than destroys it", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:resident",
+      }),
+      { route: paths.web() },
+    );
+    const { host, core } = app;
+    await until(() =>
+      expect(core.commands("open_school_site").length).toBeGreaterThan(0),
+    );
+    const address = await required(
+      () => host.querySelector<HTMLInputElement>('[aria-label="Current URL"]'),
+      "the school address bar",
+    );
+    await typeInto(address, "https://portal.isct.ac.jp/typed");
+
+    await app.go(paths.home());
+    await until(() =>
+      expect(core.commands("hide_school_web").length).toBeGreaterThan(0),
+    );
+    // The page is hidden, not destroyed: same node, same typed address.
+    expect(host.querySelector('[aria-label="Current URL"]')).toBe(address);
+    expect(address.value).toBe("https://portal.isct.ac.jp/typed");
+
+    const opened = core.commands("open_school_site").length;
+    await app.go(paths.web());
+    await until(() =>
+      expect(core.commands("open_school_site").length).toBeGreaterThan(opened),
+    );
+    expect(host.querySelector('[aria-label="Current URL"]')).toBe(address);
+    // An ordinary resume re-shows the resident session, without a new URL.
+    expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBeNull();
+  }, 20_000);
+
+  it("reopens an explicitly requested URL while an ordinary resume keeps the resident page", async () => {
+    const url = "https://lms.s.isct.ac.jp/course/view.php?id=12";
+    const course = courseFor(
+      offering("202602421", "CSC.T252", "Placed", { id: "lms-12" }),
+      { source: { provider: "lms", externalId: "12" }, url },
+    );
+    const workspace = workspaceFixture({ courses: [course] });
+    app = await mountShell(
+      shellOptions({ workspace, revision: "rev:explicit" }),
+      { route: paths.drawer(paths.home(), course.id) },
+    );
+    const { core } = app;
+
+    // The course drawer renders through a portal on document.body.
+    const link = await required(
+      () => document.querySelector<HTMLButtonElement>(".officialLink button"),
+      "the official LMS link",
+    );
+    await click(link);
+    await until(() =>
+      expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBe(
+        url,
+      ),
+    );
+    expect(window.location.hash).toBe(`#${paths.web()}`);
+
+    await app.go(paths.home());
+    const opened = core.commands("open_school_site").length;
+    await app.go(paths.web());
+    await until(() =>
+      expect(core.commands("open_school_site").length).toBeGreaterThan(opened),
+    );
+    expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBeNull();
+  }, 20_000);
+});
+
+/* ------------------------------------------------------------------ *
+ * Store failures.
+ * ------------------------------------------------------------------ */
+
+describe("store failures", () => {
+  it("surfaces a failed store operation as a notification with a readable reason", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:error",
+        handle: (command, args, core) => {
+          if (command === "mutate_workspace") throw new Error("Disk is full");
+          return baseHandle(command, args, core);
+        },
+      }),
+      { route: paths.settings("appearance") },
+    );
+    const { host, core } = app;
+
+    const toggle = await required(
+      () =>
+        host.querySelector<HTMLInputElement>(
+          '[data-setting="bilingual"] input',
+        ),
+      "the bilingual toggle",
+    );
+    await click(toggle);
+
+    await until(() =>
+      expect(document.querySelector(".workspaceNotice")?.textContent).toContain(
+        "Disk is full",
+      ),
+    );
+    expect(core.mutations).toEqual([]);
+    expect(host.querySelector(".pageError")).toBeNull();
+  }, 20_000);
+
+  it("offers Retry saving for a store error and re-reads the workspace", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:retry",
+      }),
+      { route: paths.home() },
+    );
+    const { core } = app;
+    const before = core.commands("workspace_snapshot").length;
+
+    await act(async () => {
+      notify.error(new Error("Disk is full"), () => {
+        void storeModule.workspaceStore.reload();
+      });
+    });
+    await until(() =>
+      expect(document.querySelector(".workspaceNotice")?.textContent).toContain(
+        "Disk is full",
+      ),
+    );
+    const retry = [
+      ...document.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "Retry saving");
+    expect(retry).toBeDefined();
+    await click(retry);
+    await until(() =>
+      expect(core.commands("workspace_snapshot").length).toBeGreaterThan(
+        before,
+      ),
+    );
+  }, 20_000);
+});
+
+/* ------------------------------------------------------------------ *
+ * Chinese UI.
+ * ------------------------------------------------------------------ */
+
+describe("Chinese UI", () => {
+  it("loads Chinese while keeping an explicit school-content language intact", async () => {
+    const workspace = workspaceFixture();
+    workspace.settings.locale = "zh";
+    workspace.settings.contentLanguage = "en";
+    app = await mountShell(shellOptions({ workspace, revision: "rev:zh" }), {
+      route: paths.settings("appearance"),
+    });
+    const { host, core } = app;
+
+    await until(() => expect(document.documentElement.lang).toBe("zh"));
+    expect(host.querySelector(".rail button")?.textContent).toContain("首页");
+    expect(document.body.textContent).toContain("中文");
+    expect(
+      host
+        .querySelector('[data-setting="content-language"] input:checked')
+        ?.getAttribute("value"),
+    ).toBe("en");
+    expect(
+      host
+        .querySelector('[data-setting="language"] input:checked')
+        ?.getAttribute("value"),
+    ).toBe("zh");
+    expect(core.workspace.settings.contentLanguage).toBe("en");
+  }, 20_000);
+});
+
+/* ------------------------------------------------------------------ *
+ * Mobile / compact shell.
+ * ------------------------------------------------------------------ */
+
+describe("mobile shell", () => {
+  beforeEach(() => {
+    window.matchMedia = ((media: string) => ({
+      media,
+      matches: media === STACKED_QUERY,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  const settingsNav = (host: HTMLElement, label: string) =>
+    required(
+      () =>
+        [
+          ...host.querySelectorAll<HTMLButtonElement>(".settingsNav button"),
+        ].find((button) => button.textContent?.trim() === label),
+      `the ${label} settings entry`,
+    );
+  const tab = (host: HTMLElement, label: string) =>
+    required(
+      () =>
+        [
+          ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
+        ].find((button) => button.textContent === label),
+      `the ${label} tab`,
+    );
+
+  it("drops the fixed status bar and shows four bottom tabs", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:mobile-tabs",
+      }),
+      { route: paths.home() },
+    );
+    const { host } = app;
+    await until(() =>
+      expect(host.querySelector(".mobileShell")).not.toBeNull(),
+    );
+    expect(host.querySelector(".schoolStatusBar")).toBeNull();
+    expect(
+      [...host.querySelectorAll(".mobileTabs button")].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Home", "Lectures", "Web", "Settings"]);
+    expect(host.querySelector(".mobileStatusDot")).not.toBeNull();
+  }, 20_000);
+
+  it("keeps bare /settings as the section list and pushes a section", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:mobile-settings",
+      }),
+      { route: paths.settings() },
+    );
+    const { host, router } = app;
+    await until(() =>
+      expect(host.querySelector(".settings.list")).not.toBeNull(),
+    );
+    expect(window.location.hash).toBe(`#${paths.settings()}`);
+
+    await click(await settingsNav(host, "Appearance"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings("appearance")}`),
+    );
+    expect(router.state.historyAction).toBe("PUSH");
+    expect(host.querySelector(".settings.detail .settingsBack")).not.toBeNull();
+  }, 20_000);
+
+  it("goes up one level, reusing the parent entry when it is just below", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:mobile-up",
+      }),
+      { route: paths.settings() },
+    );
+    const { host, router } = app;
+    await until(() =>
+      expect(host.querySelector(".settings.list")).not.toBeNull(),
+    );
+    await click(await settingsNav(host, "Appearance"));
+    await until(() =>
+      expect(
+        host.querySelector(".settings.detail .settingsBack"),
+      ).not.toBeNull(),
+    );
+
+    await click(host.querySelector<HTMLButtonElement>(".settingsBack"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings()}`),
+    );
+    expect(router.state.historyAction).toBe("POP");
+  }, 20_000);
+
+  it("opened deep, Back replaces with the parent instead of leaving", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:mobile-deep",
+      }),
+      { route: paths.settings("appearance") },
+    );
+    const { host, router } = app;
+    await until(() =>
+      expect(
+        host.querySelector(".settings.detail .settingsBack"),
+      ).not.toBeNull(),
+    );
+
+    await click(host.querySelector<HTMLButtonElement>(".settingsBack"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings()}`),
+    );
+    expect(router.state.historyAction).toBe("REPLACE");
+  }, 20_000);
+
+  it("tapping the current tab again returns to its root", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:mobile-root",
+      }),
+      { route: paths.settings("appearance") },
+    );
+    const { host } = app;
+    await until(() =>
+      expect(host.querySelector(".mobileShell")).not.toBeNull(),
+    );
+
+    await click(await tab(host, "Settings"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.settings()}`),
+    );
+
+    await app.go(paths.home("week"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.home("week")}`),
+    );
+    await click(await tab(host, "Home"));
+    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+  }, 20_000);
+
+  it("lists school services on Web and browses one through the route", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:mobile-web",
+      }),
+      { route: paths.web() },
+    );
+    const { host } = app;
+    const rows = await until(() => {
+      const found = [
+        ...host.querySelectorAll<HTMLButtonElement>(".mobileWebRow"),
+      ];
+      if (found.length < 4) throw new Error("the service list is not ready");
+      return found;
+    });
+    expect(host.querySelector(".servicePicker")).toBeNull();
+
+    await click(rows.find((row) => row.dataset.site === "science-lms"));
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.web("science-lms")}`),
+    );
+    await until(() =>
+      expect(host.querySelector(".mobileBrowserBar")).not.toBeNull(),
+    );
+    expect(host.querySelector(".mobileBrowserTitle")?.textContent).toContain(
+      "LMS",
+    );
+
+    const webTab = await required(
+      () =>
+        [
+          ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
+        ].find((button) => button.querySelector(".mobileTabMenuMark")),
+      "the marked Web tab",
+    );
+    await click(webTab);
+    await until(() =>
+      expect(document.querySelector(".mobileSiteSheet")).not.toBeNull(),
+    );
+    expect(window.location.hash).toBe(`#${paths.web("science-lms")}`);
+  }, 20_000);
+
+  it("opens a lecture as a dialog over the list", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture({ courses: [placedCourse] }),
+        revision: "rev:mobile-lecture",
+      }),
+      { route: paths.lectures(placedCourse.id) },
+    );
+    const { host } = app;
+    const content = await required(
+      () => host.querySelector(".lectureContent"),
+      "the lecture dialog",
+    );
+    expect(content.getAttribute("role")).toBe("dialog");
+  }, 20_000);
+});
+
+/* ------------------------------------------------------------------ *
+ * Swipe gestures on list rows.
+ * ------------------------------------------------------------------ */
+
+/** A real row driven by real state, so no mock stands in for the app. */
+function SwipeRow() {
+  const [log, setLog] = useState<string[]>([]);
+  const record = (entry: string) => setLog((current) => [...current, entry]);
+  return (
+    <div>
+      <output className="swipeLog">{log.join(",")}</output>
+      <SwipeActions
+        leading={{ label: "Pin", run: () => record("pin") }}
+        trailing={{ label: "Hide", run: () => record("hide") }}
+      >
+        <button className="assignment" onClick={() => record("open")}>
+          Assignment
+        </button>
+      </SwipeActions>
+    </div>
+  );
+}
+
+async function pointer(
+  host: HTMLElement,
+  type: string,
+  x: number,
+  y = 100,
+): Promise<void> {
+  await act(async () => {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(event, {
+      clientX: x,
+      clientY: y,
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+    });
+    host.querySelector(".assignment")!.dispatchEvent(event);
+  });
+}
+
+async function touch(type: string, x: number, y = 100): Promise<void> {
+  await act(async () => {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(event, {
+      touches:
+        type === "touchend" || type === "touchcancel"
+          ? []
+          : [{ clientX: x, clientY: y }],
+    });
+    document.dispatchEvent(event);
+  });
+}
+
+describe("swipe actions on list rows", () => {
+  beforeEach(async () => {
+    probe = await mount(<SwipeRow />);
+  });
+
+  it("opens on one tap, without exposing an action first", async () => {
+    const host = probe!.host;
+    await pointer(host, "pointerdown", 100);
+    await pointer(host, "pointerup", 100);
+    await click(host.querySelector(".assignment"));
+    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
+    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    expect(host.querySelector(".trailing")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+  });
+
+  it("pins on a right swipe and hides on a left swipe, suppressing the click after a swipe", async () => {
+    const host = probe!.host;
+    await pointer(host, "pointerdown", 100);
+    await pointer(host, "pointermove", 180);
+    await pointer(host, "pointerup", 180);
+    await click(host.querySelector(".assignment"));
+    expect(host.querySelector(".swipeLog")?.textContent).toBe("");
+    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
+      "false",
+    );
+    await click(host.querySelector(".leading"));
+    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin");
+
+    await pointer(host, "pointerdown", 200);
+    await pointer(host, "pointermove", 100);
+    await pointer(host, "pointerup", 100);
+    await click(host.querySelector(".assignment"));
+    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin");
+    expect(host.querySelector(".trailing")?.getAttribute("aria-hidden")).toBe(
+      "false",
+    );
+    await click(host.querySelector(".trailing"));
+    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin,hide");
+  });
+
+  it("cancels a gesture and ignores vertical scrolling", async () => {
+    const host = probe!.host;
+    await pointer(host, "pointerdown", 200);
+    await pointer(host, "pointermove", 195, 170);
+    await pointer(host, "pointercancel", 195, 170);
+    expect(
+      host.querySelector<HTMLElement>(".swipeContent")?.style.transform,
+    ).toBe("translateX(0px)");
+
+    await pointer(host, "pointerdown", 200);
+    await pointer(host, "pointermove", 200, 260);
+    await pointer(host, "pointerup", 200, 260);
+    await click(host.querySelector(".assignment"));
+    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
+  });
+
+  it("leaves a left-to-right swipe from the screen edge to back navigation", async () => {
+    const host = probe!.host;
+    await pointer(host, "pointerdown", 10);
+    await pointer(host, "pointermove", 120);
+    await pointer(host, "pointerup", 120);
+    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    await click(host.querySelector(".assignment"));
+    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
+  });
+});
+
+describe("edge-swipe back on the mobile shell", () => {
+  beforeEach(() => {
+    window.matchMedia = ((media: string) => ({
+      media,
+      matches: media === STACKED_QUERY,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  it("navigates back when a left-to-right swipe starts at the screen edge", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:edge",
+      }),
+      { route: paths.home("week") },
+    );
+    await until(() =>
+      expect(app!.host.querySelector(".mobileShell")).not.toBeNull(),
+    );
+
+    await touch("touchstart", 10);
+    await touch("touchmove", 500);
+    await touch("touchend", 500);
+    await advance(250);
+    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+  }, 20_000);
+});
+
+/* ------------------------------------------------------------------ *
+ * Query-cache guarantees that live inside React hooks.
+ * ------------------------------------------------------------------ */
+
+type Overviewish = { term?: string; courses?: { title?: string }[] };
+
+function ScheduleConsumer({
+  queries,
+  label,
+}: {
+  queries: ScheduleQuery[];
+  label: string;
+}) {
+  const state =
+    coreQuery.useScheduleQueries<[Overviewish, Overviewish]>(queries);
+  return (
+    <output
+      className={`probe probe-${label}`}
+      data-pending={state.pending ? "yes" : "no"}
+      data-error={state.error ?? ""}
+    >
+      {state.value?.map((value) => value?.term ?? "").join("|")}
+    </output>
+  );
+}
+
+function SchedulePair({ queries }: { queries: ScheduleQuery[] }) {
+  return (
+    <div>
+      <ScheduleConsumer queries={queries} label="one" />
+      <ScheduleConsumer queries={queries} label="two" />
+    </div>
+  );
+}
+
+function ScheduleSwitchProbe({
+  initial,
+  next,
+}: {
+  initial: string;
+  next: string;
+}) {
+  const [term, setTerm] = useState(initial);
+  const state = coreQuery.useScheduleQuery<Overviewish>({
+    kind: "workspaceOverview",
+    term,
+  });
+  return (
+    <div>
+      <output className="probeTerm" data-pending={state.pending ? "yes" : "no"}>
+        {state.value?.term ?? ""}
+      </output>
+      <output className="probeError">{state.error ?? ""}</output>
+      <button className="probeSwitch" onClick={() => setTerm(next)}>
+        switch
+      </button>
+      <button className="probeRetry" onClick={() => state.retry?.()}>
+        retry
+      </button>
+    </div>
+  );
+}
+
+function FinderConsumer({
+  request,
+  label,
+}: {
+  request: FinderRequest;
+  label: string;
+}) {
+  const state = finderQuery.useFinderQuery(request);
+  return (
+    <output className={`finderProbe finderProbe-${label}`}>
+      {(state.value?.keys ?? []).join(",")}
+    </output>
+  );
+}
+
+function FinderPair({ request }: { request: FinderRequest }) {
+  return (
+    <div>
+      <FinderConsumer request={request} label="one" />
+      <FinderConsumer request={request} label="two" />
+    </div>
+  );
+}
+
+function FinderSwitchProbe({
+  initial,
+  next,
+}: {
+  initial: string;
+  next: string;
+}) {
+  const [term, setTerm] = useState(initial);
+  const state = finderQuery.useFinderQuery({ year: 2026, term, keys: [] });
+  return (
+    <div>
+      <output className="finderTerm">
+        {(state.value?.keys ?? []).join(",")}
+      </output>
+      <button className="finderSwitch" onClick={() => setTerm(next)}>
+        switch
+      </button>
+    </div>
+  );
+}
+
+function FinderQueueProbe({
+  term,
+  nextTerm,
+}: {
+  term: string;
+  nextTerm: string;
+}) {
+  const [current, setCurrent] = useState(term);
+  const [keys, setKeys] = useState<string[]>([]);
+  const queue = finderQuery.useFinderEditQueue({
+    year: 2026,
+    term: current,
+    keys,
+    setKeys,
+  });
+  return (
+    <div>
+      <output className="queueKeys">{keys.join(",")}</output>
+      <button
+        className="queueA"
+        onClick={() =>
+          void queue.run({ kind: "toggleTime", key: "A", append: false })
+        }
+      >
+        A
+      </button>
+      <button
+        className="queueB"
+        onClick={() =>
+          void queue.run({ kind: "toggleTime", key: "B", append: true })
+        }
+      >
+        B
+      </button>
+      <button
+        className="queueRapid"
+        onClick={() => {
+          void queue.run({ kind: "toggleTime", key: "A", append: false });
+          void queue.run({ kind: "toggleTime", key: "B", append: true });
+        }}
+      >
+        rapid
+      </button>
+      <button className="queueReplace" onClick={() => queue.replace(["X"])}>
+        replace
+      </button>
+      <button className="queueTerm" onClick={() => setCurrent(nextTerm)}>
+        term
+      </button>
+    </div>
+  );
+}
+
+/** Core's key contract for one finder action: read keys, apply, return keys. */
+function finderAnswer(
+  request: Record<string, unknown>,
+): Record<string, unknown> {
+  const keys = [...((request.keys as string[] | undefined) ?? [])];
+  const action = request.action as FinderAction | null | undefined;
+  if (action?.kind === "toggleTime") {
+    if (action.append) keys.push(action.key);
+    else keys.splice(0, keys.length, action.key);
+  }
+  return { keys };
+}
+
+function scheduleAnswer(kind: string, value: unknown, revision: string) {
+  return { revision, values: [{ kind, value }] };
+}
+
+describe("schedule query caches", () => {
+  const twoQueries: ScheduleQuery[] = [
+    { kind: "workspaceOverview", term: "cache-pair" },
+    {
+      kind: "scheduleView",
+      term: "cache-pair",
+      from: "2026-09-28",
+      to: "2026-12-02",
+    },
+  ];
+
+  it("shares one read per revision between two consumers that mount together", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    const core = installFakeCore({
+      workspace,
+      revision: "rev:schedule-share",
+      queries: {
+        workspaceOverview: (_q: unknown, live: FakeCore) =>
+          overviewFor(live.workspace, { term: "cache-pair" }),
+        scheduleView: (_q: unknown, live: FakeCore) =>
+          scheduleViewFor(live.workspace, { term: "cache-pair" }),
+      },
+    });
+    probe = await mount(<SchedulePair queries={twoQueries} />);
+
+    await until(() =>
+      expect(probe!.host.querySelector(".probe-one")?.textContent).toContain(
+        "cache-pair",
+      ),
+    );
+    const calls = core.commands("schedule_query");
+    // Exactly one read carried both consumers' queries.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args.queries).toEqual(twoQueries);
+    expect(probe.host.querySelector(".probe-two")?.textContent).toContain(
+      "cache-pair",
+    );
+  }, 20_000);
+
+  it("shares the identical query with a consumer that joins later", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    const core = installFakeCore({
+      workspace,
+      revision: "rev:schedule-identical",
+      queries: {
+        workspaceOverview: (_q: unknown, live: FakeCore) =>
+          overviewFor(live.workspace, { term: "cache-identical" }),
+      },
+    });
+    const query: ScheduleQuery = {
+      kind: "workspaceOverview",
+      term: "cache-identical",
+    };
+    probe = await mount(<ScheduleConsumer queries={[query]} label="one" />);
+    await until(() =>
+      expect(probe!.host.querySelector(".probe-one")?.textContent).toContain(
+        "cache-identical",
+      ),
+    );
+    expect(core.commands("schedule_query")).toHaveLength(1);
+
+    await probe.unmount();
+    probe = await mount(<ScheduleConsumer queries={[query]} label="two" />);
+    await until(() =>
+      expect(probe!.host.querySelector(".probe-two")?.textContent).toContain(
+        "cache-identical",
+      ),
+    );
+    expect(core.commands("schedule_query")).toHaveLength(1);
+  }, 20_000);
+
+  it("re-reads when the workspace content revision changes", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    const next = workspaceFixture({ courses: [clashingCourse] });
+    const core = installFakeCore({
+      workspace,
+      revision: "rev:content-1",
+      queries: {
+        workspaceOverview: (_q: unknown, live: FakeCore) =>
+          overviewFor(live.workspace, { term: "cache-revision" }),
+      },
+    });
+    await act(async () => {
+      await storeModule.workspaceStore.reload();
+    });
+    probe = await mount(
+      <ScheduleConsumer
+        queries={[{ kind: "workspaceOverview", term: "cache-revision" }]}
+        label="one"
+      />,
+    );
+    await until(() =>
+      expect(probe!.host.querySelector(".probe-one")?.textContent).toContain(
+        "cache-revision",
+      ),
+    );
+    expect(core.commands("schedule_query")).toHaveLength(1);
+
+    await act(async () => {
+      core.publish(next, "rev:content-2");
+      await storeModule.workspaceStore.reload();
+    });
+    await until(() => expect(core.commands("schedule_query")).toHaveLength(2));
+    expect(core.commands("schedule_query").at(-1)?.args.queries).toEqual([
+      { kind: "workspaceOverview", term: "cache-revision" },
+    ]);
+  }, 20_000);
+
+  it("ignores a late response once the requested quarter changed", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    let holdLate = true;
+    let releaseLate!: () => void;
+    const late = new Promise<void>((resolve) => {
+      releaseLate = resolve;
+    });
+    const core = installFakeCore({
+      workspace,
+      revision: "rev:late-quarter",
+      handle: (command, args, live) => {
+        if (command === "schedule_query") {
+          const term = (args.queries as { term?: string }[])[0]?.term;
+          if (term === "late-quarter" && holdLate)
+            return late.then(() =>
+              scheduleAnswer(
+                "workspaceOverview",
+                overviewFor(live.workspace, { term: "late-quarter" }),
+                "rev:late-quarter",
+              ),
+            );
+          if (term === "quick-quarter")
+            return scheduleAnswer(
+              "workspaceOverview",
+              overviewFor(live.workspace, { term: "quick-quarter" }),
+              "rev:late-quarter",
+            );
+        }
+        return undefined;
+      },
+    });
+    probe = await mount(
+      <ScheduleSwitchProbe initial="late-quarter" next="quick-quarter" />,
+    );
+    expect(probe.host.querySelector(".probeTerm")?.textContent).toBe("");
+
+    await click(probe.host.querySelector(".probeSwitch"));
+    await until(() =>
+      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
+        "quick-quarter",
+      ),
+    );
+
+    holdLate = false;
+    await act(async () => {
+      releaseLate();
+      await late;
+    });
+    expect(probe.host.querySelector(".probeTerm")?.textContent).toBe(
+      "quick-quarter",
+    );
+    expect(
+      core
+        .commands("schedule_query")
+        .map((call) => (call.args.queries as { term?: string }[])[0]?.term),
+    ).toEqual(["late-quarter", "quick-quarter"]);
+  }, 20_000);
+
+  it("retry re-issues the read without a remount and clears the error", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    let failed = false;
+    const core = installFakeCore({
+      workspace,
+      revision: "rev:retry-hook",
+      handle: (command, args, live) => {
+        if (command === "schedule_query") {
+          const term = (args.queries as { term?: string }[])[0]?.term;
+          if (term === "retry-quarter" && !failed) {
+            failed = true;
+            throw new Error("Core refused the read");
+          }
+          if (term === "retry-quarter")
+            return scheduleAnswer(
+              "workspaceOverview",
+              overviewFor(live.workspace, { term: "retry-quarter" }),
+              "rev:retry-hook",
+            );
+        }
+        return undefined;
+      },
+    });
+    probe = await mount(
+      <ScheduleSwitchProbe initial="retry-quarter" next="retry-quarter" />,
+    );
+    await until(() =>
+      expect(probe!.host.querySelector(".probeError")?.textContent).toBe(
+        "Core refused the read",
+      ),
+    );
+    expect(core.commands("schedule_query")).toHaveLength(1);
+
+    await click(probe.host.querySelector(".probeRetry"));
+    await until(() =>
+      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
+        "retry-quarter",
+      ),
+    );
+    expect(probe.host.querySelector(".probeError")?.textContent).toBe("");
+    expect(
+      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
+    ).toBe("no");
+    expect(core.commands("schedule_query")).toHaveLength(2);
+  }, 20_000);
+});
+
+describe("finder query caches", () => {
+  const request: FinderRequest = { year: 2026, term: "finder-share", keys: [] };
+
+  it("shares one identical finder read between two mounted consumers", async () => {
+    const core = installFakeCore({
+      workspace: workspaceFixture(),
+      revision: "rev:finder-share",
+      finder: (incoming) => finderAnswer(incoming),
+    });
+    probe = await mount(<FinderPair request={request} />);
+    await until(() =>
+      expect(probe!.host.querySelector(".finderProbe-one")?.textContent).toBe(
+        "",
+      ),
+    );
+    expect(core.commands("finder_query")).toHaveLength(1);
+    expect(core.commands("finder_query")[0].args.request).toEqual(request);
+
+    await probe.unmount();
+    probe = await mount(<FinderConsumer request={request} label="two" />);
+    await act(async () => {});
+    expect(core.commands("finder_query")).toHaveLength(1);
+  }, 20_000);
+
+  it("ignores an old finder response once the request changed", async () => {
+    const workspace = workspaceFixture();
+    let holdOld = true;
+    let releaseOld!: () => void;
+    const old = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    const core = installFakeCore({
+      workspace,
+      revision: "rev:finder-stale",
+      handle: (command, args) => {
+        if (command === "finder_query") {
+          const incoming = args.request as { term?: string };
+          if (incoming.term === "finder-late" && holdOld)
+            return old.then(() => ({ keys: ["late"] }));
+          if (incoming.term === "finder-quick") return { keys: ["quick"] };
+        }
+        return undefined;
+      },
+    });
+    probe = await mount(
+      <FinderSwitchProbe initial="finder-late" next="finder-quick" />,
+    );
+    expect(probe.host.querySelector(".finderTerm")?.textContent).toBe("");
+
+    await click(probe.host.querySelector(".finderSwitch"));
+    await until(() =>
+      expect(probe!.host.querySelector(".finderTerm")?.textContent).toBe(
+        "quick",
+      ),
+    );
+
+    holdOld = false;
+    await act(async () => {
+      releaseOld();
+      await old;
+    });
+    expect(probe.host.querySelector(".finderTerm")?.textContent).toBe("quick");
+    expect(
+      core
+        .commands("finder_query")
+        .map((call) => (call.args.request as { term?: string }).term),
+    ).toEqual(["finder-late", "finder-quick"]);
+  }, 20_000);
+
+  it("feeds each rapid action the keys Core returned for the previous one", async () => {
+    const core = installFakeCore({
+      workspace: workspaceFixture(),
+      revision: "rev:queue-rapid",
+      handle: (command, args) => {
+        if (command === "finder_query")
+          return finderAnswer(args.request as Record<string, unknown>);
+        return undefined;
+      },
+    });
+    probe = await mount(
+      <FinderQueueProbe term="queue" nextTerm="queue-next" />,
+    );
+
+    await click(probe.host.querySelector(".queueRapid"));
+    await until(() =>
+      expect(probe!.host.querySelector(".queueKeys")?.textContent).toBe("A,B"),
+    );
+    const calls = core.commands("finder_query");
+    expect(calls).toHaveLength(2);
+    expect(calls[0].args.request).toMatchObject({
+      keys: [],
+      action: { kind: "toggleTime", key: "A", append: false },
+    });
+    expect(calls[1].args.request).toMatchObject({
+      keys: ["A"],
+      action: { kind: "toggleTime", key: "B", append: true },
+    });
+  }, 20_000);
+
+  it("starts a new session on a term change and drops an in-flight answer", async () => {
+    let holdAnswer = true;
+    let releaseAnswer!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      releaseAnswer = resolve;
+    });
+    const core = installFakeCore({
+      workspace: workspaceFixture(),
+      revision: "rev:queue-term",
+      handle: (command, args) => {
+        if (command === "finder_query") {
+          const incoming = args.request as { term?: string };
+          if (incoming.term === "queue-late" && holdAnswer)
+            return pending.then(() => finderAnswer(incoming));
+          return finderAnswer(incoming);
+        }
+        return undefined;
+      },
+    });
+    probe = await mount(
+      <FinderQueueProbe term="queue-late" nextTerm="queue-next" />,
+    );
+
+    await click(probe.host.querySelector(".queueA"));
+    await click(probe.host.querySelector(".queueTerm"));
+    holdAnswer = false;
+    await act(async () => {
+      releaseAnswer();
+      await pending;
+    });
+    // The old answer was dropped: the keys were never touched.
+    expect(probe.host.querySelector(".queueKeys")?.textContent).toBe("");
+
+    await click(probe.host.querySelector(".queueB"));
+    await until(() =>
+      expect(probe!.host.querySelector(".queueKeys")?.textContent).toBe("B"),
+    );
+    expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject({
+      keys: [],
+      term: "queue-next",
+    });
+  }, 20_000);
+
+  it("replace sets the keys the next action starts from", async () => {
+    const core = installFakeCore({
+      workspace: workspaceFixture(),
+      revision: "rev:queue-replace",
+      handle: (command, args) => {
+        if (command === "finder_query")
+          return finderAnswer(args.request as Record<string, unknown>);
+        return undefined;
+      },
+    });
+    probe = await mount(
+      <FinderQueueProbe term="queue" nextTerm="queue-next" />,
+    );
+
+    await click(probe.host.querySelector(".queueReplace"));
+    expect(probe.host.querySelector(".queueKeys")?.textContent).toBe("X");
+
+    await click(probe.host.querySelector(".queueB"));
+    await until(() =>
+      expect(probe!.host.querySelector(".queueKeys")?.textContent).toBe("X,B"),
+    );
+    expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject({
+      keys: ["X"],
+    });
+  }, 20_000);
+});

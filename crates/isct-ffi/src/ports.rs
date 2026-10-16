@@ -297,57 +297,9 @@ fn download_session_error(error: SdkError) -> isct_core::downloads::FetchError {
 }
 
 #[cfg(test)]
-mod download_tests {
-    use super::*;
-    use isct_core::downloads::{DownloadSession as _, FetchError};
+#[path = "tests/ports__download_tests.rs"]
+mod download_tests;
 
-    struct SessionFailure(SdkError);
-    #[async_trait::async_trait]
-    impl NativeDownloadSession for SessionFailure {
-        async fn cookie_header(&self, _: String) -> Result<String, SdkError> {
-            Err(self.0.clone())
-        }
-    }
-
-    #[tokio::test]
-    async fn cookie_access_errors_do_not_masquerade_as_missing_login() {
-        for (error, expected) in [
-            (
-                SdkError::Callback {
-                    detail: "vault inaccessible".into(),
-                },
-                FetchError::Network,
-            ),
-            (
-                SdkError::Network {
-                    detail: "offline".into(),
-                },
-                FetchError::Network,
-            ),
-            (
-                SdkError::Authentication {
-                    detail: "expired".into(),
-                },
-                FetchError::Login,
-            ),
-            (
-                SdkError::Timeout {
-                    detail: "cookie read".into(),
-                },
-                FetchError::Timeout,
-            ),
-            (SdkError::Cancelled, FetchError::Cancelled),
-        ] {
-            let session = DownloadSession(Arc::new(SessionFailure(error)));
-            assert_eq!(
-                session
-                    .cookie_header(&Url::parse("https://lms.s.isct.ac.jp/").unwrap())
-                    .await,
-                Err(expected)
-            );
-        }
-    }
-}
 impl isct_core::downloads::DownloadSession for DownloadSession {
     fn cookie_header<'a>(
         &'a self,

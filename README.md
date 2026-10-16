@@ -21,11 +21,21 @@ yarn desktop:dev     # native app with the Rust backend
 Production checks and builds:
 
 ```sh
-yarn test
+yarn test                              # unit + e2e suites
+yarn test:types                        # typecheck the tests
+yarn backend:test                      # Rust workspace tests
 yarn build
 yarn backend:check
 yarn desktop:build
 ```
+
+All JavaScript/TypeScript tests live in one place; see
+[apps/desktop/tests/README.md](apps/desktop/tests/README.md) for the suites, the shared harness, and the
+rule that a new test joins an existing suite rather than the file it covers.
+Behaviour that cannot be automated — a real school sign-in, a provider consent
+screen, a signed bundle, a physical card — is recorded in
+[docs/verification/manual-acceptance.md](docs/verification/manual-acceptance.md);
+run `yarn verify:manual stale` to see which checks a change invalidated.
 
 If port 4173 is occupied, Vite selects another port. The native development
 configuration expects port 4173, so stop the old process before restarting the
@@ -44,6 +54,7 @@ apps/desktop/
     lib/                   desktop presentation helpers and preview fixtures
     generated/             contracts generated from Rust
   src-tauri/               Tauri host, native ports, commands and HTTP MCP
+  tests/                   every frontend test: harness, unit, e2e and live
   public/                  desktop web assets
 crates/isct-core/           authoritative domain state, services and storage
 crates/isct-ocr/            independent optional OCR engine and model

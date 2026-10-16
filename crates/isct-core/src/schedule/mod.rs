@@ -10,8 +10,11 @@ mod occurrence;
 mod reminders;
 mod requests;
 mod tasks;
+
 #[cfg(test)]
+#[path = "../tests/schedule.rs"]
 mod tests;
+
 mod timing;
 
 use chrono::{DateTime, FixedOffset};

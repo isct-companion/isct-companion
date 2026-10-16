@@ -1032,4 +1032,5 @@ fn settle_waiters(
 }
 
 #[cfg(test)]
+#[path = "tests/pull_coordinator.rs"]
 mod tests;

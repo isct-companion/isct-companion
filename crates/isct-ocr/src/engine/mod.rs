@@ -3,9 +3,13 @@ mod contours;
 mod debug_crops;
 mod geometry;
 mod preprocess;
+
 #[cfg(test)]
+#[path = "../tests/engine__private_parity.rs"]
 mod private_parity;
+
 #[cfg(test)]
+#[path = "../tests/engine.rs"]
 mod tests;
 
 use crate::{recognition, MatrixOcrError, OcrProgress, Recognition, MATRIX_CELLS};

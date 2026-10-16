@@ -1,7 +1,15 @@
 use crate::school_auth::SchoolAuthProfile;
 use url::Url;
 
+/// Every official host a school page may navigate to.
+///
+/// The list is grouped by the campus that publishes the system, following the
+/// student site's 学修関連システム page. An origin in this list may be loaded in a
+/// school WebView; membership does not imply an adapter, a start page or a
+/// `SchoolSite` mapping.
 pub const SCHOOL_HOSTS: &[&str] = &[
+    // 理工学系 (Science and engineering): portal, LMS, syllabus, 教務, library,
+    // TSUBAME, mail and the former Tokyo Tech site that still serves 学修案内.
     "isct.ex-tic.com",
     "portal.isct.ac.jp",
     "portal.titech.ac.jp",
@@ -15,6 +23,12 @@ pub const SCHOOL_HOSTS: &[&str] = &[
     "request.libra.titech.ac.jp",
     "portal.t4.gsic.titech.ac.jp",
     "www.titech.ac.jp",
+    // 医歯学系 (medicine and dentistry): Dream Campus and Web Class. Allowlisted
+    // so a school page can hand off to them, but NOT verified: no adapter, no
+    // `SchoolSite` mapping and no live account has been exercised. Do not add
+    // extraction or start-page behaviour without that verification.
+    "yushima2.tmd.ac.jp",
+    "lib02.tmd.ac.jp",
 ];
 
 pub fn sanitize_school_url(raw: &str) -> Option<String> {
@@ -86,39 +100,5 @@ pub(crate) fn is_login_step(url: &Url) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sign_in_pages_are_recognized_for_identity_providers_and_services() {
-        for raw in [
-            "https://isct.ex-tic.com/auth/session",
-            "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login?Template=userpass_key",
-            "https://lms.s.isct.ac.jp/2025/login/index.php",
-            "https://lms.s.isct.ac.jp/2025/auth/saml2/login.php",
-        ] {
-            assert!(is_login_url(&Url::parse(raw).unwrap()), "{raw}");
-        }
-        for raw in [
-            "https://isct.ex-tic.com/idm/user/portal/",
-            "https://lms.s.isct.ac.jp/2025/my/",
-            "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_resource/content/1/a.pdf",
-        ] {
-            assert!(!is_login_url(&Url::parse(raw).unwrap()), "{raw}");
-        }
-        assert!(!is_identity_login(
-            &Url::parse("https://lms.s.isct.ac.jp/2025/login/index.php").unwrap()
-        ));
-    }
-
-    #[test]
-    fn school_urls_keep_only_bounded_domain_parameters() {
-        assert_eq!(
-            sanitize_school_url("https://syllabus.s.isct.ac.jp/courses?jwc=202602431&x=1")
-                .as_deref(),
-            Some("https://syllabus.s.isct.ac.jp/courses?jwc=202602431")
-        );
-        assert!(sanitize_school_url("https://user:secret@lms.s.isct.ac.jp/2025/").is_none());
-        assert!(sanitize_school_url("https://example.com/").is_none());
-    }
-}
+#[path = "../tests/school_browser__policy.rs"]
+mod tests;
