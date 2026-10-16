@@ -144,6 +144,7 @@ export type SchoolPullProgress = {
   itemTitle: string;
 };
 export type SchoolPullOptions = {
+  currentOnly?: boolean;
   /** Limit the expensive LMS content pass to one Moodle course. */
   lmsCourseId?: number;
 };
@@ -344,7 +345,27 @@ export type ListenNative = <T>(
   callback: (payload: T) => void,
 ) => Promise<() => void>;
 
+export interface AppUpdateStatus {
+  phase:
+    | "idle"
+    | "checking"
+    | "current"
+    | "available"
+    | "downloading"
+    | "ready"
+    | "error";
+  version?: string;
+  message?: string;
+  releaseUrl: string;
+  signedUpdates: boolean;
+}
 export interface DesktopBridge {
+  checkAppUpdate?(
+    manual: boolean,
+    download?: boolean,
+  ): Promise<AppUpdateStatus>;
+  appUpdateState?(): Promise<AppUpdateStatus>;
+  installAppUpdate?(): Promise<void>;
   workspaceSnapshot(): Promise<CoreWorkspaceSnapshot>;
   mutateWorkspace(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
   finderQuery(request: FinderRequest): Promise<FinderView>;
@@ -572,6 +593,14 @@ export function createTauriDesktopBridge(
     runtime: "tauri",
     target,
     os: nativeOs(),
+    ...(target === "native-desktop"
+      ? {
+          checkAppUpdate: (manual: boolean, download = false) =>
+            result<AppUpdateStatus>("check_app_update", { manual, download }),
+          appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
+          installAppUpdate: () => invokeCommand<void>("install_app_update"),
+        }
+      : {}),
     workspaceSnapshot: () => result("workspace_snapshot"),
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
@@ -790,6 +819,7 @@ export function createTauriDesktopBridge(
       const value = await invokeCommand("pull_school", {
         site,
         lmsCourseId: options?.lmsCourseId,
+        currentOnly: options?.currentOnly,
       });
       if (!Array.isArray(value))
         throw new Error("pull_school returned an invalid result.");

@@ -472,6 +472,16 @@
             text(row, "span.resultUnitKamokuCodeSP"),
           recommended: text(row, "td.resultUnitSuisho"),
           credits: text(row, "td.resultUnitTani"),
+          effectiveCredits: row
+            .querySelector("td.resultUnitTani")
+            ?.getAttribute("data-sort")
+            ?.trim()
+            ? Number(
+                row
+                  .querySelector("td.resultUnitTani")
+                  .getAttribute("data-sort"),
+              )
+            : undefined,
           result: text(row, "td.resultUnitSeiseki"),
           quarter: [...row.querySelectorAll('[class*="tdQuarter"]')]
             .map((cell) => clean(cell.textContent))

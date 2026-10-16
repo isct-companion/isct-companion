@@ -1,3 +1,6 @@
+import { useDesktopUpdates } from "./useDesktopUpdates";
+import { formatJst } from "../lib/civil-date";
+import { CalendarView } from "../pages/today/CalendarView";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
@@ -142,10 +145,10 @@ function sessionStatusLabel(
   state: SchoolSessionState | undefined,
   detail?: string,
 ) {
-  if (state === "active") return "Signed in";
-  if (state === "failed") return detail || "Sign-in failed";
-  if (state === "not-configured") return "Not configured";
-  return detail || "Checking session";
+  if (state === "active") return t("Signed in");
+  if (state === "failed") return t(detail || "Sign-in failed");
+  if (state === "not-configured") return t("Not configured");
+  return t(detail || "Checking session");
 }
 
 function pullScienceLms(options?: SchoolPullOptions) {
@@ -176,9 +179,15 @@ async function refreshReferenceSubscriptions(force = false): Promise<string> {
 /** A school service named in the route, or null when it names none. */
 const schoolSite = (value?: string): SchoolSite | null =>
   value && value in official ? (value as SchoolSite) : null;
-const pages: Page[] = ["home", "lectures", "web"];
+const pages: Page[] = ["home", "timetable", "lectures", "web"];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
+  timetable: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M7 3v4M17 3v4M3 11h18M9 11v10M15 11v10" />
+    </svg>
+  ),
   home: (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 10.5 12 4l8 6.5V19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
@@ -214,6 +223,10 @@ export function WorkspaceApp() {
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
   const store = useWorkspace((state) => state);
   const sourceData = store.workspace;
+  useDesktopUpdates(
+    Boolean(sourceData),
+    sourceData?.settings.automaticAppUpdates,
+  );
   const overview = useScheduleQuery<WorkspaceOverview>(
     { kind: "workspaceOverview", term: "" },
     Boolean(sourceData),
@@ -248,18 +261,21 @@ export function WorkspaceApp() {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
+  const timetableMatch = useMatch(routePatterns.timetable);
   const homeMatch = useMatch(`${routePatterns.home}/*`);
   const lecturesMatch = useMatch(`${routePatterns.lectures}/*`);
   const webMatch = useMatch(`${routePatterns.web}/*`);
   const settingsMatch = useMatch(`${routePatterns.settings}/*`);
   const weekMatch = useMatch(routePatterns.week);
-  const page: Page = lecturesMatch
-    ? "lectures"
-    : webMatch
-      ? "web"
-      : settingsMatch
-        ? "settings"
-        : "home";
+  const page: Page = timetableMatch
+    ? "timetable"
+    : lecturesMatch
+      ? "lectures"
+      : webMatch
+        ? "web"
+        : settingsMatch
+          ? "settings"
+          : "home";
   const section = (params.section ?? "accounts") as Section;
   const homeView = homeMatch && weekMatch ? "week" : "day";
   const [searchParams, setSearchParams] = useSearchParams();
@@ -408,7 +424,7 @@ export function WorkspaceApp() {
   const finderView = useFinderQuery(
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
-    Boolean(overview.value && editMode && page === "home"),
+    Boolean(overview.value && editMode && page === "timetable"),
   );
   const finderEdits = useFinderEditQueue({
     year: finderYear,
@@ -453,35 +469,48 @@ export function WorkspaceApp() {
         )
           ingestedOnWeb.current = true;
         if (outcome.state === "ok" || outcome.state === "unavailable")
-          void workspaceActions.refreshSchool().catch(() => undefined);
+          void workspaceActions
+            .refreshSchool()
+            .then(() => {
+              if (outcome.site === "science-lms" && outcome.state === "ok")
+                notify.updated(outcome.changed);
+            })
+            .catch(() => undefined);
       }),
     [],
   );
   const { schedulerState, nativeCapabilities, nativeCapabilitiesReady } =
     useWorkspaceRuntime(sourceData);
-  // Courses of the quarter on screen, a 3Q–4Q course in each of its quarters.
-  const termCourseKey = overview.value?.termCourseIds.join("\n");
+  const missingNamesKey =
+    sourceData?.courses
+      .filter(
+        (course) =>
+          !course.deletedAt && course.offeringId && !course.names?.title?.en,
+      )
+      .map((course) => course.offeringId!)
+      .sort()
+      .join(",") ?? "";
   useEffect(() => {
-    if (!sourceData || !desktopBridge || !nativeCapabilities?.syllabusSearch)
+    if (
+      !missingNamesKey ||
+      !desktopBridge?.catalogSyncOfferings ||
+      !nativeCapabilities?.syllabusSearch
+    )
       return;
-    const termCourses = new Set(termCourseKey?.split("\n") ?? []);
-    for (const course of sourceData.courses.filter(
-      (course) =>
-        !course.deletedAt &&
-        termCourses.has(course.id) &&
-        isSyllabusCourse(course) &&
-        course.url,
-    ))
-      void desktopBridge
-        .syllabusCourse(course.url!, contentLanguage(sourceData.settings))
-        .catch(() => undefined);
-  }, [
-    termCourseKey,
-    sourceData?.settings.locale,
-    sourceData?.settings.contentLanguage,
-    sourceData?.courses,
-    nativeCapabilities?.syllabusSearch,
-  ]);
+    let active = true;
+    const ids = missingNamesKey.split(",");
+    void (async () => {
+      for (let start = 0; active && start < ids.length; start += 20) {
+        await desktopBridge.catalogSyncOfferings!(
+          ids.slice(start, start + 20),
+        ).catch(() => undefined);
+      }
+      if (active) await workspaceStore.reload();
+    })().catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [missingNamesKey, nativeCapabilities?.syllabusSearch]);
   useAppearance(data);
   useEffect(() => {
     if (store.error && sourceData)
@@ -494,10 +523,13 @@ export function WorkspaceApp() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeDrawer();
-      if ((e.metaKey || e.ctrlKey) && ["1", "2", "3", "4"].includes(e.key)) {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        ["1", "2", "3", "4", "5"].includes(e.key)
+      ) {
         e.preventDefault();
         const next: Page =
-          e.key === "4" ? "settings" : pages[Number(e.key) - 1];
+          e.key === "5" ? "settings" : pages[Number(e.key) - 1];
         void navigate(pagePath(next));
       }
     };
@@ -581,7 +613,8 @@ export function WorkspaceApp() {
     },
   );
   const navigation = {
-    home: t("Home"),
+    home: t("Today"),
+    timetable: t("Timetable"),
     lectures: t("Lectures"),
     web: t("Web"),
     settings: t("Settings"),
@@ -745,7 +778,11 @@ export function WorkspaceApp() {
     });
   };
   /** Assignments and materials only; the timetable stays as it is. */
-  const fetchLms = async (quiet = false, lmsCourseId?: number) => {
+  const fetchLms = async (
+    quiet = false,
+    lmsCourseId?: number,
+    currentOnly = false,
+  ) => {
     if (!desktopBridge?.pullSchool) return false;
     setLmsPhase(
       lmsCourseId
@@ -754,7 +791,7 @@ export function WorkspaceApp() {
     );
     setLmsProgress(5);
     try {
-      const outcomes = await pullScienceLms({ lmsCourseId });
+      const outcomes = await pullScienceLms({ lmsCourseId, currentOnly });
       const problem = pullProblem(outcomes);
       setLmsPhase(problem ?? "Saving LMS changes");
       setLmsProgress(90);
@@ -904,7 +941,8 @@ export function WorkspaceApp() {
               }
               refresh={
                 desktopBridge?.pullSchool && record
-                  ? () => void fetchLms(false, record.lmsId)
+                  ? (currentOnly) =>
+                      void fetchLms(false, undefined, currentOnly)
                   : undefined
               }
               progress={lmsProgress}
@@ -922,13 +960,13 @@ export function WorkspaceApp() {
                         // Say which class the mark is for: today's, or a later one.
                         const when = new Date(occurrence);
                         const format = (options: Intl.DateTimeFormatOptions) =>
-                          new Intl.DateTimeFormat(data.settings.locale, {
+                          formatJst(when, data.settings.locale, {
                             ...options,
                             hour: "2-digit",
                             minute: "2-digit",
                             hourCycle: "h23",
                             timeZone: "Asia/Tokyo",
-                          }).format(when);
+                          });
                         notify.info(
                           occurrence.startsWith(jstDate(new Date()))
                             ? t(
@@ -968,7 +1006,7 @@ export function WorkspaceApp() {
     tokyoTechSession !== "active";
   const homePage = (
     <div
-      className={`homePage ${renderedRoutes.current.homeView}${planning ? " planning" : ""}${showSchoolSetup ? " needsSetup" : ""}`}
+      className={`homePage ${renderedRoutes.current.homeView}${showSchoolSetup ? " needsSetup" : ""}`}
     >
       {showSchoolSetup && (
         <aside className="homeSetup" aria-label={t("School account setup")}>
@@ -990,7 +1028,7 @@ export function WorkspaceApp() {
       )}
       <ResizableWorkspace
         id="home"
-        enabled={wideHome && !planning}
+        enabled={wideHome}
         firstSize={360}
         firstMin={240}
         firstMax="50%"
@@ -1039,155 +1077,167 @@ export function WorkspaceApp() {
           >
             ‹ {t("Today")}
           </UiButton>
-          <Courses
-            compact={formFactor === "mobile"}
-            editing={planning}
-            onEditingChange={(value) => {
-              setEditMode(value);
-              setOfferingPanel(null);
-              setPanelCourseId(null);
-            }}
-            openPlan={(plan) => !readOnly && setPlanEditor(plan)}
-            newPlan={() => !readOnly && setPlanEditor("new")}
-            side={
-              <CourseFinder
-                key={courseTerm}
-                year={Number(courseTerm.slice(0, 4))}
-                term={courseTerm}
-                summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
-                language={contentLanguage(data.settings)}
-                keys={finderKeys}
-                edit={finderEdits.run}
-                replaceKeys={finderEdits.replace}
-                openCourse={(course) => {
-                  setPanelCourseId(null);
-                  setOfferingPanel(course);
-                }}
-                activeId={offeringPanel?.id}
-                readOnly={readOnly}
-                add={addFinderCourses}
-                undo={(rows) =>
-                  academicIntentOrThrow({
-                    kind: "undoCatalogCourses",
-                    termId: courseTerm,
-                    offeringIds: rows.map((row) => row.id),
-                  })
-                }
-                manual={
-                  readOnly
-                    ? undefined
-                    : () => setCourseEditor({ term: courseTerm })
-                }
-                query={desktopBridge?.catalogQuery}
-              />
-            }
-            leftPanel={
-              offeringPanel && (
-                <OfferingPanel
-                  key={offeringPanel.id}
-                  course={offeringPanel}
-                  language={contentLanguage(data.settings)}
-                  placed={finderPlaced.has(offeringPanel.code)}
-                  replaces={(
-                    finderView.value?.replacements[offeringPanel.id] ?? []
-                  ).map(
-                    (id) =>
-                      data.courses.find((course) => course.id === id)?.title ??
-                      "",
-                  )}
-                  readOnly={readOnly}
-                  close={() => setOfferingPanel(null)}
-                  add={() => {
-                    void addFinderCourses([offeringPanel]).catch(notify.error);
-                  }}
-                />
-              )
-            }
-            panel={
-              panelCourse && (
-                <CoursePanel
-                  key={panelCourse.id}
-                  course={panelCourse}
-                  data={data}
-                  readOnly={readOnly || !planning}
-                  close={() => setPanelCourseId(null)}
-                  remove={() => void removeFromTimetable(panelCourse)}
-                  editIntensive={() => setIntensiveCourseId(panelCourse.id)}
-                  lmsUrl={lmsUrlFor(panelCourse)}
-                  openWeb={(url) => openWeb(url)}
-                  fetchLms={
-                    desktopBridge?.pullSchool
-                      ? () => void fetchLms()
-                      : undefined
-                  }
-                  progress={lmsProgress}
-                />
-              )
-            }
+          <CalendarView
             data={data}
-            currentTerm={currentTerm}
-            readOnly={readOnly}
-            mutate={async (intent) => {
-              try {
-                return await academicIntentOrThrow(intent);
-              } catch (error) {
-                notify.error(error);
-                throw error;
+            open={(block) => {
+              if (block.kind === "course") openLecture(block.id);
+              else if (block.kind === "plan") {
+                const plan = data.plans.find((row) => row.id === block.id);
+                if (plan && !readOnly) setPlanEditor(plan);
+              } else {
+                const event = data.events.find((row) => row.id === block.id);
+                if (event && !readOnly)
+                  setEventEditor({ event, term: event.termId });
               }
             }}
-            open={(courseId) => {
-              if (planning) {
-                setOfferingPanel(null);
-                setPanelCourseId(courseId);
-              } else openLecture(courseId);
-            }}
-            openEvent={(event, term) =>
-              !readOnly && setEventEditor({ event, term })
-            }
-            onSlot={toggleFinderSlot}
-            activeSlots={finderSlots}
-            onIntensive={(append) => pickFinderTime("集中", append)}
-            intensiveActive={finderKeys.includes("集中")}
-            addTerm={() => setTermDialog(true)}
-            refreshSchedule={
-              desktopBridge?.pullSchool ? () => void refreshKyomu() : undefined
-            }
-            pullProgress={kyomuProgress}
-            register={
-              desktopBridge?.setKyomuGuide
-                ? (term) => void openRegistration(term)
-                : undefined
-            }
-            academic={
-              <AcademicSummary
-                summaries={data.gpaSummary}
-                termCredits={termCredits}
-                availability={schoolRecords?.pageAvailability?.["kyomu:gpa"]}
-                progress={kyomuProgress ?? (pulling ? 0 : null)}
-                refresh={
-                  desktopBridge?.pullSchool
-                    ? () => void refreshKyomu()
-                    : undefined
-                }
-                openOfficial={() => openWeb(KYOMU_GPA)}
-              />
-            }
-            exportIcs={(term, scope = "courses") =>
-              saveExportFile(
-                `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
-                () =>
-                  scheduleQuery<string>({
-                    kind: "quarterIcs",
-                    term,
-                    scope,
-                    generatedAt: new Date().toISOString(),
-                  }),
-                notify.info,
-              )
-            }
           />
         </div>
       </ResizableWorkspace>
+    </div>
+  );
+  const timetablePage = (
+    <div className="quarterPage">
+      {" "}
+      <Courses
+        compact={formFactor === "mobile"}
+        editing={planning}
+        onEditingChange={(value) => {
+          setEditMode(value);
+          setOfferingPanel(null);
+          setPanelCourseId(null);
+        }}
+        openPlan={(plan) => !readOnly && setPlanEditor(plan)}
+        newPlan={() => !readOnly && setPlanEditor("new")}
+        side={
+          <CourseFinder
+            key={courseTerm}
+            year={Number(courseTerm.slice(0, 4))}
+            term={courseTerm}
+            summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
+            language={contentLanguage(data.settings)}
+            keys={finderKeys}
+            edit={finderEdits.run}
+            replaceKeys={finderEdits.replace}
+            openCourse={(course) => {
+              setPanelCourseId(null);
+              setOfferingPanel(course);
+            }}
+            activeId={offeringPanel?.id}
+            readOnly={readOnly}
+            add={addFinderCourses}
+            undo={(rows) =>
+              academicIntentOrThrow({
+                kind: "undoCatalogCourses",
+                termId: courseTerm,
+                offeringIds: rows.map((row) => row.id),
+              })
+            }
+            manual={
+              readOnly ? undefined : () => setCourseEditor({ term: courseTerm })
+            }
+            query={desktopBridge?.catalogQuery}
+          />
+        }
+        leftPanel={
+          offeringPanel && (
+            <OfferingPanel
+              key={offeringPanel.id}
+              course={offeringPanel}
+              language={contentLanguage(data.settings)}
+              placed={finderPlaced.has(offeringPanel.code)}
+              replaces={(
+                finderView.value?.replacements[offeringPanel.id] ?? []
+              ).map(
+                (id) =>
+                  data.courses.find((course) => course.id === id)?.title ?? "",
+              )}
+              readOnly={readOnly}
+              close={() => setOfferingPanel(null)}
+              add={() => {
+                void addFinderCourses([offeringPanel]).catch(notify.error);
+              }}
+            />
+          )
+        }
+        panel={
+          panelCourse && (
+            <CoursePanel
+              key={panelCourse.id}
+              course={panelCourse}
+              data={data}
+              readOnly={readOnly || !planning}
+              close={() => setPanelCourseId(null)}
+              remove={() => void removeFromTimetable(panelCourse)}
+              editIntensive={() => setIntensiveCourseId(panelCourse.id)}
+              lmsUrl={lmsUrlFor(panelCourse)}
+              openWeb={(url) => openWeb(url)}
+              fetchLms={
+                desktopBridge?.pullSchool ? () => void fetchLms() : undefined
+              }
+              progress={lmsProgress}
+            />
+          )
+        }
+        data={data}
+        currentTerm={currentTerm}
+        readOnly={readOnly}
+        mutate={async (intent) => {
+          try {
+            return await academicIntentOrThrow(intent);
+          } catch (error) {
+            notify.error(error);
+            throw error;
+          }
+        }}
+        open={(courseId) => {
+          if (planning) {
+            setOfferingPanel(null);
+            setPanelCourseId(courseId);
+          } else openLecture(courseId);
+        }}
+        openEvent={(event, term) =>
+          !readOnly && setEventEditor({ event, term })
+        }
+        onSlot={toggleFinderSlot}
+        activeSlots={finderSlots}
+        onIntensive={(append) => pickFinderTime("集中", append)}
+        intensiveActive={finderKeys.includes("集中")}
+        addTerm={() => setTermDialog(true)}
+        refreshSchedule={
+          desktopBridge?.pullSchool ? () => void refreshKyomu() : undefined
+        }
+        pullProgress={kyomuProgress}
+        register={
+          desktopBridge?.setKyomuGuide
+            ? (term) => void openRegistration(term)
+            : undefined
+        }
+        academic={
+          <AcademicSummary
+            summaries={data.gpaSummary}
+            termCredits={termCredits}
+            availability={schoolRecords?.pageAvailability?.["kyomu:gpa"]}
+            progress={kyomuProgress ?? (pulling ? 0 : null)}
+            refresh={
+              desktopBridge?.pullSchool ? () => void refreshKyomu() : undefined
+            }
+            openOfficial={() => openWeb(KYOMU_GPA)}
+          />
+        }
+        exportIcs={(term, scope = "courses") =>
+          saveExportFile(
+            `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
+            () =>
+              scheduleQuery<string>({
+                kind: "quarterIcs",
+                term,
+                scope,
+                generatedAt: new Date().toISOString(),
+              }),
+            notify.info,
+          )
+        }
+      />
     </div>
   );
   const webPage = (
@@ -1275,7 +1325,7 @@ export function WorkspaceApp() {
         <CourseDrawer
           course={drawerCourse}
           data={data}
-          readOnly={readOnly || (page === "home" && !planning)}
+          readOnly={readOnly || (page === "timetable" && !planning)}
           onTimetable={workspaceView.onTimetableCourseIds.includes(
             drawerCourse.id,
           )}
@@ -1497,6 +1547,7 @@ export function WorkspaceApp() {
         }
         pages={{
           home: keep("home", homePage),
+          timetable: keep("timetable", timetablePage),
           lectures: keep("lectures", lecturesPage),
           web: keep("web", webPage),
           settings: keep("settings", settingsPage),
@@ -1604,6 +1655,7 @@ export function WorkspaceApp() {
       >
         {keep("lectures", lecturesPage)}
         {keep("home", homePage)}
+        {keep("timetable", timetablePage)}
         {keep("web", webPage)}
         {keep("settings", settingsPage)}
       </AppShell.Main>
@@ -1668,7 +1720,7 @@ export default function App({
       defaultColorScheme="light"
     >
       <Notifications
-        position="bottom-center"
+        position="bottom-right"
         className="appNotifications"
         limit={1}
         transitionDuration={0}

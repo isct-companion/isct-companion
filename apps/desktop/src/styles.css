@@ -4604,5 +4604,37 @@ textarea.codeArea {
   color: var(--danger);
 }
 
-.finderLoadMore { display: flex; justify-content: center; }
-.finderLoadMore:has(button) { padding: 12px; }
+.finderLoadMore {
+  display: flex;
+  justify-content: center;
+}
+.finderLoadMore:has(button) {
+  padding: 12px;
+}
+
+.quarterPage,
+.calendarWorkspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.calendarWorkspace {
+  gap: 16px;
+}
+.calendarWorkspace .ttCard {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+:lang(zh) {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+:lang(ja) {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI",
+    "Meiryo", "Noto Sans CJK JP", system-ui, sans-serif;
+}

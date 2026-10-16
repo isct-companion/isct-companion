@@ -131,7 +131,7 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             object.remove("missingSince");
         }
         if let Some(offering) = &catalog {
-            course["names"] = json!({"title":offering["title"],"instructor":offering["instructors"].as_array().and_then(|i| i.first()).cloned().unwrap_or_else(|| json!({}))});
+            course["names"] = json!({"title":offering["title"],"instructor":crate::workspace::catalog_instructor_names(offering)});
             course["instructionLanguage"] = offering["instructionLanguage"].clone();
         }
         let id = text(&course, "id").to_string();
@@ -233,7 +233,8 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
         }
     }
     let mut lms_links = HashMap::new();
-    for lms in read_visible_rows(connection, "lms_courses")? {
+    let lms_courses = read_visible_rows(connection, "lms_courses")?;
+    for lms in &lms_courses {
         let lms_id = lms["lmsId"].as_u64().unwrap_or_default();
         let year = lms["year"].as_i64().unwrap_or_default();
         let offering = text(&lms, "offeringId");
@@ -289,6 +290,45 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             {
                 row["courseId"] = id.clone().into();
             }
+        }
+    }
+    // Every quarter uses the same cached bilingual metadata. Display language
+    // is a read projection, never a mutation of the school's canonical title.
+    let offerings = array(workspace, "offerings").to_vec();
+    for course in workspace["courses"].as_array_mut().into_iter().flatten() {
+        if let Some(offering) = offerings
+            .iter()
+            .find(|o| text(o, "id") == text(course, "offeringId"))
+        {
+            course["names"]["instructor"] = crate::workspace::catalog_instructor_names(offering);
+            if offering["title"].is_object() {
+                let mut names = course["names"]["title"]
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
+                for (language, title) in offering["title"].as_object().into_iter().flatten() {
+                    names.insert(language.clone(), title.clone());
+                }
+                course["names"]["title"] = Value::Object(names);
+            }
+        }
+        if let Some(lms) = lms_courses
+            .iter()
+            .find(|l| l["lmsId"] == course["lmsCourseId"] && l["lmsId"].is_number())
+        {
+            for language in ["ja", "en"] {
+                if course["names"]["title"][language]
+                    .as_str()
+                    .is_none_or(str::is_empty)
+                {
+                    if let Some(title) = lms["title"][language].as_str().filter(|s| !s.is_empty()) {
+                        course["names"]["title"][language] = title.into();
+                    }
+                }
+            }
+        }
+        if course["names"].is_object() && course["names"]["instructor"].is_null() {
+            course["names"]["instructor"] = json!({});
         }
     }
     Ok(())

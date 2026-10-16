@@ -1,5 +1,4 @@
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
-import { intlLocale } from "../../i18n/locale";
 import { t } from "../../i18n";
 import { useState, type ReactNode } from "react";
 import {
@@ -22,21 +21,16 @@ import {
 
 import type { PersonalEvent, Plan, TermId, Workspace } from "../../lib/model";
 
-import {
-  agendaColumns,
-  planningColumns,
-} from "../../components/timetable/workspace";
+import { planningColumns } from "../../components/timetable/workspace";
 import type { CalendarExportScope } from "../../generated/persistence";
 import { resolvedTeachingPeriods } from "../../lib/timetable-layout";
 import { UiButton } from "../../components/mantine";
-import { addCivilDays as addDays, tokyoDate } from "../../lib/civil-date";
 import { YearQuarterPicker } from "./YearQuarterPicker";
 import { PullRing } from "../../components/PullRing";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import {
   useScheduleQueries,
   type PlanningWeek,
-  type ScheduleView,
   type WorkspaceOverview,
 } from "../../platform/core-query";
 
@@ -108,51 +102,20 @@ export function Courses({
   compact?: boolean;
 }) {
   const selection = useScheduleQueries<[WorkspaceOverview]>([
-    { kind: "workspaceOverview", term: currentTerm },
+    { kind: "workspaceOverview", term: "" },
   ]).value?.[0];
   const term = selection?.coursesTerm ?? currentTerm;
   const canEdit = editing && !readOnly;
   const wide = useMediaQuery("(min-width: 761px)");
-  const [weekAnchor, setWeekAnchor] = useState<{
-    term: TermId;
-    date: string;
-  }>();
-  const today = tokyoDate(new Date());
-  const overview = useScheduleQueries<[WorkspaceOverview]>([
-    { kind: "workspaceOverview", term },
+  const overview = selection;
+  const terms = overview?.allTerms ?? [currentTerm];
+  const planning = useScheduleQueries<[PlanningWeek]>([
+    { kind: "planningWeek", term },
   ]).value?.[0];
-  const terms = overview?.allTerms ?? selection?.allTerms ?? [currentTerm];
-  const range = overview?.range;
-  const anchorDate =
-    weekAnchor?.term === term
-      ? weekAnchor.date
-      : range && today >= range.from && today <= range.to
-        ? today
-        : (range?.from ?? today);
-  const moveWeek = (days: number) =>
-    setWeekAnchor({ term, date: addDays(anchorDate, days) });
-  const anchorDay = new Date(`${anchorDate}T12:00:00Z`).getUTCDay();
-  const weekFrom = addDays(anchorDate, anchorDay === 0 ? -6 : 1 - anchorDay);
-  const schedule = useScheduleQueries<[ScheduleView]>(
-    [
-      {
-        kind: "scheduleView",
-        term,
-        from: weekFrom,
-        to: addDays(weekFrom, 6),
-        includePersonal: true,
-      },
-    ],
-    !editing,
-  ).value?.[0];
-  const planning = useScheduleQueries<[PlanningWeek]>(
-    [{ kind: "planningWeek", term }],
-    editing,
-  ).value?.[0];
   // Courses of this quarter, a 3Q–4Q course in each of its quarters.
   const courseCount = overview?.termCourseIds.length ?? 0;
   const events = data.events.filter((e) => e.termId === term && !e.deletedAt);
-  const scheduled = (editing ? planning?.courses : overview?.courses) ?? [];
+  const scheduled = planning?.courses ?? [];
   // Intensive or unpublished times have no grid cell; they get their own lane.
   const unscheduled = scheduled.filter((course) => !course.meetings.length);
   const conflictCount = editing ? (planning?.conflictCount ?? 0) : 0;
@@ -160,26 +123,12 @@ export function Courses({
     key: "isct-companion-courses-week-length",
     defaultValue: "5",
   });
-  const allColumns = editing
-    ? planningColumns(planning)
-    : agendaColumns(schedule?.agendas ?? []);
-  const dateFormat = new Intl.DateTimeFormat(intlLocale(data.settings.locale), {
-    day: "numeric",
-    month: "short",
-    timeZone: "Asia/Tokyo",
-  });
-  const weekLabel = editing
-    ? ""
-    : allColumns.length === 7
-      ? `${dateFormat.format(new Date(`${allColumns[0].date}T12:00:00+09:00`))} – ${dateFormat.format(new Date(`${allColumns[6].date}T12:00:00+09:00`))}`
-      : t("Loading…");
-  // Weekdays only, unless a weekend day actually has something on it.
+  const allColumns = planningColumns(planning);
   const columns =
-    !editing || weekLength === "7"
+    weekLength === "7"
       ? allColumns
       : allColumns.slice(
           0,
-          // Slot clicks use the column position as the weekday, so keep it contiguous.
           allColumns[6]?.blocks.length
             ? 7
             : allColumns[5]?.blocks.length
@@ -220,7 +169,7 @@ export function Courses({
   );
   const header = compact ? (
     <header className="scheduleCompactBar">
-      <h1>{t("Schedule")}</h1>
+      <h1>{t("Timetable")}</h1>
       <YearQuarterPicker
         terms={terms}
         selected={term}
@@ -248,12 +197,8 @@ export function Courses({
       {header}
       <div className="scheduleTitleRow" hidden={compact}>
         <div>
-          <h1>{t("Schedule")}</h1>
-          <span>
-            {editing
-              ? t("Plan courses for this quarter")
-              : t("Courses and personal plans for the week")}
-          </span>
+          <h1>{t("Timetable")}</h1>
+          <span>{t("Plan courses for this quarter")}</span>
         </div>
         <Switch
           label={t("Edit")}
@@ -316,22 +261,7 @@ export function Courses({
               {conflictCount} conflict{conflictCount > 1 ? "s" : ""}
             </Badge>
           )}
-          {!editing && Boolean(schedule?.problems.length) && (
-            <Badge
-              variant="light"
-              color="orange"
-              title={schedule!.problems
-                .map(
-                  (problem) =>
-                    `${problem.title || problem.id}: ${problem.message}`,
-                )
-                .join("\n")}
-            >
-              {t("{{count}} items not shown", {
-                count: schedule!.problems.length,
-              })}
-            </Badge>
-          )}
+
           {removable && canEdit && (
             <UiButton
               className="button"
@@ -406,39 +336,9 @@ export function Courses({
               radius="md"
             >
               <div className="timetableViewBar">
-                <b>{editing ? t("Quarter template") : weekLabel}</b>
-                {!editing && (
-                  <div className="scheduleControls">
-                    <UiButton
-                      type="button"
-                      aria-label={t("Previous week")}
-                      onClick={() => moveWeek(-7)}
-                    >
-                      ←
-                    </UiButton>
-                    <UiButton
-                      type="button"
-                      onClick={() => {
-                        void mutate({
-                          kind: "selectTerm",
-                          termId: currentTerm,
-                        }).catch(() => undefined);
-                        setWeekAnchor({ term: currentTerm, date: today });
-                      }}
-                    >
-                      {t("This week")}
-                    </UiButton>
-                    <UiButton
-                      type="button"
-                      aria-label={t("Next week")}
-                      onClick={() => moveWeek(7)}
-                    >
-                      →
-                    </UiButton>
-                  </div>
-                )}
+                <b>{t("Quarter template")}</b>
               </div>
-              {editing && (
+              {
                 <div className="intensiveLane">
                   {canEdit && onIntensive ? (
                     <UiButton
@@ -482,7 +382,7 @@ export function Courses({
                     {weekLength === "7" ? t("7 days") : t("5 days")}
                   </UiButton>
                 </div>
-              )}
+              }
               <WeekTimetable
                 days={columns}
                 teachingPeriods={resolvedTeachingPeriods(
@@ -490,7 +390,7 @@ export function Courses({
                 )}
                 onSelect={select}
                 emptyLabel="Nothing scheduled this day"
-                showNow={!editing}
+                showNow={false}
                 onSlot={canEdit ? onSlot : undefined}
                 activeSlots={editing ? activeSlots : undefined}
               />

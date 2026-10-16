@@ -41,3 +41,31 @@ Production and tests/generated output are counted separately, relative to the pr
 - production: +2040 / −991 lines.
 - tests/fixtures: +1073 / −126 lines.
 - generated: +9 / −1 lines.
+
+## Calendar, refresh and credit follow-up
+
+Today owns a dated weekly calendar; Timetable owns quarter selection and editing.
+Both consume Core read models. A bounded shared transport cache retains the last
+complete result until a replacement arrives and ignores superseded responses.
+Lecture schedule/task queries are one batch; orphaned assignments never assume a
+course exists. LMS full pulls now cover all courses, with a separate current-quarter
+intent. The first automatic pull uses that full scope; subsequent wakeups refresh
+cached content in the background. Changes appear through a short in-app toast.
+
+Historical earned credits come from the formal grade ledger, including fractional
+lecture/exercise/lab splits and its official total. Pending grades do not count as
+earned; failed grades contribute zero. Credits spanning quarters are shared across
+those quarters. Current-semester declarations take precedence over partial grade
+publication. Competency points are not a credit source: live inspection found a
+course with 1.5 credits but 1 competency point and different quarter attribution.
+No personal grade HTML is committed.
+
+Desktop updates use Tauri's signature verifier and the existing owned shutdown.
+CI accepts `ISCT_UPDATER_PUBLIC_KEY` as a repository variable and
+`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` as secrets;
+only a complete signed set for both Mac architectures and Windows produces an
+update manifest. No signing key was generated or uploaded in this change.
+An unsigned-config build can check releases and open the download page, but
+cannot enable automatic installation. Native installation remains a manual check.
+
+Follow-up code accounting (documentation excluded): production +1771 / −537 lines; tests +325 / −84 lines; generated +259 / −11 lines. No test was removed; existing suites were updated for the separate timetable route and extended for fractional/historical credits, all-quarter localization, retained query results and signed artifact collection.

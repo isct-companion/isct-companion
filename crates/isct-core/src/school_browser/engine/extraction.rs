@@ -158,14 +158,26 @@ impl SchoolBrowserEngine {
     ) -> Result<Vec<IngestOutcome>, SchoolBrowserError> {
         match site {
             SchoolSite::ScienceLms => {
+                let has_all = self
+                    .0
+                    .store
+                    .last_import_runs()
+                    .map_err(|e| SchoolBrowserError::Storage(e.to_string()))?["lms:all"]
+                    .is_string();
+                let full =
+                    course_id.is_none() && (context.priority() == PullPriority::Manual || !has_all);
                 let outcome = self
                     .extract_page(
                         site,
                         "lms",
                         "https://lms.s.isct.ac.jp/2025/my/",
                         course_id,
-                        course_id.is_none(),
-                        OPEN_TIMEOUT,
+                        full,
+                        if full {
+                            Duration::from_secs(600)
+                        } else {
+                            OPEN_TIMEOUT
+                        },
                         context,
                     )
                     .await?;

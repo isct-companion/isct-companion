@@ -1845,7 +1845,7 @@ async fn full_lms_pull_updates_content_without_owning_the_timetable() {
     assert!(workspace["importStatus"]["timetableReviewedAt"].is_null());
     assert!(workspace["memberships"].as_array().unwrap().is_empty());
     assert_eq!(store.table_rows("lms_courses").unwrap().len(), 1);
-    assert!(store.last_import_runs().unwrap()["lms:full"].is_string());
+    assert!(store.last_import_runs().unwrap()["lms:all"].is_string());
     assert!(!events.0.lock().unwrap().iter().any(|event| matches!(event,
         CoreEvent::SchoolPullProgress(progress) if progress.phase == "timetable")));
     engine.shutdown().await;

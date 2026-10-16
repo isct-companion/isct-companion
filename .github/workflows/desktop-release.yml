@@ -56,6 +56,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       SIGN_MACOS: ${{ inputs.sign_macos || vars.MACOS_SIGNING_ENABLED == 'true' }}
+      ISCT_UPDATER_PUBLIC_KEY: ${{ vars.ISCT_UPDATER_PUBLIC_KEY }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v7
@@ -95,6 +96,8 @@ jobs:
           fi
       - name: Build desktop installer
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
@@ -118,7 +121,12 @@ jobs:
           else
             unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_MACOS_PROVISIONING_PROFILE APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY
           fi
-          yarn desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          updater_args=()
+          if [[ -n "$ISCT_UPDATER_PUBLIC_KEY" ]]; then
+            test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo 'Missing updater signing secret'; exit 1; }
+            updater_args=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
+          fi
+          yarn desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} "${updater_args[@]}"
           if [[ "$RUNNER_OS" == macOS ]]; then
             node scripts/checks/verify-platform-bundle.mjs desktop "target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
           fi
@@ -213,6 +221,26 @@ jobs:
               cp "$dir"/*.exe release-assets/
             fi
           done
+          # Only publish a manifest when every desktop target has a signed update.
+          signed_count=$(find installers -name '*.sig' | wc -l)
+          if [[ "$signed_count" != 0 ]]; then
+            test "$signed_count" = 3 || { echo 'Incomplete signed update set'; exit 1; }
+            python3 - <<'PYUPDATE'
+          import json, pathlib, datetime, os
+          platforms = {}
+          for target, platform in [('aarch64-apple-darwin','darwin-aarch64'),('x86_64-apple-darwin','darwin-x86_64'),('x86_64-pc-windows-msvc','windows-x86_64')]:
+              directory = pathlib.Path('installers') / ('desktop-' + target)
+              signature, = directory.glob('*.sig')
+              bundle = signature.with_suffix('')
+              version = (directory / 'VERSION').read_text().strip()
+              import shutil
+              for source in (signature, bundle):
+                  shutil.copy2(source, pathlib.Path('release-assets') / source.name)
+              platforms[platform] = {'signature':signature.read_text().strip(), 'url':f'https://github.com/{os.environ["GH_REPO"]}/releases/download/v{version}/{bundle.name}'}
+          manifest = {'version':version, 'notes':'IsctCompanion desktop update', 'pub_date':datetime.datetime.now(datetime.timezone.utc).isoformat(), 'platforms':platforms}
+          pathlib.Path('release-assets/latest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PYUPDATE
+          fi
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
       - name: Check out only the public repository
         if: inputs.publish_target == 'distribution'
@@ -291,5 +319,5 @@ jobs:
             fi
             gh release create "$RELEASE_TAG" "${tag_args[@]}" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft "${release_flags[0]}"
           fi
-          gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe --clobber
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false "${release_flags[@]}"

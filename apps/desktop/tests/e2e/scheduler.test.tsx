@@ -247,7 +247,7 @@ describe("The plan editor", () => {
 
     app = await mountApp(
       { workspace, queries: planQueries() },
-      { route: paths.home("week") },
+      { route: paths.timetable() },
     );
     const { core } = app;
 
@@ -278,7 +278,7 @@ describe("The plan editor", () => {
 
     app = await mountApp(
       { workspace, queries: planQueries() },
-      { route: paths.home("week") },
+      { route: paths.timetable() },
     );
     const { core } = app;
 
@@ -320,7 +320,7 @@ describe("The plan editor", () => {
           return undefined;
         },
       },
-      { route: paths.home("week") },
+      { route: paths.timetable() },
     );
     const { core } = app;
 

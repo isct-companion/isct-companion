@@ -1,4 +1,4 @@
-import { intlLocale } from "../../i18n/locale";
+import { formatJst } from "../../lib/civil-date";
 import { extension, fileFamily, previewKind } from "./file-types";
 /** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
 export function safeContent(html: string, language?: "ja" | "en"): string {
@@ -244,9 +244,21 @@ export function announcements(html?: string) {
 }
 
 export function formatLmsDate(value: string, locale: string) {
-  const parts = value.match(/(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日.*?(\d{1,2}):(\d{2})/);
-  if (!parts || locale === "ja") return value;
-  const [,year,month,day,hour,minute] = parts;
-  const date = new Date(`${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}T${hour.padStart(2,"0")}:${minute}:00+09:00`);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(intlLocale(locale), {year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:"Asia/Tokyo"}).format(date);
+  const parts = value.match(
+    /(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日.*?(\d{1,2}):(\d{2})/,
+  );
+  if (!parts) return value;
+  const [, year, month, day, hour, minute] = parts;
+  const date = new Date(
+    `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${hour.padStart(2, "0")}:${minute}:00+09:00`,
+  );
+  return Number.isNaN(date.getTime())
+    ? value
+    : formatJst(date, locale, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 }

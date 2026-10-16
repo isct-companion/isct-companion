@@ -313,7 +313,7 @@ describe("the course planner", () => {
           ],
         }),
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const input = await enablePlanning(app);
     await typeInto(input, "teacher:");
@@ -403,7 +403,7 @@ describe("the course planner", () => {
           return undefined;
         },
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     await enablePlanning(app);
     await settled(() =>
@@ -445,7 +445,7 @@ describe("the course planner", () => {
           }
         },
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host, core } = app;
     const input = await enablePlanning(app);
@@ -492,7 +492,7 @@ describe("the course planner", () => {
         queries: plannerQueries(),
         handle: finderHandler({ courses: [eligible] }),
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host } = app;
     await enablePlanning(app);
@@ -529,7 +529,7 @@ describe("the course planner", () => {
         queries: plannerQueries(),
         handle: finderHandler({ courses: [eligible] }),
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host } = app;
     const input = await enablePlanning(app);
@@ -562,7 +562,7 @@ describe("the course planner", () => {
         queries: plannerQueries(),
         handle: finderHandler({ courses: [eligible] }),
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host } = app;
     await enablePlanning(app);
@@ -605,7 +605,7 @@ describe("course eligibility", () => {
           return undefined;
         }),
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host } = app;
     const input = await enablePlanning(app);
@@ -657,7 +657,7 @@ describe("course eligibility", () => {
           eligibility,
         }),
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host } = app;
     const input = await enablePlanning(app);
@@ -708,7 +708,7 @@ describe("course eligibility", () => {
         queries: plannerQueries(),
         handle: finderHandler({ courses: [eligible], eligibility }),
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host } = app;
     const input = await enablePlanning(app);
@@ -761,7 +761,7 @@ describe("replacing a clashing course", () => {
   }
 
   it("offers Replace for a clashing course, commits it, and Undo restores the previous one", async () => {
-    app = await mountApp(clashApp(), { route: paths.home() });
+    app = await mountApp(clashApp(), { route: paths.timetable() });
     const { host, core } = app;
     await enablePlanning(app);
 
@@ -834,7 +834,7 @@ async function openEditorFor(course: Course): Promise<MountedApp> {
       queries: plannerQueries(),
       handle: finderHandler({ courses: [eligible] }),
     },
-    { route: paths.drawer(paths.home(), course.id) },
+    { route: paths.drawer(paths.timetable(), course.id) },
   );
   await required(
     () => mounted.host.querySelector<HTMLInputElement>('input[role="switch"]'),
@@ -995,7 +995,7 @@ describe("the year and quarter picker", () => {
             );
         },
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host, core } = app;
 
@@ -1238,7 +1238,7 @@ describe("the committed school fixtures", () => {
           },
         }),
       },
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host } = app;
     const input = await enablePlanning(app);

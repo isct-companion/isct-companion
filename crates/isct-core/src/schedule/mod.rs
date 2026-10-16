@@ -35,6 +35,7 @@ pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
     CalendarDayView, QuarterRange, QuarterView, TeachingRange,
 };
+pub(crate) use calendar::{content_language, localized};
 pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use course_detail::{course_detail, CourseDetail};
@@ -522,7 +523,9 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
     );
     on_timetable_course_ids.sort();
     on_timetable_course_ids.dedup();
+    let earned = credits::earned_credits_by_term(array(workspace, "grades"));
     let mut all_terms: Vec<String> = placement_terms(workspace).map(str::to_owned).collect();
+    all_terms.extend(earned.keys().cloned());
     all_terms.extend(
         array(workspace, "terms")
             .iter()
@@ -539,12 +542,7 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
         .filter(|course| visible(course))
         .filter_map(|course| Some((text(course, "id")?.to_owned(), display_color(course))))
         .collect();
-    // Today and Lecture Desk follow the current quarter once it has courses.
-    let today_term = if !term_courses(workspace, &current_term).is_empty() {
-        current_term.clone()
-    } else {
-        selected_term.clone()
-    };
+    let today_term = current_term.clone();
     let courses_term = if all_terms.contains(&selected_term) {
         selected_term.clone()
     } else {
@@ -567,7 +565,16 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
         .filter_map(|row| text(row, "courseId").map(str::to_owned))
         .collect();
     let declared_credits = declared_term_credits(array(workspace, "registrations"), &term)?;
-    let term_credits = declared_credits.unwrap_or_else(|| {
+    let current = Term::parse(&current_term)?;
+    let selected = Term::parse(&term)?;
+    let current_semester =
+        current.year == selected.year && (current.quarter - 1) / 2 == (selected.quarter - 1) / 2;
+    let term_credits = if current_semester {
+        declared_credits.or_else(|| earned.get(&term).copied())
+    } else {
+        earned.get(&term).copied().or(declared_credits)
+    }
+    .unwrap_or_else(|| {
         courses
             .iter()
             .filter_map(|course| course.get("credits").and_then(Value::as_f64))

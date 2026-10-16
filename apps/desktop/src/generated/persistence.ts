@@ -568,6 +568,7 @@ export type Settings = {
   appearance: "system" | "light" | "dark";
   density: "comfortable" | "compact";
   textSize?: "small" | "medium" | "large";
+  automaticAppUpdates?: boolean;
   restoreSchoolPage?: boolean;
   activeSchoolSite?: string;
   schoolWebZoom?: number;
@@ -980,6 +981,7 @@ export type CourseTimeline = {
 
 export type TaskDeadlineView = {
   at: string;
+  remainingMilliseconds: number;
   label: string;
   tone: string;
   countdownLabel: string;

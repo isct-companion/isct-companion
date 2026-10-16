@@ -14,6 +14,8 @@ mod campus_wifi;
 mod cloud;
 mod cloud_sync;
 mod commands;
+#[cfg(desktop)]
+mod desktop_updates;
 pub use isct_core::contracts;
 pub use isct_core::data;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -164,7 +166,10 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.manage(campus_wifi::CampusWifi::default());
     #[cfg(desktop)]
-    let builder = builder.manage(lms_downloader::SessionView::default());
+    let builder = builder
+        .manage(lms_downloader::SessionView::default())
+        .manage(desktop_updates::DesktopUpdates::default())
+        .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_school_web::init());
     #[cfg(mobile)]
@@ -173,6 +178,12 @@ pub fn run() {
     let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
     builder
         .invoke_handler(tauri::generate_handler![
+            #[cfg(desktop)]
+            commands::platform::check_app_update,
+            #[cfg(desktop)]
+            commands::platform::app_update_state,
+            #[cfg(desktop)]
+            commands::platform::install_app_update,
             commands::platform::runtime_capabilities,
             lms_files::course_storage_info,
             lms_files::choose_course_storage,
@@ -377,6 +388,8 @@ pub fn run() {
                             }
                             let runtime = app.state::<core_ports::DesktopRuntime>();
                             runtime.mark_stopped();
+                            #[cfg(desktop)]
+                            desktop_updates::install_on_exit(&app);
                             app.exit(code);
                         });
                     }

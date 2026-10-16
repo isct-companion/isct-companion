@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import type {
   Factor,
   FinderContext,
@@ -8,7 +8,7 @@ import type {
   Suggestion,
 } from "../lib/course-query";
 import type { CourseEligibility } from "../generated/persistence";
-import { useWorkspace } from "../store/useWorkspace";
+import { useViewQuery } from "./view-query";
 import { getDesktopBridge } from "./desktop-bridge";
 import type { QueryState } from "./core-query";
 
@@ -35,8 +35,6 @@ export function finderQuery(request: FinderRequest): Promise<FinderView> {
     return Promise.reject(new Error("Course search requires the native Core."));
   return bridge.finderQuery(request);
 }
-
-const pendingFinderQueries = new Map<string, Promise<FinderView>>();
 
 export type FinderEditQueue = {
   run(action: FinderAction): Promise<FinderView | undefined>;
@@ -135,46 +133,11 @@ export function useFinderQuery(
   refresh: unknown = 0,
   enabled = true,
 ): QueryState<FinderView> {
-  const revision = useWorkspace((state) => state.contentRevision);
-  const requestKey = JSON.stringify(request);
-  const key = JSON.stringify([revision, request, refresh]);
-  const [state, setState] = useState<
-    QueryState<FinderView> & { key?: string; requestKey?: string }
-  >({ pending: true });
-  useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    let pending = pendingFinderQueries.get(key);
-    if (!pending) {
-      pending = finderQuery(request);
-      pendingFinderQueries.set(key, pending);
-      while (pendingFinderQueries.size > 128)
-        pendingFinderQueries.delete(pendingFinderQueries.keys().next().value!);
-      void pending.catch(() => pendingFinderQueries.delete(key));
-    }
-    void pending.then(
-      (value) => {
-        if (active) setState({ key, requestKey, value, pending: false });
-      },
-      (reason) => {
-        if (active)
-          setState({
-            key,
-            requestKey,
-            error: reason instanceof Error ? reason.message : String(reason),
-            pending: false,
-          });
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [key, enabled]);
-  if (!enabled) return { pending: false };
-  return state.key === key
-    ? state
-    : {
-        value: state.requestKey === requestKey ? state.value : undefined,
-        pending: true,
-      };
+  return useViewQuery(
+    "finder",
+    request,
+    () => finderQuery(request),
+    enabled,
+    refresh,
+  );
 }

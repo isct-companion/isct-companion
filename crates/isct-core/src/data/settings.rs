@@ -19,6 +19,7 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "appearance": settings.get("appearance"),
         "density": settings.get("density"),
         "textSize": settings.get("textSize"),
+        "automaticAppUpdates": settings.get("automaticAppUpdates"),
         "restoreSchoolPage": settings.get("restoreSchoolPage"),
         "activeSchoolSite": settings.get("activeSchoolSite"),
         "schoolWebZoom": settings.get("schoolWebZoom"),

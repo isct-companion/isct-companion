@@ -1,3 +1,6 @@
+import { deadlineText } from "../../lib/deadline-text";
+import { Menu } from "@mantine/core";
+import { formatJst } from "../../lib/civil-date";
 import { useElementSize } from "@mantine/hooks";
 import { ReaderPane } from "./ReaderPane";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
@@ -213,7 +216,7 @@ export function LmsWorkspace({
   navigationProvided?: boolean;
   headerStart?: ReactNode;
   close: () => void;
-  refresh?: () => void;
+  refresh?: (currentOnly?: boolean) => void;
   progress?: number | null;
   /** Records that the class starting at `occurrence` covers this lesson. */
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
@@ -828,7 +831,10 @@ export function LmsWorkspace({
             : "open";
     const countdown =
       deadline && !done && !past
-        ? { label: deadline.countdownLabel, tone: deadline.countdownTone }
+        ? {
+            label: deadlineText(deadline, data.settings.locale).countdownLabel,
+            tone: deadline.countdownTone,
+          }
         : undefined;
     const body = source?.bodyHtml ? withoutActivityDates(source.bodyHtml) : "";
     const hasBody = Boolean(contentText(body).trim() || a.details?.trim());
@@ -870,7 +876,7 @@ export function LmsWorkspace({
             {due && (
               <time dateTime={deadline?.at}>
                 {t("Due")}{" "}
-                {new Intl.DateTimeFormat(data.settings.locale, {
+                {formatJst(due, data.settings.locale, {
                   month: "short",
                   day: "numeric",
                   weekday: "short",
@@ -878,7 +884,7 @@ export function LmsWorkspace({
                   minute: "2-digit",
                   hourCycle: "h23",
                   timeZone: "Asia/Tokyo",
-                }).format(due)}
+                })}
               </time>
             )}
           </div>
@@ -929,11 +935,11 @@ export function LmsWorkspace({
                 course: course.title,
                 due:
                   due &&
-                  new Intl.DateTimeFormat("ja-JP", {
+                  formatJst(due, data.settings.locale, {
                     dateStyle: "medium",
                     timeStyle: "short",
                     timeZone: "Asia/Tokyo",
-                  }).format(due) + " JST",
+                  }) + " JST",
                 url: a.sourceUrl,
                 html: body || a.details || "",
                 attachments,
@@ -1293,14 +1299,38 @@ export function LmsWorkspace({
           </button>
         )}
         {refresh && (
-          <button
-            type="button"
-            className="lmsRefresh"
-            disabled={progress != null || opened?.kind === "official"}
-            onClick={refresh}
-          >
-            {progress != null ? `${Math.round(progress)}%` : t("Refresh")}
-          </button>
+          <div className="lmsPullControls">
+            <button
+              type="button"
+              className="lmsRefresh"
+              disabled={progress != null || opened?.kind === "official"}
+              onClick={() => refresh(false)}
+            >
+              {progress != null
+                ? `${Math.round(progress)}%`
+                : t("Pull from LMS")}
+            </button>
+            <Menu position="bottom-end">
+              <Menu.Target>
+                <button
+                  type="button"
+                  className="lmsRefresh"
+                  aria-label={t("LMS pull options")}
+                  disabled={progress != null}
+                >
+                  ▾
+                </button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={() => refresh(false)}>
+                  {t("Pull all courses")}
+                </Menu.Item>
+                <Menu.Item onClick={() => refresh(true)}>
+                  {t("Pull current quarter only")}
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          </div>
         )}
       </header>
       <div className="lmsWorkspaceTools">

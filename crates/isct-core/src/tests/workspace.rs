@@ -664,6 +664,53 @@ fn catalog_course_preserves_localized_fields_credits_rooms_and_long_period_range
     assert_eq!(converted["credits"], 2.0);
     assert_eq!(converted["meetings"][0]["endTime"], "17:05");
     assert_eq!(converted["content"]["summary"]["ja"], "内容");
+    // A language change reprojects every quarter, including a non-current one.
+    let mut offering = service
+        .store
+        .catalog_offering("202600001")
+        .unwrap()
+        .unwrap();
+    offering["id"] = json!("202600002");
+    offering["code"] = json!("CSC.T364");
+    offering["quarters"] = json!(["4Q"]);
+    service
+        .store
+        .catalog_upsert_offerings(&[offering.clone()])
+        .unwrap();
+    mutate(
+        &service,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-4Q".into(),
+            offerings: vec![offering],
+        },
+    );
+    let before_language = service.snapshot().unwrap();
+    let japanese = mutate(
+        &service,
+        WorkspaceIntent::ReplaceSettings {
+            settings: settings_with(&before_language, |settings| {
+                settings["contentLanguage"] = json!("ja")
+            }),
+        },
+    );
+    let rows = japanese.workspace["courses"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert_eq!(row["title"], "演習");
+        assert_eq!(row["meetings"][0]["room"], "西講義棟");
+    }
+    let english = mutate(
+        &service,
+        WorkspaceIntent::ReplaceSettings {
+            settings: settings_with(&japanese, |settings| {
+                settings["contentLanguage"] = json!("en")
+            }),
+        },
+    );
+    for row in english.workspace["courses"].as_array().unwrap() {
+        assert_eq!(row["title"], "Exercise");
+        assert_eq!(row["instructor"], "Teacher One / Teacher Two");
+    }
 }
 
 #[test]

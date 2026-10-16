@@ -168,6 +168,52 @@ impl SchoolService {
         }
     }
 
+    /// Current-quarter content selection is shared by shells; each course
+    /// still uses the coordinator's normal ownership and cancellation path.
+    pub async fn pull_current_term(
+        &self,
+        store: &crate::data::DataStore,
+        executor: Arc<dyn SchoolExecutor>,
+    ) -> Result<Vec<IngestOutcome>, SchoolError> {
+        let snapshot = store
+            .workspace_snapshot_parts()
+            .map_err(|e| SchoolError::Storage(e.to_string()))?;
+        let term = crate::schedule::Term::parse(snapshot.0["currentTerm"].as_str().unwrap_or(""))
+            .map_err(|e| SchoolError::InvalidInput(e.to_string()))?;
+        let quarter = format!("{}Q", term.quarter);
+        let ids: Vec<u64> = snapshot.1["lmsCourses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|c| {
+                c["year"].as_i64() == Some(i64::from(term.year))
+                    && c["quarters"]
+                        .as_array()
+                        .is_some_and(|q| q.iter().any(|v| v.as_str() == Some(&quarter)))
+            })
+            .filter_map(|c| c["lmsId"].as_u64())
+            .collect();
+        if ids.is_empty() {
+            return Err(SchoolError::InvalidInput(
+                "No current-quarter LMS courses are cached. Pull all courses first.".into(),
+            ));
+        }
+        let mut outcomes = Vec::new();
+        for id in ids {
+            outcomes.extend(
+                self.pull(
+                    executor.clone(),
+                    SchoolSite::ScienceLms,
+                    Some(id),
+                    PullOptions::manual(),
+                    false,
+                )
+                .await?,
+            );
+        }
+        Ok(outcomes)
+    }
+
     pub async fn pull(
         &self,
         executor: Arc<dyn SchoolExecutor>,

@@ -180,11 +180,18 @@ pub(crate) async fn pull_school(
     app: tauri::AppHandle,
     site: SchoolSite,
     lms_course_id: Option<u64>,
+    current_only: Option<bool>,
 ) -> Result<Vec<school_web::IngestOutcome>, String> {
     require_local_main(&webview)?;
     let services = core_ports::services(&app);
     core_ports::runtime(&app)
         .run(async move {
+            if site == SchoolSite::ScienceLms && current_only == Some(true) {
+                return services
+                    .school
+                    .pull_current_term(&services.store, services.executor)
+                    .await;
+            }
             services
                 .school
                 .pull(

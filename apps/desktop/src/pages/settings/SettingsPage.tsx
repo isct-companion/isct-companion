@@ -264,7 +264,7 @@ export function Settings({
     ) : current === "diagnostics" ? (
       <DiagnosticsSettings data={data} caps={caps} />
     ) : current === "about" ? (
-      <AboutSettings />
+      <AboutSettings data={data} update={update} />
     ) : null;
 
   return (

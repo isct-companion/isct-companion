@@ -241,6 +241,7 @@ impl Core {
         }
         let mut snapshot = self.workspace.snapshot()?;
         snapshot.workspace["registrations"] = snapshot.school_records["registrations"].clone();
+        snapshot.workspace["grades"] = snapshot.school_records["grades"].clone();
         let values = queries
             .into_iter()
             .map(|query| crate::schedule::query(&snapshot.workspace, query))

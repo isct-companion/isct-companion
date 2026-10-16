@@ -145,6 +145,26 @@ impl DataStore {
                 }
             }
         }
+        let language = crate::schedule::content_language(&workspace).to_string();
+        for course in workspace["courses"].as_array_mut().into_iter().flatten() {
+            for field in ["title", "instructor"] {
+                course[field] =
+                    crate::school_parser::lms::decode_entities(&crate::schedule::localized(
+                        course.pointer(&format!("/names/{field}")),
+                        &language,
+                        course[field].as_str().unwrap_or(""),
+                    ))
+                    .into();
+            }
+            for meeting in course["meetings"].as_array_mut().into_iter().flatten() {
+                meeting["room"] = crate::schedule::localized(
+                    meeting.get("roomNames"),
+                    &language,
+                    meeting["room"].as_str().unwrap_or(""),
+                )
+                .into();
+            }
+        }
         let today_jst = (Utc::now() + chrono::Duration::hours(9)).date_naive();
         workspace["currentTerm"] = Value::String(
             current_term_for(&workspace, today_jst)
