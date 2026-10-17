@@ -119,6 +119,14 @@ impl MatrixOcrService {
         image: &[u8],
         progress: impl Fn(OcrProgress) -> bool,
     ) -> Result<Vec<Recognition>, MatrixOcrError> {
+        self.scan_frame(image, progress).map(|frame| frame.cells)
+    }
+
+    pub fn scan_frame(
+        &self,
+        image: &[u8],
+        progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<crate::MatrixFrame, MatrixOcrError> {
         // Reject overlapping scans instead of accumulating photos and blocking jobs.
         let mut model = self.lock_model()?;
         if !progress(OcrProgress {
@@ -188,7 +196,21 @@ impl MatrixOcrService {
                 eprintln!("Matrix debug export failed: {error}");
             }
         }
-        Ok(results)
+        let quads = cells
+            .iter()
+            .map(|corners| {
+                corners.map(|p| {
+                    [
+                        (p.x / small.width() as f64).clamp(0., 1.),
+                        (p.y / small.height() as f64).clamp(0., 1.),
+                    ]
+                })
+            })
+            .collect();
+        Ok(crate::MatrixFrame {
+            cells: results,
+            quads,
+        })
     }
 }
 

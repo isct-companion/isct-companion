@@ -528,6 +528,120 @@ const matrixStatus = (
 
 describe("Matrix scan and paste", () => {
   it(
+    "renders live Matrix boxes, lets a partial result be reviewed, and fills a stable scan",
+    async () => {
+      // Camera/decoder/canvas are hardware ports without a jsdom implementation.
+      // The real modal, capture loop, native transport and editor stay mounted.
+      const original = Object.getOwnPropertyDescriptor(
+        navigator,
+        "mediaDevices",
+      );
+      const stop = vi.fn();
+      const track = Object.assign(new EventTarget(), { stop });
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          getUserMedia: async () => ({
+            getTracks: () => [track],
+            getVideoTracks: () => [track],
+          }),
+        },
+      });
+      vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+      vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(
+        2,
+      );
+      vi.spyOn(
+        HTMLMediaElement.prototype,
+        "currentTime",
+        "get",
+      ).mockImplementation(() => performance.now());
+      vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(
+        1920,
+      );
+      vi.spyOn(
+        HTMLVideoElement.prototype,
+        "videoHeight",
+        "get",
+      ).mockReturnValue(1080);
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+        drawImage: vi.fn(),
+      } as unknown as CanvasRenderingContext2D);
+      vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+        "data:image/jpeg;base64,Y2FtZXJh",
+      );
+      let completed = false;
+      try {
+        const mounted = await mountAccounts({
+          capabilities: { matrixOcr: true },
+          handle: (command) => {
+            if (command === "school_credential_status")
+              return { science: notConfigured(), tokyoTech: notConfigured() };
+            if (command === "school_session_snapshot") return noSession;
+            if (command === "begin_matrix_camera")
+              return completed ? "second" : "first";
+            if (command === "scan_matrix_camera_frame")
+              return {
+                complete: completed,
+                stableCells: completed ? 70 : 69,
+                cells: Array.from({ length: 70 }, (_, i) => ({
+                  text: completed ? "B" : "A",
+                  confidence: !completed && i === 0 ? 0.8 : 0.99,
+                  stable: completed || i !== 0,
+                })),
+                quads: Array.from({ length: 70 }, (_, i) => {
+                  const x = (i % 10) / 10,
+                    y = Math.floor(i / 10) / 7;
+                  return [
+                    { x, y },
+                    { x: x + 0.1, y },
+                    { x: x + 0.1, y: y + 1 / 7 },
+                    { x, y: y + 1 / 7 },
+                  ];
+                }),
+              };
+            return undefined;
+          },
+        });
+        const card = matrixCard(mounted);
+        await wait(() =>
+          expect(cardButtons(card)).toContain("Scan with camera"),
+        );
+        await click(buttonIn(card, "Scan with camera"));
+        await wait(() =>
+          expect(
+            document.body.querySelectorAll(".matrixCameraPreview polygon"),
+          ).toHaveLength(70),
+        );
+        expect(
+          document.body.querySelectorAll(".matrixCameraStable"),
+        ).toHaveLength(69);
+        expect(document.body.textContent).toContain("69/70 cells stable");
+        await click(buttonIn(document.body, "Use current result and review"));
+        await wait(() => expect(matrixInput(card, 0).value).toBe("A"));
+        expect(matrixInput(card, 0).dataset.confidence).toBe("medium");
+        expect(stop).toHaveBeenCalledTimes(1);
+        completed = true;
+        await click(buttonIn(card, "Scan with camera"));
+        await wait(() => expect(matrixInput(card, 0).value).toBe("B"));
+        expect(matrixInputs(card).every((input) => input.value === "B")).toBe(
+          true,
+        );
+        expect(stop).toHaveBeenCalledTimes(2);
+        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(2);
+      } finally {
+        await app?.unmount();
+        app = undefined;
+        vi.restoreAllMocks();
+        if (original)
+          Object.defineProperty(navigator, "mediaDevices", original);
+        else Reflect.deleteProperty(navigator, "mediaDevices");
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
     "hides image scanning when this build cannot read Matrix photographs",
     async () => {
       const mounted = await mountAccounts({
@@ -549,6 +663,9 @@ describe("Matrix scan and paste", () => {
       );
       await flush();
       expect(cardButtons(matrixCard(mounted))).not.toContain("Scan image");
+      expect(cardButtons(matrixCard(mounted))).not.toContain(
+        "Scan with camera",
+      );
       expect(pane.querySelector('input[type="file"]')).toBeNull();
     },
     TIMEOUT,

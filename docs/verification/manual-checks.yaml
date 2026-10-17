@@ -671,6 +671,21 @@ checks:
           pipeline; a real card is what exposes lighting, angle and printing
           variation that no fixture reproduces.
       - action: |
+          Open Scan with camera in a packaged desktop app, allow camera access,
+          and point it at the real card. Tilt it and introduce glare, then hold
+          it steady with the A–J and 1–7 labels in view.
+        reason: |
+          OS camera permissions, native WebView video capture, optical focus,
+          and the alignment of recognition boxes over a physical card require
+          real hardware. Scripted frames cannot validate these surfaces.
+      - action: |
+          Cancel and reopen the camera, then background the app during capture.
+          Deny permission on a fresh permission state and retry after granting it.
+        reason: |
+          Verify the camera indicator switches off and permissions can recover
+          in the signed native app; headless tests cannot observe OS resource
+          release or the native privacy prompt.
+      - action: |
           Review the recognised cells and compare them with the card.
         reason: |
           The contract is "no wrong accepted cell", not "most cells right". A
@@ -691,6 +706,15 @@ checks:
     covers:
       - crates/isct-ocr/**
       - apps/desktop/src/lib/matrix-ocr.ts
+      - crates/isct-core/src/matrix_scan.rs
+      - apps/desktop/src/platform/matrix-camera.ts
+      - apps/desktop/src/components/MatrixCamera.tsx
+      - apps/desktop/src/components/matrix-camera.css
+      - apps/desktop/src/pages/settings/SchoolAccounts.tsx
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/src/commands/matrix_camera.rs
+      - apps/desktop/src-tauri/Info.plist
+      - apps/desktop/src-tauri/Entitlements.plist
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14

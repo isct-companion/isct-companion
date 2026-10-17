@@ -1385,6 +1385,29 @@ export type FinderView = {
   detailIds: Array<string>;
 };
 
+export type MatrixPoint = { x: number; y: number };
+
+export type MatrixReading = { text: string; confidence: number };
+
+export type MatrixVote = {
+  text: string;
+  /**
+   * Mean winning confidence multiplied by its share of all confidence mass.
+   */
+  confidence: number;
+  stable: boolean;
+};
+
+export type MatrixScanSnapshot = {
+  /**
+   * Normalized coordinates in the unmirrored camera image, in row order.
+   */
+  quads: Array<[MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint]>;
+  cells: Array<MatrixVote>;
+  stableCells: number;
+  complete: boolean;
+};
+
 export const DATA_POLICY: DataPolicy = {
   lms: {
     staleAfterSeconds: 43200,

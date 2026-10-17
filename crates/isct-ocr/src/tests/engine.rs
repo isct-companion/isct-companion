@@ -355,6 +355,20 @@ fn core_resampling_preserves_the_detected_card_grid() {
     assert_eq!(cells.len(), MATRIX_CELLS);
     assert!((cells[0][0].x - 140.).abs() < 5.);
     assert!((cells[69][2].y - 300.).abs() < 5.);
+    // The encoded camera frame must return the same cell order and normalized
+    // corners used by native cropping, so the overlay cannot drift or transpose.
+    let frame = MatrixOcrService::default()
+        .scan_frame(png.get_ref(), |_| true)
+        .unwrap();
+    assert_eq!(frame.cells.len(), MATRIX_CELLS);
+    assert_eq!(frame.quads.len(), MATRIX_CELLS);
+    for (actual, expected) in frame.quads.iter().zip(&cells) {
+        for ([x, y], point) in actual.iter().zip(expected) {
+            assert!((x - point.x / preview.width() as f64).abs() < 1e-9);
+            assert!((y - point.y / preview.height() as f64).abs() < 1e-9);
+            assert!((0. ..=1.).contains(x) && (0. ..=1.).contains(y));
+        }
+    }
 }
 
 #[test]

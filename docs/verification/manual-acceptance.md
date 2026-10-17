@@ -66,7 +66,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
-| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts |
+| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
@@ -773,11 +773,22 @@ camera or a photo of the card.
    - *Why:* Synthetic tensors and the private parity image already cover the
      pipeline; a real card is what exposes lighting, angle and printing
      variation that no fixture reproduces.
-2. Review the recognised cells and compare them with the card.
+2. Open Scan with camera in a packaged desktop app, allow camera access,
+   and point it at the real card. Tilt it and introduce glare, then hold
+   it steady with the A–J and 1–7 labels in view.
+   - *Why:* OS camera permissions, native WebView video capture, optical focus,
+     and the alignment of recognition boxes over a physical card require
+     real hardware. Scripted frames cannot validate these surfaces.
+3. Cancel and reopen the camera, then background the app during capture.
+   Deny permission on a fresh permission state and retry after granting it.
+   - *Why:* Verify the camera indicator switches off and permissions can recover
+     in the signed native app; headless tests cannot observe OS resource
+     release or the native privacy prompt.
+4. Review the recognised cells and compare them with the card.
    - *Why:* The contract is "no wrong accepted cell", not "most cells right". A
      misread cell that is accepted is worse than a rejected one, so the
      comparison has to be cell by cell.
-3. Correct a cell and save.
+5. Correct a cell and save.
    - *Why:* Confirms the manual correction path, which the fixtures never take.
 
 **Where to look**
@@ -798,6 +809,15 @@ OCR runtime, so the target must be chosen deliberately.
 
 - `crates/isct-ocr/**`
 - `apps/desktop/src/lib/matrix-ocr.ts`
+- `crates/isct-core/src/matrix_scan.rs`
+- `apps/desktop/src/platform/matrix-camera.ts`
+- `apps/desktop/src/components/MatrixCamera.tsx`
+- `apps/desktop/src/components/matrix-camera.css`
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/src/commands/matrix_camera.rs`
+- `apps/desktop/src-tauri/Info.plist`
+- `apps/desktop/src-tauri/Entitlements.plist`
 
 **Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
 

@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
+import { MatrixCamera } from "../../components/MatrixCamera";
 import { UiInput } from "../../components/mantine";
 import { confirmAction } from "../../components/confirm";
 import { t } from "../../i18n";
@@ -156,6 +157,13 @@ function MatrixEditor({
 }) {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const [recognizing, setRecognizing] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const scanState = useRef(onScanState);
+  scanState.current = onScanState;
+  useEffect(() => {
+    scanState.current(cameraOpen || recognizing);
+    return () => scanState.current(false);
+  }, [cameraOpen, recognizing]);
   const resetScanInput = useRef<(() => void) | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [confidence, setConfidence] = useState<Array<number | undefined>>([]);
@@ -226,9 +234,42 @@ function MatrixEditor({
         <b>Matrix</b>
         <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
         {matrixOcrAvailable && (
+          <Button
+            variant="default"
+            size="compact-xs"
+            disabled={recognizing || disabled || cameraOpen}
+            onClick={() => {
+              setCameraOpen(true);
+              onScanState(true);
+            }}
+          >
+            {t("Scan with camera")}
+          </Button>
+        )}
+        {cameraOpen && (
+          <MatrixCamera
+            onClose={() => {
+              setCameraOpen(false);
+              onScanState(false);
+            }}
+            onComplete={(cells) => {
+              onBeginEdit();
+              onChange(cells.map((cell) => cell.text));
+              setConfidence(cells.map((cell) => cell.confidence));
+              setCameraOpen(false);
+              onScanState(false);
+              notify(
+                t(
+                  "Scan complete. Verify all letters against your card; highlighted cells need review.",
+                ),
+              );
+            }}
+          />
+        )}
+        {matrixOcrAvailable && (
           <FileButton
             resetRef={resetScanInput}
-            disabled={recognizing || disabled}
+            disabled={recognizing || disabled || cameraOpen}
             onChange={(file) => void recognize(file ?? undefined)}
             accept="image/*,.heic,.heif"
           >
@@ -249,7 +290,7 @@ function MatrixEditor({
           <Button
             variant="default"
             size="compact-xs"
-            disabled={recognizing || disabled}
+            disabled={recognizing || disabled || cameraOpen}
             onClick={onCopy}
           >
             Copy
@@ -288,7 +329,7 @@ function MatrixEditor({
                   ref={(element) => {
                     inputs.current[index] = element;
                   }}
-                  disabled={recognizing || disabled}
+                  disabled={recognizing || disabled || cameraOpen}
                   aria-label={`${String.fromCharCode(65 + column)}${row + 1}`}
                   data-confidence={
                     !masked && confidence[index] !== undefined

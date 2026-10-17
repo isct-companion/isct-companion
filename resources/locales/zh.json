@@ -1012,5 +1012,21 @@
   "Due {{date}}": "截止于 {{date}}",
   "No stable release has been published yet": "尚未发布稳定版",
   "Search 教務Web": "搜索教务",
-  "Credits for multi-quarter courses are split equally across quarters.": "跨学季课程的学分按学季平均分摊。"
+  "Credits for multi-quarter courses are split equally across quarters.": "跨学季课程的学分按学季平均分摊。",
+  "Scan with camera": "使用摄像头扫描",
+  "Scan Matrix with camera": "使用摄像头扫描 Matrix",
+  "Keep the whole Matrix in view, including A–J and 1–7. Hold steady while the letters are read.": "请让整个 Matrix 入镜，包括 A–J 和 1–7。识别时请保持稳定。",
+  "Camera preview": "摄像头预览",
+  "Matrix recognition overlay": "Matrix 识别框",
+  "Stable Matrix cells": "已稳定识别的 Matrix 格子",
+  "{{count}}/70 cells stable. Keep holding steady.": "{{count}}/70 格已稳定，请继续保持。",
+  "Looking for the Matrix. Include the headers and avoid glare.": "正在寻找 Matrix，请包含行列标题并避开反光。",
+  "Camera access was denied. Allow camera access in system settings, then try again.": "摄像头权限被拒绝，请在系统设置中允许访问后重试。",
+  "No camera found. Connect a camera or scan an image instead.": "未找到摄像头，请连接摄像头或选择图片扫描。",
+  "The camera is unavailable. Close other apps using it and try again.": "摄像头不可用，请关闭占用摄像头的其他应用后重试。",
+  "Camera scan stopped while the app was in the background. Open it again to continue.": "应用进入后台，摄像头扫描已停止。请重新打开以继续。",
+  "Camera access is unavailable here. Scan an image instead.": "当前环境无法访问摄像头，请选择图片扫描。",
+  "The camera disconnected. Open it again to continue.": "摄像头已断开，请重新打开以继续。",
+  "Cannot read camera frames. Scan an image instead.": "无法读取摄像头画面，请选择图片扫描。",
+  "Use current result and review": "使用当前结果并核对"
 }
