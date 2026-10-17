@@ -1051,5 +1051,14 @@
   "Bring your card closer until the Matrix is framed, then hold steady. The scanner closes automatically when ready.": "请将学生证靠近摄像头，出现 Matrix 边框后保持稳定，识别完成会自动关闭。",
   "Reading Matrix. Hold steady…": "正在识别 Matrix，请保持稳定…",
   "Point the camera at the Matrix on your card.": "请将摄像头对准学生证上的 Matrix。",
-  "Under maintenance": "维护中"
+  "Under maintenance": "维护中",
+  "Course level": "课程番台",
+  "Day / delivery": "星期／授课形式",
+  "Starting period": "开始时限",
+  "Course category": "科目分类",
+  "Requirement category": "必修分类",
+  "Teaching language": "开讲语言",
+  "Official recommendations": "教务推荐",
+  "Other official filters": "其他教务筛选",
+  "Filter categories": "筛选分类"
 }

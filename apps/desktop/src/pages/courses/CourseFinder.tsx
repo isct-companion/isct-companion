@@ -481,7 +481,13 @@ export function CourseFinder({
   };
   const apply = (s: Suggestion | undefined) => {
     if (!s) return;
-    if (s.kind === "course")
+    if (s.kind === "category") {
+      ++editSequence.current;
+      setInput(s.key);
+      setActive(0);
+      setOpen(true);
+      inputRef.current?.focus();
+    } else if (s.kind === "course")
       toggle(s.course); // keep the text: several matches can be picked in a row
     else commit(s.key);
   };
@@ -739,6 +745,7 @@ export function CourseFinder({
           >
             {suggestions.map((s, i) => {
               const head = {
+                category: t("Filter categories"),
                 condition: input.trim() ? t("Conditions") : t("Common"),
                 course: t("Courses"),
                 text: t("Search"),
@@ -759,6 +766,12 @@ export function CourseFinder({
                     onMouseEnter={() => setActive(i)}
                     onClick={() => apply(s)}
                   >
+                    {s.kind === "category" && (
+                      <>
+                        <span>{t(s.label)}</span>
+                        <small>›</small>
+                      </>
+                    )}
                     {s.kind === "condition" && (
                       <>
                         <span>

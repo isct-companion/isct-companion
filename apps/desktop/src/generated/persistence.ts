@@ -1275,6 +1275,7 @@ export type FinderSchedule = {
 export type FinderRow = { course: FinderCourse; matched: Array<string> };
 
 export type Suggestion =
+  | { kind: "category"; key: string; label: string }
   | { kind: "condition"; key: string; condition: Condition; count: number }
   | { kind: "course"; course: FinderCourse }
   | { kind: "text"; key: string; count: number };

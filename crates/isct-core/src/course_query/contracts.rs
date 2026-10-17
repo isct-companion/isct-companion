@@ -66,6 +66,10 @@ pub struct FinderRow {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Suggestion {
+    Category {
+        key: String,
+        label: String,
+    },
     Condition {
         key: String,
         condition: Condition,

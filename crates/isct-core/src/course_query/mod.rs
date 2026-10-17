@@ -199,6 +199,14 @@ fn recognize(word: &str, ctx: &FinderContext, next: Option<&str>) -> Condition {
     if let Some(option) = ctx.official_options.iter().find(|option| {
         w == format!("kyomu:{}:{}", option.id, option.value)
             || (option.family != "quarter" && w == option.label)
+            || (option.family == "level"
+                && [
+                    format!("{}番台", option.label),
+                    format!("{}-level", option.label),
+                    format!("{}xx", option.label.trim_end_matches('0')),
+                ]
+                .iter()
+                .any(|alias| lw == alias.to_lowercase()))
     }) {
         return make(
             &format!("official-{}", option.family),
@@ -303,7 +311,7 @@ fn recognize(word: &str, ctx: &FinderContext, next: Option<&str>) -> Condition {
         return from_match(m, None, 1, 2);
     }
     if let Some(m) =
-        captures!(r"^([1-6])00(?:番台|-level)$", w).or_else(|| captures!(r"^([1-6])xx$", &lw))
+        captures!(r"^([1-9])00(?:番台|-level)$", w).or_else(|| captures!(r"^([1-9])xx$", &lw))
     {
         let level = m
             .get(1)
@@ -888,6 +896,54 @@ pub fn remote_plan(factors: &[Factor], scopes: &BTreeMap<String, String>) -> Val
     json!({"queries":queries})
 }
 
+// Stable keyboard categories; the authenticated form supplies their choices.
+const OFFICIAL_GROUPS: [(&str, &str, &[&str]); 9] = [
+    ("level", "Course level", &["level", "番台", "课程番台"]),
+    ("quarter", "Quarter", &["quarter", "学季", "クォーター"]),
+    (
+        "delivery",
+        "Day / delivery",
+        &["day", "weekday", "星期", "授课形式", "曜日"],
+    ),
+    ("start", "Starting period", &["period", "时限", "開始時限"]),
+    (
+        "category",
+        "Course category",
+        &["category", "科目分类", "科目区分"],
+    ),
+    (
+        "requirement",
+        "Requirement category",
+        &["requirement", "必修分类", "必修"],
+    ),
+    (
+        "language",
+        "Teaching language",
+        &["language", "开讲语言", "開講言語"],
+    ),
+    (
+        "recommended",
+        "Official recommendations",
+        &["recommended", "教务推荐", "推奨"],
+    ),
+    (
+        "other",
+        "Other official filters",
+        &["other", "其他教务筛选", "その他"],
+    ),
+];
+fn official_group(input: &str) -> Option<(&'static str, &str)> {
+    let (prefix, value) = input.split_once(':')?;
+    OFFICIAL_GROUPS
+        .iter()
+        .find(|(family, _, aliases)| {
+            prefix.eq_ignore_ascii_case(family)
+                || aliases
+                    .iter()
+                    .any(|alias| prefix.eq_ignore_ascii_case(alias))
+        })
+        .map(|(family, _, _)| (*family, value.trim()))
+}
 fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
     let mut out = vec![(
         "curr".into(),
@@ -1044,6 +1100,35 @@ pub fn suggest(
             condition: c,
         });
     };
+    if let Some((family, value)) = official_group(typed) {
+        if !exclude {
+            for option in ctx.official_options.iter().filter(|option| {
+                option.family == family && lower(&option.label).contains(&lower(value))
+            }) {
+                add(&format!("kyomu:{}:{}", option.id, option.value), &mut out);
+            }
+        }
+        return out;
+    }
+    if !exclude {
+        for (family, label, aliases) in OFFICIAL_GROUPS {
+            if ctx
+                .official_options
+                .iter()
+                .any(|option| option.family == family)
+                && (typed.is_empty()
+                    || aliases
+                        .iter()
+                        .chain(std::iter::once(&label))
+                        .any(|alias| lower(alias).contains(&lt)))
+            {
+                out.push(Suggestion::Category {
+                    key: format!("{family}:"),
+                    label: label.into(),
+                });
+            }
+        }
+    }
     if typed.is_empty() {
         for key in if exclude {
             &["集中", "特課研", "英語", "演習"][..]
@@ -1130,6 +1215,7 @@ pub fn suggest(
 pub fn live_text(input: &str, keys: &[String], courses: &[Value], ctx: &FinderContext) -> String {
     let value = input.trim();
     if value.is_empty()
+        || official_group(value).is_some()
         || value.starts_with('!')
         || condition(value, ctx).r#type != "text"
         || suggest(value, keys, courses, ctx)
