@@ -82,7 +82,7 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
-| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
+| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
@@ -1455,11 +1455,15 @@ Run the updated signed macOS desktop build with a school account available.
    and move the pointer across the school page before releasing it.
    - *Why:* WKWebView is a separate native surface and can intercept the pointer;
      a DOM splitter test cannot prove that the drag stays captured.
-2. Open an official LMS page in a lecture reader, resize its left outline,
+2. Release the separator, then slowly move the pointer across blank page
+   areas, links and text in the native browser, including near its edges.
+   - *Why:* macOS and the DOM host own separate cursor surfaces. This detects a
+     lingering document-wide resize cursor competing with WKWebView.
+3. Open an official LMS page in a lecture reader, resize its left outline,
    then shrink and widen the window across the compact breakpoint.
    - *Why:* The native page must follow the actual reader bounds, including the
      relocated search field and tool panel, without covering either toolbar.
-3. With an official LMS page open, collapse the lecture sidebar, hover
+4. With an official LMS page open, collapse the lecture sidebar, hover
    Lectures, move into the floating list, then toggle it back to pinned.
    - *Why:* Confirms the floating DOM list remains reachable beside the native
      browser surface, which headless layout tests cannot display.
@@ -1473,6 +1477,7 @@ the document tool panel in the lecture reader.
 
 The separator follows the pointer until release. The native page stays
 inside its content area and both toolbars remain clickable after resizing.
+The resize cursor appears only on the separator; page cursors stay stable.
 
 **Why this is manual**
 
@@ -1483,6 +1488,7 @@ school content; jsdom and the browser preview render only the DOM host.
 
 - `apps/desktop/src-tauri/src/school_web.rs`
 - `apps/desktop/src/components/ResizableWorkspace.tsx`
+- `apps/desktop/src/components/resizable-workspace.css`
 - `apps/desktop/src/pages/web/WebPage.tsx`
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/pages/lectures/lectures.css`

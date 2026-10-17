@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buttonByText,
   click,
+  chooseOption,
   courseFor,
   mountApp,
   offering,
@@ -198,16 +199,6 @@ async function enablePlanning(
   );
   if (focus) await act(async () => input.focus());
   return input;
-}
-
-async function chooseOption(select: HTMLSelectElement, value: string) {
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLSelectElement.prototype,
-      "value",
-    )!.set!.call(select, value);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
 }
 
 async function clickSlot(app: MountedApp, column: number, append: boolean) {
@@ -1010,7 +1001,7 @@ async function openEditorFor(course: Course): Promise<MountedApp> {
   );
   await click(drawerEdit);
   await required(
-    () => document.querySelector('select[aria-label="Period"]'),
+    () => document.querySelector('[role="combobox"][aria-label="Period"]'),
     "the course editor",
   );
   return mounted;
@@ -1024,8 +1015,8 @@ async function saveEditor(core: FakeCore, selectValue?: string) {
   if (!title) throw new Error("the title field is not ready");
   await typeInto(title, "Renamed course");
   if (selectValue) {
-    const period = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Period"]',
+    const period = document.querySelector<HTMLInputElement>(
+      '[role="combobox"][aria-label="Period"]',
     )!;
     await chooseOption(period, selectValue);
   }
@@ -1056,13 +1047,10 @@ describe("the course editor", () => {
     });
     app = await openEditorFor(course);
 
-    const period = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Period"]',
+    const period = document.querySelector<HTMLInputElement>(
+      '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toBe("periods:1,2,3,4");
-    expect(period.selectedOptions[0].textContent).toContain(
-      "1-4 · 08:50–12:25",
-    );
+    expect(period.value).toContain("1-4 · 08:50–12:25");
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.title).toBe("Renamed course");
@@ -1079,10 +1067,10 @@ describe("the course editor", () => {
     });
     app = await openEditorFor(course);
 
-    const period = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Period"]',
+    const period = document.querySelector<HTMLInputElement>(
+      '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toBe("custom");
+    expect(period.value).toBe("Custom time");
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.meetings[0]).toMatchObject({
@@ -1102,10 +1090,10 @@ describe("the course editor", () => {
     });
     app = await openEditorFor(course);
 
-    const period = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Period"]',
+    const period = document.querySelector<HTMLInputElement>(
+      '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toBe("1-2");
+    expect(period.value).toContain("1-2");
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.meetings[0].periods).toEqual([1, 2]);

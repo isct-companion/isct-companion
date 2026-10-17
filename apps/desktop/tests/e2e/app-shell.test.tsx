@@ -12,6 +12,7 @@ import {
 import {
   advance,
   click,
+  chooseOption,
   courseFor,
   emptySchoolRecords,
   installFakeCore,
@@ -602,18 +603,10 @@ describe("shell navigation", () => {
     list.scrollTop = 128;
     const term = await required(
       () =>
-        host.querySelector<HTMLSelectElement>(
-          ".lectureTerm select, select.lectureTerm",
-        ),
+        host.querySelector<HTMLInputElement>('.lectureTerm [role="combobox"]'),
       "the quarter picker",
     );
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )!.set!.call(term, "2026-2Q");
-      term.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await chooseOption(term, "2026-2Q");
 
     await app.go(paths.home());
     await app.go(paths.lectures(placedCourse.id));
@@ -622,10 +615,8 @@ describe("shell navigation", () => {
     expect(filter.value).toBe("graph");
     expect(host.querySelector(".lectureList")).toBe(list);
     expect(list.scrollTop).toBe(128);
-    expect(host.querySelector(".lectureTerm select, select.lectureTerm")).toBe(
-      term,
-    );
-    expect(term.value).toBe("2026-2Q");
+    expect(host.querySelector('.lectureTerm [role="combobox"]')).toBe(term);
+    expect(term.value).toBe("2026 2Q");
   }, 20_000);
 
   it("blocks Back while the Web page owns the native view and restores the URL when hiding fails", async () => {

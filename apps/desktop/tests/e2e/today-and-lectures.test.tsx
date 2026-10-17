@@ -7,6 +7,7 @@ import {
   DEVICE,
   TERM,
   click,
+  chooseOption,
   emptySchoolRecords,
   installFakeCore,
   mount,
@@ -719,18 +720,34 @@ describe("the lecture desk", () => {
     await until(() => expect(mounted.host.textContent).toContain("Report"));
     const quarter = await required(
       () =>
-        mounted.host.querySelector<HTMLSelectElement>(
-          "select.lectureTerm, .lectureTerm select",
+        mounted.host.querySelector<HTMLInputElement>(
+          '.lectureTerm [role="combobox"]',
         ),
       "the quarter picker",
     );
-    const choose = (term: TermId) =>
-      act(async () => {
-        quarter.value = term;
-        quarter.dispatchEvent(new Event("change", { bubbles: true }));
-      });
+    const choose = (term: TermId) => chooseOption(quarter, term);
 
-    await choose("2026-4Q");
+    expect(mounted.host.querySelector("select.lectureTerm")).toBeNull();
+    await click(quarter);
+    await act(async () => {
+      quarter.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          code: "ArrowUp",
+          bubbles: true,
+        }),
+      );
+    });
+    await act(async () => {
+      quarter.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          bubbles: true,
+        }),
+      );
+    });
+    expect(quarter.getAttribute("aria-expanded")).toBe("false");
     await until(() =>
       expect(mounted.host.textContent).toContain("No open assignments."),
     );

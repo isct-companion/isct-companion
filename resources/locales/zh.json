@@ -1287,5 +1287,6 @@
   "Earlier version pages": "历史版本页码",
   "Local recovery pages": "本地恢复文件页码",
   "Backups older than 30 days are removed only when at least four newer backups exist.": "备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
-  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "云端改动或恢复操作替换本地内容前保存。备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。"
+  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "云端改动或恢复操作替换本地内容前保存。备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
+  "Choose an admission year.": "请选择入学年份。"
 }

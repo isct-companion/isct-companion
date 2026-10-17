@@ -318,22 +318,19 @@ export function LectureDesk({
               className="lectureTerm"
               aria-label={t("Quarter")}
               value={shownTerm}
-              onChange={(event) => setShownTerm(event.target.value as TermId)}
-            >
-              {[...new Set(terms.map((item) => item.slice(0, 4)))].map(
-                (year) => (
-                  <optgroup key={year} label={year}>
-                    {terms
-                      .filter((item) => item.startsWith(`${year}-`))
-                      .map((item) => (
-                        <option key={item} value={item}>
-                          {item.replace("-", " ")}
-                        </option>
-                      ))}
-                  </optgroup>
-                ),
+              onChange={(value) => setShownTerm(value as TermId)}
+              data={[...new Set(terms.map((item) => item.slice(0, 4)))].map(
+                (year) => ({
+                  group: year,
+                  items: terms
+                    .filter((item) => item.startsWith(`${year}-`))
+                    .map((item) => ({
+                      value: item,
+                      label: item.replace("-", " "),
+                    })),
+                }),
               )}
-            </UiSelect>
+            />
           </header>
           <div
             className="dueScope lectureMode"

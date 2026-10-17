@@ -18,11 +18,10 @@ import {
 
 type DraftEnrollment = Omit<StudyEnrollment, "admittedTerm"> & {
   admittedTerm: StudyEnrollment["admittedTerm"] | "";
-  uiId: string;
 };
 
 const draftEnrollments = (rows: StudyEnrollment[]): DraftEnrollment[] =>
-  rows.map((row, index) => ({ ...row, uiId: `${index}:${row.admittedTerm}` }));
+  rows.map((row) => ({ ...row }));
 
 const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
@@ -99,23 +98,15 @@ export function StudyProfileSettings({
   const years = Array.from({ length: 10 }, (_, index) => thisYear + 1 - index);
   if (draft.admissionYear && !years.includes(draft.admissionYear))
     years.push(draft.admissionYear);
-  for (const enrollment of draft.enrollments) {
-    const year = Number(enrollment.admittedTerm.slice(0, 4));
-    if (Number.isFinite(year) && !years.includes(year)) years.push(year);
-  }
   years.sort((a, b) => b - a);
-  const termOptions = years.flatMap((year) =>
-    (["1Q", "2Q", "3Q", "4Q"] as const).map(
-      (quarter) => `${year}-${quarter}` as const,
-    ),
-  );
-  const editDraft = (
-    edit: (enrollments: DraftEnrollment[]) => DraftEnrollment[],
-  ) => {
-    setDraft((current) => ({
-      ...current,
-      enrollments: edit(structuredClone(current.enrollments)),
-    }));
+  const currentEnrollment = draft.enrollments.at(-1);
+  const setDegree = (stage: StudyEnrollment["stage"]) => {
+    setDraft((current) => {
+      const enrollments = structuredClone(current.enrollments);
+      if (enrollments.length) enrollments[enrollments.length - 1].stage = stage;
+      else enrollments.push({ stage, entryKind: "unknown", admittedTerm: "" });
+      return { ...current, enrollments };
+    });
     setDirty(true);
     setError("");
   };
@@ -139,18 +130,21 @@ export function StudyProfileSettings({
       );
       return;
     }
-    if (draft.enrollments.some((enrollment) => !enrollment.admittedTerm)) {
-      setError(t("Choose an admission term for every degree programme."));
+    if (
+      draft.enrollments.some((enrollment) => !enrollment.admittedTerm) &&
+      !draft.admissionYear
+    ) {
+      setError(t("Choose an admission year."));
       return;
     }
     setSaving(true);
     setError("");
     try {
       const submitted = draft.enrollments
-        .map(({ uiId: _, ...enrollment }) => ({
+        .map((enrollment) => ({
           ...enrollment,
-          admittedTerm:
-            enrollment.admittedTerm as StudyEnrollment["admittedTerm"],
+          admittedTerm: (enrollment.admittedTerm ||
+            `${draft.admissionYear}-1Q`) as StudyEnrollment["admittedTerm"],
         }))
         .sort((left, right) =>
           left.admittedTerm.localeCompare(right.admittedTerm),
@@ -176,203 +170,83 @@ export function StudyProfileSettings({
         <Row id="department" title="Department">
           <UiSelect
             value={department?.id ?? ""}
-            onChange={(event) => {
-              const departmentId = event.target.value || undefined;
+            onChange={(value) => {
+              const departmentId = value || undefined;
               update((draft) => {
                 draft.settings.departmentId = departmentId;
                 return draft;
               });
             }}
-          >
-            <option value="">{t("Not selected")}</option>
-            {SYLLABUS_DEPARTMENTS.map((item) => (
-              <option key={item.id} value={item.id}>
-                {pickLocalized(
+            data={[
+              { value: "", label: t("Not selected") },
+              ...SYLLABUS_DEPARTMENTS.map((item) => ({
+                value: item.id,
+                label: pickLocalized(
                   item.name,
                   contentLanguage(data.settings),
                   item.id,
-                )}
-              </option>
-            ))}
-          </UiSelect>
+                ),
+              })),
+            ]}
+          />
         </Row>
         <Row id="admission-year" title="Admission year">
           <UiSelect
             disabled={saving}
             value={draft.admissionYear ?? ""}
-            onChange={(event) => {
-              const year = event.target.value
-                ? Number(event.target.value)
-                : undefined;
+            onChange={(value) => {
+              const year = value ? Number(value) : undefined;
               setDraft((current) => ({ ...current, admissionYear: year }));
               setDirty(true);
               setError("");
             }}
+            data={[
+              { value: "", label: t("Not set") },
+              ...years.map((year) => ({
+                value: String(year),
+                label: t("{{year}} entry", { year }),
+              })),
+            ]}
+          />
+        </Row>
+        <Row id="study-stages" title="Degree programme">
+          <UiSelect
+            disabled={saving}
+            aria-label={t("Degree programme")}
+            value={currentEnrollment?.stage ?? "unknown"}
+            onChange={(value) => setDegree(value as StudyEnrollment["stage"])}
+            data={[
+              { value: "unknown", label: t("Not set") },
+              { value: "undergraduate", label: t("Undergraduate") },
+              { value: "master", label: t("Master") },
+              { value: "professional", label: t("Professional degree") },
+              { value: "doctoral", label: t("Doctoral") },
+            ]}
+          />
+        </Row>
+        <div className="studyProfileActions">
+          <UiButton
+            type="button"
+            className="button"
+            disabled={!dirty || saving}
+            onClick={cancel}
           >
-            <option value="">{t("Not set")}</option>
-            {years.map((year) => (
-              <option key={year} value={year}>
-                {t("{{year}} entry", { year })}
-              </option>
-            ))}
-          </UiSelect>
-        </Row>
-        <Row id="study-stages" title="Degree programme" group>
-          <div className="studyStages">
-            {draft.enrollments.map((enrollment, index) => (
-              <div className="studyStage" key={enrollment.uiId}>
-                <UiSelect
-                  disabled={saving}
-                  aria-label={t("Degree programme, entry {{stage}}", {
-                    stage: index + 1,
-                  })}
-                  value={enrollment.stage}
-                  onChange={(event) =>
-                    editDraft((rows) => {
-                      rows[index].stage = event.target
-                        .value as StudyEnrollment["stage"];
-                      return rows;
-                    })
-                  }
-                >
-                  <option value="unknown">
-                    {t("Choose degree programme")}
-                  </option>
-                  <option value="undergraduate">{t("Undergraduate")}</option>
-                  <option value="master">{t("Master")}</option>
-                  <option value="professional">
-                    {t("Professional degree")}
-                  </option>
-                  <option value="doctoral">{t("Doctoral")}</option>
-                </UiSelect>
-                <UiSelect
-                  disabled={saving}
-                  aria-label={t("Entry route, entry {{stage}}", {
-                    stage: index + 1,
-                  })}
-                  value={enrollment.entryKind}
-                  onChange={(event) =>
-                    editDraft((rows) => {
-                      rows[index].entryKind = event.target
-                        .value as StudyEnrollment["entryKind"];
-                      return rows;
-                    })
-                  }
-                >
-                  <option value="unknown">{t("Entry kind not set")}</option>
-                  <option value="regular">{t("Regular entry")}</option>
-                  <option value="transfer">{t("Transfer entry")}</option>
-                </UiSelect>
-                <UiSelect
-                  disabled={saving}
-                  aria-label={t("Starting year of study, entry {{stage}}", {
-                    stage: index + 1,
-                  })}
-                  value={enrollment.entryGrade ?? ""}
-                  onChange={(event) =>
-                    editDraft((rows) => {
-                      rows[index].entryGrade = event.target.value
-                        ? Number(event.target.value)
-                        : undefined;
-                      return rows;
-                    })
-                  }
-                >
-                  <option value="">{t("Starting year not set")}</option>
-                  {Array.from({ length: 9 }, (_, grade) => grade + 1).map(
-                    (grade) => (
-                      <option key={grade} value={grade}>
-                        {t("Year {{grade}}", { grade })}
-                      </option>
-                    ),
-                  )}
-                </UiSelect>
-                <UiSelect
-                  disabled={saving}
-                  aria-label={t("Admission term, entry {{stage}}", {
-                    stage: index + 1,
-                  })}
-                  value={enrollment.admittedTerm}
-                  onChange={(event) =>
-                    editDraft((rows) => {
-                      rows[index].admittedTerm = event.target
-                        .value as StudyEnrollment["admittedTerm"];
-                      return rows;
-                    })
-                  }
-                >
-                  <option value="">{t("Choose admission term")}</option>
-                  {termOptions.map((term) => (
-                    <option key={term} value={term}>
-                      {term.replace("-", " ")}
-                    </option>
-                  ))}
-                </UiSelect>
-                <UiButton
-                  type="button"
-                  className="textButton"
-                  disabled={saving}
-                  aria-label={t("Remove entry {{stage}}", {
-                    stage: index + 1,
-                  })}
-                  onClick={() =>
-                    editDraft((rows) =>
-                      rows.filter((_, rowIndex) => rowIndex !== index),
-                    )
-                  }
-                >
-                  {t("Remove")}
-                </UiButton>
-              </div>
-            ))}
-            <UiButton
-              type="button"
-              disabled={saving}
-              onClick={() => {
-                const used = new Set(
-                  draft.enrollments.map(
-                    (enrollment) => enrollment.admittedTerm,
-                  ),
-                );
-                editDraft((rows) => [
-                  ...rows,
-                  {
-                    stage: "unknown",
-                    entryKind: "unknown",
-                    admittedTerm: used.has(data.selectedTerm)
-                      ? ""
-                      : data.selectedTerm,
-                    uiId: `new:${Date.now()}:${rows.length}`,
-                  },
-                ]);
-              }}
-            >
-              {t("Add degree programme")}
-            </UiButton>
-            <div className="studyStageActions">
-              <UiButton
-                type="button"
-                className="textButton"
-                disabled={!dirty || saving}
-                onClick={cancel}
-              >
-                {t("Cancel")}
-              </UiButton>
-              <UiButton
-                type="button"
-                disabled={!dirty || saving}
-                onClick={() => void save()}
-              >
-                {saving ? t("Saving…") : t("Save enrollment details")}
-              </UiButton>
-            </div>
-            {error && (
-              <p className="settingsNote studyStageError" role="alert">
-                {error}
-              </p>
-            )}
-          </div>
-        </Row>
+            {t("Cancel")}
+          </UiButton>
+          <UiButton
+            type="button"
+            className="button primary"
+            disabled={!dirty || saving}
+            onClick={() => void save()}
+          >
+            {saving ? t("Saving…") : t("Save enrollment details")}
+          </UiButton>
+        </div>
+        {error && (
+          <p className="settingsNote studyProfileError" role="alert">
+            {error}
+          </p>
+        )}
       </SettingsGroup>
       {openSection && (
         <SettingsGroup>

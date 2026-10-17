@@ -4,14 +4,11 @@
 .lectureList { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; padding-right: 16px; border-right: 1px solid var(--line); }
 .lectureList > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 12px; }
 .lectureList > header h1 { margin: 0; white-space: nowrap; font-size: 15px; font-weight: 620; letter-spacing: -.01em; }
-.lectureTerm { flex: 0 0 auto; width: auto; }
-.lectureTerm select, select.lectureTerm {
-  appearance: none; height: 26px; min-height: 26px; padding: 0 20px 0 8px; border: 0; border-radius: 7px;
-  background: var(--surface-3) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%236f716c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E") no-repeat right 6px center / 10px;
-  color: var(--ink); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer;
+.lectureTerm { flex: 0 0 104px; min-width: 0; }
+.lectureTerm .mantine-Input-input {
+  height: 30px; min-height: 30px; padding-left: 10px; border-color: transparent;
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
 }
-.lectureTerm select:hover, select.lectureTerm:hover { background-color: var(--line); }
-.lectureTerm select:focus-visible, select.lectureTerm:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .lectureMode { display: flex; margin: 0 0 8px; }
 .lectureMode > button { flex: 1; border: 0; background: none; cursor: pointer; }
 .lectureFilter { margin: 0 0 8px; }

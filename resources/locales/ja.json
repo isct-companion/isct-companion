@@ -1287,5 +1287,6 @@
   "Earlier version pages": "過去のバージョンのページ",
   "Local recovery pages": "ローカル復元ファイルのページ",
   "Backups older than 30 days are removed only when at least four newer backups exist.": "30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。",
-  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "クラウドの変更や復元で端末の内容を置き換える前に保存します。30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。"
+  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "クラウドの変更や復元で端末の内容を置き換える前に保存します。30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。",
+  "Choose an admission year.": "入学年度を選択してください。"
 }
