@@ -986,7 +986,11 @@ describe("web-page residency", () => {
     );
     const workspace = workspaceFixture({ courses: [course] });
     app = await mountShell(
-      shellOptions({ workspace, revision: "rev:explicit" }),
+      shellOptions({
+        workspace,
+        revision: "rev:explicit",
+        queries: { ...shellQueries(), courseDetail: { lmsUrl: url } },
+      }),
       { route: paths.drawer(paths.home(), course.id) },
     );
     const { core } = app;

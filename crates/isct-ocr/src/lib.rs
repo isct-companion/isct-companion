@@ -30,6 +30,21 @@ pub struct MatrixFrame {
     pub quads: Vec<[[f64; 2]; 4]>,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct MatrixFrameTiming {
+    pub decode_ms: f64,
+    pub geometry_ms: f64,
+    pub preprocess_ms: f64,
+    pub inference_ms: f64,
+    pub total_ms: f64,
+}
+pub struct MatrixLiveFrame {
+    /// Selected readings in the same order as the requested cell indices.
+    pub cells: Vec<Recognition>,
+    pub quads: Vec<[[f64; 2]; 4]>,
+    pub timing: MatrixFrameTiming,
+}
+
 /// Compile-time backend availability; model initialization remains lazy.
 pub const fn available() -> bool {
     cfg!(matrix_ocr)
@@ -93,6 +108,16 @@ impl MatrixOcrService {
     #[cfg(debug_assertions)]
     pub fn with_debug_dir(self, _directory: Option<PathBuf>) -> Self {
         self
+    }
+
+    pub fn scan_live_frame(
+        &self,
+        _image: &[u8],
+        _indices: &[usize],
+        _geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
+        _progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<MatrixLiveFrame, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
     }
 
     pub fn scan_frame_with_geometry(

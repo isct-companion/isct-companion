@@ -27,149 +27,196 @@ fn frame(letter: &str, confidence: f64) -> (Vec<[MatrixPoint; 4]>, Vec<MatrixRea
     )
 }
 
+fn feed(
+    scanner: &mut MatrixScanner,
+    id: &str,
+    input: Option<(Vec<[MatrixPoint; 4]>, Vec<MatrixReading>)>,
+) -> MatrixScanSnapshot {
+    let plan = scanner.plan(id).unwrap();
+    let selected = input.map(|(quads, readings)| {
+        (
+            quads,
+            plan.cells.iter().map(|&i| readings[i].clone()).collect(),
+        )
+    });
+    scanner
+        .observe(id, &plan, selected, MatrixScanTiming::default())
+        .unwrap()
+}
+
 #[test]
-fn each_cell_votes_only_over_its_own_high_confidence_frames() {
-    let mut scanner = MatrixScanner::default();
-    let id = scanner.begin();
-    let a3 = 20;
-    let b2 = 11;
-    let mut result = None;
+fn each_cell_votes_only_over_its_own_qualified_frames_including_point_eight() {
+    let mut a3 = CellEvidence::default();
+    let mut b2 = CellEvidence::default();
     for image in 1..=6 {
-        let mut input = frame("D", 0.99);
-        input.1[a3] = MatrixReading {
-            text: if image == 4 { "Z" } else { "A" }.into(),
-            confidence: match image {
-                1 => 0.91,
-                4 => 0.99,
-                5 => 0.96,
-                _ => 0.89,
+        a3.add(
+            MatrixReading {
+                text: if image == 4 { "Z" } else { "A" }.into(),
+                confidence: match image {
+                    1 => 0.8,
+                    4 => 0.99,
+                    5 => 0.89,
+                    _ => 0.79,
+                },
             },
-        };
-        input.1[b2] = MatrixReading {
-            text: if image == 4 { "Y" } else { "B" }.into(),
-            confidence: if [2, 4, 5, 6].contains(&image) {
-                0.98
-            } else {
-                0.7
+            image,
+        );
+        b2.add(
+            MatrixReading {
+                text: if image == 4 { "Y" } else { "B" }.into(),
+                confidence: if [2, 4, 5, 6].contains(&image) {
+                    0.88
+                } else {
+                    0.7
+                },
             },
-        };
-        // The last cell cannot be hidden by the other 69 ready cells.
-        input.1[69].confidence = if [2, 5, 6].contains(&image) {
-            0.99
-        } else {
-            0.89
-        };
-        let next = scanner.observe(&id, Some(input)).unwrap();
-        assert_eq!(next.complete, image == 6);
-        result = Some(next);
+            image,
+        );
     }
-    let result = result.unwrap();
-    assert_eq!(result.cells[a3].text, "A"); // frames 1,4,5: A,Z,A
-    assert_eq!(result.cells[b2].text, "B"); // frames 2,4,5,6: B,Y,B,B
+    assert_eq!(a3.samples.len(), 3);
+    assert_eq!(b2.samples.len(), 4);
+    assert_eq!(a3.vote().text, "A");
+    assert_eq!(b2.vote().text, "B");
+    assert!(a3.vote().stable && b2.vote().stable);
     assert!(
-        (result.cells[a3].confidence
-            - ((0.91 + 0.96) / 2.) * ((0.91 + 0.96) / (0.91 + 0.99 + 0.96)))
-            .abs()
+        (a3.vote().confidence - ((0.8 + 0.89) / 2.) * ((0.8 + 0.89) / (0.8 + 0.99 + 0.89))).abs()
             < 1e-9
     );
-    assert!((result.cells[b2].confidence - 0.98 * 3. / 4.).abs() < 1e-9);
-    assert_eq!(result.confidence, result.cells[a3].confidence);
-    // A low-confidence wrong current frame cannot erase the established result.
-    assert!(
-        scanner
-            .observe(&id, Some(frame("Z", 0.89)))
-            .unwrap()
-            .complete
+    a3.add(
+        MatrixReading {
+            text: "Z".into(),
+            confidence: 0.79,
+        },
+        7,
     );
+    assert_eq!(a3.samples.len(), 3);
+    assert!(a3.vote().stable);
+    let mut tied = CellEvidence::default();
+    for (i, text) in ["A", "B", "A", "B"].into_iter().enumerate() {
+        tied.add(
+            MatrixReading {
+                text: text.into(),
+                confidence: 0.85,
+            },
+            i,
+        );
+    }
+    assert!(!tied.vote().stable);
 }
 
 #[test]
-fn movement_and_blur_preserve_votes_but_ties_and_sustained_absence_do_not_accept() {
+fn scheduler_scans_all_then_refines_fairly_and_verifies_before_completion() {
     let mut scanner = MatrixScanner::default();
     let id = scanner.begin();
-    for image in 0..8 {
-        let mut input = frame("A", 0.99);
-        for (index, cell) in input.1.iter_mut().enumerate() {
-            if index % 2 == image % 2 {
-                cell.text.clear();
-                cell.confidence = 0.;
-            }
+    assert_eq!(scanner.plan(&id).unwrap().cells.len(), CELLS);
+    // One unreadable cell must not starve the remaining 69 cells.
+    let mut partial = frame("A", 0.89);
+    partial.1[0] = MatrixReading {
+        text: String::new(),
+        confidence: 0.,
+    };
+    feed(&mut scanner, &id, Some(partial.clone()));
+    let mut stalled = None;
+    for _ in 0..24 {
+        let plan = scanner.plan(&id).unwrap();
+        assert_eq!(plan.phase, MatrixScanPhase::Refine);
+        assert!(plan.cells.len() <= 10);
+        stalled = Some(feed(&mut scanner, &id, Some(partial.clone())));
+    }
+    assert!(stalled.unwrap().needs_adjustment);
+    assert_eq!(scanner.diagnostics(&id).unwrap().stable_cells, 69);
+    for _ in 0..3 {
+        feed(&mut scanner, &id, Some(frame("A", 0.89)));
+    }
+    assert_eq!(scanner.plan(&id).unwrap().phase, MatrixScanPhase::Verify);
+    // A clear contradiction during final verification reopens that cell.
+    let mut corrected = frame("A", 0.89);
+    corrected.1[69].text = "Z".into();
+    assert!(!feed(&mut scanner, &id, Some(corrected.clone())).complete);
+    assert_eq!(scanner.plan(&id).unwrap().phase, MatrixScanPhase::Refine);
+    let mut final_result = None;
+    for _ in 0..20 {
+        let result = feed(&mut scanner, &id, Some(corrected.clone()));
+        let complete = result.complete;
+        final_result = Some(result);
+        if complete {
+            break;
         }
-        for quad in &mut input.0 {
-            for point in quad {
-                point.x = point.x * 0.7 + if image % 2 == 0 { 0.15 } else { 0. };
-            }
-        }
-        if image == 3 {
-            assert!(scanner.observe(&id, None).unwrap().bounds.is_none());
-        }
-        let result = scanner.observe(&id, Some(input)).unwrap();
-        // The clear samples from complementary frames add up at frame six.
-        assert_eq!(result.complete, image >= 5);
     }
-    for _ in 0..4 {
-        assert!(!scanner.observe(&id, None).unwrap().complete);
-    }
-    let result = scanner.observe(&id, Some(frame("B", 0.99))).unwrap();
-    assert!(!result.complete);
-    assert!(result.confidence > 0.98); // confidence alone cannot replace sample quorum
-    for letter in ["A", "A"] {
-        scanner.observe(&id, Some(frame(letter, 0.99))).unwrap();
-    }
-    assert!(
-        !scanner
-            .observe(&id, Some(frame("B", 0.99)))
-            .unwrap()
-            .complete
-    ); // 2–2 tie
-    for _ in 0..6 {
-        scanner.observe(&id, Some(frame("C", 0.95))).unwrap();
-    }
-    assert_eq!(
-        scanner.observe(&id, Some(frame("C", 0.95))).unwrap().cells[0].text,
-        "C"
-    );
+    let result = final_result.unwrap();
+    assert!(result.complete);
+    assert_eq!(result.cells[69].text, "Z");
+    let report = scanner.diagnostics(&id).unwrap();
+    assert_eq!(report.stable_cells, CELLS);
+    assert!(!serde_json::to_string(&report).unwrap().contains("text"));
 }
 
 #[test]
-fn sessions_reject_late_results_and_invalid_frames_without_polluting_consensus() {
+fn moving_closer_and_brief_grid_loss_preserve_votes_but_sustained_absence_resets() {
+    let mut scanner = MatrixScanner::default();
+    let id = scanner.begin();
+    feed(&mut scanner, &id, Some(frame("A", 0.85)));
+    let before = scanner.diagnostics(&id).unwrap().qualified_samples;
+    assert!(feed(&mut scanner, &id, None).bounds.is_none());
+    let mut moved = frame("A", 0.85);
+    for quad in &mut moved.0 {
+        for point in quad {
+            point.x = point.x * 0.7 + 0.15;
+        }
+    }
+    feed(&mut scanner, &id, Some(moved));
+    let after = scanner.diagnostics(&id).unwrap().qualified_samples;
+    assert!(after.iter().zip(before).all(|(a, b)| *a >= b));
+    for _ in 0..4 {
+        assert!(!feed(&mut scanner, &id, None).complete);
+    }
+    assert_eq!(scanner.plan(&id).unwrap().phase, MatrixScanPhase::Initial);
+    assert!(scanner
+        .diagnostics(&id)
+        .unwrap()
+        .qualified_samples
+        .iter()
+        .all(|&n| n == 0));
+}
+
+#[test]
+fn sessions_reject_stale_plans_and_invalid_frames_without_polluting_votes() {
     let mut scanner = MatrixScanner::default();
     let old = scanner.begin();
     let id = scanner.begin();
-    scanner.stop(&old); // an old UI cleanup cannot kill its replacement
+    scanner.stop(&old);
+    assert!(matches!(scanner.plan(&old), Err(MatrixScanError::Ended)));
     assert!(matches!(
         scanner.outline(&old, &frame("A", 1.).0),
         Err(MatrixScanError::Ended)
     ));
-    let outline = scanner.outline(&id, &frame("A", 1.).0).unwrap();
-    assert_eq!(outline.bounds[2], frame("A", 1.).0[69][2]);
-    assert!(matches!(
-        scanner.observe(&old, Some(frame("A", 1.))),
-        Err(MatrixScanError::Ended)
-    ));
-    for mut invalid in [frame("A", f64::NAN), frame("bad", 0.9), frame("A", 1.1)] {
+    let plan = scanner.plan(&id).unwrap();
+    for invalid in [frame("A", f64::NAN), frame("bad", 0.9), frame("A", 1.1)] {
         assert!(matches!(
-            scanner.observe(&id, Some(invalid.clone())),
+            scanner.observe(&id, &plan, Some(invalid), MatrixScanTiming::default()),
             Err(MatrixScanError::InvalidFrame(_))
         ));
-        invalid.1.pop();
-        assert!(scanner.observe(&id, Some(invalid)).is_err());
     }
     let mut invalid = frame("A", 1.);
     invalid.0[0][0].x = -0.1;
-    assert!(scanner.observe(&id, Some(invalid)).is_err());
-    for i in 0..3 {
-        assert_eq!(
-            scanner
-                .observe(&id, Some(frame("B", 0.99)))
-                .unwrap()
-                .complete,
-            i == 2
-        );
-    }
-    scanner.stop(&id);
+    assert!(scanner
+        .observe(&id, &plan, Some(invalid), MatrixScanTiming::default())
+        .is_err());
+    let mut modified = plan.clone();
+    modified.cells = vec![CELLS];
+    assert!(scanner
+        .observe(&id, &modified, None, MatrixScanTiming::default())
+        .is_err());
+    feed(&mut scanner, &id, Some(frame("A", 0.85)));
     assert!(matches!(
-        scanner.observe(&id, None),
+        scanner.observe(
+            &id,
+            &plan,
+            Some(frame("A", 0.85)),
+            MatrixScanTiming::default()
+        ),
         Err(MatrixScanError::Ended)
     ));
+    scanner.stop(&id);
+    assert!(scanner.plan(&id).is_err());
 }

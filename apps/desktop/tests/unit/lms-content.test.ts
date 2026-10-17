@@ -1077,6 +1077,16 @@ describe("Live Matrix camera ownership", () => {
     expect(track.stop).toHaveBeenCalledTimes(1);
     expect(video.srcObject).toBeNull();
     expect(core.commands("stop_matrix_camera")).toHaveLength(1);
+    const metrics = core.commands("stop_matrix_camera")[0].args.capture as {
+      frames: number;
+      frameMs: number[];
+      elapsedMs: number;
+      trackedMs: number;
+    };
+    expect(metrics.frames).toBe(1);
+    expect(metrics.frameMs).toHaveLength(1);
+    expect(metrics.elapsedMs).toBeGreaterThanOrEqual(metrics.trackedMs);
+    expect(metrics.trackedMs).toBeGreaterThanOrEqual(0);
     channels.get(channel.id)?.({ index: 1, message: outline });
     expect(onOutline).toHaveBeenCalledTimes(1); // late geometry after close is ignored
     expect(onError).not.toHaveBeenCalled();

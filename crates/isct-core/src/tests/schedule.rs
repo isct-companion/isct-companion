@@ -1157,6 +1157,36 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     assert_eq!(view.exam_ids, ["early", "late"]);
     assert_eq!(view.offering_id.as_deref(), Some("o"));
     assert!(course_detail(&data, "unknown").material_ids.is_empty());
+
+    // Links: the LMS record matched by offering, then the syllabus by offering id.
+    assert_eq!(view.lms_url, None);
+    assert_eq!(
+        view.syllabus_url.as_deref(),
+        Some("https://syllabus.s.isct.ac.jp/courses/-/-/-/o")
+    );
+    let mut linked = data.clone();
+    linked["lmsCourses"] = json!([
+        {"lmsId":7,"offeringId":"other","url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=7"},
+        {"lmsId":8,"offeringId":"o","url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=8"}
+    ]);
+    linked["offerings"][0]["syllabusUrl"] = json!("https://syllabus.s.isct.ac.jp/courses/2026/x");
+    let view = course_detail(&linked, "c");
+    assert_eq!(
+        view.lms_url.as_deref(),
+        Some("https://lms.s.isct.ac.jp/2026/course/view.php?id=8")
+    );
+    assert_eq!(
+        view.syllabus_url.as_deref(),
+        Some("https://syllabus.s.isct.ac.jp/courses/2026/x")
+    );
+    // An LMS-sourced course links to itself and has no syllabus without an offering.
+    let lms = json!({"courses":[{"id":"l","source":{"provider":"lms","externalId":"9"},"url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=9"}]});
+    let view = course_detail(&lms, "l");
+    assert_eq!(
+        view.lms_url.as_deref(),
+        Some("https://lms.s.isct.ac.jp/2026/course/view.php?id=9")
+    );
+    assert_eq!(view.syllabus_url, None);
 }
 
 #[test]
