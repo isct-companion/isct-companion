@@ -784,6 +784,7 @@ checks:
       - crates/isct-ocr/**
       - apps/desktop/src/lib/matrix-ocr.ts
       - crates/isct-core/src/matrix_scan.rs
+      - crates/isct-core/src/matrix_scan/**
       - apps/desktop/src/platform/matrix-camera.ts
       - apps/desktop/src/components/MatrixCamera.tsx
       - apps/desktop/src/components/matrix-camera.css

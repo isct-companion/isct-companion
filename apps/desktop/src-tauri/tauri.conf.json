@@ -35,6 +35,8 @@
       "bundleVersion": "1.0.0"
     },
     "resources": [
+      "../../../crates/isct-ocr/models/alphabet/README.md",
+      "../../../crates/isct-ocr/models/alphabet/MIT-LICENSE",
       "../../../crates/isct-ocr/models/paddle/README.md",
       "../../../crates/isct-ocr/models/paddle/PADDLE-LICENSE",
       "../../../crates/isct-ocr/models/paddle/ONNX-RUNTIME-LICENSE",
