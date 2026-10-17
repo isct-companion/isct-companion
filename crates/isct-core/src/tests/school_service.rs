@@ -239,6 +239,10 @@ async fn executor_errors_and_panics_release_the_school_lane() {
 async fn typed_executor_errors_keep_their_category_and_release_the_lane() {
     let cases = [
         (
+            SchoolExecutorError::Maintenance("Official outage notice".into()),
+            SchoolError::Maintenance("Official outage notice".into()),
+        ),
+        (
             SchoolExecutorError::Authentication("Sign-in expired.".into()),
             SchoolError::Authentication("Sign-in expired.".into()),
         ),

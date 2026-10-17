@@ -308,6 +308,10 @@ p {
   background: #2f9e62;
   box-shadow: 0 0 0 3px color-mix(in srgb, #2f9e62 14%, transparent);
 }
+.schoolStatusAccount[data-state="maintenance"] > i {
+  background: var(--color-warning, #d5a34f);
+}
+
 .schoolStatusAccount[data-state="failed"] > i {
   background: var(--danger);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);

@@ -60,6 +60,7 @@ pub struct SchoolPullProgress {
 pub enum SchoolSessionState {
     Pending,
     Active,
+    Maintenance,
     Failed,
     NotConfigured,
 }
@@ -77,6 +78,7 @@ pub struct SchoolSessionEvent {
 pub struct SchoolSessionSnapshot {
     pub revision: u64,
     pub states: SchoolSessionStates,
+    pub kyomu_maintenance: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -110,6 +112,8 @@ pub enum SchoolBrowserError {
     Storage(String),
     #[error("{0}")]
     Auth(String),
+    #[error("{0}")]
+    Maintenance(String),
     #[error("{0}")]
     SiteChanged(String),
     #[error("{0}")]

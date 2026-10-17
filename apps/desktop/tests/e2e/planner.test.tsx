@@ -306,19 +306,20 @@ function plannerQueries(allTerms: TermId[] = [FALLBACK]) {
  * ------------------------------------------------------------------ */
 
 describe("the course planner", () => {
-  it("keeps IME confirmation out of the search and reopens suggestions for keyboard selection", async () => {
+  it("navigates filter categories and conditions while keeping IME confirmation out of search", async () => {
+    const options: FinderOptions = {
+      courses: [eligible],
+      suggestions: [
+        { kind: "text", key: "teacher:Tanaka", count: 1 },
+        { kind: "text", key: "room:W9", count: 1 },
+      ],
+    };
     app = await mountApp(
       {
         revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
-        handle: finderHandler({
-          courses: [eligible],
-          suggestions: [
-            { kind: "text", key: "teacher:Tanaka", count: 1 },
-            { kind: "text", key: "room:W9", count: 1 },
-          ],
-        }),
+        handle: finderHandler(options),
       },
       { route: paths.timetable() },
     );
@@ -368,6 +369,59 @@ describe("the course planner", () => {
     expect(
       (commits[0].args.request as { action: FinderAction }).action,
     ).toEqual({ kind: "commit", key: "room:W9" });
+    options.suggestions = [
+      { kind: "category", key: "level:", label: "Course level" },
+    ];
+    await typeInto(input, "level");
+    await settled(() =>
+      expect(app!.host.querySelector('[role="option"]')?.textContent).toContain(
+        "Course level",
+      ),
+    );
+    await key("Enter");
+    expect(input.value).toBe("level:");
+    expect(
+      app.core.calls.filter(
+        (call) =>
+          call.command === "finder_query" &&
+          (call.args.request as { action?: FinderAction }).action?.kind ===
+            "commit",
+      ),
+    ).toHaveLength(1);
+    options.suggestions = [
+      {
+        kind: "condition",
+        key: "kyomu:graduate_level:live-600",
+        condition: {
+          type: "official-level",
+          key: "kyomu:graduate_level:live-600",
+          label: "600",
+          values: [{ id: "graduate_level", value: "live-600" }],
+        },
+        count: -1,
+      },
+    ];
+    await typeInto(input, "level:6");
+    await settled(() =>
+      expect(app!.host.querySelector('[role="option"]')?.textContent).toContain(
+        "600",
+      ),
+    );
+    await key("Tab");
+    await settled(() =>
+      expect(
+        app!.core.calls
+          .filter(
+            (call) =>
+              call.command === "finder_query" &&
+              (call.args.request as { action?: FinderAction }).action?.kind ===
+                "commit",
+          )
+          .at(-1)?.args.request,
+      ).toMatchObject({
+        action: { kind: "commit", key: "kyomu:graduate_level:live-600" },
+      }),
+    );
   });
 
   it("pages official search results while only mounting the visible rows", async () => {

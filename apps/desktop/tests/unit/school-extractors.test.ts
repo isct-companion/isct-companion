@@ -62,7 +62,7 @@ type Extracted = {
   data: Record<string, unknown>;
 };
 
-const extractorScript = asset("kyomu-extract.js");
+const extractorScript = `${asset("kyomu-maintenance.js")}\n${asset("kyomu-extract.js")}`;
 
 /**
  * Runs the production extractor against one page. `readyState` is forced to
@@ -630,6 +630,110 @@ describe("bundled public subscription data", () => {
 });
 
 describe("official course discovery and academic identity", () => {
+  it("discovers graduate filters and posts their live values, including new choices", async () => {
+    // Screenshot-informed structure, synthetic IDs/values: this is not captured
+    // authenticated graduate HTML. Changed server values must still round-trip.
+    const group = (id: string, labels: string[]) =>
+      `<fieldset id="${id}">${labels.map((label, index) => `<input type="checkbox" id="${id}_${index}" name="${id}$${index}" value="live-${index}"><label for="${id}_${index}">${label}</label>`).join("")}</fieldset>`;
+    const form = `<p>2031/01/02 13:00からメンテナンス時間に入ります。</p><h1>科目の選択－大学院課程</h1><form>
+      ${group("graduate_cblKamokuCodeSeries", ["400", "500", "600"])}
+      ${group("graduate_cblHisshuKbn", ["R", "A", "B", "C", "D", "F", "I", "V", "標準学修課程外"])}
+      ${group("graduate_cblYoubi", ["日", "月", "土", "未定", "オンデマンド", "医学系学際開講"])}
+      ${group("graduate_cblKaisiJigenS", ["1時限", "11時限", "12時限"])}
+      ${group("graduate_cblQuarters", ["1Q", "2Q", "3Q", "4Q", "1～2Q", "3～4Q", "1～4Q", "1・3Q", "2・4Q", "2～3Q"])}
+      ${group("graduate_Lang", ["日本語", "英語"])}
+      ${group("futureControls", ["新しい授業形式"])}
+      <input type="checkbox" id="graduate_cblKamokuCodeSeries_disabled" disabled value="no"><label for="graduate_cblKamokuCodeSeries_disabled">900</label>
+      <input type="checkbox" id="graduate_chkSuisho" name="graduate$recommendation" value="live-rec"><label for="graduate_chkSuisho">推奨</label>
+      <a id="graduate_btnSearch"></a></form>
+      <input type="checkbox" id="assignmentUpload" value="no"><label for="assignmentUpload">Not a filter</label>`;
+    const grid = readRepoFile(
+      "crates/isct-core/tests/fixtures/kyomu/course-search.html",
+    );
+    const dom = new JSDOM(form + grid, {
+      url: `https://kyomu0.gakumu.titech.ac.jp${paths.registrations.replace("PID1_0.aspx", "PID1_0_1.aspx")}`,
+      runScripts: "outside-only",
+    });
+    dom.window.eval(asset("kyomu-maintenance.js"));
+    const metadata = (await dom.window.eval(
+      asset("kyomu-search.js"),
+    )) as Extracted;
+    const options = metadata.data.searchOptions as {
+      id: string;
+      value: string;
+      label: string;
+      family: string;
+    }[];
+    expect(
+      options
+        .filter((option) => option.family === "level")
+        .map((option) => option.label),
+    ).toEqual(["400", "500", "600"]);
+    expect(
+      options
+        .filter((option) => option.family === "requirement")
+        .map((option) => option.label),
+    ).toEqual(["R", "A", "B", "C", "D", "F", "I", "V", "標準学修課程外"]);
+    expect(options.some((option) => option.label === "医学系学際開講")).toBe(
+      true,
+    );
+    expect(
+      options.some(
+        (option) => option.label === "900" || option.id === "assignmentUpload",
+      ),
+    ).toBe(false);
+    const custom = options.find((option) => option.label === "新しい授業形式")!;
+    dom.window.eval(`globalThis.__ISCT_COMPANION_KYOMU_HIDDEN__=true;
+      globalThis.__ISCT_COMPANION_KYOMU_PAGE__=${JSON.stringify({ groups: ["600"], quarters: [3], days: [7], periodStarts: [12], language: "en", requirementGroups: ["V"], controls: [custom] })};
+      globalThis.fetch=async (_url,init)=>{globalThis.posted=Object.fromEntries(init.body);return {ok:true,url:location.href,text:async()=>${JSON.stringify(form + grid)}}};`);
+    const result = (await dom.window.eval(
+      asset("kyomu-search.js"),
+    )) as Extracted;
+    expect(result.status).toBe("ok");
+    expect(dom.window.eval("posted")).toMatchObject({
+      graduate_cblKamokuCodeSeries$2: "live-2",
+      graduate_cblHisshuKbn$7: "live-7",
+      graduate_cblYoubi$0: "live-0",
+      graduate_cblKaisiJigenS$2: "live-2",
+      graduate_Lang$1: "live-1",
+      graduate_cblQuarters$2: "live-2",
+      graduate_cblQuarters$5: "live-5",
+      graduate_cblQuarters$6: "live-6",
+      graduate_cblQuarters$7: "live-7",
+      graduate_cblQuarters$9: "live-9",
+      futureControls$0: "live-0",
+    });
+    // Recommendation defaults are read from the live page's own handler.
+    dom.window
+      .eval(`document.getElementById('graduate_chkSuisho').onclick=()=>{document.getElementById('graduate_cblHisshuKbn_0').checked=true};
+      globalThis.__ISCT_COMPANION_KYOMU_PAGE__={controls:[{id:'graduate_chkSuisho',value:'live-rec'}]};`);
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "ok",
+    });
+    expect(dom.window.eval("posted")).toMatchObject({
+      graduate$recommendation: "live-rec",
+      graduate_cblHisshuKbn$0: "live-0",
+    });
+    dom.window.eval(
+      `globalThis.__ISCT_COMPANION_KYOMU_PAGE__={recommended:true,requirementGroups:['V']}`,
+    );
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "ok",
+    });
+    expect(dom.window.eval("posted")).toMatchObject({
+      graduate_cblHisshuKbn$7: "live-7",
+    });
+    expect(
+      dom.window.eval("posted['graduate_cblHisshuKbn$0']"),
+    ).toBeUndefined();
+    dom.window.eval(
+      `globalThis.__ISCT_COMPANION_KYOMU_PAGE__={periodStarts:[11,10]};globalThis.fetch=()=>{throw Error('unsupported filters must not post')}`,
+    );
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "error",
+    });
+  });
+
   it("returns timing, rooms and requirements with search results, rejecting incomplete columns", async () => {
     const html = readRepoFile(
       "crates/isct-core/tests/fixtures/kyomu/course-search.html",
@@ -724,6 +828,16 @@ describe("official course discovery and academic identity", () => {
     );
     expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
       status: "error",
+    });
+    // A healthy initial document can redirect to an outage during the POST.
+    dom.window.eval(asset("kyomu-maintenance.js"));
+    dom.window
+      .eval(`globalThis.__ISCT_COMPANION_KYOMU_PAGE__ = ${JSON.stringify({ controls: [level] })};
+      globalThis.fetch = async () => ({ok:true, url:'https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx', text:async()=>'<main><h1>Under maintenance</h1><p>2031/02/03 12:00–14:00</p></main>'});`);
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "maintenance",
+      data: {},
+      message: expect.stringContaining("2031/02/03"),
     });
     const courses = result.data.courses as Record<string, unknown>[];
     expect(courses).toHaveLength(14);
@@ -901,4 +1015,48 @@ it("posts only grid paging events and keeps form state out of course results", a
   expect(
     posts.every((p) => p.__VIEWSTATE === "school-token" && !("btnSelect" in p)),
   ).toBe(true);
+});
+
+describe("official maintenance notices", () => {
+  it("reads live outage periods and recurring notes without a baked-in calendar", () => {
+    const html = `<main><h1>ただいまメンテナンス中です</h1><h2>メンテナンス情報</h2>
+      <p>下記期間中はログインできません。</p><b>2031/01/02 10:00 ～ 12:30</b>
+      <textarea>毎週水曜日の6:00–7:00</textarea></main>`;
+    const dom = new JSDOM(html, {
+      url: "https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx",
+      runScripts: "outside-only",
+    });
+    const result = dom.window.eval(extractorScript) as Extracted;
+    expect(result.status).toBe("maintenance");
+    expect(result.message).toContain("2031/01/02 10:00");
+    expect(result.message).toContain("毎週水曜日の6:00");
+    expect(result.data).toEqual({});
+    const search = dom.window.eval(
+      `${asset("kyomu-maintenance.js")}\n${asset("kyomu-search.js")}`,
+    );
+    return expect(search).resolves.toMatchObject({
+      status: "maintenance",
+      message: result.message,
+    });
+  });
+  it("does not mistake future notices, course text, or foreign hosts for an outage", () => {
+    for (const html of [
+      "<h2>メンテナンス情報</h2><p>明日メンテナンスを行います</p>",
+      "<h1>Course search</h1><p>Software maintenance</p>",
+    ]) {
+      const dom = new JSDOM(html, {
+        url: "https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx",
+        runScripts: "outside-only",
+      });
+      dom.window.eval(asset("kyomu-maintenance.js"));
+      expect(dom.window.eval("__isctKyomuMaintenance(document)")).toBeNull();
+    }
+    const dom = new JSDOM("<h1>Under maintenance</h1>", {
+      url: "https://example.org/",
+      runScripts: "outside-only",
+    });
+    expect((dom.window.eval(extractorScript) as Extracted).status).toBe(
+      "error",
+    );
+  });
 });

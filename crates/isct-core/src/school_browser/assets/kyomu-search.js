@@ -15,6 +15,9 @@
     data,
     message,
   });
+  const maintenance = globalThis.__isctKyomuMaintenance?.(document);
+  if (location.origin === "https://kyomu0.gakumu.titech.ac.jp" && maintenance)
+    return result("maintenance", {}, maintenance);
   if (
     location.origin !== "https://kyomu0.gakumu.titech.ac.jp" ||
     location.pathname.toLowerCase() !== path.toLowerCase()
@@ -45,70 +48,85 @@
       body,
       signal: AbortSignal.timeout(45000),
     });
+    const html = await response.text();
+    if (html.length > 8 * 1024 * 1024)
+      throw new Error("Course search is too large.");
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const notice =
+      new URL(response.url).origin === location.origin &&
+      globalThis.__isctKyomuMaintenance?.(parsed);
+    if (notice) throw { maintenance: notice };
     if (
       !response.ok ||
       new URL(response.url).origin !== location.origin ||
       new URL(response.url).pathname.toLowerCase() !== path.toLowerCase()
     )
       throw new Error("Course search session expired.");
-    const html = await response.text();
-    if (html.length > 8 * 1024 * 1024)
-      throw new Error("Course search is too large.");
-    return new DOMParser().parseFromString(html, "text/html");
+    return parsed;
   };
   // ASP.NET checkboxes have value="on", not the query-string enum value.
   // Keep actual control IDs/values and let the university serialize its search.
   const publicOptions = (root) => {
     const options = [];
-    const groups = [
-      ["cblKamokuCodeSeries", "level"],
-      ["cblHisshuKbn", "requirement"],
-      ["cblYoubi", "delivery"],
-      ["cblKaisiJigenS", "start"],
-      ["cblQuarters", "quarter"],
+    const search = root.querySelector('[id$="btnSearch"]');
+    // Group identities describe semantics only. Labels, available choices and
+    // submitted values always come from this account's current official form.
+    const families = [
+      ["KamokuCodeSeries", "level"],
+      ["HisshuKbn", "requirement"],
+      ["Youbi", "delivery"],
+      ["KaisiJigen", "start"],
+      ["Quarter", "quarter"],
+      ["Lang", "language"],
+      ["Gengo", "language"],
+      ["KamokuKbnMidashi", "category"],
+      ["Suisho", "recommended"],
+      ["Zengaku", "category"],
+      ["Senmon", "category"],
     ];
-    for (const [suffix, family] of groups) {
-      const group = root.querySelector(`[id$="${suffix}"]`);
-      for (const input of group?.querySelectorAll('input[type="checkbox"]') ||
-        []) {
-        const label = clean(
-          root.querySelector(`label[for="${input.id}"]`)?.textContent,
-        );
-        if (label && !input.disabled)
-          options.push({ id: input.id, value: input.value, label, family });
-      }
-    }
-    for (const select of root.querySelectorAll(
-      'select[id*="KamokuKbnMidashi"]',
+    for (const input of root.querySelectorAll(
+      'input[type="checkbox"],input[type="radio"],select',
     )) {
-      if (select.disabled) continue;
-      for (const option of select.options) {
-        if (option.value && !option.disabled)
-          options.push({
-            id: select.id,
-            value: option.value,
-            label: clean(option.textContent),
-            family: "category",
-          });
-      }
-    }
-    for (const id of [
-      "chkSuisho",
-      "rdoZengakuSenmonAll",
-      "rdoZengaku",
-      "rdoSenmon",
-    ]) {
-      const input = root.getElementById(id);
+      if (
+        !input.id ||
+        input.matches(":disabled") ||
+        input.closest('[id*="gvGrid"]')
+      )
+        continue;
+      if (
+        search &&
+        !(
+          input.compareDocumentPosition(search) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+        )
+      )
+        continue;
+      const group = input.closest("fieldset,[role=group],table[id],div[id]");
+      const identity = `${input.id} ${input.name} ${group?.id || ""}`;
+      const family =
+        families.find(([key]) =>
+          identity.toLowerCase().includes(key.toLowerCase()),
+        )?.[1] || "other";
       const label = clean(
-        root.querySelector(`label[for="${id}"]`)?.textContent,
+        root.querySelector(`label[for="${input.id}"]`)?.textContent ||
+          input.closest("label")?.textContent,
       );
-      if (input && label && !input.disabled)
-        options.push({
-          id,
-          value: input.value,
-          label,
-          family: id === "chkSuisho" ? "recommended" : "category",
-        });
+      if (input.tagName === "SELECT") {
+        for (const option of input.options) {
+          if (
+            option.value &&
+            !option.disabled &&
+            !option.parentElement?.disabled
+          )
+            options.push({
+              id: input.id,
+              value: option.value,
+              label: clean(option.textContent),
+              family,
+            });
+        }
+      } else if (label)
+        options.push({ id: input.id, value: input.value, label, family });
     }
     return options;
   };
@@ -136,6 +154,65 @@
           );
       }
     }
+    // Resolve typed shortcuts against live labels, never ASP.NET enum IDs.
+    const selectMatching = (family, predicate, requested) => {
+      if (!requested?.length) return true;
+      const matches = searchOptions.filter(
+        (option) =>
+          option.family === family &&
+          requested.some((value) => predicate(option.label, value)),
+      );
+      if (
+        requested.some(
+          (value) => !matches.some((option) => predicate(option.label, value)),
+        )
+      )
+        return false;
+      selections.push(...matches);
+      return true;
+    };
+    const quartersIn = (label) => {
+      const digits = [...label.matchAll(/[1-4]/g)].map((match) =>
+        Number(match[0]),
+      );
+      if (digits.length === 2 && /[~〜～-]/.test(label))
+        return Array.from(
+          { length: digits[1] - digits[0] + 1 },
+          (_, i) => digits[0] + i,
+        );
+      return digits;
+    };
+    const days = ["日", "月", "火", "水", "木", "金", "土"];
+    if (
+      !selectMatching(
+        "quarter",
+        (label, quarter) => quartersIn(label).includes(quarter),
+        request.quarters,
+      ) ||
+      !selectMatching(
+        "delivery",
+        (label, day) => label === days[day % 7],
+        request.days,
+      ) ||
+      !selectMatching(
+        "start",
+        (label, period) => period === Number(label.match(/^\d+/)?.[0]),
+        request.periodStarts,
+      ) ||
+      !selectMatching(
+        "language",
+        (label, language) =>
+          language === "ja"
+            ? /日本語|Japanese/i.test(label)
+            : /英語|English/i.test(label),
+        request.language ? [request.language] : [],
+      )
+    )
+      return result(
+        "error",
+        {},
+        "This filter is not offered by the current official search form.",
+      );
     if (request.recommended) {
       const option = searchOptions.find((o) => o.family === "recommended");
       if (!option)
@@ -149,12 +226,16 @@
   }
   if (request && !request.cursor && selections.length) {
     const form = page.querySelector("form");
-    const search = page.querySelector("#ctl00_ContentPlaceHolder1_btnSearch");
+    const search = page.querySelector('[id$="btnSearch"]');
     if (!form || !search)
       return result("error", {}, "The official search controls changed.");
-    const body = new URLSearchParams(new FormData(form));
     const selected = [];
-    for (const selection of selections) {
+    for (const selection of selections.filter(
+      (option, index, all) =>
+        all.findIndex(
+          (other) => other.id === option.id && other.value === option.value,
+        ) === index,
+    )) {
       const option = searchOptions.find(
         (o) => o.id === selection.id && o.value === selection.value,
       );
@@ -167,6 +248,17 @@
       const input = page.getElementById(option.id);
       selected.push({ option, input });
     }
+    // Let the live school's recommendation handler set its own default
+    // requirement selection; undergraduate and graduate defaults may differ.
+    if (!selected.some(({ option }) => option.family === "requirement")) {
+      for (const { option } of selected.filter(
+        ({ option }) => option.family === "recommended",
+      )) {
+        const control = page.getElementById(option.id);
+        if (control && !control.checked) control.click();
+      }
+    }
+    const body = new URLSearchParams(new FormData(form));
     const families = new Set(selected.map((s) => s.option.family));
     // Replace an entire checkbox group, retaining unrelated URL filters.
     for (const option of searchOptions.filter((o) => families.has(o.family))) {
@@ -176,23 +268,13 @@
     for (const { option, input } of selected) {
       if (input.type === "radio") body.set(input.name, option.value);
       else body.append(input.name, option.value);
-      if (input.tagName === "SELECT") {
-        const radio = page.getElementById(
-          input.id.endsWith("Zengaku") ? "rdoZengaku" : "rdoSenmon",
+      if (input.tagName === "SELECT" && input.id.includes("KamokuKbnMidashi")) {
+        const radio = page.querySelector(
+          input.id.endsWith("Zengaku")
+            ? '[id$="rdoZengaku"]'
+            : '[id$="rdoSenmon"]',
         );
         if (radio) body.set(radio.name, radio.value);
-      }
-    }
-    // Same default requirement selection as the official chkSuisho handler.
-    // Explicit requirement filters take precedence over that default.
-    if (
-      selected.some((s) => s.option.family === "recommended") &&
-      !families.has("requirement")
-    ) {
-      for (const input of page.querySelectorAll(
-        "#cblHisshuKbn input:not(:nth-last-of-type(-n+2))",
-      )) {
-        if (input.name && !input.disabled) body.set(input.name, input.value);
       }
     }
     body.set("__EVENTTARGET", search.id.replaceAll("_", "$"));
@@ -492,10 +574,11 @@
       !nextCursor &&
       (remaining || Boolean(nextLink) || loaded + courses.length >= 1000),
   });
-})().catch(() => ({
-  status: "error",
+})().catch((error) => ({
+  status: error?.maintenance ? "maintenance" : "error",
   kind: "catalog",
   sourceUrl: location.href,
   data: {},
-  message: "The official course search could not be read.",
+  message:
+    error?.maintenance || "The official course search could not be read.",
 }));

@@ -102,6 +102,7 @@ struct State {
     extraction: Option<Extraction>,
     hidden: Option<HiddenWork>,
     sessions: HashMap<SchoolAuthProfile, SchoolSessionState>,
+    kyomu_maintenance: Option<String>,
     revision: u64,
     last_focus: Option<Instant>,
     last_launch: Option<Instant>,
@@ -128,6 +129,8 @@ struct ViewState {
     extraction_relay: String,
     auth_relay: String,
     progress_relay: String,
+    availability_relay: String,
+    pending_availability: Option<PageLoaded>,
     navigation: Option<ActionId>,
     actions: HashMap<ActionId, bool>,
 }
@@ -135,6 +138,10 @@ struct ViewState {
 #[derive(Clone, Debug)]
 enum Trace {
     Loaded(PageLoaded),
+    Maintenance {
+        browser: BrowserId,
+        message: String,
+    },
     Failed(LoadFailed),
     Extraction {
         browser: BrowserId,
@@ -379,6 +386,8 @@ impl SchoolBrowserEngine {
                     extraction_relay: format!("isct-companion-extract://{nonce}/"),
                     auth_relay: format!("isct-companion-auth:{nonce}:"),
                     progress_relay: format!("isct-companion-progress:{nonce}:"),
+                    availability_relay: format!("isct-companion-availability:{nonce}:"),
+                    pending_availability: None,
                     navigation: None,
                     actions: HashMap::new(),
                 },
@@ -444,6 +453,7 @@ pub(crate) fn map_executor(error: SchoolBrowserError) -> SchoolExecutorError {
         SchoolBrowserError::InvalidInput(message) => SchoolExecutorError::InvalidInput(message),
         SchoolBrowserError::Storage(message) => SchoolExecutorError::Storage(message),
         SchoolBrowserError::Auth(message) => SchoolExecutorError::Authentication(message),
+        SchoolBrowserError::Maintenance(message) => SchoolExecutorError::Maintenance(message),
         SchoolBrowserError::SiteChanged(message) => SchoolExecutorError::SiteChanged(message),
         SchoolBrowserError::Timeout(message) => SchoolExecutorError::Timeout(message),
         SchoolBrowserError::Cancelled => SchoolExecutorError::Cancelled,
@@ -513,6 +523,51 @@ impl Inner {
     }
 
     fn page_loaded(self: &Arc<Self>, event: PageLoaded) {
+        if !self.current(event.page.browser) {
+            return;
+        }
+        if event.url.scheme() == "https"
+            && event.url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
+        {
+            let relay = self.state.with(|state| {
+                let view = state.views.get_mut(&event.page.browser.site)?;
+                if view.id != event.page.browser
+                    || event.page.sequence <= view.last_page
+                    || view
+                        .pending_availability
+                        .as_ref()
+                        .is_some_and(|pending| pending.page.sequence >= event.page.sequence)
+                    || event
+                        .cause
+                        .is_some_and(|cause| view.navigation != Some(cause))
+                {
+                    return None;
+                }
+                view.pending_availability = Some(event.clone());
+                Some(view.availability_relay.clone())
+            });
+            if let Some(relay) = relay {
+                let relay = serde_json::to_string(&relay).unwrap_or_default();
+                let sequence = event.page.sequence;
+                let script = format!("{};(()=>{{const message=globalThis.__isctKyomuMaintenance(document);document.title={relay}+btoa(unescape(encodeURIComponent(JSON.stringify({{sequence:{sequence},message,title:document.title}})))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');}})()", include_str!("assets/kyomu-maintenance.js"));
+                if self
+                    .dispatch_eval(event.page.browser, script, true)
+                    .is_err()
+                {
+                    self.load_failed(LoadFailed {
+                        page: event.page,
+                        cause: event.cause,
+                        url: Some(event.url.clone()),
+                        message: "Could not check school service availability.".into(),
+                    });
+                }
+            }
+            return;
+        }
+        self.page_available(event);
+    }
+
+    fn page_available(self: &Arc<Self>, event: PageLoaded) {
         if !self.current(event.page.browser) {
             return;
         }
@@ -737,6 +792,18 @@ impl Inner {
         let _ = self.traces.send(Trace::Loaded(event));
     }
 
+    fn report_kyomu_maintenance(&self, message: &str) {
+        self.state
+            .with(|state| state.kyomu_maintenance = Some(message.into()));
+        let _ = self.events.emit(CoreEvent::SchoolIngest(IngestOutcome {
+            site: SchoolSite::Kyomu,
+            kind: "service".into(),
+            state: IngestState::Maintenance,
+            changed: 0,
+            message: message.into(),
+        }));
+    }
+
     fn load_failed(&self, event: LoadFailed) {
         let relevant = self.state.with(|state| {
             let Some(view) = state.views.get_mut(&event.page.browser.site) else {
@@ -769,8 +836,86 @@ impl Inner {
         }
     }
 
-    fn title_changed(&self, page: PageId, title: &str) {
+    fn title_changed(self: &Arc<Self>, page: PageId, title: &str) {
         if !self.current(page.browser) {
+            return;
+        }
+        let availability = self.state.with(|state| {
+            state
+                .views
+                .get(&page.browser.site)
+                .map(|v| v.availability_relay.clone())
+        });
+        if let Some(encoded) = availability
+            .as_deref()
+            .and_then(|prefix| title.strip_prefix(prefix))
+        {
+            if encoded.len() > 16 * 1024 {
+                return;
+            }
+            #[derive(Deserialize)]
+            struct Availability {
+                sequence: u64,
+                message: Option<String>,
+                #[serde(default)]
+                title: String,
+            }
+            let Some(value) = URL_SAFE_NO_PAD
+                .decode(encoded)
+                .ok()
+                .and_then(|v| serde_json::from_slice::<Availability>(&v).ok())
+            else {
+                return;
+            };
+            let event = self.state.with(|state| {
+                let view = state.views.get_mut(&page.browser.site)?;
+                if view.id != page.browser
+                    || view.pending_availability.as_ref()?.page.sequence != value.sequence
+                    || page.sequence != value.sequence
+                {
+                    return None;
+                }
+                view.pending_availability.take()
+            });
+            if let Some(event) = event {
+                if let Ok(title) =
+                    serde_json::to_string(&value.title.chars().take(512).collect::<String>())
+                {
+                    let _ =
+                        self.dispatch_eval(page.browser, format!("document.title={title};"), false);
+                }
+                if let Some(message) = value.message.filter(|v| !v.trim().is_empty()) {
+                    let message: String = message.chars().take(1800).collect();
+                    // Bookkeep navigation/history, but never treat this page as
+                    // a successful login or a complete data extraction.
+                    self.state.with(|state| {
+                        if let Some(view) = state.views.get_mut(&page.browser.site) {
+                            view.last_page = page.sequence;
+                            view.navigation = None;
+                            view.url = event.url.to_string();
+                        }
+                    });
+                    self.report_kyomu_maintenance(&message);
+                    let _ = self.traces.send(Trace::Maintenance {
+                        browser: page.browser,
+                        message,
+                    });
+                } else {
+                    let recovered = self
+                        .state
+                        .with(|state| state.kyomu_maintenance.take().is_some());
+                    if recovered {
+                        let _ = self.events.emit(CoreEvent::SchoolIngest(IngestOutcome {
+                            site: SchoolSite::Kyomu,
+                            kind: "service".into(),
+                            state: IngestState::Ok,
+                            changed: 0,
+                            message: String::new(),
+                        }));
+                    }
+                    self.page_available(event);
+                }
+            }
             return;
         }
         let prefixes = self.state.with(|state| {
@@ -942,6 +1087,7 @@ impl Inner {
             let mut state = self.state.guard();
             if let Some(view) = state.views.get_mut(&browser.site) {
                 if view.id == browser {
+                    view.pending_availability = None;
                     view.navigation = Some(action);
                     if view.actions.len() >= 64 {
                         view.actions.clear();
@@ -953,6 +1099,7 @@ impl Inner {
             let mut state = self.state.guard();
             if let Some(view) = state.views.get_mut(&browser.site) {
                 if view.id == browser {
+                    view.pending_availability = None;
                     view.navigation = Some(action);
                     view.actions.insert(action, true);
                 }

@@ -52,6 +52,7 @@ struct FakeBrowser {
     current: Mutex<HashMap<BrowserId, Url>>,
     /// Report the next dispatch as sent to a view that no longer exists.
     unavailable: AtomicBool,
+    maintenance: Mutex<Option<String>>,
 }
 
 impl FakeBrowser {
@@ -133,7 +134,12 @@ impl FakeBrowser {
                 .unwrap()
                 .iter()
                 .filter_map(|command| match &command.command {
-                    BrowserAction::Eval(script) => Some(script.clone()),
+                    BrowserAction::Eval(script)
+                        if !script.contains("isct-companion-availability:")
+                            && !script.starts_with("document.title=") =>
+                    {
+                        Some(script.clone())
+                    }
                     _ => None,
                 })
                 .collect();
@@ -183,7 +189,38 @@ impl SchoolBrowser for FakeBrowser {
                 .unwrap()
                 .insert(command.browser, url.clone());
         }
+        let availability = match &command.command {
+            BrowserAction::Eval(script) if script.contains("isct-companion-availability:") => {
+                let prefix = script
+                    .split("document.title=")
+                    .nth(1)
+                    .unwrap()
+                    .split('+')
+                    .next()
+                    .unwrap();
+                let prefix: String = serde_json::from_str(prefix).unwrap();
+                let sequence: u64 = script
+                    .split("sequence:")
+                    .nth(1)
+                    .unwrap()
+                    .split(',')
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                Some((prefix, sequence))
+            }
+            _ => None,
+        };
+        let browser = command.browser;
         self.commands.lock().unwrap().push(command);
+        if let Some((prefix, sequence)) = availability {
+            let payload = serde_json::json!({"sequence":sequence,"message":self.maintenance.lock().unwrap().clone()});
+            self.listener().title_changed(
+                PageId { browser, sequence },
+                format!("{prefix}{}", URL_SAFE_NO_PAD.encode(payload.to_string())),
+            );
+        }
         Ok(())
     }
 
@@ -1940,5 +1977,111 @@ async fn hidden_catalogue_search_preserves_the_foreground_web_location() {
     let reopened = engine.open(SchoolSite::Kyomu, None).await.unwrap();
     assert_eq!(reopened.url, original);
     assert_eq!(browser.current.lock().unwrap()[&id].as_str(), original);
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn maintenance_redirect_finishes_the_pull_and_recovery_releases_the_browser_lane() {
+    let (engine, browser, events, _) = engine();
+    *browser.maintenance.lock().unwrap() =
+        Some("ただいまメンテナンス中です 2031/01/02 10:00–12:30".into());
+    let coordinator = PullCoordinator::default();
+    let pull = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::Kyomu,
+        PullOptions::manual(),
+    );
+    let landing = browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: landing.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx").unwrap(),
+    });
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), pull)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(result.unwrap_err().to_string().contains("2031/01/02"));
+    assert!(events.0.lock().unwrap().iter().any(|event| matches!(event, CoreEvent::SchoolIngest(outcome) if outcome.state == IngestState::Maintenance)));
+    assert_eq!(coordinator.snapshots().await[0].state, PullState::Failed);
+    assert!(engine
+        .session_snapshot()
+        .unwrap()
+        .kyomu_maintenance
+        .unwrap()
+        .contains("2031/01/02"));
+
+    *browser.maintenance.lock().unwrap() = None;
+    let next = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::Kyomu,
+        PullOptions::manual(),
+    );
+    let landing = browser.navigation(1).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: landing.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/").unwrap(),
+    });
+    let _ = browser.navigation(2).await;
+    assert!(engine
+        .session_snapshot()
+        .unwrap()
+        .kyomu_maintenance
+        .is_none());
+    assert!(events.0.lock().unwrap().iter().any(|event| matches!(event, CoreEvent::SchoolIngest(outcome) if outcome.kind == "service" && outcome.state == IngestState::Ok)));
+    coordinator.shutdown().await;
+    assert!(next.await.unwrap().is_err());
+
+    // Signing in during the same outage is a temporary service state, not a
+    // credential rejection. It must settle promptly and remain retryable.
+    *browser.maintenance.lock().unwrap() = Some("ただいまメンテナンス中です".into());
+    let login = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .login(
+                    SchoolAuthProfile::TokyoTech,
+                    SchoolCredentials {
+                        username: "test-student".into(),
+                        password: "test-password".into(),
+                        otp_secret: String::new(),
+                        matrix: String::new(),
+                    },
+                )
+                .await
+        })
+    };
+    let navigation = browser.navigation(3).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx").unwrap(),
+    });
+    assert!(matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), login)
+            .await
+            .unwrap()
+            .unwrap(),
+        Err(SchoolBrowserError::Maintenance(_))
+    ));
+    assert_eq!(
+        engine.session_snapshot().unwrap().states.tokyo_tech,
+        SchoolSessionState::Maintenance
+    );
+    assert!(events.0.lock().unwrap().iter().any(
+        |event| matches!(event, CoreEvent::SchoolLogin(outcome) if outcome.state == "maintenance")
+    ));
     engine.shutdown().await;
 }

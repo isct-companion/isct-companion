@@ -2427,6 +2427,37 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
       "Ready",
     ),
   );
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      kind: "service",
+      state: "maintenance",
+      changed: 0,
+      message: "Official maintenance · 2031/01/02 10:00–12:30",
+    }),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("Under maintenance");
+    expect(status.textContent).toContain("2031/01/02");
+    expect(status.querySelector("progress")).toBeNull();
+    expect(status.textContent).not.toContain("Ready");
+    expect(status.textContent).not.toContain("5%");
+  });
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      kind: "service",
+      state: "ok",
+      changed: 0,
+      message: "",
+    }),
+  );
+  await until(() =>
+    expect(app!.host.querySelector(".lmsStatus")!.textContent).toContain(
+      "Ready",
+    ),
+  );
   const force = app.host.querySelector<HTMLButtonElement>(".lmsStatus button")!;
   expect(force.textContent).toBe("Refresh now");
   await click(force);

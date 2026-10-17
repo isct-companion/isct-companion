@@ -369,9 +369,6 @@ pub async fn kyomu_query(
         ("TermUnit", &format!("{year}2")),
         ("_search", "True"),
     ]);
-    if filters.recommended == Some(true) {
-        url.query_pairs_mut().append_pair("Suisho", "True");
-    }
     if !code.is_empty() {
         url.query_pairs_mut().append_pair("ShinkokuNoS", code);
     }
@@ -381,92 +378,26 @@ pub async fn kyomu_query(
     if let Some(teacher) = &filters.teacher {
         url.query_pairs_mut().append_pair("KyouinName", teacher);
     }
-    // These quarter IDs are the values used by the official search form,
-    // including combinations whose meetings overlap the requested quarter.
-    if let Some(quarters) = &filters.quarters {
-        if quarters.iter().any(|q| !(1..=4).contains(q)) {
-            return Err(CatalogError::InvalidInput("Invalid course quarter.".into()));
-        }
-        let options: [(u8, &[u8]); 10] = [
-            (1, &[1]),
-            (2, &[2]),
-            (3, &[3]),
-            (4, &[4]),
-            (7, &[1, 2]),
-            (8, &[3, 4]),
-            (9, &[1, 2, 3, 4]),
-            (10, &[1, 3]),
-            (12, &[2, 4]),
-            (6, &[2, 3]),
-        ];
-        let values = options
-            .iter()
-            .filter(|(_, covered)| covered.iter().any(|q| quarters.contains(q)))
-            .map(|(id, _)| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        if !values.is_empty() {
-            url.query_pairs_mut().append_pair("Quarters", &values);
-        }
-    }
-    for (key, values) in [
-        (
-            "KamokuCodeSeries",
-            filters.groups.clone().unwrap_or_default(),
-        ),
-        (
-            "HisshuKbn",
-            filters.requirement_groups.clone().unwrap_or_default(),
-        ),
-        (
-            "Youbi",
-            filters
-                .days
-                .as_ref()
-                .filter(|days| !days.contains(&6))
-                .map(|days| {
-                    days.iter()
-                        .map(|d| if *d == 7 { 0 } else { *d })
-                        .map(|d| d.to_string())
-                        .collect()
-                })
-                .unwrap_or_default(),
-        ),
-        (
-            "KaisiJigenS",
-            filters
-                .period_starts
-                .as_ref()
-                .filter(|periods| periods.iter().all(|p| (1..=10).contains(p)))
-                .map(|periods| periods.iter().map(|p| p.to_string()).collect())
-                .unwrap_or_default(),
-        ),
-    ] {
-        if values
-            .iter()
-            .any(|v| v.len() > 16 || !v.bytes().all(|b| b.is_ascii_alphanumeric()))
-            || values.len() > 12
-        {
-            return Err(CatalogError::InvalidInput("Invalid course filters.".into()));
-        }
-        if !values.is_empty() {
-            url.query_pairs_mut().append_pair(key, &values.join(","));
-        }
-    }
-    if let Some(language) = &filters.language {
-        match language.as_str() {
-            "ja" => {
-                url.query_pairs_mut().append_pair("Lang_kj", "True");
-            }
-            "en" => {
-                url.query_pairs_mut().append_pair("Lang_ke", "True");
-            }
-            _ => {
-                return Err(CatalogError::InvalidInput(
-                    "Invalid course language.".into(),
-                ))
-            }
-        }
+    // Native requests carry semantic choices; the browser resolves them to the
+    // controls actually offered by this account's current authenticated form.
+    if filters
+        .quarters
+        .as_ref()
+        .is_some_and(|values| values.iter().any(|q| !(1..=4).contains(q)))
+        || filters
+            .days
+            .as_ref()
+            .is_some_and(|values| values.iter().any(|day| !(1..=7).contains(day)))
+        || filters
+            .period_starts
+            .as_ref()
+            .is_some_and(|values| values.iter().any(|period| *period == 0))
+        || filters
+            .language
+            .as_ref()
+            .is_some_and(|language| !["ja", "en"].contains(&language.as_str()))
+    {
+        return Err(CatalogError::InvalidInput("Invalid course filters.".into()));
     }
     let url = url.to_string();
     let identity = serde_json::to_string(&controls)?;

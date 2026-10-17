@@ -84,6 +84,12 @@ type Connection = {
 };
 
 function SignInSteps({ connection }: { connection: Connection }) {
+  if (connection.state === "maintenance")
+    return (
+      <Text c="yellow" size="sm">
+        {t("Under maintenance")}
+      </Text>
+    );
   const connected = connection.state === "connected";
   const current = connected
     ? STEPS.length - 1
@@ -533,11 +539,15 @@ function Account({
     } catch (error) {
       if (timeout.current) window.clearTimeout(timeout.current);
       started.current = false;
-      setConnection({
-        state: "error",
-        step: "",
-        message: errorText(error) ?? "Sign-in could not start.",
-      });
+      setConnection((current) =>
+        current.state === "maintenance"
+          ? current
+          : {
+              state: "error",
+              step: "",
+              message: errorText(error) ?? "Sign-in could not start.",
+            },
+      );
       setBusy(false);
       await refresh().catch(() => undefined);
     }
@@ -599,16 +609,20 @@ function Account({
             color={
               session === "active"
                 ? "green"
-                : session === "failed"
-                  ? "red"
-                  : "gray"
+                : session === "maintenance"
+                  ? "yellow"
+                  : session === "failed"
+                    ? "red"
+                    : "gray"
             }
           >
             {session === "active"
               ? "Signed in"
-              : session === "failed"
-                ? "Sign-in failed"
-                : "Not set up"}
+              : session === "maintenance"
+                ? t("Under maintenance")
+                : session === "failed"
+                  ? "Sign-in failed"
+                  : "Not set up"}
           </Badge>
         )}
       </Group>

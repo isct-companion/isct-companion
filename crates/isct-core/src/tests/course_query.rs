@@ -304,6 +304,47 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
             {"id":"drpKamokuKbnMidashiSenmon","value":"121100"}
         ])
     );
+    workspace["kyomuSearchOptions"].as_array_mut().unwrap().extend([
+        json!({"id":"graduate_level","value":"live-600","label":"600","family":"level"}),
+        json!({"id":"graduate_period","value":"live-12","label":"12時限","family":"start"}),
+        json!({"id":"graduate_language","value":"live-en","label":"英語","family":"language"}),
+        json!({"id":"future_filter","value":"live-new","label":"新しい授業形式","family":"other"}),
+    ]);
+    let categories = finder_view(&workspace, courses.clone(), request(json!([]), "")).unwrap();
+    assert!(categories.suggestions.iter().any(
+        |suggestion| matches!(suggestion, Suggestion::Category { key, .. } if key == "level:")
+    ));
+    let levels = finder_view(&workspace, courses.clone(), request(json!([]), "level:6")).unwrap();
+    assert!(levels.live.is_empty());
+    assert_eq!(levels.suggestions.len(), 1);
+    assert!(
+        matches!(&levels.suggestions[0], Suggestion::Condition {condition, ..} if condition.label == "600")
+    );
+    assert!(
+        finder_view(&workspace, courses.clone(), request(json!([]), "level:500"))
+            .unwrap()
+            .suggestions
+            .is_empty()
+    );
+    let graduate = finder_view(
+        &workspace,
+        courses.clone(),
+        request(json!(["6xx", "12時限", "英語", "新しい授業形式"]), ""),
+    )
+    .unwrap();
+    assert_eq!(
+        graduate.plan["queries"][0]["controls"],
+        json!([
+            {"id":"graduate_level","value":"live-600"}, {"id":"graduate_period","value":"live-12"},
+            {"id":"graduate_language","value":"live-en"}, {"id":"future_filter","value":"live-new"},
+        ])
+    );
+    assert_eq!(
+        finder_view(&workspace, courses.clone(), request(json!(["600番台"]), ""))
+            .unwrap()
+            .plan["queries"][0]["controls"][0]["value"],
+        "live-600"
+    );
     // Switching form metadata removes unsupported graduate suggestions, without
     // hardcoding an undergraduate/graduate range in the product vocabulary.
     workspace["kyomuSearchOptions"][0]["label"] = json!("100");

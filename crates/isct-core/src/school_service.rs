@@ -29,6 +29,7 @@ pub struct IngestOutcome {
 pub enum IngestState {
     Ok,
     Unavailable,
+    Maintenance,
     ReconnectRequired,
     Error,
 }
@@ -36,7 +37,10 @@ pub enum IngestState {
 impl IngestState {
     /// Unavailable is a complete capability observation, not a failed pull.
     pub fn is_problem(self) -> bool {
-        matches!(self, Self::ReconnectRequired | Self::Error)
+        matches!(
+            self,
+            Self::Maintenance | Self::ReconnectRequired | Self::Error
+        )
     }
 }
 
@@ -82,6 +86,8 @@ pub enum SchoolExecutorError {
     #[error("{0}")]
     Authentication(String),
     #[error("{0}")]
+    Maintenance(String),
+    #[error("{0}")]
     Storage(String),
     #[error("{0}")]
     Timeout(String),
@@ -113,6 +119,8 @@ pub enum SchoolError {
     #[error("{0}")]
     Authentication(String),
     #[error("{0}")]
+    Maintenance(String),
+    #[error("{0}")]
     Timeout(String),
     #[error("{0}")]
     Stopped(String),
@@ -138,6 +146,7 @@ impl From<PullError> for SchoolError {
                 Self::InvalidInput(message)
             }
             PullError::Authentication(message) => Self::Authentication(message),
+            PullError::Maintenance(message) => Self::Maintenance(message),
             PullError::Storage(message) => Self::Storage(message),
             PullError::Timeout(message) => Self::Timeout(message),
             PullError::ServiceStopped(message) => Self::Stopped(message),
@@ -314,6 +323,7 @@ pub(crate) fn map_executor_error(error: SchoolExecutorError) -> PullError {
     match error {
         SchoolExecutorError::InvalidInput(message) => PullError::InvalidInput(message),
         SchoolExecutorError::Authentication(message) => PullError::Authentication(message),
+        SchoolExecutorError::Maintenance(message) => PullError::Maintenance(message),
         SchoolExecutorError::Storage(message) => PullError::Storage(message),
         SchoolExecutorError::Timeout(message) => PullError::Timeout(message),
         SchoolExecutorError::Stopped(message) => PullError::ServiceStopped(message),
