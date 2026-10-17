@@ -66,6 +66,10 @@ pub struct FinderRow {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Suggestion {
+    Category {
+        key: String,
+        label: String,
+    },
     Condition {
         key: String,
         condition: Condition,
@@ -84,8 +88,21 @@ pub enum Suggestion {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
+#[serde(deny_unknown_fields)]
+pub struct OfficialSelection {
+    pub id: String,
+    pub value: String,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub controls: Option<Vec<OfficialSelection>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub recommended: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub quarters: Option<Vec<u8>>,

@@ -246,6 +246,8 @@ type WorkspaceOptions = {
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
   timeline?: unknown;
   tasks?: unknown;
+  /** Core's `courseDetail` answer, which carries the course's syllabus link. */
+  detail?: unknown;
   handle?: FakeCoreOptions["handle"];
 };
 
@@ -265,6 +267,7 @@ async function openWorkspace(
       queries: {
         courseTimeline: () => options.timeline ?? null,
         taskView: () => options.tasks ?? null,
+        courseDetail: () => options.detail ?? null,
       },
       handle: (command, args) => {
         if (command === "list_course_notes") return [];
@@ -616,7 +619,7 @@ describe("the LMS reading workspace", () => {
       bodyHtml: "",
       url: "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7",
     });
-    const { host } = await openWorkspace(f, { entry: { request: 610 } });
+    const { host, core } = await openWorkspace(f, { entry: { request: 610 } });
 
     const forum = [...host.querySelectorAll(".lmsInlineActivity")].find(
       (item) => item.textContent?.includes("アナウンスメント"),
@@ -627,18 +630,33 @@ describe("the LMS reading workspace", () => {
     await click(buttonByText(host, "Open in LMS"));
     await waitFor(() =>
       expect(host.querySelector(".lmsSourceBar")?.textContent).toContain(
-        "Official LMS",
+        "lms.s.isct.ac.jp",
+      ),
+    );
+    await act(async () =>
+      core.emit("school-web-url", {
+        site: "science-lms",
+        url: "https://docs.google.com/forms/d/test/viewform",
+      }),
+    );
+    await waitFor(() =>
+      expect(host.querySelector(".lmsSourceBar")?.textContent).toBe(
+        "docs.google.com",
       ),
     );
   }, 30_000);
 
   it("hides the redundant syllabus item and opens the syllabus in its own panel", async () => {
     const f = lectureFixture();
-    f.course.offeringId = "20260001";
     f.workspace.materials.push(
       material({ id: "syllabus-item", title: "シラバス", module: "url" }),
     );
-    const { host } = await openWorkspace(f, { entry: { request: 502 } });
+    const { host } = await openWorkspace(f, {
+      entry: { request: 502 },
+      detail: {
+        syllabusUrl: "https://syllabus.s.isct.ac.jp/courses/-/-/-/202600001",
+      },
+    });
 
     expect(
       [...host.querySelectorAll(".lmsItemRow")].some((row) =>

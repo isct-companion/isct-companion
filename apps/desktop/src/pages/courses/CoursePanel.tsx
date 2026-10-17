@@ -1,8 +1,14 @@
 import { ExternalLink } from "../../components/ExternalLink";
 import { Button, Paper } from "@mantine/core";
 import { t } from "../../i18n";
-import { pickLocalized, type Course, type Lang, type Workspace } from "../../lib/model";
+import {
+  pickLocalized,
+  type Course,
+  type Lang,
+  type Workspace,
+} from "../../lib/model";
 import type { FinderCourse } from "../../lib/course-query";
+import type { CourseConflict } from "../../generated/persistence";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
 import { SyllabusDetails } from "./syllabus-details";
 import { CourseDetails } from "./CourseDetails";
@@ -18,10 +24,12 @@ export function CoursePanel({
   close,
   remove,
   editIntensive,
-  lmsUrl,
   openWeb,
   fetchLms,
   progress,
+  conflicts = [],
+  openCourse,
+  findOtherTimes,
 }: {
   course: Course;
   data: Workspace;
@@ -29,13 +37,17 @@ export function CoursePanel({
   close: () => void;
   remove: () => void;
   editIntensive: () => void;
-  /** The course's LMS page, when it is linked to one. */
-  lmsUrl?: string;
   /** Opens an official URL in the Web page. */
   openWeb: (url: string) => void;
   /** Pulls LMS (assignments and materials) without changing the timetable. */
   fetchLms?: () => void;
   progress?: number | null;
+  /** This course's clashes on the quarter template, from Core. */
+  conflicts?: CourseConflict[];
+  /** Shows another timetable course in this panel. */
+  openCourse?: (courseId: string) => void;
+  /** Searches the syllabus for this course's other class times. */
+  findOtherTimes?: () => void;
 }) {
   const registered = data.memberships.some(
     (item) =>
@@ -66,11 +78,50 @@ export function CoursePanel({
           </button>
         </div>
       </header>
+      {conflicts.length > 0 && (
+        <section
+          className="coursePanelConflict"
+          aria-label={t("Time conflict")}
+        >
+          <b>{t("Time conflict")}</b>
+          <ul>
+            {conflicts.map((conflict) => (
+              <li
+                key={`${conflict.day}-${conflict.startTime}-${conflict.withCourseId ?? conflict.withTitle}`}
+              >
+                <span className="num">
+                  {FINDER_DAYS[conflict.day - 1]} {conflict.startTime}–
+                  {conflict.endTime}
+                </span>
+                <span>{conflict.withTitle}</span>
+                {conflict.withCourseId && openCourse && (
+                  <button
+                    type="button"
+                    className="textButton"
+                    onClick={() => openCourse(conflict.withCourseId!)}
+                  >
+                    {t("Open")}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p>
+            {t(
+              "Keep one: open the other course, or find another time for this one.",
+            )}
+          </p>
+          {!readOnly && findOtherTimes && (
+            <Button size="xs" variant="light" onClick={findOtherTimes}>
+              {t("Find another class time")}
+            </Button>
+          )}
+        </section>
+      )}
       <CourseDetails
         key={course.id}
         course={course}
         data={data}
-        lmsUrl={lmsUrl}
         openWeb={openWeb}
         fetchLms={fetchLms}
         progress={progress}
@@ -124,7 +175,13 @@ export function OfferingPanel({
     )
     .join(" / ");
   return (
-    <Paper component="aside" className="listCard coursePanel" withBorder shadow="xs" radius="md">
+    <Paper
+      component="aside"
+      className="listCard coursePanel"
+      withBorder
+      shadow="xs"
+      radius="md"
+    >
       <header>
         <div className="finderTitle">
           <b>{pickLocalized(course.title, language)}</b>
@@ -146,7 +203,11 @@ export function OfferingPanel({
           <dt>{t("Schedule")}</dt>
           <dd>{course.detailed === false ? "…" : times || "—"}</dd>
           <dt>{t("Instructor")}</dt>
-          <dd>{course.instructors.map((name) => pickLocalized(name, language)).join(" / ") || "—"}</dd>
+          <dd>
+            {course.instructors
+              .map((name) => pickLocalized(name, language))
+              .join(" / ") || "—"}
+          </dd>
           <dt>{t("Credits")}</dt>
           <dd>
             {course.detailed === false
@@ -157,9 +218,7 @@ export function OfferingPanel({
         <SyllabusDetails
           url={course.syllabusUrl}
           fetchCourse={
-            bridge
-              ? (url) => bridge.syllabusCourse(url, language)
-              : undefined
+            bridge ? (url) => bridge.syllabusCourse(url, language) : undefined
           }
         />
       </div>
@@ -170,8 +229,16 @@ export function OfferingPanel({
               {t("Replaces")} {replaces.join(", ")}
             </span>
           )}
-          <Button disabled={placed} color={replaces.length ? "orange" : undefined} onClick={add}>
-            {placed ? t("On timetable") : replaces.length ? t("Replace") : t("Add")}
+          <Button
+            disabled={placed}
+            color={replaces.length ? "orange" : undefined}
+            onClick={add}
+          >
+            {placed
+              ? t("On timetable")
+              : replaces.length
+                ? t("Replace")
+                : t("Add")}
           </Button>
         </footer>
       )}

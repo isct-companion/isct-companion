@@ -1,0 +1,24 @@
+.otpSetupField {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.otpSetupRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.otpSetupRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.otpSetupRow > :last-child {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .otpSetupRow {
+    flex-wrap: wrap;
+  }
+  .otpSetupRow > :first-child {
+    flex-basis: 100%;
+  }
+}

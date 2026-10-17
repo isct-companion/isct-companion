@@ -32,6 +32,8 @@ pub enum PullError {
     #[error("{0}")]
     Authentication(String),
     #[error("{0}")]
+    Maintenance(String),
+    #[error("{0}")]
     Network(String),
     #[error("{0}")]
     Storage(String),
@@ -990,7 +992,11 @@ impl PullCoordinator {
                             let target = job.target.clone();
                             remove_key_if_current(&mut state, &target, &id);
                         }
-                        Err(error) if !closed && job.attempt <= job.retry_limit => {
+                        Err(error)
+                            if !closed
+                                && job.attempt <= job.retry_limit
+                                && !matches!(error, PullError::Maintenance(_)) =>
+                        {
                             let transition = reduce(job.state, PullEvent::WaitRetry);
                             job.state = transition.state;
                             job.phase = Some("retryWaiting".into());

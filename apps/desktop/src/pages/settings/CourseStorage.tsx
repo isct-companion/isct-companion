@@ -29,7 +29,7 @@ export function CourseStorage() {
   return (
     <div className="courseStorageSettings" data-setting="folder">
       <b>{t("Course folder")}</b>
-      <p>{info?.root}</p>
+      <p>{info?.root && (info.custom ? info.root : t(info.root))}</p>
       <small>{t("Changing it only affects new downloads.")}</small>
       <div className="actions">
         {info?.canChoose && (

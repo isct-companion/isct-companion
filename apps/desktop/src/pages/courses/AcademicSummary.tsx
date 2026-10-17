@@ -1,4 +1,4 @@
-import { Button, Paper, Popover } from "@mantine/core";
+import { Button, Paper, Popover, Text } from "@mantine/core";
 import { useState } from "react";
 import { PullRing } from "../../components/PullRing";
 import i18n, { t, intlLocale } from "../../i18n";
@@ -76,6 +76,11 @@ export function AcademicSummary({
                   {termCredits} <small>{t("credits")}</small>
                 </b>
               </div>
+              <Text size="xs" c="dimmed">
+                {t(
+                  "Credits for multi-quarter courses are split equally across quarters.",
+                )}
+              </Text>
               <div className="academicGradeDetails">
                 {unavailable && (
                   <div className="academicAvailability" role="status">

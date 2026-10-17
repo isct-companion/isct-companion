@@ -19,6 +19,7 @@ import {
   Toggle,
 } from "../../components/forms";
 import { formatDay } from "./subscription-status";
+import { useDeveloperMode } from "./DeveloperSettings";
 
 const providerName: Record<CloudSyncProvider, string> = {
   icloud: "iCloud",
@@ -40,6 +41,8 @@ export function BackupSettings({
   notify: (message: string) => void;
 }) {
   const locale = data.settings.locale;
+  // Version hashes and task ids help debugging, not everyday backup.
+  const [developer] = useDeveloperMode();
   const [sync, setSync] = useState<CloudSyncState | null>(null);
   const [syncError, setSyncError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -186,17 +189,12 @@ export function BackupSettings({
   return (
     <>
       <SettingsHeader title="Backup" />
-      <SettingsGroup
-        title="Sync"
-        footer={t(
-          "Upload merges your changes into the cloud. Pull brings cloud changes here without uploading. Mixed-platform devices should all connect the same Google Drive account.",
-        )}
-      >
+      <SettingsGroup title="Sync">
         {(!syncAvailable || syncError) && (
           <Row
             id="cloud"
             group
-            title="Sync"
+            title="Cloud sync"
             hint={syncError ?? caps["cloud-sync"].reason}
           >
             <span />
@@ -205,12 +203,8 @@ export function BackupSettings({
         {syncAvailable && (
           <Row
             id="sync-automatic"
-            title="Auto"
-            hint={
-              sync?.automatic
-                ? "Every saved change queues an update. Interrupted tasks resume automatically."
-                : "Manual mode. Use Upload or Pull; previously submitted tasks still resume."
-            }
+            title="Sync automatically"
+            hint={sync?.automatic ? undefined : "Upload and pull by hand"}
           >
             <Toggle
               checked={sync?.automatic ?? false}
@@ -278,7 +272,7 @@ export function BackupSettings({
             </div>
           </Row>
         )}
-        {sync?.localVersion && (
+        {developer && sync?.localVersion && (
           <p className="settingsNote">
             {t("Local version")} · <code>{sync.localVersion.slice(0, 15)}</code>
           </p>
@@ -288,7 +282,11 @@ export function BackupSettings({
             key={task.id}
             group
             title={task.direction === "upload" ? "Upload" : "Pull"}
-            hint={`${when(task.createdAt)} · ${task.version.slice(0, 15)} · ${task.id}`}
+            hint={
+              developer
+                ? `${when(task.createdAt)} · ${task.version.slice(0, 15)} · ${task.id}`
+                : when(task.createdAt)
+            }
           >
             <span className="syncDeliveries">
               {task.deliveries.map((d) => (
@@ -312,12 +310,7 @@ export function BackupSettings({
         ))}
       </SettingsGroup>
       {versions.length > 0 && (
-        <SettingsGroup
-          title="Earlier versions"
-          footer={t(
-            "Two recent versions and seven daily recovery points are kept separately from sync.",
-          )}
-        >
+        <SettingsGroup title="Earlier versions">
           {versions.map((version) => (
             <Row
               key={version.id}

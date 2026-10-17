@@ -238,12 +238,12 @@ export function WeekTimetable({
                       height: `${position.heightPercent}%`,
                     } as React.CSSProperties
                   }
-                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}${block.conflictWith?.length ? ` · Overlaps ${block.conflictWith.join(", ")}` : ""}`}
+                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}${block.conflictWith?.length ? ` · ${t("Overlaps {{courses}}", { courses: block.conflictWith.join(", ") })}` : ""}`}
                   key={block.key}
                   onClick={() => onSelect?.(block)}
                 >
                   {block.kind === "exam" && (
-                    <span className="ttExamBand">EXAM · {block.timeLabel}</span>
+                    <span className="ttExamBand">{t("Exam")} · {block.timeLabel}</span>
                   )}
                   <b>{block.title}</b>
                   {block.room && <small className="ttRoom">{block.room}</small>}
@@ -255,7 +255,7 @@ export function WeekTimetable({
                   {block.subtitle && <span className="ttCode">{block.subtitle}</span>}
                   {block.conflictWith?.length ? (
                     <small className="ttConflict">
-                      Overlaps {block.conflictWith.join(", ")}
+                      {t("Overlaps {{courses}}", { courses: block.conflictWith.join(", ") })}
                     </small>
                   ) : null}
                 </UiButton>
@@ -306,7 +306,7 @@ export function WeekTimetable({
                   <b>{block.title}</b>
                   <small>
                     {[
-                      block.kind === "exam" ? `EXAM · ${block.timeLabel}` : block.subtitle,
+                      block.kind === "exam" ? `${t("Exam")} · ${block.timeLabel}` : block.subtitle,
                       block.alternation && alternationLabel(block.alternation),
                       block.room,
                     ]
@@ -315,14 +315,14 @@ export function WeekTimetable({
                   </small>
                   {block.conflictWith?.length ? (
                     <small className="ttConflict">
-                      Overlaps {block.conflictWith.join(", ")}
+                      {t("Overlaps {{courses}}", { courses: block.conflictWith.join(", ") })}
                     </small>
                   ) : null}
                 </span>
               </UiButton>
             ))
           ) : (
-            <div className="empty">{emptyLabel}</div>
+            <div className="empty">{t(emptyLabel)}</div>
           )}
         </div>
       </div>

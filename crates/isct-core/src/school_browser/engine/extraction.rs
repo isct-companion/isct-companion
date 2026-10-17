@@ -24,6 +24,8 @@ pub(super) struct Extraction {
 pub(super) struct CatalogPage {
     cursor: Option<String>,
     next_cursor: String,
+    #[serde(flatten)]
+    filters: crate::catalog::CatalogFilters,
 }
 
 /// A hidden pull navigation. It owns automatic sign-in in its view and is
@@ -84,6 +86,7 @@ impl SchoolBrowserEngine {
         &self,
         url: &str,
         cursor: Option<String>,
+        filters: crate::catalog::CatalogFilters,
         context: &PullContext,
     ) -> Result<serde_json::Value, SchoolBrowserError> {
         if cursor
@@ -97,48 +100,55 @@ impl SchoolBrowserEngine {
         let page = CatalogPage {
             cursor,
             next_cursor: new_id(),
+            filters,
         };
         tokio::time::timeout(OPEN_TIMEOUT, async {
-            loop {
-                self.wait_until_hidden(context).await?;
-                let lane = self.acquire_pull_lane(context).await?;
-                let result = self
-                    .capture_page(
-                        SchoolSite::Kyomu,
-                        Some(page.clone()),
-                        url,
-                        None,
-                        false,
-                        PAGE_TIMEOUT,
-                        context,
-                    )
-                    .await;
-                drop(lane);
-                match result {
-                    Err(SchoolBrowserError::Preempted) if !context.is_cancelled() => continue,
-                    Err(error) => return Err(error),
-                    Ok(HiddenLoad::SignInRequired) => {
+            // A search is interactive: yield immediately to the person's
+            // Web page rather than occupying the school queue while hidden.
+            if self.0.state.guard().browsing.is_some() {
+                return Err(SchoolBrowserError::Preempted);
+            }
+            let lane = self.acquire_pull_lane(context).await?;
+            let result = self
+                .capture_page(
+                    SchoolSite::Kyomu,
+                    Some(page.clone()),
+                    url,
+                    None,
+                    false,
+                    PAGE_TIMEOUT,
+                    context,
+                )
+                .await;
+            drop(lane);
+            match result {
+                Err(error) => return Err(error),
+                Ok(HiddenLoad::SignInRequired) => {
+                    return Err(SchoolBrowserError::Auth(
+                        "Sign in to 教務Web in Settings to search courses.".into(),
+                    ))
+                }
+                Ok(HiddenLoad::Ready(raw)) => {
+                    let (stage, payload) = parse_kyomu_payload(&raw)
+                        .map_err(|e| SchoolBrowserError::InvalidInput(e.to_string()))?;
+                    if stage == KyomuStage::Maintenance {
+                        let message = payload.map(|p| p.message).unwrap_or_default();
+                        self.0.report_kyomu_maintenance(&message);
+                        return Err(SchoolBrowserError::Maintenance(message));
+                    }
+                    if stage != KyomuStage::Ready {
                         return Err(SchoolBrowserError::Auth(
-                            "Sign in to 教務Web in Settings to search courses.".into(),
-                        ))
+                            "Reconnect 教務Web to search courses.".into(),
+                        ));
                     }
-                    Ok(HiddenLoad::Ready(raw)) => {
-                        let (stage, payload) = parse_kyomu_payload(&raw)
-                            .map_err(|e| SchoolBrowserError::InvalidInput(e.to_string()))?;
-                        if stage != KyomuStage::Ready {
-                            return Err(SchoolBrowserError::Auth(
-                                "Reconnect 教務Web to search courses.".into(),
-                            ));
-                        }
-                        return payload
-                            .filter(|p| p.kind == "catalog")
-                            .map(|p| p.data)
-                            .ok_or_else(|| {
-                                SchoolBrowserError::InvalidInput(
-                                    "The official course result is incomplete.".into(),
-                                )
-                            });
-                    }
+                    return payload
+                        .filter(|p| p.kind == "catalog")
+                        .map(|p| p.data)
+                        .ok_or_else(|| {
+                            SchoolBrowserError::InvalidInput(
+                                "The official course result is incomplete.".into(),
+                            )
+                        });
                 }
             }
         })
@@ -218,6 +228,16 @@ impl SchoolBrowserEngine {
                             | SchoolBrowserError::Preempted
                             | SchoolBrowserError::Stopped),
                         ) => return Err(error),
+                        Err(SchoolBrowserError::Maintenance(message)) => {
+                            outcomes.push(IngestOutcome {
+                                site,
+                                kind: "service".into(),
+                                state: IngestState::Maintenance,
+                                changed: 0,
+                                message,
+                            });
+                            break;
+                        }
                         Err(error) if outcomes.is_empty() => return Err(error),
                         Err(error) => {
                             outcomes.push(IngestOutcome {
@@ -230,7 +250,10 @@ impl SchoolBrowserEngine {
                             break;
                         }
                     };
-                    let stop = outcome.state == IngestState::ReconnectRequired;
+                    let stop = matches!(
+                        outcome.state,
+                        IngestState::ReconnectRequired | IngestState::Maintenance
+                    );
                     outcomes.push(outcome);
                     if stop {
                         break;
@@ -260,6 +283,9 @@ impl SchoolBrowserEngine {
             let mut state = self.0.state.guard();
             if state.browsing.is_some() {
                 return Err(SchoolBrowserError::Preempted);
+            }
+            if let Some(view) = state.views.get_mut(&site) {
+                view.background_navigation = true;
             }
             state.hidden = Some(HiddenWork {
                 browser,
@@ -302,11 +328,28 @@ impl SchoolBrowserEngine {
                             return Ok(HiddenLoad::SignInRequired);
                         }
                     }
+                    Ok(Trace::Session {
+                        profile,
+                        state: SchoolSessionState::Maintenance,
+                    }) if signing_in == Some(profile) => {
+                        return Err(SchoolBrowserError::Maintenance(
+                            self.0
+                                .state
+                                .with(|state| state.kyomu_maintenance.clone())
+                                .unwrap_or_else(|| "School service under maintenance.".into()),
+                        ));
+                    }
                     Ok(Trace::Session { profile, state })
                         if signing_in == Some(profile)
                             && sign_in_settled_without_session(state) =>
                     {
                         return Ok(HiddenLoad::SignInRequired)
+                    }
+                    Ok(Trace::Maintenance {
+                        browser: found,
+                        message,
+                    }) if found == browser => {
+                        return Err(SchoolBrowserError::Maintenance(message));
                     }
                     Ok(Trace::Failed(event)) if event.page.browser == browser => {
                         return Err(SchoolBrowserError::Platform(event.message))
@@ -366,6 +409,9 @@ impl SchoolBrowserEngine {
                 visible: false,
                 catalog_page,
             });
+            if let Some(view) = state.views.get_mut(&site) {
+                view.background_navigation = true;
+            }
             state.hidden = Some(HiddenWork {
                 browser,
                 run: run.clone(),
@@ -401,6 +447,17 @@ impl SchoolBrowserEngine {
                             return Ok(HiddenLoad::SignInRequired);
                         }
                     }
+                    Ok(Trace::Session {
+                        profile,
+                        state: SchoolSessionState::Maintenance,
+                    }) if signing_in == Some(profile) => {
+                        return Err(SchoolBrowserError::Maintenance(
+                            self.0
+                                .state
+                                .with(|state| state.kyomu_maintenance.clone())
+                                .unwrap_or_else(|| "School service under maintenance.".into()),
+                        ));
+                    }
                     Ok(Trace::Session { profile, state })
                         if signing_in == Some(profile)
                             && sign_in_settled_without_session(state) =>
@@ -408,6 +465,12 @@ impl SchoolBrowserEngine {
                         return Ok(HiddenLoad::SignInRequired)
                     }
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
+                    Ok(Trace::Maintenance {
+                        browser: found,
+                        message,
+                    }) if found == browser => {
+                        return Err(SchoolBrowserError::Maintenance(message));
+                    }
                     Ok(Trace::Failed(event)) if event.page.browser == browser => {
                         return Err(SchoolBrowserError::Platform(event.message))
                     }
@@ -462,6 +525,15 @@ impl SchoolBrowserEngine {
         // can be cancelled again.
         context.applied().await;
         let outcome = applied.map_err(|_| SchoolBrowserError::Stopped)??;
+        if site == SchoolSite::Kyomu
+            && outcome.state == IngestState::Ok
+            && self.0.state.with(|state| {
+                state.sessions.get(&SchoolAuthProfile::TokyoTech)
+                    == Some(&SchoolSessionState::Maintenance)
+            })
+        {
+            self.set_session(SchoolAuthProfile::TokyoTech, SchoolSessionState::Active);
+        }
         let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
         Ok(outcome)
     }
@@ -547,8 +619,15 @@ struct ProgressRelay {
 }
 
 pub(super) fn extraction_script(setup: &str, script: &str, relay: &str, run: &str) -> String {
-    let run = serde_json::to_string(run).unwrap_or_else(|_| "\"\"".into());
-    format!("{setup}Promise.resolve({script}).then(v=>{{if(v&&typeof v==='object')v._isctExtractionRun={run};return v}}).then(v=>location.href='{relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''))")
+    let quoted = |value: &str| serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into());
+    let body = include_str!("../assets/extraction-relay.js")
+        .replace("__ISCT_RELAY__", &quoted(relay))
+        .replace("__ISCT_RUN__", &quoted(run))
+        .replace("__ISCT_EXTRACTOR__", script);
+    format!(
+        "{}{setup}{body}",
+        include_str!("../assets/kyomu-maintenance.js")
+    )
 }
 
 pub(super) fn ingestion_script(raw: &str) -> Option<&'static str> {
@@ -623,6 +702,15 @@ pub(super) fn apply_raw(
                     .map(|changed| (kind.clone(), changed))
                     .map_err(|error| (kind, Some(error.to_string())))
             }
+            Ok((KyomuStage::Maintenance, Some(payload))) => {
+                return Ok(IngestOutcome {
+                    site,
+                    kind: payload.kind,
+                    state: IngestState::Maintenance,
+                    changed: 0,
+                    message: payload.message,
+                });
+            }
             Ok((KyomuStage::Unavailable, Some(payload))) => {
                 let kind = payload.kind.clone();
                 let message = payload.message.clone();
@@ -649,7 +737,12 @@ pub(super) fn apply_raw(
                     .unwrap_or_else(|| "session".into()),
                 None,
             )),
-            Err(error) => Err(("unknown".into(), Some(error.to_string()))),
+            Err(error) => Err((
+                crate::school_parser::kyomu::source_kind(raw)
+                    .unwrap_or("unknown")
+                    .into(),
+                Some(error.to_string()),
+            )),
         }
     };
     Ok(match applied {

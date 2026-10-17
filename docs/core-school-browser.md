@@ -18,7 +18,7 @@ shells must not create a second login queue or session state machine.
 Core owns:
 
 - the resident logical view for each `SchoolSite`;
-- the school URL allowlist and query sanitization;
+- official-origin and query validation for automation and persisted restore URLs;
 - login attempts, saved-credential renewal and session state;
 - the hidden extraction lane, priority, preemption, cancellation and apply
   boundary;
@@ -42,6 +42,33 @@ re-checks visibility after it is admitted to the lane and refuses to start while
 a page is shown, so work that waited for the lane never navigates a page the
 person has just opened.
 The shell must keep this fact aligned with native presentation.
+
+## Interactive browsing versus automation
+
+The official-origin allowlist is an automation boundary, not a browsing sandbox.
+User-initiated open/navigation preserves HTTP(S) query parameters and fragments;
+external search and linked forms stay in the visible resident workspace. Official
+service links can still select their own service view. Back/Forward retains the
+full interactive address. External URLs are not written to the school restore
+record, and official restore URLs retain their existing sanitization.
+
+Empty `about:blank` / `about:srcdoc` frames are admitted so rich editors such as
+TinyMCE can create their inherited-origin editing document. Desktop's Tauri
+navigation callback does not expose a frame flag; the portable listener's flag
+cannot reliably distinguish these on desktop, so empty frame URLs are admitted
+without relying on that flag. These pages receive no school automation scripts.
+
+While a view is visible, ordinary external web navigation is allowed. Hidden
+extraction and login keep their strict official-origin validation. An external
+page load only updates interactive location/history: it receives no credential,
+extraction, submission or school customization injection. Remote web content has
+no application IPC grant; the Tauri capability remains local-shell-only.
+
+Native IME, focus, paste and live TinyMCE behavior are covered by the existing
+`SCHOOL-ASSIGNMENT-UPLOAD` manual check. Automated engine tests cover navigation
+admission, external-page script isolation, complete URLs, history and the switch
+back to hidden restrictions. Shell tests cover address submission and the reader
+showing the actual destination hostname rather than an incorrect official label.
 
 ## Port and dispatch contract
 

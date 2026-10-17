@@ -132,6 +132,7 @@ fn services(
     events: Arc<dyn EventSink>,
 ) -> SchedulerServices {
     let coordinator = PullCoordinator::default();
+    let refresh = SchoolRefresh::new(PullNetwork::Wifi);
     SchedulerServices {
         store: store.clone(),
         references: ReferenceService::new(store.clone(), coordinator.clone(), events.clone()),
@@ -139,8 +140,9 @@ fn services(
             coordinator,
             Arc::new(SchoolAuthService::new(MemoryVault)),
             events.clone(),
+            refresh.clone(),
         ),
-        refresh: SchoolRefresh::new(PullNetwork::Wifi),
+        refresh,
         executor: Arc::new(NoopExecutor),
         exporter,
         events,

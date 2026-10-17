@@ -227,6 +227,18 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
         view.default_finder_keys,
         vec!["curr".to_string(), "情報工学系".to_string()]
     );
+    let WorkspaceQueryResult::WorkspaceOverview(future) = query(
+        &data,
+        WorkspaceQuery::WorkspaceOverview {
+            term: "2027-1Q".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("expected explicit quarter overview")
+    };
+    assert_eq!(future.default_finder_keys, vec!["1Q", "情報工学系"]);
+    assert_eq!(future.courses_term, "2026-1Q");
+    assert_eq!(future.term, "2027-1Q");
 }
 
 #[test]
@@ -1145,6 +1157,36 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     assert_eq!(view.exam_ids, ["early", "late"]);
     assert_eq!(view.offering_id.as_deref(), Some("o"));
     assert!(course_detail(&data, "unknown").material_ids.is_empty());
+
+    // Links: the LMS record matched by offering, then the syllabus by offering id.
+    assert_eq!(view.lms_url, None);
+    assert_eq!(
+        view.syllabus_url.as_deref(),
+        Some("https://syllabus.s.isct.ac.jp/courses/-/-/-/o")
+    );
+    let mut linked = data.clone();
+    linked["lmsCourses"] = json!([
+        {"lmsId":7,"offeringId":"other","url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=7"},
+        {"lmsId":8,"offeringId":"o","url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=8"}
+    ]);
+    linked["offerings"][0]["syllabusUrl"] = json!("https://syllabus.s.isct.ac.jp/courses/2026/x");
+    let view = course_detail(&linked, "c");
+    assert_eq!(
+        view.lms_url.as_deref(),
+        Some("https://lms.s.isct.ac.jp/2026/course/view.php?id=8")
+    );
+    assert_eq!(
+        view.syllabus_url.as_deref(),
+        Some("https://syllabus.s.isct.ac.jp/courses/2026/x")
+    );
+    // An LMS-sourced course links to itself and has no syllabus without an offering.
+    let lms = json!({"courses":[{"id":"l","source":{"provider":"lms","externalId":"9"},"url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=9"}]});
+    let view = course_detail(&lms, "l");
+    assert_eq!(
+        view.lms_url.as_deref(),
+        Some("https://lms.s.isct.ac.jp/2026/course/view.php?id=9")
+    );
+    assert_eq!(view.syllabus_url, None);
 }
 
 #[test]
@@ -1373,4 +1415,64 @@ fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
         data["settings"]["notifications"]["assignmentLeadMinutes"] = invalid;
         assert!(notification_plan(&data, from, to, None).is_err());
     }
+}
+
+#[test]
+fn contained_import_slots_do_not_make_a_course_conflict_with_itself() {
+    let mut data = workspace();
+    data["courses"][0]["meetings"] = json!([
+        {"days":[1],"periods":[5,6,7,8],"room":"M-156"},
+        {"days":[1],"periods":[7,8],"room":"M-156"},
+        {"days":[4],"periods":[5,6,7,8],"room":"M-156"},
+        {"days":[4],"periods":[5,6],"room":"M-156"}
+    ]);
+    let template = planning_week(&data, "2026-1Q").unwrap();
+    assert_eq!(template.conflict_count, 0);
+    assert_eq!(template.days[0].blocks.len(), 1);
+    assert_eq!(template.days[3].blocks.len(), 1);
+    let daily =
+        occurrences_on_date(&data, "2026-1Q", "2026-04-13", AgendaOptions::default()).unwrap();
+    assert_eq!(daily.len(), 1);
+    assert_eq!(
+        (&daily[0].start_time, &daily[0].end_time),
+        (&"13:30".to_string(), &"17:05".to_string())
+    );
+    let mut other = data["courses"][0].clone();
+    other["id"] = json!("other");
+    other["title"] = json!("Other course");
+    other["meetings"] = json!([{"days":[1],"periods":[7,8],"room":"M-156"}]);
+    data["courses"].as_array_mut().unwrap().push(other);
+    data["memberships"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"other-member","courseId":"other","termId":"2026-1Q"}));
+    let clash = planning_week(&data, "2026-1Q").unwrap();
+    assert_eq!(clash.conflict_count, 1);
+    // Each side names the other, so a click on either block can explain it.
+    let first = data["courses"][0]["id"].as_str().unwrap().to_string();
+    let mut pairs: Vec<_> = clash
+        .conflicts
+        .iter()
+        .map(|c| (c.course_id.clone(), c.with_course_id.clone(), c.day))
+        .collect();
+    pairs.sort();
+    let mut expected = vec![
+        (first.clone(), Some("other".to_string()), 1),
+        ("other".to_string(), Some(first), 1),
+    ];
+    expected.sort();
+    assert_eq!(pairs, expected);
+    let title = data["courses"][0]["title"].as_str().unwrap().to_string();
+    let named = |id: &str| {
+        clash.days[0]
+            .blocks
+            .iter()
+            .find(|b| b.course_id.as_deref() == Some(id))
+            .and_then(|b| b.conflict_with.clone())
+    };
+    assert_eq!(named("other"), Some(vec![title]));
+    assert_eq!(
+        named(data["courses"][0]["id"].as_str().unwrap()),
+        Some(vec!["Other course".to_string()])
+    );
 }

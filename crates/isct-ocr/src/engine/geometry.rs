@@ -466,11 +466,14 @@ pub fn locate(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
     )
 }
 pub fn crop(image: &RgbImage, corners: &[Point; 4]) -> RgbImage {
-    image::ImageBuffer::from_fn(64, 64, |x, y| {
+    crop_at(image, corners, 64)
+}
+pub(super) fn crop_at(image: &RgbImage, corners: &[Point; 4], size: u32) -> RgbImage {
+    image::ImageBuffer::from_fn(size, size, |x, y| {
         let p = project(
             corners,
-            0.09 + x as f64 / 63. * 0.82,
-            0.09 + y as f64 / 63. * 0.82,
+            0.09 + x as f64 / size.saturating_sub(1).max(1) as f64 * 0.82,
+            0.09 + y as f64 / size.saturating_sub(1).max(1) as f64 * 0.82,
         );
         *image.get_pixel(
             round(p.x).clamp(0., (image.width() - 1) as f64) as u32,

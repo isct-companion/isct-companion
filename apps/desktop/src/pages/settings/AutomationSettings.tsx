@@ -5,12 +5,7 @@ import { t } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../lib/model";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import { UiButton } from "../../components/mantine";
-import {
-  Row,
-  SettingsGroup,
-  SettingsHeader,
-  Toggle,
-} from "../../components/forms";
+import { Row, SettingsGroup, Toggle } from "../../components/forms";
 import { formatDay } from "./subscription-status";
 
 const TASKS: Partial<
@@ -34,6 +29,7 @@ const TASKS: Partial<
   },
 };
 
+/** Jobs the app runs on its own while it is open; shown inside Data updates. */
 /** Plain-language summary of the simple RRULEs the app creates. */
 function describeSchedule(schedule: string) {
   if (schedule === "launch") return t("When the app starts");
@@ -84,11 +80,7 @@ export function AutomationSettings({
   };
   return (
     <>
-      <SettingsHeader
-        title="Automation"
-        description="Jobs the app runs on its own while it is open. Nothing runs when the app is closed."
-      />
-      <SettingsGroup>
+      <SettingsGroup title="Scheduled tasks">
         {tasks.length === 0 && (
           <p className="paneEmpty">{t("No scheduled tasks")}</p>
         )}

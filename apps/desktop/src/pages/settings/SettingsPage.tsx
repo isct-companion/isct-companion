@@ -231,19 +231,20 @@ export function Settings({
       <FilesSettings data={data} update={update} />
     ) : current === "backup" ? (
       <BackupSettings data={data} update={update} caps={caps} notify={notify} />
-    ) : current === "sources" ? (
+    ) : current === "sources" || current === "automation" ? (
       <DataUpdatesSettings
         data={data}
         update={update}
         platform={platform}
         refreshReferences={refreshReferences}
         notify={notify}
-      />
-    ) : current === "automation" ? (
-      <AutomationSettings
-        data={data}
-        mutate={mutate}
-        runScheduledTask={runScheduledTask}
+        tasks={
+          <AutomationSettings
+            data={data}
+            mutate={mutate}
+            runScheduledTask={runScheduledTask}
+          />
+        }
       />
     ) : current === "developer" ? (
       <DeveloperSettings

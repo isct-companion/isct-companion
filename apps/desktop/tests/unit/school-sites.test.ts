@@ -1422,3 +1422,56 @@ describe("assignment upload injection", () => {
     expect(changed.drops).toHaveLength(0);
   });
 });
+
+describe("complete native extraction relay", () => {
+  const render = (extractor: string) =>
+    readScript("extraction-relay.js")
+      .replace(
+        "__ISCT_RELAY__",
+        JSON.stringify("isct-companion-extract://test/"),
+      )
+      .replace("__ISCT_RUN__", JSON.stringify("run-test"))
+      .replace("__ISCT_EXTRACTOR__", extractor);
+  const execute = async (extractor: string) => {
+    const location = { href: "https://example.invalid/" };
+    runInNewContext(render(extractor), {
+      location,
+      btoa: (text: string) => Buffer.from(text, "binary").toString("base64"),
+      unescape,
+      encodeURIComponent,
+    });
+    await vi.waitFor(() =>
+      expect(location.href).toMatch(/^isct-companion-extract:/),
+    );
+    return JSON.parse(
+      Buffer.from(location.href.split("test/")[1], "base64url").toString(
+        "utf8",
+      ),
+    );
+  };
+  it("executes real semicolon-terminated scripts and relays async failures instead of timing out", async () => {
+    for (const name of ["kyomu-extract.js", "kyomu-search.js"]) {
+      const result = await execute(readScript(name));
+      expect(result._isctExtractionRun).toBe("run-test");
+      expect(result.status).toBeDefined();
+    }
+    expect(
+      await execute(
+        "// leading comment\n(async () => ({ status: 'ok', title: '日本語' }))();",
+      ),
+    ).toMatchObject({
+      status: "ok",
+      title: "日本語",
+      _isctExtractionRun: "run-test",
+    });
+    expect(
+      await execute(
+        "(async () => { throw new Error('private page contents'); })();",
+      ),
+    ).toMatchObject({
+      status: "error",
+      error: "School page extraction failed.",
+      _isctExtractionRun: "run-test",
+    });
+  });
+});

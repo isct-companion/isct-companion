@@ -12,6 +12,8 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
+import { OtpSetupInput } from "../../components/OtpSetupInput";
+import { MatrixCamera } from "../../components/MatrixCamera";
 import { UiInput } from "../../components/mantine";
 import { confirmAction } from "../../components/confirm";
 import { t } from "../../i18n";
@@ -82,6 +84,12 @@ type Connection = {
 };
 
 function SignInSteps({ connection }: { connection: Connection }) {
+  if (connection.state === "maintenance")
+    return (
+      <Text c="yellow" size="sm">
+        {t("Under maintenance")}
+      </Text>
+    );
   const connected = connection.state === "connected";
   const current = connected
     ? STEPS.length - 1
@@ -111,7 +119,7 @@ function SignInSteps({ connection }: { connection: Connection }) {
                     : "dimmed"
             }
           >
-            {step.label}
+            {t(step.label)}
           </Text>
         ))}
       </Group>
@@ -156,6 +164,13 @@ function MatrixEditor({
 }) {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const [recognizing, setRecognizing] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const scanState = useRef(onScanState);
+  scanState.current = onScanState;
+  useEffect(() => {
+    scanState.current(cameraOpen || recognizing);
+    return () => scanState.current(false);
+  }, [cameraOpen, recognizing]);
   const resetScanInput = useRef<(() => void) | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [confidence, setConfidence] = useState<Array<number | undefined>>([]);
@@ -223,12 +238,45 @@ function MatrixEditor({
   return (
     <div className="matrixEditor">
       <div className="matrixTools">
-        <b>Matrix</b>
+        <b>{t("Matrix")}</b>
         <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
+        {matrixOcrAvailable && (
+          <Button
+            variant="default"
+            size="compact-xs"
+            disabled={recognizing || disabled || cameraOpen}
+            onClick={() => {
+              setCameraOpen(true);
+              onScanState(true);
+            }}
+          >
+            {t("Scan with camera")}
+          </Button>
+        )}
+        {cameraOpen && (
+          <MatrixCamera
+            onClose={() => {
+              setCameraOpen(false);
+              onScanState(false);
+            }}
+            onComplete={(cells) => {
+              onBeginEdit();
+              onChange(cells.map((cell) => cell.text));
+              setConfidence(cells.map((cell) => cell.confidence));
+              setCameraOpen(false);
+              onScanState(false);
+              notify(
+                t(
+                  "Scan complete. Verify all letters against your card; highlighted cells need review.",
+                ),
+              );
+            }}
+          />
+        )}
         {matrixOcrAvailable && (
           <FileButton
             resetRef={resetScanInput}
-            disabled={recognizing || disabled}
+            disabled={recognizing || disabled || cameraOpen}
             onChange={(file) => void recognize(file ?? undefined)}
             accept="image/*,.heic,.heif"
           >
@@ -240,7 +288,9 @@ function MatrixEditor({
                 loading={recognizing}
                 disabled={disabled}
               >
-                {recognizing ? `Reading ${scanProgress}/70…` : "Scan image"}
+                {recognizing
+                  ? t("Reading {{count}}/70…", { count: scanProgress })
+                  : t("Scan image")}
               </Button>
             )}
           </FileButton>
@@ -249,30 +299,26 @@ function MatrixEditor({
           <Button
             variant="default"
             size="compact-xs"
-            disabled={recognizing || disabled}
+            disabled={recognizing || disabled || cameraOpen}
             onClick={onCopy}
           >
-            Copy
+            {t("Copy")}
           </Button>
         )}
       </div>
       {!masked && (
         <div
           className="matrixConfidenceLegend"
-          aria-label="Recognition confidence"
+          aria-label={t("Recognition confidence")}
         >
-          <span data-confidence="high">Green · High</span>
-          <span data-confidence="medium">Yellow · Review</span>
-          <span data-confidence="low">Red · Low / unreadable</span>
-          <span>Uncolored · Manual entry</span>
+          <span data-confidence="high">{t("Green · High")}</span>
+          <span data-confidence="medium">{t("Yellow · Review")}</span>
+          <span data-confidence="low">{t("Red · Low / unreadable")}</span>
+          <span>{t("Uncolored · Manual entry")}</span>
         </div>
       )}
-      {masked && (
-        <Text size="xs" c="dimmed">
-          Saved · hidden. Scan or type to replace.
-        </Text>
-      )}
-      <div className="matrixGrid" aria-label="Tokyo Tech matrix">
+      {/* The saved Matrix keeps its 7×10 shape; typing over a cell replaces it. */}
+      <div className="matrixGrid" aria-label={t("Tokyo Tech matrix")}>
         <span />
         {Array.from({ length: MATRIX_COLUMNS }, (_, column) => (
           <b key={column}>{String.fromCharCode(65 + column)}</b>
@@ -288,7 +334,7 @@ function MatrixEditor({
                   ref={(element) => {
                     inputs.current[index] = element;
                   }}
-                  disabled={recognizing || disabled}
+                  disabled={recognizing || disabled || cameraOpen}
                   aria-label={`${String.fromCharCode(65 + column)}${row + 1}`}
                   data-confidence={
                     !masked && confidence[index] !== undefined
@@ -297,10 +343,12 @@ function MatrixEditor({
                   }
                   title={
                     masked
-                      ? "Saved · hidden"
+                      ? t("Saved · hidden")
                       : confidence[index] === undefined
-                        ? "Manual entry"
-                        : `${matrixConfidence(value[index], confidence[index]!)} confidence · verify against card`
+                        ? t("Manual entry")
+                        : t(
+                            `Confidence ${matrixConfidence(value[index], confidence[index]!)} · verify against card`,
+                          )
                   }
                   value={masked ? "" : value[index]}
                   placeholder={masked ? "•" : ""}
@@ -412,7 +460,7 @@ function Account({
       setConnection((current) => ({
         ...current,
         state: "timeout",
-        message: "No response from the portal.",
+        message: t("No response from the portal."),
       }));
       setBusy(false);
       started.current = false;
@@ -491,12 +539,15 @@ function Account({
     } catch (error) {
       if (timeout.current) window.clearTimeout(timeout.current);
       started.current = false;
-      setConnection({
-        state: "error",
-        step: "",
-        message:
-          errorText(error) ?? "Sign-in could not start.",
-      });
+      setConnection((current) =>
+        current.state === "maintenance"
+          ? current
+          : {
+              state: "error",
+              step: "",
+              message: t(errorText(error) ?? "Sign-in could not start."),
+            },
+      );
       setBusy(false);
       await refresh().catch(() => undefined);
     }
@@ -536,7 +587,7 @@ function Account({
       setMatrixReplacing(false);
       setConnection({ state: "idle", step: "", message: "" });
       await refresh();
-      notify(`${title} account forgotten.`);
+      notify(t("{{account}} account forgotten.", { account: title }));
     } finally {
       setBusy(false);
     }
@@ -558,44 +609,52 @@ function Account({
             color={
               session === "active"
                 ? "green"
-                : session === "failed"
-                  ? "red"
-                  : "gray"
+                : session === "maintenance"
+                  ? "yellow"
+                  : session === "failed"
+                    ? "red"
+                    : "gray"
             }
           >
-            {session === "active"
-              ? "Signed in"
-              : session === "failed"
-                ? "Sign-in failed"
-                : "Not set up"}
+            {t(
+              session === "active"
+                ? "Signed in"
+                : session === "maintenance"
+                  ? "Under maintenance"
+                  : session === "failed"
+                    ? "Sign-in failed"
+                    : "Not set up",
+            )}
           </Badge>
         )}
       </Group>
       {connection.state !== "idle" && (
         <div className="schoolConnection" data-state={connection.state}>
           <SignInSteps connection={connection} />
-          {connection.message && <span>{connection.message}</span>}
+          {connection.message && <span>{t(connection.message)}</span>}
           {connection.state !== "connected" && (
             <Button
               variant="subtle"
               size="compact-xs"
               onClick={() => showLoginPage(profile)}
             >
-              Show page
+              {t("Show page")}
             </Button>
           )}
         </div>
       )}
       {summary.availability === "missing" && (
         <Text c="red" size="sm">
-          Saved credentials are missing from the system credential vault. Enter
-          them again.
+          {t(
+            "Saved credentials are missing from the system credential vault. Enter them again.",
+          )}
         </Text>
       )}
       {summary.availability === "access-denied" && (
         <Text c="orange" size="sm">
-          The system credential vault is unavailable. Existing credentials were
-          not changed.
+          {t(
+            "The system credential vault is unavailable. Existing credentials were not changed.",
+          )}
         </Text>
       )}
       <div className="credentialFields">
@@ -611,7 +670,7 @@ function Account({
         {/* A saved secret shows as fixed dots; typing replaces it, blank keeps it. */}
         <TextInput
           type="password"
-          label="Password"
+          label={t("Password")}
           value={draft.password}
           placeholder={summary.saved ? SAVED_SECRET : ""}
           autoComplete="current-password"
@@ -620,17 +679,12 @@ function Account({
           }
         />
         {profile === "science" && (
-          <TextInput
-            type="password"
-            className="wide"
-            label="OTP setup link or secret"
+          <OtpSetupInput
             value={draft.otpSecret}
-            autoCapitalize="none"
-            autoComplete="off"
-            placeholder={summary.hasOtp ? SAVED_SECRET : "otpauth://… or Base32"}
-            onChange={(event) =>
-              setDraft({ ...draft, otpSecret: event.target.value })
-            }
+            saved={summary.hasOtp}
+            disabled={busy}
+            onScanState={setScanning}
+            onChange={(otpSecret) => setDraft({ ...draft, otpSecret })}
           />
         )}
       </div>
@@ -653,7 +707,7 @@ function Account({
           loading={busy}
           onClick={() => void connect()}
         >
-          Connect
+          {t("Connect")}
         </Button>
         {summary.saved && (
           <Button
@@ -662,7 +716,7 @@ function Account({
             disabled={busy || scanning}
             onClick={() => void forget()}
           >
-            Forget
+            {t("Forget")}
           </Button>
         )}
       </div>
@@ -699,16 +753,15 @@ export function SchoolAccounts({
     }));
   };
   useEffect(() => {
-    void refresh().catch((error) =>
-      appNotify.error(error),
-    );
+    void refresh().catch((error) => appNotify.error(error));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!desktopBridge)
     return (
       <p className="settingsNote">
-        School sign-in needs the installed app, which keeps passwords in the
-        system keychain.
+        {t(
+          "School sign-in needs the installed app, which keeps passwords in the system keychain.",
+        )}
       </p>
     );
   return (

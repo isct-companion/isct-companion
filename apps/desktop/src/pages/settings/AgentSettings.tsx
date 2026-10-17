@@ -53,16 +53,13 @@ export function AgentSettings({
     .slice(0, 8);
   return (
     <>
-      <SettingsHeader
-        title="AI agent access"
-        description="Lets a local AI agent (for example an MCP client) read your timetable and plan courses."
-      />
-      <SettingsGroup
-        footer={t(
-          "Agents can read school data and change only plans, personal events and hidden assignments. They never see passwords or sessions.",
-        )}
-      >
-        <Row id="mcp" title="Allow local agents">
+      <SettingsHeader title="AI agent access" />
+      <SettingsGroup>
+        <Row
+          id="mcp"
+          title="Allow local agents"
+          hint="Agents can read school data and change only plans, personal events and hidden assignments. They never see passwords or sessions."
+        >
           <Toggle
             checked={access?.enabled === true}
             onChange={(enabled) =>
@@ -78,66 +75,71 @@ export function AgentSettings({
           />
         </Row>
       </SettingsGroup>
-      <SettingsGroup
-        title="Connect an agent"
-        footer={t(
-          "Add this URL as a Streamable HTTP MCP server. Use the access token for Bearer authentication and keep IsctCompanion open.",
-        )}
-      >
-        {connection?.state === "listening" ? (
-          <>
-            <div className="commandLine">
-              <code>{connection.url}</code>
-              <UiButton
-                className="button small"
-                onClick={() => copy(connection.url)}
-              >
-                {t("Copy URL")}
-              </UiButton>
-            </div>
-            <Row title="Access token">
-              <UiButton
-                className="button small"
-                onClick={() => copy(connection.token)}
-              >
-                {t("Copy token")}
-              </UiButton>
-            </Row>
-          </>
-        ) : (
-          <p
-            className="paneEmpty"
-            role={connection?.state === "failed" ? "alert" : "status"}
-          >
-            {connection?.state === "failed"
-              ? `${t("MCP server is unavailable.")} ${connection.error}`
-              : connection?.state === "off"
-                ? t(
-                    "Turn on Allow local agents to show the connection details.",
-                  )
-                : t("Loading…")}
-          </p>
-        )}
-      </SettingsGroup>
-      <SettingsGroup title="Recent agent changes">
-        {writes.length ? (
-          <div className="logList">
-            {writes.map((write, index) => (
-              <div key={`${write.at}-${index}`}>
-                <b>{write.tool}</b>
-                <span>
-                  {formatDay(write.at, data.settings.locale, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
+      {/* While access is off there is nothing to connect to; the switch says it all. */}
+      {access?.enabled && (
+        <SettingsGroup
+          title="Connect an agent"
+          footer={
+            connection?.state === "listening"
+              ? t(
+                  "Add this URL as a Streamable HTTP MCP server. Use the access token for Bearer authentication and keep IsctCompanion open.",
+                )
+              : undefined
+          }
+        >
+          {connection?.state === "listening" ? (
+            <>
+              <div className="commandLine">
+                <code>{connection.url}</code>
+                <UiButton
+                  className="button small"
+                  onClick={() => copy(connection.url)}
+                >
+                  {t("Copy URL")}
+                </UiButton>
               </div>
-            ))}
-          </div>
-        ) : (
-          <p className="paneEmpty">{t("No changes by agents yet.")}</p>
-        )}
-      </SettingsGroup>
+              <Row title="Access token">
+                <UiButton
+                  className="button small"
+                  onClick={() => copy(connection.token)}
+                >
+                  {t("Copy token")}
+                </UiButton>
+              </Row>
+            </>
+          ) : (
+            <p
+              className="paneEmpty"
+              role={connection?.state === "failed" ? "alert" : "status"}
+            >
+              {connection?.state === "failed"
+                ? `${t("MCP server is unavailable.")} ${connection.error}`
+                : t("Loading…")}
+            </p>
+          )}
+        </SettingsGroup>
+      )}
+      {(access?.enabled || writes.length > 0) && (
+        <SettingsGroup title="Recent agent changes">
+          {writes.length ? (
+            <div className="logList">
+              {writes.map((write, index) => (
+                <div key={`${write.at}-${index}`}>
+                  <b>{write.tool}</b>
+                  <span>
+                    {formatDay(write.at, data.settings.locale, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="paneEmpty">{t("No changes by agents yet.")}</p>
+          )}
+        </SettingsGroup>
+      )}
     </>
   );
 }

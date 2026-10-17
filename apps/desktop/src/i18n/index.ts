@@ -2,7 +2,7 @@ import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 import ja from "../../../../resources/locales/ja.json";
 import zh from "../../../../resources/locales/zh.json";
-export { intlLocale } from "./locale";
+export { intlLocale, relativeTimeAgo } from "./locale";
 void i18next.use(initReactI18next).init({
   resources: {
     en: { translation: {} },

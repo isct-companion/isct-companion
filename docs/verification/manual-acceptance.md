@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 29 checks must be re-run before the next release.**
+**7 of 32 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,13 +27,14 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**20 checks have never been run or could not be run:**
+**23 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
 - `IDENTITY-DOCTORAL-RULES` — never verified
 - `IDENTITY-TRANSFER-COHORT` — never verified
 - `SCHOOL-KYOMU-GRADUATE-TABLES` — unreached: No graduate account available; a borrowed account is pending.
+- `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` — never verified
 - `IDENTITY-LANGUAGE-SWITCH` — never verified
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-ONEDRIVE-WRITE` — never verified
@@ -41,6 +42,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-COMPACT-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
+- `DESKTOP-PULL-STRESS` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `RELEASE-INSTALL` — never verified
@@ -49,6 +51,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-REMINDER-TIMES` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
+- `SCHOOL-OTP-QR` — never verified
 
 ## Status
 
@@ -61,17 +64,19 @@ an unverified area becomes an assumed-good one.
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-TRANSFER-COHORT` | identity | 編入生 | —<br>not run | crates/isct-core/src/subscriptions.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/lib/departments.ts |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/isct-core/src/kyomu_ingest.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/study_profile.rs |
+| `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/kyomu_ingest.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
 | `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
-| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts |
+| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/usePullState.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
@@ -83,6 +88,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
+| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 
 ## Personas
 
@@ -531,6 +537,74 @@ The 2017 manual fixture covers the documented shape only.
 
 Evidence: `docs/verification/native-sdk.md`
 
+### 教務Web registration and requirements pages import or report unavailable (`SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Signed desktop bundle, Tokyo Tech account Signed in, campus network or
+VPN. Run once inside a 科目申告 window and once outside it. Outside the
+window was observed passing on 2026-10-17 (state 本登録済); the window
+itself, where courses are still being edited, is not yet observed.
+
+**Steps**
+
+1. Quit the app, then start it from a terminal so stderr is kept:
+   `/Applications/IsctCompanion.app/Contents/MacOS/isct-companion 2>&1 | tee artifacts/kyomu-pull.log`
+   - *Why:* Partial page failures are only reported to stderr, which a bundle
+     launched from Finder discards. Without this the run gives no reason
+     for the failure, as happened on 2026-10-17.
+2. Use the manual 教務Web refresh and wait until the footer settles.
+   - *Why:* Manual refresh bypasses the retry backoff, so the run reaches the
+     registration (PID1_0) and requirements (PID2_6) pages now.
+3. Find the `[school-pull] Kyomu/registrations:` and
+   `[school-pull] Kyomu/requirements:` lines in the log and copy the
+   text after `kyomu extraction was incomplete:`.
+   - *Why:* That text is the extractor check that rejected the page. On
+     2026-10-17 it was a header-less empty unit GridView
+     (`kamokuUnit_-2_gvKamoku`) and a requirement table whose header has
+     no <thead>; both are now read. A new reason names the next shape.
+4. Open both pages in the visible 教務Web view. Read the page's notice,
+   if any, and inspect the element that holds it (its id or class).
+   Check whether the elements named in the log line exist.
+   - *Why:* Decides the fix. If the page shows a notice such as "outside the
+     申告 period", the extractor's unavailable pattern must learn that
+     notice and its element. If the data is visible but the selector
+     does not match, the selector is broken.
+5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT scope,state,max(finished_at) FROM import_runs WHERE provider='kyomu' GROUP BY scope,state"`.
+   - *Why:* Freshness counts only `complete` or `unavailable` runs. A page with
+     neither keeps 教務Web due for an automatic refresh indefinitely.
+
+**Where to look**
+
+artifacts/kyomu-pull.log, the two 教務Web pages in the visible view, and
+the import_runs query output.
+
+**Expected**
+
+`registrations` and `requirements` each have a `complete` or an
+`unavailable` run, the log has no `school-pull` line for either page,
+and the footer no longer shows a 教務Web failure after a refresh.
+
+**Why this is manual**
+
+The live registration and requirement DOM is account-scoped and changes
+with the 申告 window. The extractor tests reproduce only the two shapes
+observed outside the window, with placeholder values; no committed
+fixture is a capture. Only a real session shows what the portal serves
+while registration is open.
+
+**Covers**
+
+- `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
+- `crates/isct-core/src/school_parser/kyomu.rs`
+- `crates/isct-core/src/kyomu_ingest.rs`
+
+**Last recorded** never run
+
 ### English UI and English content stay English (`IDENTITY-LANGUAGE-SWITCH`)
 
 **Area** identity · **Persona** International student · **Result** —
@@ -773,11 +847,29 @@ camera or a photo of the card.
    - *Why:* Synthetic tensors and the private parity image already cover the
      pipeline; a real card is what exposes lighting, angle and printing
      variation that no fixture reproduces.
-2. Review the recognised cells and compare them with the card.
+2. Open Scan with camera in a packaged desktop app, allow camera access,
+   and bring the real card toward the camera. Check that one red outline
+   follows the Matrix, with no cell boxes or letter overlays. Tilt it,
+   introduce glare, then hold it steady with the labels in view. Observe
+   whether the scanner fills all cells and closes itself; record the
+   acquisition time and any cells that prevent completion. After close
+   or cancel, inspect matrix-scan/latest.json under the app cache for
+   captured frame latency, first-outline-to-stop time, per-cell qualified
+   sample counts and blank/weak/conflict counts. Compare all 70 saved
+   letters with the real card.
+   - *Why:* OS camera permissions, native WebView video capture, optical focus,
+     and the alignment of recognition boxes over a physical card require
+     real hardware. Scripted frames cannot validate these surfaces.
+3. Cancel and reopen the camera, then background the app during capture.
+   Deny permission on a fresh permission state and retry after granting it.
+   - *Why:* Verify the camera indicator switches off and permissions can recover
+     in the signed native app; headless tests cannot observe OS resource
+     release or the native privacy prompt.
+4. Review the recognised cells and compare them with the card.
    - *Why:* The contract is "no wrong accepted cell", not "most cells right". A
      misread cell that is accepted is worse than a rejected one, so the
      comparison has to be cell by cell.
-3. Correct a cell and save.
+5. Correct a cell and save.
    - *Why:* Confirms the manual correction path, which the fixtures never take.
 
 **Where to look**
@@ -798,6 +890,15 @@ OCR runtime, so the target must be chosen deliberately.
 
 - `crates/isct-ocr/**`
 - `apps/desktop/src/lib/matrix-ocr.ts`
+- `crates/isct-core/src/matrix_scan.rs`
+- `apps/desktop/src/platform/matrix-camera.ts`
+- `apps/desktop/src/components/MatrixCamera.tsx`
+- `apps/desktop/src/components/matrix-camera.css`
+- `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/src/commands/matrix_camera.rs`
+- `apps/desktop/src-tauri/Info.plist`
+- `apps/desktop/src-tauri/Entitlements.plist`
 
 **Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
 
@@ -1027,6 +1128,72 @@ and was never covered by a live run.
 
 - `apps/desktop/src/features/lms/PdfDocument.tsx`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+
+**Last recorded** never run
+
+### Fast navigation while a live LMS pull lands data (`DESKTOP-PULL-STRESS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A development build started with `VITE_INTERACTION_TRACE=1 yarn
+desktop:dev`, the account from SCHOOL-SIGNIN-SCIENCE signed in, and at
+least two quarters that have courses, one of them with open assignments.
+
+**Steps**
+
+1. Confirm the dev terminal prints `[trace] recording to
+   tmp/interaction-trace/…`.
+   - *Why:* A crash found by hand is only useful if the steps before it can be
+     read back. The 2026-10-16 Lecture Desk crash looked random until its
+     timeline showed the quarter change that triggered it.
+2. Start a full LMS pull. While it runs, open several lectures in quick
+   succession, toggle Lectures and Assignments, change the quarter in
+   both modes, and jump to Home and Web and back.
+   - *Why:* Each ingest publishes a new revision while revision-keyed queries
+     refetch, so a view that joins two queries can render with one
+     answered and the other still loading. That only happens when an
+     ingest lands in the middle of input, which no scripted run times.
+3. Keep going until the trace shows at least two `school-ingest` events
+   that arrived between your clicks.
+   - *Why:* One ingest can fall into a pause between clicks and prove nothing.
+     The trace, not a feeling of having clicked enough, decides when the
+     overlap actually happened.
+4. After the pull ends, compare Lectures (both modes, every quarter) and
+   Home with the same pages after a cold relaunch.
+   - *Why:* The quieter failure is a view that survives but keeps the rows it
+     skipped while data was loading. Work hidden during a load has to
+     reappear once its course arrives.
+
+**Where to look**
+
+Every page for "This page hit an error"; the dev terminal for `[trace]`
+error blocks; `error`, `rejected` and `console.error` entries in the
+newest tmp/interaction-trace/*.jsonl.
+
+**Expected**
+
+No page error and no error entries in the trace; after the pull, each
+page matches the cold relaunch.
+
+**Why this is manual**
+
+The interleaving comes from a real, account-scoped LMS pull meeting
+human input at real timing. The e2e harness scripts revisions but not
+that race. A failure found here that reproduces deterministically moves
+into a suite, as the quarter-switch case did in
+tests/e2e/today-and-lectures.test.tsx.
+
+**Covers**
+
+- `apps/desktop/src/store/workspace.ts`
+- `apps/desktop/src/platform/core-query.ts`
+- `apps/desktop/src/app/usePullState.ts`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/app/interaction-trace.ts`
 
 **Last recorded** never run
 
@@ -1344,6 +1511,14 @@ accepting test files, and a workspace with files in submit/.
    Close and reopen the reader while the official form is visible.
    - *Why:* Checks target binding and native navigation: files must only enter
      the requested assignment, and reopening must not upload a second copy.
+4. Open an assignment accepting online text in the right-hand LMS pane.
+   Type Japanese and Chinese with the IME, paste text, select a word and
+   use a TinyMCE formatting command. Leave without saving or submitting.
+   Follow its external Google Form link, search from the Web address bar,
+   and use Back to return to the LMS.
+   - *Why:* Verifies native WebView focus, composition and inherited-origin editor
+     frames, plus external navigation. Headless routing tests cannot run
+     the live Moodle editor or native IME.
 
 **Where to look**
 
@@ -1354,7 +1529,9 @@ name/URL and the untouched official Save/Submit controls in the right pane.
 
 Exactly the chosen workspace files appear in the requested assignment's
 draft. Only user action can save or submit; unsupported uploads show the
-normal LMS error. Reopening does not duplicate files.
+normal LMS error. Reopening does not duplicate files. Online text accepts
+typing, IME composition, paste and formatting; external pages keep their
+query parameters and Back returns to the LMS without auto-submitting.
 
 **Why this is manual**
 
@@ -1441,7 +1618,13 @@ local workspace for the fresh-profile check.
    - *Why:* Exercises live ASP.NET paging and session form state in the native
      hidden browser; fixture tests cannot prove the university accepts
      those postbacks. Changing conditions must start a fresh query.
-3. Open one result's syllabus details and one registered course's LMS
+3. Leave 教務Web on a known page, return to Timetable, rapidly switch
+   quarters while search or a school pull is active, then reopen Web.
+   - *Why:* Real native navigation and authenticated postbacks share a browser.
+     Hidden search must not replace the user's Web destination or hold the
+     school queue while Web is visible; native timing is not reproduced by
+     the scripted browser.
+4. Open one result's syllabus details and one registered course's LMS
    materials; refresh LMS and reopen the timetable.
    - *Why:* Real school sessions must support both content destinations without
      a detail refresh or LMS membership changing official enrollment.
@@ -1455,7 +1638,9 @@ browser. Compare the same course code, quarter, time and room in 教務Web.
 
 Fresh profile fields match 教務Web; current enrollment and rooms match
 its timetable. Search appends at most 100 courses per batch without
-duplicates, changes filters on the server, and preserves loaded rows.
+duplicates, changes filters on the server, and preserves loaded results.
+The active school source and progress agree; returning to Web restores
+its foreground page rather than the hidden search destination.
 Syllabus details and LMS materials open for the same course; LMS refresh
 leaves the official timetable intact. No university registration is changed.
 
@@ -1552,5 +1737,41 @@ Requires a native Windows release executable, Explorer and the real desktop shel
 
 - `apps/desktop/src-tauri/src/main.rs`
 - `.github/workflows/desktop-release.yml`
+
+**Last recorded** never run
+
+### Authenticator QR import with native camera permissions (`SCHOOL-OTP-QR`)
+
+**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display.
+
+**Steps**
+
+1. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
+   - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
+2. Move the QR into and out of view, then close the dialog and background the app during a second scan.
+   - *Why:* Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+
+**Where to look**
+
+Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
+
+**Expected**
+
+Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+
+**Why this is manual**
+
+Requires native camera permissions, optical input and an OS camera indicator in a packaged shell.
+
+**Covers**
+
+- `apps/desktop/src/components/QrCamera.tsx`
+- `apps/desktop/src/components/CameraPreview.tsx`
 
 **Last recorded** never run

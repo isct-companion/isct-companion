@@ -111,7 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     && a.to_token_stream().to_string().contains("Deserialize")
                         }) =>
                 {
-                    if name == "course_query/contracts.rs" && item.ident != "FinderRow" {
+                    if name == "course_query/contracts.rs"
+                        && item.ident != "FinderRow"
+                        && item.ident != "OfficialSelection"
+                    {
                         continue;
                     }
                     if name == "school_parser/lms.rs" && item.ident != "ResolvedFile" {

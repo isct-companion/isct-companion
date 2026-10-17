@@ -4,12 +4,14 @@ import { CalendarView } from "../pages/today/CalendarView";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
+import { SchoolStatusLine } from "./SchoolStatusLine";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
 import { useAppearance } from "./useAppearance";
 import {
   scheduleQuery,
   useScheduleQuery,
+  useTimetableViews,
   type WorkspaceOverview,
 } from "../platform/core-query";
 import { useFinderEditQueue, useFinderQuery } from "../platform/finder-query";
@@ -98,6 +100,7 @@ import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
+import { traceRouter } from "./interaction-trace";
 import { useFormFactor } from "./form-factor";
 import { MobileShell } from "../layouts/compact/MobileShell";
 import { openExternalUrl } from "../components/ExternalLink";
@@ -132,7 +135,10 @@ const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 /** A pull result as one short line; undefined when everything succeeded. */
 function pullProblem(outcomes: { state: string; message: string }[]) {
   const failed = outcomes.find(
-    (item) => item.state === "reconnect-required" || item.state === "error",
+    (item) =>
+      item.state === "maintenance" ||
+      item.state === "reconnect-required" ||
+      item.state === "error",
   );
   const unavailable = outcomes.find((item) => item.state === "unavailable");
   if (!failed) return unavailable?.message;
@@ -146,6 +152,7 @@ function sessionStatusLabel(
   detail?: string,
 ) {
   if (state === "active") return t("Signed in");
+  if (state === "maintenance") return t("Under maintenance");
   if (state === "failed") return t(detail || "Sign-in failed");
   if (state === "not-configured") return t("Not configured");
   return t(detail || "Checking session");
@@ -257,7 +264,7 @@ export function WorkspaceApp() {
       }
     : undefined;
   const [lectureRailHovered, setLectureRailHovered] = useState(false);
-  const [editMode, setEditMode] = useState(false);
+  const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -276,6 +283,17 @@ export function WorkspaceApp() {
         : settingsMatch
           ? "settings"
           : "home";
+  const courseViewTerm = previewTerm ?? overview.value?.coursesTerm;
+  const timetableViews = useTimetableViews(
+    overview.value?.allTerms ?? [],
+    page === "timetable",
+  );
+  const cachedTimetable = courseViewTerm
+    ? timetableViews.get(courseViewTerm)
+    : undefined;
+  useEffect(() => {
+    if (previewTerm === overview.value?.coursesTerm) setPreviewTerm(null);
+  }, [previewTerm, overview.value?.coursesTerm]);
   const section = (params.section ?? "accounts") as Section;
   const homeView = homeMatch && weekMatch ? "week" : "day";
   const [searchParams, setSearchParams] = useSearchParams();
@@ -419,12 +437,23 @@ export function WorkspaceApp() {
   const [finderKeys, setFinderKeys] = useState<string[]>([]);
   // The quarter the finder's conditions were made for; switching quarters resets them.
   const [finderTerm, setFinderTerm] = useState<TermId | null>(null);
-  const finderYear = Number(overview.value?.coursesTerm.slice(0, 4) ?? 2026);
-  const finderCourseTerm = overview.value?.coursesTerm ?? "2026-1Q";
+  const finderYear = Number(courseViewTerm?.slice(0, 4) ?? 2026);
+  const finderCourseTerm = courseViewTerm ?? "2026-1Q";
+  const finderSession = JSON.stringify([location.key, finderCourseTerm]);
+  const [activeFinderSession, setActiveFinderSession] = useState<string | null>(
+    null,
+  );
+  const finderActive = activeFinderSession === finderSession;
+  const activateFinder = () => setActiveFinderSession(finderSession);
   const finderView = useFinderQuery(
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
-    Boolean(overview.value && editMode && page === "timetable"),
+    Boolean(
+      overview.value &&
+      formFactor !== "mobile" &&
+      page === "timetable" &&
+      finderActive,
+    ),
   );
   const finderEdits = useFinderEditQueue({
     year: finderYear,
@@ -436,6 +465,7 @@ export function WorkspaceApp() {
   const [panelCourseId, setPanelCourseId] = useState<string | null>(null);
   // A search result opened from the syllabus panel, shown over the timetable.
   const [offeringPanel, setOfferingPanel] = useState<FinderCourse | null>(null);
+  const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const {
     lmsProgress,
     kyomuProgress,
@@ -444,8 +474,10 @@ export function WorkspaceApp() {
     lmsPhase,
     setLmsPhase,
     loginSteps,
-  } = usePullState();
+    schoolStatus,
+  } = usePullState(schoolRecords?.lastRuns);
   const pulling = lmsProgress !== null;
+  const [forceRefreshing, setForceRefreshing] = useState(false);
   useCoreLifecycle();
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
   /** After a pull settles the timetable, ask once for the physics group of
@@ -458,7 +490,6 @@ export function WorkspaceApp() {
     }).catch(() => []);
     setGroupPrompt(choices.find((choice) => choice.needsChoice) ?? null);
   };
-  const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const loadSchoolRecords = () => workspaceActions.refreshSchool();
   useEffect(
     () =>
@@ -565,7 +596,7 @@ export function WorkspaceApp() {
   if (!data || !overview.value)
     return (
       <div className="loading">
-        {store.error ?? overview.error ?? "Opening your workspace…"}
+        {t(store.error ?? overview.error ?? "Opening your workspace…")}
         {(store.error || overview.error) && (
           <UiButton
             onClick={() =>
@@ -574,13 +605,16 @@ export function WorkspaceApp() {
                 : overview.retry?.()
             }
           >
-            Retry
+            {t("Retry")}
           </UiButton>
         )}
       </div>
     );
 
-  const workspaceView = overview.value;
+  const workspaceView =
+    page === "timetable"
+      ? (cachedTimetable?.overview ?? overview.value)
+      : overview.value;
   const update = (edit: (data: Workspace) => Workspace) => {
     void workspaceActions.updateSettings(edit).catch(notify.error);
   };
@@ -624,11 +658,12 @@ export function WorkspaceApp() {
   const drawerCourse = drawerId
     ? data.courses.find((c) => c.id === drawerId && !c.deletedAt)
     : undefined;
-  const courseTerm = workspaceView.coursesTerm;
+  const courseTerm = courseViewTerm ?? workspaceView.coursesTerm;
   const finderTermCourses = workspaceView.courses;
   const finderPlaced = new Set(finderView.value?.onTimetable ?? []);
   const finderSlots = new Set(finderView.value?.activeSlots ?? []);
   const pickFinderTime = (key: string, append = false) => {
+    activateFinder();
     void finderEdits
       .run({ kind: "toggleTime", key, append })
       .catch(notify.error);
@@ -800,7 +835,9 @@ export function WorkspaceApp() {
       if (!quiet) notify.info(problem ?? "LMS updated");
       return !problem;
     } catch (error) {
-      setLmsPhase(`Update failed · ${errorText(error) ?? t("unknown error")}`);
+      setLmsPhase(
+        `${t("Update failed")} · ${t(errorText(error) ?? "unknown error")}`,
+      );
       if (!quiet) notify.error(error);
       return false;
     } finally {
@@ -820,6 +857,16 @@ export function WorkspaceApp() {
       if (!quiet) notify.error(error);
     } finally {
       setKyomuProgress(null);
+    }
+  };
+  const forceSchoolRefresh = async () => {
+    if (forceRefreshing) return;
+    setForceRefreshing(true);
+    try {
+      await refreshKyomu(true);
+      await fetchLms(true);
+    } finally {
+      setForceRefreshing(false);
     }
   };
   /** Opens 教務Web registration with this quarter's timetable as a queue. */
@@ -855,16 +902,6 @@ export function WorkspaceApp() {
     }
     openWeb(KYOMU_REGISTRATION);
   };
-  const lmsUrlFor = (course: Course) => {
-    if (
-      course.source.provider === "lms" &&
-      course.url?.includes("lms.s.isct.ac.jp")
-    )
-      return course.url;
-    const row = lmsRecordFor(course);
-    return row?.url;
-  };
-
   const navigatePage = (next: Page) => {
     if (next === "web") setWebContext(null);
     void navigate(pagePath(next));
@@ -996,11 +1033,10 @@ export function WorkspaceApp() {
       }}
     />
   );
-  // Phones view the timetable; planning stays on the workstation.
-  const planning = editMode && formFactor !== "mobile";
+  // The workstation timetable is always the planner; phones only view it.
+  const planning = formFactor !== "mobile";
   const showSchoolSetup =
     !readOnly &&
-    !planning &&
     !data.importStatus.timetableReviewedAt &&
     !data.courses.some((course) => !course.deletedAt) &&
     tokyoTechSession !== "active";
@@ -1101,16 +1137,13 @@ export function WorkspaceApp() {
       <Courses
         compact={formFactor === "mobile"}
         editing={planning}
-        onEditingChange={(value) => {
-          setEditMode(value);
-          setOfferingPanel(null);
-          setPanelCourseId(null);
-        }}
         openPlan={(plan) => !readOnly && setPlanEditor(plan)}
         newPlan={() => !readOnly && setPlanEditor("new")}
         side={
           <CourseFinder
-            key={courseTerm}
+            key={finderSession}
+            enabled={finderActive}
+            activate={activateFinder}
             year={Number(courseTerm.slice(0, 4))}
             term={courseTerm}
             summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
@@ -1169,22 +1202,43 @@ export function WorkspaceApp() {
               close={() => setPanelCourseId(null)}
               remove={() => void removeFromTimetable(panelCourse)}
               editIntensive={() => setIntensiveCourseId(panelCourse.id)}
-              lmsUrl={lmsUrlFor(panelCourse)}
               openWeb={(url) => openWeb(url)}
               fetchLms={
                 desktopBridge?.pullSchool ? () => void fetchLms() : undefined
               }
               progress={lmsProgress}
+              conflicts={(cachedTimetable?.planning?.conflicts ?? []).filter(
+                (conflict) => conflict.courseId === panelCourse.id,
+              )}
+              openCourse={(courseId) => setPanelCourseId(courseId)}
+              findOtherTimes={() => {
+                // Class groups share the code without the "-NN" class suffix.
+                const key =
+                  panelCourse.code.replace(/-\d+$/, "") || panelCourse.title;
+                setPanelCourseId(null);
+                finderEdits.replace([key]);
+                activateFinder();
+              }}
             />
           )
         }
         data={data}
         currentTerm={currentTerm}
+        term={courseTerm}
+        overview={workspaceView}
+        cachedPlanning={cachedTimetable?.planning}
+        onSelectTerm={(term) => {
+          setPreviewTerm(term);
+          setActiveFinderSession(null);
+        }}
         readOnly={readOnly}
         mutate={async (intent) => {
+          if (intent.kind === "selectTerm") setActiveFinderSession(null);
           try {
             return await academicIntentOrThrow(intent);
           } catch (error) {
+            if (intent.kind === "selectTerm")
+              setPreviewTerm((term) => (term === intent.termId ? null : term));
             notify.error(error);
             throw error;
           }
@@ -1346,7 +1400,6 @@ export function WorkspaceApp() {
           }}
           toggle={() => toggleTimetable(drawerCourse)}
           editIntensive={() => setIntensiveCourseId(drawerCourse.id)}
-          lmsUrl={lmsUrlFor(drawerCourse)}
           openWeb={(url) => {
             const from = pageRef.current;
             openWeb(url, from === "lectures" ? "lectures" : "home");
@@ -1588,7 +1641,7 @@ export function WorkspaceApp() {
       padding={0}
     >
       <AppShell.Navbar className="rail">
-        <nav aria-label="Pages">
+        <nav aria-label={t("Pages")}>
           {pages.map((p, i) => (
             <UiButton
               className={page === p ? "active" : ""}
@@ -1627,7 +1680,7 @@ export function WorkspaceApp() {
         </UiButton>
       </AppShell.Navbar>
       <AppShell.Footer className="mobileRail" hiddenFrom="sm">
-        <nav aria-label="Pages">
+        <nav aria-label={t("Pages")}>
           {pages.map((p) => (
             <UiButton
               className={page === p ? "active" : ""}
@@ -1651,7 +1704,7 @@ export function WorkspaceApp() {
       </AppShell.Footer>
       <AppShell.Main
         component="main"
-        className={`workspaceMain${page === "home" ? " homeMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
+        className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
       >
         {keep("lectures", lecturesPage)}
         {keep("home", homePage)}
@@ -1660,7 +1713,10 @@ export function WorkspaceApp() {
         {keep("settings", settingsPage)}
       </AppShell.Main>
       {overlays}
-      <aside className="schoolStatusBar" aria-label="School connection status">
+      <aside
+        className="schoolStatusBar"
+        aria-label={t("School connection status")}
+      >
         <div className="schoolStatusAccounts">
           <span
             className="schoolStatusAccount"
@@ -1687,24 +1743,30 @@ export function WorkspaceApp() {
             </span>
           </span>
         </div>
-        <div className="lmsStatus" aria-live="polite">
-          <div className="lmsStatusLine">
-            <b>LMS</b>
-            <span>{lmsPhase}</span>
-            {pulling && <output>{Math.round(lmsProgress)}%</output>}
-          </div>
-          {pulling && (
-            <progress aria-label={lmsPhase} max={100} value={lmsProgress} />
-          )}
-        </div>
+        <SchoolStatusLine
+          status={schoolStatus}
+          locale={data.settings.locale}
+          refresh={
+            desktopBridge?.pullSchool
+              ? {
+                  busy: forceRefreshing,
+                  run: () => void forceSchoolRefresh(),
+                }
+              : undefined
+          }
+        />
       </aside>
     </AppShell>
   );
 }
 
 let defaultRouter: ReturnType<typeof createHashRouter> | undefined;
-const getDefaultRouter = () =>
-  (defaultRouter ??= createHashRouter(workspaceRoutes(WorkspaceApp)));
+const getDefaultRouter = () => {
+  if (defaultRouter) return defaultRouter;
+  defaultRouter = createHashRouter(workspaceRoutes(WorkspaceApp));
+  if (import.meta.env.DEV) traceRouter(defaultRouter);
+  return defaultRouter;
+};
 
 export default function App({
   router: providedRouter,

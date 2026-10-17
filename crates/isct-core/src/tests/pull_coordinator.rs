@@ -760,6 +760,26 @@ async fn retry_uses_the_factory_and_queued_cancel_settles() {
         .await;
     assert_eq!(result.unwrap(), json!("recovered"));
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    let outage_attempts = Arc::new(AtomicUsize::new(0));
+    let error = coordinator
+        .run(
+            reference("maintenance"),
+            PullOptions {
+                retry_limit: 3,
+                ..PullOptions::automatic()
+            },
+            {
+                let attempts = outage_attempts.clone();
+                move |_| {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    async { Err(PullError::Maintenance("Live school notice".into())) }
+                }
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error, PullError::Maintenance("Live school notice".into()));
+    assert_eq!(outage_attempts.load(Ordering::SeqCst), 1);
 
     let delayed = {
         let coordinator = coordinator.clone();

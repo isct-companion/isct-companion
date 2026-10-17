@@ -160,3 +160,29 @@ export function useScheduleQuery<T>(
   const state = useScheduleQueries<[T]>([query], enabled);
   return { ...state, value: state.value?.[0] };
 }
+
+/** Cache Core's quarter read models together, so navigation never waits for
+ * persisting the selected quarter. A revision revalidates in the background. */
+export function useTimetableViews(terms: TermId[], enabled: boolean) {
+  const state = useScheduleQueries<(WorkspaceOverview | PlanningWeek)[]>(
+    terms.flatMap((term): ScheduleQuery[] => [
+      { kind: "workspaceOverview", term },
+      { kind: "planningWeek", term },
+    ]),
+    enabled && terms.length > 0,
+  );
+  const views = new Map<
+    TermId,
+    { overview: WorkspaceOverview; planning: PlanningWeek }
+  >();
+  const values = state.value ?? [];
+  for (let i = 0; i + 1 < values.length; i += 2) {
+    const overview = values[i] as WorkspaceOverview;
+    if (!overview || !values[i + 1]) continue;
+    views.set(overview.term, {
+      overview,
+      planning: values[i + 1] as PlanningWeek,
+    });
+  }
+  return views;
+}

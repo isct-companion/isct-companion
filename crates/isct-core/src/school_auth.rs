@@ -1,3 +1,6 @@
+mod otp_import;
+pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
+
 use crate::lifecycle::SchoolSite;
 use crate::ports::{SecretError, SecretVault};
 use ring::hmac;

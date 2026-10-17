@@ -153,7 +153,7 @@ const baseHandle: Handle = (command, args) => {
     case "resolve_school_url": {
       const url = String(args.url);
       return {
-        site: url.includes("lms") ? "science-lms" : "science-portal",
+        site: url.includes("lms") ? "science-lms" : args.site,
         url,
       };
     }
@@ -340,13 +340,6 @@ it("replaces a clashing course and Undo restores the previous one", async () => 
     { route: paths.timetable() },
   );
   const { host, core } = app;
-
-  const editSwitch = await vi.waitFor(() => {
-    const input = host.querySelector<HTMLInputElement>('input[role="switch"]');
-    if (!input) throw new Error("edit switch not ready");
-    return input;
-  });
-  await act(async () => editSwitch.click());
 
   const input = await vi.waitFor(() => {
     const element = host.querySelector<HTMLInputElement>(
@@ -908,11 +901,6 @@ describe("native listener ordering", () => {
     );
     const { host, core } = app;
     // The planner timetable is the person-visible view of the workspace rows.
-    const edit = await required(
-      () => host.querySelector<HTMLInputElement>('input[role="switch"]'),
-      "the Edit switch",
-    );
-    await click(edit);
     await until(() => expect(titles(host)).toEqual(["Placed"]));
 
     gateStale = true;
@@ -976,6 +964,25 @@ describe("web-page residency", () => {
     expect(host.querySelector('[aria-label="Current URL"]')).toBe(address);
     // An ordinary resume re-shows the resident session, without a new URL.
     expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBeNull();
+    const search =
+      "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
+    await typeInto(address, search);
+    await act(async () =>
+      address
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    await until(() =>
+      expect(core.commands("navigate_school_web").at(-1)?.args.url).toBe(
+        search,
+      ),
+    );
+    expect(core.commands("resolve_school_url").at(-1)?.args).toEqual({
+      url: search,
+      site: "science-portal",
+    });
   }, 20_000);
 
   it("reopens an explicitly requested URL while an ordinary resume keeps the resident page", async () => {
@@ -986,7 +993,11 @@ describe("web-page residency", () => {
     );
     const workspace = workspaceFixture({ courses: [course] });
     app = await mountShell(
-      shellOptions({ workspace, revision: "rev:explicit" }),
+      shellOptions({
+        workspace,
+        revision: "rev:explicit",
+        queries: { ...shellQueries(), courseDetail: { lmsUrl: url } },
+      }),
       { route: paths.drawer(paths.home(), course.id) },
     );
     const { core } = app;
@@ -2378,3 +2389,232 @@ describe("workspace column sizing", () => {
     }
   });
 });
+
+it("shows progress only for pulls the user started and the data age when idle", async () => {
+  app = await mountShell(
+    shellOptions({
+      workspace: workspaceFixture(),
+      handle: (command, args, core) =>
+        command === "pull_school" ? [] : baseHandle(command, args, core),
+    }),
+  );
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      {
+        id: "kyomu-active",
+        target: { type: "school", site: "kyomu", courseId: null },
+        state: "queued",
+        priority: "manual",
+        phase: null,
+        blockedBy: null,
+        attempt: 0,
+        waiterCount: 1,
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("busy");
+    expect(status.textContent).toContain("教務Web");
+    expect(status.textContent).toContain("Waiting for school refresh");
+    expect(status.querySelector("progress")!.value).toBe(5);
+    // The percentage is an estimate; the bar carries it without a number.
+    expect(status.textContent).not.toContain("%");
+  });
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      state: "ok",
+      kind: "registrations",
+      message: "",
+      imported: 1,
+    }),
+  );
+  await until(() =>
+    expect(
+      app!.host.querySelector<HTMLProgressElement>(".lmsStatus progress")!
+        .value,
+    ).toBe(35),
+  );
+  // A pull Core admitted on its own stays a quiet note without a bar.
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      {
+        id: "lms-automatic",
+        target: { type: "school", site: "science-lms", courseId: null },
+        state: "blocked",
+        priority: "automatic",
+        phase: null,
+        blockedBy: "schoolVisible",
+        attempt: 0,
+        waiterCount: 0,
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("background");
+    expect(status.textContent).toContain("LMS");
+    expect(status.textContent).toContain(
+      "Resumes after you leave the school page",
+    );
+    expect(status.querySelector("progress")).toBeNull();
+  });
+  await act(async () => app!.core.emit("pull-state-changed", []));
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("idle");
+    expect(status.textContent).toContain("Never updated");
+  });
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      kind: "service",
+      state: "maintenance",
+      changed: 0,
+      message: "Official maintenance · 2031/01/02 10:00–12:30",
+    }),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("Under maintenance");
+    expect(status.textContent).toContain("2031/01/02");
+    expect(status.querySelector("progress")).toBeNull();
+    expect(status.getAttribute("data-kind")).toBe("problem");
+  });
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      kind: "service",
+      state: "ok",
+      changed: 0,
+      message: "",
+    }),
+  );
+  await until(() =>
+    expect(
+      app!.host.querySelector(".lmsStatus")!.getAttribute("data-kind"),
+    ).toBe("idle"),
+  );
+  const terminal = {
+    id: "kyomu-partial",
+    target: { type: "school", site: "kyomu", courseId: null },
+    state: "failed",
+    priority: "automatic",
+    phase: "partial",
+    blockedBy: null,
+    attempt: 1,
+    waiterCount: 0,
+    lastError: "registrations unavailable",
+  };
+  await act(async () => app!.core.emit("pull-state-changed", [terminal]));
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("Refresh incomplete");
+    expect(status.textContent).toContain("registrations unavailable");
+    expect(status.querySelector("progress")).toBeNull();
+  });
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      terminal,
+      {
+        ...terminal,
+        id: "kyomu-recovered",
+        state: "succeeded",
+        phase: "complete",
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() =>
+    expect(app!.host.querySelector(".lmsStatus")!.textContent).not.toContain(
+      "Refresh incomplete",
+    ),
+  );
+  const force = app.host.querySelector<HTMLButtonElement>(".lmsStatus button")!;
+  expect(force.textContent).toBe("Refresh now");
+  await click(force);
+  await until(() =>
+    expect(
+      app!.core.calls
+        .filter((call) => call.command === "pull_school")
+        .map((call) => call.args.site),
+    ).toEqual(["kyomu", "science-lms"]),
+  );
+  await until(() => expect(force.disabled).toBe(false));
+});
+
+/**
+ * Proper names, product names and protocol words that stay in Latin script in
+ * every UI language, plus the fixture's own course data. Anything else in
+ * Latin script on a Chinese screen is an English string that skipped `t()`.
+ */
+const LATIN_ALLOWED = new Set(
+  (
+    "LMS Web Science Tokyo TokyoTech Tech Portal Mail TSUBAME ICS PDF URL ID " +
+    "AI Agent MCP Matrix Wi-Fi Google Drive Microsoft OAuth iCloud CSS " +
+    "JavaScript HTTP Streamable Bearer IsctCompanion GPA GPT ZIP macOS session " +
+    "English https isct-companion Isct-Data test Placed CSC.T Q MB " +
+    "A B C D E F G H I J " +
+    // Course-search operators in the planner's placeholder are typed as is.
+    "teacher room W"
+  ).split(" "),
+);
+
+/** Latin-script words a person would see or hear on screen. */
+function latinWords(root: HTMLElement): string[] {
+  const words = new Set<string>();
+  const add = (text: string | null | undefined) => {
+    for (const word of text?.match(/[A-Za-z][A-Za-z'’.-]*/g) ?? [])
+      if (!LATIN_ALLOWED.has(word.replace(/[.]$/, ""))) words.add(word);
+  };
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode())
+    if (!["STYLE", "SCRIPT"].includes(node.parentElement?.tagName ?? ""))
+      add(node.textContent);
+  for (const element of root.querySelectorAll(
+    "[aria-label],[title],[placeholder]",
+  ))
+    for (const name of ["aria-label", "title", "placeholder"])
+      add(element.getAttribute(name));
+  return [...words];
+}
+
+it("shows every page and settings section in Chinese without English leftovers", async () => {
+  const workspace = workspaceFixture({
+    courses: [placedCourse],
+    planItems: [planItemFor(placedCourse)],
+  });
+  workspace.settings.locale = "zh";
+  app = await mountShell(shellOptions({ workspace }));
+  const sections = [
+    "accounts",
+    "study",
+    "notifications",
+    "calendar",
+    "appearance",
+    "files",
+    "backup",
+    "sources",
+    "agent",
+    "developer",
+    "about",
+  ] as const;
+  const leaks: Record<string, string[]> = {};
+  for (const route of [
+    paths.home(),
+    paths.home("week"),
+    paths.timetable(),
+    paths.lectures(),
+    paths.web(),
+    ...sections.map((section) => paths.settings(section)),
+  ]) {
+    await app.go(route);
+    await advance(300);
+    const words = latinWords(app.host);
+    if (words.length) leaks[route] = words;
+  }
+  expect(leaks).toEqual({});
+}, 60_000);

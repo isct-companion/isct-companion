@@ -102,7 +102,7 @@ export type SchoolLoginEvent = {
   message: string;
 };
 export type SchoolSessionState =
-  "pending" | "active" | "failed" | "not-configured";
+  "pending" | "active" | "maintenance" | "failed" | "not-configured";
 /** A school session state changed (sign-in, launch, credential change, or renewal). */
 export type SchoolSessionEvent = {
   profile: SchoolAuthProfile;
@@ -111,6 +111,7 @@ export type SchoolSessionEvent = {
 };
 export type SchoolSessionSnapshot = {
   revision: number;
+  kyomuMaintenance?: string | null;
   states: {
     science: SchoolSessionState;
     tokyoTech: SchoolSessionState;
@@ -123,13 +124,14 @@ export type SchoolSessionLifecycle = {
 const isSchoolSessionState = (value: unknown): value is SchoolSessionState =>
   value === "pending" ||
   value === "active" ||
+  value === "maintenance" ||
   value === "failed" ||
   value === "not-configured";
 /** One extractor result from LMS or one 教務Web page. */
 export type SchoolIngestOutcome = {
   site: SchoolSite;
   kind: string;
-  state: "ok" | "unavailable" | "reconnect-required" | "error";
+  state: "ok" | "unavailable" | "maintenance" | "reconnect-required" | "error";
   changed: number;
   message: string;
 };
@@ -294,6 +296,7 @@ export type AgentConnection =
 export type PullSnapshot = {
   id: string;
   target:
+    | { type: "catalog"; year: number; query: string }
     | { type: "school"; site: "science-lms" | "kyomu"; courseId: number | null }
     | { type: "reference"; kind: string; indexUrl: string; year: number };
   priority: "automatic" | "manual";
@@ -379,7 +382,10 @@ export interface DesktopBridge {
   /** The build's operating system; see `nativeOs`. */
   os?: NativeOs;
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
-  resolveSchoolUrl(url: string): Promise<{ site: SchoolSite; url: string }>;
+  resolveSchoolUrl(
+    url: string,
+    site: SchoolSite,
+  ): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
   bootstrapReminders(fired: unknown): Promise<boolean>;
   lmsMergePreview(
@@ -607,7 +613,8 @@ export function createTauriDesktopBridge(
     finderQuery: (request) => result("finder_query", { request }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
-    resolveSchoolUrl: (url) => result("resolve_school_url", { url }),
+    resolveSchoolUrl: (url, site) =>
+      result("resolve_school_url", { url, site }),
     openExternal: async (url) => {
       await invokeCommand("open_external", { url });
     },

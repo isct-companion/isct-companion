@@ -216,6 +216,7 @@ impl Core {
                 self.runtime.coordinator.clone(),
                 self.auth.clone(),
                 events.clone(),
+                self.runtime.refresh.clone(),
             ),
             refresh: self.runtime.refresh.clone(),
             store: self.store.clone(),
@@ -242,6 +243,7 @@ impl Core {
         let mut snapshot = self.workspace.snapshot()?;
         snapshot.workspace["registrations"] = snapshot.school_records["registrations"].clone();
         snapshot.workspace["grades"] = snapshot.school_records["grades"].clone();
+        snapshot.workspace["lmsCourses"] = snapshot.school_records["lmsCourses"].clone();
         let values = queries
             .into_iter()
             .map(|query| crate::schedule::query(&snapshot.workspace, query))
@@ -258,10 +260,15 @@ impl Core {
     ) -> Result<crate::course_query::FinderView, ReadModelError> {
         let snapshot = self.workspace.snapshot()?;
         let offerings = crate::catalog::offerings(&self.store, request.year)?;
+        let mut workspace = snapshot.workspace;
+        workspace["kyomuSearchOptions"] = self
+            .store
+            .reference_cache_marker("kyomu-search-options", i32::from(request.year))
+            .map_err(crate::catalog::CatalogError::from)?
+            .map(|marker| marker["options"].clone())
+            .unwrap_or_else(|| serde_json::json!([]));
         Ok(crate::course_query::finder_view(
-            &snapshot.workspace,
-            offerings,
-            request,
+            &workspace, offerings, request,
         )?)
     }
 

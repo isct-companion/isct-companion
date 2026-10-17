@@ -1,4 +1,5 @@
 //! Shared catalog acquisition and freshness policy.
+use crate::course_query::OfficialSelection;
 use crate::{contracts, data, syllabus};
 use futures_util::{stream::FuturesOrdered, StreamExt};
 
@@ -283,9 +284,11 @@ pub struct CatalogPage {
     pub truncated: bool,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CatalogFilters {
+    pub controls: Option<Vec<OfficialSelection>>,
+    pub recommended: Option<bool>,
     pub teacher: Option<String>,
     pub code: Option<String>,
     pub department: Option<String>,
@@ -322,6 +325,19 @@ pub async fn kyomu_query(
     if filters.department.is_some() && department.is_none() {
         return Err(CatalogError::InvalidInput(
             "Unknown course department.".into(),
+        ));
+    }
+    let controls = filters.controls.clone().unwrap_or_default();
+    if controls.len() > 40
+        || controls.iter().any(|c| {
+            c.id.len() > 100
+                || c.value.len() > 100
+                || !c.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                || c.value.chars().any(char::is_control)
+        })
+    {
+        return Err(CatalogError::InvalidInput(
+            "Invalid official search controls.".into(),
         ));
     }
     let code = filters
@@ -362,114 +378,72 @@ pub async fn kyomu_query(
     if let Some(teacher) = &filters.teacher {
         url.query_pairs_mut().append_pair("KyouinName", teacher);
     }
-    // These quarter IDs are the values used by the official search form,
-    // including combinations whose meetings overlap the requested quarter.
-    if let Some(quarters) = &filters.quarters {
-        if quarters.iter().any(|q| !(1..=4).contains(q)) {
-            return Err(CatalogError::InvalidInput("Invalid course quarter.".into()));
-        }
-        let options: [(u8, &[u8]); 10] = [
-            (1, &[1]),
-            (2, &[2]),
-            (3, &[3]),
-            (4, &[4]),
-            (7, &[1, 2]),
-            (8, &[3, 4]),
-            (9, &[1, 2, 3, 4]),
-            (10, &[1, 3]),
-            (12, &[2, 4]),
-            (6, &[2, 3]),
-        ];
-        let values = options
-            .iter()
-            .filter(|(_, covered)| covered.iter().any(|q| quarters.contains(q)))
-            .map(|(id, _)| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        if !values.is_empty() {
-            url.query_pairs_mut().append_pair("Quarters", &values);
-        }
-    }
-    for (key, values) in [
-        (
-            "KamokuCodeSeries",
-            filters.groups.clone().unwrap_or_default(),
-        ),
-        (
-            "HisshuKbn",
-            filters.requirement_groups.clone().unwrap_or_default(),
-        ),
-        (
-            "Youbi",
-            filters
-                .days
-                .as_ref()
-                .filter(|days| !days.contains(&6))
-                .map(|days| {
-                    days.iter()
-                        .map(|d| if *d == 7 { 0 } else { *d })
-                        .map(|d| d.to_string())
-                        .collect()
-                })
-                .unwrap_or_default(),
-        ),
-        (
-            "KaisiJigenS",
-            filters
-                .period_starts
-                .as_ref()
-                .filter(|periods| periods.iter().all(|p| (1..=10).contains(p)))
-                .map(|periods| periods.iter().map(|p| p.to_string()).collect())
-                .unwrap_or_default(),
-        ),
-    ] {
-        if values
-            .iter()
-            .any(|v| v.len() > 16 || !v.bytes().all(|b| b.is_ascii_alphanumeric()))
-            || values.len() > 12
-        {
-            return Err(CatalogError::InvalidInput("Invalid course filters.".into()));
-        }
-        if !values.is_empty() {
-            url.query_pairs_mut().append_pair(key, &values.join(","));
-        }
-    }
-    if let Some(language) = &filters.language {
-        match language.as_str() {
-            "ja" => {
-                url.query_pairs_mut().append_pair("Lang_kj", "True");
-            }
-            "en" => {
-                url.query_pairs_mut().append_pair("Lang_ke", "True");
-            }
-            _ => {
-                return Err(CatalogError::InvalidInput(
-                    "Invalid course language.".into(),
-                ))
-            }
-        }
+    // Native requests carry semantic choices; the browser resolves them to the
+    // controls actually offered by this account's current authenticated form.
+    if filters
+        .quarters
+        .as_ref()
+        .is_some_and(|values| values.iter().any(|q| !(1..=4).contains(q)))
+        || filters
+            .days
+            .as_ref()
+            .is_some_and(|values| values.iter().any(|day| !(1..=7).contains(day)))
+        || filters
+            .period_starts
+            .as_ref()
+            .is_some_and(|values| values.iter().any(|period| *period == 0))
+        || filters
+            .language
+            .as_ref()
+            .is_some_and(|language| !["ja", "en"].contains(&language.as_str()))
+    {
+        return Err(CatalogError::InvalidInput("Invalid course filters.".into()));
     }
     let url = url.to_string();
+    let identity = serde_json::to_string(&controls)?;
+    let browser_filters = filters.clone();
     let payload = coordinator
         .run(
             PullTarget::Catalog {
                 year,
-                query: format!("{url}#{}", cursor.as_deref().unwrap_or("")),
+                query: format!("{url}#{identity}#{}", cursor.as_deref().unwrap_or("")),
             },
             PullOptions::manual(),
             move |context| {
                 let browser = browser.clone();
                 let url = url.clone();
                 let cursor = cursor.clone();
+                let browser_filters = browser_filters.clone();
                 async move {
                     browser
-                        .catalog_search(&url, cursor, &context)
+                        .catalog_search(&url, cursor, browser_filters, &context)
                         .await
                         .map_err(crate::pull_coordinator::PullError::from)
                 }
             },
         )
         .await?;
+    if payload["searchOptions"].is_array() {
+        // Captured public form metadata is device-local and never cloud user data.
+        let options: Vec<crate::course_query::OfficialFilterOption> =
+            serde_json::from_value(payload["searchOptions"].clone())?;
+        let options = serde_json::to_value(options)?;
+        let previous = store.reference_cache_marker("kyomu-search-options", i32::from(year))?;
+        let now = chrono::Utc::now().timestamp();
+        let changed = previous.as_ref().is_none_or(|p| {
+            p["options"] != options
+                || p["capturedAt"]
+                    .as_i64()
+                    .is_none_or(|at| now - at >= 30 * 24 * 60 * 60)
+        });
+        if changed {
+            store.record_reference_cache(
+                "kyomu-search-options",
+                i32::from(year),
+                serde_json::json!({"options":options,"capturedAt":now}),
+            )?;
+        }
+    }
     let rows = payload["courses"].as_array().ok_or_else(|| {
         CatalogError::InvalidInput("Official course search returned no collection.".into())
     })?;

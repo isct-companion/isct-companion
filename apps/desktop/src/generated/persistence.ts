@@ -946,10 +946,33 @@ export type DatedAgenda = {
 
 export type PlanningDay = { day: number; blocks: Array<Occurrence> };
 
+export type CourseConflict = {
+  courseId: string;
+  /**
+   * 1 = Monday … 7 = Sunday.
+   */
+  day: number;
+  /**
+   * This course's meeting, not the overlap window.
+   */
+  startTime: string;
+  endTime: string;
+  /**
+   * The other course; absent when the other block is a personal event.
+   */
+  withCourseId: string | null;
+  withTitle: string;
+};
+
 export type PlanningWeek = {
   courses: unknown[];
   days: Array<PlanningDay>;
   conflictCount: number;
+  /**
+   * Every clash, once per course involved, so a shell can explain a
+   * red block without re-deriving overlaps.
+   */
+  conflicts: Array<CourseConflict>;
 };
 
 export type PlanCivilStart = { date: string; time: string };
@@ -971,6 +994,11 @@ export type CourseDetail = {
   assignmentIds: Array<string>;
   examIds: Array<string>;
   offeringId: string | null;
+  /**
+   * The course's T2SCHOLA page, from the course itself or its LMS record.
+   */
+  lmsUrl: string | null;
+  syllabusUrl: string | null;
 };
 
 export type CourseTimeline = {
@@ -1275,11 +1303,23 @@ export type FinderSchedule = {
 export type FinderRow = { course: FinderCourse; matched: Array<string> };
 
 export type Suggestion =
+  | { kind: "category"; key: string; label: string }
   | { kind: "condition"; key: string; condition: Condition; count: number }
   | { kind: "course"; course: FinderCourse }
   | { kind: "text"; key: string; count: number };
 
+export type OfficialSelection = { id: string; value: string };
+
+export type OfficialFilterOption = {
+  id: string;
+  value: string;
+  label: string;
+  family: string;
+};
+
 export type RemoteQuery = {
+  controls?: Array<OfficialSelection>;
+  recommended?: boolean;
   quarters?: Array<number>;
   days?: Array<number>;
   periodStarts?: Array<number>;
@@ -1300,6 +1340,7 @@ export type FinderContext = {
   recommended: { [key in string]?: Recommendation };
   departments: Array<FinderDepartment>;
   busy: Array<BusySlot>;
+  officialOptions: Array<OfficialFilterOption>;
 };
 
 export type Recommendation = { group: string; mark?: string | null };
@@ -1318,7 +1359,7 @@ export type Condition = {
   type: string;
   key: string;
   label: string;
-  values: (string | number | TimeValue)[];
+  values: (string | number | TimeValue | { id: string; value: string })[];
   prefix?: boolean;
   exclude?: boolean;
 };
@@ -1371,6 +1412,55 @@ export type FinderView = {
   missingCodes: Array<string>;
   ineligibleCodes: Array<string>;
   detailIds: Array<string>;
+};
+
+export type MatrixPoint = { x: number; y: number };
+
+export type MatrixReading = { text: string; confidence: number };
+
+export type MatrixVote = { text: string; confidence: number; stable: boolean };
+
+export type MatrixScanPhase = "initial" | "refine" | "verify" | "complete";
+
+export type MatrixScanTiming = {
+  decodeMs: number;
+  geometryMs: number;
+  preprocessMs: number;
+  inferenceMs: number;
+  totalMs: number;
+};
+
+export type MatrixScanSnapshot = {
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
+  confidence: number;
+  cells: Array<MatrixVote>;
+  stableCells: number;
+  complete: boolean;
+  needsAdjustment: boolean;
+  phase: MatrixScanPhase;
+  sampledCells: number;
+  frames: number;
+  timing: MatrixScanTiming;
+};
+
+export type MatrixScanOutline = {
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint];
+};
+
+export type MatrixCaptureMetrics = {
+  elapsedMs: number;
+  trackedMs: number | null;
+  frames: number;
+  frameMs: Array<number>;
+};
+
+export type OtpImportAccount = {
+  label: string;
+  issuer: string;
+  /**
+   * Sensitive: only the selected value enters the unsaved credential draft.
+   */
+  setup: string;
 };
 
 export const DATA_POLICY: DataPolicy = {

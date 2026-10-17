@@ -269,14 +269,18 @@
 .lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .lmsPdfHeader > .lmsFileToolbar { position: static; flex: 1 1 240px; flex-wrap: wrap; gap: 5px; min-width: 0; padding: 0; border: 0; }
 .lmsPdfHeader .lmsFileAddress { min-width: 60px; padding: 4px 0; }
-.lmsPdfControls { display: flex; flex-wrap: wrap; flex: 0 1 auto; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
-.lmsPdfPagination, .lmsPdfZoom { display: flex; align-items: center; gap: 4px; }
-.lmsPdfControls input, .lmsPdfControls select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: inherit; }
-.lmsPdfControls input { width: 40px; text-align: center; appearance: textfield; }
+.lmsPdfControls { display: flex; flex: 0 1 auto; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lmsPdfPagination, .lmsPdfZoom { display: flex; align-items: center; gap: 2px; }
+.lmsPdfPagination { gap: 5px; }
+.lmsPdfControls input, .lmsPdfControls select { height: 26px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
+.lmsPdfControls input:hover, .lmsPdfControls select:hover, .lmsPdfControls input:focus { border-color: var(--line); }
+.lmsPdfControls input { width: 36px; text-align: center; appearance: textfield; }
 .lmsPdfControls input::-webkit-inner-spin-button { appearance: none; }
-.lmsPdfControls select { max-width: 98px; }
+.lmsPdfControls select { max-width: 92px; }
 .lmsPdfControls button, .lmsPdfSearch button { appearance: none; border: 0; background: transparent; color: var(--accent); cursor: pointer; }
-.lmsPdfControls button { width: 27px; height: 27px; padding: 0; border-radius: 6px; font-size: 17px; }
+.lmsPdfControls button { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 6px; color: var(--muted); }
+.lmsPdfControls button:hover:not(:disabled) { color: var(--accent); }
+.lmsPdfFindToggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent) !important; }
 .lmsPdfControls button:hover:not(:disabled), .lmsPdfSearch button:hover:not(:disabled) { background: var(--accent-soft); }
 .lmsPdfControls button:disabled { opacity: .3; cursor: default; }
 .lmsPdfSearch { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 11px; }
@@ -564,7 +568,8 @@
 
 @container workspace (max-width: 520px) {
   .lmsPdfHeader > .lmsFileToolbar { flex-wrap: wrap; }
-  .lmsPdfControls { flex-wrap: wrap; }
+  .lmsPdfControls { gap: 4px; }
+  .lmsPdfZoom select { display: none; }
 }
 
 /* The available course workspace can be narrow even in a wide app window. */
@@ -574,7 +579,6 @@
 .lmsWorkspace.narrowReader:not(.viewing) .lmsViewer,
 .lmsWorkspace.narrowReader.viewing .lmsOutline { display: none; }
 .lmsWorkspace.narrowReader.viewing .lmsViewer { display: flex; }
-.lmsPdfControls, .lmsPdfZoom { min-width: 0; flex-wrap: wrap; }
 
 .lmsWorkspaceHint { margin: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 

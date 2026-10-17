@@ -8,6 +8,7 @@ import {
   type PlanCivilStart,
 } from "../../platform/core-query";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
+import { t } from "../../i18n";
 
 const presets = {
   once: "",
@@ -112,19 +113,19 @@ export function PlanEditor({
       onClose={() => !submission.busy && close()}
       closeOnClickOutside={!submission.busy}
       closeOnEscape={!submission.busy}
-      title={plan ? "Edit plan" : "New plan"}
+      title={t(plan ? "Edit plan" : "New plan")}
     >
       <Stack aria-busy={submission.busy}>
         <TextInput
           required
-          label="Title"
+          label={t("Title")}
           value={title}
           onChange={(event) => setTitle(event.currentTarget.value)}
         />
         <TextInput
           required
           type="datetime-local"
-          label="Start"
+          label={t("Start")}
           value={start}
           onChange={(event) => {
             editedStart.current = true;
@@ -134,25 +135,25 @@ export function PlanEditor({
         <TextInput
           type="number"
           min={1}
-          label="Duration (minutes)"
+          label={t("Duration (minutes)")}
           value={duration}
           onChange={(event) => setDuration(Number(event.currentTarget.value))}
         />
         <TextInput
-          label="Room"
+          label={t("Room")}
           value={room}
           onChange={(event) => setRoom(event.currentTarget.value)}
         />
         <Select
-          label="Repeats"
+          label={t("Repeats")}
           value={preset}
           data={[
-            { value: "once", label: "One-off" },
-            { value: "daily", label: "Every day" },
-            { value: "weekdays", label: "Weekdays" },
-            { value: "weekly", label: "Weekly" },
-            { value: "fortnightly", label: "Every 2 weeks" },
-            { value: "advanced", label: "Advanced RRULE" },
+            { value: "once", label: t("One-off") },
+            { value: "daily", label: t("Every day") },
+            { value: "weekdays", label: t("Weekdays") },
+            { value: "weekly", label: t("Weekly") },
+            { value: "fortnightly", label: t("Every 2 weeks") },
+            { value: "advanced", label: t("Advanced RRULE") },
           ]}
           onChange={(value) =>
             value &&
@@ -163,7 +164,7 @@ export function PlanEditor({
         {(preset === "advanced" || rule) && (
           <TextInput
             label="RRULE"
-            description="DAILY, WEEKLY, MONTHLY or YEARLY; minimum one day"
+            description={t("DAILY, WEEKLY, MONTHLY or YEARLY; minimum one day")}
             value={rule}
             onChange={(event) =>
               setRule(event.currentTarget.value.replace(/^RRULE:/i, ""))
@@ -174,7 +175,7 @@ export function PlanEditor({
         {submission.error && <div role="alert">{submission.error}</div>}
         {preview.length > 0 && (
           <div>
-            <b>Next 5 occurrences</b>
+            <b>{t("Next 5 occurrences")}</b>
             {preview.map((value) => (
               <div key={value}>{value}</div>
             ))}
@@ -188,7 +189,7 @@ export function PlanEditor({
               disabled={submission.busy}
               onClick={() => void submission.run(remove)}
             >
-              Delete
+              {t("Delete")}
             </Button>
           ) : (
             <span />
@@ -199,7 +200,7 @@ export function PlanEditor({
               disabled={submission.busy}
               onClick={close}
             >
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               disabled={
@@ -224,7 +225,7 @@ export function PlanEditor({
                 )
               }
             >
-              Save
+              {t("Save")}
             </Button>
           </Group>
         </Group>

@@ -699,7 +699,7 @@ describe("the weekday labels the finder and timetable print", () => {
 
 describe("the finder conditions the loaded context can settle", () => {
   it("marks exactly the recommendation group, mark and free-slot conditions", () => {
-    expect([...LOCAL_TYPES].sort()).toEqual(["free", "group", "mark"]);
+    expect([...LOCAL_TYPES].sort()).toEqual(["free"]);
   });
 
   it("does not mark conditions that need the school to answer", () => {

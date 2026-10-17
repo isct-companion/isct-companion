@@ -29,6 +29,7 @@ pub struct IngestOutcome {
 pub enum IngestState {
     Ok,
     Unavailable,
+    Maintenance,
     ReconnectRequired,
     Error,
 }
@@ -36,7 +37,10 @@ pub enum IngestState {
 impl IngestState {
     /// Unavailable is a complete capability observation, not a failed pull.
     pub fn is_problem(self) -> bool {
-        matches!(self, Self::ReconnectRequired | Self::Error)
+        matches!(
+            self,
+            Self::Maintenance | Self::ReconnectRequired | Self::Error
+        )
     }
 }
 
@@ -82,6 +86,8 @@ pub enum SchoolExecutorError {
     #[error("{0}")]
     Authentication(String),
     #[error("{0}")]
+    Maintenance(String),
+    #[error("{0}")]
     Storage(String),
     #[error("{0}")]
     Timeout(String),
@@ -113,6 +119,8 @@ pub enum SchoolError {
     #[error("{0}")]
     Authentication(String),
     #[error("{0}")]
+    Maintenance(String),
+    #[error("{0}")]
     Timeout(String),
     #[error("{0}")]
     Stopped(String),
@@ -138,6 +146,7 @@ impl From<PullError> for SchoolError {
                 Self::InvalidInput(message)
             }
             PullError::Authentication(message) => Self::Authentication(message),
+            PullError::Maintenance(message) => Self::Maintenance(message),
             PullError::Storage(message) => Self::Storage(message),
             PullError::Timeout(message) => Self::Timeout(message),
             PullError::ServiceStopped(message) => Self::Stopped(message),
@@ -153,6 +162,7 @@ pub struct SchoolService {
     coordinator: PullCoordinator,
     auth: Arc<SchoolAuthService>,
     events: Arc<dyn EventSink>,
+    refresh: crate::school_refresh::SchoolRefresh,
 }
 
 impl SchoolService {
@@ -160,11 +170,13 @@ impl SchoolService {
         coordinator: PullCoordinator,
         auth: Arc<SchoolAuthService>,
         events: Arc<dyn EventSink>,
+        refresh: crate::school_refresh::SchoolRefresh,
     ) -> Self {
         Self {
             coordinator,
             auth,
             events,
+            refresh,
         }
     }
 
@@ -242,6 +254,16 @@ impl SchoolService {
                         if context.is_cancelled() {
                             return Err(PullError::Cancelled);
                         }
+                        let _full_pull = if course_id.is_none() {
+                            Some(
+                                service
+                                    .refresh
+                                    .begin_full_pull(site)
+                                    .map_err(|error| PullError::Execution(error.to_string()))?,
+                            )
+                        } else {
+                            None
+                        };
                         // A later join can still ask for sign-in; the executor reads
                         // the job's flag again before each extraction.
                         let credentials = if context.login_first() {
@@ -296,6 +318,15 @@ impl SchoolService {
                         }
                         // Partial outcomes already committed useful rows. Preserve the
                         // result while marking the coordinator snapshot as failed.
+                        for problem in result.iter().filter(|row| row.state.is_problem()) {
+                            crate::diagnostics::report(
+                                "school-pull",
+                                &format!(
+                                    "{:?}/{}: {}",
+                                    problem.site, problem.kind, problem.message
+                                ),
+                            );
+                        }
                         if let Some(problem) = result.iter().find(|row| row.state.is_problem()) {
                             context.outcome_error(problem.message.clone()).await;
                         }
@@ -314,6 +345,7 @@ pub(crate) fn map_executor_error(error: SchoolExecutorError) -> PullError {
     match error {
         SchoolExecutorError::InvalidInput(message) => PullError::InvalidInput(message),
         SchoolExecutorError::Authentication(message) => PullError::Authentication(message),
+        SchoolExecutorError::Maintenance(message) => PullError::Maintenance(message),
         SchoolExecutorError::Storage(message) => PullError::Storage(message),
         SchoolExecutorError::Timeout(message) => PullError::Timeout(message),
         SchoolExecutorError::Stopped(message) => PullError::ServiceStopped(message),

@@ -108,7 +108,7 @@ export function MarkdownDocument({
           attributes: {
             ...options.attributes,
             role: "textbox",
-            "aria-label": "Note document",
+            "aria-label": t("Note document"),
             "aria-multiline": "true",
           },
         }));

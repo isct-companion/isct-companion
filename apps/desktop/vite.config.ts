@@ -6,6 +6,7 @@ import {
   oauthClientTarget,
 } from "../../scripts/lib/oauth-config.mjs";
 import { thirdPartyNotices } from "../../scripts/desktop/third-party-notices.mjs";
+import { interactionTrace } from "../../scripts/desktop/interaction-trace.mjs";
 import { developmentVersion } from "../../scripts/lib/build-version.mjs";
 
 const { version } = JSON.parse(
@@ -13,7 +14,7 @@ const { version } = JSON.parse(
 ) as { version: string };
 
 export default defineConfig(({ command }) => ({
-  plugins: [react(), thirdPartyNotices()],
+  plugins: [react(), thirdPartyNotices(), interactionTrace()],
   base: "./",
   build: {
     outDir: "dist",

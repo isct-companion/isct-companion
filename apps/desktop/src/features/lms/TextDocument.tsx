@@ -6,6 +6,7 @@ import { cpp } from "@codemirror/lang-cpp";
 import { java } from "@codemirror/lang-java";
 import { python } from "@codemirror/lang-python";
 import { r } from "@codemirror/legacy-modes/mode/r";
+import { t } from "../../i18n";
 export function textLanguage(url: string) {
   const path = new URL(url).pathname.toLowerCase();
   if (/\.(c|h|cpp|cc|cxx|hpp)$/.test(path)) return { name: "C / C++", extension: cpp() };
@@ -37,5 +38,5 @@ export function TextDocument({ value, url }: { value: string; url: string }) {
       view.destroy();
     };
   }, [value, url]);
-  return <div className="lmsTextDocument"><div className="lmsTextMeta"><span>{language.name}</span><span>{value.split("\n").length} lines · UTF-8</span></div><div ref={host} /></div>;
+  return <div className="lmsTextDocument"><div className="lmsTextMeta"><span>{t(language.name)}</span><span>{t("{{count}} lines", { count: value.split("\n").length })} · UTF-8</span></div><div ref={host} /></div>;
 }

@@ -11,16 +11,6 @@
   container-type: inline-size;
   container-name: workspace;
 }
-.workspaceTabStrip {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  min-width: 0;
-  min-height: var(--workspace-bar-height);
-  padding: 6px 6px 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface-3);
-}
 .workspaceToolPanel {
   display: flex;
   align-items: flex-start;
@@ -32,23 +22,30 @@
   border-bottom: 1px solid var(--line);
   background: var(--surface-3);
 }
+/* Reader header: title on the left, the document's tools on one row to the
+   right, close last. Tools wrap below the title only in a narrow pane. */
+.lmsReaderTools {
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 4px;
+}
 .lmsReaderTitle {
-  flex: 1;
+  flex: 1 1 120px;
   min-width: 0;
   padding: 6px 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
 }
 .lmsReaderToolSlot {
-  flex: 1;
+  display: flex;
+  flex: 0 1 auto;
+  justify-content: flex-end;
   min-width: 0;
 }
 .lmsReaderToolSlot:empty {
-  display: none;
-}
-.lmsReaderTools:has(> .lmsReaderToolSlot:not(:empty)) > .lmsReaderTitle {
   display: none;
 }
 .lmsReaderToolSlot .lmsPdfHeader,
@@ -59,17 +56,40 @@
   border: 0;
   background: none;
 }
-.lmsReaderToolSlot .lmsFileAddress {
-  flex: 1 1 100%;
-}
-.lmsReaderToolSlot .lmsPdfHeader {
-  gap: 8px 12px;
-}
+.lmsReaderToolSlot .lmsPdfHeader,
 .lmsReaderToolSlot .lmsFileToolbar {
-  flex: 1 1 220px;
+  flex-wrap: nowrap;
+  gap: 4px;
 }
-.lmsReaderToolSlot .lmsPdfControls {
-  margin-left: auto;
+/* The panel already names the document; icons carry the actions. */
+.lmsReaderToolSlot .lmsFileAddress,
+.lmsReaderToolSlot .lmsToolLabel {
+  display: none;
+}
+.lmsReaderTools .lmsReaderToolSlot .lmsFileToolbar {
+  flex: 0 0 auto;
+}
+.lmsReaderToolSlot .lmsFileActions button,
+.lmsReaderToolSlot .lmsFileActions a {
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  color: var(--muted) !important;
+}
+.lmsReaderToolSlot .lmsFileActions button:hover,
+.lmsReaderToolSlot .lmsFileActions a:hover {
+  color: var(--accent) !important;
+}
+.lmsReaderToolSlot .lmsPdfControls + .lmsFileToolbar {
+  margin-inline-start: 4px;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--line);
+}
+.lmsFileActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 .lmsMarkdownTools {
   display: flex;
@@ -86,23 +106,6 @@
 }
 .lmsMarkdownTools button:hover {
   background: var(--accent-soft);
-}
-.workspaceCurrentTab {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  max-width: 80%;
-  min-height: var(--workspace-control-height);
-  padding: 0 var(--workspace-gutter);
-  border: 1px solid var(--line);
-  border-bottom: 0;
-  border-radius: var(--radius-control) var(--radius-control) 0 0;
-  background: var(--surface-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 550;
 }
 .webWorkspace .webToolbar {
   flex: 0 0 auto;

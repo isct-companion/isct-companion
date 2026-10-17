@@ -109,6 +109,7 @@ function finderView(
       recommended: options.recommended ?? {},
       departments: [],
       busy: [],
+      officialOptions: [],
     },
     courses,
     factors: nextKeys.map(factorFor),
@@ -186,17 +187,17 @@ function timetableTitles(host: HTMLElement): string[] {
   ];
 }
 
-/** Turns the planner on the way a person does, then waits for the search panel. */
-async function enablePlanning(app: MountedApp): Promise<HTMLInputElement> {
-  const edit = await required(
-    () => app.host.querySelector<HTMLInputElement>('input[role="switch"]'),
-    "the Edit switch",
-  );
-  await click(edit);
-  return required(
+/** The workstation timetable opens as the planner; waits for its search panel. */
+async function enablePlanning(
+  app: MountedApp,
+  focus = true,
+): Promise<HTMLInputElement> {
+  const input = await required(
     () => app.host.querySelector<HTMLInputElement>("#course-finder-input"),
     "the syllabus search input",
   );
+  if (focus) await act(async () => input.focus());
+  return input;
 }
 
 async function chooseOption(select: HTMLSelectElement, value: string) {
@@ -280,8 +281,9 @@ afterEach(async () => {
 
 function plannerQueries(allTerms: TermId[] = [FALLBACK]) {
   return {
-    workspaceOverview: (_query: unknown, core: FakeCore) =>
+    workspaceOverview: (query: unknown, core: FakeCore) =>
       overviewFor(core.workspace, {
+        term: (query as { term: string }).term || core.workspace.selectedTerm,
         allTerms,
         coursesTerm: core.workspace.selectedTerm,
         selectedTerm: core.workspace.selectedTerm,
@@ -299,19 +301,20 @@ function plannerQueries(allTerms: TermId[] = [FALLBACK]) {
  * ------------------------------------------------------------------ */
 
 describe("the course planner", () => {
-  it("keeps IME confirmation out of the search and reopens suggestions for keyboard selection", async () => {
+  it("navigates filter categories and conditions while keeping IME confirmation out of search", async () => {
+    const options: FinderOptions = {
+      courses: [eligible],
+      suggestions: [
+        { kind: "text", key: "teacher:Tanaka", count: 1 },
+        { kind: "text", key: "room:W9", count: 1 },
+      ],
+    };
     app = await mountApp(
       {
         revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
-        handle: finderHandler({
-          courses: [eligible],
-          suggestions: [
-            { kind: "text", key: "teacher:Tanaka", count: 1 },
-            { kind: "text", key: "room:W9", count: 1 },
-          ],
-        }),
+        handle: finderHandler(options),
       },
       { route: paths.timetable() },
     );
@@ -361,17 +364,70 @@ describe("the course planner", () => {
     expect(
       (commits[0].args.request as { action: FinderAction }).action,
     ).toEqual({ kind: "commit", key: "room:W9" });
+    options.suggestions = [
+      { kind: "category", key: "level:", label: "Course level" },
+    ];
+    await typeInto(input, "level");
+    await settled(() =>
+      expect(app!.host.querySelector('[role="option"]')?.textContent).toContain(
+        "Course level",
+      ),
+    );
+    await key("Enter");
+    expect(input.value).toBe("level:");
+    expect(
+      app.core.calls.filter(
+        (call) =>
+          call.command === "finder_query" &&
+          (call.args.request as { action?: FinderAction }).action?.kind ===
+            "commit",
+      ),
+    ).toHaveLength(1);
+    options.suggestions = [
+      {
+        kind: "condition",
+        key: "kyomu:graduate_level:live-600",
+        condition: {
+          type: "official-level",
+          key: "kyomu:graduate_level:live-600",
+          label: "600",
+          values: [{ id: "graduate_level", value: "live-600" }],
+        },
+        count: -1,
+      },
+    ];
+    await typeInto(input, "level:6");
+    await settled(() =>
+      expect(app!.host.querySelector('[role="option"]')?.textContent).toContain(
+        "600",
+      ),
+    );
+    await key("Tab");
+    await settled(() =>
+      expect(
+        app!.core.calls
+          .filter(
+            (call) =>
+              call.command === "finder_query" &&
+              (call.args.request as { action?: FinderAction }).action?.kind ===
+                "commit",
+          )
+          .at(-1)?.args.request,
+      ).toMatchObject({
+        action: { kind: "commit", key: "kyomu:graduate_level:live-600" },
+      }),
+    );
   });
 
-  it("appends official search pages without replacing earlier rows", async () => {
-    const courses = Array.from({ length: 150 }, (_, index) =>
+  it("pages official search results while only mounting the visible rows", async () => {
+    const courses = Array.from({ length: 1000 }, (_, index) =>
       offering(
         String(202600000 + index),
         `CSC.T${index}`,
         `Official course ${index}`,
       ),
     );
-    const cursor = "d80b803a-7694-49db-bd3a-e634d329fb0c";
+    const cursor = "100";
     app = await mountApp(
       {
         revision: freshRevision(),
@@ -391,12 +447,11 @@ describe("the course planner", () => {
             };
           }
           if (command === "catalog_query") {
-            const next = Boolean(args.cursor);
+            const offset = Number(args.cursor ?? 0);
             return {
-              ids: courses
-                .slice(next ? 100 : 0, next ? 150 : 100)
-                .map((row) => row.id),
-              nextCursor: next ? null : cursor,
+              ids: courses.slice(offset, offset + 100).map((row) => row.id),
+              nextCursor:
+                offset + 100 < courses.length ? String(offset + 100) : null,
               truncated: false,
             };
           }
@@ -405,22 +460,58 @@ describe("the course planner", () => {
       },
       { route: paths.timetable() },
     );
-    await enablePlanning(app);
-    await settled(() =>
-      expect(app!.host.querySelectorAll(".finderRow")).toHaveLength(100),
+    const searchInput = await enablePlanning(app, false);
+    expect(app.host.querySelectorAll(".finderRow")).toHaveLength(0);
+    expect(app.host.querySelector(".finderTitle")?.textContent).not.toContain(
+      "Loading",
     );
-    await click(buttonByText(app.host, "Load more courses")!);
-    await settled(() =>
-      expect(app!.host.querySelectorAll(".finderRow")).toHaveLength(150),
-    );
+    expect(
+      app.core.calls.filter((call) =>
+        ["finder_query", "catalog_query"].includes(call.command),
+      ),
+    ).toHaveLength(0);
+    await act(async () => searchInput.focus());
+    await settled(() => expect(app!.host.textContent).toContain("100 courses"));
+    for (let loaded = 200; loaded <= 1000; loaded += 100) {
+      await click(buttonByText(app.host, "Load more courses")!);
+      await settled(() =>
+        expect(app!.host.textContent).toContain(`${loaded} courses`),
+      );
+      expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
+    }
     expect(app.host.textContent).toContain("Official course 0");
-    expect(app.host.textContent).toContain("Official course 149");
+    expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
+    expect(app.host.textContent).not.toContain("Official course 999");
+    const scroll = app.host.querySelector<HTMLElement>(".finderResults")!;
+    await act(async () => {
+      scroll.scrollTo({ top: 999 * 96 });
+    });
+    await settled(() =>
+      expect(app!.host.textContent).toContain("Official course 999"),
+    );
+    expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
+    expect(app.host.textContent).not.toContain("Official course 0");
     expect(app.host.textContent).not.toContain("Load more courses");
     const requests = app.core.calls.filter(
       (call) => call.command === "catalog_query",
     );
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(10);
     expect(requests[1].args.cursor).toBe(cursor);
+    const queriesBeforeNavigation = app.core.calls.filter((call) =>
+      ["finder_query", "catalog_query"].includes(call.command),
+    ).length;
+    await click(buttonByText(app.host, "Today")!);
+    await click(buttonByText(app.host, "Timetable")!);
+    await required(
+      () => app!.host.querySelector("#course-finder-input"),
+      "fresh search panel",
+    );
+    expect(app.host.querySelectorAll(".finderRow")).toHaveLength(0);
+    expect(
+      app.core.calls.filter((call) =>
+        ["finder_query", "catalog_query"].includes(call.command),
+      ),
+    ).toHaveLength(queriesBeforeNavigation);
   });
 
   it("shows syllabus results on the right and places an eligible course when its row Add is clicked", async () => {
@@ -760,6 +851,78 @@ describe("replacing a clashing course", () => {
     };
   }
 
+  it("explains a placed clash where the course is clicked and offers both ways out", async () => {
+    const sectioned = { ...clashingCourse, code: "CSC.T999-02" };
+    const workspace = workspaceFixture({
+      courses: [eligibleCourse, sectioned],
+      planItems: [planItemFor(eligibleCourse), planItemFor(sectioned)],
+    });
+    // Core names each side of the clash; the shell only renders it.
+    const conflicts = [
+      [eligibleCourse.id, sectioned.id, sectioned.title],
+      [sectioned.id, eligibleCourse.id, eligibleCourse.title],
+    ].map(([courseId, withCourseId, withTitle]) => ({
+      courseId,
+      day: 2,
+      startTime: "10:45",
+      endTime: "12:25",
+      withCourseId,
+      withTitle,
+    }));
+    app = await mountApp(
+      {
+        revision: freshRevision(),
+        workspace,
+        queries: {
+          ...plannerQueries(),
+          planningWeek: (_query: unknown, core: FakeCore) =>
+            planningWeekFor(core.workspace, { conflictCount: 1, conflicts }),
+        },
+        handle: finderHandler({ courses: [eligible] }),
+      },
+      { route: paths.timetable() },
+    );
+    const { host, core } = app;
+    const panel = () => host.querySelector(".coursesSide .coursePanel");
+    const notice = () => panel()?.querySelector(".coursePanelConflict");
+    const button = (label: string) =>
+      [...(notice()?.querySelectorAll("button") ?? [])].find(
+        (node) => node.textContent?.trim() === label,
+      );
+
+    // The header count is a way in, not just a number.
+    await click(
+      await required(
+        () => host.querySelector<HTMLButtonElement>(".conflictBadge"),
+        "the conflict count",
+      ),
+    );
+    await settled(() =>
+      expect(panel()?.querySelector(".finderTitle b")?.textContent).toBe(
+        "Graph Algorithms",
+      ),
+    );
+    expect(notice()?.textContent).toContain("Clashing Lecture");
+    expect(notice()?.textContent).toContain("10:45–12:25");
+
+    await click(button("Open")!);
+    await settled(() =>
+      expect(panel()?.querySelector(".finderTitle b")?.textContent).toBe(
+        "Clashing Lecture",
+      ),
+    );
+    expect(notice()?.textContent).toContain("Graph Algorithms");
+
+    await click(button("Find another class time")!);
+    await settled(() => expect(panel()).toBeNull());
+    // Every class group shares the code without its "-02" class suffix.
+    await settled(() =>
+      expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject({
+        keys: ["CSC.T999"],
+      }),
+    );
+  }, 60_000);
+
   it("offers Replace for a clashing course, commits it, and Undo restores the previous one", async () => {
     app = await mountApp(clashApp(), { route: paths.timetable() });
     const { host, core } = app;
@@ -835,13 +998,6 @@ async function openEditorFor(course: Course): Promise<MountedApp> {
       handle: finderHandler({ courses: [eligible] }),
     },
     { route: paths.drawer(paths.timetable(), course.id) },
-  );
-  await required(
-    () => mounted.host.querySelector<HTMLInputElement>('input[role="switch"]'),
-    "the Edit switch",
-  );
-  await click(
-    mounted.host.querySelector<HTMLInputElement>('input[role="switch"]')!,
   );
   const drawerEdit = await required(
     () =>
@@ -976,17 +1132,44 @@ describe("the course editor", () => {
  * ------------------------------------------------------------------ */
 
 describe("the year and quarter picker", () => {
-  it("keeps one year open and changes the term only when a quarter is clicked", async () => {
+  it("switches cached quarters before saving, coalesces bursts and restores a failed selection", async () => {
     const workspace = workspaceFixture();
     workspace.terms = TERMS;
     workspace.selectedTerm = "2026-3Q";
     workspace.currentTerm = "2026-3Q";
+    let failNextSelection = false;
+    let rejectSelection: ((error: Error) => void) | undefined;
+    const quarterCourse = (term: TermId) => ({
+      ...meetingCourse({
+        days: [1],
+        periods: [3, 4],
+        startTime: "10:45",
+        endTime: "12:25",
+        room: "W9",
+      }),
+      id: term,
+      termId: term,
+      title: `Cached ${term}`,
+    });
     app = await mountApp(
       {
         revision: freshRevision(),
         workspace,
-        queries: plannerQueries(TERMS),
-        handle: finderHandler({ courses: [eligible] }),
+        queries: {
+          ...plannerQueries(TERMS),
+          planningWeek: (query: unknown) =>
+            planningWeekFor({
+              ...workspace,
+              courses: [quarterCourse((query as { term: TermId }).term)],
+            }),
+        },
+        handle: finderHandler({ courses: [eligible] }, (command) => {
+          if (command === "mutate_workspace" && failNextSelection)
+            return new Promise((_resolve, reject) => {
+              rejectSelection = reject;
+            });
+          return undefined;
+        }),
         apply: (intent, core) => {
           if (intent.kind === "selectTerm")
             core.publish(
@@ -1029,7 +1212,33 @@ describe("the year and quarter picker", () => {
       () => host.querySelector<HTMLButtonElement>('[aria-label="2025 2Q"]'),
       "the 2025 2Q quarter",
     );
-    await click(quarter);
+    // Pin only this gesture's clock so a busy native build cannot turn the
+    // assertion about the first click into an assertion after the quiet window.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      await act(async () => {
+        host
+          .querySelector<HTMLButtonElement>('[aria-label="2025 1Q"]')!
+          .click();
+        host
+          .querySelector<HTMLButtonElement>('[aria-label="2025 3Q"]')!
+          .click();
+        quarter.click();
+      });
+      expect(
+        core.intents.filter((candidate) => candidate.kind === "selectTerm"),
+      ).toHaveLength(1);
+      // The last quarter is already selected while only the first has saved.
+      expect(core.workspace.selectedTerm).toBe("2025-1Q");
+      expect(
+        host
+          .querySelector('[aria-label="2025 2Q"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+    } finally {
+      vi.useRealTimers();
+    }
 
     await settled(() =>
       expect(
@@ -1038,12 +1247,36 @@ describe("the year and quarter picker", () => {
           ?.getAttribute("aria-selected"),
       ).toBe("true"),
     );
-    const intent = recordedIntent(core, "selectTerm");
-    expect(intent.termId).toBe("2025-2Q");
+    expect(
+      core.intents
+        .filter((candidate) => candidate.kind === "selectTerm")
+        .map((intent) => intent.termId),
+    ).toEqual(["2025-1Q", "2025-2Q"]);
     expect(
       host.querySelector(".yearQuarterGroup.expanded .yearQuarterYear")
         ?.textContent,
     ).toBe("2025");
+    failNextSelection = true;
+    await click(
+      host.querySelector<HTMLButtonElement>('[aria-label="2025 4Q"]')!,
+    );
+    await settled(() => expect(rejectSelection).toBeTypeOf("function"));
+    expect(core.workspace.selectedTerm).toBe("2025-2Q");
+    expect(
+      host
+        .querySelector('[aria-label="2025 4Q"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(timetableTitles(host)).toContain("Cached 2025-4Q");
+    await act(async () => rejectSelection!(new Error("Selection save failed")));
+    await settled(() =>
+      expect(
+        host
+          .querySelector('[aria-label="2025 2Q"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("true"),
+    );
+    expect(timetableTitles(host)).toContain("Cached 2025-2Q");
   }, 60_000);
 });
 
