@@ -16,7 +16,8 @@
       "$type": "number",
       "$description": "Share of the course colour mixed into the surface.",
       "fill": { "$value": 0.22, "$description": "Something that occupies time: a timetable block" },
-      "soft": { "$value": 0.1, "$description": "Emphasis on a row: the current or next class" }
+      "soft": { "$value": 0.1, "$description": "Emphasis on a row: the current or next class" },
+      "ink": { "$value": 0.4, "$description": "Text on a fill: the course colour mixed into ink" }
     }
   }
 }

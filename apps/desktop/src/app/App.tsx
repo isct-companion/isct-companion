@@ -264,7 +264,6 @@ export function WorkspaceApp() {
       }
     : undefined;
   const [lectureRailHovered, setLectureRailHovered] = useState(false);
-  const [editMode, setEditMode] = useState(false);
   const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -449,7 +448,12 @@ export function WorkspaceApp() {
   const finderView = useFinderQuery(
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
-    Boolean(overview.value && editMode && page === "timetable" && finderActive),
+    Boolean(
+      overview.value &&
+      formFactor !== "mobile" &&
+      page === "timetable" &&
+      finderActive,
+    ),
   );
   const finderEdits = useFinderEditQueue({
     year: finderYear,
@@ -1029,11 +1033,10 @@ export function WorkspaceApp() {
       }}
     />
   );
-  // Phones view the timetable; planning stays on the workstation.
-  const planning = editMode && formFactor !== "mobile";
+  // The workstation timetable is always the planner; phones only view it.
+  const planning = formFactor !== "mobile";
   const showSchoolSetup =
     !readOnly &&
-    !planning &&
     !data.importStatus.timetableReviewedAt &&
     !data.courses.some((course) => !course.deletedAt) &&
     tokyoTechSession !== "active";
@@ -1134,12 +1137,6 @@ export function WorkspaceApp() {
       <Courses
         compact={formFactor === "mobile"}
         editing={planning}
-        onEditingChange={(value) => {
-          setEditMode(value);
-          if (!value) setActiveFinderSession(null);
-          setOfferingPanel(null);
-          setPanelCourseId(null);
-        }}
         openPlan={(plan) => !readOnly && setPlanEditor(plan)}
         newPlan={() => !readOnly && setPlanEditor("new")}
         side={
@@ -1210,6 +1207,18 @@ export function WorkspaceApp() {
                 desktopBridge?.pullSchool ? () => void fetchLms() : undefined
               }
               progress={lmsProgress}
+              conflicts={(cachedTimetable?.planning?.conflicts ?? []).filter(
+                (conflict) => conflict.courseId === panelCourse.id,
+              )}
+              openCourse={(courseId) => setPanelCourseId(courseId)}
+              findOtherTimes={() => {
+                // Class groups share the code without the "-NN" class suffix.
+                const key =
+                  panelCourse.code.replace(/-\d+$/, "") || panelCourse.title;
+                setPanelCourseId(null);
+                finderEdits.replace([key]);
+                activateFinder();
+              }}
             />
           )
         }

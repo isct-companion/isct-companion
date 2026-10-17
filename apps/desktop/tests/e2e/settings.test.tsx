@@ -878,10 +878,20 @@ describe("Matrix scan and paste", () => {
         mounted.core.commands("test_school_connection").length,
       ).toBeGreaterThan(0);
 
-      // A saved Matrix collapses to one line: no cell, letter or confidence
-      // stays on screen until the person chooses to replace it.
-      await wait(() => expect(matrixInputs(card)).toHaveLength(0));
-      expect(card.textContent).toContain("Saved · hidden");
+      // A saved Matrix keeps its 7×10 shape with every letter and confidence
+      // hidden; typing over a cell is how it is replaced.
+      await wait(() =>
+        expect(
+          matrixInputs(card).every(
+            (input) => input.value === "" && input.placeholder === "•",
+          ),
+        ).toBe(true),
+      );
+      expect(matrixInputs(card)).toHaveLength(70);
+      expect(matrixInputs(card).some((input) => input.dataset.confidence)).toBe(
+        false,
+      );
+      expect(card.textContent).toContain("70/70");
       expect(card.textContent).not.toContain("AAAA");
       // Connect's sign-in check holds the card until the portal answers.
       await act(async () =>
@@ -891,12 +901,7 @@ describe("Matrix scan and paste", () => {
           message: "",
         }),
       );
-      await wait(() => expect(buttonIn(card, "Replace").disabled).toBe(false));
-      await clickButton(card, "Replace");
-      await wait(() => expect(matrixInputs(card)).toHaveLength(70));
-      expect(matrixInputs(card).every((input) => input.value === "")).toBe(
-        true,
-      );
+      await wait(() => expect(matrixInputs(card)[0].disabled).toBe(false));
     },
     TIMEOUT,
   );

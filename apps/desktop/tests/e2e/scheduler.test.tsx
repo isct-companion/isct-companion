@@ -178,16 +178,8 @@ function occurrenceQueries(core: FakeCore): OccurrenceQuery[] {
     .filter((query) => query.kind === "nextPlanOccurrences");
 }
 
-/** Opens the existing plan the way a person does: Edit, then the plan block. */
+/** Opens the existing plan the way a person does: the plan block in the planner. */
 async function openPlanEditor(app: MountedApp): Promise<void> {
-  const edit = await until(() => {
-    const node = app.host.querySelector<HTMLInputElement>(
-      'input[role="switch"]',
-    );
-    if (!node) throw new Error("The Edit switch is not on the page.");
-    return node;
-  });
-  await click(edit);
   const block = await until(() => {
     const node = app.host.querySelector<HTMLButtonElement>(".ttBlock.plan");
     if (!node) throw new Error("The plan is not on the timetable.");

@@ -946,10 +946,33 @@ export type DatedAgenda = {
 
 export type PlanningDay = { day: number; blocks: Array<Occurrence> };
 
+export type CourseConflict = {
+  courseId: string;
+  /**
+   * 1 = Monday … 7 = Sunday.
+   */
+  day: number;
+  /**
+   * This course's meeting, not the overlap window.
+   */
+  startTime: string;
+  endTime: string;
+  /**
+   * The other course; absent when the other block is a personal event.
+   */
+  withCourseId: string | null;
+  withTitle: string;
+};
+
 export type PlanningWeek = {
   courses: unknown[];
   days: Array<PlanningDay>;
   conflictCount: number;
+  /**
+   * Every clash, once per course involved, so a shell can explain a
+   * red block without re-deriving overlaps.
+   */
+  conflicts: Array<CourseConflict>;
 };
 
 export type PlanCivilStart = { date: string; time: string };

@@ -8,7 +8,6 @@ import {
   Group,
   Menu,
   Paper,
-  Switch,
   Modal,
   TextInput,
 } from "@mantine/core";
@@ -226,11 +225,6 @@ export function Courses({
           <h1>{t("Timetable")}</h1>
           <span>{t("Plan courses for this quarter")}</span>
         </div>
-        <Switch
-          label={t("Edit")}
-          checked={editing}
-          onChange={(event) => onEditingChange?.(event.currentTarget.checked)}
-        />
       </div>
       <header className="pageBar" hidden={compact}>
         <YearQuarterPicker
@@ -281,8 +275,19 @@ export function Courses({
             </Badge>
           )}
           {conflictCount > 0 && (
-            <Badge variant="light" color="red">
-              {conflictCount} conflict{conflictCount > 1 ? "s" : ""}
+            <Badge
+              component="button"
+              type="button"
+              variant="light"
+              color="red"
+              className="conflictBadge"
+              title={t("Show the first conflict")}
+              onClick={() => {
+                const first = planning?.conflicts?.[0];
+                if (first) open(first.courseId);
+              }}
+            >
+              {t("Conflicts: {{count}}", { count: conflictCount })}
             </Badge>
           )}
 

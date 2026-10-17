@@ -1439,11 +1439,40 @@ fn contained_import_slots_do_not_make_a_course_conflict_with_itself() {
     );
     let mut other = data["courses"][0].clone();
     other["id"] = json!("other");
+    other["title"] = json!("Other course");
     other["meetings"] = json!([{"days":[1],"periods":[7,8],"room":"M-156"}]);
     data["courses"].as_array_mut().unwrap().push(other);
     data["memberships"]
         .as_array_mut()
         .unwrap()
         .push(json!({"id":"other-member","courseId":"other","termId":"2026-1Q"}));
-    assert_eq!(planning_week(&data, "2026-1Q").unwrap().conflict_count, 1);
+    let clash = planning_week(&data, "2026-1Q").unwrap();
+    assert_eq!(clash.conflict_count, 1);
+    // Each side names the other, so a click on either block can explain it.
+    let first = data["courses"][0]["id"].as_str().unwrap().to_string();
+    let mut pairs: Vec<_> = clash
+        .conflicts
+        .iter()
+        .map(|c| (c.course_id.clone(), c.with_course_id.clone(), c.day))
+        .collect();
+    pairs.sort();
+    let mut expected = vec![
+        (first.clone(), Some("other".to_string()), 1),
+        ("other".to_string(), Some(first), 1),
+    ];
+    expected.sort();
+    assert_eq!(pairs, expected);
+    let title = data["courses"][0]["title"].as_str().unwrap().to_string();
+    let named = |id: &str| {
+        clash.days[0]
+            .blocks
+            .iter()
+            .find(|b| b.course_id.as_deref() == Some(id))
+            .and_then(|b| b.conflict_with.clone())
+    };
+    assert_eq!(named("other"), Some(vec![title]));
+    assert_eq!(
+        named(data["courses"][0]["id"].as_str().unwrap()),
+        Some(vec!["Other course".to_string()])
+    );
 }

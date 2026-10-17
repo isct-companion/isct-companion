@@ -1256,8 +1256,6 @@
   "Current URL": "当前 URL",
   "Previous page": "上一页",
   "Next page": "下一页",
-  "教務Web top page": "教務Web 首页",
-  "Top": "首页",
   "Page zoom": "页面缩放",
   "Reset zoom": "重置缩放",
   "Open {{site}}": "打开 {{site}}",
@@ -1265,5 +1263,10 @@
   "Official data": "官方数据",
   "Sync automatically": "自动同步",
   "Upload and pull by hand": "手动上传和拉取",
-  "Never updated": "尚未更新"
+  "Never updated": "尚未更新",
+  "Time conflict": "时间冲突",
+  "Keep one: open the other course, or find another time for this one.": "只能保留一门：打开另一门课，或为这门课找其他上课时间。",
+  "Find another class time": "找其他上课时间",
+  "Show the first conflict": "查看第一个冲突",
+  "Conflicts: {{count}}": "{{count}} 个时间冲突"
 }

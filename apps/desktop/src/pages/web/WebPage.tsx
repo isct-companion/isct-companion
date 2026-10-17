@@ -545,11 +545,6 @@ export function Web({
             className="workspacePane webWorkspace"
             aria-label={t(official[site].name)}
           >
-            <header className="workspaceTabStrip">
-              <span className="workspaceCurrentTab">
-                {t(official[site].name)}
-              </span>
-            </header>
             <form
               className="webToolbar"
               onSubmit={(event) => void navigate(event)}
@@ -633,19 +628,6 @@ export function Web({
                     onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
                   >
                     ↻
-                  </UiButton>
-                )}
-                {embedded && site === "kyomu" && (
-                  <UiButton
-                    type="button"
-                    title={t("教務Web top page")}
-                    onClick={() =>
-                      void openTarget(official.kyomu.url, "kyomu").catch(
-                        (error) => setStatus(errorText(error) ?? "Unavailable"),
-                      )
-                    }
-                  >
-                    {t("Top")}
                   </UiButton>
                 )}
               </div>
