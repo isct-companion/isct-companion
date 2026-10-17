@@ -1390,31 +1390,40 @@ export type MatrixPoint = { x: number; y: number };
 
 export type MatrixReading = { text: string; confidence: number };
 
-export type MatrixVote = {
-  text: string;
-  /**
-   * Mean winning OCR confidence times its share of the qualified vote weight.
-   */
-  confidence: number;
-  stable: boolean;
+export type MatrixVote = { text: string; confidence: number; stable: boolean };
+
+export type MatrixScanPhase = "initial" | "refine" | "verify" | "complete";
+
+export type MatrixScanTiming = {
+  decodeMs: number;
+  geometryMs: number;
+  preprocessMs: number;
+  inferenceMs: number;
+  totalMs: number;
 };
 
 export type MatrixScanSnapshot = {
-  /**
-   * Only the outer Matrix boundary is rendered over the camera preview.
-   */
   bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
-  /**
-   * The weakest cell determines whole-card confidence.
-   */
   confidence: number;
   cells: Array<MatrixVote>;
   stableCells: number;
   complete: boolean;
+  needsAdjustment: boolean;
+  phase: MatrixScanPhase;
+  sampledCells: number;
+  frames: number;
+  timing: MatrixScanTiming;
 };
 
 export type MatrixScanOutline = {
   bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint];
+};
+
+export type MatrixCaptureMetrics = {
+  elapsedMs: number;
+  trackedMs: number | null;
+  frames: number;
+  frameMs: Array<number>;
 };
 
 export type OtpImportAccount = {

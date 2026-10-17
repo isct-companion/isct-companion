@@ -2534,6 +2534,7 @@ dependencies = [
  "base64 0.22.1",
  "image",
  "imageproc",
+ "isct-core",
  "ort",
  "serde",
  "serde_json",

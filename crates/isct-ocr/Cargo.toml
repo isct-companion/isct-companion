@@ -25,3 +25,5 @@ serde_json = { version = "1", optional = true }
 [dev-dependencies]
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
+# The replay profiler composes the actual scheduler with OCR; no production edge.
+isct-core = { path = "../isct-core" }

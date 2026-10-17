@@ -25,32 +25,46 @@ This crate isolates an optional dependency and its failure handling at the API
 boundary. It runs in the caller's process and does not claim to contain a native
 abort or memory fault; process isolation would require a separate worker.
 
-Desktop live capture uses `scan_frame_with_geometry`: the same OCR pipeline
-publishes normalized geometry immediately after locating the grid, before the
-70 model inferences. `scan` and `scan_frame` retain the photo-import API and
-acceptance rules. Live frames do not export debug crops.
+Desktop live capture uses `scan_live_frame`: a frame is decoded and located once,
+the outer geometry is published immediately, and only the requested cells are
+cropped and preprocessed. Model inference uses batches of up to ten, with a
+64-pixel single-character input. Low-confidence narrow results retry the
+established 320-pixel input in a batch. Original/cleaned-image review remains
+active. Cells still below 0.8 get a 128-pixel recrop to preserve thin strokes,
+then keep the better measured result. Photo imports retain their existing 320-pixel API and acceptance rules.
 
-`isct_core::matrix_scan::MatrixScanner` owns session identity and per-cell
-consensus without depending on camera or model libraries. Each of the 70 cells
-retains its own last six high-confidence readings (>= 0.90). Unreadable and
-lower-confidence observations do not occupy a slot, dilute existing votes, or
-veto a result. For example, A3 can vote over images 1/4/5 while B2 votes over
-2/4/5/6. Each retained observation contributes its OCR confidence to its letter's
-vote. Acceptance needs at least three qualified samples per cell, a strict
-count majority and more than half the vote weight; a tie keeps scanning.
+`isct_core::matrix_scan::MatrixScanner` owns scheduling and per-cell consensus.
+The first plan contains all 70 cells; subsequent plans contain up to ten
+unsettled cells, ordered by oldest attempt so difficult cells cannot starve the
+others. Settled cells get bounded background checks. Each cell independently
+retains its last six qualified observations (confidence >= 0.80), requiring at
+least three and a strict count/weight majority. Low-confidence samples do not
+consume slots. A new clear contradiction reopens a settled cell.
 
-A cell's reported confidence is its winning mean OCR confidence multiplied by
-its weighted vote share. Whole-card confidence is the weakest cell's score;
-automatic completion requires every cell's sample quorum and majority. Moving
-or approaching the camera retains row/column identity. Brief grid loss hides
-the outline but retains votes; four consecutive missing frames reset the card.
-Stopping or replacing a session invalidates all pending callbacks and votes.
+When all cells settle, a full-card verification pass checks for contradictions.
+At least 49 cells must be readable in that pass, but blurred cells retain their
+independently collected votes. The scanner completes only after this check.
+Movement preserves row/column identity; four consecutive missing-grid frames
+reset the card. Stale/modified plans are rejected, so a frame cannot donate
+votes twice. Cancellation invalidates pending inference and geometry callbacks.
 
-Desktop owns `getUserMedia`, unmirrored video, JPEG frame capture and a single
-in-flight OCR request, sampling the next fresh frame 250 ms after completion.
-The preview renders one red Matrix boundary, with no cell grid, letters,
-confidence counters or partial-result action. Completion stops the camera,
-fills the editor and closes the scanner automatically. Closing, backgrounding,
-disconnection and errors release tracks; late permission grants are released
-too. Physical framing, focus, acquisition time and OS permission prompts are
-covered by manual check `OCR-CAMPUS-CARD` in a packaged app.
+Desktop captures only the latest frame with one request in flight. Its 5 Hz
+budget is measured start-to-start instead of adding a fixed delay after work.
+The preview displays one red outline. Completion releases the camera, fills the
+editor and closes automatically. `matrix-scan/latest.json` under the app cache
+contains timing, qualified-sample counts, weak/blank/conflict counts and shell
+capture timing; it never contains recognized letters or images. Capture
+`trackedMs` measures first visible outline to stop, while `elapsedMs` includes
+all camera acquisition time after video playback starts.
+
+Run a local replay through the real scheduler and model:
+
+```sh
+cargo run -p isct-ocr --release --example matrix_profile -- IMAGE_OR_FRAME_DIRECTORY EXPECTED_TEXT [MAX_FRAMES]
+```
+
+This reports first-pass time, refinement latency, effective update frequency,
+full-card-equivalent throughput, completion time and ground-truth mismatches.
+Replay timing excludes camera/IPC overhead; physical focus, framing and live
+acquisition remain manual check `OCR-CAMPUS-CARD`. The Latin glyph fixture is
+rendered from the system Helvetica font and contains no student data.

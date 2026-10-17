@@ -557,3 +557,67 @@ fn arbitrary_rotation_stretch_and_perspective_keep_cell_order() {
         }
     }
 }
+
+#[test]
+fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries() {
+    let sheet = image::load_from_memory(include_bytes!("fixtures/latin-cells.png"))
+        .unwrap()
+        .to_luma8();
+    let mut paddle = Paddle::new().unwrap();
+    for start in (0..26).step_by(5) {
+        let end = (start + 5).min(26);
+        let crops: Vec<_> = (start..end)
+            .map(|i| image::imageops::crop_imm(&sheet, i * 96, 0, 96, 96).to_image())
+            .collect();
+        let (narrow, _, _) = paddle
+            .recognize_glyphs(&crops.iter().collect::<Vec<_>>())
+            .unwrap();
+        for (offset, (crop, actual)) in crops.iter().zip(narrow).enumerate() {
+            let expected = ((b'A' + start as u8 + offset as u8) as char).to_string();
+            let wide = paddle.recognize(preprocess::prepare(crop).tensor).unwrap();
+            let actual = recognition::accept(&actual.text, actual.confidence);
+            let wide = recognition::accept(&wide.text, wide.confidence);
+            assert_eq!(
+                actual.text, expected,
+                "adaptive batch changed {expected}: {actual:?}, wide {wide:?}"
+            );
+        }
+    }
+    let full = MatrixOcrService::default()
+        .scan_live_frame(
+            include_bytes!("fixtures/matrix-card.jpg"),
+            &(0..70).collect::<Vec<_>>(),
+            |_| true,
+            |_| true,
+        )
+        .unwrap();
+    for (i, cell) in full.cells.iter().enumerate() {
+        let expected = ((b'A' + (i % 26) as u8) as char).to_string();
+        assert_eq!(cell.text, expected, "live cell {i}: {cell:?}");
+        assert!(
+            cell.confidence >= 0.8,
+            "live cell {i} did not qualify: {cell:?}"
+        );
+    }
+    let mut encoded = Cursor::new(Vec::new());
+    card()
+        .write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    let service = MatrixOcrService::default();
+    for invalid in [vec![], vec![70], vec![1, 1]] {
+        assert!(matches!(
+            service.scan_live_frame(encoded.get_ref(), &invalid, |_| true, |_| true),
+            Err(MatrixOcrError::InvalidImage(_))
+        ));
+    }
+    assert!(matches!(
+        service.scan_live_frame(encoded.get_ref(), &[20, 11], |_| false, |_| true),
+        Err(MatrixOcrError::Cancelled)
+    ));
+    let selected = service
+        .scan_live_frame(encoded.get_ref(), &[20, 11], |_| true, |_| true)
+        .unwrap();
+    assert_eq!(selected.cells.len(), 2);
+    assert_eq!(selected.quads.len(), MATRIX_CELLS);
+    assert!(selected.timing.total_ms >= selected.timing.inference_ms);
+}

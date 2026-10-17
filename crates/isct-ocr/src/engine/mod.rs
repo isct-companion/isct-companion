@@ -49,7 +49,96 @@ impl Paddle {
         })
     }
     fn recognize(&mut self, tensor: Vec<f32>) -> Result<Recognition, MatrixOcrError> {
-        let input = Tensor::from_array(([1usize, 3, 48, 320], tensor)).map_err(model_error)?;
+        self.recognize_batch(vec![tensor], 320)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| MatrixOcrError::Model("Missing recognition result".into()))
+    }
+    /// Keep the narrow fast path, but a weak result gets the established wide
+    /// context. The original raw text is retained for the existing review rules.
+    fn recognize_glyphs(
+        &mut self,
+        glyphs: &[&image::GrayImage],
+    ) -> Result<(Vec<Recognition>, f64, f64), MatrixOcrError> {
+        use std::time::Instant;
+        let stage = Instant::now();
+        let tensors = glyphs
+            .iter()
+            .map(|glyph| preprocess::prepare_width(glyph, 64).tensor)
+            .collect();
+        let mut preprocessing = stage.elapsed().as_secs_f64() * 1000.;
+        let stage = Instant::now();
+        let mut raw = self.recognize_batch(tensors, 64)?;
+        let mut inference = stage.elapsed().as_secs_f64() * 1000.;
+        let stage = Instant::now();
+        let retry: Vec<_> = raw
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| recognition::accept(&r.text, r.confidence).confidence < 0.8)
+            .map(|(i, _)| (i, preprocess::prepare(glyphs[i]).tensor))
+            .collect();
+        preprocessing += stage.elapsed().as_secs_f64() * 1000.;
+        let stage = Instant::now();
+        let (positions, tensors): (Vec<_>, Vec<_>) = retry.into_iter().unzip();
+        for (i, result) in positions
+            .into_iter()
+            .zip(self.recognize_batch(tensors, 320)?)
+        {
+            raw[i] = result;
+        }
+        inference += stage.elapsed().as_secs_f64() * 1000.;
+        Ok((raw, preprocessing, inference))
+    }
+    fn recognize_cells(
+        &mut self,
+        binaries: &[preprocess::Binary],
+    ) -> Result<(Vec<Recognition>, f64, f64), MatrixOcrError> {
+        let active: Vec<_> = binaries
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.has_glyph())
+            .map(|(i, _)| i)
+            .collect();
+        let glyphs: Vec<_> = active.iter().map(|&i| &binaries[i].cleaned).collect();
+        let (raw, mut preprocessing, mut inference) = self.recognize_glyphs(&glyphs)?;
+        let mut accepted = vec![Recognition::default(); binaries.len()];
+        for (i, r) in active.into_iter().zip(raw) {
+            accepted[i] = recognition::accept(&r.text, r.confidence);
+        }
+        let positions: Vec<_> = binaries
+            .iter()
+            .enumerate()
+            .filter(|(i, b)| !accepted[*i].text.is_empty() && b.cleaned != b.original)
+            .map(|(i, _)| i)
+            .collect();
+        let originals: Vec<_> = positions.iter().map(|&i| &binaries[i].original).collect();
+        let (raw, p, i) = self.recognize_glyphs(&originals)?;
+        preprocessing += p;
+        inference += i;
+        for (i, r) in positions.into_iter().zip(raw) {
+            accepted[i] = recognition::review(accepted[i].clone(), &r.text);
+        }
+        Ok((accepted, preprocessing, inference))
+    }
+    fn recognize_batch(
+        &mut self,
+        tensors: Vec<Vec<f32>>,
+        width: usize,
+    ) -> Result<Vec<Recognition>, MatrixOcrError> {
+        let batch = tensors.len();
+        if batch == 0 {
+            return Ok(vec![]);
+        }
+        if ![64, 320].contains(&width) || tensors.iter().any(|t| t.len() != 3 * 48 * width) {
+            return Err(MatrixOcrError::Model(
+                "Invalid recognition batch shape".into(),
+            ));
+        }
+        let input = Tensor::from_array((
+            [batch, 3, 48, width],
+            tensors.into_iter().flatten().collect::<Vec<_>>(),
+        ))
+        .map_err(model_error)?;
         let output = self.session.run(ort::inputs![input]).map_err(model_error)?;
         let Some((_, output)) = output.into_iter().next() else {
             return Err(MatrixOcrError::Model(
@@ -57,12 +146,27 @@ impl Paddle {
             ));
         };
         let (shape, data) = output.try_extract_tensor::<f32>().map_err(model_error)?;
-        if shape.len() != 3 || shape[0] != 1 || shape[2] != self.characters.len() as i64 {
+        if shape.len() != 3
+            || shape[0] != batch as i64
+            || shape[1] <= 0
+            || shape[2] != self.characters.len() as i64
+        {
             return Err(MatrixOcrError::Model(
                 "Unexpected Paddle output shape".into(),
             ));
         }
-        recognition::decode(data, &self.characters)
+        let steps = usize::try_from(shape[1]).map_err(model_error)?;
+        let stride = steps
+            .checked_mul(self.characters.len())
+            .ok_or_else(|| MatrixOcrError::Model("Paddle output is too large".into()))?;
+        if data.len() / stride != batch || !data.len().is_multiple_of(stride) {
+            return Err(MatrixOcrError::Model(
+                "Unexpected Paddle output length".into(),
+            ));
+        }
+        data.chunks_exact(stride)
+            .map(|sample| recognition::decode(sample, &self.characters))
+            .collect()
     }
 }
 fn model_error(error: impl std::fmt::Display) -> MatrixOcrError {
@@ -114,6 +218,115 @@ impl MatrixOcrService {
         self.1 = directory;
         self
     }
+    /// A fresh frame is decoded/located once; only scheduled cells are prepared.
+    /// Batches of ten use a 64 px canvas for a single Latin character.
+    pub fn scan_live_frame(
+        &self,
+        bytes: &[u8],
+        indices: &[usize],
+        geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
+        progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<crate::MatrixLiveFrame, MatrixOcrError> {
+        use std::time::Instant;
+        let start = Instant::now();
+        let mut seen = [false; MATRIX_CELLS];
+        if indices.is_empty()
+            || indices
+                .iter()
+                .any(|&i| i >= MATRIX_CELLS || std::mem::replace(&mut seen[i], true))
+        {
+            return Err(MatrixOcrError::InvalidImage(
+                "Invalid or duplicated Matrix cell indices".into(),
+            ));
+        }
+        let mut model = self.lock_model()?;
+        if !progress(OcrProgress {
+            completed: 0,
+            total: indices.len(),
+        }) {
+            return Err(MatrixOcrError::Cancelled);
+        }
+        let (image, small) = prepare_images(bytes)?;
+        let mut timing = crate::MatrixFrameTiming {
+            decode_ms: start.elapsed().as_secs_f64() * 1000.,
+            ..Default::default()
+        };
+        let stage = Instant::now();
+        let cells = geometry::locate(&small).ok_or(MatrixOcrError::GridNotFound)?;
+        let quads = normalized_quads(&cells, &small);
+        timing.geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
+        if !geometry(&quads) {
+            return Err(MatrixOcrError::Cancelled);
+        }
+        let mut results = Vec::with_capacity(indices.len());
+        for chunk in indices.chunks(10) {
+            let stage = Instant::now();
+            let binaries: Vec<_> = chunk
+                .iter()
+                .map(|&i| {
+                    let corners = cells[i].map(|p| geometry::Point {
+                        x: p.x * image.width() as f64 / small.width() as f64,
+                        y: p.y * image.height() as f64 / small.height() as f64,
+                    });
+                    preprocess::binarize(&geometry::crop(&image, &corners))
+                })
+                .collect();
+            timing.preprocess_ms += stage.elapsed().as_secs_f64() * 1000.;
+            let stage = Instant::now();
+            if binaries.iter().any(preprocess::Binary::has_glyph) && model.is_none() {
+                *model = Some(Paddle::new()?);
+            }
+            timing.inference_ms += stage.elapsed().as_secs_f64() * 1000.;
+            let mut accepted = vec![Recognition::default(); chunk.len()];
+            if let Some(paddle) = model.as_mut() {
+                let (cells, preprocessing, inference) = paddle.recognize_cells(&binaries)?;
+                accepted = cells;
+                timing.preprocess_ms += preprocessing;
+                timing.inference_ms += inference;
+            }
+            // Thin strokes can disappear in a 64 px crop even with a sharp
+            // source. Rescue only weak cells at 128 px instead of slowing all 70.
+            let stage = Instant::now();
+            let rescue_positions: Vec<_> = (0..chunk.len())
+                .filter(|&i| accepted[i].confidence < 0.8 && binaries[i].has_glyph())
+                .collect();
+            let rescue: Vec<_> = rescue_positions
+                .iter()
+                .map(|&i| {
+                    let corners = cells[chunk[i]].map(|p| geometry::Point {
+                        x: p.x * image.width() as f64 / small.width() as f64,
+                        y: p.y * image.height() as f64 / small.height() as f64,
+                    });
+                    preprocess::binarize(&geometry::crop_at(&image, &corners, 128))
+                })
+                .collect();
+            timing.preprocess_ms += stage.elapsed().as_secs_f64() * 1000.;
+            if let Some(paddle) = model.as_mut() {
+                let (alternatives, preprocessing, inference) = paddle.recognize_cells(&rescue)?;
+                timing.preprocess_ms += preprocessing;
+                timing.inference_ms += inference;
+                for (i, alternative) in rescue_positions.into_iter().zip(alternatives) {
+                    if alternative.confidence > accepted[i].confidence {
+                        accepted[i] = alternative;
+                    }
+                }
+            }
+            results.extend(accepted);
+            if !progress(OcrProgress {
+                completed: results.len(),
+                total: indices.len(),
+            }) {
+                return Err(MatrixOcrError::Cancelled);
+            }
+        }
+        timing.total_ms = start.elapsed().as_secs_f64() * 1000.;
+        Ok(crate::MatrixLiveFrame {
+            cells: results,
+            quads,
+            timing,
+        })
+    }
+
     pub fn scan(
         &self,
         image: &[u8],
@@ -147,17 +360,7 @@ impl MatrixOcrService {
         }
         let (image, small) = prepare_images(image)?;
         let cells = geometry::locate(&small).ok_or(MatrixOcrError::GridNotFound)?;
-        let quads: Vec<_> = cells
-            .iter()
-            .map(|corners| {
-                corners.map(|p| {
-                    [
-                        (p.x / small.width() as f64).clamp(0., 1.),
-                        (p.y / small.height() as f64).clamp(0., 1.),
-                    ]
-                })
-            })
-            .collect();
+        let quads = normalized_quads(&cells, &small);
         if !geometry(&quads) {
             return Err(MatrixOcrError::Cancelled);
         }
@@ -171,7 +374,7 @@ impl MatrixOcrService {
             });
             let binary = preprocess::binarize(&geometry::crop(&image, &corners));
             let prepared = preprocess::prepare(&binary.cleaned);
-            let result = if binary.ink < 12 || binary.ink as f64 > 64. * 64. * 0.55 {
+            let result = if !binary.has_glyph() {
                 Recognition::default()
             } else {
                 if model.is_none() {
@@ -225,6 +428,20 @@ impl MatrixOcrService {
             quads,
         })
     }
+}
+
+fn normalized_quads(cells: &[[geometry::Point; 4]], image: &RgbImage) -> Vec<[[f64; 2]; 4]> {
+    cells
+        .iter()
+        .map(|corners| {
+            corners.map(|p| {
+                [
+                    (p.x / image.width() as f64).clamp(0., 1.),
+                    (p.y / image.height() as f64).clamp(0., 1.),
+                ]
+            })
+        })
+        .collect()
 }
 
 fn prepare_images(bytes: &[u8]) -> Result<(RgbImage, RgbImage), MatrixOcrError> {

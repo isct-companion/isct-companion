@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   MatrixScanOutline,
   MatrixScanSnapshot,
+  MatrixCaptureMetrics,
 } from "../generated/persistence";
 import { t } from "../i18n";
 
@@ -42,8 +43,16 @@ export function openMatrixCamera(
   let stream: MediaStream | undefined;
   let sessionId: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let captureStarted: number | undefined;
+  let firstOutlineAt: number | undefined;
+  const capture: MatrixCaptureMetrics = {
+    elapsedMs: 0,
+    trackedMs: null,
+    frames: 0,
+    frameMs: [],
+  };
   const stopSession = (id: string) => {
-    void invoke("stop_matrix_camera", { sessionId: id }).catch(() => {
+    void invoke("stop_matrix_camera", { sessionId: id, capture }).catch(() => {
       // A shutting-down native host may already have dropped the session.
     });
   };
@@ -54,6 +63,10 @@ export function openMatrixCamera(
     document.removeEventListener("visibilitychange", visibility);
     stream?.getTracks().forEach((track) => track.stop());
     video.srcObject = null;
+    capture.elapsedMs =
+      captureStarted === undefined ? 0 : performance.now() - captureStarted;
+    capture.trackedMs =
+      firstOutlineAt === undefined ? null : performance.now() - firstOutlineAt;
     if (sessionId) stopSession(sessionId);
   };
   const fail = (error: unknown) => {
@@ -109,9 +122,11 @@ export function openMatrixCamera(
     const context = canvas.getContext("2d");
     if (!context)
       throw new Error(t("Cannot read camera frames. Scan an image instead."));
+    captureStarted = performance.now();
     let lastTime = -1;
     const frame = async () => {
       if (disposed) return;
+      const started = performance.now();
       try {
         if (
           video.readyState >= 2 &&
@@ -129,19 +144,29 @@ export function openMatrixCamera(
           const image = canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
           const onGeometry = new Channel<MatrixScanOutline>();
           onGeometry.onmessage = (outline) => {
-            if (!disposed) onOutline?.(outline);
+            if (!disposed) {
+              firstOutlineAt ??= performance.now();
+              onOutline?.(outline);
+            }
           };
           const snapshot = await invoke<MatrixScanSnapshot>(
             "scan_matrix_camera_frame",
             { sessionId: id, image, onGeometry },
           );
           if (disposed) return;
+          capture.frames += 1;
+          capture.frameMs.push(performance.now() - started);
+          if (capture.frameMs.length > 128) capture.frameMs.shift();
           if (snapshot.complete) dispose();
           onSnapshot(snapshot);
           if (snapshot.complete) return;
         }
-        // Capture the next fresh frame only after the previous worker finishes.
-        timer = setTimeout(() => void frame(), 250);
+        // A 5 Hz budget measures start-to-start, so model time is not followed
+        // by another fixed 250 ms delay. One request owns the latest frame.
+        timer = setTimeout(
+          () => void frame(),
+          Math.max(0, 200 - (performance.now() - started)),
+        );
       } catch (error) {
         fail(error);
       }

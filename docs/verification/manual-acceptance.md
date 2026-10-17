@@ -780,7 +780,11 @@ camera or a photo of the card.
    follows the Matrix, with no cell boxes or letter overlays. Tilt it,
    introduce glare, then hold it steady with the labels in view. Observe
    whether the scanner fills all cells and closes itself; record the
-   acquisition time and any cells that prevent completion.
+   acquisition time and any cells that prevent completion. After close
+   or cancel, inspect matrix-scan/latest.json under the app cache for
+   captured frame latency, first-outline-to-stop time, per-cell qualified
+   sample counts and blank/weak/conflict counts. Compare all 70 saved
+   letters with the real card.
    - *Why:* OS camera permissions, native WebView video capture, optical focus,
      and the alignment of recognition boxes over a physical card require
      real hardware. Scripted frames cannot validate these surfaces.

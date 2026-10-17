@@ -18,16 +18,19 @@ export function MatrixCamera({
   const complete = useRef(onComplete);
   complete.current = onComplete;
   const [outline, setOutline] = useState<MatrixScanOutline>();
+  const [needsAdjustment, setNeedsAdjustment] = useState(false);
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     setError(undefined);
+    setNeedsAdjustment(false);
     setOutline(undefined);
     if (!video) return;
     return openMatrixCamera(
       video,
       (next) => {
         setOutline(next.bounds ? { bounds: next.bounds } : undefined);
+        setNeedsAdjustment(next.needsAdjustment);
         if (next.complete) complete.current(next.cells);
       },
       (failure) => setError(failure.message),
@@ -69,7 +72,11 @@ export function MatrixCamera({
         ) : (
           <Text size="sm" role="status">
             {outline
-              ? t("Reading Matrix. Hold steady…")
+              ? t(
+                  needsAdjustment
+                    ? "Move closer or tilt the card to avoid glare."
+                    : "Reading Matrix. Hold steady…",
+                )
               : t("Point the camera at the Matrix on your card.")}
           </Text>
         )}
