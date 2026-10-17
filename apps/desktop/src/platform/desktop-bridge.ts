@@ -382,7 +382,10 @@ export interface DesktopBridge {
   /** The build's operating system; see `nativeOs`. */
   os?: NativeOs;
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
-  resolveSchoolUrl(url: string): Promise<{ site: SchoolSite; url: string }>;
+  resolveSchoolUrl(
+    url: string,
+    site: SchoolSite,
+  ): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
   bootstrapReminders(fired: unknown): Promise<boolean>;
   lmsMergePreview(
@@ -610,7 +613,8 @@ export function createTauriDesktopBridge(
     finderQuery: (request) => result("finder_query", { request }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
-    resolveSchoolUrl: (url) => result("resolve_school_url", { url }),
+    resolveSchoolUrl: (url, site) =>
+      result("resolve_school_url", { url, site }),
     openExternal: async (url) => {
       await invokeCommand("open_external", { url });
     },

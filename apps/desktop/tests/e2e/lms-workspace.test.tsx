@@ -619,7 +619,7 @@ describe("the LMS reading workspace", () => {
       bodyHtml: "",
       url: "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7",
     });
-    const { host } = await openWorkspace(f, { entry: { request: 610 } });
+    const { host, core } = await openWorkspace(f, { entry: { request: 610 } });
 
     const forum = [...host.querySelectorAll(".lmsInlineActivity")].find(
       (item) => item.textContent?.includes("アナウンスメント"),
@@ -630,7 +630,18 @@ describe("the LMS reading workspace", () => {
     await click(buttonByText(host, "Open in LMS"));
     await waitFor(() =>
       expect(host.querySelector(".lmsSourceBar")?.textContent).toContain(
-        "Official LMS",
+        "lms.s.isct.ac.jp",
+      ),
+    );
+    await act(async () =>
+      core.emit("school-web-url", {
+        site: "science-lms",
+        url: "https://docs.google.com/forms/d/test/viewform",
+      }),
+    );
+    await waitFor(() =>
+      expect(host.querySelector(".lmsSourceBar")?.textContent).toBe(
+        "docs.google.com",
       ),
     );
   }, 30_000);

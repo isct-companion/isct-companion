@@ -1,4 +1,4 @@
-use super::policy::{is_identity_login, is_login_step, sanitize_school_url};
+use super::policy::{browsing_url, is_identity_login, is_login_step, sanitize_school_url};
 use super::{
     assets::SCHOOL_LOGIN, ActionId, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     LoadFailed, NavigationDecision, NewWindowDecision, PageId, PageLoaded, SchoolBrowser,
@@ -239,11 +239,7 @@ impl SchoolBrowserEngine {
             .or(current)
             .or_else(|| self.restored_target(site))
             .unwrap_or_else(|| site.start_url().to_string());
-        let url = if explicit_target {
-            site_url(site, &target)?
-        } else {
-            safe_url(&target)?
-        };
+        let url = interactive_url(&target)?;
         self.user_browsing(Some(site))?;
         let opened = (|| {
             let browser = self.ensure_browser(site, url.clone())?;
@@ -287,7 +283,8 @@ impl SchoolBrowserEngine {
     }
 
     pub fn navigate(&self, site: SchoolSite, raw: &str) -> Result<bool, SchoolBrowserError> {
-        let url = site_url(site, raw)?;
+        let url = interactive_url(raw)?;
+        self.user_browsing(Some(site))?;
         let browser = self.ensure_browser(site, url.clone())?;
         self.dispatch(browser, BrowserAction::Navigate(url))?;
         Ok(true)
@@ -571,7 +568,15 @@ impl Inner {
         if !self.current(event.page.browser) {
             return;
         }
-        let Some(safe_loaded) = sanitize_school_url(event.url.as_str()) else {
+        let official_loaded = sanitize_school_url(event.url.as_str());
+        let foreground = self
+            .state
+            .with(|state| state.browsing == Some(event.page.browser.site));
+        let Some(safe_loaded) = (if foreground {
+            browsing_url(event.url.as_str())
+        } else {
+            official_loaded.clone()
+        }) else {
             return;
         };
         let (
@@ -685,8 +690,13 @@ impl Inner {
                 url: safe_loaded.clone(),
             });
         }
-        if let Some((path, epoch)) = restore {
-            self.write_restore(path, epoch, event.page.browser.site, safe_loaded);
+        if let (Some((path, epoch)), Some(official)) = (restore, official_loaded.as_ref()) {
+            self.write_restore(path, epoch, event.page.browser.site, official.clone());
+        }
+        // External browsing gets history/address updates, never school scripts,
+        // saved credentials, customizations or automatic ingestion.
+        if official_loaded.is_none() {
+            return;
         }
         if !customization.css.trim().is_empty() {
             if let Ok(css) = serde_json::to_string(&customization.css) {
@@ -1001,7 +1011,16 @@ impl Inner {
             }
             return NavigationDecision::Cancel;
         }
-        if sanitize_school_url(url.as_str()).is_some() {
+        // Empty editor frames inherit the embedding origin. Blocking them
+        // breaks TinyMCE/contenteditable before keyboard input can begin.
+        let editor_frame = url.as_str() == "about:blank" || url.as_str() == "about:srcdoc";
+        let interactive = self
+            .state
+            .with(|state| state.browsing == Some(page.browser.site));
+        if editor_frame
+            || (interactive && browsing_url(url.as_str()).is_some())
+            || sanitize_school_url(url.as_str()).is_some()
+        {
             NavigationDecision::Allow
         } else {
             NavigationDecision::Cancel
@@ -1012,9 +1031,16 @@ impl Inner {
         if !self.current(page.browser) {
             return NewWindowDecision::Ignore;
         }
-        let school_url = sanitize_school_url(url.as_str())
-            .and_then(|safe| Url::parse(&safe).ok())
-            .and_then(|safe| SchoolSite::for_url(safe.as_str()).map(|site| (site, safe)));
+        let interactive = self
+            .state
+            .with(|state| state.browsing == Some(page.browser.site));
+        let school_url = (if interactive {
+            browsing_url(url.as_str())
+        } else {
+            sanitize_school_url(url.as_str())
+        })
+        .and_then(|safe| Url::parse(&safe).ok())
+        .and_then(|safe| SchoolSite::for_url(safe.as_str()).map(|site| (site, safe)));
         match school_url {
             Some((site, safe)) if site == page.browser.site => {
                 {
@@ -1039,6 +1065,9 @@ impl Inner {
                     url: safe.to_string(),
                 });
                 NewWindowDecision::OpenSchool { site, url: safe }
+            }
+            None if interactive && browsing_url(url.as_str()).is_some() => {
+                NewWindowDecision::SameView(url)
             }
             None if matches!(url.scheme(), "http" | "https")
                 && url.username().is_empty()
@@ -1194,14 +1223,13 @@ fn safe_url(raw: &str) -> Result<Url, SchoolBrowserError> {
     })?;
     Url::parse(&safe).map_err(|_| SchoolBrowserError::InvalidInput("School URL is invalid.".into()))
 }
-fn site_url(site: SchoolSite, raw: &str) -> Result<Url, SchoolBrowserError> {
-    let url = safe_url(raw)?;
-    if SchoolSite::for_url(url.as_str()) != Some(site) {
-        return Err(SchoolBrowserError::InvalidInput(
-            "School URL belongs to a different service.".into(),
-        ));
-    }
-    Ok(url)
+fn interactive_url(raw: &str) -> Result<Url, SchoolBrowserError> {
+    let safe = browsing_url(raw).ok_or_else(|| {
+        SchoolBrowserError::InvalidInput(
+            "Enter an HTTP or HTTPS URL without embedded credentials.".into(),
+        )
+    })?;
+    Url::parse(&safe).map_err(|_| SchoolBrowserError::InvalidInput("Web URL is invalid.".into()))
 }
 fn new_id() -> String {
     uuid::Uuid::now_v7().simple().to_string()

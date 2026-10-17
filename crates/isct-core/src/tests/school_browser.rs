@@ -399,6 +399,151 @@ fn login_config(script: &str) -> serde_json::Value {
     serde_json::from_str(raw).unwrap()
 }
 
+// Protect real engine routing: rich editors need inherited-origin frames;
+// interactive external pages must not inherit school automation authority.
+#[tokio::test]
+async fn interactive_browsing_supports_editor_frames_and_external_history_without_school_scripts() {
+    let (engine, browser, events, _) = engine();
+    let site = SchoolSite::ScienceLms;
+    let official =
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission#editor";
+    engine.open(site, Some(official.into())).await.unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let page = PageId {
+        browser: id,
+        sequence: 1,
+    };
+    listener.page_loaded(PageLoaded {
+        page,
+        cause: None,
+        url: Url::parse(official).unwrap(),
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if events
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == official))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    engine
+        .set_customization(
+            site,
+            SchoolPageCustomization {
+                css: "body{color:red}".into(),
+                javascript: "schoolCustomization()".into(),
+            },
+        )
+        .unwrap();
+    for main_frame in [false, true] {
+        for raw in [
+            "about:blank",
+            "about:srcdoc",
+            "https://docs.google.com/forms/d/test/viewform?entry.1=a%20b#section",
+            "http://example.com/search?q=course",
+        ] {
+            assert_eq!(
+                listener.decide_navigation(page, Url::parse(raw).unwrap(), main_frame),
+                NavigationDecision::Allow,
+                "{raw}"
+            );
+        }
+    }
+    for raw in [
+        "javascript:alert(1)",
+        "file:///tmp/private",
+        "data:text/html,test",
+        "https://user:secret@example.com/",
+    ] {
+        assert_eq!(
+            listener.decide_navigation(page, Url::parse(raw).unwrap(), true),
+            NavigationDecision::Cancel,
+            "{raw}"
+        );
+    }
+    let external = "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
+    let resolved = browsing_target(external, site).unwrap();
+    assert_eq!(resolved.site, site);
+    assert_eq!(resolved.url, external);
+    assert!(sanitize_school_url(external).is_none());
+    assert!(
+        matches!(listener.new_window(page, Url::parse(external).unwrap()), NewWindowDecision::SameView(url) if url.as_str() == external)
+    );
+    let scripts_before = browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| matches!(command.command, BrowserAction::Eval(_)))
+        .count();
+    engine.navigate(site, external).unwrap();
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(external).unwrap(),
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if events
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == external))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let scripts_after = browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| matches!(command.command, BrowserAction::Eval(_)))
+        .count();
+    assert_eq!(
+        scripts_after, scripts_before,
+        "external page received a school script"
+    );
+    assert!(events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == external)));
+    assert!(engine.back(site).unwrap());
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), official);
+    assert!(engine.forward(site).unwrap());
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), external);
+    assert_eq!(engine.open(site, None).await.unwrap().url, external);
+    engine.user_browsing(None).unwrap();
+    assert_eq!(
+        listener.decide_navigation(page, Url::parse(external).unwrap(), true),
+        NavigationDecision::Cancel
+    );
+    assert!(matches!(
+        listener.new_window(page, Url::parse(external).unwrap()),
+        NewWindowDecision::OpenExternal(_)
+    ));
+    engine.shutdown().await;
+}
+
 #[tokio::test]
 async fn heartbeat_loads_the_vault_only_after_login_and_settles_missing_credentials() {
     let (engine, browser, _, _) = engine();

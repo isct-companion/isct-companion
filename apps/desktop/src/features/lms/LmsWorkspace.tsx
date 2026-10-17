@@ -1595,9 +1595,6 @@ export function LmsWorkspace({
                 </Suspense>
               ) : opened.kind === "official" ? (
                 <>
-                  <div className="lmsSourceBar">
-                    Official LMS · lms.s.isct.ac.jp
-                  </div>
                   <OfficialLmsView
                     url={opened.url!}
                     active={viewerActive}

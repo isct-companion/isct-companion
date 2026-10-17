@@ -7,13 +7,20 @@ mod submission;
 
 pub use assets::{ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN};
 pub use engine::SchoolBrowserEngine;
-pub use policy::{is_login_url, sanitize_school_url, SCHOOL_HOSTS};
+pub use policy::{browsing_target, browsing_url, is_login_url, sanitize_school_url, SCHOOL_HOSTS};
 pub use port::*;
 #[cfg(feature = "desktop-workspaces")]
 pub use submission::{SubmissionError, SubmissionMessages};
 
 use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolWebTarget {
+    pub site: SchoolSite,
+    pub url: String,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

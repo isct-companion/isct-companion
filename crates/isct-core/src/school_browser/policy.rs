@@ -1,11 +1,12 @@
 use crate::school_auth::SchoolAuthProfile;
 use url::Url;
 
-/// Every official host a school page may navigate to.
+/// Official origins eligible for school automation and persisted restore URLs.
+/// Interactive WebView browsing is governed separately by `browsing_url`.
 ///
 /// The list is grouped by the campus that publishes the system, following the
 /// student site's 学修関連システム page. An origin in this list may be loaded in a
-/// school WebView; membership does not imply an adapter, a start page or a
+/// school automation flow; membership does not imply an adapter, a start page or a
 /// `SchoolSite` mapping.
 pub const SCHOOL_HOSTS: &[&str] = &[
     // 理工学系 (Science and engineering): portal, LMS, syllabus, 教務, library,
@@ -92,6 +93,32 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
         url.query_pairs_mut().extend_pairs(kept);
     }
     Some(url.to_string())
+}
+
+/// Interactive browsing preserves query/fragment state. This grants no login
+/// or extraction authority; those continue to use `sanitize_school_url`.
+pub fn browsing_url(raw: &str) -> Option<String> {
+    let url = Url::parse(raw).ok()?;
+    (matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none())
+    .then(|| url.to_string())
+}
+
+pub fn browsing_target(
+    raw: &str,
+    fallback: crate::lifecycle::SchoolSite,
+) -> Result<super::SchoolWebTarget, super::SchoolBrowserError> {
+    let url = browsing_url(raw).ok_or_else(|| {
+        super::SchoolBrowserError::InvalidInput(
+            "Enter an HTTP or HTTPS URL without embedded credentials.".into(),
+        )
+    })?;
+    Ok(super::SchoolWebTarget {
+        site: crate::lifecycle::SchoolSite::for_url(&url).unwrap_or(fallback),
+        url,
+    })
 }
 
 /// Whether a loaded or fetched URL is a school sign-in page: an identity

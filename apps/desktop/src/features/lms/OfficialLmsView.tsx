@@ -22,6 +22,14 @@ export function OfficialLmsView({
   const owner = useRef(Symbol("today-lms"));
   const opened = useRef(false);
   const [status, setStatus] = useState("Opening LMS…");
+  const [location, setLocation] = useState(url);
+  useEffect(() => {
+    setLocation(url);
+    if (!active) return;
+    return desktopBridge?.onSchoolWebUrl?.((event) => {
+      if (event.site === "science-lms") setLocation(event.url);
+    });
+  }, [url, active]);
   useEffect(() => {
     if (!active || !available || !desktopBridge) return;
     let disposed = false;
@@ -86,21 +94,24 @@ export function OfficialLmsView({
     };
   }, [url, active, available]);
   return (
-    <div className="lmsOfficialHost" ref={host}>
-      {!available ? (
-        <div className="lmsViewerEmpty">
-          <b>Official LMS</b>
-          <p>
-            The desktop app opens the signed-in LMS here. Browser preview cannot
-            embed LMS.
-          </p>
-          <a href={url} target="_blank" rel="noopener noreferrer">
-            Open LMS in browser ↗
-          </a>
-        </div>
-      ) : (
-        status && <p role="status">{status}</p>
-      )}
-    </div>
+    <>
+      <div className="lmsSourceBar">{new URL(location).hostname}</div>
+      <div className="lmsOfficialHost" ref={host}>
+        {!available ? (
+          <div className="lmsViewerEmpty">
+            <b>Official LMS</b>
+            <p>
+              The desktop app opens the signed-in LMS here. Browser preview
+              cannot embed LMS.
+            </p>
+            <a href={url} target="_blank" rel="noopener noreferrer">
+              Open LMS in browser ↗
+            </a>
+          </div>
+        ) : (
+          status && <p role="status">{status}</p>
+        )}
+      </div>
+    </>
   );
 }
