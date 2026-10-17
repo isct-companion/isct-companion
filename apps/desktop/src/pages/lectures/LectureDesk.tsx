@@ -174,6 +174,8 @@ export function LectureDesk({
           left.rank - right.rank || left.title.localeCompare(right.title),
       );
   }, [courses, now, schedule?.agendas, taskView, today]);
+  // The task view answers for a new quarter before that quarter's courses
+  // load, so work whose course is not on screen yet waits for it.
   const work = useMemo(() => {
     const byId = new Map(courses.map((course) => [course.id, course]));
     return (taskTerm?.lectureOpenIds ?? [])

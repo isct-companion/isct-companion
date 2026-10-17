@@ -99,6 +99,7 @@ import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
+import { traceRouter } from "./interaction-trace";
 import { useFormFactor } from "./form-factor";
 import { MobileShell } from "../layouts/compact/MobileShell";
 import { openExternalUrl } from "../components/ExternalLink";
@@ -894,16 +895,6 @@ export function WorkspaceApp() {
     }
     openWeb(KYOMU_REGISTRATION);
   };
-  const lmsUrlFor = (course: Course) => {
-    if (
-      course.source.provider === "lms" &&
-      course.url?.includes("lms.s.isct.ac.jp")
-    )
-      return course.url;
-    const row = lmsRecordFor(course);
-    return row?.url;
-  };
-
   const navigatePage = (next: Page) => {
     if (next === "web") setWebContext(null);
     void navigate(pagePath(next));
@@ -1211,7 +1202,6 @@ export function WorkspaceApp() {
               close={() => setPanelCourseId(null)}
               remove={() => void removeFromTimetable(panelCourse)}
               editIntensive={() => setIntensiveCourseId(panelCourse.id)}
-              lmsUrl={lmsUrlFor(panelCourse)}
               openWeb={(url) => openWeb(url)}
               fetchLms={
                 desktopBridge?.pullSchool ? () => void fetchLms() : undefined
@@ -1398,7 +1388,6 @@ export function WorkspaceApp() {
           }}
           toggle={() => toggleTimetable(drawerCourse)}
           editIntensive={() => setIntensiveCourseId(drawerCourse.id)}
-          lmsUrl={lmsUrlFor(drawerCourse)}
           openWeb={(url) => {
             const from = pageRef.current;
             openWeb(url, from === "lectures" ? "lectures" : "home");
@@ -1773,8 +1762,12 @@ export function WorkspaceApp() {
 }
 
 let defaultRouter: ReturnType<typeof createHashRouter> | undefined;
-const getDefaultRouter = () =>
-  (defaultRouter ??= createHashRouter(workspaceRoutes(WorkspaceApp)));
+const getDefaultRouter = () => {
+  if (defaultRouter) return defaultRouter;
+  defaultRouter = createHashRouter(workspaceRoutes(WorkspaceApp));
+  if (import.meta.env.DEV) traceRouter(defaultRouter);
+  return defaultRouter;
+};
 
 export default function App({
   router: providedRouter,

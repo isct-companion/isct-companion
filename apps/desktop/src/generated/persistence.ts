@@ -971,6 +971,11 @@ export type CourseDetail = {
   assignmentIds: Array<string>;
   examIds: Array<string>;
   offeringId: string | null;
+  /**
+   * The course's T2SCHOLA page, from the course itself or its LMS record.
+   */
+  lmsUrl: string | null;
+  syllabusUrl: string | null;
 };
 
 export type CourseTimeline = {
