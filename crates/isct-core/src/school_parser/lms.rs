@@ -66,6 +66,10 @@ pub struct LmsPayload {
     pub assign_status: HashMap<u64, AssignState>,
     #[serde(default)]
     pub timetable: Option<LmsTimetable>,
+    #[serde(default)]
+    pub timetables: Vec<LmsTimetable>,
+    #[serde(default)]
+    pub timetable_errors: Vec<String>,
     #[serde(default, skip_deserializing)]
     pub skipped: usize,
 }
@@ -91,6 +95,10 @@ struct RawLmsPayload {
     dated_events: Vec<Value>,
     #[serde(default)]
     timetable: Option<Value>,
+    #[serde(default)]
+    timetables: Vec<Value>,
+    #[serde(default)]
+    timetable_errors: Vec<String>,
     #[serde(default)]
     assign_status: Vec<Value>,
 }
@@ -489,6 +497,13 @@ pub fn parse_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), School
             action_events,
             dated_events,
             timetable,
+            timetables: raw
+                .timetables
+                .iter()
+                .take(80)
+                .filter_map(|grid| parse_timetable(grid, &course_ids))
+                .collect(),
+            timetable_errors: raw.timetable_errors.into_iter().take(80).collect(),
             assign_status,
             skipped,
         }),

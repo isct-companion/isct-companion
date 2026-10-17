@@ -753,6 +753,7 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         {"id":"past","courseId":"course","title":"Past","dueAt":"2026-04-12T10:00:00+09:00","pinned":true},
         {"id":"past-done","courseId":"course","title":"Past done","dueAt":"2026-04-11T10:00:00+09:00","submission":"graded","pinned":true},
         {"id":"done","courseId":"course","title":"Done","dueAt":"2026-04-14T10:00:00+09:00","submission":"submitted"},
+        {"id":"undated-done","courseId":"course","title":"Graded without date","dueAt":null,"submission":"graded"},
         {"id":"hidden","courseId":"course","title":"Hidden","dueAt":null,"hidden":true},
         {"id":"invalid","courseId":"course","title":"Invalid","dueAt":"yesterday"},
         {"id":"undated","courseId":"course","title":"Undated","dueAt":null},
@@ -784,8 +785,17 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         completed.by_term["2026-1Q"].overdue_ids,
         vec!["past", "past-done"]
     );
+    assert_eq!(
+        completed.by_term["2026-1Q"].undated_completed_ids,
+        Some(vec!["undated-done".to_string()])
+    );
+    assert!(term.undated_completed_ids.is_none());
+    assert!(!completed.deadlines.contains_key("undated-done"));
     // One submitted rule for every shell, including the LMS status field.
-    assert_eq!(view.submitted_ids, vec!["done", "lms-done", "past-done"]);
+    assert_eq!(
+        view.submitted_ids,
+        vec!["done", "lms-done", "past-done", "undated-done"]
+    );
     assert_eq!(term.lecture_open_ids, vec!["soon", "later", "undated"]);
     assert_eq!(term.lecture_hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");

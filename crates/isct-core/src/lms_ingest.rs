@@ -106,35 +106,76 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     return result.data;
   };
   const pick = (object, keys) => Object.fromEntries(keys.filter(key => object && key in object).map(key => [key, object[key]]));
-  // The dashboard timetable block (rendered by the GET of /my/; its filter
-  // form is a POST and is never submitted). Rows are periods (first cell),
-  // columns are weekdays (header row); each cell links the course.
-  const readTimetable = () => {
-    const block = document.querySelector('[data-block="tttimetable"]');
+  // The dashboard's POST is a read-only year/quarter query. Only these three
+  // filter fields and this exact endpoint are allowed; no Moodle edits run.
+  const readTimetable = (page = document) => {
+    const block = page.querySelector('[data-block="tttimetable"]');
     const [grid, other] = block ? block.querySelectorAll('table') : [];
-    if (!grid || !grid.rows.length) return null;
+    if (!grid || grid.rows.length < 2 || grid.rows[0].cells.length < 6 || !other) return null;
     const selected = name => block.querySelector('select[name="' + name + '"]')?.selectedOptions[0]?.textContent.trim() || '';
-    const dayNames = ['月','火','水','木','金','土','日'];
-    const header = [...grid.rows[0].cells].map(cell => cell.textContent.trim());
-    const courseId = link => Number(new URL(link.href, location.href).searchParams.get('id'));
+    const year = Number(selected('year')), quarter = selected('quota');
+    if (!Number.isInteger(year) || year < 2000 || year >= 2100 || !/^[1-4]$/.test(quarter)) return null;
     const slots = [];
+    const courseId = link => {
+      const url = new URL(link.getAttribute('href'), sourceUrl);
+      return url.origin === location.origin && url.pathname === '/2025/course/view.php'
+        ? Number(url.searchParams.get('id')) : 0;
+    };
     for (const row of [...grid.rows].slice(1)) {
       const period = Number(row.cells[0]?.textContent.trim());
-      if (!Number.isInteger(period) || period < 1 || period > 12) continue;
+      if (!Number.isInteger(period) || period < 1 || period > 12) return null;
       [...row.cells].slice(1).forEach((cell, index) => {
-        const named = dayNames.indexOf(header[index + 1]);
-        const day = named >= 0 ? named + 1 : index + 1;
         for (const link of cell.querySelectorAll('a[href*="/course/view.php?id="]')) {
           const id = courseId(link);
-          if (id > 0) slots.push({courseId:id, day, period});
+          if (id > 0 && index < 7) slots.push({courseId:id, day:index + 1, period});
         }
       });
     }
-    const unscheduled = other ? [...other.querySelectorAll('a[href*="/course/view.php?id="]')].map(courseId).filter(id => id > 0) : [];
-    return {year:Number(selected('year')) || null, quarter:selected('quota'), slots, unscheduled};
+    const unscheduled = [...other.querySelectorAll('a[href*="/course/view.php?id="]')].map(courseId).filter(id => id > 0);
+    return {year, quarter, slots, unscheduled};
+  };
+  const readTimetables = async () => {
+    const current = readTimetable();
+    const grids = current ? [current] : [];
+    const errors = [];
+    if (!fullScan || requestedCourseId) return {grids, errors};
+    const block = document.querySelector('[data-block="tttimetable"]');
+    const years = [...block?.querySelectorAll('select[name="year"] option') || []]
+      .filter(option => /^20\d{2}$/.test(option.textContent.trim()));
+    const quarters = [...block?.querySelectorAll('select[name="quota"] option') || []]
+      .filter(option => /^[1-4]$/.test(option.textContent.trim()));
+    // Preserve the form's search flag; an empty replacement makes Moodle
+    // ignore year/quota and return the current quarter for every request.
+    const search = block?.querySelector('input[name="search"]')?.value ?? '';
+    if (!years.length || quarters.length !== 4) errors.push('timetable-filters-unavailable');
+    for (const year of years) for (const quarter of quarters) {
+      const expected = year.textContent.trim() + '-' + quarter.textContent.trim() + 'Q';
+      if (current && expected === current.year + '-' + current.quarter + 'Q') continue;
+      try {
+        const response = await fetch('/2025/my/index.php', {method:'POST', credentials:'same-origin',
+          signal:AbortSignal.timeout(20000), headers:{'Content-Type':'application/x-www-form-urlencoded'},
+          body:new URLSearchParams({year:year.value, quota:quarter.value, search}).toString()});
+        if (!response.ok || new URL(response.url, sourceUrl).origin !== location.origin)
+          throw new Error('timetable-request-failed: HTTP ' + response.status);
+        const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const grid = readTimetable(page);
+        if (!grid) {
+          const block = page.querySelector('[data-block="tttimetable"]');
+          const tables = [...block?.querySelectorAll('table') || []];
+          const labels = [...block?.querySelectorAll('select') || []]
+            .map(select => select.name + '=' + select.selectedOptions[0]?.textContent.trim()).join(',');
+          throw new Error('timetable-unreadable: tables=' + tables.length + ', rows='
+            + tables.map(table => table.rows.length).join(',') + ', selection=' + labels);
+        }
+        if (expected !== grid.year + '-' + grid.quarter + 'Q')
+          throw new Error('timetable-quarter-mismatch: got ' + grid.year + '-' + grid.quarter + 'Q');
+        grids.push(grid);
+      } catch (error) { errors.push(expected + ': ' + String(error?.message || error)); }
+    }
+    return {grids, errors};
   };
   try {
-    const timetable = readTimetable();
+    const {grids:timetables, errors:timetableErrors} = await readTimetables();
     const courses = [];
     let offset = 0;
     let coursesComplete = false;
@@ -334,7 +375,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       await Promise.all(assignIds.slice(index, index + 4).map(readStatus));
     return {status:'ok', sourceUrl, language:String(cfg.language || ''), coursesComplete,
       fullScan:fullScan && !requestedCourseId,
-      courses, structures, actionEvents, datedEvents, timetable, assignStatus};
+      courses, structures, actionEvents, datedEvents, timetables, timetableErrors, assignStatus};
   } catch (error) {
     return {status:String(error?.message || error) === 'reconnect-required' ? 'login' : 'error',
       sourceUrl, language:String(cfg.language || ''), coursesComplete:false,
@@ -567,7 +608,14 @@ pub fn apply_lms_payload(
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
-    let scope = if payload.full_scan && payload.courses_complete {
+    let scope = if payload.full_scan
+        && payload.courses_complete
+        && payload.timetable_errors.is_empty()
+        && payload
+            .structures
+            .iter()
+            .all(|structure| structure.complete)
+    {
         "all"
     } else {
         "summary"
@@ -618,14 +666,19 @@ pub fn apply_lms_payload(
             .and_then(|stored| stored.get("timetables").cloned())
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
-        if let Some(grid) = &payload.timetable {
+        for grid in payload.timetables.iter().chain(payload.timetable.iter()) {
             let shown = grid
                 .meetings
                 .get(&course.id)
                 .cloned()
                 .or_else(|| grid.unscheduled.contains(&course.id).then(Vec::new));
-            if let (Some(meetings), Some(map)) = (shown, timetables.as_object_mut()) {
-                map.insert(grid.term.clone(), Value::Array(meetings));
+            if year.is_some_and(|year| grid.term.starts_with(&format!("{year}-"))) {
+                if let Some(map) = timetables.as_object_mut() {
+                    map.insert(
+                        grid.term.clone(),
+                        shown.map(Value::Array).unwrap_or(Value::Null),
+                    );
+                }
             }
         }
         let prior_sections: Option<Value> = tx
