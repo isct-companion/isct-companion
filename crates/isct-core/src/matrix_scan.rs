@@ -1,7 +1,10 @@
 //! Live Matrix scheduling and per-cell confidence-weighted consensus.
 //! Camera resources and model execution belong to capability adapters.
 use serde::{Deserialize, Serialize};
-use std::{collections::VecDeque, time::Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 use thiserror::Error;
 
 pub const CELLS: usize = 70;
@@ -132,12 +135,26 @@ fn outline(quads: &[[MatrixPoint; 4]]) -> Result<MatrixScanOutline, MatrixScanEr
 }
 #[derive(Default)]
 pub struct MatrixScanner {
+    full_frame: bool,
     active: Option<(String, Consensus)>,
 }
 impl MatrixScanner {
+    /// Fast classifiers can afford a whole-card readability check on every frame.
+    pub fn full_frame() -> Self {
+        Self {
+            full_frame: true,
+            active: None,
+        }
+    }
     pub fn begin(&mut self) -> String {
         let id = uuid::Uuid::new_v4().to_string();
-        self.active = Some((id.clone(), Consensus::default()));
+        self.active = Some((
+            id.clone(),
+            Consensus {
+                full_frame: self.full_frame,
+                ..Consensus::default()
+            },
+        ));
         id
     }
     pub fn is_active(&self, id: &str) -> bool {
@@ -259,10 +276,11 @@ impl CellEvidence {
     }
 }
 struct Consensus {
+    full_frame: bool,
     evidence: Vec<CellEvidence>,
     revision: usize,
     tracked_frames: usize,
-    missing_frames: usize,
+    missing_since: Option<Instant>,
     started: Instant,
     analyzed_cells: usize,
     complete: bool,
@@ -272,10 +290,11 @@ struct Consensus {
 impl Default for Consensus {
     fn default() -> Self {
         Self {
+            full_frame: false,
             evidence: vec![CellEvidence::default(); CELLS],
             revision: 0,
             tracked_frames: 0,
-            missing_frames: 0,
+            missing_since: None,
             started: Instant::now(),
             analyzed_cells: 0,
             complete: false,
@@ -296,7 +315,7 @@ impl Consensus {
         } else {
             MatrixScanPhase::Refine
         };
-        let cells = if phase != MatrixScanPhase::Refine {
+        let cells = if self.full_frame || phase != MatrixScanPhase::Refine {
             (0..CELLS).collect()
         } else {
             let mut pending: Vec<_> = (0..CELLS).filter(|&i| !votes[i].stable).collect();
@@ -340,13 +359,7 @@ impl Consensus {
             ));
         }
         let Some((quads, readings)) = frame else {
-            self.revision += 1;
-            self.missing_frames += 1;
-            if self.missing_frames >= 4 {
-                self.evidence = vec![CellEvidence::default(); CELLS];
-                self.tracked_frames = 0;
-            }
-            return Ok(self.snapshot(None, plan.phase, 0, timing));
+            return Ok(self.missing(plan.phase, timing));
         };
         let bounds = outline(&quads)?.bounds;
         if readings.len() != plan.cells.len()
@@ -361,13 +374,20 @@ impl Consensus {
                 "Readings must match the planned cells and have finite confidence.".into(),
             ));
         }
-        self.revision += 1;
-        self.tracked_frames += 1;
-        self.missing_frames = 0;
         let clear = readings
             .iter()
             .filter(|r| !r.text.is_empty() && r.confidence >= HIGH_CONFIDENCE)
             .count();
+        if self.full_frame && clear < CELLS * 7 / 10 {
+            // Blur and false geometry must not donate isolated confident guesses.
+            // Use the existing verification readability requirement for this mode.
+            self.analyzed_cells += plan.cells.len();
+            self.record_timing(timing.clone());
+            return Ok(self.missing(plan.phase, timing));
+        }
+        self.revision += 1;
+        self.tracked_frames += 1;
+        self.missing_since = None;
         let before = self.evidence.iter().filter(|e| e.vote().stable).count();
         for (&i, reading) in plan.cells.iter().zip(readings) {
             self.evidence[i].add(reading, self.revision);
@@ -382,11 +402,25 @@ impl Consensus {
         self.complete = plan.phase == MatrixScanPhase::Verify
             && clear >= CELLS * 7 / 10
             && self.evidence.iter().all(|e| e.vote().stable);
+        self.record_timing(timing.clone());
+        Ok(self.snapshot(Some(bounds), plan.phase, plan.cells.len(), timing))
+    }
+    fn missing(&mut self, phase: MatrixScanPhase, timing: MatrixScanTiming) -> MatrixScanSnapshot {
+        self.revision += 1;
+        let since = self.missing_since.get_or_insert_with(Instant::now);
+        // Camera processing frequency varies: frame counts cannot represent a
+        // consistent grace period for normal hand movement.
+        if since.elapsed() >= Duration::from_secs(4) {
+            self.evidence = vec![CellEvidence::default(); CELLS];
+            self.tracked_frames = 0;
+        }
+        self.snapshot(None, phase, 0, timing)
+    }
+    fn record_timing(&mut self, timing: MatrixScanTiming) {
         if self.timings.len() == 128 {
             self.timings.pop_front();
         }
-        self.timings.push_back(timing.clone());
-        Ok(self.snapshot(Some(bounds), plan.phase, plan.cells.len(), timing))
+        self.timings.push_back(timing);
     }
     fn snapshot(
         &self,

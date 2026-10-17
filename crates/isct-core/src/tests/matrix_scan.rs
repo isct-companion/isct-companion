@@ -149,6 +149,52 @@ fn scheduler_scans_all_then_refines_fairly_and_verifies_before_completion() {
     let report = scanner.diagnostics(&id).unwrap();
     assert_eq!(report.stable_cells, CELLS);
     assert!(!serde_json::to_string(&report).unwrap().contains("text"));
+
+    let mut fast = MatrixScanner::full_frame();
+    let id = fast.begin();
+    for _ in 0..2 {
+        feed(&mut fast, &id, Some(frame("A", 0.89)));
+    }
+    assert_eq!(fast.plan(&id).unwrap().cells.len(), CELLS);
+    let before = fast.diagnostics(&id).unwrap().qualified_samples;
+    let mut blurred = frame("A", 0.79);
+    for cell in &mut blurred.1[..48] {
+        cell.text = "Z".into();
+        cell.confidence = 0.99;
+    }
+    for _ in 0..5 {
+        let rejected = feed(&mut fast, &id, Some(blurred.clone()));
+        assert_eq!(rejected.sampled_cells, 0);
+    }
+    assert_eq!(fast.diagnostics(&id).unwrap().qualified_samples, before);
+    assert_eq!(
+        feed(&mut fast, &id, Some(frame("A", 0.89))).stable_cells,
+        CELLS
+    );
+    assert_eq!(fast.plan(&id).unwrap().phase, MatrixScanPhase::Verify);
+    let mut verification = frame("A", 0.1);
+    for cell in &mut verification.1[..49] {
+        cell.confidence = 0.8;
+    }
+    let finished = feed(&mut fast, &id, Some(verification));
+    assert!(finished.complete);
+    assert!(finished.cells.iter().all(|cell| cell.text == "A"));
+
+    let id = fast.begin();
+    feed(&mut fast, &id, Some(frame("A", 0.89)));
+    for _ in 0..6 {
+        feed(&mut fast, &id, None);
+    }
+    assert_eq!(fast.diagnostics(&id).unwrap().qualified_samples[0], 1);
+    let (_, session) = fast.active.as_mut().unwrap();
+    session.missing_since = Some(Instant::now() - Duration::from_secs(4));
+    feed(&mut fast, &id, None);
+    assert!(fast
+        .diagnostics(&id)
+        .unwrap()
+        .qualified_samples
+        .iter()
+        .all(|&count| count == 0));
 }
 
 #[test]
@@ -170,6 +216,10 @@ fn moving_closer_and_brief_grid_loss_preserve_votes_but_sustained_absence_resets
     for _ in 0..4 {
         assert!(!feed(&mut scanner, &id, None).complete);
     }
+    assert_eq!(scanner.diagnostics(&id).unwrap().qualified_samples, after);
+    let (_, session) = scanner.active.as_mut().unwrap();
+    session.missing_since = Some(Instant::now() - Duration::from_secs(4));
+    feed(&mut scanner, &id, None);
     assert_eq!(scanner.plan(&id).unwrap().phase, MatrixScanPhase::Initial);
     assert!(scanner
         .diagnostics(&id)

@@ -43,6 +43,7 @@ export function openMatrixCamera(
   let stream: MediaStream | undefined;
   let sessionId: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let videoFrame: number | undefined;
   let captureStarted: number | undefined;
   let firstOutlineAt: number | undefined;
   const capture: MatrixCaptureMetrics = {
@@ -60,6 +61,7 @@ export function openMatrixCamera(
     if (disposed) return;
     disposed = true;
     clearTimeout(timer);
+    if (videoFrame !== undefined) video.cancelVideoFrameCallback(videoFrame);
     document.removeEventListener("visibilitychange", visibility);
     stream?.getTracks().forEach((track) => track.stop());
     video.srcObject = null;
@@ -99,7 +101,11 @@ export function openMatrixCamera(
     sessionId = id;
     const acquired = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30, max: 30 },
+      },
     });
     if (disposed) {
       acquired.getTracks().forEach((track) => track.stop());
@@ -124,15 +130,15 @@ export function openMatrixCamera(
       throw new Error(t("Cannot read camera frames. Scan an image instead."));
     captureStarted = performance.now();
     let lastTime = -1;
+    const hasNewFrame = () =>
+      video.readyState >= 2 &&
+      video.videoWidth > 0 &&
+      video.currentTime !== lastTime;
     const frame = async () => {
       if (disposed) return;
       const started = performance.now();
       try {
-        if (
-          video.readyState >= 2 &&
-          video.videoWidth &&
-          video.currentTime !== lastTime
-        ) {
+        if (hasNewFrame()) {
           lastTime = video.currentTime;
           const scale = Math.min(
             1,
@@ -161,12 +167,18 @@ export function openMatrixCamera(
           onSnapshot(snapshot);
           if (snapshot.complete) return;
         }
-        // A 5 Hz budget measures start-to-start, so model time is not followed
-        // by another fixed 250 ms delay. One request owns the latest frame.
-        timer = setTimeout(
-          () => void frame(),
-          Math.max(0, 200 - (performance.now() - started)),
-        );
+        // Decode/encode only when inference is idle. The video owns the latest
+        // frame, so frames arriving during inference never build up a queue.
+        if (hasNewFrame()) {
+          timer = setTimeout(() => void frame(), 0);
+        } else if (typeof video.requestVideoFrameCallback === "function") {
+          videoFrame = video.requestVideoFrameCallback(() => {
+            videoFrame = undefined;
+            void frame();
+          });
+        } else {
+          timer = setTimeout(() => void frame(), 16);
+        }
       } catch (error) {
         fail(error);
       }

@@ -987,6 +987,7 @@ describe("Live Matrix camera ownership", () => {
   afterEach(() => {
     close?.();
     close = undefined;
+    vi.useRealTimers();
     vi.restoreAllMocks();
     if (originalMediaDevices)
       Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
@@ -1001,21 +1002,22 @@ describe("Live Matrix camera ownership", () => {
       value: { getUserMedia: acquire },
     });
     const video = document.createElement("video");
+    let currentTime = 1;
     Object.defineProperties(video, {
       videoWidth: { value: 1920 },
       videoHeight: { value: 1080 },
       readyState: { value: 2 },
-      currentTime: { get: () => performance.now() },
+      currentTime: { get: () => currentTime },
     });
     vi.spyOn(video, "play").mockResolvedValue();
-    const draw = vi.fn();
+    const draw = vi.fn(() => currentTime);
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
       drawImage: draw,
     } as unknown as CanvasRenderingContext2D);
     vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
       "data:image/jpeg;base64,Y2FtZXJh",
     );
-    return { video, draw };
+    return { video, draw, advance: (time: number) => (currentTime = time) };
   }
   function streamPort() {
     const track = Object.assign(new EventTarget(), { stop: vi.fn() });
@@ -1030,7 +1032,8 @@ describe("Live Matrix camera ownership", () => {
   it("keeps only one frame in flight, publishes core geometry and stops on completion", async () => {
     const { openMatrixCamera } = await import("@app/platform/matrix-camera");
     const { track, stream } = streamPort();
-    const { video, draw } = cameraSurface(async () => stream);
+    vi.useFakeTimers();
+    const { video, draw, advance } = cameraSurface(async () => stream);
     let deliver!: (snapshot: unknown) => void;
     const { core, channels } = installHostWithChannels({
       handle: (command) => {
@@ -1049,7 +1052,12 @@ describe("Live Matrix camera ownership", () => {
     await vi.waitFor(() =>
       expect(core.commands("scan_matrix_camera_frame")).toHaveLength(1),
     );
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    advance(2);
+    await vi.advanceTimersByTimeAsync(100);
+    advance(3);
+    await vi.advanceTimersByTimeAsync(100);
+    advance(4);
+    await vi.advanceTimersByTimeAsync(100);
     expect(draw).toHaveBeenCalledTimes(1);
     const args = core.commands("scan_matrix_camera_frame")[0].args;
     expect(args).toMatchObject({ sessionId: "camera-1", image: "Y2FtZXJh" });
@@ -1072,6 +1080,17 @@ describe("Live Matrix camera ownership", () => {
       stableCells: 70,
       complete: true,
     };
+    deliver({ ...snapshot, complete: false });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(core.commands("scan_matrix_camera_frame")).toHaveLength(2);
+    expect(draw.mock.results.map((result) => result.value)).toEqual([1, 4]);
+    // The same decoded frame cannot contribute twice, even with a fast model.
+    deliver({ ...snapshot, complete: false });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(core.commands("scan_matrix_camera_frame")).toHaveLength(2);
+    advance(5);
+    await vi.advanceTimersByTimeAsync(16);
+    expect(core.commands("scan_matrix_camera_frame")).toHaveLength(3);
     deliver(snapshot);
     await vi.waitFor(() => expect(onSnapshot).toHaveBeenCalledWith(snapshot));
     expect(track.stop).toHaveBeenCalledTimes(1);
@@ -1083,8 +1102,8 @@ describe("Live Matrix camera ownership", () => {
       elapsedMs: number;
       trackedMs: number;
     };
-    expect(metrics.frames).toBe(1);
-    expect(metrics.frameMs).toHaveLength(1);
+    expect(metrics.frames).toBe(3);
+    expect(metrics.frameMs).toHaveLength(3);
     expect(metrics.elapsedMs).toBeGreaterThanOrEqual(metrics.trackedMs);
     expect(metrics.trackedMs).toBeGreaterThanOrEqual(0);
     channels.get(channel.id)?.({ index: 1, message: outline });
