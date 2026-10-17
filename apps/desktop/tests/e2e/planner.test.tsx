@@ -187,16 +187,11 @@ function timetableTitles(host: HTMLElement): string[] {
   ];
 }
 
-/** Turns the planner on the way a person does, then waits for the search panel. */
+/** The workstation timetable opens as the planner; waits for its search panel. */
 async function enablePlanning(
   app: MountedApp,
   focus = true,
 ): Promise<HTMLInputElement> {
-  const edit = await required(
-    () => app.host.querySelector<HTMLInputElement>('input[role="switch"]'),
-    "the Edit switch",
-  );
-  await click(edit);
   const input = await required(
     () => app.host.querySelector<HTMLInputElement>("#course-finder-input"),
     "the syllabus search input",
@@ -856,6 +851,78 @@ describe("replacing a clashing course", () => {
     };
   }
 
+  it("explains a placed clash where the course is clicked and offers both ways out", async () => {
+    const sectioned = { ...clashingCourse, code: "CSC.T999-02" };
+    const workspace = workspaceFixture({
+      courses: [eligibleCourse, sectioned],
+      planItems: [planItemFor(eligibleCourse), planItemFor(sectioned)],
+    });
+    // Core names each side of the clash; the shell only renders it.
+    const conflicts = [
+      [eligibleCourse.id, sectioned.id, sectioned.title],
+      [sectioned.id, eligibleCourse.id, eligibleCourse.title],
+    ].map(([courseId, withCourseId, withTitle]) => ({
+      courseId,
+      day: 2,
+      startTime: "10:45",
+      endTime: "12:25",
+      withCourseId,
+      withTitle,
+    }));
+    app = await mountApp(
+      {
+        revision: freshRevision(),
+        workspace,
+        queries: {
+          ...plannerQueries(),
+          planningWeek: (_query: unknown, core: FakeCore) =>
+            planningWeekFor(core.workspace, { conflictCount: 1, conflicts }),
+        },
+        handle: finderHandler({ courses: [eligible] }),
+      },
+      { route: paths.timetable() },
+    );
+    const { host, core } = app;
+    const panel = () => host.querySelector(".coursesSide .coursePanel");
+    const notice = () => panel()?.querySelector(".coursePanelConflict");
+    const button = (label: string) =>
+      [...(notice()?.querySelectorAll("button") ?? [])].find(
+        (node) => node.textContent?.trim() === label,
+      );
+
+    // The header count is a way in, not just a number.
+    await click(
+      await required(
+        () => host.querySelector<HTMLButtonElement>(".conflictBadge"),
+        "the conflict count",
+      ),
+    );
+    await settled(() =>
+      expect(panel()?.querySelector(".finderTitle b")?.textContent).toBe(
+        "Graph Algorithms",
+      ),
+    );
+    expect(notice()?.textContent).toContain("Clashing Lecture");
+    expect(notice()?.textContent).toContain("10:45–12:25");
+
+    await click(button("Open")!);
+    await settled(() =>
+      expect(panel()?.querySelector(".finderTitle b")?.textContent).toBe(
+        "Clashing Lecture",
+      ),
+    );
+    expect(notice()?.textContent).toContain("Graph Algorithms");
+
+    await click(button("Find another class time")!);
+    await settled(() => expect(panel()).toBeNull());
+    // Every class group shares the code without its "-02" class suffix.
+    await settled(() =>
+      expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject({
+        keys: ["CSC.T999"],
+      }),
+    );
+  }, 60_000);
+
   it("offers Replace for a clashing course, commits it, and Undo restores the previous one", async () => {
     app = await mountApp(clashApp(), { route: paths.timetable() });
     const { host, core } = app;
@@ -931,13 +998,6 @@ async function openEditorFor(course: Course): Promise<MountedApp> {
       handle: finderHandler({ courses: [eligible] }),
     },
     { route: paths.drawer(paths.timetable(), course.id) },
-  );
-  await required(
-    () => mounted.host.querySelector<HTMLInputElement>('input[role="switch"]'),
-    "the Edit switch",
-  );
-  await click(
-    mounted.host.querySelector<HTMLInputElement>('input[role="switch"]')!,
   );
   const drawerEdit = await required(
     () =>

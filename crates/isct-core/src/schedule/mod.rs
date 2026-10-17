@@ -45,8 +45,8 @@ pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
     course_terms, course_timeline, intensive_days, next_plan_occurrences, occurrences_on_date,
     plan_start, planning_week, resolve_day_agenda, schedule_problems, scheduled_courses,
-    term_courses, validate_academic_profile, AgendaOptions, CourseTimeline, Occurrence,
-    OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek, ScheduleProblem,
+    term_courses, validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline,
+    Occurrence, OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek, ScheduleProblem,
     ScheduleProblemKind,
 };
 pub use range::calendar_between;
@@ -697,6 +697,7 @@ pub fn declarations() -> Vec<String> {
         AgendaRequestOptions::decl(),
         DatedAgenda::decl(),
         PlanningDay::decl(),
+        CourseConflict::decl(),
         PlanningWeek::decl(),
         PlanCivilStart::decl(),
         PlanStartInput::decl(),

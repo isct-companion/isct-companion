@@ -1256,8 +1256,6 @@
   "Current URL": "現在のURL",
   "Previous page": "前のページ",
   "Next page": "次のページ",
-  "教務Web top page": "教務Webのトップページ",
-  "Top": "トップ",
   "Page zoom": "ページの拡大率",
   "Reset zoom": "拡大率をリセット",
   "Open {{site}}": "{{site}}を開く",
@@ -1265,5 +1263,10 @@
   "Official data": "公式データ",
   "Sync automatically": "自動で同期",
   "Upload and pull by hand": "手動でアップロード・取得",
-  "Never updated": "未更新"
+  "Never updated": "未更新",
+  "Time conflict": "時間の重複",
+  "Keep one: open the other course, or find another time for this one.": "どちらか一方を残します。もう一方の授業を開くか、この授業の別の時間を探してください。",
+  "Find another class time": "別の時間を探す",
+  "Show the first conflict": "最初の重複を表示",
+  "Conflicts: {{count}}": "重複 {{count}} 件"
 }

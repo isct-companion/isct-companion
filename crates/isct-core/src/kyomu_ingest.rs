@@ -500,7 +500,8 @@ pub fn apply_kyomu_payload(
                             .get(column + 1)
                             .and_then(Value::as_str)
                             .unwrap_or("");
-                        let id = format!("kyomu-requirement:{table_index}:{category}:{label}");
+                        let id =
+                            format!("kyomu-requirement:{table_index}:{column}:{category}:{label}");
                         live.insert(id.clone());
                         let record = json!({"id":id,"table":table_index,"category":category,"label":label,"value":value});
                         changed +=

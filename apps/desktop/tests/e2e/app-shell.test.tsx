@@ -341,13 +341,6 @@ it("replaces a clashing course and Undo restores the previous one", async () => 
   );
   const { host, core } = app;
 
-  const editSwitch = await vi.waitFor(() => {
-    const input = host.querySelector<HTMLInputElement>('input[role="switch"]');
-    if (!input) throw new Error("edit switch not ready");
-    return input;
-  });
-  await act(async () => editSwitch.click());
-
   const input = await vi.waitFor(() => {
     const element = host.querySelector<HTMLInputElement>(
       "#course-finder-input",
@@ -908,11 +901,6 @@ describe("native listener ordering", () => {
     );
     const { host, core } = app;
     // The planner timetable is the person-visible view of the workspace rows.
-    const edit = await required(
-      () => host.querySelector<HTMLInputElement>('input[role="switch"]'),
-      "the Edit switch",
-    );
-    await click(edit);
     await until(() => expect(titles(host)).toEqual(["Placed"]));
 
     gateStale = true;
@@ -2569,7 +2557,9 @@ const LATIN_ALLOWED = new Set(
     "AI Agent MCP Matrix Wi-Fi Google Drive Microsoft OAuth iCloud CSS " +
     "JavaScript HTTP Streamable Bearer IsctCompanion GPA GPT ZIP macOS session " +
     "English https isct-companion Isct-Data test Placed CSC.T Q MB " +
-    "A B C D E F G H I J"
+    "A B C D E F G H I J " +
+    // Course-search operators in the planner's placeholder are typed as is.
+    "teacher room W"
   ).split(" "),
 );
 

@@ -239,22 +239,7 @@ function MatrixEditor({
     <div className="matrixEditor">
       <div className="matrixTools">
         <b>{t("Matrix")}</b>
-        <span>
-          {masked ? t("Saved · hidden") : `${value.filter(Boolean).length}/70`}
-        </span>
-        {masked && (
-          <Button
-            variant="default"
-            size="compact-xs"
-            disabled={recognizing || disabled || cameraOpen}
-            onClick={() => {
-              onBeginEdit();
-              requestAnimationFrame(() => inputs.current[0]?.focus());
-            }}
-          >
-            {t("Replace")}
-          </Button>
-        )}
+        <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
         {matrixOcrAvailable && (
           <Button
             variant="default"
@@ -332,109 +317,107 @@ function MatrixEditor({
           <span>{t("Uncolored · Manual entry")}</span>
         </div>
       )}
-      {/* A saved Matrix stays one line; the grid opens only to enter a new one. */}
-      {!masked && (
-        <div className="matrixGrid" aria-label={t("Tokyo Tech matrix")}>
-          <span />
-          {Array.from({ length: MATRIX_COLUMNS }, (_, column) => (
-            <b key={column}>{String.fromCharCode(65 + column)}</b>
-          ))}
-          {Array.from({ length: MATRIX_ROWS }, (_, row) => (
-            <div className="matrixRow" key={row}>
-              <b>{row + 1}</b>
-              {Array.from({ length: MATRIX_COLUMNS }, (_, column) => {
-                const index = row * MATRIX_COLUMNS + column;
-                return (
-                  <UiInput
-                    key={column}
-                    ref={(element) => {
-                      inputs.current[index] = element;
-                    }}
-                    disabled={recognizing || disabled || cameraOpen}
-                    aria-label={`${String.fromCharCode(65 + column)}${row + 1}`}
-                    data-confidence={
-                      !masked && confidence[index] !== undefined
-                        ? matrixConfidence(value[index], confidence[index]!)
-                        : undefined
-                    }
-                    title={
-                      masked
-                        ? t("Saved · hidden")
-                        : confidence[index] === undefined
-                          ? t("Manual entry")
-                          : t(
-                              `Confidence ${matrixConfidence(value[index], confidence[index]!)} · verify against card`,
-                            )
-                    }
-                    value={masked ? "" : value[index]}
-                    placeholder={masked ? "•" : ""}
-                    autoCapitalize="characters"
-                    autoComplete="off"
-                    spellCheck={false}
-                    inputMode="text"
-                    maxLength={1}
-                    onFocus={(event) => {
-                      event.currentTarget.select();
-                    }}
-                    onChange={(event) => {
-                      onBeginEdit();
-                      const letter =
-                        normalizeMatrixText(event.target.value).at(-1) ?? "";
-                      const next = [...value];
-                      next[index] = letter;
-                      onChange(next);
-                      markManual([index]);
-                      if (letter) inputs.current[index + 1]?.focus();
-                    }}
-                    onPaste={(event) => {
+      {/* The saved Matrix keeps its 7×10 shape; typing over a cell replaces it. */}
+      <div className="matrixGrid" aria-label={t("Tokyo Tech matrix")}>
+        <span />
+        {Array.from({ length: MATRIX_COLUMNS }, (_, column) => (
+          <b key={column}>{String.fromCharCode(65 + column)}</b>
+        ))}
+        {Array.from({ length: MATRIX_ROWS }, (_, row) => (
+          <div className="matrixRow" key={row}>
+            <b>{row + 1}</b>
+            {Array.from({ length: MATRIX_COLUMNS }, (_, column) => {
+              const index = row * MATRIX_COLUMNS + column;
+              return (
+                <UiInput
+                  key={column}
+                  ref={(element) => {
+                    inputs.current[index] = element;
+                  }}
+                  disabled={recognizing || disabled || cameraOpen}
+                  aria-label={`${String.fromCharCode(65 + column)}${row + 1}`}
+                  data-confidence={
+                    !masked && confidence[index] !== undefined
+                      ? matrixConfidence(value[index], confidence[index]!)
+                      : undefined
+                  }
+                  title={
+                    masked
+                      ? t("Saved · hidden")
+                      : confidence[index] === undefined
+                        ? t("Manual entry")
+                        : t(
+                            `Confidence ${matrixConfidence(value[index], confidence[index]!)} · verify against card`,
+                          )
+                  }
+                  value={masked ? "" : value[index]}
+                  placeholder={masked ? "•" : ""}
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  inputMode="text"
+                  maxLength={1}
+                  onFocus={(event) => {
+                    event.currentTarget.select();
+                  }}
+                  onChange={(event) => {
+                    onBeginEdit();
+                    const letter =
+                      normalizeMatrixText(event.target.value).at(-1) ?? "";
+                    const next = [...value];
+                    next[index] = letter;
+                    onChange(next);
+                    markManual([index]);
+                    if (letter) inputs.current[index + 1]?.focus();
+                  }}
+                  onPaste={(event) => {
+                    event.preventDefault();
+                    const text = event.clipboardData.getData("text");
+                    // A complete Matrix always replaces the grid from A1;
+                    // shorter snippets continue from the focused cell.
+                    if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
+                      load(text);
+                    else write(index, text);
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Backspace" &&
+                      !value[index] &&
+                      index > 0
+                    ) {
                       event.preventDefault();
-                      const text = event.clipboardData.getData("text");
-                      // A complete Matrix always replaces the grid from A1;
-                      // shorter snippets continue from the focused cell.
-                      if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
-                        load(text);
-                      else write(index, text);
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === "Backspace" &&
-                        !value[index] &&
-                        index > 0
-                      ) {
-                        event.preventDefault();
-                        const next = [...value];
-                        next[index - 1] = "";
-                        onBeginEdit();
-                        markManual([index - 1]);
-                        onChange(next);
-                        inputs.current[index - 1]?.focus();
-                      } else if (event.key === "ArrowLeft" && index > 0) {
-                        event.preventDefault();
-                        inputs.current[index - 1]?.focus();
-                      } else if (
-                        event.key === "ArrowRight" &&
-                        index + 1 < MATRIX_SIZE
-                      ) {
-                        event.preventDefault();
-                        inputs.current[index + 1]?.focus();
-                      } else if (event.key === "ArrowUp" && row > 0) {
-                        event.preventDefault();
-                        inputs.current[index - MATRIX_COLUMNS]?.focus();
-                      } else if (
-                        event.key === "ArrowDown" &&
-                        row + 1 < MATRIX_ROWS
-                      ) {
-                        event.preventDefault();
-                        inputs.current[index + MATRIX_COLUMNS]?.focus();
-                      }
-                    }}
-                  />
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+                      const next = [...value];
+                      next[index - 1] = "";
+                      onBeginEdit();
+                      markManual([index - 1]);
+                      onChange(next);
+                      inputs.current[index - 1]?.focus();
+                    } else if (event.key === "ArrowLeft" && index > 0) {
+                      event.preventDefault();
+                      inputs.current[index - 1]?.focus();
+                    } else if (
+                      event.key === "ArrowRight" &&
+                      index + 1 < MATRIX_SIZE
+                    ) {
+                      event.preventDefault();
+                      inputs.current[index + 1]?.focus();
+                    } else if (event.key === "ArrowUp" && row > 0) {
+                      event.preventDefault();
+                      inputs.current[index - MATRIX_COLUMNS]?.focus();
+                    } else if (
+                      event.key === "ArrowDown" &&
+                      row + 1 < MATRIX_ROWS
+                    ) {
+                      event.preventDefault();
+                      inputs.current[index + MATRIX_COLUMNS]?.focus();
+                    }
+                  }}
+                />
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

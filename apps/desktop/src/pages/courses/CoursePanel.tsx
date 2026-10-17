@@ -8,6 +8,7 @@ import {
   type Workspace,
 } from "../../lib/model";
 import type { FinderCourse } from "../../lib/course-query";
+import type { CourseConflict } from "../../generated/persistence";
 import { getDesktopBridge } from "../../platform/desktop-bridge";
 import { SyllabusDetails } from "./syllabus-details";
 import { CourseDetails } from "./CourseDetails";
@@ -26,6 +27,9 @@ export function CoursePanel({
   openWeb,
   fetchLms,
   progress,
+  conflicts = [],
+  openCourse,
+  findOtherTimes,
 }: {
   course: Course;
   data: Workspace;
@@ -38,6 +42,12 @@ export function CoursePanel({
   /** Pulls LMS (assignments and materials) without changing the timetable. */
   fetchLms?: () => void;
   progress?: number | null;
+  /** This course's clashes on the quarter template, from Core. */
+  conflicts?: CourseConflict[];
+  /** Shows another timetable course in this panel. */
+  openCourse?: (courseId: string) => void;
+  /** Searches the syllabus for this course's other class times. */
+  findOtherTimes?: () => void;
 }) {
   const registered = data.memberships.some(
     (item) =>
@@ -68,6 +78,46 @@ export function CoursePanel({
           </button>
         </div>
       </header>
+      {conflicts.length > 0 && (
+        <section
+          className="coursePanelConflict"
+          aria-label={t("Time conflict")}
+        >
+          <b>{t("Time conflict")}</b>
+          <ul>
+            {conflicts.map((conflict) => (
+              <li
+                key={`${conflict.day}-${conflict.startTime}-${conflict.withCourseId ?? conflict.withTitle}`}
+              >
+                <span className="num">
+                  {FINDER_DAYS[conflict.day - 1]} {conflict.startTime}–
+                  {conflict.endTime}
+                </span>
+                <span>{conflict.withTitle}</span>
+                {conflict.withCourseId && openCourse && (
+                  <button
+                    type="button"
+                    className="textButton"
+                    onClick={() => openCourse(conflict.withCourseId!)}
+                  >
+                    {t("Open")}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p>
+            {t(
+              "Keep one: open the other course, or find another time for this one.",
+            )}
+          </p>
+          {!readOnly && findOtherTimes && (
+            <Button size="xs" variant="light" onClick={findOtherTimes}>
+              {t("Find another class time")}
+            </Button>
+          )}
+        </section>
+      )}
       <CourseDetails
         key={course.id}
         course={course}

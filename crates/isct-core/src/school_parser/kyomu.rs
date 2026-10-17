@@ -63,6 +63,25 @@ pub(crate) fn expected_kind(path: &str) -> Option<&'static str> {
         .map(|(_, kind)| *kind)
 }
 
+/// The page kind owned by an approved 教務 source URL, read from the URL alone
+/// so a rejected payload is still reported against the page it came from.
+pub(crate) fn source_kind(raw: &str) -> Option<&'static str> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Source {
+        source_url: String,
+    }
+    if raw.len() > MAX_PAYLOAD_BYTES {
+        return None;
+    }
+    let source: Source = serde_json::from_str(raw).ok()?;
+    let url = Url::parse(&source.source_url).ok()?;
+    if url.scheme() != "https" || url.host_str() != Some("kyomu0.gakumu.titech.ac.jp") {
+        return None;
+    }
+    expected_kind(url.path())
+}
+
 /// Validates the bounded DTO produced by the WebView capture adapter.
 ///
 /// The adapter only reads the live DOM. Trust starts here: source identity,
@@ -104,6 +123,12 @@ pub fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), Sc
             return Err("kyomu unavailable result has no reason".into());
         }
         return Ok((KyomuStage::Unavailable, Some(payload)));
+    }
+    // The extractor names the selector that rejected the page. Keep it: the
+    // generic text alone cannot tell a changed layout from a closed window.
+    if payload.status == "error" && !payload.message.trim().is_empty() {
+        let reason: String = payload.message.trim().chars().take(256).collect();
+        return Err(format!("kyomu extraction was incomplete: {reason}").into());
     }
     if payload.status != "ok"
         || !payload.data.is_object()

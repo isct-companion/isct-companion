@@ -186,6 +186,7 @@ export function planningWeekFor(
         .map(({ day: _day, ...block }) => block),
     })),
     conflictCount: 0,
+    conflicts: [],
     ...overrides,
   };
 }
