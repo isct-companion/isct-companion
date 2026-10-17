@@ -355,6 +355,34 @@ fn core_resampling_preserves_the_detected_card_grid() {
     assert_eq!(cells.len(), MATRIX_CELLS);
     assert!((cells[0][0].x - 140.).abs() < 5.);
     assert!((cells[69][2].y - 300.).abs() < 5.);
+    // The encoded camera frame must return the same cell order and normalized
+    // corners used by native cropping, so the overlay cannot drift or transpose.
+    let located = std::cell::Cell::new(false);
+    let frame = MatrixOcrService::default()
+        .scan_frame_with_geometry(
+            png.get_ref(),
+            |quads| {
+                assert_eq!(quads.len(), MATRIX_CELLS);
+                located.set(true);
+                true
+            },
+            |progress| {
+                if progress.completed > 0 {
+                    assert!(located.get(), "geometry must precede inference");
+                }
+                true
+            },
+        )
+        .unwrap();
+    assert_eq!(frame.cells.len(), MATRIX_CELLS);
+    assert_eq!(frame.quads.len(), MATRIX_CELLS);
+    for (actual, expected) in frame.quads.iter().zip(&cells) {
+        for ([x, y], point) in actual.iter().zip(expected) {
+            assert!((x - point.x / preview.width() as f64).abs() < 1e-9);
+            assert!((y - point.y / preview.height() as f64).abs() < 1e-9);
+            assert!((0. ..=1.).contains(x) && (0. ..=1.).contains(y));
+        }
+    }
 }
 
 #[test]
@@ -379,6 +407,13 @@ fn cancellation_releases_the_service_for_a_later_scan() {
         service.scan(b"not decoded", |_| true),
         Err(MatrixOcrError::InvalidImage(_))
     ));
+    let mut png = Cursor::new(Vec::new());
+    card().write_to(&mut png, image::ImageFormat::Png).unwrap();
+    assert!(matches!(
+        service.scan_frame_with_geometry(png.get_ref(), |_| false, |_| true),
+        Err(MatrixOcrError::Cancelled)
+    ));
+    assert!(service.scan_frame(png.get_ref(), |_| true).is_ok());
 }
 
 #[test]

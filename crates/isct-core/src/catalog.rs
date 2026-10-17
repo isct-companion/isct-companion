@@ -1,4 +1,5 @@
 //! Shared catalog acquisition and freshness policy.
+use crate::course_query::OfficialSelection;
 use crate::{contracts, data, syllabus};
 use futures_util::{stream::FuturesOrdered, StreamExt};
 
@@ -286,7 +287,7 @@ pub struct CatalogPage {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CatalogFilters {
-    pub controls: Option<Vec<crate::course_query::OfficialSelection>>,
+    pub controls: Option<Vec<OfficialSelection>>,
     pub recommended: Option<bool>,
     pub teacher: Option<String>,
     pub code: Option<String>,

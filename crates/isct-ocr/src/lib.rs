@@ -24,6 +24,12 @@ use thiserror::Error;
 
 pub const MATRIX_CELLS: usize = 70;
 
+/// One frame's readings and normalized cell corners (top-left clockwise).
+pub struct MatrixFrame {
+    pub cells: Vec<Recognition>,
+    pub quads: Vec<[[f64; 2]; 4]>,
+}
+
 /// Compile-time backend availability; model initialization remains lazy.
 pub const fn available() -> bool {
     cfg!(matrix_ocr)
@@ -87,6 +93,23 @@ impl MatrixOcrService {
     #[cfg(debug_assertions)]
     pub fn with_debug_dir(self, _directory: Option<PathBuf>) -> Self {
         self
+    }
+
+    pub fn scan_frame_with_geometry(
+        &self,
+        _image: &[u8],
+        _geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
+        _progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<MatrixFrame, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
+
+    pub fn scan_frame(
+        &self,
+        _image: &[u8],
+        _progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<MatrixFrame, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
     }
 
     pub fn scan(

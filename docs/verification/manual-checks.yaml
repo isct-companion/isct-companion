@@ -671,6 +671,24 @@ checks:
           pipeline; a real card is what exposes lighting, angle and printing
           variation that no fixture reproduces.
       - action: |
+          Open Scan with camera in a packaged desktop app, allow camera access,
+          and bring the real card toward the camera. Check that one red outline
+          follows the Matrix, with no cell boxes or letter overlays. Tilt it,
+          introduce glare, then hold it steady with the labels in view. Observe
+          whether the scanner fills all cells and closes itself; record the
+          acquisition time and any cells that prevent completion.
+        reason: |
+          OS camera permissions, native WebView video capture, optical focus,
+          and the alignment of recognition boxes over a physical card require
+          real hardware. Scripted frames cannot validate these surfaces.
+      - action: |
+          Cancel and reopen the camera, then background the app during capture.
+          Deny permission on a fresh permission state and retry after granting it.
+        reason: |
+          Verify the camera indicator switches off and permissions can recover
+          in the signed native app; headless tests cannot observe OS resource
+          release or the native privacy prompt.
+      - action: |
           Review the recognised cells and compare them with the card.
         reason: |
           The contract is "no wrong accepted cell", not "most cells right". A
@@ -691,6 +709,15 @@ checks:
     covers:
       - crates/isct-ocr/**
       - apps/desktop/src/lib/matrix-ocr.ts
+      - crates/isct-core/src/matrix_scan.rs
+      - apps/desktop/src/platform/matrix-camera.ts
+      - apps/desktop/src/components/MatrixCamera.tsx
+      - apps/desktop/src/components/matrix-camera.css
+      - apps/desktop/src/pages/settings/SchoolAccounts.tsx
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/src/commands/matrix_camera.rs
+      - apps/desktop/src-tauri/Info.plist
+      - apps/desktop/src-tauri/Entitlements.plist
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14
@@ -1336,4 +1363,22 @@ checks:
     covers:
       - apps/desktop/src-tauri/src/main.rs
       - .github/workflows/desktop-release.yml
+    verified: null
+
+  - id: SCHOOL-OTP-QR
+    area: school
+    title: Authenticator QR import with native camera permissions
+    persona: undergraduate-first-term
+    preconditions: A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display.
+    steps:
+      - action: Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
+        reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
+      - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
+        reason: Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+    observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
+    expected: Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell.
+    covers:
+      - apps/desktop/src/components/QrCamera.tsx
+      - apps/desktop/src/components/CameraPreview.tsx
     verified: null

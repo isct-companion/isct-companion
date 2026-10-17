@@ -152,3 +152,13 @@ pub(crate) async fn test_school_connection(
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
+
+/// Import is local parsing only; saving still requires the credential intent.
+#[tauri::command]
+pub(crate) fn import_school_otp(
+    webview: tauri::Webview,
+    payload: String,
+) -> Result<Vec<isct_core::school_auth::OtpImportAccount>, isct_core::school_auth::OtpImportError> {
+    require_local_main(&webview).map_err(|_| isct_core::school_auth::OtpImportError::Invalid)?;
+    isct_core::school_auth::import_otp(&payload)
+}

@@ -205,7 +205,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(core_ports::DesktopRuntime::default());
+        .manage(core_ports::DesktopRuntime::default())
+        .manage(commands::matrix_camera::CameraScanner::default());
     #[cfg(target_os = "macos")]
     let builder = builder
         .manage(campus_wifi::CampusWifi::default())
@@ -259,6 +260,9 @@ pub fn run() {
             #[cfg(desktop)]
             workspaces::clean_workspaces,
             commands::platform::recognize_matrix_image,
+            commands::matrix_camera::begin_matrix_camera,
+            commands::matrix_camera::scan_matrix_camera_frame,
+            commands::matrix_camera::stop_matrix_camera,
             commands::school::open_external,
             commands::school::resolve_school_url,
             commands::school::configure_school_web_policy,
@@ -280,6 +284,7 @@ pub fn run() {
             commands::school_auth::save_school_credentials,
             commands::school_auth::delete_school_credentials,
             commands::school_auth::copy_school_matrix,
+            commands::school_auth::import_school_otp,
             commands::school_auth::login_school,
             commands::school_auth::test_school_connection,
             commands::school_auth::school_session_snapshot,
@@ -396,6 +401,28 @@ pub fn run() {
                     .inner_size(1280.0, 820.0)
                     .min_inner_size(860.0, 620.0)
                     .initialization_script(native_bootstrap())
+                    .on_permission_request(|webview, kind| {
+                        use tauri::webview::{PermissionKind, PermissionResponse};
+                        match kind {
+                            PermissionKind::Camera => {
+                                if require_local_main(&webview).is_err() {
+                                    return PermissionResponse::Deny;
+                                }
+                                // WebKitGTK has no default camera prompt. The
+                                // local scanner requests video on a user click.
+                                #[cfg(target_os = "linux")]
+                                {
+                                    PermissionResponse::Allow
+                                }
+                                #[cfg(not(target_os = "linux"))]
+                                {
+                                    PermissionResponse::Default
+                                }
+                            }
+                            PermissionKind::Microphone => PermissionResponse::Deny,
+                            _ => PermissionResponse::Default,
+                        }
+                    })
                     .build()?;
             }
 

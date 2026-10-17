@@ -119,6 +119,24 @@ impl MatrixOcrService {
         image: &[u8],
         progress: impl Fn(OcrProgress) -> bool,
     ) -> Result<Vec<Recognition>, MatrixOcrError> {
+        self.scan_frame(image, progress).map(|frame| frame.cells)
+    }
+
+    pub fn scan_frame(
+        &self,
+        image: &[u8],
+        progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<crate::MatrixFrame, MatrixOcrError> {
+        self.scan_frame_with_geometry(image, |_| true, progress)
+    }
+
+    /// Publish geometry before the 70 model inferences so live overlays do not wait.
+    pub fn scan_frame_with_geometry(
+        &self,
+        image: &[u8],
+        geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
+        progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<crate::MatrixFrame, MatrixOcrError> {
         // Reject overlapping scans instead of accumulating photos and blocking jobs.
         let mut model = self.lock_model()?;
         if !progress(OcrProgress {
@@ -129,6 +147,20 @@ impl MatrixOcrService {
         }
         let (image, small) = prepare_images(image)?;
         let cells = geometry::locate(&small).ok_or(MatrixOcrError::GridNotFound)?;
+        let quads: Vec<_> = cells
+            .iter()
+            .map(|corners| {
+                corners.map(|p| {
+                    [
+                        (p.x / small.width() as f64).clamp(0., 1.),
+                        (p.y / small.height() as f64).clamp(0., 1.),
+                    ]
+                })
+            })
+            .collect();
+        if !geometry(&quads) {
+            return Err(MatrixOcrError::Cancelled);
+        }
         let mut results = Vec::with_capacity(MATRIX_CELLS);
         #[cfg(debug_assertions)]
         let mut red = vec![];
@@ -188,7 +220,10 @@ impl MatrixOcrService {
                 eprintln!("Matrix debug export failed: {error}");
             }
         }
-        Ok(results)
+        Ok(crate::MatrixFrame {
+            cells: results,
+            quads,
+        })
     }
 }
 

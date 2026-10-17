@@ -1385,6 +1385,46 @@ export type FinderView = {
   detailIds: Array<string>;
 };
 
+export type MatrixPoint = { x: number; y: number };
+
+export type MatrixReading = { text: string; confidence: number };
+
+export type MatrixVote = {
+  text: string;
+  /**
+   * Mean winning OCR confidence times its share of the qualified vote weight.
+   */
+  confidence: number;
+  stable: boolean;
+};
+
+export type MatrixScanSnapshot = {
+  /**
+   * Only the outer Matrix boundary is rendered over the camera preview.
+   */
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
+  /**
+   * The weakest cell determines whole-card confidence.
+   */
+  confidence: number;
+  cells: Array<MatrixVote>;
+  stableCells: number;
+  complete: boolean;
+};
+
+export type MatrixScanOutline = {
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint];
+};
+
+export type OtpImportAccount = {
+  label: string;
+  issuer: string;
+  /**
+   * Sensitive: only the selected value enters the unsaved credential draft.
+   */
+  setup: string;
+};
+
 export const DATA_POLICY: DataPolicy = {
   lms: {
     staleAfterSeconds: 43200,
