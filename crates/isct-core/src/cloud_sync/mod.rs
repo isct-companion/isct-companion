@@ -22,6 +22,7 @@ use std::{
 
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(45);
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
+const SNAPSHOT_INTERVAL_SECONDS: i64 = 60 * 60;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -326,7 +327,7 @@ impl CloudSync {
                             delivery.retry_at = 0;
                         }
                     }
-                    journal.enqueue(document, direction)
+                    journal.request(document, direction)
                 })?;
                 service.publish(&services)?;
                 service.resume_inner(&services).await
@@ -595,15 +596,31 @@ impl CloudSync {
 
     async fn run_queue(&self, services: &CloudServices) -> Result<(), CloudSyncError> {
         self.finish_apply(services).await?;
+        self.0.journal.change(Journal::coalesce_uploads)?;
         let jobs = self.0.journal.read(|journal| journal.jobs.clone())?;
+        let now = chrono::Utc::now().timestamp();
+        let mut cooling = jobs
+            .iter()
+            .flat_map(|job| &job.task.deliveries)
+            .filter(|delivery| {
+                delivery.status == DeliveryStatus::Pending
+                    && delivery.error.is_some()
+                    && delivery.retry_at > now
+            })
+            .map(|delivery| delivery.provider)
+            .collect::<std::collections::HashSet<_>>();
         for mut job in jobs {
             if self.0.tasks.is_closed() {
                 return Err(CloudSyncError::Stopped);
             }
             let now = chrono::Utc::now().timestamp();
-            if !job.task.deliveries.iter().any(|delivery| {
-                delivery.status != DeliveryStatus::Completed && delivery.retry_at <= now
-            }) {
+            let mut due = Vec::new();
+            for delivery in &job.task.deliveries {
+                if self.delivery_due(&job, delivery, &cooling, now)? {
+                    due.push(delivery.provider);
+                }
+            }
+            if due.is_empty() {
                 continue;
             }
             self.0.journal.change(|journal| {
@@ -616,7 +633,7 @@ impl CloudSync {
                     .state()?
                     .providers
                     .into_iter()
-                    .filter(|provider| provider.enabled)
+                    .filter(|provider| provider.enabled && !cooling.contains(&provider.provider))
                     .collect::<Vec<_>>();
                 for provider in providers {
                     if let Ok(Some(remote)) = self
@@ -649,8 +666,8 @@ impl CloudSync {
                 if self.0.tasks.is_closed() {
                     return Err(CloudSyncError::Stopped);
                 }
-                if delivery.status == DeliveryStatus::Completed
-                    || delivery.retry_at > chrono::Utc::now().timestamp()
+                if !due.contains(&delivery.provider)
+                    || cooling.contains(&delivery.provider)
                     || !self
                         .state()?
                         .providers
@@ -674,6 +691,9 @@ impl CloudSync {
                     convergence = cloud_merge::merge(&convergence, document);
                 }
                 let stopped = matches!(&outcome, Err(CloudSyncError::Stopped));
+                if outcome.is_err() {
+                    cooling.insert(delivery.provider);
+                }
                 self.record_delivery(&job.task.id, delivery.provider, outcome)?;
                 self.publish(services)?;
                 if stopped {
@@ -714,6 +734,36 @@ impl CloudSync {
                 .versions
                 .sort_by(|left, right| right.saved_at.cmp(&left.saved_at));
             Ok(())
+        })
+    }
+
+    fn delivery_due(
+        &self,
+        job: &Job,
+        delivery: &Delivery,
+        cooling: &std::collections::HashSet<CloudProvider>,
+        now: i64,
+    ) -> Result<bool, CloudSyncError> {
+        if delivery.status == DeliveryStatus::Completed
+            || delivery.retry_at > now
+            || cooling.contains(&delivery.provider)
+        {
+            return Ok(false);
+        }
+        self.0.journal.read(|journal| {
+            let Some(provider) = journal
+                .state
+                .providers
+                .iter()
+                .find(|row| row.provider == delivery.provider && row.enabled)
+            else {
+                return false;
+            };
+            job.task.direction == Direction::Pull
+                || job.manual
+                || delivery.attempts > 0
+                || (provider.synced_version.as_ref() != Some(&job.task.version)
+                    && journal.upload_due(delivery.provider, chrono::Utc::now()))
         })
     }
 

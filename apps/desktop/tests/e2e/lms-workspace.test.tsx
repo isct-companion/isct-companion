@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+import { MantineProvider } from "@mantine/core";
 import { Activity, act, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   advance,
   buttonByText,
   click,
+  chooseOption,
   courseFor,
   emptySchoolRecords,
   installFakeCore,
@@ -290,7 +292,7 @@ async function openWorkspace(
     close: () => {},
     markLesson: options.markLesson,
   };
-  const view = await mount(<real.LmsWorkspace {...props} />);
+  const view = await mount(<MantineProvider><real.LmsWorkspace {...props} /></MantineProvider>);
   views.push(view);
   await waitFor(() =>
     expect(view.host.querySelector(".lmsWorkspace")).not.toBeNull(),
@@ -302,7 +304,7 @@ async function openWorkspace(
     host: view.host,
     render: async (overrides: Partial<typeof props> = {}) => {
       await act(async () =>
-        view.root.render(<real.LmsWorkspace {...props} {...overrides} />),
+        view.root.render(<MantineProvider><real.LmsWorkspace {...props} {...overrides} /></MantineProvider>),
       );
     },
   };
@@ -1693,7 +1695,7 @@ describe("the PDF viewer", () => {
       () => import("@app/features/lms/PdfDocument"),
     );
     const view = await mount(
-      <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />,
+      <MantineProvider><real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" /></MantineProvider>,
     );
     views.push(view);
     return { view, host: view.host };
@@ -1810,14 +1812,8 @@ describe("the PDF viewer", () => {
     expect(scroll).toHaveBeenCalled();
     expect(host.querySelectorAll("canvas")).toHaveLength(1);
 
-    const zoom = host.querySelector<HTMLSelectElement>("select")!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )!.set!.call(zoom, "1.5");
-      zoom.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    const zoom = host.querySelector<HTMLInputElement>('[role="combobox"][aria-label="Zoom"]')!;
+    await chooseOption(zoom, "1.5");
     expect(
       (host.querySelector(".lmsPdfPages") as HTMLElement).style.width,
     ).toBe("150%");

@@ -34,8 +34,6 @@ pub struct TermTaskView {
     pub overdue_ids: Vec<String>,
     pub due_this_week_ids: Vec<String>,
     pub later_ids: Vec<String>,
-    pub earlier_due_this_week_ids: Vec<String>,
-    pub earlier_later_ids: Vec<String>,
     pub lecture_open_ids: Vec<String>,
     pub lecture_hidden_ids: Vec<String>,
 }
@@ -58,7 +56,11 @@ pub(crate) fn assignment_submitted(row: &Value) -> bool {
         || text(row, "submissionStatus") == Some("submitted")
 }
 
-pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskView, ScheduleError> {
+pub fn task_view(
+    workspace: &Value,
+    now: DateTime<FixedOffset>,
+    include_completed: bool,
+) -> Result<TaskView, ScheduleError> {
     let mut parsed = BTreeMap::new();
     let mut deadlines = BTreeMap::new();
     for row in array(workspace, "assignments")
@@ -169,27 +171,18 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
             if !is_submitted && *due >= now {
                 view.pending_ids.push(id.clone());
             }
-            if pinned {
-                view.pinned_ids.push(id.clone());
+            // Completion visibility is independent of deadline scope and pinning.
+            if is_submitted && !include_completed {
                 continue;
             }
             if *due < now {
                 view.overdue_ids.push(id.clone());
-                continue;
-            }
-            let target = if *due <= week {
-                &mut view.earlier_due_this_week_ids
+            } else if pinned {
+                view.pinned_ids.push(id.clone());
+            } else if *due <= week {
+                view.due_this_week_ids.push(id.clone());
             } else {
-                &mut view.earlier_later_ids
-            };
-            target.push(id.clone());
-            if !is_submitted {
-                let target = if *due <= week {
-                    &mut view.due_this_week_ids
-                } else {
-                    &mut view.later_ids
-                };
-                target.push(id.clone());
+                view.later_ids.push(id.clone());
             }
         }
         view.overdue_ids.reverse();

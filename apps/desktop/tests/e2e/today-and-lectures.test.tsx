@@ -7,6 +7,7 @@ import {
   DEVICE,
   TERM,
   click,
+  chooseOption,
   emptySchoolRecords,
   installFakeCore,
   mount,
@@ -175,7 +176,11 @@ function assignmentRow(
  * now, what is already past, and which rows count as submitted. The shell only
  * renders these decisions, so the test states them the way Core would.
  */
-function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
+function taskViewFor(
+  workspace: Workspace,
+  term: TermId = TERM,
+  includeCompleted = false,
+): TaskView {
   const ids = new Set(
     workspace.assignments.filter((row) => !row.deletedAt).map((row) => row.id),
   );
@@ -205,11 +210,14 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
       [term]: {
         pendingIds: pick("upcoming", "pinned"),
         pinnedIds: pick("pinned"),
-        overdueIds: [...overdue].reverse(),
-        dueThisWeekIds: pick("upcoming"),
+        overdueIds: (includeCompleted
+          ? [...overdue]
+          : pick("missed")
+        ).reverse(),
+        dueThisWeekIds: includeCompleted
+          ? pick("upcoming", "handed-in")
+          : pick("upcoming"),
         laterIds: [],
-        earlierDueThisWeekIds: pick("upcoming", "handed-in"),
-        earlierLaterIds: [],
         lectureOpenIds: pick("a1"),
         lectureHiddenIds: pick("a2"),
       },
@@ -264,7 +272,12 @@ async function mountToday(workspace: Workspace): Promise<MountedApp> {
       revision: freshRevision(),
       queries: {
         ...homeQueries,
-        taskView: (_query, core) => taskViewFor(core.workspace),
+        taskView: (query, core) =>
+          taskViewFor(
+            core.workspace,
+            TERM,
+            (query as { includeCompleted?: boolean }).includeCompleted ?? false,
+          ),
       },
       handle: nativeNoise,
     },
@@ -324,7 +337,7 @@ describe("Today's assignment scopes", () => {
     expect(section.textContent).toContain("1 active");
   }, 20_000);
 
-  it("moves submitted and past work of this quarter under Earlier", async () => {
+  it("keeps deadline scopes independent of completed visibility", async () => {
     const mounted = await mountToday(todayWorkspace());
     const section = await assignmentsSection(mounted);
     await until(() => expect(dueTitles(section)).toContain("Report upcoming"));
@@ -337,17 +350,31 @@ describe("Today's assignment scopes", () => {
       "the Earlier scope",
     );
     await click(earlier);
-    await until(() =>
-      expect(dueRow(section, "Report handed-in")).toBeDefined(),
+    await until(() => expect(dueTitles(section)).toEqual(["Report missed"]));
+    const completed = await required(
+      () => section.querySelector<HTMLInputElement>('input[type="checkbox"]'),
+      "the Show completed checkbox",
     );
-
-    expect(dueRow(section, "Report upcoming")?.className).toBe("dueRow");
-    expect(dueRow(section, "Report handed-in")?.className).toContain("done");
+    await click(completed);
+    await until(() => expect(dueRow(section, "Report closed")).toBeDefined());
     expect(dueRow(section, "Report missed")?.className).toContain("missed");
     expect(dueRow(section, "Report closed")?.className).toContain("closed");
-    // Another quarter's work is not this quarter's Earlier.
+    expect(dueRow(section, "Report upcoming")).toBeUndefined();
+    expect(dueRow(section, "Report handed-in")).toBeUndefined();
     expect(dueRow(section, "Report stale")).toBeUndefined();
     expect(section.textContent).toContain("Past deadline · 2");
+
+    const today = [
+      ...section.querySelectorAll<HTMLButtonElement>(".dueScope button"),
+    ].find((button) => button.textContent?.trim() === "Today")!;
+    await click(today);
+    await until(() =>
+      expect(dueRow(section, "Report handed-in")?.className).toContain("done"),
+    );
+    expect(dueRow(section, "Report upcoming")).toBeDefined();
+    expect(dueRow(section, "Report closed")).toBeUndefined();
+    await click(completed);
+    await until(() => expect(dueTitles(section)).toEqual(["Report upcoming"]));
   }, 20_000);
 });
 
@@ -719,18 +746,34 @@ describe("the lecture desk", () => {
     await until(() => expect(mounted.host.textContent).toContain("Report"));
     const quarter = await required(
       () =>
-        mounted.host.querySelector<HTMLSelectElement>(
-          "select.lectureTerm, .lectureTerm select",
+        mounted.host.querySelector<HTMLInputElement>(
+          '.lectureTerm [role="combobox"]',
         ),
       "the quarter picker",
     );
-    const choose = (term: TermId) =>
-      act(async () => {
-        quarter.value = term;
-        quarter.dispatchEvent(new Event("change", { bubbles: true }));
-      });
+    const choose = (term: TermId) => chooseOption(quarter, term);
 
-    await choose("2026-4Q");
+    expect(mounted.host.querySelector("select.lectureTerm")).toBeNull();
+    await click(quarter);
+    await act(async () => {
+      quarter.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          code: "ArrowUp",
+          bubbles: true,
+        }),
+      );
+    });
+    await act(async () => {
+      quarter.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          bubbles: true,
+        }),
+      );
+    });
+    expect(quarter.getAttribute("aria-expanded")).toBe("false");
     await until(() =>
       expect(mounted.host.textContent).toContain("No open assignments."),
     );

@@ -127,35 +127,17 @@
 .settingsPane .row {
   grid-template-columns: minmax(0, 1fr) auto;
 }
-.settingsPane .row > .mantine-Input-wrapper {
+.settingsPane .row > :is(.mantine-Input-wrapper, .uiSelect) {
   width: clamp(180px, 40cqi, 280px);
 }
-.studyStages {
-  display: grid;
-  justify-items: end;
-  gap: 8px;
-  width: min(100%, 620px);
-}
-.studyStages > .settingsNote {
-  margin: 0;
-  text-align: right;
-}
-.studyStage {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
-  gap: 6px;
-  width: 100%;
-  align-items: center;
-}
-.studyStage .mantine-Input-wrapper {
-  width: 100%;
-}
-.studyStageActions {
+.studyProfileActions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+  padding-top: 12px;
 }
-.studyStages > .studyStageError {
+.studyProfileError {
   color: var(--danger);
 }
 
@@ -380,22 +362,13 @@ button.calendarDay.open {
   .settingsPane .row {
     grid-template-columns: minmax(0, 1fr);
   }
-  .settingsPane .row > .mantine-Input-wrapper {
+  .settingsPane .row > :is(.mantine-Input-wrapper, .uiSelect) {
     width: 100%;
     max-width: 100%;
   }
   .settingsPane .actions {
     flex-wrap: wrap;
     max-width: 100%;
-  }
-  .studyStages {
-    justify-items: stretch;
-  }
-  .studyStages > .settingsNote {
-    text-align: left;
-  }
-  .studyStage {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
 

@@ -1263,6 +1263,12 @@ checks:
           WKWebView is a separate native surface and can intercept the pointer;
           a DOM splitter test cannot prove that the drag stays captured.
       - action: |
+          Release the separator, then slowly move the pointer across blank page
+          areas, links and text in the native browser, including near its edges.
+        reason: |
+          macOS and the DOM host own separate cursor surfaces. This detects a
+          lingering document-wide resize cursor competing with WKWebView.
+      - action: |
           Open an official LMS page in a lecture reader, resize its left outline,
           then shrink and widen the window across the compact breakpoint.
         reason: |
@@ -1280,12 +1286,14 @@ checks:
     expected: |
       The separator follows the pointer until release. The native page stays
       inside its content area and both toolbars remain clickable after resizing.
+      The resize cursor appears only on the separator; page cursors stay stable.
     why_manual: |
       Requires a signed native shell and a real WKWebView over authenticated
       school content; jsdom and the browser preview render only the DOM host.
     covers:
       - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src/components/ResizableWorkspace.tsx
+      - apps/desktop/src/components/resizable-workspace.css
       - apps/desktop/src/pages/web/WebPage.tsx
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/pages/lectures/lectures.css

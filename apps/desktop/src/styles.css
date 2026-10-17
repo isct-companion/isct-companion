@@ -47,6 +47,36 @@ p {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* Web select menus share shell tokens even when portalled outside the page. */
+.uiSelect { min-width: 0; }
+.uiSelect .mantine-Input-input {
+  background: var(--surface-3);
+  border-color: var(--line);
+  color: var(--ink);
+  font-size: calc(13px * var(--text));
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.uiSelect .mantine-Input-input:focus { border-color: var(--accent); }
+.uiSelect .mantine-Input-input:focus-visible { outline: none; }
+.uiSelect .mantine-Input-section { color: var(--muted); }
+.uiSelectDropdown {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--shadow);
+}
+.uiSelectDropdown .mantine-Select-option {
+  font-size: calc(13px * var(--text));
+  border-radius: var(--radius-control);
+}
+.uiSelectDropdown .mantine-Select-option[data-combobox-active],
+.uiSelectDropdown .mantine-Select-option[data-combobox-selected] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.uiSelectDropdown .mantine-Select-groupLabel { color: var(--muted); }
 .muted {
   color: var(--muted);
 }
@@ -3355,6 +3385,7 @@ p {
 
 /* Today: "Today" / "Earlier" switch beside the assignments heading */
 .dueSection > header {
+  flex-wrap: wrap;
   gap: 10px;
 }
 .dueScope {

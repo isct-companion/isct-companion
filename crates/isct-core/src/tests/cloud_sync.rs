@@ -47,6 +47,13 @@ fn manual_is_quiet_auto_queues_each_save_and_pull_does_not_echo() {
     journal.observe(document(4), false).unwrap();
     assert_eq!(journal.jobs.len(), 2);
     assert_eq!(journal.state.local_version, version(&document(4)).unwrap());
+    let now = chrono::Utc::now();
+    journal.state.providers[0].last_synced_at =
+        Some((now - chrono::Duration::seconds(3599)).to_rfc3339());
+    assert!(!journal.upload_due(CloudProvider::GoogleDrive, now));
+    journal.state.providers[0].last_synced_at =
+        Some((now - chrono::Duration::hours(1)).to_rfc3339());
+    assert!(journal.upload_due(CloudProvider::GoogleDrive, now));
 }
 
 #[test]
@@ -85,6 +92,37 @@ fn pull_deliveries_remain_explicit_and_provider_acknowledgements_independent() {
     journal.enqueue(document(1), Direction::Pull).unwrap();
     assert_eq!(journal.jobs[1].task.deliveries.len(), 2);
     assert!(!journal.state.automatic);
+    journal.jobs[0].task.deliveries[0].status = DeliveryStatus::Completed;
+    let receipt = journal.jobs[0].clone();
+    journal.enqueue(document(2), Direction::Upload).unwrap();
+    journal.enqueue(document(3), Direction::Upload).unwrap();
+    journal.coalesce_uploads().unwrap();
+    assert!(
+        journal.jobs[0] == receipt,
+        "completed provider acknowledgements must not be rewritten by coalescing"
+    );
+    assert_eq!(
+        journal
+            .jobs
+            .iter()
+            .filter(|job| job.task.direction == Direction::Pull)
+            .count(),
+        1
+    );
+    let upload = journal
+        .jobs
+        .iter()
+        .find(|job| {
+            job.task.direction == Direction::Upload
+                && job
+                    .task
+                    .deliveries
+                    .iter()
+                    .any(|d| d.status == DeliveryStatus::Pending)
+        })
+        .unwrap();
+    assert_eq!(upload.task.deliveries.len(), 2);
+    assert_eq!(upload.task.version, version(&document(3)).unwrap());
 }
 
 #[test]
@@ -183,6 +221,7 @@ struct FakeTransport {
     fail_push: AtomicBool,
     fail_versions: AtomicBool,
     pushes: AtomicUsize,
+    reads: AtomicUsize,
     started: Notify,
     release: Notify,
     block_push: AtomicBool,
@@ -196,6 +235,7 @@ impl Default for FakeTransport {
             fail_push: AtomicBool::new(false),
             fail_versions: AtomicBool::new(false),
             pushes: AtomicUsize::new(0),
+            reads: AtomicUsize::new(0),
             started: Notify::new(),
             release: Notify::new(),
             block_push: AtomicBool::new(false),
@@ -211,6 +251,7 @@ impl CloudTransport for FakeTransport {
 
     fn read_workspace<'a>(&'a self, _provider: CloudProvider) -> CloudFuture<'a, Option<Value>> {
         Box::pin(async move {
+            self.reads.fetch_add(1, Ordering::SeqCst);
             self.remote
                 .lock()
                 .map(|remote| remote.clone())
@@ -414,6 +455,125 @@ fn local_retention_commits_the_index_before_unlinking_only_expired_files() {
 }
 
 #[tokio::test]
+async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_unchanged_content() {
+    let mut fixture = Fixture::new("hourly-auto");
+    fixture
+        .sync
+        .set_automatic(fixture.services(), true)
+        .await
+        .unwrap();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(fixture.transport.pushes.load(Ordering::SeqCst), 1);
+    let reads = fixture.transport.reads.load(Ordering::SeqCst);
+    for title in ["first", "second"] {
+        fixture.add_plan(title);
+        fixture.sync.changed(fixture.services()).await.unwrap();
+    }
+    let waiting = fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(
+        fixture.transport.reads.load(Ordering::SeqCst),
+        reads,
+        "waiting for the hour must not poll the cloud"
+    );
+    assert_eq!(fixture.transport.pushes.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        waiting
+            .tasks
+            .iter()
+            .filter(|task| task
+                .deliveries
+                .iter()
+                .any(|delivery| delivery.status == DeliveryStatus::Pending))
+            .count(),
+        1
+    );
+    fixture.sync.shutdown().await;
+    fixture.sync = CloudSync::new(
+        fixture.root.join("cloud.json"),
+        &[CloudProvider::GoogleDrive],
+        &[CloudProvider::GoogleDrive],
+    )
+    .unwrap();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(
+        fixture.transport.pushes.load(Ordering::SeqCst),
+        1,
+        "restart must preserve the hour limit"
+    );
+    fixture
+        .sync
+        .0
+        .journal
+        .change(|journal| {
+            journal.state.providers[0].last_synced_at =
+                Some((chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339());
+            Ok(())
+        })
+        .unwrap();
+    fixture
+        .sync
+        .provider_result(
+            fixture.services(),
+            CloudProvider::GoogleDrive,
+            false,
+            Some("authorization unavailable".into()),
+        )
+        .await
+        .unwrap();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(
+        fixture.transport.reads.load(Ordering::SeqCst),
+        reads,
+        "disabled providers cannot trigger reconciliation reads"
+    );
+    fixture
+        .sync
+        .provider_result(fixture.services(), CloudProvider::GoogleDrive, true, None)
+        .await
+        .unwrap();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(fixture.transport.pushes.load(Ordering::SeqCst), 2);
+    let remote = fixture.transport.remote.lock().unwrap().clone().unwrap();
+    assert_eq!(remote["tables"]["plans"].as_array().unwrap().len(), 2);
+    fixture.sync.changed(fixture.services()).await.unwrap();
+    fixture
+        .sync
+        .0
+        .journal
+        .change(|journal| {
+            journal.state.providers[0].last_synced_at =
+                Some((chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339());
+            Ok(())
+        })
+        .unwrap();
+    fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(
+        fixture.transport.pushes.load(Ordering::SeqCst),
+        2,
+        "an elapsed hour alone must not upload unchanged content"
+    );
+    // A deliberate manual upload need not wait for another hour.
+    fixture
+        .sync
+        .0
+        .journal
+        .change(|journal| {
+            journal.state.providers[0].last_synced_at = Some(chrono::Utc::now().to_rfc3339());
+            Ok(())
+        })
+        .unwrap();
+    fixture.add_plan("manual");
+    fixture.sync.changed(fixture.services()).await.unwrap();
+    fixture
+        .sync
+        .sync(fixture.services(), Direction::Upload)
+        .await
+        .unwrap();
+    assert_eq!(fixture.transport.pushes.load(Ordering::SeqCst), 3);
+    fixture.sync.shutdown().await;
+}
+
+#[tokio::test]
 async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
     let fixture = Fixture::new("retry");
     fixture.add_plan("first");
@@ -435,6 +595,32 @@ async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
         Some("offline")
     );
     let task = failed.tasks[0].id.clone();
+    fixture
+        .sync
+        .set_automatic(fixture.services(), true)
+        .await
+        .unwrap();
+    for name in ["second", "third"] {
+        fixture.add_plan(name);
+        fixture.sync.changed(fixture.services()).await.unwrap();
+    }
+    let reads = fixture.transport.reads.load(Ordering::SeqCst);
+    let waiting = fixture.sync.resume(fixture.services()).await.unwrap();
+    assert_eq!(fixture.transport.reads.load(Ordering::SeqCst), reads);
+    assert_eq!(
+        fixture.transport.pushes.load(Ordering::SeqCst),
+        1,
+        "new saves must not bypass the provider cooldown"
+    );
+    let pending = waiting
+        .tasks
+        .iter()
+        .flat_map(|task| &task.deliveries)
+        .filter(|delivery| delivery.status == DeliveryStatus::Pending)
+        .collect::<Vec<_>>();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].attempts, 1);
+    assert_eq!(pending[0].retry_at, failed.tasks[0].deliveries[0].retry_at);
 
     let retried = fixture
         .sync

@@ -517,9 +517,10 @@ export function Web({
           id="web"
           enabled={wide}
           firstSize={168}
-          firstMin={132}
+          firstMin={104}
           firstMax={360}
           secondMin="40%"
+          secondMax="100%"
         >
           <nav className="servicePicker" aria-label={t("School services")}>
             {serviceTiers.map((tier, tierIndex) => (

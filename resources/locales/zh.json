@@ -1243,6 +1243,8 @@
   "Assignments shown": "显示的作业",
   "{{count}} active": "{{count}} 项待完成",
   "All clear": "全部完成",
+  "Show completed": "显示已完成",
+  "No earlier assignments": "没有更早的作业",
   "Nothing due this week": "本周没有到期的作业",
   "Past deadline": "已过截止时间",
   "Downloading {{name}}…": "正在下载 {{name}}…",
@@ -1287,5 +1289,7 @@
   "Earlier version pages": "历史版本页码",
   "Local recovery pages": "本地恢复文件页码",
   "Backups older than 30 days are removed only when at least four newer backups exist.": "备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
-  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "云端改动或恢复操作替换本地内容前保存。备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。"
+  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "云端改动或恢复操作替换本地内容前保存。备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
+  "Choose an admission year.": "请选择入学年份。",
+  "Only changed content is uploaded, at most once per hour.": "仅在内容有变化时自动上传，两次上传至少间隔 1 小时。"
 }

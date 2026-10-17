@@ -1243,6 +1243,8 @@
   "Assignments shown": "表示する課題",
   "{{count}} active": "未完了 {{count}}件",
   "All clear": "すべて完了",
+  "Show completed": "完了済みを表示",
+  "No earlier assignments": "過去の課題はありません",
   "Nothing due this week": "今週締切の課題はありません",
   "Past deadline": "締切済み",
   "Downloading {{name}}…": "{{name}}をダウンロード中…",
@@ -1287,5 +1289,7 @@
   "Earlier version pages": "過去のバージョンのページ",
   "Local recovery pages": "ローカル復元ファイルのページ",
   "Backups older than 30 days are removed only when at least four newer backups exist.": "30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。",
-  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "クラウドの変更や復元で端末の内容を置き換える前に保存します。30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。"
+  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "クラウドの変更や復元で端末の内容を置き換える前に保存します。30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。",
+  "Choose an admission year.": "入学年度を選択してください。",
+  "Only changed content is uploaded, at most once per hour.": "変更がある場合のみ自動アップロードします。間隔は1時間以上です。"
 }
