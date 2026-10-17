@@ -406,6 +406,7 @@ export interface DesktopBridge {
   deleteSchoolCredentials(profile: SchoolAuthProfile): Promise<boolean>;
   /** Copies the saved Matrix to the system clipboard without exposing it to the WebView. */
   copySchoolMatrix(): Promise<boolean>;
+  copySchoolOtp(setup?: string): Promise<boolean>;
   testSchoolConnection(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -664,6 +665,7 @@ export function createTauriDesktopBridge(
     deleteSchoolCredentials: (profile) =>
       booleanCommand("delete_school_credentials", { profile }),
     copySchoolMatrix: () => booleanCommand("copy_school_matrix"),
+    copySchoolOtp: (setup) => booleanCommand("copy_school_otp", { setup }),
     testSchoolConnection: (profile, credentials) =>
       result("test_school_connection", { profile, credentials }),
     loginSchool: (profile) => result("login_school", { profile, bounds: null }),

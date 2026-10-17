@@ -1028,8 +1028,6 @@
   "How do I find the QR code?": "QRコードの表示方法",
   "Microsoft / other": "Microsoft／その他",
   "In Google Authenticator, open Transfer accounts → Export accounts. Select only your school account, then scan its QR code here.": "Google Authenticator で「アカウントの移行 → アカウントのエクスポート」を開き、大学のアカウントだけを選んで、表示されたQRコードを読み取ります。",
-  "Look for an export QR code in your authenticator. If it cannot export, keep using it and enter the verification code when signing in. Do not remove your current setup.": "認証アプリにエクスポート用QRコードがあるか確認してください。対応していない場合は、今の認証アプリでログイン時に確認コードを入力できます。現在の設定は削除しないでください。",
-  "Open the school account settings and set up App Authentication. Import the QR code shown during setup, keep it in your phone authenticator too, and finish verification on the school page.": "大学のアカウント設定で App Authentication を設定します。初回設定時のQRコードをこのアプリとスマートフォンの認証アプリで読み取り、大学のページで認証を完了してください。",
   "Open school verification settings": "大学の認証設定を開く",
   "This field needs a setup link or secret, not the changing six-digit code. You can leave it blank and enter codes when signing in.": "入力するのは設定リンクまたは秘密鍵です。変化する6桁のコードではありません。空欄にしてログイン時にコードを入力することもできます。",
   "Paste a setup link or secret": "設定リンクまたは秘密鍵を貼り付け",
@@ -1269,5 +1267,12 @@
   "Bring your card closer until the Matrix is framed. Capture ends when every cell has enough clear images, or after eight seconds.": "Matrix が枠に収まるようカードを近づけてください。全マスの鮮明な画像がそろうと撮影が終わります。最長 8 秒です。",
   "Capturing Matrix… {{count}}/70 cells ready.": "Matrix を撮影中… {{count}}/70 マスの画像がそろいました。",
   "Processing Matrix… You can put your card down.": "Matrix を認識中… カードを下ろして大丈夫です。",
-  "Matrix processing progress": "Matrix の認識状況"
+  "Matrix processing progress": "Matrix の認識状況",
+  "Look for an export QR code in your authenticator. If it cannot export, reset App Authentication in the school account settings.": "認証アプリにエクスポート用QRコードがあるか確認してください。対応していない場合は、大学のアカウント設定で App Authentication を再設定できます。",
+  "Open the school account settings and register App Authentication.": "大学のアカウント設定で App Authentication を登録してください。",
+  "Copy OTP setup": "OTP設定をコピー",
+  "Set up school verification codes before copying.": "大学の確認コードを設定してからコピーしてください。",
+  "OTP setup could not be copied to the clipboard.": "OTP設定をクリップボードにコピーできませんでした。",
+  "OTP setup is too long.": "OTP設定が長すぎます。",
+  "You can set up or reset OTP in the school account settings. Import the new QR code here and in your authenticator. Replace its old entry with the new one, then finish verification on the school page.": "大学のアカウント設定でOTPを設定・再設定できます。新しいQRコードをこのアプリと認証アプリに取り込み、認証アプリの古い登録を新しいものに置き換えてから、大学のページで認証を完了してください。"
 }

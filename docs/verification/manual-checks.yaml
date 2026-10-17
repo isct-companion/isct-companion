@@ -1522,10 +1522,14 @@ checks:
         reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
       - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
         reason: Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+      - action: Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
+        reason: Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
     observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
     expected: Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
-    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell.
+    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault.
     covers:
+      - apps/desktop/src/components/OtpSetupInput.tsx
+      - apps/desktop/src-tauri/src/commands/school_auth.rs
       - apps/desktop/src/components/QrCamera.tsx
       - apps/desktop/src/components/CameraPreview.tsx
     verified: null

@@ -242,6 +242,7 @@ describe("School accounts", () => {
               tokyoTech: notConfigured(),
             };
           if (command === "school_session_snapshot") return noSession;
+          if (command === "copy_school_otp") return true;
           if (command === "import_school_otp")
             return [
               {
@@ -278,9 +279,28 @@ describe("School accounts", () => {
       ].find((label) => label.textContent === "Microsoft / other")!;
       await click(other);
       expect(document.body.textContent).toContain(
-        "Do not remove your current setup.",
+        "Replace its old entry with the new one",
+      );
+      const newSetup = [
+        ...document.querySelectorAll<HTMLLabelElement>(
+          ".mantine-SegmentedControl-label",
+        ),
+      ].find((label) => label.textContent === "Not set up")!;
+      await click(newSetup);
+      expect(document.body.textContent).toContain(
+        "Replace its old entry with the new one",
       );
       await click(help);
+      await click(
+        science.querySelector<HTMLButtonElement>(
+          '[aria-label="Copy OTP setup"]',
+        )!,
+      );
+      await wait(() =>
+        expect(mounted.core.commands("copy_school_otp")[0]?.args).toEqual({
+          setup: undefined,
+        }),
+      );
       await scanFile(science, PNG());
       await wait(() =>
         expect(document.body.textContent).toContain(
@@ -293,6 +313,16 @@ describe("School accounts", () => {
         science.querySelector<HTMLInputElement>("#school-otp-setup")!.value,
       ).toBe(setup);
       expect(revoke).toHaveBeenCalledWith("blob:qr-test");
+      await click(
+        science.querySelector<HTMLButtonElement>(
+          '[aria-label="Copy OTP setup"]',
+        )!,
+      );
+      await wait(() =>
+        expect(mounted.core.commands("copy_school_otp").at(-1)?.args).toEqual({
+          setup,
+        }),
+      );
       expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
       await clickButton(science, "Connect");
       await wait(() =>

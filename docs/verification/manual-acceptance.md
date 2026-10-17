@@ -70,7 +70,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
-| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
+| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
@@ -88,7 +88,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
-| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
+| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 
 ## Personas
 
@@ -849,18 +849,24 @@ camera or a photo of the card.
      variation that no fixture reproduces.
 2. Open Scan with camera in a packaged desktop app, allow camera access,
    and bring the real card toward the camera. Check that one red outline
-   follows the Matrix, with no cell boxes or letter overlays. Tilt it,
-   introduce glare, then hold it steady with the labels in view. Observe
-   whether the scanner fills all cells and closes itself; record the
-   acquisition time and any cells that prevent completion. After close
-   or cancel, inspect matrix-scan/latest.json under the app cache for
-   captured frame latency, first-outline-to-stop time, per-cell qualified
-   sample counts and blank/weak/conflict counts. Compare all 70 saved
-   letters with the real card.
+   follows the Matrix, with no cell boxes or letter overlays. Move the
+   card, introduce glare, then briefly hold it steady with labels visible.
+   Observe the per-cell acquisition coverage. The camera must stop as
+   soon as every cell has enough clear candidates, or within eight seconds
+   of the first detected Matrix; waiting before detection does not count.
+   After acquisition, the dialog closes, the camera indicator turns off,
+   and inline processing progress appears. Put the card down and verify
+   results arrive; insufficient votes must be highlighted for review.
+   Inspect matrix-scan/latest.json under the app cache for separate
+   acquisition/processing times, per-cell candidate and qualified-vote
+   counts. Compare all 70 letters with the real card.
    - *Why:* OS camera permissions, native WebView video capture, optical focus,
      and the alignment of recognition boxes over a physical card require
      real hardware. Scripted frames cannot validate these surfaces.
 3. Cancel and reopen the camera, then background the app during capture.
+   Repeat and background it during processing: acquisition stops in the
+   former case, but the latter may finish without reopening the camera.
+   Cancel processing and confirm late results do not overwrite the editor.
    Deny permission on a fresh permission state and retry after granting it.
    - *Why:* Verify the camera indicator switches off and permissions can recover
      in the signed native app; headless tests cannot observe OS resource
@@ -891,6 +897,7 @@ OCR runtime, so the target must be chosen deliberately.
 - `crates/isct-ocr/**`
 - `apps/desktop/src/lib/matrix-ocr.ts`
 - `crates/isct-core/src/matrix_scan.rs`
+- `crates/isct-core/src/matrix_scan/**`
 - `apps/desktop/src/platform/matrix-camera.ts`
 - `apps/desktop/src/components/MatrixCamera.tsx`
 - `apps/desktop/src/components/matrix-camera.css`
@@ -1756,6 +1763,8 @@ A packaged desktop app, a physical camera, and a disposable test TOTP QR on anot
    - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
 2. Move the QR into and out of view, then close the dialog and background the app during a second scan.
    - *Why:* Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+3. Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
+   - *Why:* Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
 
 **Where to look**
 
@@ -1767,10 +1776,12 @@ Clear scans fill the draft, permission errors offer image import, and closing or
 
 **Why this is manual**
 
-Requires native camera permissions, optical input and an OS camera indicator in a packaged shell.
+Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault.
 
 **Covers**
 
+- `apps/desktop/src/components/OtpSetupInput.tsx`
+- `apps/desktop/src-tauri/src/commands/school_auth.rs`
 - `apps/desktop/src/components/QrCamera.tsx`
 - `apps/desktop/src/components/CameraPreview.tsx`
 

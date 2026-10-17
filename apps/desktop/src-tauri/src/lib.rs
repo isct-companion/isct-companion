@@ -287,6 +287,7 @@ pub fn run() {
             commands::school_auth::save_school_credentials,
             commands::school_auth::delete_school_credentials,
             commands::school_auth::copy_school_matrix,
+            commands::school_auth::copy_school_otp,
             commands::school_auth::import_school_otp,
             commands::school_auth::login_school,
             commands::school_auth::test_school_connection,
