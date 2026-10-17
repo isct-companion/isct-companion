@@ -177,6 +177,48 @@ fn full_pull_lifetime_defers_stale_intents_until_cooldown_expires() {
         .take_ready(&json!({}), now, finished + FULL_PULL_COOLDOWN)
         .unwrap()
         .is_none());
+
+    // Each pull that leaves a page missing triples the wait, up to six hours,
+    // so a permanently broken page cannot cost a sign-in every five minutes.
+    let retry_after = |misses: u32| {
+        let mut queue = refresh.0.lock().unwrap();
+        let activity = queue
+            .full_pulls
+            .get_mut(&SchoolAuthProfile::TokyoTech)
+            .unwrap();
+        activity.misses = misses;
+        activity.cooldown()
+    };
+    assert_eq!(retry_after(1), FULL_PULL_COOLDOWN);
+    assert_eq!(retry_after(2), FULL_PULL_COOLDOWN * 3);
+    assert_eq!(retry_after(3), FULL_PULL_COOLDOWN * 9);
+    assert_eq!(retry_after(30), FULL_PULL_MAX_COOLDOWN);
+    refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
+    assert!(refresh
+        .take_ready(&json!({}), now, finished + FULL_PULL_COOLDOWN * 9)
+        .unwrap()
+        .is_none());
+    drop(refresh.begin_full_pull(SchoolSite::Kyomu).unwrap());
+    assert_eq!(
+        refresh.0.lock().unwrap().full_pulls[&SchoolAuthProfile::TokyoTech].misses,
+        31
+    );
+
+    // Observing every page fresh forgets the misses.
+    let mut fresh = json!({});
+    for (_, page) in crate::school_parser::kyomu::PAGES {
+        fresh[format!("kyomu:{page}")] = json!(now.to_rfc3339());
+    }
+    refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
+    assert!(refresh
+        .take_ready(&fresh, now, Instant::now())
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        refresh.0.lock().unwrap().full_pulls[&SchoolAuthProfile::TokyoTech].misses,
+        0
+    );
+    assert_eq!(retry_after(0), FULL_PULL_COOLDOWN);
 }
 
 #[tokio::test]

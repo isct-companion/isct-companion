@@ -38,42 +38,56 @@ export function AboutSettings({
         </Row>
         {desktopBridge?.checkAppUpdate && (
           <>
-            <Row id="updates" group title="App updates">
-              <span role="status">
-                {t(
-                  pending
-                    ? "Checking for updates…"
-                    : labels[status?.phase ?? "idle"],
-                )}
-                {status?.version ? ` · ${status.version}` : ""}
-              </span>
-              <UiButton disabled={pending} onClick={() => void check(true)}>
-                {t("Check for updates")}
-              </UiButton>
-              {status?.phase === "available" && (
-                <UiButton
-                  onClick={() => {
-                    if (status.signedUpdates) void check(true, true);
-                    else void desktopBridge?.openExternal(status.releaseUrl);
-                  }}
-                >
+            <Row
+              id="updates"
+              group
+              title="App updates"
+              hint={
+                <span role="status">
                   {t(
-                    status.signedUpdates
-                      ? "Download update"
-                      : "Download from releases",
+                    pending
+                      ? "Checking for updates…"
+                      : labels[status?.phase ?? "idle"],
                   )}
-                </UiButton>
-              )}
-              {status?.phase === "ready" && (
+                  {status?.version ? ` · ${status.version}` : ""}
+                </span>
+              }
+            >
+              <div className="actions">
                 <UiButton
-                  onClick={async () => {
-                    await workspaceStore.flush();
-                    await desktopBridge?.installAppUpdate?.();
-                  }}
+                  className="button small"
+                  disabled={pending}
+                  onClick={() => void check(true)}
                 >
-                  {t("Install and quit")}
+                  {t("Check for updates")}
                 </UiButton>
-              )}
+                {status?.phase === "available" && (
+                  <UiButton
+                    className="button small primary"
+                    onClick={() => {
+                      if (status.signedUpdates) void check(true, true);
+                      else void desktopBridge?.openExternal(status.releaseUrl);
+                    }}
+                  >
+                    {t(
+                      status.signedUpdates
+                        ? "Download update"
+                        : "Download from releases",
+                    )}
+                  </UiButton>
+                )}
+                {status?.phase === "ready" && (
+                  <UiButton
+                    className="button small primary"
+                    onClick={async () => {
+                      await workspaceStore.flush();
+                      await desktopBridge?.installAppUpdate?.();
+                    }}
+                  >
+                    {t("Install and quit")}
+                  </UiButton>
+                )}
+              </div>
             </Row>
             <Row
               id="automatic-updates"

@@ -119,7 +119,7 @@ function SignInSteps({ connection }: { connection: Connection }) {
                     : "dimmed"
             }
           >
-            {step.label}
+            {t(step.label)}
           </Text>
         ))}
       </Group>
@@ -238,8 +238,23 @@ function MatrixEditor({
   return (
     <div className="matrixEditor">
       <div className="matrixTools">
-        <b>Matrix</b>
-        <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
+        <b>{t("Matrix")}</b>
+        <span>
+          {masked ? t("Saved · hidden") : `${value.filter(Boolean).length}/70`}
+        </span>
+        {masked && (
+          <Button
+            variant="default"
+            size="compact-xs"
+            disabled={recognizing || disabled || cameraOpen}
+            onClick={() => {
+              onBeginEdit();
+              requestAnimationFrame(() => inputs.current[0]?.focus());
+            }}
+          >
+            {t("Replace")}
+          </Button>
+        )}
         {matrixOcrAvailable && (
           <Button
             variant="default"
@@ -288,7 +303,9 @@ function MatrixEditor({
                 loading={recognizing}
                 disabled={disabled}
               >
-                {recognizing ? `Reading ${scanProgress}/70…` : "Scan image"}
+                {recognizing
+                  ? t("Reading {{count}}/70…", { count: scanProgress })
+                  : t("Scan image")}
               </Button>
             )}
           </FileButton>
@@ -300,124 +317,124 @@ function MatrixEditor({
             disabled={recognizing || disabled || cameraOpen}
             onClick={onCopy}
           >
-            Copy
+            {t("Copy")}
           </Button>
         )}
       </div>
       {!masked && (
         <div
           className="matrixConfidenceLegend"
-          aria-label="Recognition confidence"
+          aria-label={t("Recognition confidence")}
         >
-          <span data-confidence="high">Green · High</span>
-          <span data-confidence="medium">Yellow · Review</span>
-          <span data-confidence="low">Red · Low / unreadable</span>
-          <span>Uncolored · Manual entry</span>
+          <span data-confidence="high">{t("Green · High")}</span>
+          <span data-confidence="medium">{t("Yellow · Review")}</span>
+          <span data-confidence="low">{t("Red · Low / unreadable")}</span>
+          <span>{t("Uncolored · Manual entry")}</span>
         </div>
       )}
-      {masked && (
-        <Text size="xs" c="dimmed">
-          Saved · hidden. Scan or type to replace.
-        </Text>
-      )}
-      <div className="matrixGrid" aria-label="Tokyo Tech matrix">
-        <span />
-        {Array.from({ length: MATRIX_COLUMNS }, (_, column) => (
-          <b key={column}>{String.fromCharCode(65 + column)}</b>
-        ))}
-        {Array.from({ length: MATRIX_ROWS }, (_, row) => (
-          <div className="matrixRow" key={row}>
-            <b>{row + 1}</b>
-            {Array.from({ length: MATRIX_COLUMNS }, (_, column) => {
-              const index = row * MATRIX_COLUMNS + column;
-              return (
-                <UiInput
-                  key={column}
-                  ref={(element) => {
-                    inputs.current[index] = element;
-                  }}
-                  disabled={recognizing || disabled || cameraOpen}
-                  aria-label={`${String.fromCharCode(65 + column)}${row + 1}`}
-                  data-confidence={
-                    !masked && confidence[index] !== undefined
-                      ? matrixConfidence(value[index], confidence[index]!)
-                      : undefined
-                  }
-                  title={
-                    masked
-                      ? "Saved · hidden"
-                      : confidence[index] === undefined
-                        ? "Manual entry"
-                        : `${matrixConfidence(value[index], confidence[index]!)} confidence · verify against card`
-                  }
-                  value={masked ? "" : value[index]}
-                  placeholder={masked ? "•" : ""}
-                  autoCapitalize="characters"
-                  autoComplete="off"
-                  spellCheck={false}
-                  inputMode="text"
-                  maxLength={1}
-                  onFocus={(event) => {
-                    event.currentTarget.select();
-                  }}
-                  onChange={(event) => {
-                    onBeginEdit();
-                    const letter =
-                      normalizeMatrixText(event.target.value).at(-1) ?? "";
-                    const next = [...value];
-                    next[index] = letter;
-                    onChange(next);
-                    markManual([index]);
-                    if (letter) inputs.current[index + 1]?.focus();
-                  }}
-                  onPaste={(event) => {
-                    event.preventDefault();
-                    const text = event.clipboardData.getData("text");
-                    // A complete Matrix always replaces the grid from A1;
-                    // shorter snippets continue from the focused cell.
-                    if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
-                      load(text);
-                    else write(index, text);
-                  }}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Backspace" &&
-                      !value[index] &&
-                      index > 0
-                    ) {
-                      event.preventDefault();
-                      const next = [...value];
-                      next[index - 1] = "";
-                      onBeginEdit();
-                      markManual([index - 1]);
-                      onChange(next);
-                      inputs.current[index - 1]?.focus();
-                    } else if (event.key === "ArrowLeft" && index > 0) {
-                      event.preventDefault();
-                      inputs.current[index - 1]?.focus();
-                    } else if (
-                      event.key === "ArrowRight" &&
-                      index + 1 < MATRIX_SIZE
-                    ) {
-                      event.preventDefault();
-                      inputs.current[index + 1]?.focus();
-                    } else if (event.key === "ArrowUp" && row > 0) {
-                      event.preventDefault();
-                      inputs.current[index - MATRIX_COLUMNS]?.focus();
-                    } else if (
-                      event.key === "ArrowDown" &&
-                      row + 1 < MATRIX_ROWS
-                    ) {
-                      event.preventDefault();
-                      inputs.current[index + MATRIX_COLUMNS]?.focus();
+      {/* A saved Matrix stays one line; the grid opens only to enter a new one. */}
+      {!masked && (
+        <div className="matrixGrid" aria-label={t("Tokyo Tech matrix")}>
+          <span />
+          {Array.from({ length: MATRIX_COLUMNS }, (_, column) => (
+            <b key={column}>{String.fromCharCode(65 + column)}</b>
+          ))}
+          {Array.from({ length: MATRIX_ROWS }, (_, row) => (
+            <div className="matrixRow" key={row}>
+              <b>{row + 1}</b>
+              {Array.from({ length: MATRIX_COLUMNS }, (_, column) => {
+                const index = row * MATRIX_COLUMNS + column;
+                return (
+                  <UiInput
+                    key={column}
+                    ref={(element) => {
+                      inputs.current[index] = element;
+                    }}
+                    disabled={recognizing || disabled || cameraOpen}
+                    aria-label={`${String.fromCharCode(65 + column)}${row + 1}`}
+                    data-confidence={
+                      !masked && confidence[index] !== undefined
+                        ? matrixConfidence(value[index], confidence[index]!)
+                        : undefined
                     }
-                  }}
-                />
-              );
-            })}
-          </div>
-        ))}
-      </div>
+                    title={
+                      masked
+                        ? t("Saved · hidden")
+                        : confidence[index] === undefined
+                          ? t("Manual entry")
+                          : t(
+                              `Confidence ${matrixConfidence(value[index], confidence[index]!)} · verify against card`,
+                            )
+                    }
+                    value={masked ? "" : value[index]}
+                    placeholder={masked ? "•" : ""}
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    inputMode="text"
+                    maxLength={1}
+                    onFocus={(event) => {
+                      event.currentTarget.select();
+                    }}
+                    onChange={(event) => {
+                      onBeginEdit();
+                      const letter =
+                        normalizeMatrixText(event.target.value).at(-1) ?? "";
+                      const next = [...value];
+                      next[index] = letter;
+                      onChange(next);
+                      markManual([index]);
+                      if (letter) inputs.current[index + 1]?.focus();
+                    }}
+                    onPaste={(event) => {
+                      event.preventDefault();
+                      const text = event.clipboardData.getData("text");
+                      // A complete Matrix always replaces the grid from A1;
+                      // shorter snippets continue from the focused cell.
+                      if (text.replace(/\s/g, "").length >= MATRIX_SIZE)
+                        load(text);
+                      else write(index, text);
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === "Backspace" &&
+                        !value[index] &&
+                        index > 0
+                      ) {
+                        event.preventDefault();
+                        const next = [...value];
+                        next[index - 1] = "";
+                        onBeginEdit();
+                        markManual([index - 1]);
+                        onChange(next);
+                        inputs.current[index - 1]?.focus();
+                      } else if (event.key === "ArrowLeft" && index > 0) {
+                        event.preventDefault();
+                        inputs.current[index - 1]?.focus();
+                      } else if (
+                        event.key === "ArrowRight" &&
+                        index + 1 < MATRIX_SIZE
+                      ) {
+                        event.preventDefault();
+                        inputs.current[index + 1]?.focus();
+                      } else if (event.key === "ArrowUp" && row > 0) {
+                        event.preventDefault();
+                        inputs.current[index - MATRIX_COLUMNS]?.focus();
+                      } else if (
+                        event.key === "ArrowDown" &&
+                        row + 1 < MATRIX_ROWS
+                      ) {
+                        event.preventDefault();
+                        inputs.current[index + MATRIX_COLUMNS]?.focus();
+                      }
+                    }}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -460,7 +477,7 @@ function Account({
       setConnection((current) => ({
         ...current,
         state: "timeout",
-        message: "No response from the portal.",
+        message: t("No response from the portal."),
       }));
       setBusy(false);
       started.current = false;
@@ -545,7 +562,7 @@ function Account({
           : {
               state: "error",
               step: "",
-              message: errorText(error) ?? "Sign-in could not start.",
+              message: t(errorText(error) ?? "Sign-in could not start."),
             },
       );
       setBusy(false);
@@ -587,7 +604,7 @@ function Account({
       setMatrixReplacing(false);
       setConnection({ state: "idle", step: "", message: "" });
       await refresh();
-      notify(`${title} account forgotten.`);
+      notify(t("{{account}} account forgotten.", { account: title }));
     } finally {
       setBusy(false);
     }
@@ -616,41 +633,45 @@ function Account({
                     : "gray"
             }
           >
-            {session === "active"
-              ? "Signed in"
-              : session === "maintenance"
-                ? t("Under maintenance")
-                : session === "failed"
-                  ? "Sign-in failed"
-                  : "Not set up"}
+            {t(
+              session === "active"
+                ? "Signed in"
+                : session === "maintenance"
+                  ? "Under maintenance"
+                  : session === "failed"
+                    ? "Sign-in failed"
+                    : "Not set up",
+            )}
           </Badge>
         )}
       </Group>
       {connection.state !== "idle" && (
         <div className="schoolConnection" data-state={connection.state}>
           <SignInSteps connection={connection} />
-          {connection.message && <span>{connection.message}</span>}
+          {connection.message && <span>{t(connection.message)}</span>}
           {connection.state !== "connected" && (
             <Button
               variant="subtle"
               size="compact-xs"
               onClick={() => showLoginPage(profile)}
             >
-              Show page
+              {t("Show page")}
             </Button>
           )}
         </div>
       )}
       {summary.availability === "missing" && (
         <Text c="red" size="sm">
-          Saved credentials are missing from the system credential vault. Enter
-          them again.
+          {t(
+            "Saved credentials are missing from the system credential vault. Enter them again.",
+          )}
         </Text>
       )}
       {summary.availability === "access-denied" && (
         <Text c="orange" size="sm">
-          The system credential vault is unavailable. Existing credentials were
-          not changed.
+          {t(
+            "The system credential vault is unavailable. Existing credentials were not changed.",
+          )}
         </Text>
       )}
       <div className="credentialFields">
@@ -666,7 +687,7 @@ function Account({
         {/* A saved secret shows as fixed dots; typing replaces it, blank keeps it. */}
         <TextInput
           type="password"
-          label="Password"
+          label={t("Password")}
           value={draft.password}
           placeholder={summary.saved ? SAVED_SECRET : ""}
           autoComplete="current-password"
@@ -703,7 +724,7 @@ function Account({
           loading={busy}
           onClick={() => void connect()}
         >
-          Connect
+          {t("Connect")}
         </Button>
         {summary.saved && (
           <Button
@@ -712,7 +733,7 @@ function Account({
             disabled={busy || scanning}
             onClick={() => void forget()}
           >
-            Forget
+            {t("Forget")}
           </Button>
         )}
       </div>
@@ -755,8 +776,9 @@ export function SchoolAccounts({
   if (!desktopBridge)
     return (
       <p className="settingsNote">
-        School sign-in needs the installed app, which keeps passwords in the
-        system keychain.
+        {t(
+          "School sign-in needs the installed app, which keeps passwords in the system keychain.",
+        )}
       </p>
     );
   return (

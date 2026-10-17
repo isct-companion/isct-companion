@@ -878,18 +878,25 @@ describe("Matrix scan and paste", () => {
         mounted.core.commands("test_school_connection").length,
       ).toBeGreaterThan(0);
 
-      await wait(() =>
-        expect(
-          matrixInputs(card).every(
-            (input) =>
-              input.value === "" &&
-              input.placeholder === "•" &&
-              input.dataset.confidence === undefined,
-          ),
-        ).toBe(true),
+      // A saved Matrix collapses to one line: no cell, letter or confidence
+      // stays on screen until the person chooses to replace it.
+      await wait(() => expect(matrixInputs(card)).toHaveLength(0));
+      expect(card.textContent).toContain("Saved · hidden");
+      expect(card.textContent).not.toContain("AAAA");
+      // Connect's sign-in check holds the card until the portal answers.
+      await act(async () =>
+        emitNative(mounted.core, "school-login-status", {
+          profile: "tokyo-tech",
+          state: "connected",
+          message: "",
+        }),
       );
-      await act(async () => matrixInput(card, 0).focus());
-      expect(matrixInput(card, 0).placeholder).toBe("•");
+      await wait(() => expect(buttonIn(card, "Replace").disabled).toBe(false));
+      await clickButton(card, "Replace");
+      await wait(() => expect(matrixInputs(card)).toHaveLength(70));
+      expect(matrixInputs(card).every((input) => input.value === "")).toBe(
+        true,
+      );
     },
     TIMEOUT,
   );
@@ -1377,7 +1384,9 @@ describe("Backup", () => {
       );
 
       await wait(() => expect(pane.textContent).toContain("Waiting to sync"));
-      expect(pane.textContent).toContain("task-1");
+      // The queued upload shows each provider's delivery; ids stay a developer detail.
+      expect(pane.textContent).toContain("Waiting to retry");
+      expect(pane.textContent).not.toContain("task-1");
       expect(pane.textContent).not.toContain("Up to date");
       expect(buttonIn(pane, "Restore").disabled).toBe(true);
     },
@@ -1779,8 +1788,9 @@ describe("Agent access", () => {
       const pane = settingsPane(mounted);
 
       await wait(() =>
-        expect(pane.textContent).toContain("Turn on Allow local agents"),
+        expect(pane.textContent).toContain("Allow local agents"),
       );
+      expect(pane.textContent).not.toContain("Connect an agent");
       expect(pane.querySelector("code")).toBeNull();
       expect(pane.querySelector('[role="alert"]')).toBeNull();
       expect(pane.textContent).not.toContain("Copy token");

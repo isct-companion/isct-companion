@@ -57,19 +57,33 @@ impl RefreshEvent {
 // A missing or failed page stays stale, but must not restart the whole pull
 // on every login/focus notification. Manual refresh bypasses this admission rule.
 const FULL_PULL_COOLDOWN: Duration = Duration::from_secs(5 * 60);
+// A page that keeps failing (closed registration, a changed layout) would
+// otherwise cost a full sign-in and six page loads every cooldown. Each pull
+// that leaves the profile due triples the wait: 5 min, 15 min, 45 min, ~2 h,
+// then at most 6 h until the data is observed fresh again.
+const FULL_PULL_MAX_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Default)]
 struct FullPullActivity {
     running: usize,
     finished: Option<Instant>,
+    /// Finished pulls since the profile was last observed fresh.
+    misses: u32,
 }
 
 impl FullPullActivity {
+    fn cooldown(&self) -> Duration {
+        let factor = 3u32.saturating_pow(self.misses.saturating_sub(1));
+        FULL_PULL_COOLDOWN
+            .saturating_mul(factor)
+            .min(FULL_PULL_MAX_COOLDOWN)
+    }
+
     fn deferred(&self, now: Instant) -> bool {
         self.running > 0
-            || self.finished.is_some_and(|finished| {
-                now.saturating_duration_since(finished) < FULL_PULL_COOLDOWN
-            })
+            || self
+                .finished
+                .is_some_and(|finished| now.saturating_duration_since(finished) < self.cooldown())
     }
 }
 
@@ -327,6 +341,9 @@ impl SchoolRefresh {
         let mut profiles = Vec::new();
         for profile in pending {
             if !due(profile, runs, now) {
+                if let Some(activity) = queue.full_pulls.get_mut(&profile) {
+                    activity.misses = 0;
+                }
                 continue;
             }
             let cooling_down = queue
@@ -401,6 +418,8 @@ impl Drop for FullPull {
             activity.running = activity.running.saturating_sub(1);
             if activity.running == 0 {
                 activity.finished = Some(Instant::now());
+                // Counted as a miss until a later wake finds the data fresh.
+                activity.misses = activity.misses.saturating_add(1);
             }
         }
     }

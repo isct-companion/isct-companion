@@ -7,6 +7,7 @@ import {
   schoolWebExit,
 } from "../../app/native";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
+import { t } from "../../i18n";
 
 /** Same resident LMS WebView and login flow, bounded to this viewer only. */
 export function OfficialLmsView({
@@ -99,17 +100,18 @@ export function OfficialLmsView({
       <div className="lmsOfficialHost" ref={host}>
         {!available ? (
           <div className="lmsViewerEmpty">
-            <b>Official LMS</b>
+            <b>{t("Official LMS")}</b>
             <p>
-              The desktop app opens the signed-in LMS here. Browser preview
-              cannot embed LMS.
+              {t(
+                "The desktop app opens the signed-in LMS here. Browser preview cannot embed LMS.",
+              )}
             </p>
             <a href={url} target="_blank" rel="noopener noreferrer">
-              Open LMS in browser ↗
+              {t("Open LMS in browser")} ↗
             </a>
           </div>
         ) : (
-          status && <p role="status">{status}</p>
+          status && <p role="status">{t(status)}</p>
         )}
       </div>
     </>

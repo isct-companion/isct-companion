@@ -19,9 +19,11 @@ session completion also reports directly, including before the UI subscribes.
 - Lecture details wait 2 seconds before becoming eligible, and wait until
   the visible school view closes. Repeated opens within 60 seconds coalesce;
   a failed fill can be requested again on reentry.
-- Full pulls have a five-minute automatic retry cooldown, separate from data
-  TTL. A missing or failed page stays stale; repeated login/focus notifications
-  retain one pending intent until the cooldown expires. Each actual full-pull
+- Full pulls have an automatic retry cooldown, separate from data TTL. It
+  starts at five minutes and triples after each pull that leaves the profile
+  due (5 min, 15 min, 45 min, ~2 h, then at most 6 h); observing the profile
+  fresh resets it. A missing or failed page stays stale; repeated login/focus
+  notifications retain one pending intent until the cooldown expires. Each actual full-pull
   executor owns a lease, shared across manual and automatic entry points; exit,
   errors and cancellation all release it. Manual refresh bypasses automatic
   admission. The cooldown is session-local and does not mark failed data fresh.
@@ -134,8 +136,16 @@ progress/ingest events, rather than a correlated progress field in the
 coordinator snapshot. They are not used for admission or terminal outcomes.
 A future exact progress contract should carry the run identity and completed /
 total units from Core; adding another frontend state machine would compound the
-problem. Five-minute cooldown is retry throttling, not proof that the missing
-pages have been repaired; manual refresh remains available during that interval.
+problem. The cooldown is retry throttling, not proof that the missing pages have been
+repaired; manual refresh remains available during that interval.
+
+## Footer presentation
+
+The workstation footer shows a progress bar only for pulls the user started
+(the view progress or a `manual` coordinator snapshot). Automatic pulls show a
+one-line note with a small spinner, including why Core is holding them. When
+nothing runs, the footer shows how long ago LMS and 教務Web last imported
+successfully (`schoolRecords.lastRuns`), not a generic "Ready".
 
 ## Runtime lifetime
 
