@@ -1392,7 +1392,7 @@ export type MatrixReading = { text: string; confidence: number };
 export type MatrixVote = {
   text: string;
   /**
-   * Mean winning confidence multiplied by its share of all confidence mass.
+   * Mean winning OCR confidence times its share of the qualified vote weight.
    */
   confidence: number;
   stable: boolean;
@@ -1400,12 +1400,20 @@ export type MatrixVote = {
 
 export type MatrixScanSnapshot = {
   /**
-   * Normalized coordinates in the unmirrored camera image, in row order.
+   * Only the outer Matrix boundary is rendered over the camera preview.
    */
-  quads: Array<[MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint]>;
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
+  /**
+   * The weakest cell determines whole-card confidence.
+   */
+  confidence: number;
   cells: Array<MatrixVote>;
   stableCells: number;
   complete: boolean;
+};
+
+export type MatrixScanOutline = {
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint];
 };
 
 export type OtpImportAccount = {

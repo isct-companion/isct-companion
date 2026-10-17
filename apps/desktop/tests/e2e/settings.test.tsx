@@ -655,7 +655,7 @@ const matrixStatus = (
 
 describe("Matrix scan and paste", () => {
   it(
-    "renders live Matrix boxes, lets a partial result be reviewed, and fills a stable scan",
+    "shows only the Matrix outline and automatically closes when all cells have a result",
     async () => {
       // Camera/decoder/canvas are hardware ports without a jsdom implementation.
       // The real modal, capture loop, native transport and editor stay mounted.
@@ -697,7 +697,8 @@ describe("Matrix scan and paste", () => {
       vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
         "data:image/jpeg;base64,Y2FtZXJh",
       );
-      let completed = false;
+      let finishScan: (() => void) | undefined;
+      let frames = 0;
       try {
         const mounted = await mountAccounts({
           capabilities: { matrixOcr: true },
@@ -705,28 +706,29 @@ describe("Matrix scan and paste", () => {
             if (command === "school_credential_status")
               return { science: notConfigured(), tokyoTech: notConfigured() };
             if (command === "school_session_snapshot") return noSession;
-            if (command === "begin_matrix_camera")
-              return completed ? "second" : "first";
-            if (command === "scan_matrix_camera_frame")
-              return {
-                complete: completed,
-                stableCells: completed ? 70 : 69,
-                cells: Array.from({ length: 70 }, (_, i) => ({
-                  text: completed ? "B" : "A",
-                  confidence: !completed && i === 0 ? 0.8 : 0.99,
-                  stable: completed || i !== 0,
+            if (command === "begin_matrix_camera") return "camera";
+            if (command === "scan_matrix_camera_frame") {
+              const snapshot = {
+                complete: frames++ > 0,
+                stableCells: frames > 1 ? 70 : 69,
+                confidence: frames > 1 ? 0.98 : 0.65,
+                cells: Array.from({ length: 70 }, () => ({
+                  text: "A",
+                  confidence: 0.98,
+                  stable: true,
                 })),
-                quads: Array.from({ length: 70 }, (_, i) => {
-                  const x = (i % 10) / 10,
-                    y = Math.floor(i / 10) / 7;
-                  return [
-                    { x, y },
-                    { x: x + 0.1, y },
-                    { x: x + 0.1, y: y + 1 / 7 },
-                    { x, y: y + 1 / 7 },
-                  ];
-                }),
+                bounds: [
+                  { x: 0.1, y: 0.2 },
+                  { x: 0.9, y: 0.2 },
+                  { x: 0.9, y: 0.8 },
+                  { x: 0.1, y: 0.8 },
+                ],
               };
+              if (!snapshot.complete) return snapshot;
+              return new Promise((resolve) => {
+                finishScan = () => resolve(snapshot);
+              });
+            }
             return undefined;
           },
         });
@@ -738,24 +740,37 @@ describe("Matrix scan and paste", () => {
         await wait(() =>
           expect(
             document.body.querySelectorAll(".matrixCameraPreview polygon"),
-          ).toHaveLength(70),
+          ).toHaveLength(1),
         );
         expect(
-          document.body.querySelectorAll(".matrixCameraStable"),
-        ).toHaveLength(69);
-        expect(document.body.textContent).toContain("69/70 cells stable");
-        await click(buttonIn(document.body, "Use current result and review"));
-        await wait(() => expect(matrixInput(card, 0).value).toBe("A"));
-        expect(matrixInput(card, 0).dataset.confidence).toBe("medium");
-        expect(stop).toHaveBeenCalledTimes(1);
-        completed = true;
-        await click(buttonIn(card, "Scan with camera"));
-        await wait(() => expect(matrixInput(card, 0).value).toBe("B"));
-        expect(matrixInputs(card).every((input) => input.value === "B")).toBe(
+          document.body
+            .querySelector(".matrixCameraPreview polygon")
+            ?.getAttribute("points"),
+        ).toBe("0.1,0.2 0.9,0.2 0.9,0.8 0.1,0.8");
+        expect(
+          document.body.querySelector(".matrixCameraPreview text"),
+        ).toBeNull();
+        expect(document.body.textContent).not.toContain(
+          "Use current result and review",
+        );
+        expect(document.body.textContent).toContain(
+          "Reading Matrix. Hold steady",
+        );
+        expect(matrixInputs(card).every((input) => input.value === "")).toBe(
           true,
         );
-        expect(stop).toHaveBeenCalledTimes(2);
-        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(2);
+        await wait(() => expect(finishScan).toBeDefined());
+        await act(async () => finishScan?.());
+        await wait(() =>
+          expect(
+            document.body.querySelector(".matrixCameraPreview"),
+          ).toBeNull(),
+        );
+        expect(matrixInputs(card).every((input) => input.value === "A")).toBe(
+          true,
+        );
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(1);
       } finally {
         await app?.unmount();
         app = undefined;

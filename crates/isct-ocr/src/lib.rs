@@ -95,6 +95,15 @@ impl MatrixOcrService {
         self
     }
 
+    pub fn scan_frame_with_geometry(
+        &self,
+        _image: &[u8],
+        _geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
+        _progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<MatrixFrame, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
+
     pub fn scan_frame(
         &self,
         _image: &[u8],

@@ -1,5 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
-import type { MatrixScanSnapshot } from "../generated/persistence";
+import { Channel, invoke } from "@tauri-apps/api/core";
+import type {
+  MatrixScanOutline,
+  MatrixScanSnapshot,
+} from "../generated/persistence";
 import { t } from "../i18n";
 
 function cameraError(error: unknown): Error {
@@ -33,6 +36,7 @@ export function openMatrixCamera(
   video: HTMLVideoElement,
   onSnapshot: (snapshot: MatrixScanSnapshot) => void,
   onError: (error: Error) => void,
+  onOutline?: (outline: MatrixScanOutline) => void,
 ): () => void {
   let disposed = false;
   let stream: MediaStream | undefined;
@@ -123,9 +127,13 @@ export function openMatrixCamera(
           canvas.height = Math.round(video.videoHeight * scale);
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
           const image = canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
+          const onGeometry = new Channel<MatrixScanOutline>();
+          onGeometry.onmessage = (outline) => {
+            if (!disposed) onOutline?.(outline);
+          };
           const snapshot = await invoke<MatrixScanSnapshot>(
             "scan_matrix_camera_frame",
-            { sessionId: id, image },
+            { sessionId: id, image, onGeometry },
           );
           if (disposed) return;
           if (snapshot.complete) dispose();

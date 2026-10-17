@@ -28,76 +28,107 @@ fn frame(letter: &str, confidence: f64) -> (Vec<[MatrixPoint; 4]>, Vec<MatrixRea
 }
 
 #[test]
-fn confidence_weighting_requires_repeated_clear_consensus_and_evicts_old_errors() {
+fn each_cell_votes_only_over_its_own_high_confidence_frames() {
     let mut scanner = MatrixScanner::default();
     let id = scanner.begin();
-    // Three weak votes must not defeat two clear votes just by their count.
-    for _ in 0..3 {
-        assert!(
-            !scanner
-                .observe(&id, Some(frame("B", 0.65)))
-                .unwrap()
-                .complete
-        );
+    let a3 = 20;
+    let b2 = 11;
+    let mut result = None;
+    for image in 1..=6 {
+        let mut input = frame("D", 0.99);
+        input.1[a3] = MatrixReading {
+            text: if image == 4 { "Z" } else { "A" }.into(),
+            confidence: match image {
+                1 => 0.91,
+                4 => 0.99,
+                5 => 0.96,
+                _ => 0.89,
+            },
+        };
+        input.1[b2] = MatrixReading {
+            text: if image == 4 { "Y" } else { "B" }.into(),
+            confidence: if [2, 4, 5, 6].contains(&image) {
+                0.98
+            } else {
+                0.7
+            },
+        };
+        // The last cell cannot be hidden by the other 69 ready cells.
+        input.1[69].confidence = if [2, 5, 6].contains(&image) {
+            0.99
+        } else {
+            0.89
+        };
+        let next = scanner.observe(&id, Some(input)).unwrap();
+        assert_eq!(next.complete, image == 6);
+        result = Some(next);
     }
-    for _ in 0..2 {
-        scanner.observe(&id, Some(frame("A", 0.99))).unwrap();
-    }
-    let snapshot = scanner.observe(&id, Some(frame("A", 0.99))).unwrap();
-    assert_eq!(snapshot.cells[0].text, "A");
-    assert!(!snapshot.complete); // conflicting confidence mass remains too high
-    for _ in 0..5 {
-        scanner.observe(&id, Some(frame("A", 0.99))).unwrap();
-    }
-    let snapshot = scanner.observe(&id, Some(frame("A", 0.99))).unwrap();
-    assert!(snapshot.complete);
-    assert_eq!(snapshot.stable_cells, CELLS);
-    assert!((snapshot.cells[0].confidence - 0.99).abs() < 1e-9);
-    // A conflicting current frame cannot auto-accept yesterday's winner.
-    let snapshot = scanner.observe(&id, Some(frame("B", 0.99))).unwrap();
-    assert_eq!(snapshot.cells[0].text, "A");
-    assert!(!snapshot.cells[0].stable);
+    let result = result.unwrap();
+    assert_eq!(result.cells[a3].text, "A"); // frames 1,4,5: A,Z,A
+    assert_eq!(result.cells[b2].text, "B"); // frames 2,4,5,6: B,Y,B,B
+    assert!(
+        (result.cells[a3].confidence
+            - ((0.91 + 0.96) / 2.) * ((0.91 + 0.96) / (0.91 + 0.99 + 0.96)))
+            .abs()
+            < 1e-9
+    );
+    assert!((result.cells[b2].confidence - 0.98 * 3. / 4.).abs() < 1e-9);
+    assert_eq!(result.confidence, result.cells[a3].confidence);
+    // A low-confidence wrong current frame cannot erase the established result.
+    assert!(
+        scanner
+            .observe(&id, Some(frame("Z", 0.89)))
+            .unwrap()
+            .complete
+    );
 }
 
 #[test]
-fn one_unclear_cell_blocks_completion_and_lost_or_moved_cards_reset_votes() {
+fn movement_and_blur_preserve_votes_but_ties_and_sustained_absence_do_not_accept() {
     let mut scanner = MatrixScanner::default();
     let id = scanner.begin();
-    for _ in 0..3 {
+    for image in 0..8 {
         let mut input = frame("A", 0.99);
-        input.1[69] = MatrixReading {
-            text: "B".into(),
-            confidence: 0.89,
-        };
-        let snapshot = scanner.observe(&id, Some(input)).unwrap();
-        assert!(!snapshot.complete);
+        for (index, cell) in input.1.iter_mut().enumerate() {
+            if index % 2 == image % 2 {
+                cell.text.clear();
+                cell.confidence = 0.;
+            }
+        }
+        for quad in &mut input.0 {
+            for point in quad {
+                point.x = point.x * 0.7 + if image % 2 == 0 { 0.15 } else { 0. };
+            }
+        }
+        if image == 3 {
+            assert!(scanner.observe(&id, None).unwrap().bounds.is_none());
+        }
+        let result = scanner.observe(&id, Some(input)).unwrap();
+        // The clear samples from complementary frames add up at frame six.
+        assert_eq!(result.complete, image >= 5);
+    }
+    for _ in 0..4 {
+        assert!(!scanner.observe(&id, None).unwrap().complete);
+    }
+    let result = scanner.observe(&id, Some(frame("B", 0.99))).unwrap();
+    assert!(!result.complete);
+    assert!(result.confidence > 0.98); // confidence alone cannot replace sample quorum
+    for letter in ["A", "A"] {
+        scanner.observe(&id, Some(frame(letter, 0.99))).unwrap();
+    }
+    assert!(
+        !scanner
+            .observe(&id, Some(frame("B", 0.99)))
+            .unwrap()
+            .complete
+    ); // 2–2 tie
+    for _ in 0..6 {
+        scanner.observe(&id, Some(frame("C", 0.95))).unwrap();
     }
     assert_eq!(
-        scanner
-            .observe(&id, Some(frame("A", 0.99)))
-            .unwrap()
-            .stable_cells,
-        69
+        scanner.observe(&id, Some(frame("C", 0.95))).unwrap().cells[0].text,
+        "C"
     );
-    let lost = scanner.observe(&id, None).unwrap();
-    assert!(lost.quads.is_empty() && lost.cells.is_empty() && !lost.complete);
-    for i in 0..3 {
-        assert_eq!(
-            scanner
-                .observe(&id, Some(frame("B", 0.99)))
-                .unwrap()
-                .complete,
-            i == 2
-        );
-    }
-    let mut moved = frame("B", 0.99);
-    for quad in &mut moved.0 {
-        for point in quad {
-            point.x += 0.09;
-        }
-    }
-    assert_eq!(scanner.observe(&id, Some(moved)).unwrap().stable_cells, 0);
-    assert!(!scanner.observe(&id, Some(frame("", 0.))).unwrap().complete);
 }
 
 #[test]
@@ -106,6 +137,12 @@ fn sessions_reject_late_results_and_invalid_frames_without_polluting_consensus()
     let old = scanner.begin();
     let id = scanner.begin();
     scanner.stop(&old); // an old UI cleanup cannot kill its replacement
+    assert!(matches!(
+        scanner.outline(&old, &frame("A", 1.).0),
+        Err(MatrixScanError::Ended)
+    ));
+    let outline = scanner.outline(&id, &frame("A", 1.).0).unwrap();
+    assert_eq!(outline.bounds[2], frame("A", 1.).0[69][2]);
     assert!(matches!(
         scanner.observe(&old, Some(frame("A", 1.))),
         Err(MatrixScanError::Ended)

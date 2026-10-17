@@ -1015,12 +1015,8 @@
   "Credits for multi-quarter courses are split equally across quarters.": "跨学季课程的学分按学季平均分摊。",
   "Scan with camera": "使用摄像头扫描",
   "Scan Matrix with camera": "使用摄像头扫描 Matrix",
-  "Keep the whole Matrix in view, including A–J and 1–7. Hold steady while the letters are read.": "请让整个 Matrix 入镜，包括 A–J 和 1–7。识别时请保持稳定。",
   "Camera preview": "摄像头预览",
   "Matrix recognition overlay": "Matrix 识别框",
-  "Stable Matrix cells": "已稳定识别的 Matrix 格子",
-  "{{count}}/70 cells stable. Keep holding steady.": "{{count}}/70 格已稳定，请继续保持。",
-  "Looking for the Matrix. Include the headers and avoid glare.": "正在寻找 Matrix，请包含行列标题并避开反光。",
   "Camera access was denied. Allow camera access in system settings, then try again.": "摄像头权限被拒绝，请在系统设置中允许访问后重试。",
   "No camera found. Connect a camera or scan an image instead.": "未找到摄像头，请连接摄像头或选择图片扫描。",
   "The camera is unavailable. Close other apps using it and try again.": "摄像头不可用，请关闭占用摄像头的其他应用后重试。",
@@ -1028,7 +1024,6 @@
   "Camera access is unavailable here. Scan an image instead.": "当前环境无法访问摄像头，请选择图片扫描。",
   "The camera disconnected. Open it again to continue.": "摄像头已断开，请重新打开以继续。",
   "Cannot read camera frames. Scan an image instead.": "无法读取摄像头画面，请选择图片扫描。",
-  "Use current result and review": "使用当前结果并核对",
   "Automatic school verification codes": "自动填写学校验证码",
   "How do I find the QR code?": "如何找到二维码？",
   "Microsoft / other": "Microsoft／其他",
@@ -1052,5 +1047,8 @@
   "This is not a supported authenticator QR code.": "这不是支持的验证器二维码。",
   "Choose a QR code image smaller than 10 MB.": "请选择小于 10 MB 的二维码图片。",
   "No QR code found. Choose a clear image containing the whole QR code.": "未找到二维码，请选择包含完整二维码的清晰图片。",
-  "Not set up": "尚未设置"
+  "Not set up": "尚未设置",
+  "Bring your card closer until the Matrix is framed, then hold steady. The scanner closes automatically when ready.": "请将学生证靠近摄像头，出现 Matrix 边框后保持稳定，识别完成会自动关闭。",
+  "Reading Matrix. Hold steady…": "正在识别 Matrix，请保持稳定…",
+  "Point the camera at the Matrix on your card.": "请将摄像头对准学生证上的 Matrix。"
 }

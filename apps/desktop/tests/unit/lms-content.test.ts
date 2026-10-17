@@ -1032,8 +1032,7 @@ describe("Live Matrix camera ownership", () => {
     const { track, stream } = streamPort();
     const { video, draw } = cameraSurface(async () => stream);
     let deliver!: (snapshot: unknown) => void;
-    const core = installFakeCore({
-      workspace: workspaceFixture(),
+    const { core, channels } = installHostWithChannels({
       handle: (command) => {
         if (command === "begin_matrix_camera") return "camera-1";
         if (command === "scan_matrix_camera_frame")
@@ -1044,19 +1043,31 @@ describe("Live Matrix camera ownership", () => {
       },
     });
     const onSnapshot = vi.fn(),
-      onError = vi.fn();
-    close = openMatrixCamera(video, onSnapshot, onError);
+      onError = vi.fn(),
+      onOutline = vi.fn();
+    close = openMatrixCamera(video, onSnapshot, onError, onOutline);
     await vi.waitFor(() =>
       expect(core.commands("scan_matrix_camera_frame")).toHaveLength(1),
     );
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(draw).toHaveBeenCalledTimes(1);
-    expect(core.commands("scan_matrix_camera_frame")[0].args).toEqual({
-      sessionId: "camera-1",
-      image: "Y2FtZXJh",
-    });
+    const args = core.commands("scan_matrix_camera_frame")[0].args;
+    expect(args).toMatchObject({ sessionId: "camera-1", image: "Y2FtZXJh" });
+    const outline = {
+      bounds: [
+        { x: 0.1, y: 0.2 },
+        { x: 0.9, y: 0.2 },
+        { x: 0.9, y: 0.8 },
+        { x: 0.1, y: 0.8 },
+      ],
+    };
+    const channel = args.onGeometry as { id: number };
+    channels.get(channel.id)?.({ index: 0, message: outline });
+    expect(onOutline).toHaveBeenCalledWith(outline);
+    expect(onSnapshot).not.toHaveBeenCalled(); // outline precedes model completion
     const snapshot = {
-      quads: [[{ x: 0.1, y: 0.2 }]],
+      bounds: outline.bounds,
+      confidence: 0.99,
       cells: [{ text: "A", confidence: 0.99, stable: true }],
       stableCells: 70,
       complete: true,
@@ -1066,6 +1077,8 @@ describe("Live Matrix camera ownership", () => {
     expect(track.stop).toHaveBeenCalledTimes(1);
     expect(video.srcObject).toBeNull();
     expect(core.commands("stop_matrix_camera")).toHaveLength(1);
+    channels.get(channel.id)?.({ index: 1, message: outline });
+    expect(onOutline).toHaveBeenCalledTimes(1); // late geometry after close is ignored
     expect(onError).not.toHaveBeenCalled();
   });
 

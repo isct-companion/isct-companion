@@ -1,7 +1,9 @@
 //! Desktop transport only: OCR capability feeds the shared core scan session.
 #[cfg(matrix_ocr)]
 use isct_core::matrix_scan::{MatrixPoint, MatrixReading};
-use isct_core::matrix_scan::{MatrixScanError, MatrixScanSnapshot, MatrixScanner};
+use isct_core::matrix_scan::{
+    MatrixScanError, MatrixScanOutline, MatrixScanSnapshot, MatrixScanner,
+};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -52,6 +54,7 @@ pub(crate) async fn scan_matrix_camera_frame(
     app: tauri::AppHandle,
     session_id: String,
     image: String,
+    on_geometry: tauri::ipc::Channel<MatrixScanOutline>,
 ) -> Result<MatrixScanSnapshot, MatrixScanError> {
     crate::require_local_main(&webview).map_err(backend)?;
     let scanner = scanner.inner().clone();
@@ -70,9 +73,21 @@ pub(crate) async fn scan_matrix_camera_frame(
                 .map_err(backend)?;
             // No debug photo export for live frames. Cancellation is observed at
             // every cell; closing the UI invalidates any late completion.
-            let frame = match ocr.scan_frame(&bytes, |_| {
-                scanner.with(|s| s.is_active(&session_id)).unwrap_or(false)
-            }) {
+            let frame = match ocr.scan_frame_with_geometry(
+                &bytes,
+                |quads| {
+                    let points: Vec<_> = quads
+                        .iter()
+                        .map(|quad| quad.map(|[x, y]| MatrixPoint { x, y }))
+                        .collect();
+                    scanner
+                        .with(|s| s.outline(&session_id, &points))
+                        .ok()
+                        .and_then(Result::ok)
+                        .is_some_and(|outline| on_geometry.send(outline).is_ok())
+                },
+                |_| scanner.with(|s| s.is_active(&session_id)).unwrap_or(false),
+            ) {
                 Ok(frame) => Some((
                     frame
                         .quads
@@ -98,7 +113,7 @@ pub(crate) async fn scan_matrix_camera_frame(
     }
     #[cfg(not(matrix_ocr))]
     {
-        let _ = (scanner, app, session_id, image);
+        let _ = (scanner, app, session_id, image, on_geometry);
         Err(backend(isct_ocr::MatrixOcrError::Unavailable))
     }
 }

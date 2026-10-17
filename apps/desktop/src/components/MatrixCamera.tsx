@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Modal, Progress, Stack, Text } from "@mantine/core";
-import type { MatrixScanSnapshot } from "../generated/persistence";
+import { Alert, Button, Modal, Stack, Text } from "@mantine/core";
+import type { MatrixScanOutline } from "../generated/persistence";
 import type { Recognition } from "../lib/matrix-ocr";
 import { openMatrixCamera } from "../platform/matrix-camera";
 import { t } from "../i18n";
@@ -17,23 +17,23 @@ export function MatrixCamera({
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const complete = useRef(onComplete);
   complete.current = onComplete;
-  const [snapshot, setSnapshot] = useState<MatrixScanSnapshot>();
+  const [outline, setOutline] = useState<MatrixScanOutline>();
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     setError(undefined);
-    setSnapshot(undefined);
+    setOutline(undefined);
     if (!video) return;
     return openMatrixCamera(
       video,
       (next) => {
-        setSnapshot(next);
+        setOutline(next.bounds ? { bounds: next.bounds } : undefined);
         if (next.complete) complete.current(next.cells);
       },
       (failure) => setError(failure.message),
+      setOutline,
     );
   }, [attempt, video]);
-  const stable = snapshot?.stableCells ?? 0;
   return (
     <Modal
       opened
@@ -44,7 +44,7 @@ export function MatrixCamera({
       <Stack gap="sm">
         <Text size="sm">
           {t(
-            "Keep the whole Matrix in view, including A–J and 1–7. Hold steady while the letters are read.",
+            "Bring your card closer until the Matrix is framed, then hold steady. The scanner closes automatically when ready.",
           )}
         </Text>
         <CameraPreview ref={setVideo} className="matrixCameraPreview">
@@ -53,40 +53,13 @@ export function MatrixCamera({
             preserveAspectRatio="none"
             aria-label={t("Matrix recognition overlay")}
           >
-            {snapshot?.quads.map((quad, index) => {
-              const cell = snapshot.cells[index];
-              const center = quad.reduce(
-                (sum, point) => ({
-                  x: sum.x + point.x / 4,
-                  y: sum.y + point.y / 4,
-                }),
-                { x: 0, y: 0 },
-              );
-              return (
-                <g
-                  key={index}
-                  className={
-                    cell?.stable ? "matrixCameraStable" : "matrixCameraPending"
-                  }
-                >
-                  <polygon
-                    points={quad
-                      .map((point) => `${point.x},${point.y}`)
-                      .join(" ")}
-                  />
-                  <text
-                    x={center.x}
-                    y={center.y}
-                    fontSize={Math.max(
-                      0.008,
-                      Math.abs(quad[1].x - quad[0].x) * 0.42,
-                    )}
-                  >
-                    {cell?.text}
-                  </text>
-                </g>
-              );
-            })}
+            {outline && (
+              <polygon
+                points={outline.bounds
+                  .map((point) => `${point.x},${point.y}`)
+                  .join(" ")}
+              />
+            )}
           </svg>
         </CameraPreview>
         {error ? (
@@ -94,29 +67,11 @@ export function MatrixCamera({
             {error}
           </Alert>
         ) : (
-          <>
-            <Progress
-              value={(stable / 70) * 100}
-              aria-label={t("Stable Matrix cells")}
-            />
-            <Text size="sm" role="status">
-              {snapshot?.quads.length
-                ? t("{{count}}/70 cells stable. Keep holding steady.", {
-                    count: stable,
-                  })
-                : t(
-                    "Looking for the Matrix. Include the headers and avoid glare.",
-                  )}
-            </Text>
-          </>
-        )}
-        {!error && snapshot?.cells.some((cell) => cell.text) && (
-          <Button
-            variant="light"
-            onClick={() => complete.current(snapshot.cells)}
-          >
-            {t("Use current result and review")}
-          </Button>
+          <Text size="sm" role="status">
+            {outline
+              ? t("Reading Matrix. Hold steady…")
+              : t("Point the camera at the Matrix on your card.")}
+          </Text>
         )}
         {error && (
           <Button

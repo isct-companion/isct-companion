@@ -1015,12 +1015,8 @@
   "Credits for multi-quarter courses are split equally across quarters.": "複数のクォーターにまたがる科目の単位は、各クォーターに均等に配分します。",
   "Scan with camera": "カメラでスキャン",
   "Scan Matrix with camera": "カメラでマトリクスをスキャン",
-  "Keep the whole Matrix in view, including A–J and 1–7. Hold steady while the letters are read.": "A–J と 1–7 を含むマトリクス全体を映し、読み取り中は動かさないでください。",
   "Camera preview": "カメラプレビュー",
   "Matrix recognition overlay": "マトリクス認識枠",
-  "Stable Matrix cells": "読み取りが安定したセル",
-  "{{count}}/70 cells stable. Keep holding steady.": "{{count}}/70 セルの読み取りが安定しました。そのまま保持してください。",
-  "Looking for the Matrix. Include the headers and avoid glare.": "マトリクスを探しています。見出しを含め、反射を避けてください。",
   "Camera access was denied. Allow camera access in system settings, then try again.": "カメラへのアクセスが拒否されました。システム設定で許可してから再試行してください。",
   "No camera found. Connect a camera or scan an image instead.": "カメラが見つかりません。カメラを接続するか、画像をスキャンしてください。",
   "The camera is unavailable. Close other apps using it and try again.": "カメラを使用できません。使用中の他のアプリを閉じて再試行してください。",
@@ -1028,7 +1024,6 @@
   "Camera access is unavailable here. Scan an image instead.": "ここではカメラを使用できません。画像をスキャンしてください。",
   "The camera disconnected. Open it again to continue.": "カメラの接続が切れました。再度開いて続行してください。",
   "Cannot read camera frames. Scan an image instead.": "カメラ映像を読み取れません。画像をスキャンしてください。",
-  "Use current result and review": "現在の結果を使って確認",
   "Automatic school verification codes": "大学の確認コードを自動入力",
   "How do I find the QR code?": "QRコードの表示方法",
   "Microsoft / other": "Microsoft／その他",
@@ -1052,5 +1047,8 @@
   "This is not a supported authenticator QR code.": "対応している認証アプリのQRコードではありません。",
   "Choose a QR code image smaller than 10 MB.": "10 MB未満のQRコード画像を選択してください。",
   "No QR code found. Choose a clear image containing the whole QR code.": "QRコードが見つかりません。QRコード全体が鮮明に写った画像を選択してください。",
-  "Not set up": "未設定"
+  "Not set up": "未設定",
+  "Bring your card closer until the Matrix is framed, then hold steady. The scanner closes automatically when ready.": "カードを近づけ、マトリクスに枠が表示されたらそのまま保持してください。読み取り完了後、自動的に閉じます。",
+  "Reading Matrix. Hold steady…": "マトリクスを読み取り中。そのまま保持してください…",
+  "Point the camera at the Matrix on your card.": "カードのマトリクスにカメラを向けてください。"
 }

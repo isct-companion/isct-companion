@@ -672,8 +672,11 @@ checks:
           variation that no fixture reproduces.
       - action: |
           Open Scan with camera in a packaged desktop app, allow camera access,
-          and point it at the real card. Tilt it and introduce glare, then hold
-          it steady with the A–J and 1–7 labels in view.
+          and bring the real card toward the camera. Check that one red outline
+          follows the Matrix, with no cell boxes or letter overlays. Tilt it,
+          introduce glare, then hold it steady with the labels in view. Observe
+          whether the scanner fills all cells and closes itself; record the
+          acquisition time and any cells that prevent completion.
         reason: |
           OS camera permissions, native WebView video capture, optical focus,
           and the alignment of recognition boxes over a physical card require
