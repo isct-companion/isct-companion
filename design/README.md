@@ -33,7 +33,7 @@ Tokens use the [W3C Design Tokens (DTCG) format](https://www.designtokens.org/tr
 | `design/dist/android/IsctTokens*.kt` | Compose shell (light constants + dark colours) |
 
 Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
-`yarn test` fails when one is stale (`design/build.test.mjs`).
+`yarn test` fails when one is stale (`apps/desktop/tests/unit/tooling.test.mjs`).
 
 ## Rules
 
