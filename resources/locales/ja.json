@@ -1274,5 +1274,18 @@
   "Set up school verification codes before copying.": "大学の確認コードを設定してからコピーしてください。",
   "OTP setup could not be copied to the clipboard.": "OTP設定をクリップボードにコピーできませんでした。",
   "OTP setup is too long.": "OTP設定が長すぎます。",
-  "You can set up or reset OTP in the school account settings. Import the new QR code here and in your authenticator. Replace its old entry with the new one, then finish verification on the school page.": "大学のアカウント設定でOTPを設定・再設定できます。新しいQRコードをこのアプリと認証アプリに取り込み、認証アプリの古い登録を新しいものに置き換えてから、大学のページで認証を完了してください。"
+  "You can set up or reset OTP in the school account settings. Import the new QR code here and in your authenticator. Replace its old entry with the new one, then finish verification on the school page.": "大学のアカウント設定でOTPを設定・再設定できます。新しいQRコードをこのアプリと認証アプリに取り込み、認証アプリの古い登録を新しいものに置き換えてから、大学のページで認証を完了してください。",
+  "Application logs": "アプリのログ",
+  "Read-only logs from this app session. The latest 2,000 entries are kept.": "今回の起動中のログを読み取り専用で表示します。最新2,000件を保持します。",
+  "{{count}} log entries": "ログ {{count}} 件",
+  "Follow latest": "最新ログを追従",
+  "Application logs are unavailable.": "アプリのログを読み取れません。",
+  "No log entries yet": "ログはまだありません",
+  "App logs are available in the installed app.": "ログはインストール済みのアプリで確認できます。",
+  "Could not update this cloud copy. Your data is saved on this device.": "クラウドを更新できませんでした。データはこの端末に保存されています。",
+  "Sync needs attention": "同期の確認が必要です",
+  "Earlier version pages": "過去のバージョンのページ",
+  "Local recovery pages": "ローカル復元ファイルのページ",
+  "Backups older than 30 days are removed only when at least four newer backups exist.": "30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。",
+  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "クラウドの変更や復元で端末の内容を置き換える前に保存します。30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。"
 }

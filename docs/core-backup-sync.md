@@ -15,7 +15,7 @@ and formats.
 | `cloud_sync::CloudSync` | `state`, `changed`, `tick`, `sync`, `resume` | Durable jobs, provider acknowledgements, retry and startup replay |
 | `cloud_sync::CloudSync` | `provider_result`, `set_enabled`, `set_automatic` | Provider settings and queue policy |
 | `cloud_sync::CloudSync` | `restore`, `restore_document`, `recovery_document`, `prepare_reset` | Recovery checkpoints and generation changes |
-| `cloud_sync::document` | `parse_cloud_workspace`, `versions`, `merge_and_push` | Cloud envelope, daily history and conditional-write conflict retries |
+| `cloud_sync::document` | `parse_cloud_workspace`, `versions`, `merge_and_push` | Cloud envelope, age/minimum-copy history retention and conditional-write conflict retries |
 | `runtime::CoreRuntime` | `attach_cloud`, `shutdown` | Bootstrap attachment, stop admission and drain owned work |
 
 The native shell supplies paths, OS dialogs, HTTP/CloudKit/OAuth/credential

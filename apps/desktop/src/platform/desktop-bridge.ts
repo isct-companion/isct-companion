@@ -363,7 +363,22 @@ export interface AppUpdateStatus {
   releaseUrl: string;
   signedUpdates: boolean;
 }
+export type ApplicationLog = {
+  id: number;
+  at: string;
+  level: string;
+  target: string;
+  message: string;
+};
+export type ApplicationLogSnapshot = {
+  entries: ApplicationLog[];
+  cursor: number;
+  dropped: boolean;
+};
+
 export interface DesktopBridge {
+  applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
+  recordApplicationError?(message: string): Promise<void>;
   checkAppUpdate?(
     manual: boolean,
     download?: boolean,
@@ -605,6 +620,9 @@ export function createTauriDesktopBridge(
       ? {
           checkAppUpdate: (manual: boolean, download = false) =>
             result<AppUpdateStatus>("check_app_update", { manual, download }),
+          applicationLogs: (after) => result("application_logs", { after }),
+          recordApplicationError: (message) =>
+            result("application_error", { message }),
           appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
           installAppUpdate: () => invokeCommand<void>("install_app_update"),
         }

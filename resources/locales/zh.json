@@ -1274,5 +1274,18 @@
   "Set up school verification codes before copying.": "请先设置学校验证码，再复制。",
   "OTP setup could not be copied to the clipboard.": "无法将验证器设置复制到剪贴板。",
   "OTP setup is too long.": "验证器设置过长。",
-  "You can set up or reset OTP in the school account settings. Import the new QR code here and in your authenticator. Replace its old entry with the new one, then finish verification on the school page.": "可以到学校账号设置中设置或重新设置 OTP。将新二维码导入本应用和验证器；记得把验证器中的旧配置替换为新的，再完成学校页面上的验证。"
+  "You can set up or reset OTP in the school account settings. Import the new QR code here and in your authenticator. Replace its old entry with the new one, then finish verification on the school page.": "可以到学校账号设置中设置或重新设置 OTP。将新二维码导入本应用和验证器；记得把验证器中的旧配置替换为新的，再完成学校页面上的验证。",
+  "Application logs": "应用日志",
+  "Read-only logs from this app session. The latest 2,000 entries are kept.": "只读显示本次运行的日志，保留最近 2,000 条。",
+  "{{count}} log entries": "{{count}} 条日志",
+  "Follow latest": "跟随最新日志",
+  "Application logs are unavailable.": "暂时无法读取应用日志。",
+  "No log entries yet": "暂无日志",
+  "App logs are available in the installed app.": "请在已安装的应用中查看日志。",
+  "Could not update this cloud copy. Your data is saved on this device.": "云端副本未能更新，数据已保存在本机。",
+  "Sync needs attention": "同步需要处理",
+  "Earlier version pages": "历史版本页码",
+  "Local recovery pages": "本地恢复文件页码",
+  "Backups older than 30 days are removed only when at least four newer backups exist.": "备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
+  "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "云端改动或恢复操作替换本地内容前保存。备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。"
 }

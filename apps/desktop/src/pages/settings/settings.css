@@ -399,12 +399,6 @@ button.calendarDay.open {
   }
 }
 
-.syncDeliveries {
-  display: grid;
-  gap: 4px;
-  overflow-wrap: anywhere;
-}
-
 /* Campus Wi-Fi: the signed-in button stays green and cannot be clicked. */
 .button.campusWifiConnected:disabled {
   background: var(--ok-soft);
@@ -436,3 +430,29 @@ button.calendarDay.open {
 @container (max-width: 420px) {
   .settingsPane .row > .assignmentTimes { width: 100%; }
 }
+
+.diagnosticToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.diagnosticLogs {
+  height: min(60vh, 620px);
+  min-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.diagnosticLogRow {
+  padding: 7px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--line);
+  user-select: text;
+}
+.diagnosticLogMeta { display: block; color: var(--muted); font-size: 11px; }
+.diagnosticLogRow[data-level="ERROR"] > :last-child { color: var(--danger); }

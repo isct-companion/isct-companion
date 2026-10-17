@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Pagination } from "@mantine/core";
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { errorText } from "../../app/shared";
@@ -19,7 +20,6 @@ import {
   Toggle,
 } from "../../components/forms";
 import { formatDay } from "./subscription-status";
-import { useDeveloperMode } from "./DeveloperSettings";
 
 const providerName: Record<CloudSyncProvider, string> = {
   icloud: "iCloud",
@@ -28,7 +28,7 @@ const providerName: Record<CloudSyncProvider, string> = {
 
 /**
  * Sync runs on its own (docs/cloud-sync.md): this page only chooses the
- * services, shows queued operations, and offers cloud and local recovery points.
+ * services and offers confirmed cloud versions and local recovery points.
  */
 export function BackupSettings({
   data,
@@ -41,11 +41,11 @@ export function BackupSettings({
   notify: (message: string) => void;
 }) {
   const locale = data.settings.locale;
-  // Version hashes and task ids help debugging, not everyday backup.
-  const [developer] = useDeveloperMode();
   const [sync, setSync] = useState<CloudSyncState | null>(null);
   const [syncError, setSyncError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [versionPage, setVersionPage] = useState(1);
+  const [recoveryPage, setRecoveryPage] = useState(1);
   const bridge = desktopBridge;
   const syncAvailable =
     caps["cloud-sync"].support === "supported" &&
@@ -180,6 +180,15 @@ export function BackupSettings({
       ]),
     ).values(),
   ];
+  versions.sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt));
+  const recoveryPoints = [...(sync?.recoveryPoints ?? [])].sort(
+    (a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt),
+  );
+  const versionPages = Math.max(1, Math.ceil(versions.length / 4));
+  const recoveryPages = Math.max(1, Math.ceil(recoveryPoints.length / 4));
+  const shownVersionPage = Math.min(versionPage, versionPages);
+  const shownRecoveryPage = Math.min(recoveryPage, recoveryPages);
+  const needsAttention = enabled.some((item) => item.error);
   const lastSynced = enabled
     .map((item) => item.lastSyncedAt)
     .filter((value): value is string => Boolean(value))
@@ -220,7 +229,21 @@ export function BackupSettings({
             title={providerName[item.provider]}
             hint={
               item.error ? (
-                <span className="danger">{item.error}</span>
+                <span>
+                  <span className="danger">
+                    {t(
+                      "Could not update this cloud copy. Your data is saved on this device.",
+                    )}
+                  </span>
+                  {item.lastSyncedAt && (
+                    <>
+                      <br />
+                      {t("Last synced {{date}}", {
+                        date: when(item.lastSyncedAt),
+                      })}
+                    </>
+                  )}
+                </span>
               ) : !item.enabled ? undefined : item.lastSyncedAt ? (
                 t("Synced {{date}}", { date: when(item.lastSyncedAt) })
               ) : (
@@ -242,8 +265,8 @@ export function BackupSettings({
             title={
               sync?.syncing
                 ? "Syncing…"
-                : pending.length > 0
-                  ? "Waiting to sync"
+                : needsAttention
+                  ? "Sync needs attention"
                   : upToDate
                     ? "Up to date"
                     : "Saved on this device"
@@ -272,110 +295,94 @@ export function BackupSettings({
             </div>
           </Row>
         )}
-        {developer && sync?.localVersion && (
-          <p className="settingsNote">
-            {t("Local version")} · <code>{sync.localVersion.slice(0, 15)}</code>
-          </p>
-        )}
-        {pending.map((task) => (
-          <Row
-            key={task.id}
-            group
-            title={task.direction === "upload" ? "Upload" : "Pull"}
-            hint={
-              developer
-                ? `${when(task.createdAt)} · ${task.version.slice(0, 15)} · ${task.id}`
-                : when(task.createdAt)
-            }
-          >
-            <span className="syncDeliveries">
-              {task.deliveries.map((d) => (
-                <small key={d.provider}>
-                  {providerName[d.provider]} ·{" "}
-                  {t(
-                    d.status === "completed"
-                      ? "Completed"
-                      : d.status === "running"
-                        ? "Syncing…"
-                        : d.attempts > 0
-                          ? "Waiting to retry"
-                          : "Queued",
-                  )}{" "}
-                  · {t("Attempts")}: {d.attempts}
-                  {d.error ? ` · ${d.error}` : ""}
-                </small>
-              ))}
-            </span>
-          </Row>
-        ))}
       </SettingsGroup>
       {versions.length > 0 && (
-        <SettingsGroup title="Earlier versions">
-          {versions.map((version) => (
-            <Row
-              key={version.id}
-              group
-              title={when(version.savedAt)}
-              hint={`${version.device} · ${version.version?.slice(0, 15) ?? ""} · ${(
-                sync?.versions ?? []
-              )
-                .filter(
-                  (v) =>
-                    (v.version || v.id) === (version.version || version.id),
-                )
-                .map((v) => providerName[v.provider])
-                .join(" / ")}`}
-            >
-              <div className="actions">
-                <UiButton
-                  className="button small"
-                  disabled={busy || sync?.syncing || pending.length > 0}
-                  onClick={() => void restoreVersion(version)}
-                >
-                  {t("Restore")}
-                </UiButton>
-              </div>
-            </Row>
-          ))}
+        <SettingsGroup
+          title="Earlier versions"
+          footer={t(
+            "Backups older than 30 days are removed only when at least four newer backups exist.",
+          )}
+        >
+          {versions
+            .slice((shownVersionPage - 1) * 4, shownVersionPage * 4)
+            .map((version) => (
+              <Row
+                key={version.id}
+                group
+                title={when(version.savedAt)}
+                hint={`${version.device} · ${(sync?.versions ?? [])
+                  .filter(
+                    (v) =>
+                      (v.version || v.id) === (version.version || version.id),
+                  )
+                  .map((v) => providerName[v.provider])
+                  .join(" / ")}`}
+              >
+                <div className="actions">
+                  <UiButton
+                    className="button small"
+                    disabled={busy || sync?.syncing || pending.length > 0}
+                    onClick={() => void restoreVersion(version)}
+                  >
+                    {t("Restore")}
+                  </UiButton>
+                </div>
+              </Row>
+            ))}
+          {versionPages > 1 && (
+            <Pagination
+              size="sm"
+              value={shownVersionPage}
+              onChange={setVersionPage}
+              total={versionPages}
+              aria-label={t("Earlier version pages")}
+            />
+          )}
         </SettingsGroup>
       )}
       {(sync?.recoveryPoints?.length ?? 0) > 0 && (
         <SettingsGroup
           title="Local recovery files"
           footer={t(
-            "Saved before cloud changes or a restore replace local content.",
+            "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.",
           )}
         >
-          {sync!.recoveryPoints!.map((point) => (
-            <Row
-              key={point.id}
-              group
-              title={when(point.savedAt)}
-              hint={point.version.slice(0, 15)}
-            >
-              <div className="actions">
-                <UiButton
-                  className="textButton"
-                  onClick={() =>
-                    void saveExportFile(
-                      `IsctCompanion-${point.version.slice(0, 15)}.json`,
-                      () => bridge!.cloudRecoveryDocument!(point.id),
-                      notify,
-                    )
-                  }
-                >
-                  {t("Export…")}
-                </UiButton>
-                <UiButton
-                  className="textButton"
-                  disabled={busy || sync?.syncing || pending.length > 0}
-                  onClick={() => void restoreVersion(point)}
-                >
-                  {t("Restore")}
-                </UiButton>
-              </div>
-            </Row>
-          ))}
+          {recoveryPoints
+            .slice((shownRecoveryPage - 1) * 4, shownRecoveryPage * 4)
+            .map((point) => (
+              <Row key={point.id} group title={when(point.savedAt)}>
+                <div className="actions">
+                  <UiButton
+                    className="textButton"
+                    onClick={() =>
+                      void saveExportFile(
+                        `IsctCompanion-${point.version.slice(0, 15)}.json`,
+                        () => bridge!.cloudRecoveryDocument!(point.id),
+                        notify,
+                      )
+                    }
+                  >
+                    {t("Export…")}
+                  </UiButton>
+                  <UiButton
+                    className="textButton"
+                    disabled={busy || sync?.syncing || pending.length > 0}
+                    onClick={() => void restoreVersion(point)}
+                  >
+                    {t("Restore")}
+                  </UiButton>
+                </div>
+              </Row>
+            ))}
+          {recoveryPages > 1 && (
+            <Pagination
+              size="sm"
+              value={shownRecoveryPage}
+              onChange={setRecoveryPage}
+              total={recoveryPages}
+              aria-label={t("Local recovery pages")}
+            />
+          )}
         </SettingsGroup>
       )}
       {(icloud || drive) && (

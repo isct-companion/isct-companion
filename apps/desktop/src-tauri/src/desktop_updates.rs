@@ -312,7 +312,7 @@ pub fn install_on_exit(app: &AppHandle) {
             Ok(()) => record_install(app, "installed", &update.version, None),
             Err(error) => {
                 record_install(app, "error", &update.version, Some(error.to_string()));
-                eprintln!("[updater] installation failed: {error}");
+                log::error!("[updater] installation failed: {error}");
             }
         }
     }
@@ -325,7 +325,7 @@ fn record_install(app: &AppHandle, phase: &str, version: &str, message: Option<S
             directory.join("updater-install-result.json"),
             result.to_string(),
         ) {
-            eprintln!("[updater] could not record installation result: {error}");
+            log::error!("[updater] could not record installation result: {error}");
         }
     }
 }

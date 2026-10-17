@@ -184,13 +184,17 @@ impl CloudSync {
         supported: &[CloudProvider],
         authorized: &[CloudProvider],
     ) -> Result<Self, CloudSyncError> {
-        Ok(Self(Arc::new(Inner {
+        let service = Self(Arc::new(Inner {
             journal: JournalStore::open(legacy, supported, authorized)?,
             run: tokio::sync::Mutex::new(()),
             tasks: RuntimeTasks::default(),
             tick_pass: Arc::new(tokio::sync::Semaphore::new(1)),
             next_tick: Mutex::new(Instant::now()),
-        })))
+        }));
+        if let Err(error) = service.prune_recovery() {
+            crate::diagnostics::report("backup-retention", &error);
+        }
+        Ok(service)
     }
 
     pub fn state(&self) -> Result<SyncState, CloudSyncError> {
@@ -221,9 +225,13 @@ impl CloudSync {
         let service = self.clone();
         if !self.0.tasks.spawn(async move {
             let _permit = permit;
-            let _ = service.resume_inner(&services).await;
+            if let Err(error) = service.resume_inner(&services).await {
+                crate::diagnostics::report("cloud-sync", &error);
+            }
             if !service.0.tasks.is_closed() {
-                let _ = service.capture_inner(&services, true).await;
+                if let Err(error) = service.capture_inner(&services, true).await {
+                    crate::diagnostics::report("cloud-sync", &error);
+                }
             }
         }) {
             return Err(CloudSyncError::Stopped);
@@ -715,6 +723,16 @@ impl CloudSync {
         provider: CloudProvider,
         result: Result<(Value, Vec<CloudVersion>), CloudSyncError>,
     ) -> Result<(), CloudSyncError> {
+        match &result {
+            Ok(_) => crate::diagnostics::info(
+                "cloud-sync",
+                &format!("{provider:?} confirmed task {task}"),
+            ),
+            Err(error) => crate::diagnostics::report(
+                "cloud-sync",
+                &format!("{provider:?} task {task}: {error}"),
+            ),
+        }
         self.0.journal.change(|journal| {
             journal.state.syncing = false;
             let delivery = delivery_mut(journal, task, provider)?;
@@ -816,12 +834,25 @@ impl CloudSync {
         self.apply_document(services, &merged).await?;
         self.capture_inner(services, false).await?;
         self.publish_workspace(services, WorkspaceChangeSource::CloudSync);
-        let versions = self
+        // History is auxiliary metadata. A failed history listing must not
+        // turn an already committed cloud write into another upload attempt.
+        let versions = match self
             .remote(
                 services.transport.versions(provider),
                 CloudSyncError::Interrupted,
             )
-            .await?;
+            .await
+        {
+            Ok(versions) => versions,
+            Err(error) => {
+                crate::diagnostics::report("cloud-history", &format!("{provider:?}: {error}"));
+                self.state()?
+                    .versions
+                    .into_iter()
+                    .filter(|version| version.provider == provider)
+                    .collect()
+            }
+        };
         Ok((document, versions))
     }
 
@@ -917,7 +948,72 @@ impl CloudSync {
                 );
             }
             Ok(())
-        })
+        })?;
+        if let Err(error) = self.prune_recovery() {
+            crate::diagnostics::report("backup-retention", &error);
+        }
+        Ok(())
+    }
+
+    /// Unlink only after the recovery index has been durably updated. A failed
+    /// unlink leaves an extra file, never a reference to a deleted backup.
+    fn prune_recovery(&self) -> Result<(), CloudSyncError> {
+        let directory = self.0.journal.path.with_file_name("recovery");
+        let file = |version: &str| {
+            (version.len() > 3
+                && version.starts_with("v1-")
+                && version[3..].bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .then(|| directory.join(format!("{version}.json")))
+        };
+        let points = self.state()?.recovery_points;
+        // Missing files cannot count as newer backups. Check off the journal
+        // lock, and revalidate the plan before committing the new index.
+        let dates = points
+            .iter()
+            .map(|point| {
+                if file(&point.version).is_some_and(|path| path.is_file()) {
+                    point.saved_at.as_str()
+                } else {
+                    ""
+                }
+            })
+            .collect::<Vec<_>>();
+        let expired = crate::backup::retention::expired(dates, chrono::Utc::now())
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        if expired.is_empty() {
+            return Ok(());
+        }
+        let removed = self.0.journal.change(|journal| {
+            if journal.state.recovery_points != points {
+                return Ok(Vec::new());
+            }
+            let mut removed = Vec::new();
+            let mut index = 0;
+            journal.state.recovery_points.retain(|point| {
+                let keep = !expired.contains(&index);
+                index += 1;
+                if !keep {
+                    removed.push(point.version.clone());
+                }
+                keep
+            });
+            Ok(removed)
+        })?;
+        for version in removed {
+            let Some(path) = file(&version) else {
+                continue;
+            };
+            match std::fs::remove_file(path) {
+                Ok(()) => crate::diagnostics::info(
+                    "backup-retention",
+                    "Removed an expired local recovery file",
+                ),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => crate::diagnostics::report("backup-retention", &error),
+            }
+        }
+        Ok(())
     }
 
     async fn prepare_reset_inner(&self, services: &CloudServices) -> Result<(), CloudSyncError> {

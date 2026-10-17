@@ -263,7 +263,7 @@ export function Settings({
     ) : current === "extensions" ? (
       <ExtensionsSettings data={data} update={customizeSite} />
     ) : current === "diagnostics" ? (
-      <DiagnosticsSettings data={data} caps={caps} />
+      <DiagnosticsSettings data={data} />
     ) : current === "about" ? (
       <AboutSettings data={data} update={update} />
     ) : null;

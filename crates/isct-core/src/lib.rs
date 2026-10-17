@@ -23,7 +23,7 @@ pub mod contracts;
 pub mod course_materials;
 pub mod course_query;
 pub mod data;
-mod diagnostics;
+pub mod diagnostics;
 pub mod downloads;
 pub mod events;
 pub mod kyomu_guide;

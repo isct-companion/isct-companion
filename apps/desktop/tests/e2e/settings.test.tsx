@@ -1174,6 +1174,63 @@ describe("Matrix scan and paste", () => {
   );
 });
 
+it(
+  "renders bounded virtual application logs and pauses following while reading older entries",
+  async () => {
+    const entries = Array.from({ length: 1500 }, (_, index) => ({
+      id: index + 1,
+      at: "2026-10-17T01:00:00Z",
+      level: "INFO",
+      target: "cloud-sync",
+      message: `Confirmed log ${index + 1}`,
+    }));
+    app = await mountSettings(paths.settings("developer"), {
+      handle: (command, args) => {
+        if (command === "application_logs")
+          return {
+            entries: args.after ? [] : entries,
+            cursor: 1500,
+            dropped: false,
+          };
+        return undefined;
+      },
+    });
+    const toggle = await wait(() =>
+      settingsPane(app!).querySelector<HTMLInputElement>(
+        '[data-setting="developer-mode"] input',
+      )!,
+    );
+    await click(toggle);
+    await app.go(paths.settings("diagnostics"));
+    await wait(() =>
+      expect(settingsPane(app!).textContent).toContain("1500 log entries"),
+    );
+    const pane = settingsPane(app);
+    await wait(() =>
+      expect(pane.querySelectorAll(".diagnosticLogRow").length).toBeGreaterThan(
+        0,
+      ),
+    );
+    expect(pane.querySelectorAll(".diagnosticLogRow").length).toBeLessThan(40);
+    expect(pane.querySelector('[contenteditable="true"],textarea')).toBeNull();
+    const follow = pane.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )!;
+    expect(follow.checked).toBe(true);
+    await act(async () =>
+      pane
+        .querySelector(".diagnosticLogs")!
+        .dispatchEvent(
+          new WheelEvent("wheel", { deltaY: -100, bubbles: true }),
+        ),
+    );
+    expect(follow.checked).toBe(false);
+    await click(follow);
+    expect(follow.checked).toBe(true);
+  },
+  TIMEOUT,
+);
+
 /* -------------------------------------------------------------------- backup */
 
 function cloudState(overrides: Partial<CloudSyncState> = {}): CloudSyncState {
@@ -1318,7 +1375,14 @@ describe("Backup", () => {
     async () => {
       const mounted = await mountBackup({
         handle: (command) => {
-          if (command === "cloud_sync_state") return cloudState();
+          if (command === "cloud_sync_state")
+            return cloudState({
+              recoveryPoints: Array.from({ length: 9 }, (_, index) => ({
+                id: `local:${index}`,
+                version: `v1-${index}`,
+                savedAt: `2026-10-${String(12 - index).padStart(2, "0")}T03:00:00Z`,
+              })),
+            });
           if (command === "sync_cloud_now") return cloudState();
           if (command === "restore_cloud_version") return cloudState();
           return undefined;
@@ -1326,6 +1390,31 @@ describe("Backup", () => {
       });
       const pane = settingsPane(mounted);
 
+      const visibleExportRows = () =>
+        [...pane.querySelectorAll("button")]
+          .filter((button) => button.textContent === "Export…")
+          .map((button) => button.closest(".row")?.textContent);
+      const firstPageRows = visibleExportRows();
+      expect(
+        [...pane.querySelectorAll("button")].filter(
+          (button) => button.textContent === "Export…",
+        ),
+      ).toHaveLength(5); // four recovery files plus manual export
+      const localPages = pane.querySelector(
+        '[aria-label="Local recovery pages"]',
+      )!;
+      await click(
+        localPages.querySelector<HTMLButtonElement>('[aria-label="2"]') ??
+          [...localPages.querySelectorAll<HTMLButtonElement>("button")].find(
+            (button) => button.textContent === "2",
+          )!,
+      );
+      expect(
+        [...pane.querySelectorAll("button")].filter(
+          (button) => button.textContent === "Export…",
+        ),
+      ).toHaveLength(5);
+      expect(visibleExportRows()).not.toEqual(firstPageRows);
       await clickButton(pane, "Upload");
       await wait(() =>
         expect(mounted.core.commands("sync_cloud_now")).toHaveLength(1),
@@ -1447,9 +1536,12 @@ describe("Backup", () => {
         ),
       );
 
-      await wait(() => expect(pane.textContent).toContain("Waiting to sync"));
-      // The queued upload shows each provider's delivery; ids stay a developer detail.
-      expect(pane.textContent).toContain("Waiting to retry");
+      await wait(() =>
+        expect(pane.textContent).toContain("Saved on this device"),
+      );
+      // Transport attempts belong in application logs, not the backup history.
+      expect(pane.textContent).not.toContain("Waiting to retry");
+      expect(pane.textContent).not.toContain("Attempts");
       expect(pane.textContent).not.toContain("task-1");
       expect(pane.textContent).not.toContain("Up to date");
       expect(buttonIn(pane, "Restore").disabled).toBe(true);

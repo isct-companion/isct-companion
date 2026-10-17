@@ -97,7 +97,7 @@ where
         let started = std::time::Instant::now();
         let result = work();
         if std::env::var_os("ISCT_TRACE_READS").is_some() {
-            eprintln!(
+            log::info!(
                 "[native-data] op={} queue_ms={} work_ms={} ok={}",
                 std::any::type_name::<F>(),
                 started.duration_since(queued_at).as_millis(),
@@ -168,9 +168,10 @@ fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = isct_core::diagnostics::initialize();
     let builder = tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
-            eprintln!(
+            log::info!(
                 "[lms-file] protocol {} from {}",
                 request.method(),
                 context.webview_label()
@@ -237,6 +238,8 @@ pub fn run() {
             #[cfg(desktop)]
             commands::platform::install_app_update,
             commands::platform::runtime_capabilities,
+            commands::platform::application_logs,
+            commands::platform::application_error,
             lms_files::course_storage_info,
             lms_files::choose_course_storage,
             lms_files::save_course_note,
@@ -462,7 +465,7 @@ pub fn run() {
                             })
                             .await;
                             if drained.is_err() {
-                                eprintln!(
+                                log::error!(
                                     "[shutdown] owned work did not finish within {:?}; exiting",
                                     core_ports::EXIT_TIMEOUT
                                 );
@@ -517,7 +520,7 @@ pub fn run() {
                 if let Err(error) = core_ports::runtime(app)
                     .refresh_event(school_refresh::RefreshEvent::lifecycle(foreground))
                 {
-                    eprintln!("[school-refresh] {error}");
+                    log::error!("[school-refresh] {error}");
                 }
                 core_ports::publish_conditions(app);
                 let app = app.clone();
@@ -532,7 +535,7 @@ pub fn run() {
                     if let Err(error) =
                         tauri_plugin_google_drive_auth::handle_url(app, url.as_str())
                     {
-                        eprintln!("Google OAuth callback could not be handled: {error}");
+                        log::error!("Google OAuth callback could not be handled: {error}");
                     }
                 }
             }

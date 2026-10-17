@@ -65,7 +65,7 @@ pub(crate) fn stop_matrix_camera(
             Ok(())
         };
         if let Err(error) = save() {
-            eprintln!("Matrix performance report unavailable: {error}");
+            log::error!("Matrix performance report unavailable: {error}");
         }
     }
     Ok(())
