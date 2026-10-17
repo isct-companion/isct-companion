@@ -312,8 +312,10 @@ export function LectureDesk({
           }}
         >
           <header>
-            {wide && collapsed && floating && sidebarToggle}
-            <h1>{t("Lecture Desk")}</h1>
+            <div className="lectureListTitle">
+              {wide && collapsed && floating && sidebarToggle}
+              <h1>{t("Lecture Desk")}</h1>
+            </div>
             <UiSelect
               className="lectureTerm"
               aria-label={t("Quarter")}

@@ -484,10 +484,6 @@
 }
 
 /* ---------- Small fixes ---------- */
-.mobileShell .lectureMode {
-  align-self: stretch;
-  width: 100%;
-}
 .settingsTitle {
   margin: 4px 0 10px;
   font-size: calc(20px * var(--text));
