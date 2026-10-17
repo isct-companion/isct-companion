@@ -102,7 +102,7 @@ export type SchoolLoginEvent = {
   message: string;
 };
 export type SchoolSessionState =
-  "pending" | "active" | "failed" | "not-configured";
+  "pending" | "active" | "maintenance" | "failed" | "not-configured";
 /** A school session state changed (sign-in, launch, credential change, or renewal). */
 export type SchoolSessionEvent = {
   profile: SchoolAuthProfile;
@@ -111,6 +111,7 @@ export type SchoolSessionEvent = {
 };
 export type SchoolSessionSnapshot = {
   revision: number;
+  kyomuMaintenance?: string | null;
   states: {
     science: SchoolSessionState;
     tokyoTech: SchoolSessionState;
@@ -123,13 +124,14 @@ export type SchoolSessionLifecycle = {
 const isSchoolSessionState = (value: unknown): value is SchoolSessionState =>
   value === "pending" ||
   value === "active" ||
+  value === "maintenance" ||
   value === "failed" ||
   value === "not-configured";
 /** One extractor result from LMS or one 教務Web page. */
 export type SchoolIngestOutcome = {
   site: SchoolSite;
   kind: string;
-  state: "ok" | "unavailable" | "reconnect-required" | "error";
+  state: "ok" | "unavailable" | "maintenance" | "reconnect-required" | "error";
   changed: number;
   message: string;
 };

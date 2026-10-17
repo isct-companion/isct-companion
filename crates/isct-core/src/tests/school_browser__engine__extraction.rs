@@ -33,6 +33,28 @@ fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
     );
     assert!(records["lastRuns"]["kyomu:grades"].is_string());
 
+    let maintenance = serde_json::json!({
+        "status":"maintenance","sourceUrl":"https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx","kind":"unknown",
+        "message":"ただいまメンテナンス中です 2031/01/02 10:00〜12:30","data":{}
+    });
+    let outcome = apply_raw(&store, SchoolSite::Kyomu, &maintenance.to_string()).unwrap();
+    assert_eq!(outcome.state, IngestState::Maintenance);
+    assert!(outcome.state.is_problem());
+    assert_eq!(outcome.changed, 0);
+    assert!(outcome.message.contains("2031/01/02"));
+    assert_eq!(store.table_rows("grades").unwrap().len(), 1);
+    let (_, after, _) = store.workspace_snapshot_parts().unwrap();
+    assert_eq!(after["pageAvailability"], records["pageAvailability"]);
+    assert_eq!(after["lastRuns"], records["lastRuns"]);
+    for source in [
+        "http://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx",
+        "https://example.org/Maintenance.aspx",
+    ] {
+        let mut untrusted = maintenance.clone();
+        untrusted["sourceUrl"] = source.into();
+        assert!(parse_kyomu_payload(&untrusted.to_string()).is_err());
+    }
+
     let invalid = serde_json::json!({
         "status":"ok","sourceUrl":source,"kind":"grades",
         "data":{"complete":true,"shape":"future-layout","empty":true,"groups":[]}

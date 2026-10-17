@@ -15,6 +15,9 @@
     data,
     message,
   });
+  const maintenance = globalThis.__isctKyomuMaintenance?.(document);
+  if (location.origin === "https://kyomu0.gakumu.titech.ac.jp" && maintenance)
+    return result("maintenance", {}, maintenance);
   if (
     location.origin !== "https://kyomu0.gakumu.titech.ac.jp" ||
     location.pathname.toLowerCase() !== path.toLowerCase()
@@ -45,16 +48,21 @@
       body,
       signal: AbortSignal.timeout(45000),
     });
+    const html = await response.text();
+    if (html.length > 8 * 1024 * 1024)
+      throw new Error("Course search is too large.");
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const notice =
+      new URL(response.url).origin === location.origin &&
+      globalThis.__isctKyomuMaintenance?.(parsed);
+    if (notice) throw { maintenance: notice };
     if (
       !response.ok ||
       new URL(response.url).origin !== location.origin ||
       new URL(response.url).pathname.toLowerCase() !== path.toLowerCase()
     )
       throw new Error("Course search session expired.");
-    const html = await response.text();
-    if (html.length > 8 * 1024 * 1024)
-      throw new Error("Course search is too large.");
-    return new DOMParser().parseFromString(html, "text/html");
+    return parsed;
   };
   // ASP.NET checkboxes have value="on", not the query-string enum value.
   // Keep actual control IDs/values and let the university serialize its search.
@@ -492,10 +500,11 @@
       !nextCursor &&
       (remaining || Boolean(nextLink) || loaded + courses.length >= 1000),
   });
-})().catch(() => ({
-  status: "error",
+})().catch((error) => ({
+  status: error?.maintenance ? "maintenance" : "error",
   kind: "catalog",
   sourceUrl: location.href,
   data: {},
-  message: "The official course search could not be read.",
+  message:
+    error?.maintenance || "The official course search could not be read.",
 }));

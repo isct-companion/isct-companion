@@ -133,7 +133,10 @@ const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 /** A pull result as one short line; undefined when everything succeeded. */
 function pullProblem(outcomes: { state: string; message: string }[]) {
   const failed = outcomes.find(
-    (item) => item.state === "reconnect-required" || item.state === "error",
+    (item) =>
+      item.state === "maintenance" ||
+      item.state === "reconnect-required" ||
+      item.state === "error",
   );
   const unavailable = outcomes.find((item) => item.state === "unavailable");
   if (!failed) return unavailable?.message;
@@ -147,6 +150,7 @@ function sessionStatusLabel(
   detail?: string,
 ) {
   if (state === "active") return t("Signed in");
+  if (state === "maintenance") return t("Under maintenance");
   if (state === "failed") return t(detail || "Sign-in failed");
   if (state === "not-configured") return t("Not configured");
   return t(detail || "Checking session");
@@ -1738,7 +1742,7 @@ export function WorkspaceApp() {
         <div className="lmsStatus" aria-live="polite">
           <div className="lmsStatusLine">
             <b>{schoolStatus.source}</b>
-            <span>{schoolStatus.phase}</span>
+            <span title={schoolStatus.phase}>{schoolStatus.phase}</span>
             <output>
               {schoolStatus.progress !== null
                 ? `${Math.round(schoolStatus.progress)}%`

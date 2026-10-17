@@ -45,6 +45,7 @@ export function usePullState() {
       setLmsPhase("Waiting for school refresh");
   }, [activeLms?.id, activeLms?.state, activeLms?.blockedBy]);
   const [lmsPhase, setLmsPhase] = useState("Ready");
+  const [kyomuMaintenance, setKyomuMaintenance] = useState<string | null>(null);
   const [loginSteps, setLoginSteps] = useState<
     Partial<Record<"science" | "tokyo-tech", string>>
   >({});
@@ -69,15 +70,34 @@ export function usePullState() {
                 : event.message,
       }));
     });
+    let disposed = false;
+    let observedKyomu = false;
     const offIngest = desktopBridge?.onSchoolIngest?.((outcome) => {
+      if (outcome.site === "kyomu") {
+        observedKyomu = true;
+        if (outcome.state === "maintenance") {
+          setKyomuMaintenance(outcome.message);
+          setKyomuProgress(null);
+        } else if (outcome.state === "ok" || outcome.state === "unavailable") {
+          setKyomuMaintenance(null);
+        }
+      }
       if (
         outcome.site === "kyomu" &&
+        outcome.kind !== "service" &&
         (outcome.state === "ok" || outcome.state === "unavailable")
       )
         setNativeKyomuProgress((value) =>
           Math.min(95, Math.max(value, 15) + 20),
         );
     });
+    void desktopBridge
+      ?.schoolSessionSnapshot?.()
+      .then((snapshot) => {
+        if (!disposed && !observedKyomu)
+          setKyomuMaintenance(snapshot.kyomuMaintenance ?? null);
+      })
+      .catch(() => undefined);
     const offProgress = desktopBridge?.onSchoolPullProgress?.((progress) => {
       const ratio = progress.total
         ? Math.min(1, progress.completed / progress.total)
@@ -112,6 +132,7 @@ export function usePullState() {
       setLmsPhase(`${label} · ${context || "LMS"} · ${count}`);
     });
     return () => {
+      disposed = true;
       offLogin?.();
       offIngest?.();
       offProgress?.();
@@ -127,16 +148,22 @@ export function usePullState() {
     loginSteps,
     pulling,
     schoolStatus:
-      kyomuProgress !== null
-        ? { source: "教務Web", phase: t(kyomuPhase), progress: kyomuProgress }
-        : {
-            source: "LMS",
-            phase: t(
-              pulling && lmsPhase === "Ready"
-                ? "Reading enrolled courses"
-                : lmsPhase,
-            ),
-            progress: lmsProgress,
-          },
+      kyomuMaintenance && !activeKyomu && !activeLms && !pulling
+        ? {
+            source: "教務Web",
+            phase: `${t("Under maintenance")} · ${kyomuMaintenance}`,
+            progress: null,
+          }
+        : kyomuProgress !== null
+          ? { source: "教務Web", phase: t(kyomuPhase), progress: kyomuProgress }
+          : {
+              source: "LMS",
+              phase: t(
+                pulling && lmsPhase === "Ready"
+                  ? "Reading enrolled courses"
+                  : lmsPhase,
+              ),
+              progress: lmsProgress,
+            },
   };
 }

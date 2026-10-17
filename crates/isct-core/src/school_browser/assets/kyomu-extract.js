@@ -40,6 +40,9 @@
     data,
     ...(message ? { message } : {}),
   });
+  const maintenance = globalThis.__isctKyomuMaintenance?.(document);
+  if (location.origin === "https://kyomu0.gakumu.titech.ac.jp" && maintenance)
+    return result("maintenance", {}, maintenance);
   const loginForm =
     document.querySelector('form[action*="login" i]') ||
     document.querySelector('input[type="password"]')?.closest("form");

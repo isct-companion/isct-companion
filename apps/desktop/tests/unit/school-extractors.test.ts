@@ -62,7 +62,7 @@ type Extracted = {
   data: Record<string, unknown>;
 };
 
-const extractorScript = asset("kyomu-extract.js");
+const extractorScript = `${asset("kyomu-maintenance.js")}\n${asset("kyomu-extract.js")}`;
 
 /**
  * Runs the production extractor against one page. `readyState` is forced to
@@ -725,6 +725,16 @@ describe("official course discovery and academic identity", () => {
     expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
       status: "error",
     });
+    // A healthy initial document can redirect to an outage during the POST.
+    dom.window.eval(asset("kyomu-maintenance.js"));
+    dom.window
+      .eval(`globalThis.__ISCT_COMPANION_KYOMU_PAGE__ = ${JSON.stringify({ controls: [level] })};
+      globalThis.fetch = async () => ({ok:true, url:'https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx', text:async()=>'<main><h1>Under maintenance</h1><p>2031/02/03 12:00–14:00</p></main>'});`);
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "maintenance",
+      data: {},
+      message: expect.stringContaining("2031/02/03"),
+    });
     const courses = result.data.courses as Record<string, unknown>[];
     expect(courses).toHaveLength(14);
     expect(courses.find((c) => c.id === "202602431")).toMatchObject({
@@ -901,4 +911,48 @@ it("posts only grid paging events and keeps form state out of course results", a
   expect(
     posts.every((p) => p.__VIEWSTATE === "school-token" && !("btnSelect" in p)),
   ).toBe(true);
+});
+
+describe("official maintenance notices", () => {
+  it("reads live outage periods and recurring notes without a baked-in calendar", () => {
+    const html = `<main><h1>ただいまメンテナンス中です</h1><h2>メンテナンス情報</h2>
+      <p>下記期間中はログインできません。</p><b>2031/01/02 10:00 ～ 12:30</b>
+      <textarea>毎週水曜日の6:00–7:00</textarea></main>`;
+    const dom = new JSDOM(html, {
+      url: "https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx",
+      runScripts: "outside-only",
+    });
+    const result = dom.window.eval(extractorScript) as Extracted;
+    expect(result.status).toBe("maintenance");
+    expect(result.message).toContain("2031/01/02 10:00");
+    expect(result.message).toContain("毎週水曜日の6:00");
+    expect(result.data).toEqual({});
+    const search = dom.window.eval(
+      `${asset("kyomu-maintenance.js")}\n${asset("kyomu-search.js")}`,
+    );
+    return expect(search).resolves.toMatchObject({
+      status: "maintenance",
+      message: result.message,
+    });
+  });
+  it("does not mistake future notices, course text, or foreign hosts for an outage", () => {
+    for (const html of [
+      "<h2>メンテナンス情報</h2><p>明日メンテナンスを行います</p>",
+      "<h1>Course search</h1><p>Software maintenance</p>",
+    ]) {
+      const dom = new JSDOM(html, {
+        url: "https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx",
+        runScripts: "outside-only",
+      });
+      dom.window.eval(asset("kyomu-maintenance.js"));
+      expect(dom.window.eval("__isctKyomuMaintenance(document)")).toBeNull();
+    }
+    const dom = new JSDOM("<h1>Under maintenance</h1>", {
+      url: "https://example.org/",
+      runScripts: "outside-only",
+    });
+    expect((dom.window.eval(extractorScript) as Extracted).status).toBe(
+      "error",
+    );
+  });
 });

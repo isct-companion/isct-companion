@@ -1050,5 +1050,6 @@
   "Not set up": "未設定",
   "Bring your card closer until the Matrix is framed, then hold steady. The scanner closes automatically when ready.": "カードを近づけ、マトリクスに枠が表示されたらそのまま保持してください。読み取り完了後、自動的に閉じます。",
   "Reading Matrix. Hold steady…": "マトリクスを読み取り中。そのまま保持してください…",
-  "Point the camera at the Matrix on your card.": "カードのマトリクスにカメラを向けてください。"
+  "Point the camera at the Matrix on your card.": "カードのマトリクスにカメラを向けてください。",
+  "Under maintenance": "メンテナンス中"
 }

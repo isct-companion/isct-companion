@@ -1050,5 +1050,6 @@
   "Not set up": "尚未设置",
   "Bring your card closer until the Matrix is framed, then hold steady. The scanner closes automatically when ready.": "请将学生证靠近摄像头，出现 Matrix 边框后保持稳定，识别完成会自动关闭。",
   "Reading Matrix. Hold steady…": "正在识别 Matrix，请保持稳定…",
-  "Point the camera at the Matrix on your card.": "请将摄像头对准学生证上的 Matrix。"
+  "Point the camera at the Matrix on your card.": "请将摄像头对准学生证上的 Matrix。",
+  "Under maintenance": "维护中"
 }

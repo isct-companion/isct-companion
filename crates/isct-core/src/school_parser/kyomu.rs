@@ -21,6 +21,7 @@ pub struct KyomuPayload {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KyomuStage {
     Ready,
+    Maintenance,
     Unavailable,
     ReconnectRequired,
 }
@@ -73,6 +74,16 @@ pub fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), Sc
     let payload: KyomuPayload =
         serde_json::from_str(raw).map_err(|_| "kyomu payload is not valid JSON")?;
     let url = Url::parse(&payload.source_url).map_err(|_| "kyomu source URL is invalid")?;
+    if payload.status == "maintenance" {
+        if url.scheme() != "https"
+            || url.host_str() != Some("kyomu0.gakumu.titech.ac.jp")
+            || payload.message.trim().is_empty()
+            || payload.message.len() > 8192
+        {
+            return Err("kyomu maintenance notice is invalid".into());
+        }
+        return Ok((KyomuStage::Maintenance, Some(payload)));
+    }
     if payload.status == "login" {
         let known_login_host = matches!(
             url.host_str(),
