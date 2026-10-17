@@ -253,16 +253,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > release-notes.md <<'NOTES'
-          IsctCompanion 1.1.0 desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
-
-          - Desktop update checks support signed automatic updates from this source repository.
-          - The timetable has a dedicated quarter view, with course search filters parsed from 教務Web and virtualized results.
-          - School data refreshes preserve cached content, avoid repeated requests, and report maintenance separately.
-          - Interactive school webviews support normal browsing and editing; assignment preparation leaves final submission to you.
-          - OTP setup supports QR acquisition, clearer authenticator guidance and copying the setup link or secret.
-          - Read-only application logs use virtual rendering and automatic following. Backup pages show confirmed copies separately from transport retries.
-          - Local and cloud backups expire only after 30 days when at least four newer copies exist.
+          printf 'IsctCompanion %s desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.\n\n' "${RELEASE_TAG#v}" > release-notes.md
+          cat >> release-notes.md <<'NOTES'
+          - Timetables now use LMS grids consistently for every quarter, including historical and non-weekly courses.
+          - Home shows submitted and graded assignments, including completed work without a deadline.
+          - School refreshes keep cached data and personal edits, bound slow requests, and show the running task while another refresh is queued.
+          - Lecture Desk aligns its quarter selector, mode switch and search field across sidebar widths.
+          - Saved physics class-group choices load correctly after restarting the app.
 
           This release includes desktop installers only. Mobile will be published separately when ready.
 
