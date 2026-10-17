@@ -423,6 +423,8 @@ impl SchoolBrowserEngine {
             inner: &self.0,
             run: run.clone(),
         };
+        let started = Instant::now();
+        log::info!(target: "isct_core::school_browser", "capture start site={site:?} run={run} full={full} course={course_id:?} path={} timeout_s={}", parsed.path(), timeout.as_secs());
         self.dispatch(browser, BrowserAction::Navigate(parsed))?;
         let mut signing_in = None;
         let raw = tokio::time::timeout(timeout, async {
@@ -485,10 +487,12 @@ impl SchoolBrowserEngine {
         })
         .await
         .map_err(|_| {
+            log::warn!(target: "isct_core::school_browser", "capture timeout site={site:?} run={run} elapsed_ms={}", started.elapsed().as_millis());
             SchoolBrowserError::Timeout(
                 "The school page did not answer in time. Check the account in Settings.".into(),
             )
         })??;
+        log::info!(target: "isct_core::school_browser", "capture complete site={site:?} run={run} elapsed_ms={}", started.elapsed().as_millis());
         Ok(raw)
     }
 
@@ -584,6 +588,7 @@ impl Inner {
             && progress.completed <= progress.total
             && progress.total <= 10_000
         {
+            log::info!(target: "isct_core::school_browser", "capture progress run={} phase={} completed={}/{} course={}", progress.extraction_run, progress.phase, progress.completed, progress.total, progress.course_id);
             let _ = self
                 .events
                 .emit(CoreEvent::SchoolPullProgress(SchoolPullProgress {

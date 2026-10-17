@@ -328,9 +328,9 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
           (args) => args[0] === "release" && args[1] === "upload",
         );
         expect(upload).toBeLessThan(calls.indexOf(edit));
-        expect(
-          readFileSync(path.join(dir, "release-notes.md"), "utf8"),
-        ).toContain("desktop installers only");
+        const notes = readFileSync(path.join(dir, "release-notes.md"), "utf8");
+        expect(notes).toContain(`IsctCompanion ${tag.slice(1)} desktop release`);
+        expect(notes).toContain("desktop installers only");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

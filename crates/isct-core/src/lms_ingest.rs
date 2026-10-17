@@ -96,6 +96,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     const endpoint = '/2025/lib/ajax/service.php?sesskey=' + encodeURIComponent(cfg.sesskey)
       + '&info=' + encodeURIComponent(methodname);
     const response = await fetch(endpoint, {method:'POST', credentials:'same-origin',
+      signal:AbortSignal.timeout(20000),
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify([{index:0, methodname, args}])});
     if (!response.ok || !(response.headers.get('content-type') || '').includes('json'))
@@ -246,7 +247,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
         // Shared course-format DOM only: preserve teacher content without
         // interpreting headings, dates or course-specific conventions.
         try {
-          const response = await fetch('/2025/course/view.php?id=' + Number(course.id), {credentials:'same-origin'});
+          const response = await fetch('/2025/course/view.php?id=' + Number(course.id), {credentials:'same-origin', signal:AbortSignal.timeout(20000)});
           if (response.ok && response.url.includes('/course/view.php')) {
             const page = new DOMParser().parseFromString(await response.text(), 'text/html');
             enrichCourseContent(page, state, response.url, boundedBody);
@@ -266,8 +267,16 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       courseId:Number(selectedCourses[0]?.id) || 0,
       courseTitle:String(selectedCourses[0]?.fullname || selectedCourses[0]?.shortname || ''),
       term:selectedCourses[0] ? courseContext(selectedCourses[0]).term : ''});
-    for (let index = 0; index < selectedCourses.length; index += 4)
-      await Promise.all(selectedCourses.slice(index, index + 4).map(loadStructure));
+    // Fetch deadlines include response bodies. A fixed worker pool keeps the
+    // other slots moving when one school request is slow. No transport library
+    // is available inside the injected, standalone browser script.
+    const readWithWorkers = async (items, read) => {
+      let next = 0;
+      await Promise.all(Array.from({length:Math.min(4, items.length)}, async () => {
+        while (next < items.length) await read(items[next++]);
+      }));
+    };
+    await readWithWorkers(selectedCourses, loadStructure);
     // Bounded read-only module details, using the same signed-in session.
     const courseById = new Map(courses.map(course => [Number(course.id), course]));
     // Two layers. A pull across courses reads only what Today needs: the
@@ -290,7 +299,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       try {
         const target = new URL(cm.url, sourceUrl);
         if (target.origin !== location.origin || !/^\/2025\/mod\/(resource|folder|url|page|forum|assign)\/view\.php$/.test(target.pathname)) return;
-        const response = await fetch(target.href, {credentials:'same-origin'});
+        const response = await fetch(target.href, {credentials:'same-origin', signal:AbortSignal.timeout(20000)});
         if (!response.ok) return;
         if (new URL(response.url).origin !== location.origin) { response.body?.cancel(); return; }
         if (response.url.includes('/pluginfile.php/')) {
@@ -320,7 +329,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
           const bodies = [];
           for (const url of discussions) {
             try {
-              const detail = await fetch(url, {credentials:'same-origin'});
+              const detail = await fetch(url, {credentials:'same-origin', signal:AbortSignal.timeout(20000)});
               if (!detail.ok || new URL(detail.url).origin !== location.origin || !(detail.headers.get('content-type') || '').includes('text/html')) { detail.body?.cancel(); continue; }
               const html = await detail.text();
               if (html.length > 1000000) continue;
@@ -345,8 +354,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
         courseId:Number(courseId) || 0, courseTitle:String(course?.fullname || course?.shortname || ''),
         term:course ? courseContext(course).term : '', itemTitle:String(cm.name || '')});
     };
-    for (let index = 0; index < detailCms.length; index += 4)
-      await Promise.all(detailCms.slice(index, index + 4).map(readDetailWithProgress));
+    await readWithWorkers(detailCms, readDetailWithProgress);
     // Submission state as the assignment or quiz page shows it (a plain GET),
     // for the work of the loaded quarters.
     const statusRead = new Set(assignStatus.map(item => item.cmid));
@@ -358,7 +366,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     const readStatus = async item => {
       const cmid = item.id;
       try {
-        const response = await fetch('/2025/mod/' + item.module + '/view.php?id=' + cmid, {credentials:'same-origin'});
+        const response = await fetch('/2025/mod/' + item.module + '/view.php?id=' + cmid, {credentials:'same-origin', signal:AbortSignal.timeout(20000)});
         if (!response.ok) return;
         const page = new DOMParser().parseFromString(await response.text(), 'text/html');
         const status = submissionStatus({page, cmid, module:item.module});
@@ -371,8 +379,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
           term:course ? courseContext(course).term : '', itemTitle:item.name});
       }
     };
-    for (let index = 0; index < assignIds.length; index += 4)
-      await Promise.all(assignIds.slice(index, index + 4).map(readStatus));
+    await readWithWorkers(assignIds, readStatus);
     return {status:'ok', sourceUrl, language:String(cfg.language || ''), coursesComplete,
       fullScan:fullScan && !requestedCourseId,
       courses, structures, actionEvents, datedEvents, timetables, timetableErrors, assignStatus};
