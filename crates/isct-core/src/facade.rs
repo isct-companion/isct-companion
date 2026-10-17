@@ -216,6 +216,7 @@ impl Core {
                 self.runtime.coordinator.clone(),
                 self.auth.clone(),
                 events.clone(),
+                self.runtime.refresh.clone(),
             ),
             refresh: self.runtime.refresh.clone(),
             store: self.store.clone(),

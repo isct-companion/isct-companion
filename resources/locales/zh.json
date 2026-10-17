@@ -1061,5 +1061,7 @@
   "Teaching language": "开讲语言",
   "Official recommendations": "教务推荐",
   "Other official filters": "其他教务筛选",
-  "Filter categories": "筛选分类"
+  "Filter categories": "筛选分类",
+  "Refresh incomplete": "部分数据未更新",
+  "Refresh failed": "更新失败"
 }

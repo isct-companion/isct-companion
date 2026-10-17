@@ -162,6 +162,7 @@ pub struct SchoolService {
     coordinator: PullCoordinator,
     auth: Arc<SchoolAuthService>,
     events: Arc<dyn EventSink>,
+    refresh: crate::school_refresh::SchoolRefresh,
 }
 
 impl SchoolService {
@@ -169,11 +170,13 @@ impl SchoolService {
         coordinator: PullCoordinator,
         auth: Arc<SchoolAuthService>,
         events: Arc<dyn EventSink>,
+        refresh: crate::school_refresh::SchoolRefresh,
     ) -> Self {
         Self {
             coordinator,
             auth,
             events,
+            refresh,
         }
     }
 
@@ -251,6 +254,16 @@ impl SchoolService {
                         if context.is_cancelled() {
                             return Err(PullError::Cancelled);
                         }
+                        let _full_pull = if course_id.is_none() {
+                            Some(
+                                service
+                                    .refresh
+                                    .begin_full_pull(site)
+                                    .map_err(|error| PullError::Execution(error.to_string()))?,
+                            )
+                        } else {
+                            None
+                        };
                         // A later join can still ask for sign-in; the executor reads
                         // the job's flag again before each extraction.
                         let credentials = if context.login_first() {
@@ -305,6 +318,15 @@ impl SchoolService {
                         }
                         // Partial outcomes already committed useful rows. Preserve the
                         // result while marking the coordinator snapshot as failed.
+                        for problem in result.iter().filter(|row| row.state.is_problem()) {
+                            crate::diagnostics::report(
+                                "school-pull",
+                                &format!(
+                                    "{:?}/{}: {}",
+                                    problem.site, problem.kind, problem.message
+                                ),
+                            );
+                        }
                         if let Some(problem) = result.iter().find(|row| row.state.is_problem()) {
                             context.outcome_error(problem.message.clone()).await;
                         }

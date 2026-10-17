@@ -2462,6 +2462,42 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
       "Ready",
     ),
   );
+  const terminal = {
+    id: "kyomu-partial",
+    target: { type: "school", site: "kyomu", courseId: null },
+    state: "failed",
+    priority: "automatic",
+    phase: "partial",
+    blockedBy: null,
+    attempt: 1,
+    waiterCount: 0,
+    lastError: "registrations unavailable",
+  };
+  await act(async () => app!.core.emit("pull-state-changed", [terminal]));
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("Refresh incomplete");
+    expect(status.textContent).toContain("registrations unavailable");
+    expect(status.textContent).not.toContain("Ready");
+    expect(status.textContent).not.toContain("%");
+  });
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      terminal,
+      {
+        ...terminal,
+        id: "kyomu-recovered",
+        state: "succeeded",
+        phase: "complete",
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() =>
+    expect(app!.host.querySelector(".lmsStatus")!.textContent).not.toContain(
+      "Refresh incomplete",
+    ),
+  );
   const force = app.host.querySelector<HTMLButtonElement>(".lmsStatus button")!;
   expect(force.textContent).toBe("Refresh now");
   await click(force);

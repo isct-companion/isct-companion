@@ -120,6 +120,7 @@ fn services(
             runtime.coordinator.clone(),
             Arc::new(SchoolAuthService::new(MemoryVault)),
             events.clone(),
+            runtime.refresh.clone(),
         ),
         refresh: runtime.refresh.clone(),
         executor: Arc::new(NoopExecutor),

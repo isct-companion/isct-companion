@@ -117,7 +117,10 @@ pub struct Condition {
     pub r#type: String,
     pub key: String,
     pub label: String,
-    #[cfg_attr(feature = "ts", ts(type = "(string | number | TimeValue)[]"))]
+    #[cfg_attr(
+        feature = "ts",
+        ts(type = "(string | number | TimeValue | { id: string; value: string })[]")
+    )]
     pub values: Vec<Value>,
     #[serde(default, skip_serializing_if = "false_value")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]

@@ -1061,5 +1061,7 @@
   "Teaching language": "開講言語",
   "Official recommendations": "教務の推奨",
   "Other official filters": "その他の教務条件",
-  "Filter categories": "絞り込み項目"
+  "Filter categories": "絞り込み項目",
+  "Refresh incomplete": "一部のデータを更新できませんでした",
+  "Refresh failed": "更新に失敗しました"
 }
