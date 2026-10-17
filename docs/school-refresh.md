@@ -114,6 +114,26 @@ There was no attempt-level cooldown shared with manual pulls. The lease and
 cooldown above close that feedback path without advancing failed-page TTLs.
 The exact live failure of the two missing pages still requires native execution;
 absence of successful imports alone does not identify a parser error.
+The store narrows it: 799 教務Web runs since 2026-10-16 contain no
+`registrations` or `requirements` run in any state, while the pages after them
+keep importing. So the extractor ran and rejected both pages; navigation did
+not time out. Core used to discard the extractor's reason and report the page
+as `unknown`. It now keeps both: the kind from the approved source URL, and
+the reason as `kyomu extraction was incomplete: <check>`.
+
+A live run with that reporting (2026-10-17, after registration closed) showed
+two extractor defects, not unavailable pages. On the registration page, an
+empty unit GridView rendered only its empty-data row with no header, and the
+header check rejected the whole page. The requirement table has no <thead>;
+its blank top-left <td> spans four header rows, so header inference took one
+row and treated three header rows as unlabelled requirements. The extractor
+now skips a header-less empty GridView. It takes the requirement header depth
+from the corner cell's span and rejects any unlabelled row itself. Requirement
+ids include the column index, because combined headers need not be unique.
+After the fix, all six pages imported (registrations 14 rows, requirements 93),
+so the profile becomes fresh. Manual check
+`SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` covers the open 申告 window, which
+was not observed.
 
 A separate presentation defect discarded all terminal jobs, including partial
 failures, allowing the footer to read Ready. The footer now renders the latest

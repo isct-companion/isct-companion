@@ -737,7 +737,12 @@ pub(super) fn apply_raw(
                     .unwrap_or_else(|| "session".into()),
                 None,
             )),
-            Err(error) => Err(("unknown".into(), Some(error.to_string()))),
+            Err(error) => Err((
+                crate::school_parser::kyomu::source_kind(raw)
+                    .unwrap_or("unknown")
+                    .into(),
+                Some(error.to_string()),
+            )),
         }
     };
     Ok(match applied {

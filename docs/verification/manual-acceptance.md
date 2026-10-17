@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 31 checks must be re-run before the next release.**
+**7 of 32 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,13 +27,14 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**22 checks have never been run or could not be run:**
+**23 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
 - `IDENTITY-DOCTORAL-RULES` — never verified
 - `IDENTITY-TRANSFER-COHORT` — never verified
 - `SCHOOL-KYOMU-GRADUATE-TABLES` — unreached: No graduate account available; a borrowed account is pending.
+- `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` — never verified
 - `IDENTITY-LANGUAGE-SWITCH` — never verified
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-ONEDRIVE-WRITE` — never verified
@@ -63,6 +64,7 @@ an unverified area becomes an assumed-good one.
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-TRANSFER-COHORT` | identity | 編入生 | —<br>not run | crates/isct-core/src/subscriptions.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/lib/departments.ts |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/isct-core/src/kyomu_ingest.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/study_profile.rs |
+| `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/kyomu_ingest.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
 | `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
@@ -534,6 +536,74 @@ Blocked by: No graduate account available; a borrowed account is pending.
 The 2017 manual fixture covers the documented shape only.
 
 Evidence: `docs/verification/native-sdk.md`
+
+### 教務Web registration and requirements pages import or report unavailable (`SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Signed desktop bundle, Tokyo Tech account Signed in, campus network or
+VPN. Run once inside a 科目申告 window and once outside it. Outside the
+window was observed passing on 2026-10-17 (state 本登録済); the window
+itself, where courses are still being edited, is not yet observed.
+
+**Steps**
+
+1. Quit the app, then start it from a terminal so stderr is kept:
+   `/Applications/IsctCompanion.app/Contents/MacOS/isct-companion 2>&1 | tee artifacts/kyomu-pull.log`
+   - *Why:* Partial page failures are only reported to stderr, which a bundle
+     launched from Finder discards. Without this the run gives no reason
+     for the failure, as happened on 2026-10-17.
+2. Use the manual 教務Web refresh and wait until the footer settles.
+   - *Why:* Manual refresh bypasses the retry backoff, so the run reaches the
+     registration (PID1_0) and requirements (PID2_6) pages now.
+3. Find the `[school-pull] Kyomu/registrations:` and
+   `[school-pull] Kyomu/requirements:` lines in the log and copy the
+   text after `kyomu extraction was incomplete:`.
+   - *Why:* That text is the extractor check that rejected the page. On
+     2026-10-17 it was a header-less empty unit GridView
+     (`kamokuUnit_-2_gvKamoku`) and a requirement table whose header has
+     no <thead>; both are now read. A new reason names the next shape.
+4. Open both pages in the visible 教務Web view. Read the page's notice,
+   if any, and inspect the element that holds it (its id or class).
+   Check whether the elements named in the log line exist.
+   - *Why:* Decides the fix. If the page shows a notice such as "outside the
+     申告 period", the extractor's unavailable pattern must learn that
+     notice and its element. If the data is visible but the selector
+     does not match, the selector is broken.
+5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT scope,state,max(finished_at) FROM import_runs WHERE provider='kyomu' GROUP BY scope,state"`.
+   - *Why:* Freshness counts only `complete` or `unavailable` runs. A page with
+     neither keeps 教務Web due for an automatic refresh indefinitely.
+
+**Where to look**
+
+artifacts/kyomu-pull.log, the two 教務Web pages in the visible view, and
+the import_runs query output.
+
+**Expected**
+
+`registrations` and `requirements` each have a `complete` or an
+`unavailable` run, the log has no `school-pull` line for either page,
+and the footer no longer shows a 教務Web failure after a refresh.
+
+**Why this is manual**
+
+The live registration and requirement DOM is account-scoped and changes
+with the 申告 window. The extractor tests reproduce only the two shapes
+observed outside the window, with placeholder values; no committed
+fixture is a capture. Only a real session shows what the portal serves
+while registration is open.
+
+**Covers**
+
+- `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
+- `crates/isct-core/src/school_parser/kyomu.rs`
+- `crates/isct-core/src/kyomu_ingest.rs`
+
+**Last recorded** never run
 
 ### English UI and English content stay English (`IDENTITY-LANGUAGE-SWITCH`)
 

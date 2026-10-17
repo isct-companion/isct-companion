@@ -106,13 +106,15 @@
       Array.from({ length: width }, (_, index) => row[index] || ""),
     );
   };
-  const tableData = (table) => {
+  const tableData = (table, knownHeaderRows = 0) => {
     const rows = matrix(table);
     const inferredHeaders = [...table.rows].findIndex((row) =>
       row.querySelector("td"),
     );
     const headerRows =
-      table.tHead?.rows.length || (inferredHeaders > 0 ? inferredHeaders : 1);
+      knownHeaderRows ||
+      table.tHead?.rows.length ||
+      (inferredHeaders > 0 ? inferredHeaders : 1);
     const header = rows.slice(0, headerRows);
     const width = rows.reduce((size, row) => Math.max(size, row.length), 0);
     const headers = Array.from({ length: width }, (_, column) => {
@@ -301,6 +303,9 @@
       const headers = [...table.querySelectorAll("tr:first-child th")].map(
         (cell) => clean(cell.textContent),
       );
+      // An empty GridView renders only its empty-data row, without a header.
+      if (!headers.length && table.rows.length === 1 && explicitEmpty(table))
+        continue;
       if (
         !headers.some((header) => header.includes("授業担当教員")) ||
         !headers.some((header) => header.includes("備考"))
@@ -573,7 +578,14 @@
     for (const table of root.querySelectorAll("table")) {
       if (!table.matches("table.tblYouken"))
         return incomplete("An unknown requirement table is present.");
-      const page = tableData(table);
+      // The live table has no <thead>; its header is as deep as the top-left
+      // corner cell spans, while the first row already contains a <td>.
+      const grid = matrix(table);
+      const cornerDepth = grid.findIndex((row) => row[0] !== grid[0]?.[0]);
+      const page = tableData(
+        table,
+        table.tHead?.rows.length || (cornerDepth > 0 ? cornerDepth : 0),
+      );
       if (page.headers.length < 2)
         return incomplete("A requirement table has no semantic header.");
       const rows = page.rows
@@ -584,6 +596,8 @@
         .map((row) => ({ label: row[0] || "", values: row.slice(1) }));
       if (!rows.some((row) => /(?:卒業|修了)要件|修得済単位/.test(row.label)))
         return incomplete("A requirement table has no recognized rows.");
+      if (rows.some((row) => !row.label))
+        return incomplete("A requirement row has no label.");
       tables.push({ headers: page.headers, rows });
     }
     if (tables.length)

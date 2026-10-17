@@ -293,6 +293,40 @@ describe("the production 教務 extractor reads the committed requirement fixtur
     expect(tables[0].headers).toEqual(["区分", "教養 / 文系", "教養 / 英語"]);
   });
 
+  it("reads a header as deep as the blank corner cell spans", () => {
+    // Live shape observed 2026-10-17: no <thead>, a blank top-left <td> that
+    // spans the header rows, then labelled requirement rows. Header labels
+    // below the level row and all numbers are placeholders.
+    const html = `
+      <div class="tableSet02Tbl"><table class="tblYouken">
+        <tr><td rowspan="4"></td><th colspan="2">文系教養</th><th rowspan="4">教養科目群計</th></tr>
+        <tr><th>100</th><th>200~300</th></tr>
+        <tr><td>甲</td><td>乙</td></tr>
+        <tr><td>丙</td><td>丁</td></tr>
+        <tr><th>特課研所属要件</th><td>1</td><td>2</td><td>3</td></tr>
+        <tr><th>卒業要件</th><td>2</td><td>4</td><td>6</td></tr>
+        <tr><th>修得済単位</th><td>2</td><td>2</td><td>4</td></tr>
+      </table></div>`;
+    const result = runExtractor(paths.requirements, html);
+    expect(result.status).toBe("ok");
+    const [table] = result.data.tables as Array<{
+      headers: string[];
+      rows: Array<{ label: string; values: string[] }>;
+    }>;
+    expect(table.headers).toEqual([
+      "",
+      "文系教養 / 100 / 甲 / 丙",
+      "文系教養 / 200~300 / 乙 / 丁",
+      "教養科目群計",
+    ]);
+    expect(table.rows.map((row) => row.label)).toEqual([
+      "特課研所属要件",
+      "卒業要件",
+      "修得済単位",
+    ]);
+    expect(table.rows[2].values).toEqual(["2", "2", "4"]);
+  });
+
   it("rejects one unknown requirement table beside recognized tables", () => {
     const html = asset("fixtures/kyomu-requirements-three-tables.html").replace(
       "</div>",
@@ -327,6 +361,20 @@ describe("the production 教務 extractor reads registration pages", () => {
         emptyRegistration.replace(
           "</table>",
           "<tr><td>対象データはありません</td></tr></table>",
+        ),
+      ),
+    ).toMatchObject({
+      status: "ok",
+      data: { complete: true, empty: true, courses: [] },
+    });
+    // Observed live 2026-10-17: an empty unit GridView renders only its
+    // empty-data row, with no header, beside the unit tables that have one.
+    expect(
+      runExtractor(
+        paths.registrations,
+        emptyRegistration.replace(
+          "</table>",
+          '<tr><td>対象データはありません</td></tr></table><table id="kamokuUnit_-2_gvKamoku"><tr><td>対象データはありません</td></tr></table>',
         ),
       ),
     ).toMatchObject({
