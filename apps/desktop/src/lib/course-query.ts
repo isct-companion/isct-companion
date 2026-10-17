@@ -18,4 +18,4 @@ export type FinderContext = Omit<CoreFinderContext, "recommended"> & {
   recommended: Map<string, CoreFinderContext["recommended"][string]>;
 };
 export const DAYS = ["月", "火", "水", "木", "金", "土"] as const;
-export const LOCAL_TYPES = new Set<ConditionType>(["mark", "group", "free"]);
+export const LOCAL_TYPES = new Set<ConditionType>(["free"]);

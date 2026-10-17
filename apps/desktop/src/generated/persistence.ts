@@ -1279,7 +1279,18 @@ export type Suggestion =
   | { kind: "course"; course: FinderCourse }
   | { kind: "text"; key: string; count: number };
 
+export type OfficialSelection = { id: string; value: string };
+
+export type OfficialFilterOption = {
+  id: string;
+  value: string;
+  label: string;
+  family: string;
+};
+
 export type RemoteQuery = {
+  controls?: Array<OfficialSelection>;
+  recommended?: boolean;
   quarters?: Array<number>;
   days?: Array<number>;
   periodStarts?: Array<number>;
@@ -1300,6 +1311,7 @@ export type FinderContext = {
   recommended: { [key in string]?: Recommendation };
   departments: Array<FinderDepartment>;
   busy: Array<BusySlot>;
+  officialOptions: Array<OfficialFilterOption>;
 };
 
 export type Recommendation = { group: string; mark?: string | null };

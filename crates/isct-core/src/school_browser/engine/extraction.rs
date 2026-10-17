@@ -24,6 +24,8 @@ pub(super) struct Extraction {
 pub(super) struct CatalogPage {
     cursor: Option<String>,
     next_cursor: String,
+    #[serde(flatten)]
+    filters: crate::catalog::CatalogFilters,
 }
 
 /// A hidden pull navigation. It owns automatic sign-in in its view and is
@@ -84,6 +86,7 @@ impl SchoolBrowserEngine {
         &self,
         url: &str,
         cursor: Option<String>,
+        filters: crate::catalog::CatalogFilters,
         context: &PullContext,
     ) -> Result<serde_json::Value, SchoolBrowserError> {
         if cursor
@@ -97,6 +100,7 @@ impl SchoolBrowserEngine {
         let page = CatalogPage {
             cursor,
             next_cursor: new_id(),
+            filters,
         };
         tokio::time::timeout(OPEN_TIMEOUT, async {
             // A search is interactive: yield immediately to the person's

@@ -109,6 +109,7 @@ function finderView(
       recommended: options.recommended ?? {},
       departments: [],
       busy: [],
+      officialOptions: [],
     },
     courses,
     factors: nextKeys.map(factorFor),

@@ -1011,5 +1011,6 @@
   "Due in {{duration}}": "{{duration}}后截止",
   "Due {{date}}": "截止于 {{date}}",
   "No stable release has been published yet": "尚未发布稳定版",
-  "Search 教務Web": "搜索教务"
+  "Search 教務Web": "搜索教务",
+  "Credits for multi-quarter courses are split equally across quarters.": "跨学季课程的学分按学季平均分摊。"
 }

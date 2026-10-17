@@ -1011,5 +1011,6 @@
   "Due in {{duration}}": "締切まで{{duration}}",
   "Due {{date}}": "締切 {{date}}",
   "No stable release has been published yet": "安定版はまだ公開されていません",
-  "Search 教務Web": "教務Webで検索"
+  "Search 教務Web": "教務Webで検索",
+  "Credits for multi-quarter courses are split equally across quarters.": "複数のクォーターにまたがる科目の単位は、各クォーターに均等に配分します。"
 }

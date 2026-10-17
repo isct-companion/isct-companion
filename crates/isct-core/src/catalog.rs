@@ -283,9 +283,11 @@ pub struct CatalogPage {
     pub truncated: bool,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CatalogFilters {
+    pub controls: Option<Vec<crate::course_query::OfficialSelection>>,
+    pub recommended: Option<bool>,
     pub teacher: Option<String>,
     pub code: Option<String>,
     pub department: Option<String>,
@@ -324,6 +326,19 @@ pub async fn kyomu_query(
             "Unknown course department.".into(),
         ));
     }
+    let controls = filters.controls.clone().unwrap_or_default();
+    if controls.len() > 40
+        || controls.iter().any(|c| {
+            c.id.len() > 100
+                || c.value.len() > 100
+                || !c.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                || c.value.chars().any(char::is_control)
+        })
+    {
+        return Err(CatalogError::InvalidInput(
+            "Invalid official search controls.".into(),
+        ));
+    }
     let code = filters
         .code
         .as_deref()
@@ -353,6 +368,9 @@ pub async fn kyomu_query(
         ("TermUnit", &format!("{year}2")),
         ("_search", "True"),
     ]);
+    if filters.recommended == Some(true) {
+        url.query_pairs_mut().append_pair("Suisho", "True");
+    }
     if !code.is_empty() {
         url.query_pairs_mut().append_pair("ShinkokuNoS", code);
     }
@@ -450,26 +468,50 @@ pub async fn kyomu_query(
         }
     }
     let url = url.to_string();
+    let identity = serde_json::to_string(&controls)?;
+    let browser_filters = filters.clone();
     let payload = coordinator
         .run(
             PullTarget::Catalog {
                 year,
-                query: format!("{url}#{}", cursor.as_deref().unwrap_or("")),
+                query: format!("{url}#{identity}#{}", cursor.as_deref().unwrap_or("")),
             },
             PullOptions::manual(),
             move |context| {
                 let browser = browser.clone();
                 let url = url.clone();
                 let cursor = cursor.clone();
+                let browser_filters = browser_filters.clone();
                 async move {
                     browser
-                        .catalog_search(&url, cursor, &context)
+                        .catalog_search(&url, cursor, browser_filters, &context)
                         .await
                         .map_err(crate::pull_coordinator::PullError::from)
                 }
             },
         )
         .await?;
+    if payload["searchOptions"].is_array() {
+        // Captured public form metadata is device-local and never cloud user data.
+        let options: Vec<crate::course_query::OfficialFilterOption> =
+            serde_json::from_value(payload["searchOptions"].clone())?;
+        let options = serde_json::to_value(options)?;
+        let previous = store.reference_cache_marker("kyomu-search-options", i32::from(year))?;
+        let now = chrono::Utc::now().timestamp();
+        let changed = previous.as_ref().is_none_or(|p| {
+            p["options"] != options
+                || p["capturedAt"]
+                    .as_i64()
+                    .is_none_or(|at| now - at >= 30 * 24 * 60 * 60)
+        });
+        if changed {
+            store.record_reference_cache(
+                "kyomu-search-options",
+                i32::from(year),
+                serde_json::json!({"options":options,"capturedAt":now}),
+            )?;
+        }
+    }
     let rows = payload["courses"].as_array().ok_or_else(|| {
         CatalogError::InvalidInput("Official course search returned no collection.".into())
     })?;
