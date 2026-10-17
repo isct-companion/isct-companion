@@ -115,7 +115,7 @@ export function AcademicCalendarSettings({
     date: jstDate(new Date()),
     selectedYear: year,
   }).value;
-  const years = [...(yearIndex?.years ?? [followedYear, year])].sort(
+  const years = [...new Set(yearIndex?.years ?? [followedYear, year])].sort(
     (a, b) => b - a,
   );
 
@@ -253,8 +253,8 @@ export function AcademicCalendarSettings({
         {t("What happens")}
         <UiSelect
           value={editing.draft.type}
-          onChange={(event) => {
-            const type = event.target.value as Draft["type"];
+          onChange={(value) => {
+            const type = value as Draft["type"];
             setEditing({
               ...editing,
               draft: {
@@ -267,33 +267,32 @@ export function AcademicCalendarSettings({
               },
             });
           }}
-        >
-          <option value="no-class">{t("No classes")}</option>
-          <option value="replacement">{t("Another day's timetable")}</option>
-          <option value="break">{t("Break")}</option>
-        </UiSelect>
+          data={[
+            { value: "no-class", label: t("No classes") },
+            { value: "replacement", label: t("Another day's timetable") },
+            { value: "break", label: t("Break") },
+          ]}
+        />
       </label>
       {editing.draft.type === "replacement" && (
         <label>
           {t("Use the timetable of")}
           <UiSelect
             value={editing.draft.replacementDay}
-            onChange={(event) =>
+            onChange={(value) =>
               setEditing({
                 ...editing,
                 draft: {
                   ...editing.draft,
-                  replacementDay: Number(event.target.value),
+                  replacementDay: Number(value),
                 },
               })
             }
-          >
-            {[1, 2, 3, 4, 5, 6].map((day) => (
-              <option key={day} value={day}>
-                {weekdayName(day, locale)}
-              </option>
-            ))}
-          </UiSelect>
+            data={[1, 2, 3, 4, 5, 6].map((day) => ({
+              value: String(day),
+              label: weekdayName(day, locale),
+            }))}
+          />
         </label>
       )}
       <label className="wide">
@@ -359,18 +358,16 @@ export function AcademicCalendarSettings({
             <UiSelect
               aria-label={t("Academic year")}
               value={year}
-              onChange={(event) => {
-                setYear(Number(event.target.value));
+              onChange={(value) => {
+                setYear(Number(value));
                 setEditing(null);
                 setShowPast(false);
               }}
-            >
-              {years.map((item) => (
-                <option key={item} value={item}>
-                  {t("AY {{year}}", { year: item })}
-                </option>
-              ))}
-            </UiSelect>
+              data={years.map((item) => ({
+                value: String(item),
+                label: t("AY {{year}}", { year: item }),
+              }))}
+            />
           )
         }
       />

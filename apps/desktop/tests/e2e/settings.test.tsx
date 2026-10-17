@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buttonByText,
   click,
+  chooseOption,
   typeInto,
   courseFor,
   offering,
@@ -114,16 +115,6 @@ async function answerDialog(label: string): Promise<void> {
 /** Sends a native event to the shell under test. */
 function emitNative(core: FakeCore, event: string, payload: unknown): void {
   core.emit(event, payload);
-}
-
-async function change(select: HTMLSelectElement, value: string): Promise<void> {
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLSelectElement.prototype,
-      "value",
-    )!.set!.call(select, value);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
 }
 
 /** The host starts every suite with the reminder bootstrap reporting success. */
@@ -242,6 +233,7 @@ describe("School accounts", () => {
               tokyoTech: notConfigured(),
             };
           if (command === "school_session_snapshot") return noSession;
+          if (command === "copy_school_otp") return true;
           if (command === "import_school_otp")
             return [
               {
@@ -278,9 +270,28 @@ describe("School accounts", () => {
       ].find((label) => label.textContent === "Microsoft / other")!;
       await click(other);
       expect(document.body.textContent).toContain(
-        "Do not remove your current setup.",
+        "Replace its old entry with the new one",
+      );
+      const newSetup = [
+        ...document.querySelectorAll<HTMLLabelElement>(
+          ".mantine-SegmentedControl-label",
+        ),
+      ].find((label) => label.textContent === "Not set up")!;
+      await click(newSetup);
+      expect(document.body.textContent).toContain(
+        "Replace its old entry with the new one",
       );
       await click(help);
+      await click(
+        science.querySelector<HTMLButtonElement>(
+          '[aria-label="Copy OTP setup"]',
+        )!,
+      );
+      await wait(() =>
+        expect(mounted.core.commands("copy_school_otp")[0]?.args).toEqual({
+          setup: undefined,
+        }),
+      );
       await scanFile(science, PNG());
       await wait(() =>
         expect(document.body.textContent).toContain(
@@ -293,6 +304,16 @@ describe("School accounts", () => {
         science.querySelector<HTMLInputElement>("#school-otp-setup")!.value,
       ).toBe(setup);
       expect(revoke).toHaveBeenCalledWith("blob:qr-test");
+      await click(
+        science.querySelector<HTMLButtonElement>(
+          '[aria-label="Copy OTP setup"]',
+        )!,
+      );
+      await wait(() =>
+        expect(mounted.core.commands("copy_school_otp").at(-1)?.args).toEqual({
+          setup,
+        }),
+      );
       expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
       await clickButton(science, "Connect");
       await wait(() =>
@@ -697,8 +718,24 @@ describe("Matrix scan and paste", () => {
       vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
         "data:image/jpeg;base64,Y2FtZXJh",
       );
+      let finishCapture: (() => void) | undefined;
       let finishScan: (() => void) | undefined;
       let frames = 0;
+      const captured = {
+        phase: "processing",
+        readyCells: 70,
+        captureElapsedMs: 800,
+        timedOut: false,
+        completedSamples: 0,
+        totalSamples: 210,
+        cells: [],
+        bounds: [
+          { x: 0.1, y: 0.2 },
+          { x: 0.9, y: 0.2 },
+          { x: 0.9, y: 0.8 },
+          { x: 0.1, y: 0.8 },
+        ],
+      };
       try {
         const mounted = await mountAccounts({
           capabilities: { matrixOcr: true },
@@ -707,28 +744,27 @@ describe("Matrix scan and paste", () => {
               return { science: notConfigured(), tokyoTech: notConfigured() };
             if (command === "school_session_snapshot") return noSession;
             if (command === "begin_matrix_camera") return "camera";
-            if (command === "scan_matrix_camera_frame") {
-              const snapshot = {
-                complete: frames++ > 0,
-                stableCells: frames > 1 ? 70 : 69,
-                confidence: frames > 1 ? 0.98 : 0.65,
-                cells: Array.from({ length: 70 }, () => ({
-                  text: "A",
-                  confidence: 0.98,
-                  stable: true,
-                })),
-                bounds: [
-                  { x: 0.1, y: 0.2 },
-                  { x: 0.9, y: 0.2 },
-                  { x: 0.9, y: 0.8 },
-                  { x: 0.1, y: 0.8 },
-                ],
-              };
-              if (!snapshot.complete) return snapshot;
+            if (command === "capture_matrix_camera_frame") {
+              if (frames++ === 0)
+                return { ...captured, phase: "capturing", readyCells: 69 };
               return new Promise((resolve) => {
-                finishScan = () => resolve(snapshot);
+                finishCapture = () => resolve(captured);
               });
             }
+            if (command === "process_matrix_camera")
+              return new Promise((resolve) => {
+                finishScan = () =>
+                  resolve({
+                    ...captured,
+                    phase: "complete",
+                    completedSamples: 210,
+                    cells: Array.from({ length: 70 }, (_, i) => ({
+                      text: "A",
+                      confidence: 0.98,
+                      stable: i !== 69,
+                    })),
+                  });
+              });
             return undefined;
           },
         });
@@ -754,11 +790,23 @@ describe("Matrix scan and paste", () => {
           "Use current result and review",
         );
         expect(document.body.textContent).toContain(
-          "Reading Matrix. Hold steady",
+          "Capturing Matrix… 69/70 cells ready.",
         );
         expect(matrixInputs(card).every((input) => input.value === "")).toBe(
           true,
         );
+        await wait(() => expect(finishCapture).toBeDefined());
+        await act(async () => finishCapture?.());
+        await wait(() =>
+          expect(document.body.textContent).toContain(
+            "Processing Matrix… You can put your card down.",
+          ),
+        );
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(matrixInputs(card).every((input) => input.value === "")).toBe(
+          true,
+        );
+        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(0);
         await wait(() => expect(finishScan).toBeDefined());
         await act(async () => finishScan?.());
         await wait(() =>
@@ -769,6 +817,8 @@ describe("Matrix scan and paste", () => {
         expect(matrixInputs(card).every((input) => input.value === "A")).toBe(
           true,
         );
+        expect(matrixInputs(card)[0].dataset.confidence).toBe("high");
+        expect(matrixInputs(card)[69].dataset.confidence).toBe("medium");
         expect(stop).toHaveBeenCalledTimes(1);
         expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(1);
       } finally {
@@ -1115,6 +1165,63 @@ describe("Matrix scan and paste", () => {
   );
 });
 
+it(
+  "renders bounded virtual application logs and pauses following while reading older entries",
+  async () => {
+    const entries = Array.from({ length: 1500 }, (_, index) => ({
+      id: index + 1,
+      at: "2026-10-17T01:00:00Z",
+      level: "INFO",
+      target: "cloud-sync",
+      message: `Confirmed log ${index + 1}`,
+    }));
+    app = await mountSettings(paths.settings("developer"), {
+      handle: (command, args) => {
+        if (command === "application_logs")
+          return {
+            entries: args.after ? [] : entries,
+            cursor: 1500,
+            dropped: false,
+          };
+        return undefined;
+      },
+    });
+    const toggle = await wait(() =>
+      settingsPane(app!).querySelector<HTMLInputElement>(
+        '[data-setting="developer-mode"] input',
+      )!,
+    );
+    await click(toggle);
+    await app.go(paths.settings("diagnostics"));
+    await wait(() =>
+      expect(settingsPane(app!).textContent).toContain("1500 log entries"),
+    );
+    const pane = settingsPane(app);
+    await wait(() =>
+      expect(pane.querySelectorAll(".diagnosticLogRow").length).toBeGreaterThan(
+        0,
+      ),
+    );
+    expect(pane.querySelectorAll(".diagnosticLogRow").length).toBeLessThan(40);
+    expect(pane.querySelector('[contenteditable="true"],textarea')).toBeNull();
+    const follow = pane.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )!;
+    expect(follow.checked).toBe(true);
+    await act(async () =>
+      pane
+        .querySelector(".diagnosticLogs")!
+        .dispatchEvent(
+          new WheelEvent("wheel", { deltaY: -100, bubbles: true }),
+        ),
+    );
+    expect(follow.checked).toBe(false);
+    await click(follow);
+    expect(follow.checked).toBe(true);
+  },
+  TIMEOUT,
+);
+
 /* -------------------------------------------------------------------- backup */
 
 function cloudState(overrides: Partial<CloudSyncState> = {}): CloudSyncState {
@@ -1259,7 +1366,14 @@ describe("Backup", () => {
     async () => {
       const mounted = await mountBackup({
         handle: (command) => {
-          if (command === "cloud_sync_state") return cloudState();
+          if (command === "cloud_sync_state")
+            return cloudState({
+              recoveryPoints: Array.from({ length: 9 }, (_, index) => ({
+                id: `local:${index}`,
+                version: `v1-${index}`,
+                savedAt: `2026-10-${String(12 - index).padStart(2, "0")}T03:00:00Z`,
+              })),
+            });
           if (command === "sync_cloud_now") return cloudState();
           if (command === "restore_cloud_version") return cloudState();
           return undefined;
@@ -1267,6 +1381,31 @@ describe("Backup", () => {
       });
       const pane = settingsPane(mounted);
 
+      const visibleExportRows = () =>
+        [...pane.querySelectorAll("button")]
+          .filter((button) => button.textContent === "Export…")
+          .map((button) => button.closest(".row")?.textContent);
+      const firstPageRows = visibleExportRows();
+      expect(
+        [...pane.querySelectorAll("button")].filter(
+          (button) => button.textContent === "Export…",
+        ),
+      ).toHaveLength(5); // four recovery files plus manual export
+      const localPages = pane.querySelector(
+        '[aria-label="Local recovery pages"]',
+      )!;
+      await click(
+        localPages.querySelector<HTMLButtonElement>('[aria-label="2"]') ??
+          [...localPages.querySelectorAll<HTMLButtonElement>("button")].find(
+            (button) => button.textContent === "2",
+          )!,
+      );
+      expect(
+        [...pane.querySelectorAll("button")].filter(
+          (button) => button.textContent === "Export…",
+        ),
+      ).toHaveLength(5);
+      expect(visibleExportRows()).not.toEqual(firstPageRows);
       await clickButton(pane, "Upload");
       await wait(() =>
         expect(mounted.core.commands("sync_cloud_now")).toHaveLength(1),
@@ -1388,9 +1527,12 @@ describe("Backup", () => {
         ),
       );
 
-      await wait(() => expect(pane.textContent).toContain("Waiting to sync"));
-      // The queued upload shows each provider's delivery; ids stay a developer detail.
-      expect(pane.textContent).toContain("Waiting to retry");
+      await wait(() =>
+        expect(pane.textContent).toContain("Saved on this device"),
+      );
+      // Transport attempts belong in application logs, not the backup history.
+      expect(pane.textContent).not.toContain("Waiting to retry");
+      expect(pane.textContent).not.toContain("Attempts");
       expect(pane.textContent).not.toContain("task-1");
       expect(pane.textContent).not.toContain("Up to date");
       expect(buttonIn(pane, "Restore").disabled).toBe(true);
@@ -1417,12 +1559,14 @@ function studyWorkspace(): Workspace {
 }
 
 const stageSelect = (pane: HTMLElement) =>
-  pane.querySelector<HTMLSelectElement>(
-    '[aria-label="Degree programme, entry 1"]',
+  pane.querySelector<HTMLInputElement>(
+    '[role="combobox"][aria-label="Degree programme"]',
   )!;
 
 const departmentSelect = (pane: HTMLElement) =>
-  pane.querySelector<HTMLSelectElement>('[data-setting="department"] select')!;
+  pane.querySelector<HTMLInputElement>(
+    '[data-setting="department"] [role="combobox"]',
+  )!;
 
 async function mountStudy(
   workspace: Workspace,
@@ -1462,16 +1606,17 @@ describe("Study profile", () => {
       },
     });
     const pane = settingsPane(mounted);
-    await change(departmentSelect(pane), "cs");
+    await chooseOption(departmentSelect(pane), "cs");
     await wait(() =>
       expect(mounted.core.workspace.settings.departmentId).toBe("cs"),
     );
-    expect(departmentSelect(pane).value).toBe("cs");
+    expect(departmentSelect(pane).value).toBe("Computer Science");
   });
 
   it("prefills the detected entry year and saves it only on request", async () => {
     const workspace = studyWorkspace();
     delete workspace.academicProfile.admissionYear;
+    workspace.academicProfile.studyEnrollments = [];
     const mounted = await mountStudy(workspace, {
       apply: (intent, core) => {
         if (intent.kind === "setStudyProfile")
@@ -1495,16 +1640,20 @@ describe("Study profile", () => {
     const pane = settingsPane(mounted);
     await wait(() =>
       expect(
-        pane.querySelector<HTMLSelectElement>(
-          '[data-setting="admission-year"] select',
+        pane.querySelector<HTMLInputElement>(
+          '[data-setting="admission-year"] [role="combobox"]',
         )!.value,
-      ).toBe("2025"),
+      ).toBe("2025 entry"),
     );
     expect(studyIntents(mounted)).toHaveLength(0);
+    await chooseOption(stageSelect(pane), "undergraduate");
     await clickButton(pane, "Save enrollment details");
     await wait(() =>
       expect(mounted.core.workspace.academicProfile.admissionYear).toBe(2025),
     );
+    expect(mounted.core.workspace.academicProfile.studyEnrollments).toEqual([
+      { stage: "undergraduate", entryKind: "unknown", admittedTerm: "2025-1Q" },
+    ]);
   });
 
   it("keeps a manually saved admission year when a different year is detected", async () => {
@@ -1519,47 +1668,41 @@ describe("Study profile", () => {
     const pane = settingsPane(mounted);
     await flush();
     expect(
-      pane.querySelector<HTMLSelectElement>(
-        '[data-setting="admission-year"] select',
+      pane.querySelector<HTMLInputElement>(
+        '[data-setting="admission-year"] [role="combobox"]',
       )!.value,
-    ).toBe("2024");
+    ).toBe("2024 entry");
     expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true);
     expect(studyIntents(mounted)).toHaveLength(0);
   });
 
   it(
-    "saves consecutive stage edits as one profile without losing any field",
+    "saves the simple year and degree fields without discarding known enrollment details",
     async () => {
       const mounted = await mountStudy(studyWorkspace());
       const pane = settingsPane(mounted);
-
-      const stage = stageSelect(pane);
-      const kind = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Entry route, entry 1"]',
-      )!;
-      const grade = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Starting year of study, entry 1"]',
-      )!;
-      const term = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Admission term, entry 1"]',
-      )!;
-      await change(stage, "professional");
-      await change(kind, "transfer");
-      await change(grade, "2");
-      await change(term, "2026-2Q");
+      expect(pane.querySelectorAll('[role="combobox"]')).toHaveLength(3);
+      expect(pane.textContent).not.toContain("Add degree programme");
+      await chooseOption(stageSelect(pane), "professional");
+      await chooseOption(
+        pane.querySelector<HTMLElement>(
+          '[data-setting="admission-year"] [role="combobox"]',
+        )!,
+        "2025",
+      );
 
       await clickButton(pane, "Save enrollment details");
       await wait(() => expect(studyIntents(mounted)).toHaveLength(1));
       // One save carries every edit, so a field cannot be lost half-way.
       expect(studyIntents(mounted)[0]).toEqual({
         kind: "setStudyProfile",
-        admissionYear: 2026,
+        admissionYear: 2025,
         studyEnrollments: [
           {
             stage: "professional",
-            entryKind: "transfer",
-            entryGrade: 2,
-            admittedTerm: "2026-2Q",
+            entryKind: "regular",
+            entryGrade: 1,
+            admittedTerm: "2026-1Q",
           },
         ],
       });
@@ -1589,12 +1732,12 @@ describe("Study profile", () => {
       });
       const pane = settingsPane(mounted);
 
-      await change(stageSelect(pane), "doctoral");
+      await chooseOption(stageSelect(pane), "doctoral");
       await clickButton(pane, "Save enrollment details");
       await wait(() => expect(stageSelect(pane).disabled).toBe(true));
       expect(
-        pane.querySelector<HTMLSelectElement>(
-          '[aria-label="Entry route, entry 1"]',
+        pane.querySelector<HTMLInputElement>(
+          '[data-setting="admission-year"] [role="combobox"]',
         )!.disabled,
       ).toBe(true);
       expect(buttonIn(pane, "Saving…").disabled).toBe(true);
@@ -1616,7 +1759,7 @@ describe("Study profile", () => {
       });
       const pane = settingsPane(mounted);
 
-      await change(stageSelect(pane), "doctoral");
+      await chooseOption(stageSelect(pane), "doctoral");
       await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
         const alert = pane.querySelector('[role="alert"]');
@@ -1624,7 +1767,7 @@ describe("Study profile", () => {
         return alert;
       });
       expect(error.textContent).toContain("duplicate term");
-      expect(stageSelect(pane).value).toBe("doctoral");
+      expect(stageSelect(pane).value).toBe("Doctoral");
       expect(buttonIn(pane, "Save enrollment details").disabled).toBe(false);
     },
     TIMEOUT,
@@ -1637,7 +1780,7 @@ describe("Study profile", () => {
       const mounted = await mountStudy(initial);
       const pane = settingsPane(mounted);
 
-      await change(stageSelect(pane), "doctoral");
+      await chooseOption(stageSelect(pane), "doctoral");
 
       // Another device changed the profile while this draft was open.
       const external = structuredClone(initial);
@@ -1652,7 +1795,7 @@ describe("Study profile", () => {
       );
       // The department is not part of the draft, so it proves the newer profile
       // has really been adopted before Save is pressed.
-      await wait(() => expect(departmentSelect(pane).value).toBe("physics"));
+      await wait(() => expect(departmentSelect(pane).value).toBe("Physics"));
 
       await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
@@ -1661,7 +1804,7 @@ describe("Study profile", () => {
         return alert;
       });
       expect(error.textContent).toContain("changed elsewhere");
-      expect(stageSelect(pane).value).toBe("doctoral");
+      expect(stageSelect(pane).value).toBe("Doctoral");
       expect(studyIntents(mounted)).toHaveLength(0);
     },
     TIMEOUT,
@@ -1683,12 +1826,12 @@ describe("Study profile", () => {
       });
       const pane = settingsPane(mounted);
 
-      await change(stageSelect(pane), "master");
+      await chooseOption(stageSelect(pane), "master");
       await clickButton(pane, "Save enrollment details");
       await wait(() =>
         expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true),
       );
-      expect(stageSelect(pane).value).toBe("master");
+      expect(stageSelect(pane).value).toBe("Master");
 
       const external = structuredClone(initial);
       external.academicProfile.studyEnrollments = [
@@ -1706,7 +1849,7 @@ describe("Study profile", () => {
       await act(async () =>
         emitNative(mounted.core, "workspace-changed", { source: "cloud-sync" }),
       );
-      await wait(() => expect(stageSelect(pane).value).toBe("doctoral"));
+      await wait(() => expect(stageSelect(pane).value).toBe("Doctoral"));
     },
     TIMEOUT,
   );
@@ -1925,13 +2068,13 @@ describe("Notification preferences", () => {
       },
     });
     const pane = settingsPane(app);
-    const classTime = pane.querySelector<HTMLSelectElement>(
-      '[data-setting="class-lead"] select',
+    const classTime = pane.querySelector<HTMLInputElement>(
+      '[data-setting="class-lead"] [role="combobox"]',
     )!;
     expect(
       classTime.closest('[role="group"]')!.getAttribute("aria-label"),
     ).toBe("Class reminders");
-    await change(classTime, "30");
+    await chooseOption(classTime, "30");
     await wait(() =>
       expect(app!.core.workspace.settings.notifications.classLeadMinutes).toBe(
         30,

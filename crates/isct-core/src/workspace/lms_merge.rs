@@ -268,8 +268,13 @@ pub(super) fn apply_lms_merge(
     }
     let mut edited = edited.into_iter().collect::<Vec<_>>();
     edited.sort_by(|left, right| left.0.cmp(&right.0));
-    for (_, (course, rev)) in edited {
-        write.put("manual_courses", course, rev)?;
+    for (id, (course, rev)) in edited {
+        let expected = if write.has_user_row("manual_courses", &id)? {
+            rev
+        } else {
+            None
+        };
+        write.put("manual_courses", course, expected)?;
     }
 
     for entry in &diff.local_only {
@@ -331,9 +336,9 @@ pub(super) fn lms_terms(lms: &Value) -> Vec<String> {
         .and_then(Value::as_object)
         .into_iter()
         .flat_map(|map| {
-            map.keys()
-                .filter(|term| validate_term(term).is_ok())
-                .cloned()
+            map.iter()
+                .filter(|(term, grid)| grid.is_array() && validate_term(term).is_ok())
+                .map(|(term, _)| term.clone())
         })
         .collect();
     if let Some(year) = lms.get("year").and_then(Value::as_i64) {
@@ -350,6 +355,7 @@ pub(super) fn lms_terms(lms: &Value) -> Vec<String> {
             }
         }
     }
+    terms.retain(|term| !lms["timetables"].get(term).is_some_and(Value::is_null));
     terms.into_iter().collect()
 }
 
@@ -650,7 +656,7 @@ pub(super) fn lms_diff(
     })
 }
 
-pub(super) fn lms_terms_with_offering(lms: &Value, offering: Option<&Value>) -> Vec<String> {
+pub(crate) fn lms_terms_with_offering(lms: &Value, offering: Option<&Value>) -> Vec<String> {
     let mut terms: HashSet<String> = lms_terms(lms).into_iter().collect();
     let year = lms.get("year").and_then(Value::as_i64).or_else(|| {
         offering

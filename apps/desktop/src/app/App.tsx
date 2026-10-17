@@ -292,6 +292,26 @@ export function WorkspaceApp() {
     ? timetableViews.get(courseViewTerm)
     : undefined;
   useEffect(() => {
+    const report = (message: string) => {
+      void desktopBridge
+        ?.recordApplicationError?.(message)
+        .catch(() => undefined);
+    };
+    const error = (event: ErrorEvent) => report(event.message);
+    const rejection = (event: PromiseRejectionEvent) =>
+      report(
+        event.reason instanceof Error
+          ? event.reason.message
+          : String(event.reason),
+      );
+    window.addEventListener("error", error);
+    window.addEventListener("unhandledrejection", rejection);
+    return () => {
+      window.removeEventListener("error", error);
+      window.removeEventListener("unhandledrejection", rejection);
+    };
+  }, []);
+  useEffect(() => {
     if (previewTerm === overview.value?.coursesTerm) setPreviewTerm(null);
   }, [previewTerm, overview.value?.coursesTerm]);
   const section = (params.section ?? "accounts") as Section;
@@ -812,7 +832,7 @@ export function WorkspaceApp() {
       state: { lectureRequest: Date.now(), lectureContext: timing },
     });
   };
-  /** Assignments and materials only; the timetable stays as it is. */
+  /** Refresh LMS course content and all available timetable quarters. */
   const fetchLms = async (
     quiet = false,
     lmsCourseId?: number,
@@ -1258,9 +1278,9 @@ export function WorkspaceApp() {
         intensiveActive={finderKeys.includes("集中")}
         addTerm={() => setTermDialog(true)}
         refreshSchedule={
-          desktopBridge?.pullSchool ? () => void refreshKyomu() : undefined
+          desktopBridge?.pullSchool ? () => void fetchLms() : undefined
         }
-        pullProgress={kyomuProgress}
+        pullProgress={lmsProgress}
         register={
           desktopBridge?.setKyomuGuide
             ? (term) => void openRegistration(term)

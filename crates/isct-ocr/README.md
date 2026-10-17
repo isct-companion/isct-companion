@@ -25,40 +25,59 @@ This crate isolates an optional dependency and its failure handling at the API
 boundary. It runs in the caller's process and does not claim to contain a native
 abort or memory fault; process isolation would require a separate worker.
 
-Desktop live capture uses `scan_live_frame`: a frame is decoded and located once,
-the outer geometry is published immediately, and only the requested cells are
-cropped and preprocessed. Model inference uses batches of up to ten, with a
-64-pixel single-character input. Low-confidence narrow results retry the
-established 320-pixel input in a batch. Original/cleaned-image review remains
-active. Cells still below 0.8 get a 128-pixel recrop to preserve thin strokes,
-then keep the better measured result. Photo imports retain their existing 320-pixel API and acceptance rules.
+Desktop camera scanning has two phases. `capture_matrix_frame` decodes and
+locates a frame, rectifies 96×96 glyphs with bilinear interpolation, keeps
+Rec.601 grayscale, and measures contrast, Laplacian sharpness, source resolution
+and whether texture lies inside the glyph instead of on a cropped grid edge.
+It performs no character-model inference and no input binarization. Geometry
+localization retains its existing grid/header detection internally.
 
-`isct_core::matrix_scan::MatrixScanner` owns scheduling and per-cell consensus.
-The first plan contains all 70 cells; subsequent plans contain up to ten
-unsettled cells, ordered by oldest attempt so difficult cells cannot starve the
-others. Settled cells get bounded background checks. Each cell independently
-retains its last six qualified observations (confidence >= 0.80), requiring at
-least three and a strict count/weight majority. Low-confidence samples do not
-consume slots. A new clear contradiction reopens a settled cell.
+`isct_core::matrix_scan::MatrixCameraScanner` owns the bounded acquisition.
+The first plausible Matrix (at least half its cells have usable texture) starts
+an eight-second deadline. Each cell independently retains up to six candidate
+gray images from observations at least 100 ms apart, preferring sharp centered
+texture. Acquisition stops immediately once every cell has five candidates, or
+at the deadline. A periodic shell wakeup enforces the deadline even when video
+stalls. Missing geometry never restarts it. Before first detection there is no
+capture deadline. Candidate memory is bounded at 70×6×96×96 bytes plus small
+metadata; buffers remain resident only for the current session.
 
-When all cells settle, a full-card verification pass checks for contradictions.
-At least 49 cells must be readable in that pass, but blurred cells retain their
-independently collected votes. The scanner completes only after this check.
-Movement preserves row/column identity; four seconds of continuous grid loss
-reset the card, independently of processing frequency. Stale/modified plans are rejected, so a frame cannot donate
-votes twice. Cancellation invalidates pending inference and geometry callbacks.
+The shell releases the camera and closes its dialog before invoking background
+processing. `MatrixAlphabetService` uses the bundled A–Z + blank classifier on
+batches of up to ten candidate glyphs. Only results at confidence >= 0.8 vote.
+Each cell requires at least three qualified observations and a strict weighted
+and count majority. Offline votes accumulate across all retained candidates;
+a later candidate does not erase earlier votes. The result is returned only
+after every candidate is processed. Unsettled cells are marked for review rather
+than presented as settled recognition. Closing/cancelling invalidates the session;
+workers check ownership between batches and ignore stale results.
 
-Desktop requests a 30 fps video stream and captures only the latest frame with
-one request in flight. Inference consumes the newest decoded frame immediately
-when ready; intervening video frames are dropped without canvas/JPEG work. A
-video-frame callback (or a short fallback wait) prevents duplicate-frame votes
-when inference runs faster than capture.
-The preview displays one red outline. Completion releases the camera, fills the
-editor and closes automatically. `matrix-scan/latest.json` under the app cache
-contains timing, qualified-sample counts, weak/blank/conflict counts and shell
-capture timing; it never contains recognized letters or images. Capture
-`trackedMs` measures first visible outline to stop, while `elapsedMs` includes
-all camera acquisition time after video playback starts.
+Desktop requests a 30 fps stream with one capture request in flight. It consumes
+the newest decoded frame, dropping intervening frames without canvas/JPEG work.
+The preview displays only one red outline. Processing has inline progress and
+can continue while the app is in the background after capture has stopped.
+`matrix-scan/latest.json` under the app cache contains acquisition/processing
+times, per-cell candidate/vote counts, weak coverage and shell capture timing;
+it contains no images or recognized letters. `trackedMs` measures first visible
+outline to camera release, not the later inference completion.
+
+Photo imports retain the existing Paddle service and acceptance rules. The
+older `scan_live_frame` and `MatrixScanner` API remain for its adaptive replay
+profiler. That path scans all 70 cells, refines unsettled cells and verifies the
+whole card before completion; its policies are not a second owner of the new
+camera acquisition session.
+
+Replay the two-stage camera flow (the input files are `capture-*.jpg`):
+
+```sh
+cargo run -p isct-ocr --release --example matrix_capture -- FRAME_DIRECTORY EXPECTED_TEXT CAPTURE_FPS
+```
+
+The reported capture duration follows the recording timestamps; it is not a
+new live-camera measurement. Frame processing and offline model time are measured
+on the host. `ISCT_MATRIX_ALPHABET_MODEL` can select local experimental weights
+at build time; ordinary builds embed the synthetic-only printed model documented
+under `models/alphabet/`. No captured card data belongs in that directory.
 
 Run a local replay through the real scheduler and model:
 
@@ -76,7 +95,7 @@ rendered from the system Helvetica font and contains no student data.
 
 `matrix_live CAPTURE_DIRECTORY [ALPHABET_ONNX] [TIMEOUT_SECONDS]` can run an
 external A–Z + blank classifier against live `latest.jpg` frames. It uses the
-production geometry and core consensus, with direct 96×96 grayscale input.
+production capture preprocessing and legacy core consensus, with direct 96×96 grayscale input.
 Unlike production metadata logging, this supervised diagnostic saves source
 frames, geometry and readings locally for replay; use a disposable test card.
 
@@ -97,5 +116,4 @@ binarize inputs. It evaluates all 70 cells in batches of ten. Core
 to keep false background grids and motion blur out of the vote pool. Accepted
 frames still vote independently per cell at confidence >= 0.8. Live adapters
 should replace `latest.jpg` atomically at camera speed; the consumer has no
-fixed inference frequency or frame queue. Model evaluation does not replace
-the app's embedded model.
+fixed inference frequency or frame queue. This legacy diagnostic does not change the app's embedded model.

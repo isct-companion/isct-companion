@@ -260,18 +260,19 @@ export function CourseEditor({
               <span>{t("Language")}</span>
               <UiSelect
                 value={values.language}
-                onChange={(e) =>
+                onChange={(value) =>
                   setValues({
                     ...values,
-                    language: e.target.value as InstructionLanguage,
+                    language: value as InstructionLanguage,
                   })
                 }
-              >
-                <option value="ja">{t("Japanese")}</option>
-                <option value="en">{t("English")}</option>
-                <option value="ja-en">{t("Japanese / English")}</option>
-                <option value="other">{t("Other")}</option>
-              </UiSelect>
+                data={[
+                  { value: "ja", label: t("Japanese") },
+                  { value: "en", label: t("English") },
+                  { value: "ja-en", label: t("Japanese / English") },
+                  { value: "other", label: t("Other") },
+                ]}
+              />
             </label>
             <div className="field">
               <span>{t("Color")}</span>
@@ -338,36 +339,36 @@ export function CourseEditor({
                   <UiSelect
                     aria-label={t("Period")}
                     value={row.slot}
-                    onChange={(e) => {
-                      const slot = classSlots.find(
-                        (s) => s.label === e.target.value,
-                      );
+                    onChange={(value) => {
+                      const slot = classSlots.find((s) => s.label === value);
                       setRow(index, {
-                        slot: e.target.value,
+                        slot: value,
                         periods: slot
                           ? [...slot.periods]
-                          : e.target.value === "custom"
+                          : value === "custom"
                             ? []
                             : row.periods,
                         startTime: slot?.start ?? row.startTime,
                         endTime: slot?.end ?? row.endTime,
                       });
                     }}
-                  >
-                    {classSlots.map((slot) => (
-                      <option value={slot.label} key={slot.label}>
-                        {slot.label} · {slot.start}–{slot.end}
-                      </option>
-                    ))}
-                    {row.periods.length > 0 &&
-                      !classSlots.some((slot) => slot.label === row.slot) && (
-                        <option value={row.slot}>
-                          {row.periods[0]}-{row.periods.at(-1)} ·{" "}
-                          {row.startTime}–{row.endTime}
-                        </option>
-                      )}
-                    <option value="custom">{t("Custom time")}</option>
-                  </UiSelect>
+                    data={[
+                      ...classSlots.map((slot) => ({
+                        value: slot.label,
+                        label: `${slot.label} · ${slot.start}–${slot.end}`,
+                      })),
+                      ...(row.periods.length > 0 &&
+                      !classSlots.some((slot) => slot.label === row.slot)
+                        ? [
+                            {
+                              value: row.slot,
+                              label: `${row.periods[0]}-${row.periods.at(-1)} · ${row.startTime}–${row.endTime}`,
+                            },
+                          ]
+                        : []),
+                      { value: "custom", label: t("Custom time") },
+                    ]}
+                  />
                   {row.slot === "custom" && (
                     <div className="timeRange">
                       <UiInput
@@ -700,16 +701,11 @@ export function TermDialog({
           <UiSelect
             aria-label={t("Academic year")}
             value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-          >
-            {Array.from({ length: 7 }, (_, i) => defaultYear - 3 + i).map(
-              (option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ),
+            onChange={(value) => setYear(Number(value))}
+            data={Array.from({ length: 7 }, (_, i) =>
+              String(defaultYear - 3 + i),
             )}
-          </UiSelect>
+          />
           <SegmentedControl
             value={quarter}
             data={["1Q", "2Q", "3Q", "4Q"]}

@@ -15,38 +15,32 @@ fn document(notes: Value) -> Value {
 }
 
 #[test]
-fn daily_recovery_survives_frequent_same_day_updates() {
-    let mut file = make_workspace_file(json!({"day":0}), "Phone", Some("Phone"), None).unwrap();
-    file.updated_at = "2026-10-01T00:00:00Z".into();
-    for day in 2..=9 {
-        file =
-            make_workspace_file(json!({"day":day}), "Phone", Some("Phone"), Some(&file)).unwrap();
-        file.updated_at = format!("2026-10-{day:02}T00:00:00Z");
-    }
-    for edit in 0..20 {
+fn history_keeps_recent_edits_and_expires_old_versions_only_with_four_newer_copies() {
+    let now = chrono::Utc::now();
+    let mut file = make_workspace_file(json!({"old":true}), "Phone", Some("Phone"), None).unwrap();
+    file.updated_at = (now - chrono::Duration::days(60)).to_rfc3339();
+    for edit in 1..=20 {
         file =
             make_workspace_file(json!({"edit":edit}), "Phone", Some("Phone"), Some(&file)).unwrap();
-        file.updated_at = "2026-10-09T12:00:00Z".into();
+        if edit < 4 {
+            assert!(file.previous.iter().any(|old| old.document["old"] == true));
+        }
     }
-    assert_eq!(file.previous.len(), 2);
-    assert_eq!(file.checkpoints.len(), 7);
+    assert_eq!(file.previous.len(), 19);
+    assert!(!file.previous.iter().any(|old| old.document["old"] == true));
     assert!(file
-        .checkpoints
+        .previous
         .iter()
-        .any(|point| point.updated_at.starts_with("2026-10-03")));
-    assert!(file
-        .checkpoints
-        .iter()
-        .all(|point| point.previous.is_empty() && point.checkpoints.is_empty()));
+        .all(|old| old.previous.is_empty() && old.checkpoints.is_empty()));
 }
 
 #[test]
-fn rotations_keep_two_flat_versions_and_restore_rotates_current() {
+fn retained_history_stays_flat_and_restore_rotates_current() {
     let mut file = make_workspace_file(json!({"value":1}), "Laptop", Some("Laptop"), None).unwrap();
     for value in 2..=6 {
         file = make_workspace_file(json!({"value":value}), "Phone", Some("Phone"), Some(&file))
             .unwrap();
-        assert!(file.previous.len() <= 2);
+        assert_eq!(file.previous.len(), (value - 1) as usize);
         assert!(file.previous.iter().all(|old| old.previous.is_empty()));
     }
     assert_eq!(file.previous[0].document["value"], 5);
@@ -60,7 +54,11 @@ fn rotations_keep_two_flat_versions_and_restore_rotates_current() {
     .unwrap();
     assert_eq!(restored.document["value"], 4);
     assert_eq!(restored.previous[0].document["value"], 6);
-    assert_eq!(restored.previous.len(), 2);
+    assert_eq!(restored.previous.len(), 6);
+    let mut skewed = restored.clone();
+    skewed.updated_at = (chrono::Utc::now() - chrono::Duration::days(90)).to_rfc3339();
+    let next = make_workspace_file(json!({"value":7}), "Laptop", None, Some(&skewed)).unwrap();
+    assert_eq!(next.previous[0].document, skewed.document); // conditional-write baseline survives clock skew
 }
 
 #[test]

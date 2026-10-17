@@ -12,6 +12,7 @@ import {
 import {
   advance,
   click,
+  chooseOption,
   courseFor,
   emptySchoolRecords,
   installFakeCore,
@@ -602,18 +603,10 @@ describe("shell navigation", () => {
     list.scrollTop = 128;
     const term = await required(
       () =>
-        host.querySelector<HTMLSelectElement>(
-          ".lectureTerm select, select.lectureTerm",
-        ),
+        host.querySelector<HTMLInputElement>('.lectureTerm [role="combobox"]'),
       "the quarter picker",
     );
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )!.set!.call(term, "2026-2Q");
-      term.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await chooseOption(term, "2026-2Q");
 
     await app.go(paths.home());
     await app.go(paths.lectures(placedCourse.id));
@@ -622,10 +615,8 @@ describe("shell navigation", () => {
     expect(filter.value).toBe("graph");
     expect(host.querySelector(".lectureList")).toBe(list);
     expect(list.scrollTop).toBe(128);
-    expect(host.querySelector(".lectureTerm select, select.lectureTerm")).toBe(
-      term,
-    );
-    expect(term.value).toBe("2026-2Q");
+    expect(host.querySelector('.lectureTerm [role="combobox"]')).toBe(term);
+    expect(term.value).toBe("2026 2Q");
   }, 20_000);
 
   it("blocks Back while the Web page owns the native view and restores the URL when hiding fails", async () => {
@@ -2422,6 +2413,52 @@ it("shows progress only for pulls the user started and the data age when idle", 
     // The percentage is an estimate; the bar carries it without a number.
     expect(status.textContent).not.toContain("%");
   });
+  // A manual request waiting for the school lane must show the automatic
+  // owner that is making progress, instead of appearing stuck at queued 5%.
+  const waitingKyomu = {
+    id: "kyomu-active",
+    target: { type: "school", site: "kyomu", courseId: null },
+    state: "queued",
+    priority: "manual",
+    phase: null,
+    blockedBy: null,
+    attempt: 0,
+    waiterCount: 1,
+    lastError: null,
+  };
+  await act(async () => {
+    app!.core.emit("pull-state-changed", [
+      waitingKyomu,
+      {
+        ...waitingKyomu,
+        id: "lms-automatic-running",
+        target: { type: "school", site: "science-lms", courseId: null },
+        state: "running",
+        priority: "automatic",
+        phase: "extracting",
+      },
+    ]);
+  });
+  await act(async () =>
+    app!.core.emit("school-pull-progress", {
+      site: "science-lms",
+      phase: "course",
+      completed: 7,
+      total: 62,
+      courseId: 1,
+      courseTitle: "First course",
+      term: "2026-3Q",
+      itemTitle: "",
+    }),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("LMS");
+    expect(status.textContent).toContain("7/62");
+    expect(status.textContent).toContain("教務Web refresh queued");
+    expect(status.querySelector("progress")!.value).toBeGreaterThan(8);
+  });
+  await act(async () => app!.core.emit("pull-state-changed", [waitingKyomu]));
   await act(async () =>
     app!.core.emit("school-ingest", {
       site: "kyomu",
@@ -2544,6 +2581,26 @@ it("shows progress only for pulls the user started and the data age when idle", 
     ).toEqual(["kyomu", "science-lms"]),
   );
   await until(() => expect(force.disabled).toBe(false));
+  await app.go(paths.timetable());
+  const timetableRefresh = await required(
+    () =>
+      [...app!.host.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent?.trim() === "Refresh timetable",
+      ),
+    "the timetable refresh action",
+  );
+  // Changing pages consumes cache; timetable refresh reads LMS only.
+  expect(
+    app.core.calls.filter((call) => call.command === "pull_school"),
+  ).toHaveLength(2);
+  await click(timetableRefresh);
+  await until(() =>
+    expect(
+      app!.core.calls
+        .filter((call) => call.command === "pull_school")
+        .map((call) => call.args.site),
+    ).toEqual(["kyomu", "science-lms", "science-lms"]),
+  );
 });
 
 /**

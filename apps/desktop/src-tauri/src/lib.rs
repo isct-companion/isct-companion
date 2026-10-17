@@ -97,7 +97,7 @@ where
         let started = std::time::Instant::now();
         let result = work();
         if std::env::var_os("ISCT_TRACE_READS").is_some() {
-            eprintln!(
+            log::info!(
                 "[native-data] op={} queue_ms={} work_ms={} ok={}",
                 std::any::type_name::<F>(),
                 started.duration_since(queued_at).as_millis(),
@@ -168,9 +168,10 @@ fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = isct_core::diagnostics::initialize();
     let builder = tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
-            eprintln!(
+            log::info!(
                 "[lms-file] protocol {} from {}",
                 request.method(),
                 context.webview_label()
@@ -206,7 +207,8 @@ pub fn run() {
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
-        .manage(commands::matrix_camera::CameraScanner::default());
+        .manage(commands::matrix_camera::CameraScanner::default())
+        .manage(isct_ocr::MatrixAlphabetService::default());
     #[cfg(target_os = "macos")]
     let builder = builder
         .manage(campus_wifi::CampusWifi::default())
@@ -236,6 +238,8 @@ pub fn run() {
             #[cfg(desktop)]
             commands::platform::install_app_update,
             commands::platform::runtime_capabilities,
+            commands::platform::application_logs,
+            commands::platform::application_error,
             lms_files::course_storage_info,
             lms_files::choose_course_storage,
             lms_files::save_course_note,
@@ -261,7 +265,9 @@ pub fn run() {
             workspaces::clean_workspaces,
             commands::platform::recognize_matrix_image,
             commands::matrix_camera::begin_matrix_camera,
-            commands::matrix_camera::scan_matrix_camera_frame,
+            commands::matrix_camera::capture_matrix_camera_frame,
+            commands::matrix_camera::poll_matrix_camera,
+            commands::matrix_camera::process_matrix_camera,
             commands::matrix_camera::stop_matrix_camera,
             commands::school::open_external,
             commands::school::resolve_school_url,
@@ -284,6 +290,7 @@ pub fn run() {
             commands::school_auth::save_school_credentials,
             commands::school_auth::delete_school_credentials,
             commands::school_auth::copy_school_matrix,
+            commands::school_auth::copy_school_otp,
             commands::school_auth::import_school_otp,
             commands::school_auth::login_school,
             commands::school_auth::test_school_connection,
@@ -458,7 +465,7 @@ pub fn run() {
                             })
                             .await;
                             if drained.is_err() {
-                                eprintln!(
+                                log::error!(
                                     "[shutdown] owned work did not finish within {:?}; exiting",
                                     core_ports::EXIT_TIMEOUT
                                 );
@@ -513,7 +520,7 @@ pub fn run() {
                 if let Err(error) = core_ports::runtime(app)
                     .refresh_event(school_refresh::RefreshEvent::lifecycle(foreground))
                 {
-                    eprintln!("[school-refresh] {error}");
+                    log::error!("[school-refresh] {error}");
                 }
                 core_ports::publish_conditions(app);
                 let app = app.clone();
@@ -528,7 +535,7 @@ pub fn run() {
                     if let Err(error) =
                         tauri_plugin_google_drive_auth::handle_url(app, url.as_str())
                     {
-                        eprintln!("Google OAuth callback could not be handled: {error}");
+                        log::error!("Google OAuth callback could not be handled: {error}");
                     }
                 }
             }

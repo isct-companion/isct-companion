@@ -53,13 +53,21 @@ export function installWindowGlobals(window: Window & typeof globalThis): void {
           ? 600
           : this.classList.contains("finderRow")
             ? 96
-            : 0;
+            : this.classList.contains("diagnosticLogs")
+              ? 420
+              : this.classList.contains("diagnosticLogRow")
+                ? 48
+                : 0;
       },
     });
     Object.defineProperty(window.HTMLElement.prototype, "offsetWidth", {
       configurable: true,
       get() {
-        return this.classList.contains("finderResults") ? 400 : 0;
+        return this.classList.contains("finderResults")
+          ? 400
+          : this.classList.contains("diagnosticLogs")
+            ? 800
+            : 0;
       },
     });
     window.HTMLElement.prototype.scrollTo ??= function scrollTo(

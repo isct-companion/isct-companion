@@ -1,73 +1,41 @@
 # Desktop distribution
 
-The public source repository builds the app and hosts preview Releases with
-three desktop installers. The retired Tauri mobile release workflows are
-archived under `deprecated/tauri-mobile/workflows/`.
-`isct-companion/Isct-Companion-App` remains available as the separate distribution
-destination for stable releases, holding only README and license documents.
-The two repositories have independent Git histories. Third-party notices and
-licenses are bundled in the app.
+The source repository `isct-companion/isct-companion` builds and publishes desktop
+Releases for macOS 14+ (Apple Silicon and Intel) and Windows 10/11 x64. Mobile
+release pipelines remain separate and are not part of this workflow.
 
-## Preview builds
+## Build and publish
 
 CI uses the Yarn version pinned in `package.json`, enabled through Corepack,
 and installs dependencies with `yarn install --immutable`.
 
-`.github/workflows/desktop-release.yml` builds Apple Silicon Mac, Intel Mac
-and Windows x64. Pushes to `main`, version tags, and manual dispatches trigger
-the build. Use **Desktop release → Run workflow**, with `publish` left
-unchecked, to download build artifacts. To publish an existing successful build without rebuilding, enable `publish`
-and enter its Actions run ID in `source_run_id`. The workflow checks that
-the source is a successful Desktop release run in this repository. During the
-public preview, `publish_target=source` publishes in the source repository.
-Select `publish_target=distribution` to use `Isct-Companion-App` and its
-`PUBLIC_RELEASE_TOKEN`; that mode also updates its distribution documents.
+The Desktop release workflow runs by manual dispatch. Update the matching versions
+in `package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml`,
+`Cargo.lock` and `apps/desktop/src-tauri/tauri.conf.json`, including its macOS
+`bundleVersion`. Push the verified commit, then dispatch `desktop-release.yml`
+on that ref with `publish=true`. Leave `replace_existing=false` for new versions.
 
-macOS requires 14 or later. Windows installers target Windows 10/11 and install
-WebView2 through its bootstrapper if needed. Intel Mac currently excludes
-campus-card OCR because ONNX Runtime has no prebuilt Intel macOS library.
+To build without publishing, leave `publish=false`. To publish an existing successful
+Desktop release build without rebuilding, set `source_run_id` to its Actions run ID.
+The workflow validates that run before using its artifacts.
+
+All three desktop builds must succeed before publication. Publication uses the source
+repository's `GITHUB_TOKEN`: it creates a draft, uploads installers and signed updater
+bundles, then publishes the complete release. Stable versions are marked Latest;
+versions with a prerelease suffix remain prereleases. Release notes record the source
+commit. Existing published releases require explicit `replace_existing=true`.
+
+When `ISCT_UPDATER_PUBLIC_KEY` is configured, every platform must supply a signed
+update bundle using `TAURI_SIGNING_PRIVATE_KEY`. The complete set produces
+`latest.json`, consumed by desktop update checks from this source repository.
+
 Mac signing and notarization are controlled by `sign_macos` or
-`MACOS_SIGNING_ENABLED`. Windows signing remains unconfigured. Build success
-does not establish runtime compatibility on every supported OS.
+`MACOS_SIGNING_ENABLED`. Windows signing remains unconfigured. Intel Mac currently
+excludes campus-card OCR because ONNX Runtime has no prebuilt Intel macOS library.
+Build success does not establish runtime compatibility on every supported OS.
 
-## Publish releases
-
-Source-repository publication uses the workflow's `GITHUB_TOKEN`; no separate
-release token is needed. A `main` push builds all desktop targets without publishing
-a Release. A version tag publishes after the builds succeed, and manual
-dispatch can publish either a new build or an existing successful run.
-
-For the separate distribution repository:
-
-1. Create a fine-grained GitHub personal access token for resource owner
-   `isct-companion`, selecting **only** `Isct-Companion-App`, with **Contents:
-   read and write**. Approve it in the organization if required.
-2. Save it as `PUBLIC_RELEASE_TOKEN` in the source repository's Actions
-   secrets. Do not paste it into source files or chat. Set an expiration and
-   rotate the secret before it expires.
-3. Merge the release workflow into the branch used for releases. Update the
-   matching versions in `package.json`, `apps/desktop/package.json`,
-   `apps/desktop/src-tauri/Cargo.toml` and
-   `apps/desktop/src-tauri/tauri.conf.json`.
-4. Dispatch the workflow with `publish` enabled and
-   `publish_target=distribution`. The version guard rejects mismatched tags.
-
-All desktop builds must succeed before publication. Only `.dmg` and `.exe`
-installers are uploaded as Release assets. Native mobile release pipelines
-will be introduced with the SwiftUI and Compose apps.
-The job creates a draft, uploads the complete set, then publishes it. Versions
-with a prerelease suffix remain prereleases; stable versions such as `1.0.0`
-are marked Latest. An existing published version is protected by default. An explicit
-manual dispatch with `replace_existing=true` can refresh that version's assets.
-New source-repository release tags point at the verified build commit. Existing
-tags are preserved, and release notes record the exact source build commit.
-Distribution-repository releases keep their independent document history; no
-source code is copied there, and their automatic source archives contain only
-the distribution documents.
-
-The public repository must already have a `main` branch. The initial README
-and licenses establish it. Public document sources are
-`docs/distribution/README.md` and `docs/legal/EULA{,.ja}.md`.
+Installer document sources are `docs/distribution/README.md` and
+`docs/legal/EULA{,.ja}.md`. Third-party notices are bundled in the app.
 
 ## OAuth and signing
 

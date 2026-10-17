@@ -1,3 +1,4 @@
+import { Checkbox } from "@mantine/core";
 import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
@@ -74,6 +75,7 @@ export function Today({
   }, [focusSection]);
   const [allClasses, setAllClasses] = useState(false);
   const [allDue, setAllDue] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [dueScope, setDueScope] = useState<"today" | "earlier">("today");
   const nowIso = useClock(active);
   const now = new Date(nowIso);
@@ -129,6 +131,7 @@ export function Today({
   const taskView = useScheduleQuery<TaskView>({
     kind: "taskView",
     now: nowIso,
+    includeCompleted: showCompleted,
   }).value;
   const taskTerm = taskView?.byTerm[term];
   const submittedIds = new Set(taskView?.submittedIds);
@@ -136,26 +139,21 @@ export function Today({
   const rows = (ids: string[] | undefined) =>
     (ids ?? []).flatMap((id) => byAssignment.get(id) ?? []);
   const pending = rows(taskTerm?.pendingIds);
-  const pinned = rows(taskTerm?.pinnedIds);
-  const soon = rows(
-    dueScope === "earlier"
-      ? taskTerm?.earlierDueThisWeekIds
-      : taskTerm?.dueThisWeekIds,
-  );
-  const later = rows(
-    dueScope === "earlier" ? taskTerm?.earlierLaterIds : taskTerm?.laterIds,
-  );
+  const pinned = dueScope === "today" ? rows(taskTerm?.pinnedIds) : [];
+  const soon = dueScope === "today" ? rows(taskTerm?.dueThisWeekIds) : [];
+  const later = dueScope === "today" ? rows(taskTerm?.laterIds) : [];
   const past = dueScope === "earlier" ? rows(taskTerm?.overdueIds) : [];
+  const undatedCompleted =
+    dueScope === "earlier" ? rows(taskTerm?.undatedCompletedIds) : [];
   const row = (assignment: Assignment) => {
     const course = data.courses.find(
       (item) => item.id === assignment.courseId && !item.deletedAt,
     );
     const due = taskView?.deadlines?.[assignment.id];
-    if (!due) return null;
     const submitted = submittedIds.has(assignment.id);
     // Past and submitted: gray; past and never submitted: red; submitted
     // ahead of the deadline: green.
-    const state = due.overdue
+    const state = due?.overdue
       ? submitted
         ? " closed"
         : " missed"
@@ -182,19 +180,20 @@ export function Today({
               {submissionLabel(assignment, t, submitted)}
             </small>
           </span>
-          {!due.overdue && !submitted ? (
-            <time
-              className={`dueChip ${due.countdownTone}`}
-              dateTime={assignment.dueAt!}
-              title={deadlineText(due, data.settings.locale).label}
-            >
-              {deadlineText(due, data.settings.locale).countdownLabel}
-            </time>
-          ) : (
-            <time className={due.overdue ? "overdue" : due.tone}>
-              {deadlineText(due, data.settings.locale).label}
-            </time>
-          )}
+          {due &&
+            (!due.overdue && !submitted ? (
+              <time
+                className={`dueChip ${due.countdownTone}`}
+                dateTime={assignment.dueAt!}
+                title={deadlineText(due, data.settings.locale).label}
+              >
+                {deadlineText(due, data.settings.locale).countdownLabel}
+              </time>
+            ) : (
+              <time className={due.overdue ? "overdue" : due.tone}>
+                {deadlineText(due, data.settings.locale).label}
+              </time>
+            ))}
         </UiButton>
         {!mobile && (
           <UiButton
@@ -520,6 +519,14 @@ export function Today({
                 </UiButton>
               ))}
             </div>
+            <Checkbox
+              size="xs"
+              label={t("Show completed")}
+              checked={showCompleted}
+              onChange={(event) =>
+                setShowCompleted(event.currentTarget.checked)
+              }
+            />
             <span>
               {pending.length
                 ? t("{{count}} active", { count: pending.length })
@@ -538,8 +545,24 @@ export function Today({
               more(allDue ? 0 : soon.length - DUE_ROWS, allDue, () =>
                 setAllDue((value) => !value),
               )}
-            {!soon.length && (
-              <p className="quietEmpty compact">{t("Nothing due this week")}</p>
+            {!soon.length &&
+              !pinned.length &&
+              !later.length &&
+              !past.length &&
+              !undatedCompleted.length && (
+                <p className="quietEmpty compact">
+                  {t(
+                    dueScope === "earlier"
+                      ? "No earlier assignments"
+                      : "Nothing due this week",
+                  )}
+                </p>
+              )}
+            {undatedCompleted.length > 0 && (
+              <div className="dueCompleted">
+                <small>{t("Completed")}</small>
+                {undatedCompleted.map(row)}
+              </div>
             )}
             {later.length > 0 && (
               <div className="dueLater">

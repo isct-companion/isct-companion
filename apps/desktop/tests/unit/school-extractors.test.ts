@@ -501,6 +501,181 @@ describe("the shipped school scripts stay read-only", () => {
     }
   });
 
+  it("reads every offered LMS year and quarter, retaining partial results when one grid fails", async () => {
+    const page = (
+      year: string,
+      quarter: string,
+    ) => `<div data-block="tttimetable">
+      <form action="/2025/my/index.php" method="post">
+        <select name="year"><option value="1" ${year === "2025" ? "selected" : ""}>2025</option><option value="7" ${year === "2026" ? "selected" : ""}>2026</option></select>
+        <select name="quota">${[1, 2, 3, 4].map((q) => `<option value="${q}" ${String(q) === quarter ? "selected" : ""}>${q}</option>`).join("")}</select>
+        <input type="hidden" name="search" value="1">
+      </form>
+      <table><tr><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th></tr>
+      <tr><td>1</td><td><a href="/2025/course/view.php?id=42">Course</a></td><td></td><td></td><td></td><td></td></tr></table>
+      <table><tr><td><a href="/2025/course/view.php?id=43">申告専用</a></td></tr></table></div>`;
+    const dom = new JSDOM(page("2026", "3"), {
+      url: "https://lms.s.isct.ac.jp/2025/my/",
+      runScripts: "outside-only",
+    });
+    const requests: string[] = [];
+    let failQuarter = true;
+    // The remote school transport has no headless server; execute the real
+    // extractor and DOM parser while scripting only its HTTP responses.
+    Object.assign(dom.window, {
+      M: { cfg: { sesskey: "test-key", language: "ja" } },
+      __ISCT_COMPANION_LMS_FULL__: true,
+      AbortSignal,
+      fetch: async (url: string, options: RequestInit) => {
+        if (url === "/2025/my/index.php") {
+          const body = new URLSearchParams(String(options.body));
+          expect([...body.keys()].sort()).toEqual(["quota", "search", "year"]);
+          expect(options.method).toBe("POST");
+          expect(body.get("search")).toBe("1");
+          const year = body.get("year") === "1" ? "2025" : "2026";
+          const quarter = body.get("quota")!;
+          requests.push(`${year}-${quarter}Q`);
+          if (failQuarter && year === "2025" && quarter === "2")
+            throw new Error("network failure");
+          return {
+            ok: true,
+            url: "https://lms.s.isct.ac.jp/2025/my/index.php",
+            text: async () => page(year, quarter),
+          };
+        }
+        const [{ methodname }] = JSON.parse(String(options.body));
+        return {
+          ok: true,
+          headers: { get: () => "application/json" },
+          json: async () => [
+            {
+              data:
+                methodname ===
+                "core_course_get_enrolled_courses_by_timeline_classification"
+                  ? { courses: [] }
+                  : { events: [] },
+            },
+          ],
+        };
+      },
+    });
+    const result = (await dom.window.eval(
+      rustConstant("crates/isct-core/src/lms_ingest.rs", "LMS_EXTRACT_SCRIPT"),
+    )) as {
+      status: string;
+      timetables: {
+        year: number;
+        quarter: string;
+        slots: unknown[];
+        unscheduled: number[];
+      }[];
+      timetableErrors: string[];
+    };
+    expect(result.status).toBe("ok");
+    expect(requests).toHaveLength(7);
+    expect(result.timetables).toHaveLength(7);
+    expect(
+      new Set(result.timetables.map((g) => `${g.year}-${g.quarter}Q`)).size,
+    ).toBe(7);
+    expect(
+      result.timetables.every(
+        (g) => g.slots.length === 1 && g.unscheduled[0] === 43,
+      ),
+    ).toBe(true);
+    expect(result.timetableErrors).toHaveLength(1);
+    expect(result.timetableErrors[0]).toContain("2025-2Q");
+    failQuarter = false;
+    const recovered = (await dom.window.eval(
+      rustConstant("crates/isct-core/src/lms_ingest.rs", "LMS_EXTRACT_SCRIPT"),
+    )) as typeof result;
+    expect(recovered.timetables).toHaveLength(8);
+    expect(recovered.timetableErrors).toEqual([]);
+  });
+
+  it("bounds stalled LMS requests and bodies without blocking other courses or losing their outlines", async () => {
+    const dom = new JSDOM("<body></body>", {
+      url: "https://lms.s.isct.ac.jp/2025/my/",
+      runScripts: "outside-only",
+    });
+    const events: string[] = [];
+    const stalled = (signal?: AbortSignal) =>
+      new Promise<never>((_, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            events.push("aborted");
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      });
+    // The school service has no headless endpoint. Only its transport is
+    // scripted; the production extractor, DOM and worker pool execute intact.
+    Object.assign(dom.window, {
+      M: { cfg: { sesskey: "test-key", language: "en" } },
+      __ISCT_COMPANION_LMS_FULL__: true,
+      AbortSignal: {
+        timeout: (ms: number) => {
+          expect(ms).toBe(20000);
+          return AbortSignal.timeout(20);
+        },
+      },
+      fetch: async (url: string, options: RequestInit) => {
+        const signal = options.signal ?? undefined;
+        if (url.includes("service.php")) {
+          const [{ methodname, args }] = JSON.parse(String(options.body));
+          if (methodname === "core_courseformat_get_state") {
+            events.push(`course-${args.courseid}`);
+            if (args.courseid === 1) return stalled(signal);
+          }
+          const data =
+            methodname ===
+            "core_course_get_enrolled_courses_by_timeline_classification"
+              ? {
+                  courses: Array.from({ length: 6 }, (_, i) => ({
+                    id: i + 1,
+                    fullname: `Course ${i + 1}`,
+                  })),
+                }
+              : methodname === "core_courseformat_get_state"
+                ? JSON.stringify({ section: [], cm: [] })
+                : { events: [] };
+          return {
+            ok: true,
+            headers: { get: () => "application/json" },
+            json: async () => [{ data }],
+          };
+        }
+        return {
+          ok: true,
+          url,
+          text: () =>
+            url.endsWith("id=2")
+              ? stalled(signal)
+              : Promise.resolve("<body></body>"),
+        };
+      },
+    });
+    const result = (await dom.window.eval(
+      rustConstant("crates/isct-core/src/lms_ingest.rs", "LMS_EXTRACT_SCRIPT"),
+    )) as {
+      status: string;
+      structures: { courseId: number; complete: boolean }[];
+    };
+    expect(result.status).toBe("ok");
+    expect(result.structures).toHaveLength(6);
+    expect(result.structures.find((row) => row.courseId === 1)?.complete).toBe(
+      false,
+    );
+    expect(
+      result.structures
+        .filter((row) => row.courseId !== 1)
+        .every((row) => row.complete),
+    ).toBe(true);
+    expect(events.filter((event) => event === "aborted")).toHaveLength(2);
+    expect(events.indexOf("course-5")).toBeLessThan(events.indexOf("aborted"));
+  });
+
   it("closes the LMS AJAX method allowlist to exactly the seven documented methods", () => {
     const script = rustConstant(
       "crates/isct-core/src/lms_ingest.rs",

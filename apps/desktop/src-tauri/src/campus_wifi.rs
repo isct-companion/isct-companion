@@ -92,7 +92,7 @@ pub struct CampusWifi(tokio::sync::Mutex<()>);
 pub async fn campus_wifi_status(webview: tauri::Webview) -> Result<CampusWifiStatus, String> {
     crate::require_local_main(&webview)?;
     let result = status().await;
-    eprintln!("[campus-wifi] status {result:?}");
+    log::info!("[campus-wifi] status {result:?}");
     result
 }
 
@@ -130,7 +130,7 @@ pub async fn campus_wifi_connect(
         let _ = on_step.send(step);
     };
     let result = connect(&app, leave_science_tokyo_x, step).await;
-    eprintln!("[campus-wifi] {result:?}");
+    log::info!("[campus-wifi] {result:?}");
     result
 }
 

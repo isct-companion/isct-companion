@@ -22,6 +22,7 @@ use std::{
 
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(45);
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
+const SNAPSHOT_INTERVAL_SECONDS: i64 = 60 * 60;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -184,13 +185,17 @@ impl CloudSync {
         supported: &[CloudProvider],
         authorized: &[CloudProvider],
     ) -> Result<Self, CloudSyncError> {
-        Ok(Self(Arc::new(Inner {
+        let service = Self(Arc::new(Inner {
             journal: JournalStore::open(legacy, supported, authorized)?,
             run: tokio::sync::Mutex::new(()),
             tasks: RuntimeTasks::default(),
             tick_pass: Arc::new(tokio::sync::Semaphore::new(1)),
             next_tick: Mutex::new(Instant::now()),
-        })))
+        }));
+        if let Err(error) = service.prune_recovery() {
+            crate::diagnostics::report("backup-retention", &error);
+        }
+        Ok(service)
     }
 
     pub fn state(&self) -> Result<SyncState, CloudSyncError> {
@@ -221,9 +226,13 @@ impl CloudSync {
         let service = self.clone();
         if !self.0.tasks.spawn(async move {
             let _permit = permit;
-            let _ = service.resume_inner(&services).await;
+            if let Err(error) = service.resume_inner(&services).await {
+                crate::diagnostics::report("cloud-sync", &error);
+            }
             if !service.0.tasks.is_closed() {
-                let _ = service.capture_inner(&services, true).await;
+                if let Err(error) = service.capture_inner(&services, true).await {
+                    crate::diagnostics::report("cloud-sync", &error);
+                }
             }
         }) {
             return Err(CloudSyncError::Stopped);
@@ -318,7 +327,7 @@ impl CloudSync {
                             delivery.retry_at = 0;
                         }
                     }
-                    journal.enqueue(document, direction)
+                    journal.request(document, direction)
                 })?;
                 service.publish(&services)?;
                 service.resume_inner(&services).await
@@ -587,15 +596,31 @@ impl CloudSync {
 
     async fn run_queue(&self, services: &CloudServices) -> Result<(), CloudSyncError> {
         self.finish_apply(services).await?;
+        self.0.journal.change(Journal::coalesce_uploads)?;
         let jobs = self.0.journal.read(|journal| journal.jobs.clone())?;
+        let now = chrono::Utc::now().timestamp();
+        let mut cooling = jobs
+            .iter()
+            .flat_map(|job| &job.task.deliveries)
+            .filter(|delivery| {
+                delivery.status == DeliveryStatus::Pending
+                    && delivery.error.is_some()
+                    && delivery.retry_at > now
+            })
+            .map(|delivery| delivery.provider)
+            .collect::<std::collections::HashSet<_>>();
         for mut job in jobs {
             if self.0.tasks.is_closed() {
                 return Err(CloudSyncError::Stopped);
             }
             let now = chrono::Utc::now().timestamp();
-            if !job.task.deliveries.iter().any(|delivery| {
-                delivery.status != DeliveryStatus::Completed && delivery.retry_at <= now
-            }) {
+            let mut due = Vec::new();
+            for delivery in &job.task.deliveries {
+                if self.delivery_due(&job, delivery, &cooling, now)? {
+                    due.push(delivery.provider);
+                }
+            }
+            if due.is_empty() {
                 continue;
             }
             self.0.journal.change(|journal| {
@@ -608,7 +633,7 @@ impl CloudSync {
                     .state()?
                     .providers
                     .into_iter()
-                    .filter(|provider| provider.enabled)
+                    .filter(|provider| provider.enabled && !cooling.contains(&provider.provider))
                     .collect::<Vec<_>>();
                 for provider in providers {
                     if let Ok(Some(remote)) = self
@@ -641,8 +666,8 @@ impl CloudSync {
                 if self.0.tasks.is_closed() {
                     return Err(CloudSyncError::Stopped);
                 }
-                if delivery.status == DeliveryStatus::Completed
-                    || delivery.retry_at > chrono::Utc::now().timestamp()
+                if !due.contains(&delivery.provider)
+                    || cooling.contains(&delivery.provider)
                     || !self
                         .state()?
                         .providers
@@ -666,6 +691,9 @@ impl CloudSync {
                     convergence = cloud_merge::merge(&convergence, document);
                 }
                 let stopped = matches!(&outcome, Err(CloudSyncError::Stopped));
+                if outcome.is_err() {
+                    cooling.insert(delivery.provider);
+                }
                 self.record_delivery(&job.task.id, delivery.provider, outcome)?;
                 self.publish(services)?;
                 if stopped {
@@ -709,12 +737,52 @@ impl CloudSync {
         })
     }
 
+    fn delivery_due(
+        &self,
+        job: &Job,
+        delivery: &Delivery,
+        cooling: &std::collections::HashSet<CloudProvider>,
+        now: i64,
+    ) -> Result<bool, CloudSyncError> {
+        if delivery.status == DeliveryStatus::Completed
+            || delivery.retry_at > now
+            || cooling.contains(&delivery.provider)
+        {
+            return Ok(false);
+        }
+        self.0.journal.read(|journal| {
+            let Some(provider) = journal
+                .state
+                .providers
+                .iter()
+                .find(|row| row.provider == delivery.provider && row.enabled)
+            else {
+                return false;
+            };
+            job.task.direction == Direction::Pull
+                || job.manual
+                || delivery.attempts > 0
+                || (provider.synced_version.as_ref() != Some(&job.task.version)
+                    && journal.upload_due(delivery.provider, chrono::Utc::now()))
+        })
+    }
+
     fn record_delivery(
         &self,
         task: &str,
         provider: CloudProvider,
         result: Result<(Value, Vec<CloudVersion>), CloudSyncError>,
     ) -> Result<(), CloudSyncError> {
+        match &result {
+            Ok(_) => crate::diagnostics::info(
+                "cloud-sync",
+                &format!("{provider:?} confirmed task {task}"),
+            ),
+            Err(error) => crate::diagnostics::report(
+                "cloud-sync",
+                &format!("{provider:?} task {task}: {error}"),
+            ),
+        }
         self.0.journal.change(|journal| {
             journal.state.syncing = false;
             let delivery = delivery_mut(journal, task, provider)?;
@@ -816,12 +884,25 @@ impl CloudSync {
         self.apply_document(services, &merged).await?;
         self.capture_inner(services, false).await?;
         self.publish_workspace(services, WorkspaceChangeSource::CloudSync);
-        let versions = self
+        // History is auxiliary metadata. A failed history listing must not
+        // turn an already committed cloud write into another upload attempt.
+        let versions = match self
             .remote(
                 services.transport.versions(provider),
                 CloudSyncError::Interrupted,
             )
-            .await?;
+            .await
+        {
+            Ok(versions) => versions,
+            Err(error) => {
+                crate::diagnostics::report("cloud-history", &format!("{provider:?}: {error}"));
+                self.state()?
+                    .versions
+                    .into_iter()
+                    .filter(|version| version.provider == provider)
+                    .collect()
+            }
+        };
         Ok((document, versions))
     }
 
@@ -917,7 +998,72 @@ impl CloudSync {
                 );
             }
             Ok(())
-        })
+        })?;
+        if let Err(error) = self.prune_recovery() {
+            crate::diagnostics::report("backup-retention", &error);
+        }
+        Ok(())
+    }
+
+    /// Unlink only after the recovery index has been durably updated. A failed
+    /// unlink leaves an extra file, never a reference to a deleted backup.
+    fn prune_recovery(&self) -> Result<(), CloudSyncError> {
+        let directory = self.0.journal.path.with_file_name("recovery");
+        let file = |version: &str| {
+            (version.len() > 3
+                && version.starts_with("v1-")
+                && version[3..].bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .then(|| directory.join(format!("{version}.json")))
+        };
+        let points = self.state()?.recovery_points;
+        // Missing files cannot count as newer backups. Check off the journal
+        // lock, and revalidate the plan before committing the new index.
+        let dates = points
+            .iter()
+            .map(|point| {
+                if file(&point.version).is_some_and(|path| path.is_file()) {
+                    point.saved_at.as_str()
+                } else {
+                    ""
+                }
+            })
+            .collect::<Vec<_>>();
+        let expired = crate::backup::retention::expired(dates, chrono::Utc::now())
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        if expired.is_empty() {
+            return Ok(());
+        }
+        let removed = self.0.journal.change(|journal| {
+            if journal.state.recovery_points != points {
+                return Ok(Vec::new());
+            }
+            let mut removed = Vec::new();
+            let mut index = 0;
+            journal.state.recovery_points.retain(|point| {
+                let keep = !expired.contains(&index);
+                index += 1;
+                if !keep {
+                    removed.push(point.version.clone());
+                }
+                keep
+            });
+            Ok(removed)
+        })?;
+        for version in removed {
+            let Some(path) = file(&version) else {
+                continue;
+            };
+            match std::fs::remove_file(path) {
+                Ok(()) => crate::diagnostics::info(
+                    "backup-retention",
+                    "Removed an expired local recovery file",
+                ),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => crate::diagnostics::report("backup-retention", &error),
+            }
+        }
+        Ok(())
     }
 
     async fn prepare_reset_inner(&self, services: &CloudServices) -> Result<(), CloudSyncError> {

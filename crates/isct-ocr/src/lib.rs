@@ -44,6 +44,19 @@ pub struct MatrixLiveFrame {
     pub quads: Vec<[[f64; 2]; 4]>,
     pub timing: MatrixFrameTiming,
 }
+/// Capability measurements only; capture admission and lifetime belong to core.
+pub struct MatrixCaptureGlyph {
+    pub gray: Vec<u8>,
+    pub contrast: f64,
+    pub sharpness: f64,
+    pub source_size: f64,
+    pub centering: f64,
+}
+pub struct MatrixCaptureFrame {
+    pub quads: Vec<[[f64; 2]; 4]>,
+    pub glyphs: Vec<MatrixCaptureGlyph>,
+    pub timing: MatrixFrameTiming,
+}
 
 /// Compile-time backend availability; model initialization remains lazy.
 pub const fn available() -> bool {
@@ -93,7 +106,21 @@ pub enum MatrixOcrError {
 }
 
 #[cfg(matrix_ocr)]
-pub use engine::MatrixOcrService;
+pub use engine::{capture_matrix_frame, MatrixAlphabetService, MatrixOcrService};
+
+#[cfg(not(matrix_ocr))]
+pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+#[derive(Clone, Default)]
+pub struct MatrixAlphabetService;
+#[cfg(not(matrix_ocr))]
+impl MatrixAlphabetService {
+    pub fn recognize(&self, _images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
+}
 
 #[cfg(not(matrix_ocr))]
 #[derive(Clone, Default)]

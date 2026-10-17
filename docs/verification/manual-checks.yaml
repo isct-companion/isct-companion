@@ -737,20 +737,26 @@ checks:
       - action: |
           Open Scan with camera in a packaged desktop app, allow camera access,
           and bring the real card toward the camera. Check that one red outline
-          follows the Matrix, with no cell boxes or letter overlays. Tilt it,
-          introduce glare, then hold it steady with the labels in view. Observe
-          whether the scanner fills all cells and closes itself; record the
-          acquisition time and any cells that prevent completion. After close
-          or cancel, inspect matrix-scan/latest.json under the app cache for
-          captured frame latency, first-outline-to-stop time, per-cell qualified
-          sample counts and blank/weak/conflict counts. Compare all 70 saved
-          letters with the real card.
+          follows the Matrix, with no cell boxes or letter overlays. Move the
+          card, introduce glare, then briefly hold it steady with labels visible.
+          Observe the per-cell acquisition coverage. The camera must stop as
+          soon as every cell has enough clear candidates, or within eight seconds
+          of the first detected Matrix; waiting before detection does not count.
+          After acquisition, the dialog closes, the camera indicator turns off,
+          and inline processing progress appears. Put the card down and verify
+          results arrive; insufficient votes must be highlighted for review.
+          Inspect matrix-scan/latest.json under the app cache for separate
+          acquisition/processing times, per-cell candidate and qualified-vote
+          counts. Compare all 70 letters with the real card.
         reason: |
           OS camera permissions, native WebView video capture, optical focus,
           and the alignment of recognition boxes over a physical card require
           real hardware. Scripted frames cannot validate these surfaces.
       - action: |
           Cancel and reopen the camera, then background the app during capture.
+          Repeat and background it during processing: acquisition stops in the
+          former case, but the latter may finish without reopening the camera.
+          Cancel processing and confirm late results do not overwrite the editor.
           Deny permission on a fresh permission state and retry after granting it.
         reason: |
           Verify the camera indicator switches off and permissions can recover
@@ -778,6 +784,7 @@ checks:
       - crates/isct-ocr/**
       - apps/desktop/src/lib/matrix-ocr.ts
       - crates/isct-core/src/matrix_scan.rs
+      - crates/isct-core/src/matrix_scan/**
       - apps/desktop/src/platform/matrix-camera.ts
       - apps/desktop/src/components/MatrixCamera.tsx
       - apps/desktop/src/components/matrix-camera.css
@@ -1256,6 +1263,12 @@ checks:
           WKWebView is a separate native surface and can intercept the pointer;
           a DOM splitter test cannot prove that the drag stays captured.
       - action: |
+          Release the separator, then slowly move the pointer across blank page
+          areas, links and text in the native browser, including near its edges.
+        reason: |
+          macOS and the DOM host own separate cursor surfaces. This detects a
+          lingering document-wide resize cursor competing with WKWebView.
+      - action: |
           Open an official LMS page in a lecture reader, resize its left outline,
           then shrink and widen the window across the compact breakpoint.
         reason: |
@@ -1273,12 +1286,14 @@ checks:
     expected: |
       The separator follows the pointer until release. The native page stays
       inside its content area and both toolbars remain clickable after resizing.
+      The resize cursor appears only on the separator; page cursors stay stable.
     why_manual: |
       Requires a signed native shell and a real WKWebView over authenticated
       school content; jsdom and the browser preview render only the DOM host.
     covers:
       - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src/components/ResizableWorkspace.tsx
+      - apps/desktop/src/components/resizable-workspace.css
       - apps/desktop/src/pages/web/WebPage.tsx
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/pages/lectures/lectures.css
@@ -1392,7 +1407,8 @@ checks:
     steps:
       - action: |
           Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
-          the department, admission year and current timetable with the source.
+          the department and admission year with the source. Refresh LMS and compare
+          each offered year/quarter grid, including non-weekly courses.
         reason: |
           Only a real account exposes the current programme and the registered
           timetable. It also exercises native redirects and the hidden reader.
@@ -1416,18 +1432,21 @@ checks:
           materials; refresh LMS and reopen the timetable.
         reason: |
           Real school sessions must support both content destinations without
-          a detail refresh or LMS membership changing official enrollment.
+          a detail refresh changing course identity or mixing syllabus clocks
+          into the LMS timetable. Include one cross-quarter course.
     observe: |
       Settings > Study, Schedule, the course search list and the native school
       browser. Compare the same course code, quarter, time and room in 教務Web.
     expected: |
-      Fresh profile fields match 教務Web; current enrollment and rooms match
-      its timetable. Search appends at most 100 courses per batch without
+      Fresh profile fields and registration records match 教務Web; timetable
+      membership and weekday/period slots match each LMS quarter grid, and
+      rooms come from syllabus metadata. Search appends at most 100 courses per batch without
       duplicates, changes filters on the server, and preserves loaded results.
       The active school source and progress agree; returning to Web restores
       its foreground page rather than the hidden search destination.
       Syllabus details and LMS materials open for the same course; LMS refresh
-      leaves the official timetable intact. No university registration is changed.
+      keeps personal edits and removals, and retains cached clocks when a
+      quarter read fails. No university registration is changed.
     why_manual: |
       Requires real student authentication, native hidden-browser ownership,
       the live university postback state and authenticated content destinations.
@@ -1436,7 +1455,7 @@ checks:
       - crates/isct-core/src/school_browser/engine/extraction.rs
       - crates/isct-core/src/school_browser/assets/kyomu-search.js
       - crates/isct-core/src/school_browser/assets/kyomu-extract.js
-      - crates/isct-core/src/data/kyomu_projection.rs
+      - crates/isct-core/src/data/school_projection.rs
       - apps/desktop/src/pages/courses/CourseFinder.tsx
     verified: null
 
@@ -1515,10 +1534,14 @@ checks:
         reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
       - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
         reason: Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+      - action: Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
+        reason: Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
     observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
     expected: Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
-    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell.
+    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault.
     covers:
+      - apps/desktop/src/components/OtpSetupInput.tsx
+      - apps/desktop/src-tauri/src/commands/school_auth.rs
       - apps/desktop/src/components/QrCamera.tsx
       - apps/desktop/src/components/CameraPreview.tsx
     verified: null

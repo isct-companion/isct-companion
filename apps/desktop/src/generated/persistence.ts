@@ -1021,10 +1021,9 @@ export type TermTaskView = {
   pendingIds: Array<string>;
   pinnedIds: Array<string>;
   overdueIds: Array<string>;
+  undatedCompletedIds?: Array<string>;
   dueThisWeekIds: Array<string>;
   laterIds: Array<string>;
-  earlierDueThisWeekIds: Array<string>;
-  earlierLaterIds: Array<string>;
   lectureOpenIds: Array<string>;
   lectureHiddenIds: Array<string>;
 };
@@ -1097,7 +1096,7 @@ export type WorkspaceQuery =
       beforeDays: number;
       afterDays: number;
     }
-  | { kind: "taskView"; now: string }
+  | { kind: "taskView"; now: string; includeCompleted?: boolean }
   | { kind: "courseDetail"; courseId: string }
   | {
       kind: "scheduleView";
@@ -1452,6 +1451,19 @@ export type MatrixCaptureMetrics = {
   trackedMs: number | null;
   frames: number;
   frameMs: Array<number>;
+};
+
+export type MatrixCameraPhase = "capturing" | "processing" | "complete";
+
+export type MatrixCameraSnapshot = {
+  phase: MatrixCameraPhase;
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
+  readyCells: number;
+  captureElapsedMs: number;
+  timedOut: boolean;
+  completedSamples: number;
+  totalSamples: number;
+  cells: Array<MatrixVote>;
 };
 
 export type OtpImportAccount = {

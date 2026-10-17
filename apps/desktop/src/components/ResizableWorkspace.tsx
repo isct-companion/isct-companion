@@ -47,6 +47,8 @@ export function ResizableWorkspace({
       className="splitWorkspace"
       data-resizable={enabled}
       disabled={!enabled}
+      // Document-wide cursor overrides compete with native WKWebView cursors.
+      disableCursor
       defaultLayout={defaultLayout}
       onLayoutChange={
         firstCollapsible

@@ -72,7 +72,7 @@ impl SchoolDownloads {
                         true
                     });
                 if !accepted {
-                    eprintln!("[school-download] {site:?} download refused");
+                    log::error!("[school-download] {site:?} download refused");
                     return false;
                 }
                 let name = file_name(destination);
@@ -115,7 +115,7 @@ impl SchoolDownloads {
             .as_deref()
             .is_some_and(|origin| download_allowed(origin, site, active));
         if !allowed {
-            eprintln!("[school-download] {site:?} PDF save refused");
+            log::error!("[school-download] {site:?} PDF save refused");
             return;
         }
 
@@ -139,11 +139,11 @@ impl SchoolDownloads {
             {
                 Ok(Ok(path)) => Some(path),
                 Ok(Err(error)) => {
-                    eprintln!("[school-download] {site:?} PDF save failed: {error}");
+                    log::error!("[school-download] {site:?} PDF save failed: {error}");
                     None
                 }
                 Err(error) => {
-                    eprintln!("[school-download] {site:?} PDF save task failed: {error}");
+                    log::error!("[school-download] {site:?} PDF save task failed: {error}");
                     None
                 }
             };
@@ -193,7 +193,7 @@ impl SchoolDownloads {
             }
         });
         if let Err(error) = result {
-            eprintln!("[school-download] {site:?} WebKit hooks unavailable: {error}");
+            log::error!("[school-download] {site:?} WebKit hooks unavailable: {error}");
         }
     }
 
@@ -256,7 +256,7 @@ fn emit_download(
     url: Option<String>,
     path: Option<&Path>,
 ) {
-    eprintln!("[school-download] {site:?} {state:?} {name}");
+    log::error!("[school-download] {site:?} {state:?} {name}");
     let _ = crate::core_ports::DesktopEvents(app.clone()).emit(CoreEvent::SchoolDownload(
         SchoolDownloadEvent {
             site,

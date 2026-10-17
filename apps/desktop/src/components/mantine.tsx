@@ -4,6 +4,8 @@ import {
   Button as MantineButton,
   Input as MantineInput,
   MantineContext,
+  Select,
+  type SelectProps,
   UnstyledButton,
 } from "@mantine/core";
 import { forwardRef, useContext } from "react";
@@ -89,14 +91,30 @@ export const UiInput = forwardRef<
   return <MantineInput ref={ref} type={type} {...props} />;
 });
 
-export const UiSelect = forwardRef<
-  HTMLSelectElement,
-  React.SelectHTMLAttributes<HTMLSelectElement>
->(function UiSelect({ size: _nativeSize, ...props }, ref) {
-  const hasMantine = useContext(MantineContext) !== null;
-  if (!hasMantine) return <select ref={ref} {...props} />;
-  return <MantineInput component="select" ref={ref} {...props} />;
-});
+type UiSelectProps = Omit<SelectProps, "value" | "onChange"> & {
+  value?: string | number;
+  onChange?: (value: string) => void;
+};
+
+/** The shell uses a themed Web combobox; option groups retain their keyboard order. */
+export const UiSelect = forwardRef<HTMLInputElement, UiSelectProps>(
+  function UiSelect({ value, onChange, className = "", ...props }, ref) {
+    return (
+      <Select
+        {...props}
+        ref={ref}
+        className={`uiSelect ${className}`}
+        value={value === undefined ? null : String(value)}
+        onChange={(next) => {
+          if (next !== null) onChange?.(next);
+        }}
+        classNames={{ dropdown: "uiSelectDropdown" }}
+        allowDeselect={false}
+        comboboxProps={{ withinPortal: true }}
+      />
+    );
+  },
+);
 
 export const UiTextarea = forwardRef<
   HTMLTextAreaElement,

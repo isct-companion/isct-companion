@@ -83,7 +83,7 @@ pub(crate) fn hide_school_web(
     controller: tauri::State<'_, SchoolWebController>,
 ) -> Result<bool, String> {
     if let Err(error) = require_local_main(&webview) {
-        eprintln!("hide_school_web rejected for {}: {error}", webview.label());
+        log::error!("hide_school_web rejected for {}: {error}", webview.label());
         return Err(error);
     }
     controller.hide_all()

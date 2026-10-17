@@ -97,6 +97,27 @@ export async function click(target: Element | null | undefined): Promise<void> {
   });
 }
 
+/** Opens the real portalled combobox and picks an enabled option by its value. */
+export async function chooseOption(
+  control: HTMLElement,
+  value: string,
+): Promise<void> {
+  await click(control);
+  const option = await until(() => {
+    const list = document.getElementById(
+      control.getAttribute("aria-controls") ?? "",
+    );
+    const option = [
+      ...(list?.querySelectorAll<HTMLElement>('[role="option"]') ?? []),
+    ].find((item) => item.getAttribute("value") === value);
+    if (!option) throw new Error(`Option ${value} is not available.`);
+    if (option.hasAttribute("data-combobox-disabled"))
+      throw new Error(`Option ${value} is disabled.`);
+    return option;
+  });
+  await click(option);
+}
+
 /**
  * Fails a test on unexpected `console.error`, ignoring React's act() notice for
  * asynchronous polling that the application itself cannot wrap.

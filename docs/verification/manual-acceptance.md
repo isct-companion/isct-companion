@@ -70,7 +70,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
-| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
+| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
@@ -82,13 +82,13 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
-| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
+| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
-| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
-| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
+| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 
 ## Personas
 
@@ -849,18 +849,24 @@ camera or a photo of the card.
      variation that no fixture reproduces.
 2. Open Scan with camera in a packaged desktop app, allow camera access,
    and bring the real card toward the camera. Check that one red outline
-   follows the Matrix, with no cell boxes or letter overlays. Tilt it,
-   introduce glare, then hold it steady with the labels in view. Observe
-   whether the scanner fills all cells and closes itself; record the
-   acquisition time and any cells that prevent completion. After close
-   or cancel, inspect matrix-scan/latest.json under the app cache for
-   captured frame latency, first-outline-to-stop time, per-cell qualified
-   sample counts and blank/weak/conflict counts. Compare all 70 saved
-   letters with the real card.
+   follows the Matrix, with no cell boxes or letter overlays. Move the
+   card, introduce glare, then briefly hold it steady with labels visible.
+   Observe the per-cell acquisition coverage. The camera must stop as
+   soon as every cell has enough clear candidates, or within eight seconds
+   of the first detected Matrix; waiting before detection does not count.
+   After acquisition, the dialog closes, the camera indicator turns off,
+   and inline processing progress appears. Put the card down and verify
+   results arrive; insufficient votes must be highlighted for review.
+   Inspect matrix-scan/latest.json under the app cache for separate
+   acquisition/processing times, per-cell candidate and qualified-vote
+   counts. Compare all 70 letters with the real card.
    - *Why:* OS camera permissions, native WebView video capture, optical focus,
      and the alignment of recognition boxes over a physical card require
      real hardware. Scripted frames cannot validate these surfaces.
 3. Cancel and reopen the camera, then background the app during capture.
+   Repeat and background it during processing: acquisition stops in the
+   former case, but the latter may finish without reopening the camera.
+   Cancel processing and confirm late results do not overwrite the editor.
    Deny permission on a fresh permission state and retry after granting it.
    - *Why:* Verify the camera indicator switches off and permissions can recover
      in the signed native app; headless tests cannot observe OS resource
@@ -891,6 +897,7 @@ OCR runtime, so the target must be chosen deliberately.
 - `crates/isct-ocr/**`
 - `apps/desktop/src/lib/matrix-ocr.ts`
 - `crates/isct-core/src/matrix_scan.rs`
+- `crates/isct-core/src/matrix_scan/**`
 - `apps/desktop/src/platform/matrix-camera.ts`
 - `apps/desktop/src/components/MatrixCamera.tsx`
 - `apps/desktop/src/components/matrix-camera.css`
@@ -1448,11 +1455,15 @@ Run the updated signed macOS desktop build with a school account available.
    and move the pointer across the school page before releasing it.
    - *Why:* WKWebView is a separate native surface and can intercept the pointer;
      a DOM splitter test cannot prove that the drag stays captured.
-2. Open an official LMS page in a lecture reader, resize its left outline,
+2. Release the separator, then slowly move the pointer across blank page
+   areas, links and text in the native browser, including near its edges.
+   - *Why:* macOS and the DOM host own separate cursor surfaces. This detects a
+     lingering document-wide resize cursor competing with WKWebView.
+3. Open an official LMS page in a lecture reader, resize its left outline,
    then shrink and widen the window across the compact breakpoint.
    - *Why:* The native page must follow the actual reader bounds, including the
      relocated search field and tool panel, without covering either toolbar.
-3. With an official LMS page open, collapse the lecture sidebar, hover
+4. With an official LMS page open, collapse the lecture sidebar, hover
    Lectures, move into the floating list, then toggle it back to pinned.
    - *Why:* Confirms the floating DOM list remains reachable beside the native
      browser surface, which headless layout tests cannot display.
@@ -1466,6 +1477,7 @@ the document tool panel in the lecture reader.
 
 The separator follows the pointer until release. The native page stays
 inside its content area and both toolbars remain clickable after resizing.
+The resize cursor appears only on the separator; page cursors stay stable.
 
 **Why this is manual**
 
@@ -1476,6 +1488,7 @@ school content; jsdom and the browser preview render only the DOM host.
 
 - `apps/desktop/src-tauri/src/school_web.rs`
 - `apps/desktop/src/components/ResizableWorkspace.tsx`
+- `apps/desktop/src/components/resizable-workspace.css`
 - `apps/desktop/src/pages/web/WebPage.tsx`
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/pages/lectures/lectures.css`
@@ -1610,7 +1623,8 @@ local workspace for the fresh-profile check.
 **Steps**
 
 1. Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
-   the department, admission year and current timetable with the source.
+   the department and admission year with the source. Refresh LMS and compare
+   each offered year/quarter grid, including non-weekly courses.
    - *Why:* Only a real account exposes the current programme and the registered
      timetable. It also exercises native redirects and the hidden reader.
 2. Search a broad course prefix with more than 100 results, scroll to
@@ -1627,7 +1641,8 @@ local workspace for the fresh-profile check.
 4. Open one result's syllabus details and one registered course's LMS
    materials; refresh LMS and reopen the timetable.
    - *Why:* Real school sessions must support both content destinations without
-     a detail refresh or LMS membership changing official enrollment.
+     a detail refresh changing course identity or mixing syllabus clocks
+     into the LMS timetable. Include one cross-quarter course.
 
 **Where to look**
 
@@ -1636,13 +1651,15 @@ browser. Compare the same course code, quarter, time and room in 教務Web.
 
 **Expected**
 
-Fresh profile fields match 教務Web; current enrollment and rooms match
-its timetable. Search appends at most 100 courses per batch without
+Fresh profile fields and registration records match 教務Web; timetable
+membership and weekday/period slots match each LMS quarter grid, and
+rooms come from syllabus metadata. Search appends at most 100 courses per batch without
 duplicates, changes filters on the server, and preserves loaded results.
 The active school source and progress agree; returning to Web restores
 its foreground page rather than the hidden search destination.
 Syllabus details and LMS materials open for the same course; LMS refresh
-leaves the official timetable intact. No university registration is changed.
+keeps personal edits and removals, and retains cached clocks when a
+quarter read fails. No university registration is changed.
 
 **Why this is manual**
 
@@ -1655,7 +1672,7 @@ Headless tests exercise the parser, shared projections and UI paging only.
 - `crates/isct-core/src/school_browser/engine/extraction.rs`
 - `crates/isct-core/src/school_browser/assets/kyomu-search.js`
 - `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
-- `crates/isct-core/src/data/kyomu_projection.rs`
+- `crates/isct-core/src/data/school_projection.rs`
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
 
 **Last recorded** never run
@@ -1756,6 +1773,8 @@ A packaged desktop app, a physical camera, and a disposable test TOTP QR on anot
    - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
 2. Move the QR into and out of view, then close the dialog and background the app during a second scan.
    - *Why:* Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+3. Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
+   - *Why:* Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
 
 **Where to look**
 
@@ -1767,10 +1786,12 @@ Clear scans fill the draft, permission errors offer image import, and closing or
 
 **Why this is manual**
 
-Requires native camera permissions, optical input and an OS camera indicator in a packaged shell.
+Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault.
 
 **Covers**
 
+- `apps/desktop/src/components/OtpSetupInput.tsx`
+- `apps/desktop/src-tauri/src/commands/school_auth.rs`
 - `apps/desktop/src/components/QrCamera.tsx`
 - `apps/desktop/src/components/CameraPreview.tsx`
 

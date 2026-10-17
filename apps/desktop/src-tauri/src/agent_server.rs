@@ -149,7 +149,7 @@ impl AgentAccess {
                         Err(error) => {
                             if !matches!(&*state, AccessState::Failed(previous) if *previous == error)
                             {
-                                eprintln!("[mcp] server unavailable: {error}");
+                                log::error!("[mcp] server unavailable: {error}");
                             }
                             AccessState::Failed(error)
                         }
@@ -164,7 +164,7 @@ impl AgentAccess {
                     server.shutdown().await;
                 }
                 if let Err(error) = enabled {
-                    eprintln!("[mcp] agent access setting unavailable: {error}");
+                    log::error!("[mcp] agent access setting unavailable: {error}");
                     *state =
                         AccessState::Failed("The agent access setting could not be read.".into());
                 }
@@ -252,7 +252,7 @@ impl AgentServer {
                 .with_graceful_shutdown(server_stop.cancelled_owned())
                 .await
             {
-                eprintln!("MCP server stopped unexpectedly: {error}");
+                log::error!("MCP server stopped unexpectedly: {error}");
             }
         });
         Ok(Self {
@@ -456,7 +456,7 @@ impl AgentHandler {
             })
             .await
             .map_err(|error| {
-                eprintln!("[mcp] tool worker failed: {error}");
+                log::error!("[mcp] tool worker failed: {error}");
                 INTERNAL_ERROR.to_string()
             })
             .and_then(|result| result);
@@ -491,7 +491,7 @@ const INTERNAL_ERROR: &str = "IsctCompanion could not complete the request. Try 
 fn client_error(error: AgentError) -> String {
     match error {
         AgentError::Storage(_) | AgentError::Compatibility(_) => {
-            eprintln!("[mcp] tool failed: {error}");
+            log::error!("[mcp] tool failed: {error}");
             INTERNAL_ERROR.into()
         }
         other => other.to_string(),
@@ -525,7 +525,7 @@ impl ServerHandler for AgentHandler {
             .and_then(|joined| joined.map_err(|error| error.to_string()))
             .and_then(|enabled| enabled.map_err(|error| error.to_string()))
             .map_err(|error| {
-                eprintln!("[mcp] tool list failed: {error}");
+                log::error!("[mcp] tool list failed: {error}");
                 ErrorData::internal_error(INTERNAL_ERROR, None)
             })?;
         Ok(ListToolsResult::with_all_items(if enabled {

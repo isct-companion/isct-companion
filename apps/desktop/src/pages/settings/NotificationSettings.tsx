@@ -107,17 +107,15 @@ export function NotificationSettings({
             <Row id="class-lead" title="Remind me">
               <UiSelect
                 value={settings.classLeadMinutes ?? DEFAULT_CLASS_LEAD}
-                onChange={(event) => {
-                  const minutes = Number(event.target.value);
+                onChange={(value) => {
+                  const minutes = Number(value);
                   set((n) => (n.classLeadMinutes = minutes));
                 }}
-              >
-                {CLASS_LEAD_CHOICES.map((minutes) => (
-                  <option key={minutes} value={minutes}>
-                    {t("{{minutes}} minutes before", { minutes })}
-                  </option>
-                ))}
-              </UiSelect>
+                data={CLASS_LEAD_CHOICES.map((minutes) => ({
+                  value: String(minutes),
+                  label: t("{{minutes}} minutes before", { minutes }),
+                }))}
+              />
             </Row>
           </div>
         )}

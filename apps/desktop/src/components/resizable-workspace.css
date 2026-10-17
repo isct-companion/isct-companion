@@ -21,6 +21,7 @@
   position: relative;
   width: var(--workspace-splitter-width);
   touch-action: none;
+  cursor: col-resize;
   outline: none;
 }
 .workspaceSeparator::after {

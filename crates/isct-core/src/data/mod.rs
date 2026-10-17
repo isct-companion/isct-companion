@@ -1,9 +1,9 @@
 mod backup_store;
 mod catalog_store;
 mod defaults;
-mod kyomu_projection;
 mod lms_store;
 mod records;
+mod school_projection;
 mod settings;
 mod snapshot;
 pub(crate) use snapshot::content_revision;

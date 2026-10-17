@@ -291,7 +291,7 @@ pub(super) fn value_string_set(value: &Value) -> HashSet<String> {
 
 /// Meetings from the LMS timetable grid, with the syllabus room for the same
 /// weekday when known.
-pub(super) fn meetings_from_grid(
+pub(crate) fn meetings_from_grid(
     grid: &Value,
     syllabus: &Value,
     teaching_periods: &[crate::schedule::TeachingPeriod],

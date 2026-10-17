@@ -89,6 +89,8 @@ impl SchoolBrowserEngine {
         context: &PullContext,
     ) -> Result<tokio::sync::MutexGuard<'_, ()>, SchoolBrowserError> {
         let mut manual_waiter = None;
+        let started = Instant::now();
+        let mut reported_wait = false;
         loop {
             if context.is_cancelled() {
                 return Err(SchoolBrowserError::Cancelled);
@@ -105,8 +107,15 @@ impl SchoolBrowserEngine {
             }
             if manual || self.0.manual_waiters.load(Ordering::Acquire) == 0 {
                 if let Ok(lane) = self.0.lane.try_lock() {
+                    if reported_wait {
+                        log::info!(target: "isct_core::school_browser", "hidden lane acquired priority={:?} waited_ms={}", context.priority(), started.elapsed().as_millis());
+                    }
                     return Ok(lane);
                 }
+            }
+            if !reported_wait {
+                log::info!(target: "isct_core::school_browser", "hidden lane waiting priority={:?}", context.priority());
+                reported_wait = true;
             }
             tokio::select! {
                 _ = self.0.priority_changed.notified() => {}
@@ -161,6 +170,8 @@ impl SchoolBrowserEngine {
         &self,
         context: &PullContext,
     ) -> Result<(), SchoolBrowserError> {
+        let started = Instant::now();
+        let mut reported_wait = false;
         loop {
             if self.0.tasks.is_closed() {
                 return Err(SchoolBrowserError::Stopped);
@@ -170,7 +181,14 @@ impl SchoolBrowserEngine {
             }
             let visible = self.0.state.guard().browsing.is_some();
             if !visible {
+                if reported_wait {
+                    log::info!(target: "isct_core::school_browser", "visible school page released waited_ms={}", started.elapsed().as_millis());
+                }
                 return Ok(());
+            }
+            if !reported_wait {
+                log::info!(target: "isct_core::school_browser", "pull waiting for visible school page priority={:?}", context.priority());
+                reported_wait = true;
             }
             tokio::select! {
                 _ = self.0.browsing_changed.notified() => {}

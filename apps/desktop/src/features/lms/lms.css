@@ -569,7 +569,7 @@
 @container workspace (max-width: 520px) {
   .lmsPdfHeader > .lmsFileToolbar { flex-wrap: wrap; }
   .lmsPdfControls { gap: 4px; }
-  .lmsPdfZoom select { display: none; }
+  .lmsPdfZoom .uiSelect { display: none; }
 }
 
 /* The available course workspace can be narrow even in a wide app window. */
@@ -583,3 +583,6 @@
 .lmsWorkspaceHint { margin: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
 .lmsPullControls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+
+.lmsPdfZoom .uiSelect { width: 100px; }
+.lmsPdfZoom .uiSelect input { height: 28px; min-height: 28px; font-size: 12px; }

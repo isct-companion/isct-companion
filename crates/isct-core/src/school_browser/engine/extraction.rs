@@ -423,6 +423,8 @@ impl SchoolBrowserEngine {
             inner: &self.0,
             run: run.clone(),
         };
+        let started = Instant::now();
+        log::info!(target: "isct_core::school_browser", "capture start site={site:?} run={run} full={full} course={course_id:?} path={} timeout_s={}", parsed.path(), timeout.as_secs());
         self.dispatch(browser, BrowserAction::Navigate(parsed))?;
         let mut signing_in = None;
         let raw = tokio::time::timeout(timeout, async {
@@ -485,10 +487,12 @@ impl SchoolBrowserEngine {
         })
         .await
         .map_err(|_| {
+            log::warn!(target: "isct_core::school_browser", "capture timeout site={site:?} run={run} elapsed_ms={}", started.elapsed().as_millis());
             SchoolBrowserError::Timeout(
                 "The school page did not answer in time. Check the account in Settings.".into(),
             )
         })??;
+        log::info!(target: "isct_core::school_browser", "capture complete site={site:?} run={run} elapsed_ms={}", started.elapsed().as_millis());
         Ok(raw)
     }
 
@@ -584,6 +588,7 @@ impl Inner {
             && progress.completed <= progress.total
             && progress.total <= 10_000
         {
+            log::info!(target: "isct_core::school_browser", "capture progress run={} phase={} completed={}/{} course={}", progress.extraction_run, progress.phase, progress.completed, progress.total, progress.course_id);
             let _ = self
                 .events
                 .emit(CoreEvent::SchoolPullProgress(SchoolPullProgress {
@@ -676,10 +681,24 @@ pub(super) fn apply_raw(
     }
     let mut connection = rusqlite::Connection::open(store.path())
         .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
+    let mut incomplete_lms = None;
+    let mut timetable_error = None;
     let applied = if site == SchoolSite::ScienceLms {
         match parse_lms_payload(raw) {
             Ok((LmsStage::Ready, Some(payload))) => apply_lms_payload(&mut connection, &payload)
-                .map(|changed| ("lms".to_string(), changed))
+                .map(|changed| {
+                    timetable_error = payload.timetable_errors.first().cloned();
+                    let failed = payload.timetable_errors.len()
+                        + payload
+                            .structures
+                            .iter()
+                            .filter(|row| !row.complete)
+                            .count();
+                    if failed > 0 {
+                        incomplete_lms = Some(failed);
+                    }
+                    ("lms".to_string(), changed)
+                })
                 .map_err(|error| ("lms".to_string(), Some(error.to_string()))),
             Ok(_) => Err(("lms".into(), None)),
             Err(error) => Err((
@@ -749,9 +768,23 @@ pub(super) fn apply_raw(
         Ok((kind, changed)) => IngestOutcome {
             site,
             kind,
-            state: IngestState::Ok,
+            state: if incomplete_lms.is_some() {
+                IngestState::Error
+            } else {
+                IngestState::Ok
+            },
             changed,
-            message: format!("{changed} rows changed"),
+            message: incomplete_lms
+                .map(|count| {
+                    format!(
+                        "LMS refresh incomplete: {count} reads failed; cached data retained{}",
+                        timetable_error
+                            .as_ref()
+                            .map(|reason| format!("; {reason}"))
+                            .unwrap_or_default()
+                    )
+                })
+                .unwrap_or_else(|| format!("{changed} rows changed")),
         },
         // No message: the page asked for sign-in instead of returning data.
         Err((kind, None)) => sign_in_required(site, &kind),

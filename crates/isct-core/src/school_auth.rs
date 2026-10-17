@@ -595,6 +595,28 @@ impl SchoolAuthService {
         Ok(status)
     }
 
+    /// Explicit export only. Native shells write the result directly to the
+    /// clipboard instead of returning a saved secret to their WebView.
+    pub fn otp_setup_text(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
+        let text = if let Some(value) = draft.filter(|value| !value.trim().is_empty()) {
+            value.trim().replace(' ', "")
+        } else {
+            self.load(SchoolAuthProfile::Science)?
+                .map(|credentials| credentials.otp_secret)
+                .unwrap_or_default()
+        };
+        if text.is_empty() {
+            return Err(SchoolAuthError::invalid(
+                "Set up school verification codes before copying.",
+            ));
+        }
+        if text.len() > 1_024 {
+            return Err(SchoolAuthError::invalid("OTP setup is too long."));
+        }
+        otp_config(&text)?;
+        Ok(text)
+    }
+
     pub fn matrix_text(&self) -> Result<String, SchoolAuthError> {
         let credentials = self.load(SchoolAuthProfile::TokyoTech)?.ok_or_else(|| {
             SchoolAuthError::invalid("Save the Tokyo Tech Matrix before copying it.")

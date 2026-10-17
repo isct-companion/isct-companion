@@ -1,4 +1,5 @@
 //! One backup contract for export, recovery and cloud application.
+pub(crate) mod retention;
 use crate::{
     data::{self, cloud_merge, DataError, DataStore},
     notes::{LocalNoteBackup, NoteError, Notes},

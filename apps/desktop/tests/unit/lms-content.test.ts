@@ -1029,28 +1029,60 @@ describe("Live Matrix camera ownership", () => {
       } as unknown as MediaStream,
     };
   }
-  it("keeps only one frame in flight, publishes core geometry and stops on completion", async () => {
+  it("drops old frames, releases capture before background processing and ignores late progress", async () => {
     const { openMatrixCamera } = await import("@app/platform/matrix-camera");
     const { track, stream } = streamPort();
     vi.useFakeTimers();
     const { video, draw, advance } = cameraSurface(async () => stream);
+    const capturing = {
+      phase: "capturing",
+      bounds: [
+        { x: 0.1, y: 0.2 },
+        { x: 0.9, y: 0.2 },
+        { x: 0.9, y: 0.8 },
+        { x: 0.1, y: 0.8 },
+      ],
+      readyCells: 0,
+      captureElapsedMs: 0,
+      timedOut: false,
+      completedSamples: 0,
+      totalSamples: 0,
+      cells: [],
+    };
+    const processing = {
+      ...capturing,
+      phase: "processing",
+      readyCells: 70,
+      totalSamples: 210,
+    };
+    const finished = {
+      ...processing,
+      phase: "complete",
+      completedSamples: 210,
+      cells: [{ text: "A", confidence: 0.99, stable: true }],
+    };
     let deliver!: (snapshot: unknown) => void;
+    let finish!: (snapshot: unknown) => void;
     const { core, channels } = installHostWithChannels({
       handle: (command) => {
         if (command === "begin_matrix_camera") return "camera-1";
-        if (command === "scan_matrix_camera_frame")
+        if (command === "poll_matrix_camera") return capturing;
+        if (command === "capture_matrix_camera_frame")
           return new Promise((resolve) => {
             deliver = resolve;
+          });
+        if (command === "process_matrix_camera")
+          return new Promise((resolve) => {
+            finish = resolve;
           });
         return undefined;
       },
     });
     const onSnapshot = vi.fn(),
-      onError = vi.fn(),
-      onOutline = vi.fn();
-    close = openMatrixCamera(video, onSnapshot, onError, onOutline);
+      onError = vi.fn();
+    close = openMatrixCamera(video, onSnapshot, onError);
     await vi.waitFor(() =>
-      expect(core.commands("scan_matrix_camera_frame")).toHaveLength(1),
+      expect(core.commands("capture_matrix_camera_frame")).toHaveLength(1),
     );
     advance(2);
     await vi.advanceTimersByTimeAsync(100);
@@ -1059,42 +1091,39 @@ describe("Live Matrix camera ownership", () => {
     advance(4);
     await vi.advanceTimersByTimeAsync(100);
     expect(draw).toHaveBeenCalledTimes(1);
-    const args = core.commands("scan_matrix_camera_frame")[0].args;
-    expect(args).toMatchObject({ sessionId: "camera-1", image: "Y2FtZXJh" });
-    const outline = {
-      bounds: [
-        { x: 0.1, y: 0.2 },
-        { x: 0.9, y: 0.2 },
-        { x: 0.9, y: 0.8 },
-        { x: 0.1, y: 0.8 },
-      ],
-    };
-    const channel = args.onGeometry as { id: number };
-    channels.get(channel.id)?.({ index: 0, message: outline });
-    expect(onOutline).toHaveBeenCalledWith(outline);
-    expect(onSnapshot).not.toHaveBeenCalled(); // outline precedes model completion
-    const snapshot = {
-      bounds: outline.bounds,
-      confidence: 0.99,
-      cells: [{ text: "A", confidence: 0.99, stable: true }],
-      stableCells: 70,
-      complete: true,
-    };
-    deliver({ ...snapshot, complete: false });
+    expect(core.commands("capture_matrix_camera_frame")[0].args).toMatchObject({
+      sessionId: "camera-1",
+      image: "Y2FtZXJh",
+    });
+    expect(onSnapshot).not.toHaveBeenCalled();
+    deliver(capturing);
     await vi.advanceTimersByTimeAsync(1);
-    expect(core.commands("scan_matrix_camera_frame")).toHaveLength(2);
+    expect(core.commands("capture_matrix_camera_frame")).toHaveLength(2);
     expect(draw.mock.results.map((result) => result.value)).toEqual([1, 4]);
-    // The same decoded frame cannot contribute twice, even with a fast model.
-    deliver({ ...snapshot, complete: false });
+    deliver(capturing);
     await vi.advanceTimersByTimeAsync(100);
-    expect(core.commands("scan_matrix_camera_frame")).toHaveLength(2);
+    expect(core.commands("capture_matrix_camera_frame")).toHaveLength(2);
+    expect(core.commands("poll_matrix_camera")).toHaveLength(1); // deadlines advance during a video stall
     advance(5);
-    await vi.advanceTimersByTimeAsync(16);
-    expect(core.commands("scan_matrix_camera_frame")).toHaveLength(3);
-    deliver(snapshot);
-    await vi.waitFor(() => expect(onSnapshot).toHaveBeenCalledWith(snapshot));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(core.commands("capture_matrix_camera_frame")).toHaveLength(3);
+    deliver(processing);
+    await vi.advanceTimersByTimeAsync(1);
     expect(track.stop).toHaveBeenCalledTimes(1);
     expect(video.srcObject).toBeNull();
+    expect(onSnapshot).toHaveBeenCalledWith(processing);
+    expect(core.commands("process_matrix_camera")).toHaveLength(1);
+    expect(core.commands("stop_matrix_camera")).toHaveLength(0); // core still owns background work
+    const channel = core.commands("process_matrix_camera")[0].args
+      .onProgress as { id: number };
+    const progress = { ...processing, completedSamples: 10 };
+    channels.get(channel.id)?.({ index: 0, message: progress });
+    expect(onSnapshot).toHaveBeenCalledWith(progress);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(core.commands("stop_matrix_camera")).toHaveLength(0); // processing can continue in background
+    finish(finished);
+    await vi.waitFor(() => expect(onSnapshot).toHaveBeenCalledWith(finished));
     expect(core.commands("stop_matrix_camera")).toHaveLength(1);
     const metrics = core.commands("stop_matrix_camera")[0].args.capture as {
       frames: number;
@@ -1106,8 +1135,10 @@ describe("Live Matrix camera ownership", () => {
     expect(metrics.frameMs).toHaveLength(3);
     expect(metrics.elapsedMs).toBeGreaterThanOrEqual(metrics.trackedMs);
     expect(metrics.trackedMs).toBeGreaterThanOrEqual(0);
-    channels.get(channel.id)?.({ index: 1, message: outline });
-    expect(onOutline).toHaveBeenCalledTimes(1); // late geometry after close is ignored
+    const calls = onSnapshot.mock.calls.length;
+    channels.get(channel.id)?.({ index: 1, message: progress });
+    expect(onSnapshot).toHaveBeenCalledTimes(calls);
+    expect(track.stop).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -1123,13 +1154,18 @@ describe("Live Matrix camera ownership", () => {
     );
     const { video } = cameraSurface(acquire);
     let deliver!: (snapshot: unknown) => void;
+    let finish!: (snapshot: unknown) => void;
     const core = installFakeCore({
       workspace: workspaceFixture(),
       handle: (command) => {
         if (command === "begin_matrix_camera") return "camera-2";
-        if (command === "scan_matrix_camera_frame")
+        if (command === "capture_matrix_camera_frame")
           return new Promise((resolve) => {
             deliver = resolve;
+          });
+        if (command === "process_matrix_camera")
+          return new Promise((resolve) => {
+            finish = resolve;
           });
         return undefined;
       },
@@ -1141,12 +1177,12 @@ describe("Live Matrix camera ownership", () => {
     close();
     grant(stream);
     await vi.waitFor(() => expect(track.stop).toHaveBeenCalledTimes(1));
-    expect(core.commands("scan_matrix_camera_frame")).toHaveLength(0);
+    expect(core.commands("capture_matrix_camera_frame")).toHaveLength(0);
     close = openMatrixCamera(video, onSnapshot, onError);
     await vi.waitFor(() => expect(acquire).toHaveBeenCalledTimes(2));
     grant(stream);
     await vi.waitFor(() =>
-      expect(core.commands("scan_matrix_camera_frame")).toHaveLength(1),
+      expect(core.commands("capture_matrix_camera_frame")).toHaveLength(1),
     );
     close();
     deliver({ complete: true, cells: [] });
@@ -1154,6 +1190,30 @@ describe("Live Matrix camera ownership", () => {
     expect(onSnapshot).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
     expect(core.commands("stop_matrix_camera")).toHaveLength(2);
+    close = openMatrixCamera(video, onSnapshot, onError);
+    await vi.waitFor(() => expect(acquire).toHaveBeenCalledTimes(3));
+    grant(stream);
+    await vi.waitFor(() =>
+      expect(core.commands("capture_matrix_camera_frame")).toHaveLength(2),
+    );
+    deliver({
+      phase: "processing",
+      bounds: null,
+      cells: [],
+      readyCells: 70,
+      completedSamples: 0,
+      totalSamples: 210,
+    });
+    await vi.waitFor(() =>
+      expect(core.commands("process_matrix_camera")).toHaveLength(1),
+    );
+    close();
+    const published = onSnapshot.mock.calls.length;
+    finish({ phase: "complete", cells: [] });
+    await flush();
+    expect(onSnapshot).toHaveBeenCalledTimes(published);
+    expect(onError).not.toHaveBeenCalled();
+    expect(core.commands("stop_matrix_camera")).toHaveLength(3);
   });
 
   it("reports a denied camera permission and ends the native session", async () => {
