@@ -181,6 +181,7 @@ impl DataStore {
             "terms",
             "settings",
             "academicProfile",
+            "classGroups",
             "importStatus",
             "syncStatus",
             "logs",
