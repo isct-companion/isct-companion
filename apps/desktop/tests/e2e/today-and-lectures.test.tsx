@@ -791,6 +791,9 @@ describe("the grades panel", () => {
     expect(document.body.textContent).toContain(
       "This GPA page is not provided for this account.",
     );
+    expect(document.body.textContent).toContain(
+      "Credits for multi-quarter courses are split equally across quarters.",
+    );
     expect(document.body.textContent).toContain("Checked:");
     expect(document.body.textContent).not.toContain("Not fetched yet");
   }, 20_000);

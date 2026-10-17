@@ -37,8 +37,10 @@ The 0.5 is an application allocation, not an official per-quarter value:
 `declared_term_credits` and `earned_credits_by_term` divide a course's effective
 credit total by its number of quarters. A 1-credit 1–2Q course therefore contributes
 0.5 to each Q; a 6-credit 1–2Q course contributes 3 to each. No grade, stored
-credit or allocation rule was changed in this checkpoint. The user was asked
-whether quarter summaries should show full course credits or retain allocation.
+credit or allocation rule was changed in this checkpoint. The user explicitly
+confirmed retaining equal allocation by quarter; the existing 0.5 contribution
+is therefore intentional. The academic Details panel now states this rule in
+English, Japanese and Chinese.
 
 ## Validation
 
