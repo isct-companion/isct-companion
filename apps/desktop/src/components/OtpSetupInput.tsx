@@ -15,6 +15,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { t } from "../i18n";
+import { useTimeout } from "@mantine/hooks";
 import { desktopBridge } from "../app/native";
 import {
   importOtp,
@@ -71,25 +72,28 @@ function OtpHelp() {
                 )
               : source === "other"
                 ? t(
-                    "Look for an export QR code in your authenticator. If it cannot export, keep using it and enter the verification code when signing in. Do not remove your current setup.",
+                    "Look for an export QR code in your authenticator. If it cannot export, reset App Authentication in the school account settings.",
                   )
                 : t(
-                    "Open the school account settings and set up App Authentication. Import the QR code shown during setup, keep it in your phone authenticator too, and finish verification on the school page.",
+                    "Open the school account settings and register App Authentication.",
                   )}
           </Text>
-          {source === "new" && (
-            <Button
-              variant="light"
-              size="xs"
-              onClick={() =>
-                void desktopBridge?.openExternal(
-                  "https://isct.ex-tic.com/idm/user/mfa_setting/",
-                )
-              }
-            >
-              {t("Open school verification settings")}
-            </Button>
-          )}
+          <Text size="sm">
+            {t(
+              "You can set up or reset OTP in the school account settings. Import the new QR code here and in your authenticator. Replace its old entry with the new one, then finish verification on the school page.",
+            )}
+          </Text>
+          <Button
+            variant="light"
+            size="xs"
+            onClick={() =>
+              void desktopBridge?.openExternal(
+                "https://isct.ex-tic.com/idm/user/mfa_setting/",
+              )
+            }
+          >
+            {t("Open school verification settings")}
+          </Button>
           <Text size="xs" c="dimmed">
             {t(
               "This field needs a setup link or secret, not the changing six-digit code. You can leave it blank and enter codes when signing in.",
@@ -114,6 +118,22 @@ export function OtpSetupInput({
   onChange: (value: string) => void;
   onScanState: (scanning: boolean) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const copiedTimeout = useTimeout(() => setCopied(false), 2000);
+  const copy = async () => {
+    setError("");
+    try {
+      if (
+        !desktopBridge ||
+        !(await desktopBridge.copySchoolOtp(value.trim() || undefined))
+      )
+        throw new Error(t("Copy failed"));
+      setCopied(true);
+      copiedTimeout.start();
+    } catch (reason) {
+      setError(t(reason instanceof Error ? reason.message : String(reason)));
+    }
+  };
   const [camera, setCamera] = useState(false);
   const [reading, setReading] = useState(false);
   const [accounts, setAccounts] = useState<OtpImportAccount[]>([]);
@@ -198,6 +218,20 @@ export function OtpSetupInput({
           }}
         />
         <Button.Group aria-label={t("Import authenticator QR code")}>
+          <Button
+            variant="default"
+            aria-label={t("Copy OTP setup")}
+            disabled={
+              disabled ||
+              reading ||
+              camera ||
+              (!value.trim() && !saved) ||
+              !desktopBridge
+            }
+            onClick={() => void copy()}
+          >
+            {t(copied ? "Copied" : "Copy")}
+          </Button>
           <Button
             variant="default"
             disabled={disabled || reading || camera}

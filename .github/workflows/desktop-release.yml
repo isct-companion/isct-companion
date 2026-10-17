@@ -254,15 +254,17 @@ jobs:
         run: |
           set -euo pipefail
           cat > release-notes.md <<'NOTES'
-          IsctCompanion 1.0 desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
+          IsctCompanion 1.1.0 desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
 
-          - Schedule and ICS export share one calendar calculation, including teaching-day replacements, holidays and configurable class times.
-          - First sign-in can pull the full LMS data and populate the current quarter's timetable.
-          - Resizable course workspaces include a collapsible lecture sidebar, floating course list and document-specific tool panels.
-          - Assignment workspaces can prepare files or a ZIP in the official LMS draft area. Review the upload and click Save/Submit yourself in LMS.
-          - Academic profiles support study-stage history, term-specific eligibility and quarter-start overrides.
+          - Desktop update checks support signed automatic updates from this source repository.
+          - The timetable has a dedicated quarter view, with course search filters parsed from 教務Web and virtualized results.
+          - School data refreshes preserve cached content, avoid repeated requests, and report maintenance separately.
+          - Interactive school webviews support normal browsing and editing; assignment preparation leaves final submission to you.
+          - OTP setup supports QR acquisition, clearer authenticator guidance and copying the setup link or secret.
+          - Read-only application logs use virtual rendering and automatic following. Backup pages show confirmed copies separately from transport retries.
+          - Local and cloud backups expire only after 30 days when at least four newer copies exist.
 
-          This 1.0 release includes desktop installers only. Mobile 1.0 will be published separately when ready.
+          This release includes desktop installers only. Mobile will be published separately when ready.
 
           Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.
 

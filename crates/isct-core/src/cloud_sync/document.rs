@@ -203,7 +203,7 @@ fn make_workspace_file(
         siblings: Vec::new(),
         document,
         previous: rotate_versions(remote),
-        checkpoints: daily_checkpoints(remote),
+        checkpoints: Vec::new(),
     })
 }
 
@@ -213,24 +213,32 @@ fn rotate_versions(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFi
     let Some(current) = current else {
         return Vec::new();
     };
-    std::iter::once(current)
+    let mut seen = std::collections::HashSet::new();
+    let mut history = std::iter::once(current)
         .chain(current.previous.iter())
-        .take(2)
-        .map(flatten_history)
-        .collect()
-}
-
-fn daily_checkpoints(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFile> {
-    let Some(current) = current else {
-        return Vec::new();
-    };
-    let mut days = std::collections::BTreeSet::new();
-    std::iter::once(current)
         .chain(current.checkpoints.iter())
-        .filter(|old| days.insert(old.updated_at.get(..10).unwrap_or("").to_owned()))
-        .take(7)
+        .filter(|old| seen.insert(old.revision))
         .map(flatten_history)
-        .collect()
+        .collect::<Vec<_>>();
+    let now = chrono::Utc::now();
+    let new_backup = now.to_rfc3339();
+    // The new current document and this retained history are one atomic write.
+    let expired = crate::backup::retention::expired(
+        std::iter::once(new_backup.as_str())
+            .chain(history.iter().map(|old| old.updated_at.as_str())),
+        now,
+    )
+    .into_iter()
+    .collect::<std::collections::HashSet<_>>();
+    // Keep the previous current document first, even under clock skew: native
+    // conditional writers also compare it with the remote document they read.
+    history = history
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| *index == 0 || !expired.contains(&(index + 1)))
+        .map(|(_, old)| old)
+        .collect();
+    history
 }
 
 fn flatten_history(old: &CloudWorkspaceFile) -> CloudWorkspaceFile {

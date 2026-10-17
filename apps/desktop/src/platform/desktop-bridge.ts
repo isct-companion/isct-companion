@@ -363,7 +363,22 @@ export interface AppUpdateStatus {
   releaseUrl: string;
   signedUpdates: boolean;
 }
+export type ApplicationLog = {
+  id: number;
+  at: string;
+  level: string;
+  target: string;
+  message: string;
+};
+export type ApplicationLogSnapshot = {
+  entries: ApplicationLog[];
+  cursor: number;
+  dropped: boolean;
+};
+
 export interface DesktopBridge {
+  applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
+  recordApplicationError?(message: string): Promise<void>;
   checkAppUpdate?(
     manual: boolean,
     download?: boolean,
@@ -406,6 +421,7 @@ export interface DesktopBridge {
   deleteSchoolCredentials(profile: SchoolAuthProfile): Promise<boolean>;
   /** Copies the saved Matrix to the system clipboard without exposing it to the WebView. */
   copySchoolMatrix(): Promise<boolean>;
+  copySchoolOtp(setup?: string): Promise<boolean>;
   testSchoolConnection(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -604,6 +620,9 @@ export function createTauriDesktopBridge(
       ? {
           checkAppUpdate: (manual: boolean, download = false) =>
             result<AppUpdateStatus>("check_app_update", { manual, download }),
+          applicationLogs: (after) => result("application_logs", { after }),
+          recordApplicationError: (message) =>
+            result("application_error", { message }),
           appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
           installAppUpdate: () => invokeCommand<void>("install_app_update"),
         }
@@ -664,6 +683,7 @@ export function createTauriDesktopBridge(
     deleteSchoolCredentials: (profile) =>
       booleanCommand("delete_school_credentials", { profile }),
     copySchoolMatrix: () => booleanCommand("copy_school_matrix"),
+    copySchoolOtp: (setup) => booleanCommand("copy_school_otp", { setup }),
     testSchoolConnection: (profile, credentials) =>
       result("test_school_connection", { profile, credentials }),
     loginSchool: (profile) => result("login_school", { profile, bounds: null }),

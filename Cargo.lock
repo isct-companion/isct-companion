@@ -2430,7 +2430,7 @@ dependencies = [
 
 [[package]]
 name = "isct-companion"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2442,6 +2442,7 @@ dependencies = [
  "isct-core",
  "isct-ocr",
  "keyring",
+ "log",
  "objc2",
  "objc2-app-kit",
  "objc2-cloud-kit",
@@ -2485,6 +2486,7 @@ dependencies = [
  "chrono",
  "data-encoding",
  "futures-util",
+ "log",
  "percent-encoding",
  "prost",
  "regex",

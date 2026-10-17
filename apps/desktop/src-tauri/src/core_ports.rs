@@ -21,7 +21,7 @@ impl EventSink for DesktopEvents {
     fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
         let (name, payload) = wire(&event);
         self.0.emit_to(MAIN_WINDOW, name, payload).map_err(|error| {
-            eprintln!("[events] {name} was not delivered: {error}");
+            log::error!("[events] {name} was not delivered: {error}");
             EventError::Delivery(error.to_string())
         })
     }
@@ -68,7 +68,7 @@ pub(crate) fn publish_conditions(app: &AppHandle) {
         let visible = app.state::<SchoolWebController>().is_visible();
         let store = app.state::<DataStore>().inner().clone();
         if let Err(error) = runtime(&app).publish_conditions(&store, visible).await {
-            eprintln!("[school-refresh] conditions were not published: {error}");
+            log::error!("[school-refresh] conditions were not published: {error}");
         }
     });
 }
@@ -88,7 +88,7 @@ impl FailureLog {
             Err(error) => {
                 let message = error.to_string();
                 if self.0.as_deref() != Some(message.as_str()) {
-                    eprintln!("[{scope}] {message}");
+                    log::error!("[{scope}] {message}");
                     self.0 = Some(message);
                 }
             }
@@ -112,7 +112,7 @@ impl DesktopRuntime {
         if let Err(error) =
             runtime(app).refresh_event(isct_core::school_refresh::RefreshEvent::lifecycle(focused))
         {
-            eprintln!("[school-refresh] {error}");
+            log::error!("[school-refresh] {error}");
         }
         let tasks = app.state::<Self>().tasks.clone();
         let app = app.clone();
@@ -120,7 +120,7 @@ impl DesktopRuntime {
         // before registering either owned loop.
         tauri::async_runtime::block_on(async move {
             if let Err(error) = core(&app).start(&tokio::runtime::Handle::current()) {
-                eprintln!("[events] pull state forwarding did not start: {error}");
+                log::error!("[events] pull state forwarding did not start: {error}");
             }
             let wake_app = app.clone();
             let wake_tasks = tasks.clone();

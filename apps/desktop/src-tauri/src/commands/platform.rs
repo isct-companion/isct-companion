@@ -34,7 +34,7 @@ pub(crate) async fn recognize_matrix_image(
         #[cfg(debug_assertions)]
         let service = service.with_debug_dir(
             lms_files::debug_dir(&app)
-                .inspect_err(|error| eprintln!("Matrix debug directory unavailable: {error}"))
+                .inspect_err(|error| log::error!("Matrix debug directory unavailable: {error}"))
                 .ok(),
         );
         #[cfg(not(debug_assertions))]
@@ -108,4 +108,21 @@ pub(crate) fn install_app_update(
 ) -> Result<(), String> {
     crate::require_local_main(&webview)?;
     crate::desktop_updates::request_install(&app)
+}
+
+#[tauri::command]
+pub(crate) fn application_logs(
+    webview: tauri::Webview,
+    after: Option<u64>,
+) -> Result<isct_core::diagnostics::LogSnapshot, String> {
+    require_local_main(&webview)?;
+    isct_core::diagnostics::snapshot(after).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn application_error(webview: tauri::Webview, message: String) -> Result<(), String> {
+    require_local_main(&webview)?;
+    let message: String = message.chars().take(2048).collect();
+    isct_core::diagnostics::report("frontend", &message);
+    Ok(())
 }

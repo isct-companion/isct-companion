@@ -1,6 +1,6 @@
 [package]
 name = "isct-companion"
-version = "1.0.0"
+version = "1.1.0"
 description = "IsctCompanion desktop shell"
 authors = ["IsctCompanion contributors"]
 edition = "2021"
@@ -15,6 +15,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
+log = "0.4"
 isct-core = { path = "../../../crates/isct-core", features = ["ts"] }
 isct-ocr = { path = "../../../crates/isct-ocr" }
 tokio = { version = "1", features = ["time", "sync", "fs", "io-util"] }

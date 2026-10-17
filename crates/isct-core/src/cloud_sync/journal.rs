@@ -167,6 +167,34 @@ impl JournalStore {
             .state
             .providers
             .retain(|provider| supported.contains(&provider.provider));
+        // A provider absent from this binary cannot execute. Drop only its
+        // transport deliveries, preserving documents/recovery files and other receipts.
+        journal
+            .state
+            .versions
+            .retain(|version| supported.contains(&version.provider));
+        for job in &mut journal.jobs {
+            job.task
+                .deliveries
+                .retain(|delivery| supported.contains(&delivery.provider));
+        }
+        journal.jobs.retain(|job| !job.task.deliveries.is_empty());
+        for provider in supported {
+            if !journal
+                .state
+                .providers
+                .iter()
+                .any(|row| row.provider == *provider)
+            {
+                journal.state.providers.push(ProviderState {
+                    provider: *provider,
+                    enabled: authorized.contains(provider) || *provider == CloudProvider::Icloud,
+                    last_synced_at: None,
+                    error: None,
+                    synced_version: None,
+                });
+            }
+        }
         journal
             .state
             .providers

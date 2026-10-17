@@ -292,6 +292,26 @@ export function WorkspaceApp() {
     ? timetableViews.get(courseViewTerm)
     : undefined;
   useEffect(() => {
+    const report = (message: string) => {
+      void desktopBridge
+        ?.recordApplicationError?.(message)
+        .catch(() => undefined);
+    };
+    const error = (event: ErrorEvent) => report(event.message);
+    const rejection = (event: PromiseRejectionEvent) =>
+      report(
+        event.reason instanceof Error
+          ? event.reason.message
+          : String(event.reason),
+      );
+    window.addEventListener("error", error);
+    window.addEventListener("unhandledrejection", rejection);
+    return () => {
+      window.removeEventListener("error", error);
+      window.removeEventListener("unhandledrejection", rejection);
+    };
+  }, []);
+  useEffect(() => {
     if (previewTerm === overview.value?.coursesTerm) setPreviewTerm(null);
   }, [previewTerm, overview.value?.coursesTerm]);
   const section = (params.section ?? "accounts") as Section;

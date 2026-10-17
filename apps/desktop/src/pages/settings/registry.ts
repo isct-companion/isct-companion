@@ -27,7 +27,7 @@ const SECTIONS: SectionDefinition[] = [
   { id: "agent", label: "AI agent access", tier: "advanced" },
   { id: "developer", label: "Developer options", tier: "advanced" },
   { id: "extensions", label: "Site styles & scripts", tier: "developer" },
-  { id: "diagnostics", label: "Diagnostics", tier: "developer" },
+  { id: "diagnostics", label: "Application logs", tier: "developer" },
   { id: "about", label: "About", tier: "about" },
 ];
 

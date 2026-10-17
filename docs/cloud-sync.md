@@ -110,16 +110,23 @@ delivery remains pending. The ten latest completed receipts are retained.
 
 The cloud format is now version 2. The reader accepts legacy version 1; older
 apps reject new envelopes rather than silently bypassing restore generations.
-Current data, two immediate predecessors and up to seven daily recovery points
-live in one conditionally written envelope. History entries are flat; syncing
-unchanged content never rotates history. Daily points represent distinct days
-with saved changes, not a guarantee of an upload on idle days. The existing
-25 MiB envelope limit is enforced without silently dropping notes or history.
+Current data and retained history live in one conditionally written envelope.
+A version expires only when it is more than 30 days old and there are at least
+four strictly newer saved versions. All versions within 30 days remain available;
+unknown/future timestamps are kept and do not justify deleting other versions.
+History entries are flat and deduplicated by revision; unchanged content never
+rotates history. Existing daily checkpoints are folded into the same history.
+The 25 MiB envelope limit remains enforced without silently dropping notes or
+unexpired history. Cleanup reaches the cloud only when the conditional write
+succeeds; a conflict leaves the previous cloud envelope intact.
 
 The UI groups cloud versions by content version, listing their storage locations.
 Before importing changed cloud content or restoring a version, a content-addressed
 local recovery file is saved atomically. These local files are independently
-listed for export or restoration and are not automatically removed.
+listed for export or restoration, four per page. They use the same 30-day / four-newer
+retention policy. Missing files do not count as newer copies. The index is committed
+before old files are unlinked; a failed unlink leaves an extra file and a log entry.
+Cleanup runs on journal open and after a new local recovery file is saved.
 
 Restoring is an explicit operation affecting all connected devices, in either
 mode. Pending transfers must finish or their provider must be disconnected first.
@@ -167,3 +174,25 @@ Frontend tests exercise the switch, separate directions, partial completion,
 and mobile single-tap/directional actions. Real provider authentication,
 network loss during a native upload, and phone sleep/resume still require signed
 device integration testing.
+
+## Diagnostics and user-facing status
+
+Transport tasks and retry counts are internal delivery state, not backup versions.
+Backup settings shows provider acknowledgements, the last successful sync time,
+a concise failure state and four recovery versions per page. Successful upload
+receipts remain successful even if listing historical versions fails; that failure
+is logged while the previously known history remains available. Network failures
+still retain the durable work rather than pretending the cloud accepted it.
+
+macOS debug binaries exclude iCloud from their supported providers because they
+cannot call CloudKit without the signed container entitlement. Unsupported delivery
+entries are removed on journal open; other provider deliveries and local recovery
+files survive. A signed binary adds its supported provider again.
+
+Application logs are a separate, session-local bounded stream (2,000 entries,
+2,048 characters per message) and never enter workspace sync or backups. Native
+logging and Core background diagnostics share it; shell errors are forwarded to
+it. Reads are incremental; the read-only view virtualizes visible rows and can
+pause/resume following. Common credentials/token fields are redacted before both
+buffering and stderr output. These logs do not claim to recover an earlier process's
+crash output.

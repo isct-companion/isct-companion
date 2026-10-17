@@ -80,7 +80,10 @@ impl CloudSync {
     pub fn new(legacy: PathBuf, authorized: &[CloudProvider]) -> Result<Self, String> {
         let supported = [
             CloudProvider::GoogleDrive,
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(
+                target_vendor = "apple",
+                not(all(target_os = "macos", debug_assertions))
+            ))]
             CloudProvider::Icloud,
         ];
         isct_core::cloud_sync::CloudSync::new(legacy, &supported, authorized)
@@ -106,7 +109,7 @@ impl CloudSync {
                 Err(error) => Err(error),
             };
             if let Err(error) = result {
-                eprintln!("Could not journal cloud update: {error}");
+                log::error!("Could not journal cloud update: {error}");
             }
         }
     }
