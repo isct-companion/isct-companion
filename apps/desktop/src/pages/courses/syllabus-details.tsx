@@ -215,7 +215,9 @@ export function SyllabusDetails({
           {!!content.lecturePlan.length && (
             <details>
               <summary>
-                Lesson plan · {content.lecturePlan.length} sessions
+                {t("Lesson plan · {{count}} sessions", {
+                  count: content.lecturePlan.length,
+                })}
               </summary>
               <div className="syllabusLessonPlan">
                 {content.lecturePlan.map((lesson, i) => (
@@ -234,7 +236,7 @@ export function SyllabusDetails({
           )}
           {!!content.competencies.filter((c) => c.selected).length && (
             <details>
-              <summary>Competencies</summary>
+              <summary>{t("Competencies")}</summary>
               <ul>
                 {content.competencies
                   .filter((c) => c.selected)
@@ -245,7 +247,7 @@ export function SyllabusDetails({
             </details>
           )}
           {!content.sections.length && !content.lecturePlan.length && (
-            <p>No additional syllabus sections were found in this source.</p>
+            <p>{t("No additional syllabus sections were found in this source.")}</p>
           )}
         </>
       )}

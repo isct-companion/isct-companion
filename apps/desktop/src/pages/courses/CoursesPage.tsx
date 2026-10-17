@@ -275,7 +275,7 @@ export function Courses({
             <Badge
               variant="light"
               color="gray"
-              title="Editing is available in the desktop app"
+              title={t("Editing is available in the desktop app")}
             >
               {t("Read only")}
             </Badge>
@@ -413,7 +413,7 @@ export function Courses({
                   data.academicProfile.teachingPeriods,
                 )}
                 onSelect={select}
-                emptyLabel="Nothing scheduled this day"
+                emptyLabel={t("Nothing scheduled this day")}
                 showNow={false}
                 onSlot={canEdit ? onSlot : undefined}
                 activeSlots={editing ? activeSlots : undefined}
@@ -444,7 +444,7 @@ export function Courses({
           <div className="scheduleItemPreview">
             {preview.kind === "exam" && (
               <Badge color="red" variant="light">
-                EXAM · {preview.timeLabel}
+                {t("Exam")} · {preview.timeLabel}
               </Badge>
             )}
             <p>
@@ -453,7 +453,9 @@ export function Courses({
             {preview.room && <p>{preview.room}</p>}
             {preview.conflictWith?.length ? (
               <p className="scheduleConflict">
-                Overlaps {preview.conflictWith.join(", ")}
+                {t("Overlaps {{courses}}", {
+                  courses: preview.conflictWith.join(", "),
+                })}
               </p>
             ) : null}
             {!readOnly &&

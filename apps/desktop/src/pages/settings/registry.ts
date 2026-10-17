@@ -17,14 +17,13 @@ export type SectionDefinition = {
 
 const SECTIONS: SectionDefinition[] = [
   { id: "accounts", label: "School accounts", tier: "basic" },
+  { id: "wifi", label: "Campus Wi-Fi", tier: "basic" },
   { id: "study", label: "Study", tier: "basic" },
   { id: "notifications", label: "Notifications", tier: "basic" },
   { id: "appearance", label: "Appearance", tier: "basic" },
   { id: "files", label: "Course files", tier: "basic" },
   { id: "backup", label: "Backup", tier: "basic" },
   { id: "sources", label: "Data updates", tier: "advanced" },
-  { id: "automation", label: "Automation", tier: "advanced" },
-  { id: "wifi", label: "Campus Wi-Fi", tier: "advanced" },
   { id: "agent", label: "AI agent access", tier: "advanced" },
   { id: "developer", label: "Developer options", tier: "advanced" },
   { id: "extensions", label: "Site styles & scripts", tier: "developer" },
@@ -35,6 +34,8 @@ const SECTIONS: SectionDefinition[] = [
 /** Pages reached from another page rather than listed in the sidebar. */
 const NESTED: Partial<Record<Section, { label: string; parent: Section }>> = {
   calendar: { label: "Academic calendar", parent: "study" },
+  // Scheduled tasks share the Data updates page: both keep data fresh.
+  automation: { label: "Data updates", parent: "sources" },
 };
 
 export type SectionContext = {

@@ -2402,7 +2402,7 @@ describe("workspace column sizing", () => {
   });
 });
 
-it("reports the active kyomu pull instead of an idle LMS status", async () => {
+it("shows progress only for pulls the user started and the data age when idle", async () => {
   app = await mountShell(
     shellOptions({
       workspace: workspaceFixture(),
@@ -2427,10 +2427,12 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
   );
   await until(() => {
     const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("busy");
     expect(status.textContent).toContain("教務Web");
     expect(status.textContent).toContain("Waiting for school refresh");
-    expect(status.textContent).toContain("5%");
-    expect(status.textContent).not.toContain("Ready");
+    expect(status.querySelector("progress")!.value).toBe(5);
+    // The percentage is an estimate; the bar carries it without a number.
+    expect(status.textContent).not.toContain("%");
   });
   await act(async () =>
     app!.core.emit("school-ingest", {
@@ -2442,14 +2444,42 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
     }),
   );
   await until(() =>
-    expect(app!.host.querySelector(".lmsStatus")!.textContent).toContain("35%"),
+    expect(
+      app!.host.querySelector<HTMLProgressElement>(".lmsStatus progress")!
+        .value,
+    ).toBe(35),
   );
+  // A pull Core admitted on its own stays a quiet note without a bar.
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      {
+        id: "lms-automatic",
+        target: { type: "school", site: "science-lms", courseId: null },
+        state: "blocked",
+        priority: "automatic",
+        phase: null,
+        blockedBy: "schoolVisible",
+        attempt: 0,
+        waiterCount: 0,
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("background");
+    expect(status.textContent).toContain("LMS");
+    expect(status.textContent).toContain(
+      "Resumes after you leave the school page",
+    );
+    expect(status.querySelector("progress")).toBeNull();
+  });
   await act(async () => app!.core.emit("pull-state-changed", []));
-  await until(() =>
-    expect(app!.host.querySelector(".lmsStatus")!.textContent).toContain(
-      "Ready",
-    ),
-  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("idle");
+    expect(status.textContent).toContain("Never updated");
+  });
   await act(async () =>
     app!.core.emit("school-ingest", {
       site: "kyomu",
@@ -2464,8 +2494,7 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
     expect(status.textContent).toContain("Under maintenance");
     expect(status.textContent).toContain("2031/01/02");
     expect(status.querySelector("progress")).toBeNull();
-    expect(status.textContent).not.toContain("Ready");
-    expect(status.textContent).not.toContain("5%");
+    expect(status.getAttribute("data-kind")).toBe("problem");
   });
   await act(async () =>
     app!.core.emit("school-ingest", {
@@ -2477,9 +2506,9 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
     }),
   );
   await until(() =>
-    expect(app!.host.querySelector(".lmsStatus")!.textContent).toContain(
-      "Ready",
-    ),
+    expect(
+      app!.host.querySelector(".lmsStatus")!.getAttribute("data-kind"),
+    ).toBe("idle"),
   );
   const terminal = {
     id: "kyomu-partial",
@@ -2497,8 +2526,7 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
     const status = app!.host.querySelector(".lmsStatus")!;
     expect(status.textContent).toContain("Refresh incomplete");
     expect(status.textContent).toContain("registrations unavailable");
-    expect(status.textContent).not.toContain("Ready");
-    expect(status.textContent).not.toContain("%");
+    expect(status.querySelector("progress")).toBeNull();
   });
   await act(async () =>
     app!.core.emit("pull-state-changed", [
@@ -2529,3 +2557,74 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
   );
   await until(() => expect(force.disabled).toBe(false));
 });
+
+/**
+ * Proper names, product names and protocol words that stay in Latin script in
+ * every UI language, plus the fixture's own course data. Anything else in
+ * Latin script on a Chinese screen is an English string that skipped `t()`.
+ */
+const LATIN_ALLOWED = new Set(
+  (
+    "LMS Web Science Tokyo TokyoTech Tech Portal Mail TSUBAME ICS PDF URL ID " +
+    "AI Agent MCP Matrix Wi-Fi Google Drive Microsoft OAuth iCloud CSS " +
+    "JavaScript HTTP Streamable Bearer IsctCompanion GPA GPT ZIP macOS session " +
+    "English https isct-companion Isct-Data test Placed CSC.T Q MB " +
+    "A B C D E F G H I J"
+  ).split(" "),
+);
+
+/** Latin-script words a person would see or hear on screen. */
+function latinWords(root: HTMLElement): string[] {
+  const words = new Set<string>();
+  const add = (text: string | null | undefined) => {
+    for (const word of text?.match(/[A-Za-z][A-Za-z'’.-]*/g) ?? [])
+      if (!LATIN_ALLOWED.has(word.replace(/[.]$/, ""))) words.add(word);
+  };
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode())
+    if (!["STYLE", "SCRIPT"].includes(node.parentElement?.tagName ?? ""))
+      add(node.textContent);
+  for (const element of root.querySelectorAll(
+    "[aria-label],[title],[placeholder]",
+  ))
+    for (const name of ["aria-label", "title", "placeholder"])
+      add(element.getAttribute(name));
+  return [...words];
+}
+
+it("shows every page and settings section in Chinese without English leftovers", async () => {
+  const workspace = workspaceFixture({
+    courses: [placedCourse],
+    planItems: [planItemFor(placedCourse)],
+  });
+  workspace.settings.locale = "zh";
+  app = await mountShell(shellOptions({ workspace }));
+  const sections = [
+    "accounts",
+    "study",
+    "notifications",
+    "calendar",
+    "appearance",
+    "files",
+    "backup",
+    "sources",
+    "agent",
+    "developer",
+    "about",
+  ] as const;
+  const leaks: Record<string, string[]> = {};
+  for (const route of [
+    paths.home(),
+    paths.home("week"),
+    paths.timetable(),
+    paths.lectures(),
+    paths.web(),
+    ...sections.map((section) => paths.settings(section)),
+  ]) {
+    await app.go(route);
+    await advance(300);
+    const words = latinWords(app.host);
+    if (words.length) leaks[route] = words;
+  }
+  expect(leaks).toEqual({});
+}, 60_000);

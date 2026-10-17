@@ -4,6 +4,7 @@ import { CalendarView } from "../pages/today/CalendarView";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
+import { SchoolStatusLine } from "./SchoolStatusLine";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
 import { useAppearance } from "./useAppearance";
@@ -460,6 +461,7 @@ export function WorkspaceApp() {
   const [panelCourseId, setPanelCourseId] = useState<string | null>(null);
   // A search result opened from the syllabus panel, shown over the timetable.
   const [offeringPanel, setOfferingPanel] = useState<FinderCourse | null>(null);
+  const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const {
     lmsProgress,
     kyomuProgress,
@@ -469,7 +471,7 @@ export function WorkspaceApp() {
     setLmsPhase,
     loginSteps,
     schoolStatus,
-  } = usePullState();
+  } = usePullState(schoolRecords?.lastRuns);
   const pulling = lmsProgress !== null;
   const [forceRefreshing, setForceRefreshing] = useState(false);
   useCoreLifecycle();
@@ -484,7 +486,6 @@ export function WorkspaceApp() {
     }).catch(() => []);
     setGroupPrompt(choices.find((choice) => choice.needsChoice) ?? null);
   };
-  const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const loadSchoolRecords = () => workspaceActions.refreshSchool();
   useEffect(
     () =>
@@ -591,7 +592,7 @@ export function WorkspaceApp() {
   if (!data || !overview.value)
     return (
       <div className="loading">
-        {store.error ?? overview.error ?? "Opening your workspace…"}
+        {t(store.error ?? overview.error ?? "Opening your workspace…")}
         {(store.error || overview.error) && (
           <UiButton
             onClick={() =>
@@ -600,7 +601,7 @@ export function WorkspaceApp() {
                 : overview.retry?.()
             }
           >
-            Retry
+            {t("Retry")}
           </UiButton>
         )}
       </div>
@@ -830,7 +831,9 @@ export function WorkspaceApp() {
       if (!quiet) notify.info(problem ?? "LMS updated");
       return !problem;
     } catch (error) {
-      setLmsPhase(`Update failed · ${errorText(error) ?? t("unknown error")}`);
+      setLmsPhase(
+        `${t("Update failed")} · ${t(errorText(error) ?? "unknown error")}`,
+      );
       if (!quiet) notify.error(error);
       return false;
     } finally {
@@ -1629,7 +1632,7 @@ export function WorkspaceApp() {
       padding={0}
     >
       <AppShell.Navbar className="rail">
-        <nav aria-label="Pages">
+        <nav aria-label={t("Pages")}>
           {pages.map((p, i) => (
             <UiButton
               className={page === p ? "active" : ""}
@@ -1668,7 +1671,7 @@ export function WorkspaceApp() {
         </UiButton>
       </AppShell.Navbar>
       <AppShell.Footer className="mobileRail" hiddenFrom="sm">
-        <nav aria-label="Pages">
+        <nav aria-label={t("Pages")}>
           {pages.map((p) => (
             <UiButton
               className={page === p ? "active" : ""}
@@ -1701,7 +1704,10 @@ export function WorkspaceApp() {
         {keep("settings", settingsPage)}
       </AppShell.Main>
       {overlays}
-      <aside className="schoolStatusBar" aria-label="School connection status">
+      <aside
+        className="schoolStatusBar"
+        aria-label={t("School connection status")}
+      >
         <div className="schoolStatusAccounts">
           <span
             className="schoolStatusAccount"
@@ -1728,34 +1734,18 @@ export function WorkspaceApp() {
             </span>
           </span>
         </div>
-        <div className="lmsStatus" aria-live="polite">
-          <div className="lmsStatusLine">
-            <b>{schoolStatus.source}</b>
-            <span title={schoolStatus.phase}>{schoolStatus.phase}</span>
-            <output>
-              {schoolStatus.progress !== null
-                ? `${Math.round(schoolStatus.progress)}%`
-                : ""}
-            </output>
-            {desktopBridge?.pullSchool && (
-              <UiButton
-                type="button"
-                className="textButton"
-                disabled={forceRefreshing}
-                onClick={() => void forceSchoolRefresh()}
-              >
-                {t(forceRefreshing ? "Refreshing…" : "Refresh now")}
-              </UiButton>
-            )}
-          </div>
-          {schoolStatus.progress !== null && (
-            <progress
-              aria-label={schoolStatus.phase}
-              max={100}
-              value={schoolStatus.progress}
-            />
-          )}
-        </div>
+        <SchoolStatusLine
+          status={schoolStatus}
+          locale={data.settings.locale}
+          refresh={
+            desktopBridge?.pullSchool
+              ? {
+                  busy: forceRefreshing,
+                  run: () => void forceSchoolRefresh(),
+                }
+              : undefined
+          }
+        />
       </aside>
     </AppShell>
   );

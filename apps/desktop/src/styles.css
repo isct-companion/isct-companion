@@ -341,27 +341,66 @@ p {
   min-width: 0;
 }
 .lmsStatusLine {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 9px;
+  min-width: 0;
   color: var(--muted);
   font-size: calc(11px * var(--text));
 }
-.lmsStatusLine span {
+.lmsStatusLine > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lmsStatusLine output {
-  color: var(--accent);
+.lmsStatusLine > .textButton {
+  flex: 0 0 auto;
+  margin-inline-start: 6px;
+}
+.lmsStatus[data-kind="problem"] .lmsStatusLine > span {
+  color: var(--danger);
+}
+/* Idle: one quiet "source · age" pair per school site. */
+.schoolUpdated {
+  display: flex;
+  gap: 16px;
+}
+.schoolUpdated > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+}
+.schoolUpdated b {
+  font-weight: 600;
+}
+/* Background pulls Core started on its own: a small turning ring, no bar. */
+.schoolStatusSpinner {
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: schoolStatusSpin 0.9s linear infinite;
+}
+@keyframes schoolStatusSpin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .schoolStatusSpinner {
+    animation: none;
+  }
 }
 .lmsStatus progress {
   display: block;
   width: 100%;
-  height: 4px;
+  height: 3px;
   margin-top: 5px;
   border: 0;
   border-radius: 999px;
