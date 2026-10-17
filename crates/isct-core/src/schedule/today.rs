@@ -112,7 +112,7 @@ pub struct MaterialItem {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum RecentItem {
     Grade(DeadlineItem),
     Material(MaterialItem),

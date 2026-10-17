@@ -961,7 +961,10 @@ fn today_moves_through_the_day_and_board_groups_open_work() {
     assert!(holiday.no_classes);
     assert_eq!(holiday.calendar_notice.as_deref(), Some("Trip"));
     assert!(holiday.hero.is_none());
-    let recent: Vec<_> = holiday
+    // The FFI crosses as JSON, so the variant tag must survive a round trip.
+    let crossed: TodayView =
+        serde_json::from_value(serde_json::to_value(&holiday).unwrap()).unwrap();
+    let recent: Vec<_> = crossed
         .recent
         .iter()
         .map(|item| match item {

@@ -1067,7 +1067,7 @@ export type MaterialItem = {
 };
 
 export type RecentItem =
-  ({ kind: "grade" } & DeadlineItem) | ({ kind: "material" } & MaterialItem);
+  ({ type: "grade" } & DeadlineItem) | ({ type: "material" } & MaterialItem);
 
 export type TodayView = {
   date: string;
