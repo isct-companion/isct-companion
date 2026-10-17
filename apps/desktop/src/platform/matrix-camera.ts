@@ -1,7 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
-  MatrixScanOutline,
-  MatrixScanSnapshot,
+  MatrixCameraSnapshot,
   MatrixCaptureMetrics,
 } from "../generated/persistence";
 import { t } from "../i18n";
@@ -35,11 +34,12 @@ function cameraError(error: unknown): Error {
  * Cleanup also handles permission/IPC promises that resolve after unmount. */
 export function openMatrixCamera(
   video: HTMLVideoElement,
-  onSnapshot: (snapshot: MatrixScanSnapshot) => void,
+  onSnapshot: (snapshot: MatrixCameraSnapshot) => void,
   onError: (error: Error) => void,
-  onOutline?: (outline: MatrixScanOutline) => void,
 ): () => void {
   let disposed = false;
+  let processing = false;
+  let cameraReleased = false;
   let stream: MediaStream | undefined;
   let sessionId: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -57,18 +57,23 @@ export function openMatrixCamera(
       // A shutting-down native host may already have dropped the session.
     });
   };
-  const dispose = () => {
-    if (disposed) return;
-    disposed = true;
+  const releaseCamera = () => {
+    if (cameraReleased) return;
+    cameraReleased = true;
     clearTimeout(timer);
     if (videoFrame !== undefined) video.cancelVideoFrameCallback(videoFrame);
-    document.removeEventListener("visibilitychange", visibility);
     stream?.getTracks().forEach((track) => track.stop());
     video.srcObject = null;
     capture.elapsedMs =
       captureStarted === undefined ? 0 : performance.now() - captureStarted;
     capture.trackedMs =
       firstOutlineAt === undefined ? null : performance.now() - firstOutlineAt;
+  };
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    releaseCamera();
+    document.removeEventListener("visibilitychange", visibility);
     if (sessionId) stopSession(sessionId);
   };
   const fail = (error: unknown) => {
@@ -77,7 +82,7 @@ export function openMatrixCamera(
     onError(cameraError(error));
   };
   const visibility = () => {
-    if (document.hidden)
+    if (document.hidden && !processing)
       fail(
         new Error(
           t(
@@ -134,10 +139,44 @@ export function openMatrixCamera(
       video.readyState >= 2 &&
       video.videoWidth > 0 &&
       video.currentTime !== lastTime;
+    const receive = async (snapshot: MatrixCameraSnapshot) => {
+      if (disposed) return false;
+      if (snapshot.bounds) firstOutlineAt ??= performance.now();
+      if (snapshot.phase === "capturing") {
+        onSnapshot(snapshot);
+        return true;
+      }
+      processing = true;
+      releaseCamera();
+      if (snapshot.phase === "complete") {
+        dispose();
+        onSnapshot(snapshot);
+        return false;
+      }
+      onSnapshot(snapshot);
+      const onProgress = new Channel<MatrixCameraSnapshot>();
+      onProgress.onmessage = (progress) => {
+        // Complete through the command result, after its worker releases state.
+        if (!disposed && progress.phase === "processing") onSnapshot(progress);
+      };
+      const result = await invoke<MatrixCameraSnapshot>(
+        "process_matrix_camera",
+        {
+          sessionId: id,
+          onProgress,
+        },
+      );
+      if (!disposed) {
+        dispose();
+        onSnapshot(result);
+      }
+      return false;
+    };
     const frame = async () => {
       if (disposed) return;
       const started = performance.now();
       try {
+        let snapshot: MatrixCameraSnapshot;
         if (hasNewFrame()) {
           lastTime = video.currentTime;
           const scale = Math.min(
@@ -148,36 +187,38 @@ export function openMatrixCamera(
           canvas.height = Math.round(video.videoHeight * scale);
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
           const image = canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
-          const onGeometry = new Channel<MatrixScanOutline>();
-          onGeometry.onmessage = (outline) => {
-            if (!disposed) {
-              firstOutlineAt ??= performance.now();
-              onOutline?.(outline);
-            }
-          };
-          const snapshot = await invoke<MatrixScanSnapshot>(
-            "scan_matrix_camera_frame",
-            { sessionId: id, image, onGeometry },
+          snapshot = await invoke<MatrixCameraSnapshot>(
+            "capture_matrix_camera_frame",
+            {
+              sessionId: id,
+              image,
+            },
           );
           if (disposed) return;
           capture.frames += 1;
           capture.frameMs.push(performance.now() - started);
           if (capture.frameMs.length > 128) capture.frameMs.shift();
-          if (snapshot.complete) dispose();
-          onSnapshot(snapshot);
-          if (snapshot.complete) return;
+        } else {
+          // Core's acquisition deadline still advances when video stalls.
+          snapshot = await invoke<MatrixCameraSnapshot>("poll_matrix_camera", {
+            sessionId: id,
+          });
         }
-        // Decode/encode only when inference is idle. The video owns the latest
-        // frame, so frames arriving during inference never build up a queue.
+        if (!(await receive(snapshot))) return;
         if (hasNewFrame()) {
           timer = setTimeout(() => void frame(), 0);
-        } else if (typeof video.requestVideoFrameCallback === "function") {
-          videoFrame = video.requestVideoFrameCallback(() => {
+        } else {
+          // The timeout is a lifecycle wakeup, not a fixed capture FPS budget.
+          const wake = () => {
+            clearTimeout(timer);
+            if (videoFrame !== undefined)
+              video.cancelVideoFrameCallback(videoFrame);
             videoFrame = undefined;
             void frame();
-          });
-        } else {
-          timer = setTimeout(() => void frame(), 16);
+          };
+          timer = setTimeout(wake, 100);
+          if (typeof video.requestVideoFrameCallback === "function")
+            videoFrame = video.requestVideoFrameCallback(wake);
         }
       } catch (error) {
         fail(error);

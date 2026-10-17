@@ -1454,6 +1454,19 @@ export type MatrixCaptureMetrics = {
   frameMs: Array<number>;
 };
 
+export type MatrixCameraPhase = "capturing" | "processing" | "complete";
+
+export type MatrixCameraSnapshot = {
+  phase: MatrixCameraPhase;
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
+  readyCells: number;
+  captureElapsedMs: number;
+  timedOut: boolean;
+  completedSamples: number;
+  totalSamples: number;
+  cells: Array<MatrixVote>;
+};
+
 export type OtpImportAccount = {
   label: string;
   issuer: string;

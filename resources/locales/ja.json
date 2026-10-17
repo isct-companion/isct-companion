@@ -1048,11 +1048,8 @@
   "Choose a QR code image smaller than 10 MB.": "10 MB未満のQRコード画像を選択してください。",
   "No QR code found. Choose a clear image containing the whole QR code.": "QRコードが見つかりません。QRコード全体が鮮明に写った画像を選択してください。",
   "Not set up": "未設定",
-  "Bring your card closer until the Matrix is framed, then hold steady. The scanner closes automatically when ready.": "カードを近づけ、マトリクスに枠が表示されたらそのまま保持してください。読み取り完了後、自動的に閉じます。",
-  "Reading Matrix. Hold steady…": "マトリクスを読み取り中。そのまま保持してください…",
   "Point the camera at the Matrix on your card.": "カードのマトリクスにカメラを向けてください。",
   "Under maintenance": "メンテナンス中",
-  "Move closer or tilt the card to avoid glare.": "カードを近づけるか、傾けて反射を避けてください。",
   "Course level": "科目コード番台",
   "Day / delivery": "曜日・授業形態",
   "Starting period": "開始時限",
@@ -1268,5 +1265,9 @@
   "Keep one: open the other course, or find another time for this one.": "どちらか一方を残します。もう一方の授業を開くか、この授業の別の時間を探してください。",
   "Find another class time": "別の時間を探す",
   "Show the first conflict": "最初の重複を表示",
-  "Conflicts: {{count}}": "重複 {{count}} 件"
+  "Conflicts: {{count}}": "重複 {{count}} 件",
+  "Bring your card closer until the Matrix is framed. Capture ends when every cell has enough clear images, or after eight seconds.": "Matrix が枠に収まるようカードを近づけてください。全マスの鮮明な画像がそろうと撮影が終わります。最長 8 秒です。",
+  "Capturing Matrix… {{count}}/70 cells ready.": "Matrix を撮影中… {{count}}/70 マスの画像がそろいました。",
+  "Processing Matrix… You can put your card down.": "Matrix を認識中… カードを下ろして大丈夫です。",
+  "Matrix processing progress": "Matrix の認識状況"
 }
