@@ -509,6 +509,7 @@ describe("the shipped school scripts stay read-only", () => {
       <form action="/2025/my/index.php" method="post">
         <select name="year"><option value="1" ${year === "2025" ? "selected" : ""}>2025</option><option value="7" ${year === "2026" ? "selected" : ""}>2026</option></select>
         <select name="quota">${[1, 2, 3, 4].map((q) => `<option value="${q}" ${String(q) === quarter ? "selected" : ""}>${q}</option>`).join("")}</select>
+        <input type="hidden" name="search" value="1">
       </form>
       <table><tr><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th></tr>
       <tr><td>1</td><td><a href="/2025/course/view.php?id=42">Course</a></td><td></td><td></td><td></td><td></td></tr></table>
@@ -530,6 +531,7 @@ describe("the shipped school scripts stay read-only", () => {
           const body = new URLSearchParams(String(options.body));
           expect([...body.keys()].sort()).toEqual(["quota", "search", "year"]);
           expect(options.method).toBe("POST");
+          expect(body.get("search")).toBe("1");
           const year = body.get("year") === "1" ? "2025" : "2026";
           const quarter = body.get("quota")!;
           requests.push(`${year}-${quarter}Q`);

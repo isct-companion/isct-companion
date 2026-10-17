@@ -144,6 +144,9 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       .filter(option => /^20\d{2}$/.test(option.textContent.trim()));
     const quarters = [...block?.querySelectorAll('select[name="quota"] option') || []]
       .filter(option => /^[1-4]$/.test(option.textContent.trim()));
+    // Preserve the form's search flag; an empty replacement makes Moodle
+    // ignore year/quota and return the current quarter for every request.
+    const search = block?.querySelector('input[name="search"]')?.value ?? '';
     if (!years.length || quarters.length !== 4) errors.push('timetable-filters-unavailable');
     for (const year of years) for (const quarter of quarters) {
       const expected = year.textContent.trim() + '-' + quarter.textContent.trim() + 'Q';
@@ -151,13 +154,21 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       try {
         const response = await fetch('/2025/my/index.php', {method:'POST', credentials:'same-origin',
           signal:AbortSignal.timeout(20000), headers:{'Content-Type':'application/x-www-form-urlencoded'},
-          body:new URLSearchParams({year:year.value, quota:quarter.value, search:''}).toString()});
+          body:new URLSearchParams({year:year.value, quota:quarter.value, search}).toString()});
         if (!response.ok || new URL(response.url, sourceUrl).origin !== location.origin)
-          throw new Error('timetable-request-failed');
+          throw new Error('timetable-request-failed: HTTP ' + response.status);
         const page = new DOMParser().parseFromString(await response.text(), 'text/html');
         const grid = readTimetable(page);
-        if (!grid || expected !== grid.year + '-' + grid.quarter + 'Q')
-          throw new Error('timetable-quarter-mismatch');
+        if (!grid) {
+          const block = page.querySelector('[data-block="tttimetable"]');
+          const tables = [...block?.querySelectorAll('table') || []];
+          const labels = [...block?.querySelectorAll('select') || []]
+            .map(select => select.name + '=' + select.selectedOptions[0]?.textContent.trim()).join(',');
+          throw new Error('timetable-unreadable: tables=' + tables.length + ', rows='
+            + tables.map(table => table.rows.length).join(',') + ', selection=' + labels);
+        }
+        if (expected !== grid.year + '-' + grid.quarter + 'Q')
+          throw new Error('timetable-quarter-mismatch: got ' + grid.year + '-' + grid.quarter + 'Q');
         grids.push(grid);
       } catch (error) { errors.push(expected + ': ' + String(error?.message || error)); }
     }

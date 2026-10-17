@@ -134,6 +134,7 @@ fn lms_partial_quarter_reads_commit_available_data_and_preserve_cached_clocks() 
     raw["timetableErrors"] = serde_json::json!(["2026-1Q: timeout"]);
     let partial = apply_raw(&store, SchoolSite::ScienceLms, &raw.to_string()).unwrap();
     assert_eq!(partial.state, IngestState::Error);
+    assert!(partial.message.contains("2026-1Q: timeout"));
     assert!(partial.changed > 0);
     let courses = crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q");
     assert_eq!(courses.len(), 1);
