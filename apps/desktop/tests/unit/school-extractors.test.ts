@@ -592,6 +592,90 @@ describe("the shipped school scripts stay read-only", () => {
     expect(recovered.timetableErrors).toEqual([]);
   });
 
+  it("bounds stalled LMS requests and bodies without blocking other courses or losing their outlines", async () => {
+    const dom = new JSDOM("<body></body>", {
+      url: "https://lms.s.isct.ac.jp/2025/my/",
+      runScripts: "outside-only",
+    });
+    const events: string[] = [];
+    const stalled = (signal?: AbortSignal) =>
+      new Promise<never>((_, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            events.push("aborted");
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      });
+    // The school service has no headless endpoint. Only its transport is
+    // scripted; the production extractor, DOM and worker pool execute intact.
+    Object.assign(dom.window, {
+      M: { cfg: { sesskey: "test-key", language: "en" } },
+      __ISCT_COMPANION_LMS_FULL__: true,
+      AbortSignal: {
+        timeout: (ms: number) => {
+          expect(ms).toBe(20000);
+          return AbortSignal.timeout(20);
+        },
+      },
+      fetch: async (url: string, options: RequestInit) => {
+        const signal = options.signal ?? undefined;
+        if (url.includes("service.php")) {
+          const [{ methodname, args }] = JSON.parse(String(options.body));
+          if (methodname === "core_courseformat_get_state") {
+            events.push(`course-${args.courseid}`);
+            if (args.courseid === 1) return stalled(signal);
+          }
+          const data =
+            methodname ===
+            "core_course_get_enrolled_courses_by_timeline_classification"
+              ? {
+                  courses: Array.from({ length: 6 }, (_, i) => ({
+                    id: i + 1,
+                    fullname: `Course ${i + 1}`,
+                  })),
+                }
+              : methodname === "core_courseformat_get_state"
+                ? JSON.stringify({ section: [], cm: [] })
+                : { events: [] };
+          return {
+            ok: true,
+            headers: { get: () => "application/json" },
+            json: async () => [{ data }],
+          };
+        }
+        return {
+          ok: true,
+          url,
+          text: () =>
+            url.endsWith("id=2")
+              ? stalled(signal)
+              : Promise.resolve("<body></body>"),
+        };
+      },
+    });
+    const result = (await dom.window.eval(
+      rustConstant("crates/isct-core/src/lms_ingest.rs", "LMS_EXTRACT_SCRIPT"),
+    )) as {
+      status: string;
+      structures: { courseId: number; complete: boolean }[];
+    };
+    expect(result.status).toBe("ok");
+    expect(result.structures).toHaveLength(6);
+    expect(result.structures.find((row) => row.courseId === 1)?.complete).toBe(
+      false,
+    );
+    expect(
+      result.structures
+        .filter((row) => row.courseId !== 1)
+        .every((row) => row.complete),
+    ).toBe(true);
+    expect(events.filter((event) => event === "aborted")).toHaveLength(2);
+    expect(events.indexOf("course-5")).toBeLessThan(events.indexOf("aborted"));
+  });
+
   it("closes the LMS AJAX method allowlist to exactly the seven documented methods", () => {
     const script = rustConstant(
       "crates/isct-core/src/lms_ingest.rs",

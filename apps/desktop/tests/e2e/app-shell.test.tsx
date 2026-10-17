@@ -2413,6 +2413,52 @@ it("shows progress only for pulls the user started and the data age when idle", 
     // The percentage is an estimate; the bar carries it without a number.
     expect(status.textContent).not.toContain("%");
   });
+  // A manual request waiting for the school lane must show the automatic
+  // owner that is making progress, instead of appearing stuck at queued 5%.
+  const waitingKyomu = {
+    id: "kyomu-active",
+    target: { type: "school", site: "kyomu", courseId: null },
+    state: "queued",
+    priority: "manual",
+    phase: null,
+    blockedBy: null,
+    attempt: 0,
+    waiterCount: 1,
+    lastError: null,
+  };
+  await act(async () => {
+    app!.core.emit("pull-state-changed", [
+      waitingKyomu,
+      {
+        ...waitingKyomu,
+        id: "lms-automatic-running",
+        target: { type: "school", site: "science-lms", courseId: null },
+        state: "running",
+        priority: "automatic",
+        phase: "extracting",
+      },
+    ]);
+  });
+  await act(async () =>
+    app!.core.emit("school-pull-progress", {
+      site: "science-lms",
+      phase: "course",
+      completed: 7,
+      total: 62,
+      courseId: 1,
+      courseTitle: "First course",
+      term: "2026-3Q",
+      itemTitle: "",
+    }),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("LMS");
+    expect(status.textContent).toContain("7/62");
+    expect(status.textContent).toContain("教務Web refresh queued");
+    expect(status.querySelector("progress")!.value).toBeGreaterThan(8);
+  });
+  await act(async () => app!.core.emit("pull-state-changed", [waitingKyomu]));
   await act(async () =>
     app!.core.emit("school-ingest", {
       site: "kyomu",

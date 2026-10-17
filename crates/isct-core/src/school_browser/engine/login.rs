@@ -47,9 +47,13 @@ impl SchoolBrowserEngine {
     ) -> Result<bool, SchoolBrowserError> {
         loop {
             self.wait_until_hidden_without_context().await?;
+            let started = Instant::now();
+            log::info!(target: "isct_core::school_browser", "session check waiting profile={profile:?}");
             let lane = self.acquire_lane().await?;
+            log::info!(target: "isct_core::school_browser", "session check acquired profile={profile:?} waited_ms={}", started.elapsed().as_millis());
             let result = self.ensure_session_once(profile).await;
             drop(lane);
+            log::info!(target: "isct_core::school_browser", "session check finished profile={profile:?} elapsed_ms={} result={result:?}", started.elapsed().as_millis());
             match result {
                 Err(SchoolBrowserError::Preempted) => continue,
                 result => return result,

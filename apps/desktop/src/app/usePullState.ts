@@ -182,8 +182,20 @@ export function usePullState(lastRuns: Record<string, string> = {}) {
     kyomuViewProgress !== null || activeKyomu?.priority === "manual";
   const lmsManual =
     lmsViewProgress !== null || activeLms?.priority === "manual";
+  // Core owns the school lane. A queued manual request must not mask its
+  // running owner with a static 5% estimate.
+  const running = [activeKyomu, activeLms].find(
+    (pull) =>
+      pull && ["running", "applying", "cancelling"].includes(pull.state),
+  );
+  const runningKyomu = running === activeKyomu;
+  const queuedManual = [activeKyomu, activeLms].find(
+    (pull) =>
+      pull?.priority === "manual" && ["queued", "blocked"].includes(pull.state),
+  );
+  const runningPhase = runningKyomu ? kyomuPhase : lmsLine;
   const idle = !activeKyomu && !activeLms && !pulling && kyomuProgress === null;
-  const schoolStatus: SchoolStatus =
+  let schoolStatus: SchoolStatus =
     kyomuMaintenance && idle
       ? {
           kind: "problem",
@@ -250,6 +262,22 @@ export function usePullState(lastRuns: Record<string, string> = {}) {
                     },
                   ],
                 };
+  if (running && (kyomuManual || lmsManual)) {
+    schoolStatus = {
+      kind: "busy",
+      source: runningKyomu ? "教務Web" : "LMS",
+      phase: queuedManual
+        ? `${runningPhase} · ${t("{{source}} refresh queued", {
+            source:
+              queuedManual.target.type === "school" &&
+              queuedManual.target.site === "kyomu"
+                ? "教務Web"
+                : "LMS",
+          })}`
+        : runningPhase,
+      progress: (runningKyomu ? kyomuProgress : lmsProgress) ?? 5,
+    };
+  }
   return {
     lmsProgress,
     kyomuProgress,

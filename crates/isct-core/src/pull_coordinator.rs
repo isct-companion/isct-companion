@@ -1035,7 +1035,30 @@ impl PullCoordinator {
 }
 
 fn publish_locked(shared: &PullShared, state: &CoordinatorState) {
-    shared.snapshots.send_replace(snapshots_locked(state));
+    let snapshots = snapshots_locked(state);
+    {
+        let previous = shared.snapshots.borrow();
+        for next in &snapshots {
+            let unchanged = previous
+                .iter()
+                .find(|old| old.id == next.id)
+                .is_some_and(|old| {
+                    old.state == next.state
+                        && old.priority == next.priority
+                        && old.phase == next.phase
+                        && old.blocked_by == next.blocked_by
+                        && old.attempt == next.attempt
+                        && old.waiter_count == next.waiter_count
+                });
+            if !unchanged {
+                log::info!(target: "isct_core::pull", "{} target={:?} state={:?} priority={:?} phase={:?} blocked={:?} attempt={} waiters={} school_lane={} http_lanes={} suspended={}",
+                    next.id, next.target, next.state, next.priority, next.phase,
+                    next.blocked_by, next.attempt, next.waiter_count,
+                    state.school_running, state.http_running, state.suspended);
+            }
+        }
+    }
+    shared.snapshots.send_replace(snapshots);
 }
 
 fn settle_waiters(
