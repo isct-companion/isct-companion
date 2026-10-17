@@ -1359,8 +1359,18 @@ fn lms_merge_adds_memberships_joins_quarters_retimes_refreshes_and_relinks() {
             .to_string();
         id
     };
-    let humanities = save("LAH.T209", 2);
+    let humanities = save("LAH.T209-01", 2);
     let dropped = save("XYZ.A100", 5);
+    // An explicit local removal suppresses the automatic fallback, but keeps
+    // the LMS entry available to the manual review for a possible re-add.
+    run(
+        &service,
+        WorkspaceIntent::SetCourseOnTimetable {
+            course_id: "2026-lms-503".into(),
+            on_timetable: false,
+        },
+    )
+    .unwrap();
 
     let snapshot = service.snapshot().unwrap();
     let preview = lms_merge_preview(

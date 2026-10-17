@@ -207,6 +207,12 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             );
         }
         course["meetings"] = json!(meetings);
+        if let Some(local) = index
+            .map(|i| &courses[i])
+            .filter(|c| c["source"]["provider"] == "manual")
+        {
+            course = local.clone();
+        }
         if let Some(index) = index {
             courses[index] = course;
         } else {
@@ -245,7 +251,8 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
                 if !offering.is_empty() {
                     return text(course, "offeringId") == offering;
                 }
-                text(course, "code").eq_ignore_ascii_case(&code)
+                !code.is_empty()
+                    && text(course, "code").eq_ignore_ascii_case(&code)
                     && text(course, "termId").starts_with(&format!("{year}-"))
                     && array(&lms, "quarters").iter().any(|quarter| {
                         text(course, "termId")
@@ -266,6 +273,7 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             aliases.insert(format!("{year}-lms-{lms_id}"), id);
         }
     }
+    project_lms_fallback(workspace, &lms_courses, &covered, &teaching, &mut lms_links)?;
     for (lms_id, id) in &lms_links {
         if let Some(course) = workspace["courses"]
             .as_array_mut()
@@ -273,6 +281,9 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             .flatten()
             .find(|course| text(course, "id") == id)
         {
+            if course["sourceKey"].is_null() {
+                course["sourceKey"] = format!("lms:default:course:{lms_id}").into();
+            }
             if course["lmsCourseId"]
                 .as_u64()
                 .is_none_or(|current| *lms_id > current)
@@ -281,7 +292,7 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             }
         }
     }
-    for field in ["assignments", "materials"] {
+    for field in ["assignments", "materials", "memberships", "planItems"] {
         for row in workspace[field].as_array_mut().into_iter().flatten() {
             if let Some(id) = row["lmsCourseId"]
                 .as_u64()
@@ -296,6 +307,9 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
     // is a read projection, never a mutation of the school's canonical title.
     let offerings = array(workspace, "offerings").to_vec();
     for course in workspace["courses"].as_array_mut().into_iter().flatten() {
+        if course["source"]["provider"] == "manual" {
+            continue;
+        }
         if let Some(offering) = offerings
             .iter()
             .find(|o| text(o, "id") == text(course, "offeringId"))
@@ -330,6 +344,159 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
         if course["names"].is_object() && course["names"]["instructor"].is_null() {
             course["names"]["instructor"] = json!({});
         }
+    }
+    Ok(())
+}
+
+/// A complete official quarter owns enrollment, including a successful empty
+/// list. Other quarters fall back to LMS evidence without rewriting local rows.
+fn project_lms_fallback(
+    workspace: &mut Value,
+    lms_courses: &[Value],
+    covered: &HashSet<String>,
+    teaching: &[crate::schedule::TeachingPeriod],
+    links: &mut HashMap<u64, String>,
+) -> Result<(), DataError> {
+    for lms in lms_courses
+        .iter()
+        .filter(|row| row["hidden"].as_bool() != Some(true))
+    {
+        let (Some(lms_id), Some(year)) = (lms["lmsId"].as_u64(), lms["year"].as_i64()) else {
+            continue;
+        };
+        if !(2000..2100).contains(&year) {
+            continue;
+        }
+        let offering_id = text(lms, "offeringId");
+        let catalog = array(workspace, "offerings")
+            .iter()
+            .find(|o| !offering_id.is_empty() && text(o, "id") == offering_id)
+            .cloned();
+        let mut terms = crate::workspace::lms_terms_with_offering(lms, catalog.as_ref());
+        terms.retain(|term| {
+            term.starts_with(&format!("{year}-"))
+                && crate::schedule::Term::parse(term).is_ok()
+                && !covered.contains(term)
+        });
+        terms.sort();
+        terms.dedup();
+        let Some(first_term) = terms.first() else {
+            continue;
+        };
+        let id = links.get(&lms_id).cloned().unwrap_or_else(|| {
+            if offering_id.len() == 9 && offering_id.bytes().all(|b| b.is_ascii_digit()) {
+                format!("{year}-{offering_id}")
+            } else {
+                format!("{year}-lms-{lms_id}")
+            }
+        });
+        // Never merge ambiguous code/class matches by manufacturing a new alias.
+        if offering_id.is_empty()
+            && !links.contains_key(&lms_id)
+            && array(workspace, "courses").iter().any(|c| {
+                text(c, "code") == lms_course_code(text(lms, "shortname"))
+                    && terms.iter().any(|term| text(c, "termId") == term)
+            })
+        {
+            continue;
+        }
+        let existing = array(workspace, "courses")
+            .iter()
+            .position(|c| text(c, "id") == id);
+        let mut course = if let Some(index) = existing {
+            workspace["courses"][index].clone()
+        } else if let Some(offering) = &catalog {
+            crate::workspace::planned_catalog_course(
+                offering,
+                &id,
+                first_term,
+                crate::workspace::workspace_content_locale(workspace),
+                teaching,
+            )?
+        } else {
+            json!({"id":id,"kind":"course","termId":first_term,
+                "code":lms_course_code(text(lms,"shortname")),
+                "title":crate::schedule::localized(Some(&lms["title"]), "ja", ""),
+                "names":{"title":lms["title"],"instructor":{}},"instructor":"",
+                "credits":0,"creditSplit":{"lecture":0,"exercise":0,"lab":0},
+                "instructionLanguage":"other","color":"#526e91","meetings":[],"url":lms["url"]})
+        };
+        if existing.is_none() {
+            course["sourceKey"] = lms["sourceKey"].clone();
+            course["source"] = json!({"provider":"lms","externalId":lms_id.to_string()});
+            for field in ["rev", "updatedAt", "updatedBy"] {
+                course[field] = lms[field].clone();
+            }
+            if !offering_id.is_empty() {
+                course["offeringId"] = offering_id.into();
+            }
+        }
+        // Source snapshots are read models. User records and overlays are applied
+        // independently and must retain their clocks, notes and deletion intent.
+        let catalog_meetings = if existing.is_none() {
+            array(&course, "meetings").to_vec()
+        } else {
+            Vec::new()
+        };
+        if existing.is_none() {
+            course["meetings"] = json!([]);
+        }
+        for term in &terms {
+            let has_clock = course["source"]["provider"] == "manual"
+                || array(&course, "meetings").iter().any(|m| {
+                    m["termIds"]
+                        .as_array()
+                        .is_none_or(|ids| ids.contains(&json!(term)))
+                });
+            if !has_clock {
+                let mut meetings = match lms["timetables"].get(term).filter(|v| v.is_array()) {
+                    Some(grid) => crate::workspace::meetings_from_grid(
+                        grid,
+                        &json!(catalog_meetings),
+                        teaching,
+                    )?,
+                    None => json!(catalog_meetings),
+                };
+                for meeting in meetings.as_array_mut().into_iter().flatten() {
+                    meeting["termIds"] = json!([term]);
+                }
+                course["meetings"]
+                    .as_array_mut()
+                    .ok_or_else(|| DataError::storage("Missing meetings."))?
+                    .extend(meetings.as_array().into_iter().flatten().cloned());
+            }
+            // Existing local placement (including a tombstone) wins over inference.
+            if !array(workspace, "memberships")
+                .iter()
+                .chain(array(workspace, "planItems"))
+                .any(|m| text(m, "courseId") == id && text(m, "termId") == term)
+            {
+                workspace["memberships"]
+                    .as_array_mut()
+                    .ok_or_else(|| DataError::storage("Missing memberships."))?
+                    .push(
+                        json!({"id":format!("lms-membership:{lms_id}:{term}"),"kind":"membership",
+                        "courseId":id,"termId":term,"status":"lms-member",
+                        "evidence":{"provider":"lms","externalId":lms_id.to_string()},
+                        "rev":lms["rev"],"updatedAt":lms["updatedAt"],"updatedBy":"lms"}),
+                    );
+            }
+            if !array(workspace, "terms").contains(&json!(term)) {
+                workspace["terms"]
+                    .as_array_mut()
+                    .ok_or_else(|| DataError::storage("Missing terms."))?
+                    .push(json!(term));
+            }
+        }
+        if let Some(index) = existing {
+            workspace["courses"][index] = course;
+        } else {
+            workspace["courses"]
+                .as_array_mut()
+                .ok_or_else(|| DataError::storage("Missing courses."))?
+                .push(course);
+        }
+        links.insert(lms_id, id);
     }
     Ok(())
 }

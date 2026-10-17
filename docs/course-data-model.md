@@ -27,13 +27,28 @@ Checked against the live sites on 2026-09-28 (read-only calls only).
 | LMS                | All dated events, including submitted work                                                                         | **API** `core_calendar_get_calendar_upcoming_view`, `…_monthly_view`                   | Deadlines of finished work.                                                                                                                                                                               |
 | LMS                | Submission detail, assignment description, folder files                                                            | **HTML** (`mod/assign/view.php`, `mod/folder/view.php`)                                | `mod_assign_*`, `core_course_get_contents` and the other web-service functions return `servicenotavailable`. Only fetched on demand.                                                                      |
 | LMS                | Grades                                                                                                             | **Not available**                                                                      | `grade/report/user` → 無効なユーザです, `grade/report/overview` → 評点を表示できません. Official grades come from 教務Web.                                                                                |
-| LMS                | Dashboard timetable block                                                                                          | HTML, **not used**                                                                     | Its filter is a POST that may store a preference; meetings come from the syllabus instead.                                                                                                                |
+| LMS                | Dashboard timetable block                                                                                          | HTML, read from the loaded dashboard                                                                     | Cache the displayed grid by academic year and quarter without submitting its preference form. LMS fallback uses these clocks and existing catalog metadata when no grid is cached.                                                                                                                |
 | 教務Web            | Registration list and state (`PID1_0.aspx`), grades (`PID2_0.aspx`), requirement progress (`PID2_6.aspx`), notices | **HTML only** (`GET`)                                                                  | ASP.NET WebForms with `__doPostBack` and ViewState, no JSON. Its only `$.ajax` is a keep-alive that re-posts the whole form; the app must never call it. Japanese only (English is a server-side toggle). |
 | Portal (GetAccess) | Sign-in and service links                                                                                          | HTML                                                                                   | Sign-in only; no data imported.                                                                                                                                                                           |
 
 API calls run inside the signed-in LMS page as `POST /2025/lib/ajax/service.php?sesskey=…` with `M.cfg.sesskey`, the same way the dashboard itself calls them. Only the functions listed above are allowed; the extractor refuses any other method name, and never calls anything that writes.
 
 Join keys, in order of reliability: `syllabusId` (LMS `idnumber` = syllabus `externalId` = 教務Web `data-jwc`), then `year + code + class` (grades, LMS `shortname`). Titles are never used to join.
+
+## Timetable source priority
+
+Local courses, placements, deletions and personal overlays take precedence.
+A successfully captured complete 教務Web registration quarter then owns official
+enrollment and clocks, including a confirmed empty quarter. Its current search
+or registration window does not imply coverage of historical quarters.
+Uncovered quarters project enrolled LMS courses and their cached dashboard
+clocks, using the existing catalog for metadata and missing clocks. This is a
+Core read projection: it neither copies school rows into user tables nor infers
+completed credits from enrollment. Courses without known times remain unscheduled.
+When official coverage later arrives it replaces the fallback without duplicating
+courses or discarding personal overlays. Maintenance, login and unavailable pages
+do not establish empty coverage. Opening or switching a quarter reads cache;
+explicit timetable refresh pulls 教務Web then LMS through the existing coordinator.
 
 ## Where data lives
 

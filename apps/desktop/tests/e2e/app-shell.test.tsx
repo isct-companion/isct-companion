@@ -2535,6 +2535,26 @@ it("shows progress only for pulls the user started and the data age when idle", 
     ).toEqual(["kyomu", "science-lms"]),
   );
   await until(() => expect(force.disabled).toBe(false));
+  await app.go(paths.timetable());
+  const timetableRefresh = await required(
+    () =>
+      [...app!.host.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent?.trim() === "Refresh timetable",
+      ),
+    "the timetable refresh action",
+  );
+  // Changing pages consumes cache; explicit refresh updates both sources.
+  expect(
+    app.core.calls.filter((call) => call.command === "pull_school"),
+  ).toHaveLength(2);
+  await click(timetableRefresh);
+  await until(() =>
+    expect(
+      app!.core.calls
+        .filter((call) => call.command === "pull_school")
+        .map((call) => call.args.site),
+    ).toEqual(["kyomu", "science-lms", "kyomu", "science-lms"]),
+  );
 });
 
 /**

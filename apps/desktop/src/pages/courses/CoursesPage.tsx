@@ -247,7 +247,7 @@ export function Courses({
                 ) : undefined
               }
               onClick={refreshSchedule}
-              title={t("Refresh timetable from 教務Web")}
+              title={t("Refresh timetable")}
             >
               {pullProgress !== null
                 ? `${Math.round(pullProgress)}%`

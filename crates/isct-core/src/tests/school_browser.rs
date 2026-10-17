@@ -1978,7 +1978,7 @@ async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
 }
 
 #[tokio::test]
-async fn full_lms_pull_updates_content_without_owning_the_timetable() {
+async fn full_lms_pull_projects_fallback_without_writing_user_timetable() {
     let (engine, browser, events, store) = engine();
     let coordinator = PullCoordinator::default();
     let request = spawn_pull(
@@ -2023,7 +2023,15 @@ async fn full_lms_pull_updates_content_without_owning_the_timetable() {
         .unwrap();
     let workspace = store.load_workspace().unwrap();
     assert!(workspace["importStatus"]["timetableReviewedAt"].is_null());
-    assert!(workspace["memberships"].as_array().unwrap().is_empty());
+    let courses = crate::schedule::scheduled_courses(&workspace, "2026-3Q");
+    assert_eq!(courses.len(), 1);
+    assert_eq!(courses[0]["meetings"][0]["days"], serde_json::json!([5]));
+    assert_eq!(
+        courses[0]["meetings"][0]["periods"],
+        serde_json::json!([5, 6])
+    );
+    assert!(store.user_rows("manual_courses").unwrap().is_empty());
+    assert!(store.user_rows("manual_memberships").unwrap().is_empty());
     assert_eq!(store.table_rows("lms_courses").unwrap().len(), 1);
     assert!(store.last_import_runs().unwrap()["lms:all"].is_string());
     assert!(!events.0.lock().unwrap().iter().any(|event| matches!(event,

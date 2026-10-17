@@ -295,6 +295,9 @@ pub fn apply_kyomu_payload(
     connection: &mut Connection,
     payload: &KyomuPayload,
 ) -> Result<usize, IngestError> {
+    if payload.status != "ok" {
+        return Err("教務 extraction is not ready".into());
+    }
     let tx = connection.transaction().map_err(IngestError::from)?;
     let run = Uuid::new_v4().to_string();
     tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'kyomu',?2,'running',?3)",params![run,payload.kind,Utc::now().to_rfc3339()]).map_err(IngestError::from)?;
