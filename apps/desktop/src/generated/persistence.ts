@@ -1336,7 +1336,7 @@ export type Condition = {
   type: string;
   key: string;
   label: string;
-  values: (string | number | TimeValue)[];
+  values: (string | number | TimeValue | { id: string; value: string })[];
   prefix?: boolean;
   exclude?: boolean;
 };

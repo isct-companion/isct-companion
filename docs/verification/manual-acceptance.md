@@ -1441,6 +1441,14 @@ accepting test files, and a workspace with files in submit/.
    Close and reopen the reader while the official form is visible.
    - *Why:* Checks target binding and native navigation: files must only enter
      the requested assignment, and reopening must not upload a second copy.
+4. Open an assignment accepting online text in the right-hand LMS pane.
+   Type Japanese and Chinese with the IME, paste text, select a word and
+   use a TinyMCE formatting command. Leave without saving or submitting.
+   Follow its external Google Form link, search from the Web address bar,
+   and use Back to return to the LMS.
+   - *Why:* Verifies native WebView focus, composition and inherited-origin editor
+     frames, plus external navigation. Headless routing tests cannot run
+     the live Moodle editor or native IME.
 
 **Where to look**
 
@@ -1451,7 +1459,9 @@ name/URL and the untouched official Save/Submit controls in the right pane.
 
 Exactly the chosen workspace files appear in the requested assignment's
 draft. Only user action can save or submit; unsupported uploads show the
-normal LMS error. Reopening does not duplicate files.
+normal LMS error. Reopening does not duplicate files. Online text accepts
+typing, IME composition, paste and formatting; external pages keep their
+query parameters and Back returns to the LMS without auto-submitting.
 
 **Why this is manual**
 

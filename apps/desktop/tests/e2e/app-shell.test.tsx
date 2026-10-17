@@ -153,7 +153,7 @@ const baseHandle: Handle = (command, args) => {
     case "resolve_school_url": {
       const url = String(args.url);
       return {
-        site: url.includes("lms") ? "science-lms" : "science-portal",
+        site: url.includes("lms") ? "science-lms" : args.site,
         url,
       };
     }
@@ -976,6 +976,25 @@ describe("web-page residency", () => {
     expect(host.querySelector('[aria-label="Current URL"]')).toBe(address);
     // An ordinary resume re-shows the resident session, without a new URL.
     expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBeNull();
+    const search =
+      "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
+    await typeInto(address, search);
+    await act(async () =>
+      address
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    await until(() =>
+      expect(core.commands("navigate_school_web").at(-1)?.args.url).toBe(
+        search,
+      ),
+    );
+    expect(core.commands("resolve_school_url").at(-1)?.args).toEqual({
+      url: search,
+      site: "science-portal",
+    });
   }, 20_000);
 
   it("reopens an explicitly requested URL while an ordinary resume keeps the resident page", async () => {
@@ -2460,6 +2479,42 @@ it("reports the active kyomu pull instead of an idle LMS status", async () => {
   await until(() =>
     expect(app!.host.querySelector(".lmsStatus")!.textContent).toContain(
       "Ready",
+    ),
+  );
+  const terminal = {
+    id: "kyomu-partial",
+    target: { type: "school", site: "kyomu", courseId: null },
+    state: "failed",
+    priority: "automatic",
+    phase: "partial",
+    blockedBy: null,
+    attempt: 1,
+    waiterCount: 0,
+    lastError: "registrations unavailable",
+  };
+  await act(async () => app!.core.emit("pull-state-changed", [terminal]));
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("Refresh incomplete");
+    expect(status.textContent).toContain("registrations unavailable");
+    expect(status.textContent).not.toContain("Ready");
+    expect(status.textContent).not.toContain("%");
+  });
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      terminal,
+      {
+        ...terminal,
+        id: "kyomu-recovered",
+        state: "succeeded",
+        phase: "complete",
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() =>
+    expect(app!.host.querySelector(".lmsStatus")!.textContent).not.toContain(
+      "Refresh incomplete",
     ),
   );
   const force = app.host.querySelector<HTMLButtonElement>(".lmsStatus button")!;

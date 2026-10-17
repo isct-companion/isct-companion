@@ -27,8 +27,8 @@ const normalizeAddress = (raw: string) => {
   const url = new URL(
     /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`,
   );
-  if (url.protocol !== "https:")
-    throw new Error("School pages must use HTTPS.");
+  if (url.protocol !== "https:" && url.protocol !== "http:")
+    throw new Error("Enter an HTTP or HTTPS URL without embedded credentials.");
   return url.toString();
 };
 
@@ -218,7 +218,7 @@ export function Web({
         claimSchoolView(owner.current);
         return (
           target
-            ? desktopBridge!.resolveSchoolUrl(target)
+            ? desktopBridge!.resolveSchoolUrl(target, site)
             : Promise.resolve({ site, url: undefined })
         ).then((resolved) => {
           if (resolved.site !== site) {
@@ -288,7 +288,7 @@ export function Web({
       const target = normalizeAddress(address);
       if (!desktopBridge)
         throw new Error("School navigation needs the installed app.");
-      const resolved = await desktopBridge.resolveSchoolUrl(target);
+      const resolved = await desktopBridge.resolveSchoolUrl(target, site);
       await openTarget(resolved.url, resolved.site);
     } catch (error) {
       setStatus(errorText(error) ?? "Invalid address");

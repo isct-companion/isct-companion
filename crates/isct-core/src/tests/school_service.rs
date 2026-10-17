@@ -137,7 +137,12 @@ fn outcome(state: IngestState) -> IngestOutcome {
 }
 
 fn service(coordinator: PullCoordinator, auth: Arc<SchoolAuthService>) -> SchoolService {
-    SchoolService::new(coordinator, auth, Arc::new(RecordingEvents::default()))
+    SchoolService::new(
+        coordinator,
+        auth,
+        Arc::new(RecordingEvents::default()),
+        crate::school_refresh::SchoolRefresh::new(crate::pull_coordinator::PullNetwork::Wifi),
+    )
 }
 
 #[tokio::test]

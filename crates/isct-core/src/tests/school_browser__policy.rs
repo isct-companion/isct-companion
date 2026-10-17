@@ -33,7 +33,7 @@ fn school_urls_keep_only_bounded_domain_parameters() {
 }
 
 #[test]
-fn only_the_lms_assignment_draft_action_survives_navigation() {
+fn only_the_lms_assignment_draft_action_survives_automation_sanitization() {
     let base = "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100";
     assert_eq!(
         sanitize_school_url(&format!("{base}&action=editsubmission&sesskey=secret")).unwrap(),

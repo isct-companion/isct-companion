@@ -17,8 +17,16 @@ session completion also reports directly, including before the UI subscribes.
 - LMS source TTL: 12 hours. 教務Web TTL: 7 days, with every required page
   included in the freshness check (`contracts.rs` is the shared policy).
 - Lecture details wait 2 seconds before becoming eligible, and wait until
-  the visible school view closes. Successful fills are remembered for the
-  session; a failed fill can be requested again on reentry.
+  the visible school view closes. Repeated opens within 60 seconds coalesce;
+  a failed fill can be requested again on reentry.
+- Full pulls have a five-minute automatic retry cooldown, separate from data
+  TTL. A missing or failed page stays stale; repeated login/focus notifications
+  retain one pending intent until the cooldown expires. Each actual full-pull
+  executor owns a lease, shared across manual and automatic entry points; exit,
+  errors and cancellation all release it. Manual refresh bypasses automatic
+  admission. The cooldown is session-local and does not mark failed data fresh.
+- Sequential batches recheck full-pull activity before dispatching each profile:
+  a manual refresh may have completed while an earlier profile was running.
 - Manual pulls enter ahead of queued background pulls. A running full pull
   coalesces another full refresh; course-detail requests stay queued.
 - Automatic work is admitted as one batch at a time and submitted in order:
@@ -83,6 +91,51 @@ visible-view conditions. Reference scheduled tasks retain their existing
 HTTP admission behavior; the Sources action retains its offline/cellular
 checks. Cloud recovery, syllabus lookup and individual file downloads keep
 their specialized services and are outside this business pull coordinator.
+
+## State-machine audit — 2026-10-17
+
+The control states remain separate by ownership:
+
+| Owner | State it decides | Inputs / outcomes |
+| --- | --- | --- |
+| `SchoolRefresh` | Intent, freshness and retry admission | Account/focus facts, successful import timestamps, full-pull lifetime |
+| `PullCoordinator` | Queue, lanes, joins, cancellation and terminal result | Admitted targets and correlated executor callbacks |
+| `SchoolBrowserEngine` | Authentication, navigation, extraction and visible-view preemption | Browser ports and page relays |
+| `DataStore` | Committed page data and successful import timestamps | Per-page apply gate |
+| Shell | Presentation | Coordinator snapshots plus advisory progress events |
+
+Observed defect: read-only import metadata showed repeated successful GPA,
+declared-course, profile and grade imports seconds apart, with no successful
+registration or requirements import. Because the policy correctly required all
+six pages, it stayed due. Account/focus events could requeue it immediately.
+There was no attempt-level cooldown shared with manual pulls. The lease and
+cooldown above close that feedback path without advancing failed-page TTLs.
+The exact live failure of the two missing pages still requires native execution;
+absence of successful imports alone does not identify a parser error.
+
+A separate presentation defect discarded all terminal jobs, including partial
+failures, allowing the footer to read Ready. The footer now renders the latest
+coordinator failure for each school target, with no running percentage; a newer
+successful pull for that target replaces it. Maintenance retains its independent
+service status. Partial page failures are logged with site and page kind as well
+as preserved in the coordinator outcome.
+
+Existing coordinator protections were retained: exact-target joining, manual
+promotion, run identity checks, cancellation holding the lane until executor
+exit, per-page apply gates, bounded terminal history and owned shutdown.
+The Rust suites exercise late callbacks, cancelling successors, partial-result
+payloads and shutdown during commits. Refresh tests additionally exercise the
+cooldown boundary, manual bypass and manual work interleaved with an automatic
+batch. The real-shell test covers active progress, partial failure, recovery and
+maintenance.
+
+Remaining presentation limitation: percentages are estimates from separate
+progress/ingest events, rather than a correlated progress field in the
+coordinator snapshot. They are not used for admission or terminal outcomes.
+A future exact progress contract should carry the run identity and completed /
+total units from Core; adding another frontend state machine would compound the
+problem. Five-minute cooldown is retry throttling, not proof that the missing
+pages have been repaired; manual refresh remains available during that interval.
 
 ## Runtime lifetime
 

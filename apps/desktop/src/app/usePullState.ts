@@ -27,6 +27,16 @@ export function usePullState() {
   const [nativeLmsProgress, setNativeLmsProgress] = useState(5);
   const activeLms = schoolPullForDisplay(nativePulls, "science-lms");
   const activeKyomu = schoolPullForDisplay(nativePulls, "kyomu");
+  // Core publishes history in admission order. Render its terminal outcome;
+  // removing active jobs alone would turn a partial failure into “Ready”.
+  const latestPulls = new Map<string, PullSnapshot>();
+  for (const pull of nativePulls) {
+    if (pull.target.type === "school")
+      latestPulls.set(`${pull.target.site}:${pull.target.courseId}`, pull);
+  }
+  const failedPull = [...latestPulls.values()]
+    .reverse()
+    .find((pull) => pull.state === "failed");
   const lmsProgress = activeLms
     ? Math.max(lmsViewProgress ?? 5, nativeLmsProgress)
     : lmsViewProgress;
@@ -154,16 +164,34 @@ export function usePullState() {
             phase: `${t("Under maintenance")} · ${kyomuMaintenance}`,
             progress: null,
           }
-        : kyomuProgress !== null
-          ? { source: "教務Web", phase: t(kyomuPhase), progress: kyomuProgress }
-          : {
-              source: "LMS",
-              phase: t(
-                pulling && lmsPhase === "Ready"
-                  ? "Reading enrolled courses"
-                  : lmsPhase,
-              ),
-              progress: lmsProgress,
-            },
+        : failedPull &&
+            !activeKyomu &&
+            !activeLms &&
+            !pulling &&
+            kyomuProgress === null
+          ? {
+              source:
+                failedPull.target.type === "school" &&
+                failedPull.target.site === "kyomu"
+                  ? "教務Web"
+                  : "LMS",
+              phase: `${t(failedPull.phase === "partial" ? "Refresh incomplete" : "Refresh failed")}${failedPull.lastError ? ` · ${failedPull.lastError}` : ""}`,
+              progress: null,
+            }
+          : kyomuProgress !== null
+            ? {
+                source: "教務Web",
+                phase: t(kyomuPhase),
+                progress: kyomuProgress,
+              }
+            : {
+                source: "LMS",
+                phase: t(
+                  pulling && lmsPhase === "Ready"
+                    ? "Reading enrolled courses"
+                    : lmsPhase,
+                ),
+                progress: lmsProgress,
+              },
   };
 }
