@@ -17,10 +17,18 @@ The Backup settings page has an **Auto** switch, off by default, and separate
 - Manual: saving, launching, focusing or closing the app does not start a new
   transfer. Upload reconciles reachable cloud copies and publishes the merged
   data. Pull merges cloud changes locally and never creates an upload.
-- Auto: each relevant native record/setting/note save immediately journals an
-  upload. There is no 30-second debounce and no periodic cloud polling. A
-  five-second local comparison also detects external MCP writes; multiple
-  external changes between observations can be represented by one snapshot.
+- Auto: local changes are saved immediately and journaled for background upload.
+  Pending upload snapshots are merged with the shared record/tombstone merge;
+  completed provider receipts remain tied to their original snapshots. A provider
+  receives a new automatic upload only when content differs from its confirmed
+  version and at least one hour has passed since its last successful sync. The
+  first copy can upload immediately. Manual Upload bypasses the hour limit.
+  Five-second local comparisons detect external MCP writes; idle passes do not
+  poll the cloud or create unchanged snapshots. Restart preserves the hour limit.
+- A failed delivery keeps its retry budget and cooldown when pending snapshots
+  are merged. All operations targeting that provider respect the cooldown; new
+  saves cannot bypass it. Explicit manual sync can retry immediately. Retries
+  continue the unfinished delivery rather than creating another hourly snapshot.
 - Opening/resuming the app resumes unfinished operations in either mode. Turning
   Auto off prevents new automatic operations; it does not revoke submitted work.
 - Auto is change-triggered, not a real-time remote subscription. Another device's

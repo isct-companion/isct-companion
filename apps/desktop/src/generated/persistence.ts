@@ -1023,8 +1023,6 @@ export type TermTaskView = {
   overdueIds: Array<string>;
   dueThisWeekIds: Array<string>;
   laterIds: Array<string>;
-  earlierDueThisWeekIds: Array<string>;
-  earlierLaterIds: Array<string>;
   lectureOpenIds: Array<string>;
   lectureHiddenIds: Array<string>;
 };
@@ -1097,7 +1095,7 @@ export type WorkspaceQuery =
       beforeDays: number;
       afterDays: number;
     }
-  | { kind: "taskView"; now: string }
+  | { kind: "taskView"; now: string; includeCompleted?: boolean }
   | { kind: "courseDetail"; courseId: string }
   | {
       kind: "scheduleView";

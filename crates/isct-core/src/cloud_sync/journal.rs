@@ -12,6 +12,8 @@ use std::{path::PathBuf, sync::Mutex};
 pub(super) struct Job {
     pub(super) task: Task,
     pub(super) document: Value,
+    #[serde(default)]
+    pub(super) manual: bool,
 }
 
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -81,6 +83,7 @@ impl Journal {
         if !deliveries.is_empty() {
             self.jobs.push(Job {
                 document,
+                manual: false,
                 task: Task {
                     id: uuid::Uuid::now_v7().to_string(),
                     direction,
@@ -91,6 +94,115 @@ impl Journal {
             });
         }
         Ok(())
+    }
+
+    pub(super) fn request(
+        &mut self,
+        document: Value,
+        direction: Direction,
+    ) -> Result<(), CloudSyncError> {
+        let requested = version(&document)?;
+        self.enqueue(document, direction)?;
+        for job in &mut self.jobs {
+            if job.task.direction == direction && job.task.version == requested {
+                job.manual = true;
+            }
+        }
+        Ok(())
+    }
+
+    /// Pending snapshots describe state, not individual commands. Merge their
+    /// records/tombstones and keep each provider's retry budget when replacing them.
+    /// Only the serial worker calls this, before taking its execution snapshot.
+    pub(super) fn coalesce_uploads(&mut self) -> Result<(), CloudSyncError> {
+        let pending = self
+            .jobs
+            .iter()
+            .enumerate()
+            .filter(|(_, job)| {
+                job.task.direction == Direction::Upload
+                    && !job
+                        .task
+                        .deliveries
+                        .iter()
+                        .any(|d| d.status == DeliveryStatus::Running)
+                    && job
+                        .task
+                        .deliveries
+                        .iter()
+                        .any(|d| d.status == DeliveryStatus::Pending)
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if pending.len() < 2 {
+            return Ok(());
+        }
+        let mut combined = self.jobs[*pending
+            .first()
+            .ok_or_else(|| CloudSyncError::Storage("Sync task missing".into()))?]
+        .clone();
+        combined.task.deliveries.clear();
+        for index in &pending {
+            let job = &self.jobs[*index];
+            combined.document = cloud_merge::merge(&combined.document, &job.document);
+            combined.manual |= job.manual;
+            for delivery in &job.task.deliveries {
+                if delivery.status != DeliveryStatus::Pending {
+                    continue;
+                }
+                if let Some(saved) = combined
+                    .task
+                    .deliveries
+                    .iter_mut()
+                    .find(|d| d.provider == delivery.provider)
+                {
+                    saved.attempts = saved.attempts.max(delivery.attempts);
+                    if delivery.retry_at > saved.retry_at {
+                        saved.retry_at = delivery.retry_at;
+                        saved.error = delivery.error.clone();
+                    }
+                } else {
+                    combined.task.deliveries.push(delivery.clone());
+                }
+            }
+        }
+        combined.task.version = version(&combined.document)?;
+        // Keep completed receipts tied to their original snapshot and identifier.
+        if self.jobs.iter().any(|job| {
+            job.task.id == combined.task.id
+                && job
+                    .task
+                    .deliveries
+                    .iter()
+                    .any(|d| d.status == DeliveryStatus::Completed)
+        }) {
+            combined.task.id = uuid::Uuid::now_v7().to_string();
+        }
+        for index in pending {
+            self.jobs[index]
+                .task
+                .deliveries
+                .retain(|d| d.status != DeliveryStatus::Pending);
+        }
+        self.jobs.retain(|job| !job.task.deliveries.is_empty());
+        self.jobs.push(combined);
+        Ok(())
+    }
+
+    pub(super) fn upload_due(
+        &self,
+        provider: CloudProvider,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> bool {
+        self.state
+            .providers
+            .iter()
+            .find(|row| row.provider == provider)
+            .and_then(|row| row.last_synced_at.as_deref())
+            .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
+            .is_none_or(|last| {
+                now.signed_duration_since(last).num_seconds() >= super::SNAPSHOT_INTERVAL_SECONDS
+            })
     }
 
     pub(super) fn recover(&mut self) {

@@ -213,7 +213,11 @@ export function BackupSettings({
           <Row
             id="sync-automatic"
             title="Sync automatically"
-            hint={sync?.automatic ? undefined : "Upload and pull by hand"}
+            hint={
+              sync?.automatic
+                ? "Only changed content is uploaded, at most once per hour."
+                : "Upload and pull by hand"
+            }
           >
             <Toggle
               checked={sync?.automatic ?? false}

@@ -3385,6 +3385,7 @@ p {
 
 /* Today: "Today" / "Earlier" switch beside the assignments heading */
 .dueSection > header {
+  flex-wrap: wrap;
   gap: 10px;
 }
 .dueScope {

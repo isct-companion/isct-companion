@@ -28,7 +28,12 @@ after changing the notes folder. Core retains no Tauri handles.
 
 The native one-second wake supplies an opportunity to work. Core admits a
 cloud pass at most every five seconds, applies a 45-second remote timeout and
-serializes queue execution. Only one periodic pass may remain in flight, so a
+serializes queue execution. The five-second pass is a local scheduler wake,
+not an upload frequency: automatic uploads require a changed content hash and
+one hour since the provider's last successful sync. First copies and explicit
+manual uploads can run immediately. Pending snapshots coalesce before execution,
+keeping record/tombstone merges, completed receipts and retry budgets.
+Only one periodic pass may remain in flight, so a
 slow scan cannot accumulate background workers. A pass with nothing due
 writes and publishes nothing: unchanged journal updates skip the fsync'd
 write, and `cloud-sync-state` is emitted only when the state changed.
@@ -58,7 +63,9 @@ worker owns the run lock.
 
 Completion/failure is consumed by the owned worker, rather than an externally
 callable state mutation. Backoff is 30, 60, 120, then 240 seconds for subsequent
-attempts. Shutdown returns unfinished work to pending without recording a
+attempts. A provider's pending failure cools down all its queued operations;
+new local saves cannot bypass it. Explicit manual sync clears the deadline.
+Shutdown returns unfinished work to pending without recording a
 network failure. Worker panic is supervised and leaves retryable work.
 Disabling a provider removes its deliveries from queued jobs; re-enabling with
 automatic sync captures current state. Reset checkpoints the current workspace before clearing

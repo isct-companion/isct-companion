@@ -750,7 +750,8 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     data["assignments"] = json!([
         {"id":"soon","courseId":"course","title":"Soon","dueAt":"2026-04-13T10:00:00+09:00"},
         {"id":"later","courseId":"course","title":"Later","dueAt":"2026-04-22T10:00:00+09:00","pinned":true},
-        {"id":"past","courseId":"course","title":"Past","dueAt":"2026-04-12T10:00:00+09:00"},
+        {"id":"past","courseId":"course","title":"Past","dueAt":"2026-04-12T10:00:00+09:00","pinned":true},
+        {"id":"past-done","courseId":"course","title":"Past done","dueAt":"2026-04-11T10:00:00+09:00","submission":"graded","pinned":true},
         {"id":"done","courseId":"course","title":"Done","dueAt":"2026-04-14T10:00:00+09:00","submission":"submitted"},
         {"id":"hidden","courseId":"course","title":"Hidden","dueAt":null,"hidden":true},
         {"id":"invalid","courseId":"course","title":"Invalid","dueAt":"yesterday"},
@@ -761,6 +762,7 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     let view = task_view(
         &data,
         DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap(),
+        false,
     )
     .unwrap();
     let term = &view.by_term["2026-1Q"];
@@ -768,12 +770,22 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert_eq!(term.pinned_ids, vec!["later"]);
     assert_eq!(term.overdue_ids, vec!["past"]);
     assert_eq!(term.due_this_week_ids, vec!["soon"]);
+    let completed = task_view(
+        &data,
+        DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap(),
+        true,
+    )
+    .unwrap();
     assert_eq!(
-        term.earlier_due_this_week_ids,
+        completed.by_term["2026-1Q"].due_this_week_ids,
         vec!["soon", "done", "lms-done"]
     );
+    assert_eq!(
+        completed.by_term["2026-1Q"].overdue_ids,
+        vec!["past", "past-done"]
+    );
     // One submitted rule for every shell, including the LMS status field.
-    assert_eq!(view.submitted_ids, vec!["done", "lms-done"]);
+    assert_eq!(view.submitted_ids, vec!["done", "lms-done", "past-done"]);
     assert_eq!(term.lecture_open_ids, vec!["soon", "later", "undated"]);
     assert_eq!(term.lecture_hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");
@@ -858,7 +870,7 @@ fn a_three_q_four_q_course_belongs_to_every_quarter_it_is_placed_in() {
     assert!(ics.contains("UID:multi-weekly-0-2026-12-07@isctcompanion.local"));
 
     // Work for the course counts in 4Q, and its class times continue into 4Q.
-    let tasks = task_view(&data, at("2026-12-07T07:00:00+09:00")).unwrap();
+    let tasks = task_view(&data, at("2026-12-07T07:00:00+09:00"), false).unwrap();
     assert_eq!(tasks.by_term["2026-4Q"].pending_ids, vec!["report"]);
     assert_eq!(tasks.by_term["2026-3Q"].pending_ids, vec!["report"]);
     let timeline =
