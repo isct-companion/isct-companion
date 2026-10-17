@@ -1048,11 +1048,8 @@
   "Choose a QR code image smaller than 10 MB.": "请选择小于 10 MB 的二维码图片。",
   "No QR code found. Choose a clear image containing the whole QR code.": "未找到二维码，请选择包含完整二维码的清晰图片。",
   "Not set up": "尚未设置",
-  "Bring your card closer until the Matrix is framed, then hold steady. The scanner closes automatically when ready.": "请将学生证靠近摄像头，出现 Matrix 边框后保持稳定，识别完成会自动关闭。",
-  "Reading Matrix. Hold steady…": "正在识别 Matrix，请保持稳定…",
   "Point the camera at the Matrix on your card.": "请将摄像头对准学生证上的 Matrix。",
   "Under maintenance": "维护中",
-  "Move closer or tilt the card to avoid glare.": "请将卡片移近，或调整角度避开反光。",
   "Course level": "课程级别",
   "Day / delivery": "星期／授课形式",
   "Starting period": "开始节次",
@@ -1268,5 +1265,9 @@
   "Keep one: open the other course, or find another time for this one.": "只能保留一门：打开另一门课，或为这门课找其他上课时间。",
   "Find another class time": "找其他上课时间",
   "Show the first conflict": "查看第一个冲突",
-  "Conflicts: {{count}}": "{{count}} 个时间冲突"
+  "Conflicts: {{count}}": "{{count}} 个时间冲突",
+  "Bring your card closer until the Matrix is framed. Capture ends when every cell has enough clear images, or after eight seconds.": "请将卡片靠近镜头，使 Matrix 进入边框。每格清晰画面足够后自动结束采集，最长等待 8 秒。",
+  "Capturing Matrix… {{count}}/70 cells ready.": "正在采集 Matrix… {{count}}/70 格画面已备齐。",
+  "Processing Matrix… You can put your card down.": "正在识别 Matrix… 可以放下卡片了。",
+  "Matrix processing progress": "Matrix 识别进度"
 }

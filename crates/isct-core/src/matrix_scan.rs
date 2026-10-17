@@ -11,6 +11,8 @@ pub const CELLS: usize = 70;
 const HIGH_CONFIDENCE: f64 = 0.8;
 const CELL_WINDOW: usize = 6;
 const MIN_CELL_SAMPLES: usize = 3;
+mod capture;
+pub use capture::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -23,6 +25,12 @@ pub struct MatrixPoint {
 pub struct MatrixReading {
     pub text: String,
     pub confidence: f64,
+}
+fn valid_reading(reading: &MatrixReading) -> bool {
+    reading.confidence.is_finite()
+        && (0. ..=1.).contains(&reading.confidence)
+        && (reading.text.is_empty()
+            || (reading.text.len() == 1 && reading.text.as_bytes()[0].is_ascii_uppercase()))
 }
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -252,6 +260,9 @@ impl CellEvidence {
         }
     }
     fn add(&mut self, reading: MatrixReading, revision: usize) {
+        self.collect(reading, revision, true);
+    }
+    fn collect(&mut self, reading: MatrixReading, revision: usize, reopen: bool) {
         self.last_attempt = revision;
         self.attempts += 1;
         if reading.text.is_empty() {
@@ -265,7 +276,7 @@ impl CellEvidence {
         let previous = self.vote();
         // A new clear contradiction reopens a settled cell instead of allowing
         // its old majority to hide a changed card or an earlier wrong result.
-        if previous.stable && previous.text != reading.text {
+        if reopen && previous.stable && previous.text != reading.text {
             self.conflicts += 1;
             self.samples.clear();
         }
@@ -362,14 +373,7 @@ impl Consensus {
             return Ok(self.missing(plan.phase, timing));
         };
         let bounds = outline(&quads)?.bounds;
-        if readings.len() != plan.cells.len()
-            || readings.iter().any(|r| {
-                !r.confidence.is_finite()
-                    || !(0. ..=1.).contains(&r.confidence)
-                    || !(r.text.is_empty()
-                        || (r.text.len() == 1 && r.text.as_bytes()[0].is_ascii_uppercase()))
-            })
-        {
+        if readings.len() != plan.cells.len() || readings.iter().any(|r| !valid_reading(r)) {
             return Err(MatrixScanError::InvalidFrame(
                 "Readings must match the planned cells and have finite confidence.".into(),
             ));
@@ -480,6 +484,8 @@ pub fn declarations() -> Vec<String> {
         MatrixScanSnapshot::decl(),
         MatrixScanOutline::decl(),
         MatrixCaptureMetrics::decl(),
+        MatrixCameraPhase::decl(),
+        MatrixCameraSnapshot::decl(),
     ]
 }
 #[cfg(test)]

@@ -11,3 +11,10 @@
   stroke-width: 2px;
   vector-effect: non-scaling-stroke;
 }
+.matrixCameraProcessing {
+  flex: 1 0 100%;
+  min-width: 0;
+}
+.matrixTools:has(.matrixCameraProcessing) {
+  flex-wrap: wrap;
+}

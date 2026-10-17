@@ -697,8 +697,24 @@ describe("Matrix scan and paste", () => {
       vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
         "data:image/jpeg;base64,Y2FtZXJh",
       );
+      let finishCapture: (() => void) | undefined;
       let finishScan: (() => void) | undefined;
       let frames = 0;
+      const captured = {
+        phase: "processing",
+        readyCells: 70,
+        captureElapsedMs: 800,
+        timedOut: false,
+        completedSamples: 0,
+        totalSamples: 210,
+        cells: [],
+        bounds: [
+          { x: 0.1, y: 0.2 },
+          { x: 0.9, y: 0.2 },
+          { x: 0.9, y: 0.8 },
+          { x: 0.1, y: 0.8 },
+        ],
+      };
       try {
         const mounted = await mountAccounts({
           capabilities: { matrixOcr: true },
@@ -707,28 +723,27 @@ describe("Matrix scan and paste", () => {
               return { science: notConfigured(), tokyoTech: notConfigured() };
             if (command === "school_session_snapshot") return noSession;
             if (command === "begin_matrix_camera") return "camera";
-            if (command === "scan_matrix_camera_frame") {
-              const snapshot = {
-                complete: frames++ > 0,
-                stableCells: frames > 1 ? 70 : 69,
-                confidence: frames > 1 ? 0.98 : 0.65,
-                cells: Array.from({ length: 70 }, () => ({
-                  text: "A",
-                  confidence: 0.98,
-                  stable: true,
-                })),
-                bounds: [
-                  { x: 0.1, y: 0.2 },
-                  { x: 0.9, y: 0.2 },
-                  { x: 0.9, y: 0.8 },
-                  { x: 0.1, y: 0.8 },
-                ],
-              };
-              if (!snapshot.complete) return snapshot;
+            if (command === "capture_matrix_camera_frame") {
+              if (frames++ === 0)
+                return { ...captured, phase: "capturing", readyCells: 69 };
               return new Promise((resolve) => {
-                finishScan = () => resolve(snapshot);
+                finishCapture = () => resolve(captured);
               });
             }
+            if (command === "process_matrix_camera")
+              return new Promise((resolve) => {
+                finishScan = () =>
+                  resolve({
+                    ...captured,
+                    phase: "complete",
+                    completedSamples: 210,
+                    cells: Array.from({ length: 70 }, (_, i) => ({
+                      text: "A",
+                      confidence: 0.98,
+                      stable: i !== 69,
+                    })),
+                  });
+              });
             return undefined;
           },
         });
@@ -754,11 +769,23 @@ describe("Matrix scan and paste", () => {
           "Use current result and review",
         );
         expect(document.body.textContent).toContain(
-          "Reading Matrix. Hold steady",
+          "Capturing Matrix… 69/70 cells ready.",
         );
         expect(matrixInputs(card).every((input) => input.value === "")).toBe(
           true,
         );
+        await wait(() => expect(finishCapture).toBeDefined());
+        await act(async () => finishCapture?.());
+        await wait(() =>
+          expect(document.body.textContent).toContain(
+            "Processing Matrix… You can put your card down.",
+          ),
+        );
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(matrixInputs(card).every((input) => input.value === "")).toBe(
+          true,
+        );
+        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(0);
         await wait(() => expect(finishScan).toBeDefined());
         await act(async () => finishScan?.());
         await wait(() =>
@@ -769,6 +796,8 @@ describe("Matrix scan and paste", () => {
         expect(matrixInputs(card).every((input) => input.value === "A")).toBe(
           true,
         );
+        expect(matrixInputs(card)[0].dataset.confidence).toBe("high");
+        expect(matrixInputs(card)[69].dataset.confidence).toBe("medium");
         expect(stop).toHaveBeenCalledTimes(1);
         expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(1);
       } finally {

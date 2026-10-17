@@ -737,20 +737,26 @@ checks:
       - action: |
           Open Scan with camera in a packaged desktop app, allow camera access,
           and bring the real card toward the camera. Check that one red outline
-          follows the Matrix, with no cell boxes or letter overlays. Tilt it,
-          introduce glare, then hold it steady with the labels in view. Observe
-          whether the scanner fills all cells and closes itself; record the
-          acquisition time and any cells that prevent completion. After close
-          or cancel, inspect matrix-scan/latest.json under the app cache for
-          captured frame latency, first-outline-to-stop time, per-cell qualified
-          sample counts and blank/weak/conflict counts. Compare all 70 saved
-          letters with the real card.
+          follows the Matrix, with no cell boxes or letter overlays. Move the
+          card, introduce glare, then briefly hold it steady with labels visible.
+          Observe the per-cell acquisition coverage. The camera must stop as
+          soon as every cell has enough clear candidates, or within eight seconds
+          of the first detected Matrix; waiting before detection does not count.
+          After acquisition, the dialog closes, the camera indicator turns off,
+          and inline processing progress appears. Put the card down and verify
+          results arrive; insufficient votes must be highlighted for review.
+          Inspect matrix-scan/latest.json under the app cache for separate
+          acquisition/processing times, per-cell candidate and qualified-vote
+          counts. Compare all 70 letters with the real card.
         reason: |
           OS camera permissions, native WebView video capture, optical focus,
           and the alignment of recognition boxes over a physical card require
           real hardware. Scripted frames cannot validate these surfaces.
       - action: |
           Cancel and reopen the camera, then background the app during capture.
+          Repeat and background it during processing: acquisition stops in the
+          former case, but the latter may finish without reopening the camera.
+          Cancel processing and confirm late results do not overwrite the editor.
           Deny permission on a fresh permission state and retry after granting it.
         reason: |
           Verify the camera indicator switches off and permissions can recover
@@ -778,6 +784,7 @@ checks:
       - crates/isct-ocr/**
       - apps/desktop/src/lib/matrix-ocr.ts
       - crates/isct-core/src/matrix_scan.rs
+      - crates/isct-core/src/matrix_scan/**
       - apps/desktop/src/platform/matrix-camera.ts
       - apps/desktop/src/components/MatrixCamera.tsx
       - apps/desktop/src/components/matrix-camera.css

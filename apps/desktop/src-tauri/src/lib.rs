@@ -206,7 +206,8 @@ pub fn run() {
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
-        .manage(commands::matrix_camera::CameraScanner::default());
+        .manage(commands::matrix_camera::CameraScanner::default())
+        .manage(isct_ocr::MatrixAlphabetService::default());
     #[cfg(target_os = "macos")]
     let builder = builder
         .manage(campus_wifi::CampusWifi::default())
@@ -261,7 +262,9 @@ pub fn run() {
             workspaces::clean_workspaces,
             commands::platform::recognize_matrix_image,
             commands::matrix_camera::begin_matrix_camera,
-            commands::matrix_camera::scan_matrix_camera_frame,
+            commands::matrix_camera::capture_matrix_camera_frame,
+            commands::matrix_camera::poll_matrix_camera,
+            commands::matrix_camera::process_matrix_camera,
             commands::matrix_camera::stop_matrix_camera,
             commands::school::open_external,
             commands::school::resolve_school_url,

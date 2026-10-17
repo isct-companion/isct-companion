@@ -1,89 +1,22 @@
 //! Local camera diagnostic: a capture adapter atomically replaces latest.jpg.
 //! Keep source frames local; print selected cells and measured scores for debugging.
 #[cfg(matrix_ocr)]
-#[allow(dead_code)]
-#[path = "../../isct-core/src/matrix_scan.rs"]
-mod matrix_scan;
+use isct_core::matrix_scan::{MatrixPoint, MatrixReading, MatrixScanTiming, MatrixScanner};
 #[cfg(matrix_ocr)]
 use isct_ocr::{MatrixOcrError, MatrixOcrService};
 #[cfg(matrix_ocr)]
-use matrix_scan::{MatrixPoint, MatrixReading, MatrixScanTiming, MatrixScanner};
-#[cfg(matrix_ocr)]
 use ort::{session::Session, value::Tensor};
-// Reuse the actual geometry implementation in this diagnostic; the candidate
-// classifier remains external until its live accuracy has been measured.
-#[cfg(matrix_ocr)]
-#[allow(dead_code)]
-#[path = "../src/engine/contours.rs"]
-mod contours;
-#[cfg(matrix_ocr)]
-#[allow(dead_code)]
-#[path = "../src/engine/geometry.rs"]
-mod geometry;
-#[cfg(matrix_ocr)]
-fn rectified_gray(
-    image: &image::RgbImage,
-    quad: [[f64; 2]; 4],
-) -> Result<image::GrayImage, Box<dyn Error>> {
-    use imageproc::geometric_transformations::{warp_into, Interpolation, Projection};
-    let corners = quad.map(|[x, y]| geometry::Point {
-        x: x * image.width() as f64,
-        y: y * image.height() as f64,
-    });
-    let destination = [(0f32, 0f32), (95., 0.), (95., 95.), (0., 95.)];
-    // Match PIL's pixel-center convention and bilinear training input.
-    let source = destination.map(|(x, y)| {
-        let p = geometry::project(
-            &corners,
-            0.09 + (x as f64 + 0.5) / 95. * 0.82,
-            0.09 + (y as f64 + 0.5) / 95. * 0.82,
-        );
-        ((p.x - 0.5) as f32, (p.y - 0.5) as f32)
-    });
-    let projection = Projection::from_control_points(source, destination)
-        .ok_or("Cannot rectify classifier cell")?;
-    let mut crop = image::RgbImage::new(96, 96);
-    warp_into(
-        image,
-        projection,
-        Interpolation::Bilinear,
-        imageproc::geometric_transformations::Border::Constant(image::Rgb([255, 255, 255])),
-        &mut crop,
-    );
-    // image::grayscale uses Rec.709; these coefficients match PIL/TorchVision.
-    Ok(image::GrayImage::from_fn(96, 96, |x, y| {
-        let p = crop.get_pixel(x, y);
-        image::Luma([
-            ((19595 * p[0] as u32 + 38470 * p[1] as u32 + 7471 * p[2] as u32 + 32768) >> 16) as u8,
-        ])
-    }))
-}
 #[cfg(matrix_ocr)]
 fn alphabet_frame(
-    service: &MatrixOcrService,
+    _service: &MatrixOcrService,
     session: &mut Session,
     bytes: &[u8],
     indices: &[usize],
 ) -> Result<isct_ocr::MatrixLiveFrame, Box<dyn Error>> {
     let start = Instant::now();
-    let quads = std::cell::RefCell::new(None);
-    // Early cancellation obtains production geometry without running Paddle.
-    let result = service.scan_live_frame(
-        bytes,
-        indices,
-        |value| {
-            *quads.borrow_mut() = Some(value.to_vec());
-            false
-        },
-        |_| true,
-    );
-    if !matches!(result, Err(MatrixOcrError::Cancelled)) {
-        result?;
-        return Err("Missing geometry cancellation".into());
-    }
-    let quads = quads.into_inner().ok_or("No matrix geometry")?;
-    let image = image::load_from_memory(bytes)?.to_rgb8();
-    let geometry_ms = start.elapsed().as_secs_f64() * 1000.;
+    let captured = isct_ocr::capture_matrix_frame(bytes)?;
+    let geometry_ms = captured.timing.decode_ms + captured.timing.geometry_ms;
+    let quads = captured.quads;
     let stage = Instant::now();
     let dump = std::env::var_os("MATRIX_INPUT_DUMP").map(PathBuf::from);
     if let Some(path) = &dump {
@@ -92,7 +25,14 @@ fn alphabet_frame(
     let tensors: Vec<Vec<f32>> = indices
         .iter()
         .map(|&i| -> Result<Vec<f32>, Box<dyn Error>> {
-            let gray = rectified_gray(&image, quads[i])?;
+            let pixels = captured
+                .glyphs
+                .get(i)
+                .ok_or("Invalid cell index")?
+                .gray
+                .clone();
+            let gray =
+                image::GrayImage::from_raw(96, 96, pixels).ok_or("Invalid gray dimensions")?;
             if let Some(path) = &dump {
                 if let Err(error) = gray.save(path.join(format!("cell-{i:02}.png"))) {
                     eprintln!("Input dump failed: {error}");
@@ -101,7 +41,7 @@ fn alphabet_frame(
             Ok(gray.pixels().map(|p| p[0] as f32 / 127.5 - 1.).collect())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let preprocess_ms = stage.elapsed().as_secs_f64() * 1000.;
+    let preprocess_ms = captured.timing.preprocess_ms + stage.elapsed().as_secs_f64() * 1000.;
     let stage = Instant::now();
     let mut cells = Vec::new();
     for batch in tensors.chunks(10) {
