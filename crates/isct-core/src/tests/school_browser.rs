@@ -1900,7 +1900,7 @@ async fn hidden_catalogue_search_preserves_the_foreground_web_location() {
                         let search = search.clone();
                         async move {
                             engine
-                                .catalog_search(&search, None, &context)
+                                .catalog_search(&search, None, Default::default(), &context)
                                 .await
                                 .map_err(Into::into)
                         }

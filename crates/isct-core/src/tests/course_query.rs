@@ -271,3 +271,63 @@ fn teacher_queries_use_official_search_while_rooms_and_overlap_stay_local() {
         json!([{"q":".","teacher":"tanaka","quarters":[3],"days":[2],"periodStarts":[1,2,3,4]}])
     );
 }
+
+#[test]
+fn official_filters_come_from_the_form_and_never_require_subscription_recommendations() {
+    let mut workspace = json!({"currentTerm":"2026-3Q", "settings":{},"courses":[],"memberships":[],"planItems":[],
+    "recommendedCourses":[{"code":"FAKE.T400","group":"A"}],
+    "kyomuSearchOptions":[
+        {"id":"ctl00_ContentPlaceHolder1_cblKamokuCodeSeries_0","value":"on","label":"400","family":"level"},
+        {"id":"drpKamokuKbnMidashiSenmon","value":"121100","label":"研究関連科目","family":"category"}
+    ]});
+    let request = |keys: Value, input: &str| {
+        serde_json::from_value(json!({
+            "year":2026,"term":"2026-3Q","keys":keys,"input":input,
+            "remoteIds":["fresh"]
+        }))
+        .unwrap()
+    };
+    let courses = vec![eligibility_offering("fresh", "CSC.T401")];
+    let view = finder_view(
+        &workspace,
+        courses.clone(),
+        request(json!(["推荐", "400", "研究関連科目"]), "400"),
+    )
+    .unwrap();
+    assert!(view.context.recommended.is_empty());
+    assert_eq!(view.rows.len(), 1); // official result survives absent local guide marks
+    assert_eq!(view.plan["queries"][0]["recommended"], true);
+    assert_eq!(
+        view.plan["queries"][0]["controls"],
+        json!([
+            {"id":"ctl00_ContentPlaceHolder1_cblKamokuCodeSeries_0","value":"on"},
+            {"id":"drpKamokuKbnMidashiSenmon","value":"121100"}
+        ])
+    );
+    // Switching form metadata removes unsupported graduate suggestions, without
+    // hardcoding an undergraduate/graduate range in the product vocabulary.
+    workspace["kyomuSearchOptions"][0]["label"] = json!("100");
+    let view = finder_view(&workspace, courses, request(json!([]), "400")).unwrap();
+    assert!(!view.suggestions.iter().any(
+        |s| matches!(s, Suggestion::Condition{condition,..} if condition.r#type == "official-level")
+    ));
+    assert!(view.context.recommended.is_empty());
+    assert!(finder_view(&workspace, vec![], request(json!(["!100"]), "")).is_err());
+    workspace["kyomuSearchOptions"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id":"drpKamokuKbnMidashiSenmon","value":"120900","label":"専門科目","family":"category"
+        }));
+    let view = finder_view(
+        &workspace,
+        vec![],
+        request(json!(["研究関連科目", "専門科目"]), ""),
+    )
+    .unwrap();
+    let queries = view.plan["queries"].as_array().unwrap();
+    assert_eq!(queries.len(), 2);
+    assert!(queries
+        .iter()
+        .all(|q| q["controls"].as_array().unwrap().len() == 1));
+}

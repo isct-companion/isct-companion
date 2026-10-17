@@ -643,8 +643,18 @@ describe("official course discovery and academic identity", () => {
       provenance.fixtures[0].sha256,
     );
     expect(Buffer.byteLength(html)).toBe(provenance.fixtures[0].bytes);
+    // Minimal public controls with the IDs/values observed on the signed-in
+    // form. The committed fixture is only its public result grid; keep account
+    // fields and ASP.NET session state out of test assets.
+    const controls = `<form>
+      <div id="ctl00_ContentPlaceHolder1_cblKamokuCodeSeries">${[100, 200, 300].map((level, i) => `<input type="checkbox" id="ctl00_ContentPlaceHolder1_cblKamokuCodeSeries_${i}" name="ctl00$ContentPlaceHolder1$cblKamokuCodeSeries$${i}" value="on"><label for="ctl00_ContentPlaceHolder1_cblKamokuCodeSeries_${i}">${level}</label>`).join("")}</div>
+      <div id="cblHisshuKbn"><input type="checkbox" id="cblHisshuKbn_8" value="on"><label for="cblHisshuKbn_8">標準学修課程外</label></div>
+      <div id="ctl00_ContentPlaceHolder1_cblYoubi"><input type="checkbox" id="ctl00_ContentPlaceHolder1_cblYoubi_7" value="on"><label for="ctl00_ContentPlaceHolder1_cblYoubi_7">申告専用</label></div>
+      <input type="checkbox" id="chkSuisho" name="ctl00$ContentPlaceHolder1$chkSuisho" value="on"><label for="chkSuisho">推奨</label>
+      <select id="drpKamokuKbnMidashiSenmon" name="ctl00$ContentPlaceHolder1$drpKamokuKbnMidashiSenmon"><option value="">-</option><option value="121100">研究関連科目</option></select>
+      <a id="ctl00_ContentPlaceHolder1_btnSearch"></a></form>`;
     const read = async (source: string) => {
-      const dom = new JSDOM(source, {
+      const dom = new JSDOM(controls + source, {
         url: "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0_1.aspx",
         runScripts: "outside-only",
       });
@@ -652,6 +662,69 @@ describe("official course discovery and academic identity", () => {
     };
     const result = await read(html);
     expect(result.status).toBe("ok");
+    const options = result.data.searchOptions as {
+      id: string;
+      value: string;
+      label: string;
+      family: string;
+    }[];
+    expect(
+      options.filter((o) => o.family === "level").map((o) => o.label),
+    ).toEqual(["100", "200", "300"]);
+    expect(options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "chkSuisho",
+          label: "推奨",
+          family: "recommended",
+        }),
+        expect.objectContaining({
+          label: "標準学修課程外",
+          family: "requirement",
+        }),
+        expect.objectContaining({ label: "申告専用", family: "delivery" }),
+        expect.objectContaining({ label: "研究関連科目", family: "category" }),
+      ]),
+    );
+    // Search is a real official POST. Network has no headless server in this
+    // fixture, so replace only fetch and inspect its form body and response.
+    const dom = new JSDOM(controls + html, {
+      url: "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0_1.aspx",
+      runScripts: "outside-only",
+    });
+    const level = options.find(
+      (o) => o.label === "200" && o.family === "level",
+    )!;
+    dom.window.eval(`globalThis.__ISCT_COMPANION_KYOMU_HIDDEN__ = true;
+      globalThis.__ISCT_COMPANION_KYOMU_PAGE__ = ${JSON.stringify({ controls: [level] })};
+      globalThis.fetch = async (_url, init) => {
+        if (init.body.get('__EVENTTARGET') !== 'ctl00$ContentPlaceHolder1$btnSearch') throw Error('Unexpected postback');
+        if (init.body.get('ctl00$ContentPlaceHolder1$cblKamokuCodeSeries$1') !== 'on') throw Error('Missing actual checkbox');
+        return {ok:true, url:location.href, text: async () => ${JSON.stringify(controls + html)}};
+      };`);
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "ok",
+    });
+    dom.window.eval(
+      `globalThis.__ISCT_COMPANION_KYOMU_PAGE__ = {groups:['200']}`,
+    );
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "ok",
+    });
+    dom.window.eval(
+      `globalThis.__ISCT_COMPANION_KYOMU_PAGE__ = {groups:['600']}`,
+    );
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "error",
+      message:
+        "This filter is not offered by the current official search form.",
+    });
+    dom.window.eval(
+      `globalThis.__ISCT_COMPANION_KYOMU_PAGE__ = {controls:[{id:'btnRegister',value:'on'}]}`,
+    );
+    expect(await dom.window.eval(asset("kyomu-search.js"))).toMatchObject({
+      status: "error",
+    });
     const courses = result.data.courses as Record<string, unknown>[];
     expect(courses).toHaveLength(14);
     expect(courses.find((c) => c.id === "202602431")).toMatchObject({
