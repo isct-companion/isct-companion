@@ -5,6 +5,7 @@ import type { Recognition } from "../lib/matrix-ocr";
 import { openMatrixCamera } from "../platform/matrix-camera";
 import { t } from "../i18n";
 import "./matrix-camera.css";
+import { CameraPreview } from "./CameraPreview";
 
 export function MatrixCamera({
   onClose,
@@ -46,14 +47,7 @@ export function MatrixCamera({
             "Keep the whole Matrix in view, including A–J and 1–7. Hold steady while the letters are read.",
           )}
         </Text>
-        <div className="matrixCameraPreview">
-          <video
-            ref={setVideo}
-            autoPlay
-            playsInline
-            muted
-            aria-label={t("Camera preview")}
-          />
+        <CameraPreview ref={setVideo} className="matrixCameraPreview">
           <svg
             viewBox="0 0 1 1"
             preserveAspectRatio="none"
@@ -94,7 +88,7 @@ export function MatrixCamera({
               );
             })}
           </svg>
-        </div>
+        </CameraPreview>
         {error ? (
           <Alert color="red" role="alert">
             {error}

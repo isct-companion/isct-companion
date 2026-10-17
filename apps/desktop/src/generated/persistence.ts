@@ -1408,6 +1408,15 @@ export type MatrixScanSnapshot = {
   complete: boolean;
 };
 
+export type OtpImportAccount = {
+  label: string;
+  issuer: string;
+  /**
+   * Sensitive: only the selected value enters the unsaved credential draft.
+   */
+  setup: string;
+};
+
 export const DATA_POLICY: DataPolicy = {
   lms: {
     staleAfterSeconds: 43200,

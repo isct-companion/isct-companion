@@ -32,12 +32,14 @@ import { schoolSessions } from "@app/platform/school-session";
  * editor, backup and cloud sync, the study profile, and local agent access.
  *
  * Everything runs over the scripted host installed by `mountApp`, so the real
- * bridge, query cache and workspace store drive the real pages. Only two seams
- * are stubbed, and each is a runtime fact jsdom cannot provide:
+ * bridge, query cache and workspace store drive the real pages. Platform seams
+ * are stubbed only where jsdom cannot supply the native runtime:
  *
  * - `isTauri` is set the way the native bootstrap sets it, because
  *   `recognizeMatrixImage` refuses to run without it.
  * - `navigator.clipboard` is absent in jsdom, so the agent suite installs one.
+ * - ZXing camera/canvas decoding is replaced by controlled results; account
+ *   selection, draft replacement and explicit credential saves remain real.
  *
  * `mountApp` must stay the first thing that imports the shell: `app/native.ts`
  * captures its bridge at first import.
@@ -49,6 +51,17 @@ const TIMEOUT = 60_000;
 
 type Handler = NonNullable<FakeCoreOptions["handle"]>;
 type Apply = NonNullable<FakeCoreOptions["apply"]>;
+
+// ZXing needs native camera/canvas APIs unavailable in jsdom. Only the
+// decoder transport is replaced; the real input, import intent and save flow run.
+const qrDecode = vi.hoisted(() => vi.fn());
+const qrVideo = vi.hoisted(() => vi.fn());
+vi.mock("@zxing/browser", () => ({
+  BrowserQRCodeReader: class {
+    decodeFromImageUrl = qrDecode;
+    decodeFromVideoDevice = qrVideo;
+  },
+}));
 
 let app: MountedApp | undefined;
 
@@ -62,6 +75,9 @@ afterEach(async () => {
   await app?.unmount();
   app = undefined;
   delete (globalThis as unknown as Record<string, unknown>).isTauri;
+  vi.unstubAllGlobals();
+  qrDecode.mockReset();
+  qrVideo.mockReset();
 });
 
 /** A wait long enough for a cold shell boot on a loaded machine. */
@@ -202,6 +218,117 @@ function cardButtons(card: HTMLElement): (string | undefined)[] {
 }
 
 describe("School accounts", () => {
+  it(
+    "imports a selected QR account into the draft and saves only on Connect",
+    async () => {
+      const setup =
+        "otpauth://totp/School?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+      qrDecode.mockResolvedValue({ getText: () => "google-export-fixture" });
+      const revoke = vi.fn();
+      vi.stubGlobal(
+        "URL",
+        class extends URL {
+          static createObjectURL() {
+            return "blob:qr-test";
+          }
+          static revokeObjectURL = revoke;
+        },
+      );
+      const mounted = await mountAccounts({
+        handle: (command) => {
+          if (command === "school_credential_status")
+            return {
+              science: saved({ hasOtp: true }),
+              tokyoTech: notConfigured(),
+            };
+          if (command === "school_session_snapshot") return noSession;
+          if (command === "import_school_otp")
+            return [
+              {
+                label: "Other account",
+                issuer: "Other",
+                setup: "other-secret",
+              },
+              { label: "School account", issuer: "School", setup },
+            ];
+          if (command === "save_school_credentials") return true;
+          if (command === "test_school_connection")
+            return {
+              site: "science-portal",
+              url: "https://example.test",
+              phase: "login",
+            };
+          return undefined;
+        },
+      });
+      const science = account(mounted, "science");
+      const help = science.querySelector<HTMLButtonElement>(
+        'button[aria-label="How do I find the QR code?"]',
+      )!;
+      await click(help);
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "Transfer accounts → Export accounts",
+        ),
+      );
+      const other = [
+        ...document.querySelectorAll<HTMLLabelElement>(
+          ".mantine-SegmentedControl-label",
+        ),
+      ].find((label) => label.textContent === "Microsoft / other")!;
+      await click(other);
+      expect(document.body.textContent).toContain(
+        "Do not remove your current setup.",
+      );
+      await click(help);
+      await scanFile(science, PNG());
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "Choose your school account",
+        ),
+      );
+      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      await clickButton(document.body, "School · School account");
+      expect(
+        science.querySelector<HTMLInputElement>("#school-otp-setup")!.value,
+      ).toBe(setup);
+      expect(revoke).toHaveBeenCalledWith("blob:qr-test");
+      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      await clickButton(science, "Connect");
+      await wait(() =>
+        expect(
+          mounted.core.commands("save_school_credentials")[0].args,
+        ).toMatchObject({ credentials: { otpSecret: setup } }),
+      );
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "stops a QR camera that finishes opening after the dialog is closed",
+    async () => {
+      let resolveCamera: (controls: { stop: () => void }) => void = () => {};
+      qrVideo.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveCamera = resolve;
+          }),
+      );
+      const mounted = await mountAccounts();
+      await clickButton(account(mounted, "science"), "Scan QR");
+      await wait(() => expect(qrVideo).toHaveBeenCalled());
+      const close = document.querySelector<HTMLButtonElement>(
+        '.mantine-Modal-root button[aria-label="Close"]',
+      )!;
+      await click(close);
+      const stop = vi.fn();
+      await act(async () => resolveCamera({ stop }));
+      await wait(() => expect(stop).toHaveBeenCalled());
+      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+    },
+    TIMEOUT,
+  );
+
   it(
     "offers Connect and Forget on a saved portal and Not set up on an empty one",
     async () => {
@@ -666,7 +793,13 @@ describe("Matrix scan and paste", () => {
       expect(cardButtons(matrixCard(mounted))).not.toContain(
         "Scan with camera",
       );
-      expect(pane.querySelector('input[type="file"]')).toBeNull();
+      expect(
+        matrixCard(mounted).querySelector('input[type="file"]'),
+      ).toBeNull();
+      // QR reading is independent of native Matrix OCR availability.
+      expect(
+        account(mounted, "science").querySelector('input[type="file"]'),
+      ).not.toBeNull();
     },
     TIMEOUT,
   );

@@ -1361,3 +1361,21 @@ checks:
       - apps/desktop/src-tauri/src/main.rs
       - .github/workflows/desktop-release.yml
     verified: null
+
+  - id: SCHOOL-OTP-QR
+    area: school
+    title: Authenticator QR import with native camera permissions
+    persona: undergraduate-first-term
+    preconditions: A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display.
+    steps:
+      - action: Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
+        reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
+      - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
+        reason: Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+    observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
+    expected: Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell.
+    covers:
+      - apps/desktop/src/components/QrCamera.tsx
+      - apps/desktop/src/components/CameraPreview.tsx
+    verified: null

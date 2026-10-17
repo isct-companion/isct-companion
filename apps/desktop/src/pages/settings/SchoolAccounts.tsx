@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
+import { OtpSetupInput } from "../../components/OtpSetupInput";
 import { MatrixCamera } from "../../components/MatrixCamera";
 import { UiInput } from "../../components/mantine";
 import { confirmAction } from "../../components/confirm";
@@ -535,8 +536,7 @@ function Account({
       setConnection({
         state: "error",
         step: "",
-        message:
-          errorText(error) ?? "Sign-in could not start.",
+        message: errorText(error) ?? "Sign-in could not start.",
       });
       setBusy(false);
       await refresh().catch(() => undefined);
@@ -661,17 +661,12 @@ function Account({
           }
         />
         {profile === "science" && (
-          <TextInput
-            type="password"
-            className="wide"
-            label="OTP setup link or secret"
+          <OtpSetupInput
             value={draft.otpSecret}
-            autoCapitalize="none"
-            autoComplete="off"
-            placeholder={summary.hasOtp ? SAVED_SECRET : "otpauth://… or Base32"}
-            onChange={(event) =>
-              setDraft({ ...draft, otpSecret: event.target.value })
-            }
+            saved={summary.hasOtp}
+            disabled={busy}
+            onScanState={setScanning}
+            onChange={(otpSecret) => setDraft({ ...draft, otpSecret })}
           />
         )}
       </div>
@@ -740,9 +735,7 @@ export function SchoolAccounts({
     }));
   };
   useEffect(() => {
-    void refresh().catch((error) =>
-      appNotify.error(error),
-    );
+    void refresh().catch((error) => appNotify.error(error));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!desktopBridge)

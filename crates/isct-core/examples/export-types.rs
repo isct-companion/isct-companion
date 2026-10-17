@@ -37,6 +37,9 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
+    output.push_str("export ");
+    output.push_str(&<isct_core::school_auth::OtpImportAccount as ts_rs::TS>::decl());
+    output.push_str("\n\n");
     output.push_str("export const DATA_POLICY: DataPolicy = ");
     output.push_str(
         &serde_json::to_string_pretty(&isct_core::contracts::data_policy())

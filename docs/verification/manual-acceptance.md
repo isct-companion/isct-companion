@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 29 checks must be re-run before the next release.**
+**7 of 30 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**20 checks have never been run or could not be run:**
+**21 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -49,6 +49,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-REMINDER-TIMES` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
+- `SCHOOL-OTP-QR` — never verified
 
 ## Status
 
@@ -83,6 +84,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
+| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 
 ## Personas
 
@@ -1580,5 +1582,41 @@ Requires a native Windows release executable, Explorer and the real desktop shel
 
 - `apps/desktop/src-tauri/src/main.rs`
 - `.github/workflows/desktop-release.yml`
+
+**Last recorded** never run
+
+### Authenticator QR import with native camera permissions (`SCHOOL-OTP-QR`)
+
+**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display.
+
+**Steps**
+
+1. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
+   - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
+2. Move the QR into and out of view, then close the dialog and background the app during a second scan.
+   - *Why:* Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+
+**Where to look**
+
+Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
+
+**Expected**
+
+Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+
+**Why this is manual**
+
+Requires native camera permissions, optical input and an OS camera indicator in a packaged shell.
+
+**Covers**
+
+- `apps/desktop/src/components/QrCamera.tsx`
+- `apps/desktop/src/components/CameraPreview.tsx`
 
 **Last recorded** never run
