@@ -1407,7 +1407,8 @@ checks:
     steps:
       - action: |
           Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
-          the department, admission year and current timetable with the source.
+          the department and admission year with the source. Refresh LMS and compare
+          each offered year/quarter grid, including non-weekly courses.
         reason: |
           Only a real account exposes the current programme and the registered
           timetable. It also exercises native redirects and the hidden reader.
@@ -1431,18 +1432,21 @@ checks:
           materials; refresh LMS and reopen the timetable.
         reason: |
           Real school sessions must support both content destinations without
-          a detail refresh or LMS membership changing official enrollment.
+          a detail refresh changing course identity or mixing syllabus clocks
+          into the LMS timetable. Include one cross-quarter course.
     observe: |
       Settings > Study, Schedule, the course search list and the native school
       browser. Compare the same course code, quarter, time and room in 教務Web.
     expected: |
-      Fresh profile fields match 教務Web; current enrollment and rooms match
-      its timetable. Search appends at most 100 courses per batch without
+      Fresh profile fields and registration records match 教務Web; timetable
+      membership and weekday/period slots match each LMS quarter grid, and
+      rooms come from syllabus metadata. Search appends at most 100 courses per batch without
       duplicates, changes filters on the server, and preserves loaded results.
       The active school source and progress agree; returning to Web restores
       its foreground page rather than the hidden search destination.
       Syllabus details and LMS materials open for the same course; LMS refresh
-      leaves the official timetable intact. No university registration is changed.
+      keeps personal edits and removals, and retains cached clocks when a
+      quarter read fails. No university registration is changed.
     why_manual: |
       Requires real student authentication, native hidden-browser ownership,
       the live university postback state and authenticated content destinations.
@@ -1451,7 +1455,7 @@ checks:
       - crates/isct-core/src/school_browser/engine/extraction.rs
       - crates/isct-core/src/school_browser/assets/kyomu-search.js
       - crates/isct-core/src/school_browser/assets/kyomu-extract.js
-      - crates/isct-core/src/data/kyomu_projection.rs
+      - crates/isct-core/src/data/school_projection.rs
       - apps/desktop/src/pages/courses/CourseFinder.tsx
     verified: null
 

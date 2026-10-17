@@ -32,6 +32,9 @@ pub struct TermTaskView {
     pub pending_ids: Vec<String>,
     pub pinned_ids: Vec<String>,
     pub overdue_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub undated_completed_ids: Option<Vec<String>>,
     pub due_this_week_ids: Vec<String>,
     pub later_ids: Vec<String>,
     pub lecture_open_ids: Vec<String>,
@@ -153,7 +156,14 @@ pub fn task_view(
                     view.lecture_open_ids.push(id.into());
                 }
             }
-            let Some(due) = parsed.get(id) else { continue };
+            let Some(due) = parsed.get(id) else {
+                if in_course && !hidden && include_completed && assignment_submitted(row) {
+                    view.undated_completed_ids
+                        .get_or_insert_with(Vec::new)
+                        .push(id.into());
+                }
+                continue;
+            };
             let in_term = match assignment_terms.get(id).and_then(Option::as_ref) {
                 Some(terms) => terms.contains(&term),
                 None => *due >= now,

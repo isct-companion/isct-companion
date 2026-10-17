@@ -336,9 +336,9 @@ pub(super) fn lms_terms(lms: &Value) -> Vec<String> {
         .and_then(Value::as_object)
         .into_iter()
         .flat_map(|map| {
-            map.keys()
-                .filter(|term| validate_term(term).is_ok())
-                .cloned()
+            map.iter()
+                .filter(|(term, grid)| grid.is_array() && validate_term(term).is_ok())
+                .map(|(term, _)| term.clone())
         })
         .collect();
     if let Some(year) = lms.get("year").and_then(Value::as_i64) {
@@ -355,6 +355,7 @@ pub(super) fn lms_terms(lms: &Value) -> Vec<String> {
             }
         }
     }
+    terms.retain(|term| !lms["timetables"].get(term).is_some_and(Value::is_null));
     terms.into_iter().collect()
 }
 

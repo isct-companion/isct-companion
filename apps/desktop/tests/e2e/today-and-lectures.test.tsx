@@ -190,7 +190,7 @@ function taskViewFor(
   return {
     deadlines: Object.fromEntries(
       workspace.assignments
-        .filter((row) => !row.deletedAt)
+        .filter((row) => !row.deletedAt && row.dueAt)
         .map((row) => [
           row.id,
           {
@@ -204,12 +204,13 @@ function taskViewFor(
           },
         ]),
     ),
-    submittedIds: pick("closed", "handed-in"),
+    submittedIds: pick("closed", "handed-in", "undated-done"),
     nearestByCourse: {},
     byTerm: {
       [term]: {
         pendingIds: pick("upcoming", "pinned"),
         pinnedIds: pick("pinned"),
+        undatedCompletedIds: includeCompleted ? pick("undated-done") : [],
         overdueIds: (includeCompleted
           ? [...overdue]
           : pick("missed")
@@ -338,7 +339,14 @@ describe("Today's assignment scopes", () => {
   }, 20_000);
 
   it("keeps deadline scopes independent of completed visibility", async () => {
-    const mounted = await mountToday(todayWorkspace());
+    const workspace = todayWorkspace();
+    workspace.assignments.push(
+      assignmentRow("undated-done", "now", "Graded without date", "", {
+        dueAt: null,
+        submission: "graded",
+      }),
+    );
+    const mounted = await mountToday(workspace);
     const section = await assignmentsSection(mounted);
     await until(() => expect(dueTitles(section)).toContain("Report upcoming"));
 
@@ -357,6 +365,10 @@ describe("Today's assignment scopes", () => {
     );
     await click(completed);
     await until(() => expect(dueRow(section, "Report closed")).toBeDefined());
+    expect(dueRow(section, "Graded without date")).toBeDefined();
+    expect(
+      dueRow(section, "Graded without date")?.querySelector("time"),
+    ).toBeNull();
     expect(dueRow(section, "Report missed")?.className).toContain("missed");
     expect(dueRow(section, "Report closed")?.className).toContain("closed");
     expect(dueRow(section, "Report upcoming")).toBeUndefined();

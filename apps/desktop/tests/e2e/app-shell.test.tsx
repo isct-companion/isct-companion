@@ -2543,7 +2543,7 @@ it("shows progress only for pulls the user started and the data age when idle", 
       ),
     "the timetable refresh action",
   );
-  // Changing pages consumes cache; explicit refresh updates both sources.
+  // Changing pages consumes cache; timetable refresh reads LMS only.
   expect(
     app.core.calls.filter((call) => call.command === "pull_school"),
   ).toHaveLength(2);
@@ -2553,7 +2553,7 @@ it("shows progress only for pulls the user started and the data age when idle", 
       app!.core.calls
         .filter((call) => call.command === "pull_school")
         .map((call) => call.args.site),
-    ).toEqual(["kyomu", "science-lms", "kyomu", "science-lms"]),
+    ).toEqual(["kyomu", "science-lms", "science-lms"]),
   );
 });
 

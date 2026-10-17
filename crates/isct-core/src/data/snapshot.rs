@@ -197,7 +197,7 @@ impl DataStore {
         if let Some(value) = read_setting(connection, "cloud")? {
             workspace["settings"]["cloud"] = value;
         }
-        kyomu_projection::project(connection, &mut workspace)?;
+        school_projection::project(connection, &mut workspace)?;
         let overrides = read_rows(connection, "course_overrides")?;
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
             for course in courses {

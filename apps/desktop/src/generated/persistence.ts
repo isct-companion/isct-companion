@@ -1021,6 +1021,7 @@ export type TermTaskView = {
   pendingIds: Array<string>;
   pinnedIds: Array<string>;
   overdueIds: Array<string>;
+  undatedCompletedIds?: Array<string>;
   dueThisWeekIds: Array<string>;
   laterIds: Array<string>;
   lectureOpenIds: Array<string>;

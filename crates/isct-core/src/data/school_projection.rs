@@ -1,4 +1,4 @@
-//! One read model for official enrollment and clocks. School caches never
+//! LMS owns timetable membership and clocks. School caches never
 //! rewrite user plans, colours, notes or edits in their backing tables.
 use super::*;
 use std::collections::HashMap;
@@ -72,172 +72,13 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             }
         }
     }
-    let registrations = read_visible_rows(connection, "registrations")?;
-    let states = read_visible_rows(connection, "registration_states")?;
-    let covered: HashSet<String> = states
-        .iter()
-        .filter_map(|s| {
-            s.get("academicYear")
-                .and_then(Value::as_i64)
-                .map(|year| (s, year))
-        })
-        .flat_map(|(s, year)| {
-            array(s, "quarters")
-                .iter()
-                .filter_map(move |q| q.as_str().map(|q| format!("{year}-{q}")))
-        })
-        .collect();
-    // LMS enrollment can include old, optional or staff-created courses. It
-    // remains available in Lecture Desk but cannot add courses to an official term.
-    if let Some(memberships) = workspace["memberships"].as_array_mut() {
-        memberships.retain(|row| {
-            !(text(row, "status") == "lms-member" && covered.contains(text(row, "termId")))
-        });
-    }
     let teaching = crate::schedule::teaching_periods(workspace)
         .map_err(|e| DataError::InvalidInput(e.to_string()))?;
+    let user_courses: HashSet<String> = read_rows(connection, "manual_courses")?
+        .iter()
+        .map(|row| text(row, "id").to_string())
+        .collect();
     let mut aliases = HashMap::new();
-    for registration in registrations.iter().filter(|r| {
-        text(r, "id").starts_with("kyomu-registration:") && text(r, "courseState") != "rejected"
-    }) {
-        let offering_id = text(registration, "offeringId");
-        let year: i32 = offering_id
-            .get(..4)
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| DataError::InvalidInput("Invalid official course year.".into()))?;
-        let canonical = canonical_course_id(year, offering_id)?;
-        let schedule = array(registration, "schedule");
-        let quarters = crate::kyomu_ingest::registration_quarters(registration);
-        if quarters.is_empty() {
-            continue;
-        }
-        let catalog = array(workspace, "offerings")
-            .iter()
-            .find(|row| text(row, "id") == offering_id)
-            .cloned();
-        let courses = workspace["courses"]
-            .as_array_mut()
-            .ok_or_else(|| DataError::storage("Missing courses."))?;
-        let index = courses.iter().position(|course| {
-            text(course, "offeringId") == offering_id || text(course, "id") == canonical
-        });
-        let mut course = index.map(|i| courses[i].clone()).unwrap_or_else(|| json!({
-            "id":canonical,"kind":"course","color":"#526e91","rev":1,
-            "updatedAt":registration["updatedAt"],"updatedBy":"kyomu", "instructionLanguage":"other",
-            "credits":0,"creditSplit":{"lecture":0,"exercise":0,"lab":0}
-        }));
-        if let Some(object) = course.as_object_mut() {
-            object.remove("deletedAt");
-            object.remove("missingSince");
-        }
-        if let Some(offering) = &catalog {
-            course["names"] = json!({"title":offering["title"],"instructor":crate::workspace::catalog_instructor_names(offering)});
-            course["instructionLanguage"] = offering["instructionLanguage"].clone();
-        }
-        let id = text(&course, "id").to_string();
-        aliases.insert(canonical, id.clone());
-        course["offeringId"] = offering_id.into();
-        course["termId"] = format!("{year}-{}", quarters[0]).into();
-        course["code"] = text(registration, "code").into();
-        course["title"] = text(registration, "title").into();
-        course["instructor"] = text(registration, "instructor").into();
-        let mut names = course.get("names").cloned().unwrap_or_else(|| json!({}));
-        names["title"]["ja"] = registration["title"].clone();
-        names["instructor"]["ja"] = registration["instructor"].clone();
-        course["names"] = names;
-        course["url"] = format!("https://syllabus.s.isct.ac.jp/courses?jwc={offering_id}").into();
-        course["source"] = json!({"provider":"kyomu","externalId":offering_id});
-        let declared = registrations
-            .iter()
-            .find(|r| text(r, "offeringId") == offering_id && text(r, "kind") == "declared");
-        if let Some(credits) = registration
-            .get("credits")
-            .filter(|c| c.is_object())
-            .or_else(|| {
-                declared
-                    .and_then(|r| r.get("credits"))
-                    .filter(|c| c.is_object())
-            })
-        {
-            course["creditSplit"] = credits.clone();
-            course["credits"] = ["lecture", "exercise", "lab"]
-                .iter()
-                .filter_map(|k| credits[*k].as_f64())
-                .sum::<f64>()
-                .into();
-        }
-        if let Some(total) = declared
-            .and_then(|row| row.get("effectiveCredits"))
-            .and_then(Value::as_f64)
-        {
-            let raw = course["credits"].as_f64().unwrap_or_default();
-            if raw > 0.0 {
-                for key in ["lecture", "exercise", "lab"] {
-                    let split = course["creditSplit"][key].as_f64().unwrap_or_default();
-                    course["creditSplit"][key] = json!(split * total / raw);
-                }
-            }
-            course["credits"] = json!(total);
-        }
-        let mut meetings = Vec::new();
-        for slot in schedule
-            .iter()
-            .filter(|slot| quarters.iter().any(|q| q == text(slot, "quarter")))
-        {
-            let Some(day) = "月火水木金土日"
-                .chars()
-                .position(|d| text(slot, "day").starts_with(d))
-                .map(|i| i + 1)
-            else {
-                continue;
-            };
-            let periods: Vec<u8> = array(slot, "periods")
-                .iter()
-                .filter_map(Value::as_u64)
-                .filter_map(|v| u8::try_from(v).ok())
-                .collect();
-            let (Some(first), Some(last)) = (periods.first(), periods.last()) else {
-                continue;
-            };
-            let (start, end) = crate::schedule::clock_for_periods(&teaching, [*first, *last])
-                .map_err(|e| DataError::InvalidInput(e.to_string()))?;
-            meetings.push(
-                json!({"days":[day],"periods":periods,"startTime":start,"endTime":end,
-                "room":text(slot,"room"),"termIds":[format!("{year}-{}",text(slot,"quarter"))]}),
-            );
-        }
-        course["meetings"] = json!(meetings);
-        if let Some(local) = index
-            .map(|i| &courses[i])
-            .filter(|c| c["source"]["provider"] == "manual")
-        {
-            course = local.clone();
-        }
-        if let Some(index) = index {
-            courses[index] = course;
-        } else {
-            courses.push(course);
-        }
-        for quarter in quarters {
-            let term = format!("{year}-{quarter}");
-            if !array(workspace, "terms")
-                .iter()
-                .any(|t| t.as_str() == Some(&term))
-            {
-                workspace["terms"]
-                    .as_array_mut()
-                    .ok_or_else(|| DataError::storage("Missing terms."))?
-                    .push(term.clone().into());
-            }
-            let membership = json!({"id":format!("kyomu-membership:{offering_id}:{quarter}"),"kind":"membership", "courseId":id,"termId":term,
-                "status":if states.iter().any(|s| s["academicYear"].as_i64() == Some(i64::from(year)) && array(s,"quarters").contains(&json!(quarter)) && text(s,"state") == "registered") {"registered"} else {"declared"},
-                "evidence":{"provider":"kyomu","externalId":offering_id},"rev":registration["rev"],"updatedAt":registration["updatedAt"],"updatedBy":"kyomu"});
-            workspace["memberships"]
-                .as_array_mut()
-                .ok_or_else(|| DataError::storage("Missing memberships."))?
-                .push(membership);
-        }
-    }
     let mut lms_links = HashMap::new();
     let lms_courses = read_visible_rows(connection, "lms_courses")?;
     for lms in &lms_courses {
@@ -273,7 +114,13 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             aliases.insert(format!("{year}-lms-{lms_id}"), id);
         }
     }
-    project_lms_fallback(workspace, &lms_courses, &covered, &teaching, &mut lms_links)?;
+    project_lms_timetable(
+        workspace,
+        &lms_courses,
+        &user_courses,
+        &teaching,
+        &mut lms_links,
+    )?;
     for (lms_id, id) in &lms_links {
         if let Some(course) = workspace["courses"]
             .as_array_mut()
@@ -314,6 +161,24 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             .iter()
             .find(|o| text(o, "id") == text(course, "offeringId"))
         {
+            if !user_courses.contains(text(course, "id")) {
+                if let Some(language) = offering["instructionLanguage"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                {
+                    course["instructionLanguage"] = language.into();
+                }
+                if ["lecture", "exercise", "lab"]
+                    .iter()
+                    .all(|key| offering["credits"][key].is_number())
+                {
+                    course["creditSplit"] = offering["credits"].clone();
+                    course["credits"] = json!(["lecture", "exercise", "lab"]
+                        .iter()
+                        .filter_map(|key| offering["credits"][key].as_f64())
+                        .sum::<f64>());
+                }
+            }
             course["names"]["instructor"] = crate::workspace::catalog_instructor_names(offering);
             if offering["title"].is_object() {
                 let mut names = course["names"]["title"]
@@ -348,12 +213,11 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
     Ok(())
 }
 
-/// A complete official quarter owns enrollment, including a successful empty
-/// list. Other quarters fall back to LMS evidence without rewriting local rows.
-fn project_lms_fallback(
+/// Project cached LMS quarter grids without rewriting user records.
+fn project_lms_timetable(
     workspace: &mut Value,
     lms_courses: &[Value],
-    covered: &HashSet<String>,
+    user_courses: &HashSet<String>,
     teaching: &[crate::schedule::TeachingPeriod],
     links: &mut HashMap<u64, String>,
 ) -> Result<(), DataError> {
@@ -372,11 +236,13 @@ fn project_lms_fallback(
             .iter()
             .find(|o| !offering_id.is_empty() && text(o, "id") == offering_id)
             .cloned();
-        let mut terms = crate::workspace::lms_terms_with_offering(lms, catalog.as_ref());
+        // Category metadata bootstraps old caches. A captured grid then owns
+        // this quarter: arrays mean present (including non-weekly), null absent.
+        let mut terms = crate::workspace::lms_terms_with_offering(lms, None);
         terms.retain(|term| {
             term.starts_with(&format!("{year}-"))
                 && crate::schedule::Term::parse(term).is_ok()
-                && !covered.contains(term)
+                && !lms["timetables"].get(term).is_some_and(Value::is_null)
         });
         terms.sort();
         terms.dedup();
@@ -431,39 +297,43 @@ fn project_lms_fallback(
                 course["offeringId"] = offering_id.into();
             }
         }
-        // Source snapshots are read models. User records and overlays are applied
-        // independently and must retain their clocks, notes and deletion intent.
-        let catalog_meetings = if existing.is_none() {
-            array(&course, "meetings").to_vec()
-        } else {
-            Vec::new()
-        };
+        // A user-owned course retains its personal clocks. Cached school
+        // clocks update only for quarters successfully captured by LMS.
         if existing.is_none() {
             course["meetings"] = json!([]);
         }
         for term in &terms {
-            let has_clock = course["source"]["provider"] == "manual"
-                || array(&course, "meetings").iter().any(|m| {
-                    m["termIds"]
-                        .as_array()
-                        .is_none_or(|ids| ids.contains(&json!(term)))
-                });
-            if !has_clock {
-                let mut meetings = match lms["timetables"].get(term).filter(|v| v.is_array()) {
-                    Some(grid) => crate::workspace::meetings_from_grid(
-                        grid,
-                        &json!(catalog_meetings),
-                        teaching,
-                    )?,
-                    None => json!(catalog_meetings),
-                };
-                for meeting in meetings.as_array_mut().into_iter().flatten() {
-                    meeting["termIds"] = json!([term]);
+            if !user_courses.contains(&id) && course["source"]["provider"] != "manual" {
+                if let Some(grid) = lms["timetables"].get(term).filter(|v| v.is_array()) {
+                    let metadata = catalog
+                        .as_ref()
+                        .map(|offering| {
+                            crate::workspace::planned_catalog_course(
+                                offering,
+                                &id,
+                                term,
+                                crate::workspace::workspace_content_locale(workspace),
+                                teaching,
+                            )
+                        })
+                        .transpose()?
+                        .map(|c| c["meetings"].clone())
+                        .unwrap_or_else(|| course["meetings"].clone());
+                    let mut meetings =
+                        crate::workspace::meetings_from_grid(grid, &metadata, teaching)?;
+                    for meeting in meetings.as_array_mut().into_iter().flatten() {
+                        meeting["termIds"] = json!([term]);
+                    }
+                    let clocks = course["meetings"]
+                        .as_array_mut()
+                        .ok_or_else(|| DataError::storage("Missing meetings."))?;
+                    clocks.retain(|m| {
+                        m["termIds"]
+                            .as_array()
+                            .is_some_and(|ids| !ids.contains(&json!(term)))
+                    });
+                    clocks.extend(meetings.as_array().into_iter().flatten().cloned());
                 }
-                course["meetings"]
-                    .as_array_mut()
-                    .ok_or_else(|| DataError::storage("Missing meetings."))?
-                    .extend(meetings.as_array().into_iter().flatten().cloned());
             }
             // Existing local placement (including a tombstone) wins over inference.
             if !array(workspace, "memberships")

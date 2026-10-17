@@ -1282,7 +1282,7 @@ fn lms_merge_adds_memberships_joins_quarters_retimes_refreshes_and_relinks() {
         json!({
             "id":format!("lms-course:{id}"), "kind":"lms-course", "lmsId":id,
             "offeringId":offering, "shortname":shortname, "title":{"en":title},
-            "year":2026, "quarters":["3Q"], "timetables":{"2026-3Q":grid},
+            "year":2026, "quarters":if id == 501 { json!(["3Q", "4Q"]) } else { json!(["3Q"]) }, "timetables":{"2026-3Q":grid},
             "rev":1, "updatedAt":"2026-10-01T00:00:00Z", "updatedBy":"lms"
         })
     };

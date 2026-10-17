@@ -832,7 +832,7 @@ export function WorkspaceApp() {
       state: { lectureRequest: Date.now(), lectureContext: timing },
     });
   };
-  /** Refresh LMS content and the fallback for quarters not covered by 教務Web. */
+  /** Refresh LMS course content and all available timetable quarters. */
   const fetchLms = async (
     quiet = false,
     lmsCourseId?: number,
@@ -1278,11 +1278,9 @@ export function WorkspaceApp() {
         intensiveActive={finderKeys.includes("集中")}
         addTerm={() => setTermDialog(true)}
         refreshSchedule={
-          desktopBridge?.pullSchool
-            ? () => void forceSchoolRefresh()
-            : undefined
+          desktopBridge?.pullSchool ? () => void fetchLms() : undefined
         }
-        pullProgress={kyomuProgress ?? (forceRefreshing ? lmsProgress : null)}
+        pullProgress={lmsProgress}
         register={
           desktopBridge?.setKyomuGuide
             ? (term) => void openRegistration(term)

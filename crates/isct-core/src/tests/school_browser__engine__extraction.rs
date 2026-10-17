@@ -112,3 +112,42 @@ fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
     let outcome = apply_raw(&store, SchoolSite::Kyomu, &foreign.to_string()).unwrap();
     assert_eq!(outcome.kind, "unknown");
 }
+
+#[test]
+fn lms_partial_quarter_reads_commit_available_data_and_preserve_cached_clocks() {
+    let path = std::env::temp_dir().join(format!("isct-lms-partial-{}.db", Uuid::new_v4()));
+    let store = DataStore::initialize(path).unwrap().0;
+    let mut raw = serde_json::json!({
+        "status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/",
+        "coursesComplete":true,"fullScan":true,
+        "courses":[{"id":41,"viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=41","fullname":"Original","shortname":"CSC.T101[2026]","coursecategory":1}],
+        "timetables":[{"year":2026,"quarter":"1","slots":[{"courseId":41,"day":1,"period":3}],"unscheduled":[]}]
+    });
+    assert_eq!(
+        apply_raw(&store, SchoolSite::ScienceLms, &raw.to_string())
+            .unwrap()
+            .state,
+        IngestState::Ok
+    );
+    raw["courses"][0]["fullname"] = "Updated".into();
+    raw["timetables"] = serde_json::json!([]);
+    raw["timetableErrors"] = serde_json::json!(["2026-1Q: timeout"]);
+    let partial = apply_raw(&store, SchoolSite::ScienceLms, &raw.to_string()).unwrap();
+    assert_eq!(partial.state, IngestState::Error);
+    assert!(partial.changed > 0);
+    let courses = crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q");
+    assert_eq!(courses.len(), 1);
+    assert_eq!(courses[0]["meetings"][0]["days"], serde_json::json!([1]));
+    raw["timetables"] =
+        serde_json::json!([{"year":2026,"quarter":"1","slots":[],"unscheduled":[]}]);
+    raw["timetableErrors"] = serde_json::json!([]);
+    assert_eq!(
+        apply_raw(&store, SchoolSite::ScienceLms, &raw.to_string())
+            .unwrap()
+            .state,
+        IngestState::Ok
+    );
+    assert!(
+        crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q").is_empty()
+    );
+}

@@ -35,6 +35,8 @@ fn invalid_item_payload() -> LmsPayload {
         dated_events: Vec::new(),
         assign_status: HashMap::new(),
         timetable: None,
+        timetables: Vec::new(),
+        timetable_errors: Vec::new(),
         skipped: 0,
     }
 }

@@ -85,7 +85,7 @@ an unverified area becomes an assumed-good one.
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
-| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/kyomu_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
@@ -1623,7 +1623,8 @@ local workspace for the fresh-profile check.
 **Steps**
 
 1. Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
-   the department, admission year and current timetable with the source.
+   the department and admission year with the source. Refresh LMS and compare
+   each offered year/quarter grid, including non-weekly courses.
    - *Why:* Only a real account exposes the current programme and the registered
      timetable. It also exercises native redirects and the hidden reader.
 2. Search a broad course prefix with more than 100 results, scroll to
@@ -1640,7 +1641,8 @@ local workspace for the fresh-profile check.
 4. Open one result's syllabus details and one registered course's LMS
    materials; refresh LMS and reopen the timetable.
    - *Why:* Real school sessions must support both content destinations without
-     a detail refresh or LMS membership changing official enrollment.
+     a detail refresh changing course identity or mixing syllabus clocks
+     into the LMS timetable. Include one cross-quarter course.
 
 **Where to look**
 
@@ -1649,13 +1651,15 @@ browser. Compare the same course code, quarter, time and room in 教務Web.
 
 **Expected**
 
-Fresh profile fields match 教務Web; current enrollment and rooms match
-its timetable. Search appends at most 100 courses per batch without
+Fresh profile fields and registration records match 教務Web; timetable
+membership and weekday/period slots match each LMS quarter grid, and
+rooms come from syllabus metadata. Search appends at most 100 courses per batch without
 duplicates, changes filters on the server, and preserves loaded results.
 The active school source and progress agree; returning to Web restores
 its foreground page rather than the hidden search destination.
 Syllabus details and LMS materials open for the same course; LMS refresh
-leaves the official timetable intact. No university registration is changed.
+keeps personal edits and removals, and retains cached clocks when a
+quarter read fails. No university registration is changed.
 
 **Why this is manual**
 
@@ -1668,7 +1672,7 @@ Headless tests exercise the parser, shared projections and UI paging only.
 - `crates/isct-core/src/school_browser/engine/extraction.rs`
 - `crates/isct-core/src/school_browser/assets/kyomu-search.js`
 - `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
-- `crates/isct-core/src/data/kyomu_projection.rs`
+- `crates/isct-core/src/data/school_projection.rs`
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
 
 **Last recorded** never run

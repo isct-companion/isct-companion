@@ -676,10 +676,22 @@ pub(super) fn apply_raw(
     }
     let mut connection = rusqlite::Connection::open(store.path())
         .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
+    let mut incomplete_lms = None;
     let applied = if site == SchoolSite::ScienceLms {
         match parse_lms_payload(raw) {
             Ok((LmsStage::Ready, Some(payload))) => apply_lms_payload(&mut connection, &payload)
-                .map(|changed| ("lms".to_string(), changed))
+                .map(|changed| {
+                    let failed = payload.timetable_errors.len()
+                        + payload
+                            .structures
+                            .iter()
+                            .filter(|row| !row.complete)
+                            .count();
+                    if failed > 0 {
+                        incomplete_lms = Some(failed);
+                    }
+                    ("lms".to_string(), changed)
+                })
                 .map_err(|error| ("lms".to_string(), Some(error.to_string()))),
             Ok(_) => Err(("lms".into(), None)),
             Err(error) => Err((
@@ -749,9 +761,17 @@ pub(super) fn apply_raw(
         Ok((kind, changed)) => IngestOutcome {
             site,
             kind,
-            state: IngestState::Ok,
+            state: if incomplete_lms.is_some() {
+                IngestState::Error
+            } else {
+                IngestState::Ok
+            },
             changed,
-            message: format!("{changed} rows changed"),
+            message: incomplete_lms
+                .map(|count| {
+                    format!("LMS refresh incomplete: {count} reads failed; cached data retained")
+                })
+                .unwrap_or_else(|| format!("{changed} rows changed")),
         },
         // No message: the page asked for sign-in instead of returning data.
         Err((kind, None)) => sign_in_required(site, &kind),
