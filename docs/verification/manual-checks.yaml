@@ -1152,20 +1152,43 @@ checks:
           Installation and the OS authorization prompts are outside anything
           the repository can simulate.
       - action: |
-          Walk sign-in, workspace, LMS, files and reminders.
+          On an iPhone signed in to the same Apple ID as a Mac whose desktop
+          app is already connected, open 設定 → 学校アカウント before typing
+          anything.
+        reason: |
+          School logins are synchronized iCloud Keychain items named by Core
+          (`vault_item`). Showing 未接続 here means the iOS item identity or
+          access group drifted from the desktop's.
+      - action: |
+          Walk sign-in, pull to refresh on 今日, the ウェブ tab, a course's
+          T2SCHOLA link, hiding an assignment, and turning on reminders.
         reason: |
           The native shells render independently of the desktop frontend, so
-          desktop acceptance says nothing about them.
+          desktop acceptance says nothing about them. Pulls run through the
+          WKWebView browser port, which only a real identity provider and OTP
+          exercise.
+      - action: |
+          On Android, sign in from 設定, pull to refresh on 今日, open the
+          ウェブ tab and a course's T2SCHOLA link, swipe an assignment to hide
+          it, then turn on reminders and wait for one to arrive.
+        reason: |
+          Pulls run through the WebView browser port and Core's injected
+          scripts, which only a real identity provider and OTP exercise;
+          reminders depend on the notification permission and alarm delivery
+          of a real device.
     observe: |
       Each device's screens, its authorization prompts, and the notifications
       it delivers.
     expected: |
       The flows work with the platform's own UI, authorization prompts and
-      notification delivery.
+      notification delivery; school pages open inside the app, never in
+      Safari, and a pull fills 今日 and 課題.
     why_manual: |
-      The SwiftUI and Compose shells are not implemented yet, and physical
-      device acceptance requires signing, provisioning and real hardware.
+      Needs a real student id and OTP, iCloud Keychain on two devices, signing
+      and provisioning for physical hardware.
     covers:
+      - apps/android/**
+      - apps/ios/**
       - bindings/**
       - crates/isct-ffi/**
     verified:

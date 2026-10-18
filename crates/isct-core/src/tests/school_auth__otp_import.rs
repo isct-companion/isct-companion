@@ -1,9 +1,12 @@
 use super::*;
 
 fn google(accounts: Vec<Parameters>, batch_size: i32) -> String {
+    export(accounts, batch_size, 1)
+}
+fn export(accounts: Vec<Parameters>, batch_size: i32, version: i32) -> String {
     let wire = Migration {
         accounts,
-        version: 1,
+        version,
         batch_size,
         batch_index: 0,
         batch_id: 17,
@@ -50,7 +53,13 @@ fn standard_and_google_imports_preserve_accounts_and_real_totp_parameters() {
     assert_eq!(
         super::super::otp_at(&imported[1].setup, 59).unwrap(),
         "94287082"
+    ); // Current Google Authenticator exports are version 2 with the same fields.
+    let current = import_otp(&export(vec![school()], 1, 2)).unwrap();
+    assert_eq!(
+        super::super::otp_at(&current[0].setup, 59).unwrap(),
+        "287082"
     );
+    assert!(import_otp(&export(vec![school()], 1, 3)).is_err());
 }
 
 #[test]

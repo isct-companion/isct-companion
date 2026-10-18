@@ -276,7 +276,25 @@ fn deadline_view(due: DateTime<FixedOffset>, now: DateTime<FixedOffset>) -> Task
     } else {
         format!("{days}d")
     };
-    let countdown_tone = if ms < 0 {
+    TaskDeadlineView {
+        at: due.to_rfc3339(),
+        remaining_milliseconds: ms,
+        label,
+        tone: tone.into(),
+        countdown_label,
+        countdown_tone: countdown_tone(due, now).into(),
+        overdue: ms < 0,
+    }
+}
+
+/// Urgency of a deadline: `past`, `urgent` (< 24 h), `soon` (< 72 h) or `normal`.
+pub(super) fn countdown_tone(
+    due: DateTime<FixedOffset>,
+    now: DateTime<FixedOffset>,
+) -> &'static str {
+    let ms = (due - now).num_milliseconds();
+    let hours = ms.max(0) / 3_600_000;
+    if ms < 0 {
         "past"
     } else if hours < 24 {
         "urgent"
@@ -284,14 +302,5 @@ fn deadline_view(due: DateTime<FixedOffset>, now: DateTime<FixedOffset>) -> Task
         "soon"
     } else {
         "normal"
-    };
-    TaskDeadlineView {
-        at: due.to_rfc3339(),
-        remaining_milliseconds: ms,
-        label,
-        tone: tone.into(),
-        countdown_label,
-        countdown_tone: countdown_tone.into(),
-        overdue: ms < 0,
     }
 }
