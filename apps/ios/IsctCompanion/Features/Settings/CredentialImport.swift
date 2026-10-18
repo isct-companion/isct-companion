@@ -211,6 +211,31 @@ struct MatrixImportSection: View {
             .buttonStyle(.bordered)
             .font(.subheadline)
             .disabled(reading)
+            // Presentation lives on one row: modifiers on a Section repeat on
+            // every row, and several covers presenting at once tear down the
+            // settings sheet.
+            .onChange(of: photo) { _, item in
+                guard let item else { return }
+                photo = nil
+                Task {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        error = "画像を読み込めませんでした。"
+                        return
+                    }
+                    await scan(data)
+                }
+            }
+            .onChange(of: cells) { _, value in
+                // Core checks for all 70 letters when the account is saved.
+                matrix = value.joined()
+            }
+            .fullScreenCover(isPresented: $camera) {
+                CameraCapture { image in
+                    camera = false
+                    if let image { Task { await scan(image) } }
+                }
+                .ignoresSafeArea()
+            }
             if reading {
                 ProgressView(value: Double(model.ocrProgress), total: 70) {
                     Text("読み取り中 \(model.ocrProgress)/70").font(.footnote)
@@ -228,28 +253,6 @@ struct MatrixImportSection: View {
             Text(model.canScanMatrix
                 ? "カードを平らな場所に置き、表全体が写るように撮影してください。"
                 : "この端末では読み取りを使えません。デスクトップ版でコピーした 70 文字を貼り付けるか、入力してください。")
-        }
-        .onChange(of: cells) { _, value in
-            // Core checks for all 70 letters when the account is saved.
-            matrix = value.joined()
-        }
-        .onChange(of: photo) { _, item in
-            guard let item else { return }
-            photo = nil
-            Task {
-                guard let data = try? await item.loadTransferable(type: Data.self) else {
-                    error = "画像を読み込めませんでした。"
-                    return
-                }
-                await scan(data)
-            }
-        }
-        .fullScreenCover(isPresented: $camera) {
-            CameraCapture { image in
-                camera = false
-                if let image { Task { await scan(image) } }
-            }
-            .ignoresSafeArea()
         }
     }
 
