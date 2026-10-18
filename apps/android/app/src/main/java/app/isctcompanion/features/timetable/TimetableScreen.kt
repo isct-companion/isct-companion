@@ -60,7 +60,9 @@ import app.isctcompanion.core.ScheduleView
 import app.isctcompanion.core.TeachingPeriod
 import app.isctcompanion.core.TodayPhase
 import app.isctcompanion.design.Format
-import app.isctcompanion.design.LargeHeader
+import app.isctcompanion.design.PageSubtitle
+import app.isctcompanion.design.TabPage
+import androidx.compose.material3.IconButton
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.courseColor
 import app.isctcompanion.design.tabular
@@ -84,22 +86,26 @@ fun TimetableScreen() {
     LaunchedEffect(monday, model.contentRevision) { week = model.week(monday) }
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
 
+    TabPage(
+        "時間割",
+        actions = {
+            IconButton(onClick = { monday = monday.minusWeeks(1) }) {
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "前の週")
+            }
+            IconButton(onClick = { monday = monday.plusWeeks(1) }) {
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "次の週")
+            }
+        },
+    ) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Theme.colors.bg)
             .verticalScroll(rememberScrollState())
-            .windowInsetsPadding(WindowInsets.statusBars)
             .padding(horizontal = 12.dp)
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        LargeHeader(subtitle(monday, model.today?.term, model.today?.teachingWeek), "時間割", Modifier.padding(horizontal = 4.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                WeekButton(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "前の週") { monday = monday.minusWeeks(1) }
-                WeekButton(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "次の週") { monday = monday.plusWeeks(1) }
-            }
-        }
+        PageSubtitle(subtitle(monday, model.today?.term, model.today?.teachingWeek))
         Grid(
             monday, week, model.periods,
             Modifier
@@ -125,6 +131,7 @@ fun TimetableScreen() {
                 },
         )
     }
+    }
 }
 
 private fun subtitle(monday: LocalDate, term: String?, teachingWeek: UInt?): String {
@@ -135,16 +142,6 @@ private fun subtitle(monday: LocalDate, term: String?, teachingWeek: UInt?): Str
         return "${Format.quarter(term)} 第${teachingWeek}週 · $range"
     }
     return "${Format.quarter(term)} · $range"
-}
-
-@Composable
-private fun WeekButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    Box(
-        Modifier.size(40.dp).clip(CircleShape).background(Theme.colors.accentSoft).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, label, tint = Theme.colors.accent)
-    }
 }
 
 /** Saturday and Sunday look ahead to the coming week. */

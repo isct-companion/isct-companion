@@ -33,6 +33,16 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.FormatSize
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -88,76 +98,76 @@ private fun ResidentWebView(site: SchoolSite, host: SchoolBrowserHost, revision:
     )
 }
 
-/** ウェブ tab: one resident view per site, a site switcher on top. */
+/** The overflow menu every school page carries. */
+@Composable
+private fun PageMenu(site: SchoolSite) {
+    val web = LocalModel.current.web
+    val context = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Outlined.MoreVert, "その他") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val item = @Composable { label: String, icon: ImageVector, action: () -> Unit ->
+                DropdownMenuItem(text = { Text(label) }, leadingIcon = { Icon(icon, null) }, onClick = {
+                    open = false
+                    action()
+                })
+            }
+            item("進む", Icons.AutoMirrored.Outlined.ArrowForward) { web.forward(site) }
+            item("再読み込み", Icons.Outlined.Refresh) { web.reload(site) }
+            item("文字の大きさ（${web.browser.textScale}%）", Icons.Outlined.FormatSize) { web.browser.cycleTextScale() }
+            web.browser.webView(site)?.url?.let { url ->
+                item("ブラウザで開く", Icons.AutoMirrored.Outlined.OpenInNew) {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                }
+            }
+        }
+    }
+}
+
+/** System back walks the page's history first, as in a browser. */
+@Composable
+private fun HistoryBack(site: SchoolSite, onExhausted: (() -> Unit)?) {
+    val web = LocalModel.current.web
+    web.browser.loads
+    val canGoBack = web.browser.canGoBack(site)
+    BackHandler(enabled = canGoBack || onExhausted != null) {
+        if (canGoBack) web.back(site) else onExhausted?.invoke()
+    }
+}
+
+/** ウェブ tab: one resident view per site, site tabs on top. */
 @Composable
 fun WebTabScreen() {
     val web = LocalModel.current.web
-    val context = LocalContext.current
     DisposableEffect(Unit) {
         web.showTab(web.tabSite)
         web.setVisible(web.tabSite)
         onDispose { web.setVisible(null) }
     }
+    HistoryBack(web.tabSite, onExhausted = null)
     Column(Modifier.fillMaxSize().background(Theme.colors.bg).windowInsetsPadding(WindowInsets.statusBars)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            Circle(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "戻る") { web.back(web.tabSite) }
-            Row(
-                Modifier
-                    .weight(1f)
-                    .clip(CircleShape)
-                    .background(Theme.colors.surface)
-                    .horizontalScroll(rememberScrollState())
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val selected = WebRouter.tabSites.indexOf(web.tabSite).coerceAtLeast(0)
+            ScrollableTabRow(
+                selectedTabIndex = selected,
+                edgePadding = 8.dp,
+                containerColor = Theme.colors.bg,
+                divider = {},
+                modifier = Modifier.weight(1f),
             ) {
-                for (site in WebRouter.tabSites) {
-                    val selected = site == web.tabSite
-                    Text(
-                        WebRouter.name(site),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (selected) Color.White else Theme.colors.ink,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (selected) Theme.colors.accent else Color.Transparent)
-                            .clickable {
-                                web.showTab(site)
-                                web.setVisible(site)
-                            }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-            }
-            var menu by remember { mutableStateOf(false) }
-            Box {
-                Circle(Icons.Outlined.MoreHoriz, "その他") { menu = true }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("再読み込み") }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) }, onClick = {
-                        menu = false
-                        web.reload(web.tabSite)
-                    })
-                    DropdownMenuItem(
-                        text = { Text("進む") }, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                WebRouter.tabSites.forEachIndexed { index, site ->
+                    Tab(
+                        selected = index == selected,
                         onClick = {
-                            menu = false
-                            web.forward(web.tabSite)
+                            web.showTab(site)
+                            web.setVisible(site)
                         },
+                        text = { Text(WebRouter.name(site), fontWeight = FontWeight.SemiBold) },
                     )
-                    web.browser.webView(web.tabSite)?.url?.let { url ->
-                        DropdownMenuItem(
-                            text = { Text("ブラウザで開く") }, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.OpenInNew, null) },
-                            onClick = {
-                                menu = false
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                            },
-                        )
-                    }
                 }
             }
+            PageMenu(web.tabSite)
         }
         Box(Modifier.fillMaxSize()) {
             ResidentWebView(web.tabSite, web.browser, web.attachRevision, Modifier.fillMaxSize())
@@ -169,7 +179,9 @@ fun WebTabScreen() {
     }
 }
 
-/** A school page pushed from a course or assignment; back returns to it. */
+/** A school page pushed from a course or assignment, like a browser tab:
+ * ✕ returns to the opener, back walks the page history first. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WebPageScreen(page: WebRouter.PushedPage) {
     val web = LocalModel.current.web
@@ -180,79 +192,36 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
         web.setVisible(page.site)
         onDispose { web.setVisible(null) }
     }
-    BackHandler { navigator.back() }
-    Box(Modifier.fillMaxSize().background(Theme.colors.surface)) {
-        ResidentWebView(
-            page.site, web.browser, web.attachRevision,
-            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 56.dp, bottom = 72.dp),
-        )
-        web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-        ) {
-            Circle(Icons.AutoMirrored.Outlined.ArrowBack, "戻る") { navigator.back() }
-            Glass(Modifier.weight(1f)) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(page.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    HistoryBack(page.site) { navigator.back() }
+    Column(Modifier.fillMaxSize().background(Theme.colors.surface)) {
+        TopAppBar(
+            navigationIcon = {
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.Outlined.Close, "閉じる") }
+            },
+            title = {
+                Column {
+                    Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Icon(Icons.Outlined.Lock, null, tint = Theme.colors.muted, modifier = Modifier.size(10.dp))
-                        Text(WebRouter.name(page.site), style = MaterialTheme.typography.labelSmall, color = Theme.colors.muted)
+                        Icon(Icons.Outlined.Lock, null, tint = Theme.colors.muted, modifier = Modifier.size(12.dp))
+                        Text(WebRouter.name(page.site), style = MaterialTheme.typography.labelMedium, color = Theme.colors.muted)
                     }
                 }
-            }
-            Glass(Modifier.size(40.dp), CircleShape) {
-                Box(Modifier.fillMaxSize().clickable { web.browser.cycleTextScale() }, contentAlignment = Alignment.Center) {
-                    Text("ぁあ", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-        Glass(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .fillMaxWidth(),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            ) {
-                IconButton(onClick = { web.back(page.site) }) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "前のページ", tint = Theme.colors.accent)
-                }
-                IconButton(onClick = { web.forward(page.site) }) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "次のページ", tint = Theme.colors.accent)
-                }
-                val url = web.browser.webView(page.site)?.url
-                if (url != null) {
+            },
+            actions = {
+                web.browser.webView(page.site)?.url?.let { url ->
                     IconButton(onClick = {
                         val share = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
                         context.startActivity(Intent.createChooser(share, null))
-                    }) { Icon(Icons.Outlined.Share, "共有", tint = Theme.colors.accent) }
-                    IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }) {
-                        Icon(Icons.AutoMirrored.Outlined.OpenInNew, "ブラウザで開く", tint = Theme.colors.accent)
-                    }
+                    }) { Icon(Icons.Outlined.Share, "共有") }
                 }
-            }
+                PageMenu(page.site)
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.surface),
+        )
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars)) {
+            ResidentWebView(page.site, web.browser, web.attachRevision, Modifier.fillMaxSize())
+            web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
         }
-    }
-}
-
-/** Floating control surface over the page (the iOS material capsules). */
-@Composable
-private fun Glass(modifier: Modifier = Modifier, shape: androidx.compose.ui.graphics.Shape = CircleShape, content: @Composable () -> Unit) {
-    Surface(modifier, shape = shape, color = Theme.colors.surface.copy(alpha = 0.92f), shadowElevation = 2.dp, content = content)
-}
-
-@Composable
-private fun Circle(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Glass(Modifier.size(40.dp)) {
-        IconButton(onClick = onClick) { Icon(icon, label, tint = Theme.colors.accent) }
     }
 }
 

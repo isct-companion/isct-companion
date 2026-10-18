@@ -58,12 +58,12 @@ import app.isctcompanion.core.DeadlineItem
 import app.isctcompanion.design.DeadlineLink
 import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.Format
-import app.isctcompanion.design.LargeHeader
+import app.isctcompanion.design.PageSubtitle
+import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
-import app.isctcompanion.design.UndoToast
 import app.isctcompanion.features.today.rememberNow
 import java.time.Instant
 import kotlinx.coroutines.launch
@@ -76,26 +76,14 @@ import kotlinx.coroutines.launch
 fun AssignmentsScreen() {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
-    val scope = rememberCoroutineScope()
-    var refreshing by remember { mutableStateOf(false) }
     val now = rememberNow(60)
     val board = model.board
-    Box(Modifier.fillMaxSize().background(Theme.colors.bg)) {
-        PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = {
-                scope.launch {
-                    refreshing = true
-                    model.pull()
-                    refreshing = false
-                }
-            },
-        ) {
+    TabPage("課題", onRefresh = { model.pull() }) {
             LazyColumn(
-                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             ) {
-                item { LargeHeader("${Format.quarter(board?.term.orEmpty())} · 未提出のみ", "課題", Modifier.padding(horizontal = 4.dp)) }
+                item { PageSubtitle("${Format.quarter(board?.term.orEmpty())} · 未提出のみ") }
                 model.problem?.let { item { Box(Modifier.padding(top = 12.dp)) { ProblemBanner(it) } } }
                 if (board != null) {
                     val today = board.today
@@ -133,8 +121,6 @@ fun AssignmentsScreen() {
                     }
                 }
             }
-        }
-        UndoToast(Modifier.align(Alignment.BottomCenter))
     }
 }
 

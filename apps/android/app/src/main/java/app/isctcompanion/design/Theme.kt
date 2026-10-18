@@ -85,6 +85,7 @@ fun IsctTheme(content: @Composable () -> Unit) {
             onBackground = palette.ink, onSurface = palette.ink, error = palette.danger,
             // Navigation bar, chips and switches take the campus tint, not Material's purple.
             secondaryContainer = palette.accentSoft, onSecondaryContainer = palette.accent,
+            inversePrimary = palette.accentSoft,
             surfaceContainer = palette.surface, surfaceContainerLow = palette.surface,
             surfaceContainerHigh = palette.surface2, surfaceContainerHighest = palette.surface2,
             onSurfaceVariant = palette.muted, outline = palette.line, outlineVariant = palette.line,
@@ -95,6 +96,7 @@ fun IsctTheme(content: @Composable () -> Unit) {
             onBackground = palette.ink, onSurface = palette.ink, error = palette.danger,
             // Navigation bar, chips and switches take the campus tint, not Material's purple.
             secondaryContainer = palette.accentSoft, onSecondaryContainer = palette.accent,
+            inversePrimary = palette.accentSoft,
             surfaceContainer = palette.surface, surfaceContainerLow = palette.surface,
             surfaceContainerHigh = palette.surface2, surfaceContainerHighest = palette.surface2,
             onSurfaceVariant = palette.muted, outline = palette.line, outlineVariant = palette.line,

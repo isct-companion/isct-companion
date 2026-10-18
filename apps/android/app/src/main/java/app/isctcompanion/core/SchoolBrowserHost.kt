@@ -47,6 +47,14 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     var revision by mutableIntStateOf(0)
         private set
 
+    /** Bumped after every page load, so screens re-read history state such as
+     * whether back can go anywhere. */
+    var loads by mutableIntStateOf(0)
+        private set
+
+    /** Whether `site`'s view has a page to go back to. */
+    fun canGoBack(site: SchoolSite): Boolean = views[site]?.webView?.canGoBack() == true
+
     /** Text scale for school pages, in percent; starts above 100 for readability. */
     var textScale = 115
         private set
@@ -237,6 +245,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 }
                 // WebView exposes no request id here; never label a late load with an action.
                 runCatching { listener()?.pageLoaded(nextPage(), null, url) }
+                loads++
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {

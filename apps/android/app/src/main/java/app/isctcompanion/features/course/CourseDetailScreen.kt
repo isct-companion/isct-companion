@@ -54,7 +54,9 @@ import app.isctcompanion.design.Format
 import app.isctcompanion.design.MapButton
 import app.isctcompanion.design.MaterialRow
 import app.isctcompanion.design.RowDivider
+import app.isctcompanion.design.PageSubtitle
 import app.isctcompanion.design.SectionLabel
+import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.courseColor
 import app.isctcompanion.design.tabular
@@ -80,14 +82,12 @@ fun CourseDetailScreen(courseId: String) {
     val title = course.text("title").orEmpty()
     val meeting = meetings(course).firstOrNull()
     val now = Instant.now()
-    Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
-        TopAppBar(
-            title = {},
-            navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "戻る") }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
-        )
+    TabPage(
+        title,
+        navigationIcon = {
+            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "戻る") }
+        },
+    ) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -96,10 +96,7 @@ fun CourseDetailScreen(courseId: String) {
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
-                Text(subtitle(course, meeting), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
-            }
+            PageSubtitle(subtitle(course, meeting))
             meeting?.let { RoomCard(it, tint) }
             val assignments = assignments(courseId)
             if (assignments.isNotEmpty()) {

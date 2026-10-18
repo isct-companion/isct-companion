@@ -64,7 +64,8 @@ import app.isctcompanion.design.DeadlineChip
 import app.isctcompanion.design.DeadlineLink
 import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.Format
-import app.isctcompanion.design.LargeHeader
+import app.isctcompanion.design.PageSubtitle
+import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.MapButton
 import app.isctcompanion.design.MaterialRow
 import app.isctcompanion.design.PillButton
@@ -73,7 +74,6 @@ import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.TagChip
 import app.isctcompanion.design.Theme
-import app.isctcompanion.design.UndoToast
 import app.isctcompanion.design.courseColor
 import app.isctcompanion.design.tabular
 import app.isctcompanion.features.settings.SettingsSheet
@@ -99,48 +99,32 @@ fun rememberNow(seconds: Long): Instant {
 @Composable
 fun TodayScreen() {
     val model = LocalModel.current
-    val scope = rememberCoroutineScope()
     var showsSettings by remember { mutableStateOf(false) }
-    var refreshing by remember { mutableStateOf(false) }
     val now = rememberNow(30)
-    Box(Modifier.fillMaxSize().background(Theme.colors.bg)) {
-        PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = {
-                scope.launch {
-                    refreshing = true
-                    model.pull()
-                    refreshing = false
-                }
-            },
-        ) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                LargeHeader(subtitle(model.today), "今日") {
-                    if (model.isPulling) {
-                        CircularProgressIndicator(Modifier.size(20.dp).padding(end = 4.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    IconButton(
-                        onClick = { showsSettings = true },
-                        modifier = Modifier.size(40.dp).clip(CircleShape).background(Theme.colors.surface2),
-                    ) {
-                        Icon(Icons.Outlined.Settings, "設定", tint = Theme.colors.ink)
-                    }
-                }
-                model.problem?.let { ProblemBanner(it) }
-                if (model.needsAccount) ConnectCard { showsSettings = true }
-                model.today?.let { TodayContent(it, now) }
+    TabPage(
+        "今日",
+        actions = {
+            if (model.isPulling) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp))
             }
+            IconButton(onClick = { showsSettings = true }) { Icon(Icons.Outlined.Settings, "設定") }
+        },
+        onRefresh = { model.pull() },
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            PageSubtitle(subtitle(model.today))
+            model.problem?.let { ProblemBanner(it) }
+            if (model.needsAccount) ConnectCard { showsSettings = true }
+            model.today?.let { TodayContent(it, now) }
         }
-        UndoToast(Modifier.align(Alignment.BottomCenter))
     }
     if (showsSettings) SettingsSheet { showsSettings = false }
 }

@@ -2,11 +2,6 @@ package app.isctcompanion.design
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,14 +31,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,7 +61,6 @@ import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WebRouter
 import java.time.Instant
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val tabular = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
@@ -267,52 +267,59 @@ fun ProblemBanner(text: String) {
     }
 }
 
+/** A tab's page (or a pushed one, with `navigationIcon`): Material's collapsing large title over scrolling content,
+ * pull to refresh when `onRefresh` is given. The content scrolls itself. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UndoToast(modifier: Modifier = Modifier) {
-    val model = LocalModel.current
+fun TabPage(
+    title: String,
+    navigationIcon: @Composable () -> Unit = {},
+    actions: @Composable RowScope.() -> Unit = {},
+    onRefresh: (suspend () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
-    val undo = model.undo
-    LaunchedEffect(undo) {
-        if (undo != null) {
-            delay(5_000)
-            model.dismissUndo()
-        }
-    }
-    AnimatedVisibility(
-        visible = undo != null,
-        enter = slideInVertically { it } + fadeIn(),
-        exit = slideOutVertically { it } + fadeOut(),
-        modifier = modifier,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .fillMaxWidth()
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.85f))
-                .padding(start = 16.dp, end = 4.dp),
-        ) {
-            Text(
-                "「${undo?.title.orEmpty()}」を非表示にしました",
-                color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+    var refreshing by remember { mutableStateOf(false) }
+    Scaffold(
+        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
+        containerColor = Theme.colors.bg,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            LargeTopAppBar(
+                title = { Text(title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = navigationIcon,
+                actions = actions,
+                scrollBehavior = scroll,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Theme.colors.bg, scrolledContainerColor = Theme.colors.bg,
+                ),
             )
-            TextButton(onClick = { scope.launch { model.undoHide() } }) {
-                Text("取り消す", color = Color.White, fontWeight = FontWeight.SemiBold)
+        },
+    ) { padding ->
+        Box(Modifier.padding(padding)) {
+            if (onRefresh == null) {
+                content()
+            } else {
+                PullToRefreshBox(
+                    isRefreshing = refreshing,
+                    onRefresh = {
+                        scope.launch {
+                            refreshing = true
+                            onRefresh()
+                            refreshing = false
+                        }
+                    },
+                ) { content() }
             }
         }
     }
 }
 
-/** Large page title with a muted line above, as the iOS large titles. */
+/** The muted line under a page title: date, quarter, week. */
 @Composable
-fun LargeHeader(subtitle: String, title: String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}) {
-    Row(verticalAlignment = Alignment.Bottom, modifier = modifier.fillMaxWidth().padding(top = 12.dp)) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
-            Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
-        }
-        trailing()
-    }
+fun PageSubtitle(text: String) {
+    Text(
+        text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted,
+    )
 }

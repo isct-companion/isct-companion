@@ -23,6 +23,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -145,11 +151,25 @@ private fun Tabs() {
     val destination = entry?.destination
     // Courses and pages are pushed above a tab's graph, so the selection is kept here.
     var current by rememberSaveable { mutableStateOf(AppTab.Today) }
-    // A pushed school page fills the screen, as on iOS.
+    // A pushed school page fills the screen, like a browser tab.
     val showsBar = destination?.route?.startsWith("page/") != true
+    val snackbar = remember { SnackbarHostState() }
+    val model = LocalModel.current
+    val scope = rememberCoroutineScope()
+    // Hiding offers its undo in the platform snackbar, above the navigation bar.
+    LaunchedEffect(model.undo) {
+        val undo = model.undo ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(
+            "「${undo.title}」を非表示にしました", actionLabel = "取り消す", duration = SnackbarDuration.Short,
+        )
+        // undoHide clears `undo`, which restarts this effect; run it outside so
+        // the restart cannot cancel the mutation.
+        if (result == SnackbarResult.ActionPerformed) scope.launch { model.undoHide() } else model.dismissUndo()
+    }
     CompositionLocalProvider(LocalNavigator provides navigator) {
         Scaffold(
             containerColor = Theme.colors.bg,
+            snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 if (showsBar) {
                     NavigationBar {
