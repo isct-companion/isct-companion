@@ -15,7 +15,11 @@ Verified in the iPhone 17 simulator (iOS 26) against a copy of a real desktop
   items. All of it comes from Core's `WorkspaceQuery.today`.
 - 時間割: the real week, with holidays hatched.
 - 課題: Core's `assignmentBoard`; hide, undo and restore work, and submitted
-  rows show grades.
+  rows show grades. Since the main merge (2026-10-18) the board is the
+  quarter task timeline that desktop and Android render: the tab shows
+  `today`'s groups and its bottom row opens the full `record`. The Swift side
+  was rewritten for that shape and first checked on a device, not the
+  simulator.
 - Course detail: the map, T2SCHOLA and syllabus links, which come from
   `CourseDetail.lmsUrl` / `syllabusUrl` in Core.
 - The ウェブ tab and pushed school pages load the SSO login page in the resident

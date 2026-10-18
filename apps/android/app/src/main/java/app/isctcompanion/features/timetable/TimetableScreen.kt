@@ -224,6 +224,7 @@ private fun DayColumn(
             .background(Theme.colors.surface)
             .then(if (today) Modifier.border(1.5.dp, Theme.colors.accent.copy(alpha = 0.5f), shape) else Modifier),
     ) {
+        PeriodLines(periods, Theme.colors.line)
         if (holiday) Hatch(Theme.colors.line)
         for (block in blocks) Block(block, holiday, week, periods, block.key == current)
     }
@@ -267,6 +268,19 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, peri
             if (planned) "計画" else block.room, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
             color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** One rule after each teaching slot (1–2, 3–4, …), never inside a slot, so
+ * a two-period class is not cut in half. */
+@Composable
+private fun PeriodLines(periods: List<TeachingPeriod>, color: Color) {
+    val ends = periods.mapNotNull { it.periods.lastOrNull()?.toInt() }.filter { it in 1 until PERIOD_COUNT }
+    Canvas(Modifier.fillMaxSize()) {
+        for (end in ends) {
+            val y = rowHeight.toPx() * end
+            drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+        }
     }
 }
 

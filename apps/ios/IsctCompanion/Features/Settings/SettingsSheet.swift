@@ -72,6 +72,7 @@ struct SettingsSheet: View {
                 if let last = model.lastPull { return ("接続済 · \(Format.time(last)) 更新", Theme.ok) }
                 return ("接続済", Theme.ok)
             case .failed?: return ("ログインに失敗しました", Theme.danger)
+            case .maintenance?: return ("メンテナンス中", Theme.warn)
             default: return ("確認中", Theme.muted)
             }
         }()

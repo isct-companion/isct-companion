@@ -163,6 +163,7 @@ struct TimetableScreen: View {
         return ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Theme.surface)
+            PeriodLines(periods: model.periods, count: Self.periodCount, rowHeight: Self.rowHeight)
             if agenda?.noClasses == true {
                 Hatch().clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
@@ -259,6 +260,27 @@ struct TimetableScreen: View {
         // Saturday and Sunday look ahead to the coming week.
         let offset = weekday == 1 ? 1 : weekday == 7 ? 2 : 2 - weekday
         return calendar.date(byAdding: .day, value: offset, to: start) ?? start
+    }
+}
+
+/// One rule after each teaching slot (1–2, 3–4, …), never inside a slot, so
+/// a two-period class is not cut in half.
+private struct PeriodLines: View {
+    let periods: [TeachingPeriod]
+    let count: Int
+    let rowHeight: CGFloat
+
+    var body: some View {
+        let ends = periods.compactMap { $0.periods.last.map(Int.init) }.filter { (1..<count).contains($0) }
+        Canvas { context, size in
+            var path = Path()
+            for end in ends {
+                let y = CGFloat(end) * rowHeight
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            context.stroke(path, with: .color(Theme.line), lineWidth: 1)
+        }
     }
 }
 

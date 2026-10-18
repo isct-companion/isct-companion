@@ -262,8 +262,9 @@ final class AppModel {
     // MARK: Intents
 
     func setHidden(_ item: DeadlineItem, _ hidden: Bool) async {
-        await mark(item.assignmentId, hidden: hidden, pinned: nil)
+        // Offered at once: the re-read that follows can take a moment.
         undo = hidden ? UndoAction(title: item.title, assignmentId: item.assignmentId) : nil
+        await mark(item.assignmentId, hidden: hidden, pinned: nil)
     }
 
     func setPinned(_ item: DeadlineItem, _ pinned: Bool) async {
@@ -359,6 +360,7 @@ final class AppModel {
         switch error {
         case SdkError.Network: return "オフラインです。保存済みのデータを表示しています。"
         case SdkError.Authentication: return "学校アカウントに再ログインが必要です。"
+        case SdkError.Maintenance: return "学校のサイトはメンテナンス中です。"
         case SdkError.Timeout: return "学校サイトの応答がありません。"
         case SdkError.Busy: return "前の処理がまだ終わっていません。"
         case let SdkError.Unavailable(detail): return detail.isEmpty ? "この機能は今使えません。" : detail

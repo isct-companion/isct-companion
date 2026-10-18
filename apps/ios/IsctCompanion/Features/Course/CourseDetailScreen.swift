@@ -111,10 +111,10 @@ struct CourseDetailScreen: View {
         .background(tint.opacity(Theme.tintSoft), in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
     }
 
-    /// This course's work from Core's assignment board, in board order.
+    /// This course's open work from Core's task timeline, in its order.
     private var assignments: [DeadlineItem] {
-        guard let board = model.board else { return [] }
-        return (board.pinned + board.overdue + board.today + board.thisWeek + board.later)
+        guard let today = model.board?.today else { return [] }
+        return (today.pinned + today.dueThisWeek + today.later + today.pastRecent)
             .filter { $0.courseId == courseId }
     }
 

@@ -1,8 +1,9 @@
 import IsctCore
 import SwiftUI
 
-/// 課題: open assignments grouped by Core (`AssignmentBoard`). Swipe right
-/// pins, swipe left hides; submitted and hidden work sits behind one row.
+/// 課題: what is left to do this quarter, in the groups of Core's task
+/// timeline (`AssignmentBoard.today`). Swipe right pins, swipe left hides;
+/// every assignment, submitted and hidden included, sits behind one row.
 struct AssignmentsScreen: View {
     @Environment(AppModel.self) private var model
 
@@ -24,13 +25,12 @@ struct AssignmentsScreen: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 }
-                if let board = model.board {
-                    group("ピン留め", board.pinned, now: context.date)
-                    group("期限切れ", board.overdue, now: context.date)
-                    group("今日", board.today, now: context.date)
-                    group("今週", board.thisWeek, now: context.date)
-                    group("来週以降", board.later, now: context.date)
-                    if isEmpty(board) {
+                if let today = model.board?.today {
+                    group("ピン留め", today.pinned, now: context.date)
+                    group("今週", today.dueThisWeek, now: context.date)
+                    group("来週以降", today.later, now: context.date)
+                    group("期限切れ", today.pastRecent, now: context.date)
+                    if today.isOpenEmpty {
                         Section {
                             ContentUnavailableView("未提出の課題はありません", systemImage: "checkmark.circle")
                         }
@@ -38,9 +38,9 @@ struct AssignmentsScreen: View {
                     }
                     Section {
                         NavigationLink {
-                            SubmittedScreen()
+                            RecordScreen()
                         } label: {
-                            Text("提出済・非表示").foregroundStyle(Theme.ink)
+                            Text("提出済・非表示を含むすべて").foregroundStyle(Theme.ink)
                         }
                     }
                 }
@@ -52,11 +52,6 @@ struct AssignmentsScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) { UndoToast() }
-    }
-
-    private func isEmpty(_ board: AssignmentBoard) -> Bool {
-        board.pinned.isEmpty && board.overdue.isEmpty && board.today.isEmpty && board.thisWeek.isEmpty
-            && board.later.isEmpty
     }
 
     @ViewBuilder
@@ -90,16 +85,39 @@ struct AssignmentsScreen: View {
     }
 }
 
-/// Submitted work and hidden assignments; hidden ones come back from here.
-private struct SubmittedScreen: View {
+extension DeadlineGroups {
+    /// Nothing left to do among the groups the 課題 tab shows.
+    var isOpenEmpty: Bool {
+        pinned.isEmpty && dueThisWeek.isEmpty && later.isEmpty && undated.isEmpty && pastRecent.isEmpty
+    }
+}
+
+/// Every assignment of the quarter whatever its state (`AssignmentBoard.record`);
+/// older past work stays folded, hidden work comes back from here.
+private struct RecordScreen: View {
     @Environment(AppModel.self) private var model
+    @State private var unfolded = false
 
     var body: some View {
         List {
-            if let board = model.board {
-                if !board.hidden.isEmpty {
+            if let record = model.board?.record {
+                group("ピン留め", record.pinned)
+                group("今週", record.dueThisWeek)
+                group("来週以降", record.later)
+                group("期限なし", record.undated)
+                group("過去", record.pastRecent)
+                if !record.pastEarlier.isEmpty {
+                    if unfolded {
+                        group("それ以前", record.pastEarlier)
+                    } else {
+                        Section {
+                            Button("それ以前の \(record.pastEarlier.count) 件を表示") { unfolded = true }
+                        }
+                    }
+                }
+                if !record.hidden.isEmpty {
                     Section("非表示") {
-                        ForEach(board.hidden, id: \.assignmentId) { item in
+                        ForEach(record.hidden, id: \.assignmentId) { item in
                             DeadlineRow(item: item, now: Date())
                                 .listRowInsets(EdgeInsets())
                                 .swipeActions(edge: .trailing) {
@@ -113,21 +131,25 @@ private struct SubmittedScreen: View {
                         }
                     }
                 }
-                if !board.submitted.isEmpty {
-                    Section("提出済") {
-                        ForEach(board.submitted, id: \.assignmentId) { item in
-                            DeadlineLink(item: item) { DeadlineRow(item: item, now: Date()) }
-                                .listRowInsets(EdgeInsets())
-                        }
-                    }
-                }
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
-        .navigationTitle("提出済・非表示")
+        .navigationTitle("すべての課題")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder
+    private func group(_ title: LocalizedStringKey, _ items: [DeadlineItem]) -> some View {
+        if !items.isEmpty {
+            Section(title) {
+                ForEach(items, id: \.assignmentId) { item in
+                    DeadlineLink(item: item) { DeadlineRow(item: item, now: Date()) }
+                        .listRowInsets(EdgeInsets())
+                }
+            }
+        }
     }
 }
