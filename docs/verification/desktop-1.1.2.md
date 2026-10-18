@@ -1,5 +1,7 @@
 # Desktop 1.1.2 review checkpoint — 2026-10-18
 
+Latest repair verification: [Calendar and course-code lookup](calendar-code-lookup-2026-10-18.md).
+
 Prepared on `main` after pulling `db317e4`. Public release and version-tag push
 remain pending user review.
 

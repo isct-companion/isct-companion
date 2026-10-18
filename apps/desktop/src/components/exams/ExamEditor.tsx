@@ -97,6 +97,7 @@ export function ExamEditor({
         }}
       >
         <p>{t("Personal exam edits are kept when subscriptions refresh.")}</p>
+        {exam.notes && <p>{exam.notes}</p>}
         <Select
           name="courseId"
           label={t("Linked course")}

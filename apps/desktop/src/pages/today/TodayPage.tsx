@@ -37,6 +37,7 @@ export function Today({
   data,
   term,
   open,
+  openExam,
   openEvent,
   openPlan,
   openTask,
@@ -56,6 +57,7 @@ export function Today({
     tab?: "assignments",
     context?: { date: string; startTime: string; endTime: string },
   ) => void;
+  openExam?: (key: string, term: string) => void;
   openEvent: (event: PersonalEvent) => void;
   openPlan: (plan: Plan) => void;
   openTask: (assignmentId: string) => void;
@@ -378,6 +380,7 @@ export function Today({
               data={data}
               courses={schedule?.courses ?? []}
               open={(id) => open(id)}
+              openExam={openExam}
             />
           </section>
         )}
@@ -413,7 +416,9 @@ export function Today({
                     }
                     style={{ "--course": block.color } as React.CSSProperties}
                     onClick={() => {
-                      if (block.kind === "course" || block.kind === "exam")
+                      if (block.kind === "exam" && block.termId && openExam)
+                        openExam(block.key, block.termId);
+                      else if (block.kind === "course" || block.kind === "exam")
                         open(block.id, undefined, {
                           date: viewIso,
                           startTime: block.startTime,

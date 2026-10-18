@@ -24,6 +24,9 @@ pub struct ExamView {
     pub end_time: Option<String>,
     pub periods: Option<[u8; 2]>,
     pub room: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub notes: Option<String>,
     pub color: String,
     pub status: String,
     pub edited: bool,
@@ -126,10 +129,9 @@ pub fn exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
         let explicit = change
             .and_then(|row| text(row, "courseId"))
             .or_else(|| text(exam, "courseId"));
-        let code = text(exam, "courseCode")
-            .unwrap_or_default()
-            .trim()
-            .to_uppercase();
+        let code = super::search::course_code_key(text(exam, "courseCode").unwrap_or_default());
+        let code_candidates = super::search::courses_by_code(workspace, term, &code);
+        let offering = text(exam, "syllabusCourseId");
         // A class suffix is part of the identity. Never guess a neighbouring
         // class or a different academic year's course from the base code.
         let candidates: Vec<_> = courses
@@ -139,16 +141,20 @@ pub fn exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
                 if let Some(id) = explicit {
                     return text(course, "id") == Some(id);
                 }
-                !code.is_empty()
-                    && text(course, "code").is_some_and(|value| value.trim().to_uppercase() == code)
-                    && array(workspace, "memberships").iter().any(|row| {
-                        visible(row)
-                            && text(row, "termId") == Some(term)
-                            && text(row, "courseId") == text(course, "id")
-                            && text(row, "status") != Some("withdrawn")
-                            && row.pointer("/evidence/provider").and_then(Value::as_str)
-                                != Some("manual")
-                    })
+                (if let Some(offering) = offering {
+                    text(course, "offeringId") == Some(offering)
+                } else {
+                    code_candidates
+                        .iter()
+                        .any(|candidate| text(candidate, "id") == text(course, "id"))
+                }) && array(workspace, "memberships").iter().any(|row| {
+                    visible(row)
+                        && text(row, "termId") == Some(term)
+                        && text(row, "courseId") == text(course, "id")
+                        && text(row, "status") != Some("withdrawn")
+                        && row.pointer("/evidence/provider").and_then(Value::as_str)
+                            != Some("manual")
+                })
             })
             .collect();
         let course = candidates
@@ -214,6 +220,11 @@ pub fn exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
                 .and_then(|row| text(row, "room"))
                 .map(str::to_owned)
                 .unwrap_or_else(|| localized(exam.get("room"), locale, "")),
+            notes: exam
+                .get("notes")
+                .filter(|value| !value.is_null())
+                .map(|value| localized(Some(value), locale, ""))
+                .filter(|value| !value.is_empty()),
             color: course
                 .map(display_color)
                 .unwrap_or_else(|| "#c98245".into()),

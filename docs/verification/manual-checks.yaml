@@ -245,6 +245,16 @@ checks:
         reason: |
           Hidden work must yield to the visible page and resume afterwards.
           Without this step the preemption contract is only asserted by tests.
+      - action: |
+          After a successful fresh pull, browse each available quarter and search
+          its actual course codes in Lecture Desk and Today's cross-quarter
+          course finder. Select a result, switch tabs, and use Filter's clear
+          button. Open a Calendar course and a real linked subscription exam.
+        reason: |
+          Real LMS shortnames and syllabus details must retain searchable class
+          codes and restore room metadata after setup. Calendar navigation must
+          select the exact course or exam in its quarter without stale filters;
+          do not manufacture an exam association when this account has no match.
     observe: |
       The LMS page course and assignment lists, the refresh timestamp, and the
       visible school page that interrupted the second pull.
@@ -261,6 +271,10 @@ checks:
       - crates/isct-core/src/lms_ingest.rs
       - crates/isct-core/src/lms_session.rs
       - crates/isct-core/src/school_parser/lms.rs
+      - crates/isct-core/src/catalog.rs
+      - crates/isct-core/src/data/school_projection.rs
+      - crates/isct-core/src/schedule/search.rs
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14

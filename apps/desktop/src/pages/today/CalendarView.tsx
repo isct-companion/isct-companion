@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Paper } from "@mantine/core";
+import { Paper, Input } from "@mantine/core";
 import { UiButton } from "../../components/mantine";
 import {
   WeekTimetable,
@@ -58,6 +58,14 @@ export function CalendarView({
             })}
           </b>
           <div className="scheduleControls">
+            <Input
+              type="date"
+              aria-label={t("Date")}
+              value={date}
+              onChange={(event) =>
+                event.target.value && setAnchor(event.target.value)
+              }
+            />
             <UiButton
               aria-label={t("Previous week")}
               onClick={() => setAnchor(addCivilDays(date, -7))}

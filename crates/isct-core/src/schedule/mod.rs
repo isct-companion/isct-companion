@@ -13,6 +13,7 @@ mod range;
 mod reminders;
 pub(crate) use reminders::assignment_lead_minutes;
 mod requests;
+mod search;
 mod tasks;
 
 #[cfg(test)]
@@ -58,6 +59,7 @@ pub use reminders::{
     ReminderService, DEFAULT_ASSIGNMENT_LEADS,
 };
 pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
+pub use search::LectureSearch;
 pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
 pub(crate) use timing::{clock_for_periods, validate_period_range};
@@ -129,6 +131,10 @@ pub enum WorkspaceQuery {
     ExamAssociation {
         exam_key: String,
         course_id: String,
+    },
+    LectureSearch {
+        term: Option<String>,
+        query: String,
     },
     ScheduleView {
         /// Toolbar/credit context only; agendas include every term in the date range.
@@ -280,6 +286,7 @@ pub enum WorkspaceQueryResult {
     TaskView(TaskView),
     CourseDetail(CourseDetail),
     ExamAssociation(ExamAssociation),
+    LectureSearch(LectureSearch),
     ScheduleView(ScheduleView),
     DayAgenda(Vec<Occurrence>),
     CalendarState(#[cfg_attr(feature = "ts", ts(type = "unknown | null"))] Option<Value>),
@@ -311,6 +318,16 @@ pub fn query(
     request: WorkspaceQuery,
 ) -> Result<WorkspaceQueryResult, ScheduleError> {
     match request {
+        WorkspaceQuery::LectureSearch { term, query } => {
+            if let Some(term) = &term {
+                Term::parse(term)?;
+            }
+            Ok(WorkspaceQueryResult::LectureSearch(search::lecture_search(
+                workspace,
+                term.as_deref(),
+                &query,
+            )))
+        }
         WorkspaceQuery::ExamAssociation {
             exam_key,
             course_id,
@@ -724,6 +741,7 @@ pub fn declarations() -> Vec<String> {
         CourseDetail::decl(),
         ExamView::decl(),
         ExamAssociation::decl(),
+        LectureSearch::decl(),
         CourseTimeline::decl(),
         TaskDeadlineView::decl(),
         AssignmentGroups::decl(),

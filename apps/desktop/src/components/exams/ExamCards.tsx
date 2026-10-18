@@ -11,11 +11,13 @@ export function ExamCards({
   data,
   courses,
   open,
+  openExam,
 }: {
   exams: ExamView[];
   data: Workspace;
   courses: Course[];
   open?: (courseId: string) => void;
+  openExam?: (key: string, term: string) => void;
 }) {
   const [editing, setEditing] = useState<ExamView | null>(null);
   return (
@@ -41,11 +43,15 @@ export function ExamCards({
               {t("Edit")}
             </button>
           </div>
-          {exam.courseId && open ? (
+          {openExam || (exam.courseId && open) ? (
             <button
               type="button"
               className="examCourseLink"
-              onClick={() => open(exam.courseId!)}
+              onClick={() =>
+                openExam
+                  ? openExam(exam.key, exam.term)
+                  : exam.courseId && open?.(exam.courseId)
+              }
             >
               {exam.title || exam.code}
             </button>
@@ -65,6 +71,7 @@ export function ExamCards({
               : ` · ${t("Time not announced")}`}
           </time>
           {exam.room && <small>{exam.room}</small>}
+          {exam.notes && <small>{exam.notes}</small>}
         </article>
       ))}
       <Modal

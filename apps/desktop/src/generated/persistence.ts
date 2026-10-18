@@ -873,6 +873,7 @@ export type Occurrence = {
   id: string;
   kind: OccurrenceKind;
   courseId: string | null;
+  termId?: string | null;
   date: string;
   title: string;
   subtitle: string | null;
@@ -1016,6 +1017,7 @@ export type ExamView = {
   endTime: string | null;
   periods: [number, number] | null;
   room: string;
+  notes?: string;
   color: string;
   status: string;
   edited: boolean;
@@ -1025,6 +1027,12 @@ export type ExamView = {
 export type ExamAssociation = {
   requiresConfirmation: boolean;
   conflicts: Array<ExamView>;
+};
+
+export type LectureSearch = {
+  courseIds: Array<string>;
+  assignmentIds: Array<string>;
+  examKeys: Array<string>;
 };
 
 export type CourseTimeline = {
@@ -1150,6 +1158,7 @@ export type WorkspaceQuery =
   | { kind: "taskView"; now: string }
   | { kind: "courseDetail"; courseId: string }
   | { kind: "examAssociation"; examKey: string; courseId: string }
+  | { kind: "lectureSearch"; term: string | null; query: string }
   | {
       kind: "scheduleView";
       /**
@@ -1207,6 +1216,7 @@ export type WorkspaceQueryResult =
   | { kind: "taskView"; value: TaskView }
   | { kind: "courseDetail"; value: CourseDetail }
   | { kind: "examAssociation"; value: ExamAssociation }
+  | { kind: "lectureSearch"; value: LectureSearch }
   | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }
   | { kind: "calendarState"; value: unknown | null }

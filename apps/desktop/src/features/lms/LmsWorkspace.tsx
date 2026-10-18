@@ -98,6 +98,7 @@ const NoteEditor = lazy(() =>
 const NARROW_QUERY = `(max-width: 850px), ${STACKED_QUERY}`;
 
 export type CourseEntry = {
+  term?: string;
   courseId: string;
   request: number;
   date?: string;

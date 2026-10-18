@@ -34,6 +34,8 @@ pub struct Occurrence {
     pub kind: OccurrenceKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub course_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub term_id: Option<String>,
     pub date: String,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -223,6 +225,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 key: format!("{id}-{day}"),
                 id: id.into(),
                 kind: OccurrenceKind::Event,
+                term_id: None,
                 course_id: None,
                 date: date.clone(),
                 title: text(event, "title").unwrap_or_default().into(),
@@ -647,6 +650,7 @@ pub(crate) fn personal_occurrences(
             key: format!("{id}-{date}"),
             id: id.into(),
             kind: OccurrenceKind::Event,
+            term_id: None,
             course_id: None,
             date: date.into(),
             title: text(event, "title").unwrap_or_default().into(),
@@ -722,6 +726,7 @@ fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, Sched
         key: format!("{id}-{date}"),
         id: id.into(),
         kind: OccurrenceKind::Plan,
+        term_id: None,
         course_id: text(plan, "courseId").map(str::to_owned),
         date: date.into(),
         title: text(plan, "title").unwrap_or_default().into(),
@@ -820,6 +825,7 @@ fn course_occurrence(
         key,
         id: id.into(),
         kind: OccurrenceKind::Course,
+        term_id: None,
         course_id: Some(id.into()),
         date: date.into(),
         title: course
@@ -963,6 +969,7 @@ pub fn resolve_day_agenda(
             key: exam.key,
             id: id.clone(),
             kind: OccurrenceKind::Exam,
+            term_id: None,
             course_id: Some(id),
             date: exam.date,
             title: exam.title,
@@ -985,6 +992,11 @@ pub fn resolve_day_agenda(
         });
     }
     blocks.extend(exams);
+    for block in &mut blocks {
+        if matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam) {
+            block.term_id = Some(term.into());
+        }
+    }
     finalize_agenda(blocks)
 }
 

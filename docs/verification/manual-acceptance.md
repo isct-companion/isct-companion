@@ -58,7 +58,7 @@ an unverified area becomes an assumed-good one.
 | Check | Area | Persona | Result | Covers |
 | --- | --- | --- | --- | --- |
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/school_browser/engine/**<br>crates/isct-core/src/school_service.rs |
-| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/lms_ingest.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs |
+| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/lms_ingest.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>crates/isct-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
@@ -268,6 +268,14 @@ The account from SCHOOL-SIGNIN-SCIENCE is Signed in.
 3. Open a visible school page in the middle of a second pull.
    - *Why:* Hidden work must yield to the visible page and resume afterwards.
      Without this step the preemption contract is only asserted by tests.
+4. After a successful fresh pull, browse each available quarter and search
+   its actual course codes in Lecture Desk and Today's cross-quarter
+   course finder. Select a result, switch tabs, and use Filter's clear
+   button. Open a Calendar course and a real linked subscription exam.
+   - *Why:* Real LMS shortnames and syllabus details must retain searchable class
+     codes and restore room metadata after setup. Calendar navigation must
+     select the exact course or exam in its quarter without stale filters;
+     do not manufacture an exam association when this account has no match.
 
 **Where to look**
 
@@ -292,6 +300,10 @@ enrolment.
 - `crates/isct-core/src/lms_ingest.rs`
 - `crates/isct-core/src/lms_session.rs`
 - `crates/isct-core/src/school_parser/lms.rs`
+- `crates/isct-core/src/catalog.rs`
+- `crates/isct-core/src/data/school_projection.rs`
+- `crates/isct-core/src/schedule/search.rs`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 
 **Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
 
