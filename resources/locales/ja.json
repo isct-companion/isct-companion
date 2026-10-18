@@ -1322,5 +1322,8 @@
   "If something is wrong, right-click the session in Calendar to correct it, or edit it in Lectures. You can also report it on the data repository.": "誤りを見つけた場合は、カレンダーで該当する授業を右クリックするか、講義で編集して修正できます。データリポジトリへの報告も歓迎します。",
   "Report a data problem": "データの問題を報告",
   "IsctCompanion is not responsible for any loss caused by errors in this data.": "データの誤りによって生じた損害について、IsctCompanion は責任を負いません。",
-  "I understand": "了解しました"
+  "I understand": "了解しました",
+  "Test notification": "通知のテスト",
+  "This is a test notification.": "これはテスト通知です。",
+  "Send": "送信"
 }
