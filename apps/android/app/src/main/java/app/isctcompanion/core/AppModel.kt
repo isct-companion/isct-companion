@@ -320,13 +320,30 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         refresh()
     }
 
-    /** Manual pull: LMS assignments and materials, then 教務Web. */
-    suspend fun pull() {
+    /** Pull to refresh: Core's light refresh of the current quarter's LMS
+     * courses. It runs on after the gesture ends; the header ring follows
+     * Core's pull state. */
+    fun refreshFromSchool() {
+        scope.launch { pull(listOf { it.pullCurrentTerm() }) }
+    }
+
+    /** 設定 › すべて再取得: every LMS course and quarter, then 教務Web. */
+    suspend fun pullEverything() {
+        pull(
+            listOf(
+                { it.pullSchool(SchoolSite.SCIENCE_LMS, null, true) },
+                { it.pullSchool(SchoolSite.KYOMU, null, true) },
+            ),
+        )
+    }
+
+    /** Runs pulls in order and stops at the first that needs the person. */
+    private suspend fun pull(steps: List<(Session) -> Operation>) {
         val session = session ?: return
         problem = null
-        for (site in listOf(SchoolSite.SCIENCE_LMS, SchoolSite.KYOMU)) {
+        for (step in steps) {
             try {
-                val result = session.pullSchool(site, null, true).value() as? OperationResult.SchoolPull
+                val result = step(session).value() as? OperationResult.SchoolPull
                 val failed = result?.outcomes?.firstOrNull {
                     it.state == IngestState.RECONNECT_REQUIRED || it.state == IngestState.ERROR
                 }

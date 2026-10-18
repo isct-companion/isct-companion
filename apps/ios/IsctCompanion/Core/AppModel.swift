@@ -306,15 +306,30 @@ final class AppModel {
         await refresh()
     }
 
-    /// Manual pull: LMS assignments and materials, then 教務Web.
-    func pull() async {
+    /// Pull to refresh: Core's light refresh of the current quarter's LMS
+    /// courses. It runs on after the gesture ends; the header ring follows
+    /// Core's pull state.
+    func refreshFromSchool() {
+        Task { await pull([{ try $0.pullCurrentTerm() }]) }
+    }
+
+    /// 設定 › すべて再取得: every LMS course and quarter, then 教務Web.
+    func pullEverything() async {
+        await pull([
+            { try $0.pullSchool(site: .scienceLms, courseId: nil, loginFirst: true) },
+            { try $0.pullSchool(site: .kyomu, courseId: nil, loginFirst: true) },
+        ])
+    }
+
+    /// Runs pulls in order and stops at the first that needs the person.
+    private func pull(_ steps: [(Session) throws -> IsctCore.Operation]) async {
         guard let session else { return }
         problem = nil
-        for site in [SchoolSite.scienceLms, .kyomu] {
+        for step in steps {
             do {
-                if case let .schoolPull(outcomes) = try await session.pullSchool(
-                    site: site, courseId: nil, loginFirst: true
-                ).value(), let failed = outcomes.first(where: { $0.state == .reconnectRequired || $0.state == .error }) {
+                if case let .schoolPull(outcomes) = try await step(session).value(),
+                    let failed = outcomes.first(where: { $0.state == .reconnectRequired || $0.state == .error })
+                {
                     problem = failed.state == .reconnectRequired
                         ? Self.describe(SdkError.Authentication(detail: ""))
                         : failed.message

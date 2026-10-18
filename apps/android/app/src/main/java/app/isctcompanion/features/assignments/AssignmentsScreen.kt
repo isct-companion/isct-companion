@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -78,7 +81,16 @@ fun AssignmentsScreen() {
     val navigator = LocalNavigator.current
     val now = rememberNow(60)
     val board = model.board
-    TabPage("課題", onRefresh = { model.pull() }) {
+    TabPage(
+        "課題",
+        actions = {
+            if (model.isPulling) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(16.dp))
+            }
+        },
+        onRefresh = { model.refreshFromSchool() },
+    ) {
             LazyColumn(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),

@@ -422,6 +422,37 @@ impl Session {
             })
         })
     }
+    /// The light manual refresh: the current quarter's LMS courses only, the
+    /// same selection as desktop's current-quarter refresh. Before any LMS
+    /// course is cached (a fresh install) it runs the full LMS pull instead.
+    pub fn pull_current_term(&self) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let services = services(&i)?;
+            let executor = i.core.school_browser()?;
+            let current = services
+                .school
+                .pull_current_term(&i.core.store, executor.clone())
+                .await;
+            let outcomes = match current {
+                Err(isct_core::school_service::SchoolError::InvalidInput(_)) => {
+                    services
+                        .school
+                        .pull(
+                            executor,
+                            isct_core::lifecycle::SchoolSite::ScienceLms,
+                            None,
+                            isct_core::pull_coordinator::PullOptions::manual(),
+                            true,
+                        )
+                        .await?
+                }
+                other => other?,
+            };
+            Ok(OperationResult::SchoolPull {
+                outcomes: project(outcomes)?,
+            })
+        })
+    }
     pub fn suspend(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, |i, _| async move {
             i.core.runtime.suspend().await;

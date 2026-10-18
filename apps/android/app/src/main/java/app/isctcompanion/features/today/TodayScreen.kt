@@ -110,7 +110,7 @@ fun TodayScreen() {
             }
             IconButton(onClick = { showsSettings = true }) { Icon(Icons.Outlined.Settings, "設定") }
         },
-        onRefresh = { model.pull() },
+        onRefresh = { model.refreshFromSchool() },
     ) {
         Column(
             Modifier

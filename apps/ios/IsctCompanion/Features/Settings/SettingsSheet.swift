@@ -35,8 +35,20 @@ struct SettingsSheet: View {
                             Image(systemName: "bell")
                         }
                     }
+                }
+                Section {
+                    Button {
+                        Task { await model.pullEverything() }
+                    } label: {
+                        HStack {
+                            Label("すべて再取得", systemImage: "arrow.triangle.2.circlepath")
+                            Spacer()
+                            if model.isPulling { ProgressView() }
+                        }
+                    }
+                    .disabled(model.isPulling)
                 } footer: {
-                    Text("学年暦の編集、コースフォルダ、データ更新、開発者向け設定はデスクトップ版にあります。")
+                    Text("下に引っ張ると今のクォーターの授業だけを更新します。ここでは T2SCHOLA の全授業と教務Web を読み込み直します（数分かかります）。学年暦の編集、コースフォルダ、開発者向け設定はデスクトップ版にあります。")
                 }
                 Section {
                     LabeledContent("IsctCompanion", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")

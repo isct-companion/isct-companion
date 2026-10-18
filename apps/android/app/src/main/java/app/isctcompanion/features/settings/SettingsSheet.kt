@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -139,6 +140,7 @@ private fun Page(content: @Composable ColumnScope.() -> Unit) {
 private fun RootPage(open: (SettingsPage) -> Unit) {
     val model = LocalModel.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     Page {
         SectionLabel("学校アカウント")
         Card {
@@ -164,7 +166,24 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted)
             }
         }
-        Footer("学年暦の編集、コースフォルダ、データ更新、開発者向け設定はデスクトップ版にあります。")
+        Card(Modifier.padding(top = 16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !model.isPulling) { scope.launch { model.pullEverything() } }
+                    .padding(16.dp),
+            ) {
+                Icon(Icons.Outlined.Sync, null, tint = Theme.colors.accent)
+                Text("すべて再取得", color = Theme.colors.ink, modifier = Modifier.weight(1f))
+                if (model.isPulling) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+        }
+        Footer(
+            "下に引っ張ると今のクォーターの授業だけを更新します。ここでは T2SCHOLA の全授業と教務Web を読み込み直します（数分かかります）。" +
+                "学年暦の編集、コースフォルダ、開発者向け設定はデスクトップ版にあります。",
+        )
         Card(Modifier.padding(top = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))

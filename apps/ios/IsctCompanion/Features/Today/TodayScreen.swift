@@ -21,7 +21,7 @@ struct TodayScreen: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
             }
-            .refreshable { await model.pull() }
+            .refreshable { model.refreshFromSchool() }
         }
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)

@@ -12,9 +12,12 @@ struct AssignmentsScreen: View {
             List {
                 Section {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(Format.quarter(model.board?.term ?? "")) · 未提出のみ")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.muted)
+                        HStack(spacing: 6) {
+                            Text("\(Format.quarter(model.board?.term ?? "")) · 未提出のみ")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.muted)
+                            if model.isPulling { ProgressView().controlSize(.small) }
+                        }
                         Text("課題").font(.largeTitle.bold()).foregroundStyle(Theme.ink)
                     }
                     .listRowBackground(Color.clear)
@@ -48,7 +51,7 @@ struct AssignmentsScreen: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
-            .refreshable { await model.pull() }
+            .refreshable { model.refreshFromSchool() }
         }
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) { UndoToast() }
