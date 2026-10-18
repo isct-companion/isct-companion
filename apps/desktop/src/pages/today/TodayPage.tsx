@@ -1,3 +1,4 @@
+import { ExamCards } from "../../components/exams/ExamCards";
 import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
@@ -36,6 +37,7 @@ export function Today({
   data,
   term,
   open,
+  openExam,
   openEvent,
   openPlan,
   openTask,
@@ -55,6 +57,7 @@ export function Today({
     tab?: "assignments",
     context?: { date: string; startTime: string; endTime: string },
   ) => void;
+  openExam?: (key: string, term: string) => void;
   openEvent: (event: PersonalEvent) => void;
   openPlan: (plan: Plan) => void;
   openTask: (assignmentId: string) => void;
@@ -353,6 +356,34 @@ export function Today({
             ))}
           </aside>
         )}
+        {(schedule?.upcomingExams ?? []).some(
+          (exam) =>
+            exam.courseId &&
+            !exam.hidden &&
+            exam.status === "scheduled" &&
+            exam.date >= viewIso,
+        ) && (
+          <section className="todaySection" aria-label={t("Upcoming exams")}>
+            <header>
+              <h2>{t("Upcoming exams")}</h2>
+            </header>
+            <ExamCards
+              exams={(schedule?.upcomingExams ?? [])
+                .filter(
+                  (exam) =>
+                    exam.courseId &&
+                    !exam.hidden &&
+                    exam.status === "scheduled" &&
+                    exam.date >= viewIso,
+                )
+                .slice(0, 3)}
+              data={data}
+              courses={schedule?.courses ?? []}
+              open={(id) => open(id)}
+              openExam={openExam}
+            />
+          </section>
+        )}
         <section className="todaySection" data-today-section="classes">
           <header>
             <h2>{t("Schedule", { context: "today" })}</h2>
@@ -385,7 +416,9 @@ export function Today({
                     }
                     style={{ "--course": block.color } as React.CSSProperties}
                     onClick={() => {
-                      if (block.kind === "course" || block.kind === "exam")
+                      if (block.kind === "exam" && block.termId && openExam)
+                        openExam(block.key, block.termId);
+                      else if (block.kind === "course" || block.kind === "exam")
                         open(block.id, undefined, {
                           date: viewIso,
                           startTime: block.startTime,

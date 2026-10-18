@@ -1,4 +1,4 @@
-use super::{array, text};
+use super::{array, text, ExamView};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -13,6 +13,7 @@ pub struct CourseDetail {
     pub sections: Vec<i32>,
     pub assignment_ids: Vec<String>,
     pub exam_ids: Vec<String>,
+    pub exams: Vec<ExamView>,
     pub offering_id: Option<String>,
     /// The course's T2SCHOLA page, from the course itself or its LMS record.
     pub lms_url: Option<String>,
@@ -100,24 +101,11 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
         })
         .collect();
     assignments.sort_by_key(|row| text(row, "dueAt").unwrap_or("~"));
-    let code = text(course, "code")
-        .unwrap_or_default()
-        .trim()
-        .to_uppercase();
-    let mut exams: Vec<_> = array(workspace, "exams")
+    let exams: Vec<_> = super::course_terms(workspace, course)
         .iter()
-        .filter(|row| {
-            visible(row)
-                && row.get("missingSince").is_none_or(Value::is_null)
-                && text(row, "status") == Some("scheduled")
-                && text(row, "courseCode")
-                    .unwrap_or_default()
-                    .trim()
-                    .to_uppercase()
-                    == code
-        })
+        .flat_map(|term| super::exam_views(workspace, term))
+        .filter(|exam| exam.course_id.as_deref() == Some(course_id))
         .collect();
-    exams.sort_by_key(|row| text(row, "date").unwrap_or_default());
     let ids = |rows: Vec<&Value>| {
         rows.iter()
             .filter_map(|row| text(row, "id").map(str::to_owned))
@@ -127,7 +115,12 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
         material_ids: ids(materials),
         sections,
         assignment_ids: ids(assignments),
-        exam_ids: ids(exams),
+        exam_ids: exams
+            .iter()
+            .filter(|exam| !exam.hidden && exam.status == "scheduled")
+            .map(|exam| exam.id.clone())
+            .collect(),
+        exams,
         offering_id: array(workspace, "offerings")
             .iter()
             .find(|row| visible(row) && text(row, "id") == text(course, "offeringId"))

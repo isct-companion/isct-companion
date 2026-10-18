@@ -1,5 +1,9 @@
 # Documentation
 
+- [Download and features](../README.md) · [日本語](../README.ja.md)
+- [Contributing](../CONTRIBUTING.md) · [Development and repository map](development.md)
+- [Screenshots](screenshots/README.md) · [Release notes](releases/1.1.2.md)
+
 ## Implemented contracts
 
 - [Shared Core API and protocol](core-api.md): desktop/native transport mapping, records, intents, queries, errors, lifecycle and MCP mapping. Swift/Kotlin SDK details are in the native integration reference.
@@ -26,7 +30,7 @@ the suites, the shared harness and where a new test belongs.
 - [Retired Tauri mobile implementation](../deprecated/tauri-mobile/README.md): archived adapters and release notes; native mobile apps remain planned.
 - [Cloud provider setup](cloud-provider-setup.md) and [subscription repository](subscription-repository.md).
 
-See the root [repository map](../README.md#repository-map) for current paths.
+See the root [repository map](development.md#repository-map) for current paths.
 Historical consolidation plans and verification receipts retain their original paths.
 
 Local research/build evidence belongs under ignored `artifacts/`, outside Git tracking.

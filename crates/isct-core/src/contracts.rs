@@ -372,12 +372,35 @@ contract!(ScheduleOverride {
     pub hidden: bool,
 });
 impl ScheduleOverride {
-    /// Replacement periods must name a real class slot.
+    /// Corrections must remain usable by agendas and notification planning.
     pub fn validate(&self) -> Result<(), crate::schedule::ScheduleError> {
         self.periods
             .map(|(first, last)| crate::schedule::validate_period_range([first, last]))
-            .transpose()
-            .map(|_| ())
+            .transpose()?;
+        if let Some(date) = &self.date {
+            crate::schedule::parse_civil_date(date)?;
+        }
+        for clock in [&self.start_time, &self.end_time].into_iter().flatten() {
+            if chrono::NaiveTime::parse_from_str(clock, "%H:%M")
+                .ok()
+                .is_none_or(|value| value.format("%H:%M").to_string() != *clock)
+            {
+                return Err(crate::schedule::ScheduleError::InvalidInput(
+                    "Choose a valid time in HH:MM format.".into(),
+                ));
+            }
+        }
+        if self
+            .start_time
+            .as_ref()
+            .zip(self.end_time.as_ref())
+            .is_some_and(|(start, end)| start >= end)
+        {
+            return Err(crate::schedule::ScheduleError::InvalidInput(
+                "Exam end time must be after its start time.".into(),
+            ));
+        }
+        Ok(())
     }
 }
 contract!(Subscription {
@@ -420,6 +443,8 @@ contract!(AgentWrite { pub at: String, pub tool: String, });
 contract!(AgentAccess { pub enabled: bool, #[serde(default)] pub last_writes: Vec<AgentWrite>, });
 contract!(Notifications {
     pub classes: bool, pub assignments: bool,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exams: Option<bool>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exam_lead_minutes: Option<u32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_lead_minutes: Option<u32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub assignment_lead_minutes: Option<Vec<u32>>,
     #[cfg_attr(feature = "ts", ts(type = "NotificationPermission"))] pub local_permission: String,

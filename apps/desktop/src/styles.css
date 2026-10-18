@@ -3558,15 +3558,12 @@ p {
   text-overflow: ellipsis;
 }
 .tt .ttBlock .ttCode {
-  display: none;
-}
-@container (min-width: 150px) {
-  .tt .ttBlock .ttCode {
-    display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  display: block;
+  flex: none;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tt .ttBlock.conflict {
   z-index: 3;

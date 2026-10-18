@@ -23,6 +23,7 @@ export const routePatterns = {
   timetable: "/timetable",
   week: "/home/week",
   lectures: "/lectures",
+  exam: "/lectures/exams/:examTerm/:examKey",
   course: "/lectures/:courseId",
   assignment: "/lectures/:courseId/assignments/:aid",
   web: "/web",
@@ -35,6 +36,8 @@ export const paths = {
   home: (view: "day" | "week" = "day") =>
     view === "week" ? routePatterns.week : routePatterns.home,
   timetable: () => routePatterns.timetable,
+  exam: (key: string, term: string) =>
+    `${routePatterns.lectures}/exams/${encode(term)}/${encode(key)}`,
   lectures: (courseId?: string, assignmentId?: string) =>
     courseId
       ? `${routePatterns.lectures}/${encode(courseId)}${assignmentId ? `/assignments/${encode(assignmentId)}` : ""}`
@@ -79,7 +82,10 @@ export function parseRoute(location: string) {
   const page: Page =
     id === "timetable"
       ? "timetable"
-      : id === "course" || id === "assignment" || id === "lectures"
+      : id === "course" ||
+          id === "assignment" ||
+          id === "lectures" ||
+          id === "exam"
         ? "lectures"
         : id === "settings" || id === "section"
           ? "settings"
@@ -93,6 +99,8 @@ export function parseRoute(location: string) {
     section: match?.params.section,
     courseId: match?.params.courseId,
     assignmentId: match?.params.aid,
+    examKey: match?.params.examKey,
+    examTerm: match?.params.examTerm,
     drawer: parseDrawer(new URLSearchParams(search)),
   };
 }

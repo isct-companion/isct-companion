@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 use ts_rs::TS;
 
 use super::alternation::{self, Alternation, Resolution};
-use super::calendar::{calendar_state, content_language, localized, quarter_range};
+use super::calendar::{calendar_state, quarter_range};
 use super::civil::weekday;
 use super::colors::display_color;
 use super::{
@@ -34,6 +34,8 @@ pub struct Occurrence {
     pub kind: OccurrenceKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub course_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub term_id: Option<String>,
     pub date: String,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -223,6 +225,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 key: format!("{id}-{day}"),
                 id: id.into(),
                 kind: OccurrenceKind::Event,
+                term_id: None,
                 course_id: None,
                 date: date.clone(),
                 title: text(event, "title").unwrap_or_default().into(),
@@ -647,6 +650,7 @@ pub(crate) fn personal_occurrences(
             key: format!("{id}-{date}"),
             id: id.into(),
             kind: OccurrenceKind::Event,
+            term_id: None,
             course_id: None,
             date: date.into(),
             title: text(event, "title").unwrap_or_default().into(),
@@ -722,6 +726,7 @@ fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, Sched
         key: format!("{id}-{date}"),
         id: id.into(),
         kind: OccurrenceKind::Plan,
+        term_id: None,
         course_id: text(plan, "courseId").map(str::to_owned),
         date: date.into(),
         title: text(plan, "title").unwrap_or_default().into(),
@@ -820,6 +825,7 @@ fn course_occurrence(
         key,
         id: id.into(),
         kind: OccurrenceKind::Course,
+        term_id: None,
         course_id: Some(id.into()),
         date: date.into(),
         title: course
@@ -950,127 +956,47 @@ pub fn resolve_day_agenda(
             }
         }
     }
-    let registered: HashSet<_> = array(workspace, "memberships")
-        .iter()
-        .filter(|r| {
-            visible(r)
-                && text(r, "termId") == Some(term)
-                && text(r, "status") != Some("withdrawn")
-                && r.pointer("/evidence/provider").and_then(Value::as_str) != Some("manual")
-        })
-        .filter_map(|r| text(r, "courseId"))
-        .collect();
-    let by_code: HashMap<_, _> = array(workspace, "courses")
-        .iter()
-        .filter(|c| visible(c) && text(c, "id").is_some_and(|id| registered.contains(id)))
-        .filter_map(|c| Some((text(c, "code")?.trim().to_uppercase(), c)))
-        .collect();
-    let locale = content_language(workspace);
     let mut exams = Vec::new();
-    for exam in array(workspace, "exams").iter().filter(|e| {
-        visible(e)
-            && text(e, "status") == Some("scheduled")
-            && format!(
-                "{}-{}",
-                e.get("academicYear")
-                    .and_then(Value::as_i64)
-                    .unwrap_or_default(),
-                text(e, "quarter").unwrap_or_default()
-            ) == term
-    }) {
-        let target = text(exam, "sourceKey")
-            .or_else(|| text(exam, "id"))
-            .unwrap_or_default();
-        let change = overrides
-            .iter()
-            .find(|r| text(r, "targetKey") == Some(target));
-        if change.is_some_and(|r| r.get("hidden").and_then(Value::as_bool) == Some(true)) {
-            continue;
-        }
-        let effective = change
-            .and_then(|r| text(r, "date"))
-            .or_else(|| text(exam, "date"));
-        if effective != Some(date) {
-            continue;
-        }
-        let course = change
-            .and_then(|r| text(r, "courseId"))
-            .or_else(|| text(exam, "courseId"))
-            .and_then(|id| {
-                array(workspace, "courses")
-                    .iter()
-                    .find(|c| visible(c) && text(c, "id") == Some(id))
-            })
-            .or_else(|| {
-                text(exam, "courseCode")
-                    .and_then(|code| by_code.get(&code.trim().to_uppercase()).copied())
-            });
-        let Some(course) = course else { continue };
-        // Unusable periods fall back like absent ones; `schedule_problems`
-        // reports an invalid override.
-        let valid = |value: Option<&Value>| {
-            periods(value).filter(|p| clock_for_periods(&teaching_periods, *p).is_ok())
-        };
-        let periods = change
-            .and_then(|r| valid(r.get("periods")))
-            .or_else(|| valid(exam.get("periods")));
-        let clock = periods
-            .map(|periods| clock_for_periods(&teaching_periods, periods))
-            .transpose()?;
-        let start = change
-            .and_then(|r| text(r, "startTime"))
-            .or_else(|| clock.map(|v| v.0))
-            .or_else(|| text(exam, "startTime"));
-        let end = change
-            .and_then(|r| text(r, "endTime"))
-            .or_else(|| clock.map(|v| v.1))
-            .or_else(|| text(exam, "endTime"));
-        let (Some(start), Some(end)) = (start, end) else {
+    for exam in super::exam_views(workspace, term)
+        .into_iter()
+        .filter(|exam| !exam.hidden && exam.status == "scheduled" && exam.date == date)
+    {
+        let (Some(id), Some(start), Some(end)) = (exam.course_id, exam.start_time, exam.end_time)
+        else {
             continue;
         };
-        let id = text(course, "id").unwrap_or_default();
         exams.push(Occurrence {
-            key: target.into(),
-            id: id.into(),
+            key: exam.key,
+            id: id.clone(),
             kind: OccurrenceKind::Exam,
-            course_id: Some(id.into()),
-            date: date.into(),
-            title: change
-                .and_then(|r| text(r, "title"))
-                .map(str::to_owned)
-                .unwrap_or_else(|| {
-                    localized(
-                        exam.get("label"),
-                        locale,
-                        course
-                            .pointer("/overrides/title")
-                            .and_then(Value::as_str)
-                            .or_else(|| text(course, "title"))
-                            .unwrap_or_default(),
-                    )
-                }),
-            subtitle: text(course, "code").map(str::to_owned),
-            room: change
-                .and_then(|r| text(r, "room"))
-                .map(str::to_owned)
-                .unwrap_or_else(|| localized(exam.get("room"), locale, "")),
-            start_time: start.into(),
-            end_time: end.into(),
-            end_date: None,
-            color: display_color(course),
-            conflict: None,
-            dim: None,
-            cancelled: None,
-            time_label: Some(periods.map_or_else(
+            term_id: None,
+            course_id: Some(id),
+            date: exam.date,
+            title: exam.title,
+            subtitle: Some(exam.code),
+            room: exam.room,
+            time_label: Some(exam.periods.map_or_else(
                 || format!("{start}–{end}"),
                 |p| format!("{}–{}限", p[0], p[1]),
             )),
+            start_time: start,
+            end_time: end,
+            end_date: None,
+            color: exam.color,
+            conflict: None,
+            dim: None,
+            cancelled: None,
             conflict_with: None,
-            overridden: change.map(|_| true),
+            overridden: exam.edited.then_some(true),
             alternation: None,
         });
     }
     blocks.extend(exams);
+    for block in &mut blocks {
+        if matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam) {
+            block.term_id = Some(term.into());
+        }
+    }
     finalize_agenda(blocks)
 }
 

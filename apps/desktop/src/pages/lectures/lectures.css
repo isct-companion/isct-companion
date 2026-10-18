@@ -11,7 +11,7 @@
   font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .dueScope.lectureMode { display: flex; align-self: stretch; width: 100%; margin: 0 0 8px; }
-.lectureMode > button { flex: 1; border: 0; background: none; cursor: pointer; }
+.lectureMode > button { flex: 1 1 auto; min-width: 0; padding-inline: 4px; white-space: nowrap; border: 0; background: none; cursor: pointer; }
 .lectureFilter { margin: 0 0 8px; }
 .lectureFilter input, input.lectureFilter { height: 32px; min-height: 32px; font-size: 13px; }
 .lectureRow {

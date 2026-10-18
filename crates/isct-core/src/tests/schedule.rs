@@ -1153,7 +1153,8 @@ fn assignment_completion_is_shared_by_mcp_tasks_and_reminders() {
 #[test]
 fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     let data = json!({
-        "courses":[{"id":"c","code":" csc.t101 ","offeringId":"o"}],
+        "courses":[{"id":"c","code":" csc.t101 ","offeringId":"o","termId":"2026-3Q"}],
+        "memberships":[{"courseId":"c","termId":"2026-3Q","status":"lms-member","evidence":{"provider":"lms"}}],
         "offerings":[{"id":"o"}],
         "materials":[
             {"id":"later","courseId":"c","session":2},
@@ -1173,8 +1174,8 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
             {"id":"deleted","courseId":"c","deletedAt":"x"}
         ],
         "exams":[
-            {"id":"late","courseCode":"CSC.T101","date":"2026-11-02","status":"scheduled"},
-            {"id":"early","courseCode":"csc.t101 ","date":"2026-11-01","status":"scheduled"},
+            {"id":"late","academicYear":2026,"quarter":"3Q","courseCode":"CSC.T101","date":"2026-11-02","status":"scheduled"},
+            {"id":"early","academicYear":2026,"quarter":"3Q","courseCode":"csc.t101 ","date":"2026-11-01","status":"scheduled"},
             {"id":"missing","courseCode":"CSC.T101","status":"scheduled","missingSince":"x"},
             {"id":"cancelled","courseCode":"CSC.T101","status":"cancelled"}
         ]
@@ -1507,5 +1508,69 @@ fn contained_import_slots_do_not_make_a_course_conflict_with_itself() {
     assert_eq!(
         named(data["courses"][0]["id"].as_str().unwrap()),
         Some(vec!["Other course".to_string()])
+    );
+}
+
+#[test]
+fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits() {
+    let mut data = workspace();
+    data["exams"] = json!([
+        {"id":"mine","sourceKey":"reference:mine","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-14","periods":[1,2],"status":"scheduled"},
+        {"id":"other-class","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241-02","date":"2026-04-14","status":"scheduled"},
+        {"id":"old-year","academicYear":2025,"quarter":"1Q","courseCode":"CSC.T241","date":"2025-04-14","status":"scheduled"},
+        {"id":"stale","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-14","status":"scheduled","missingSince":"x"}
+    ]);
+    let views = exam_views(&data, "2026-1Q");
+    assert_eq!(views.len(), 2);
+    let mine = views.iter().find(|row| row.id == "mine").unwrap();
+    assert_eq!(mine.course_id.as_deref(), Some("course"));
+    assert_eq!(mine.start_time.as_deref(), Some("08:50"));
+    let other = views.iter().find(|row| row.id == "other-class").unwrap();
+    assert_eq!(other.course_id, None);
+    assert_eq!(other.start_time, None); // Unannounced times still have a visible card.
+    assert_eq!(exam_views(&data, "2025-1Q")[0].course_id, None);
+    assert_eq!(course_detail(&data, "course").exam_ids, ["mine"]);
+
+    data["scheduleOverrides"] = json!([{"id":"edit","targetKey":"reference:mine","targetKind":"exam","courseId":"course","date":"2026-10-19","startTime":"00:30","endTime":"01:30","room":"My room","hidden":false}]);
+    data["currentTerm"] = json!("2026-3Q");
+    data["settings"]["notifications"] =
+        json!({"classes":false,"exams":true,"examLeadMinutes":1440,"assignments":false});
+    let now = DateTime::parse_from_rfc3339("2026-10-18T00:20:00+09:00").unwrap();
+    let horizon = now + chrono::Duration::minutes(20);
+    let plan = notification_plan(&data, now, horizon, None).unwrap();
+    assert_eq!(plan.items.len(), 1);
+    assert_eq!(plan.items[0].key, "class:reference:mine");
+    assert!(matches!(plan.items[0].priority, NotificationPriority::Exam));
+    assert!(plan.items[0].body.contains("My room"));
+    let rows = resolve_day_agenda(&data, "2026-1Q", "2026-10-19", Default::default()).unwrap();
+    assert_eq!(rows[0].start_time, "00:30");
+    assert_eq!(course_detail(&data, "course").exams[0].room, "My room");
+    data["settings"]["notifications"]["exams"] = json!(false);
+    assert!(notification_plan(&data, now, horizon, None)
+        .unwrap()
+        .items
+        .is_empty());
+    data["settings"]["notifications"]["exams"] = json!(true);
+    data["scheduleOverrides"][0]["hidden"] = json!(true);
+    assert!(notification_plan(&data, now, horizon, None)
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(
+        exam_views(&data, "2026-1Q")
+            .iter()
+            .find(|row| row.id == "mine")
+            .unwrap()
+            .hidden
+    );
+    data["scheduleOverrides"][0]["hidden"] = json!(false);
+    data["scheduleOverrides"][0]["courseId"] = json!("");
+    assert_eq!(
+        exam_views(&data, "2026-1Q")
+            .iter()
+            .find(|exam| exam.id == "mine")
+            .unwrap()
+            .course_id,
+        None
     );
 }

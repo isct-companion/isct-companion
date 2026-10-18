@@ -448,11 +448,119 @@ fn schedule_override_periods_must_name_a_class_slot() {
                 intent: WorkspaceIntent::SaveScheduleOverride {
                     draft: json!({"targetKey":"course-weekly-0-2026-10-14","targetKind":"course","periods":[5,3],"hidden":false}),
                     existing_id: None,
+                    confirmed_exam_keys: None,
                 },
             })
             .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
     assert_eq!(service.snapshot().unwrap().revision, original.revision);
+    for fields in [
+        json!({"date":"2026-02-30"}),
+        json!({"startTime":"25:00"}),
+        json!({"startTime":"13:30","endTime":"10:30"}),
+    ] {
+        let mut draft = json!({"targetKey":"exam:invalid","targetKind":"exam","hidden":false});
+        draft
+            .as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        assert!(service
+            .mutate(WorkspaceMutation {
+                expected_revision: original.revision.clone(),
+                intent: WorkspaceIntent::SaveScheduleOverride {
+                    draft,
+                    existing_id: None,
+                    confirmed_exam_keys: None
+                },
+            })
+            .is_err());
+        assert_eq!(service.snapshot().unwrap().revision, original.revision);
+    }
+}
+
+#[test]
+fn exam_link_confirmation_is_rechecked_atomically_and_refresh_keeps_personal_corrections() {
+    use crate::subscriptions::{apply_exam_feed, validate_exam_feed, PublishedExamFeed};
+    let service = service("exam-association");
+    let added = mutate(
+        &service,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-2Q".into(),
+            offerings: vec![offering("202602001", "CSC.T241", &["2Q"])],
+        },
+    );
+    let course_id = added.workspace["courses"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let raw = json!({"schemaVersion":1,"academicYear":2026,"timezone":"Asia/Tokyo",
+    "source":[{"id":"official","title":"Exam notice","url":"https://example.com/exams.pdf"}],
+    "entries":[
+        {"id":"first","kind":"exam","status":"scheduled","quarter":"2Q","courseCode":"CSC.T241","syllabusCourseId":"202602001","date":"2026-07-29","periods":[1,2],"label":{"ja":"試験1","en":"First exam"},"sourceIds":["official"]},
+        {"id":"second","kind":"exam","status":"scheduled","quarter":"2Q","courseCode":"CSC.T241-02","date":"2026-08-04","periods":[3,4],"label":{"ja":"試験2","en":"Second exam"},"room":{"ja":"教室","en":"Source room"},"sourceIds":["official"]}
+    ]});
+    let mut published = PublishedExamFeed {
+        level: "undergraduate".into(),
+        quarter: "2q".into(),
+        url: "https://example.com/exams.json".into(),
+        feed: validate_exam_feed(&raw.to_string(), 2026, "2q").unwrap(),
+    };
+    let mut connection = rusqlite::Connection::open(service.store.path()).unwrap();
+    apply_exam_feed(&mut connection, &published).unwrap();
+    let before = service.snapshot().unwrap();
+    let key = "reference:exams:2026:undergraduate:2q:second";
+    let preview = crate::schedule::exam_association(&before.workspace, key, &course_id).unwrap();
+    assert!(preview.requires_confirmation);
+    assert_eq!(preview.conflicts.len(), 1);
+    let draft = json!({"targetKey":key,"targetKind":"exam","courseId":course_id,"date":"2026-08-05","startTime":"13:30","endTime":"15:10","room":"Personal room","hidden":false});
+    for confirmation in [None, Some(vec!["unrelated-key".into()])] {
+        assert!(service
+            .mutate(WorkspaceMutation {
+                expected_revision: before.revision.clone(),
+                intent: WorkspaceIntent::SaveScheduleOverride {
+                    draft: draft.clone(),
+                    existing_id: None,
+                    confirmed_exam_keys: confirmation
+                }
+            })
+            .is_err());
+        assert_eq!(service.snapshot().unwrap().revision, before.revision);
+    }
+    let saved = mutate(
+        &service,
+        WorkspaceIntent::SaveScheduleOverride {
+            draft,
+            existing_id: None,
+            confirmed_exam_keys: Some(
+                preview
+                    .conflicts
+                    .iter()
+                    .map(|exam| exam.key.clone())
+                    .collect(),
+            ),
+        },
+    );
+    assert_eq!(
+        crate::schedule::course_detail(&saved.workspace, &course_id)
+            .exam_ids
+            .len(),
+        2
+    );
+    assert!(
+        !crate::schedule::exam_association(&saved.workspace, key, &course_id)
+            .unwrap()
+            .requires_confirmation
+    );
+    published.feed.entries[1].room =
+        Some(serde_json::from_value(json!({"ja":"新教室","en":"Updated source room"})).unwrap());
+    apply_exam_feed(&mut connection, &published).unwrap();
+    let refreshed = service.snapshot().unwrap();
+    let views = crate::schedule::course_detail(&refreshed.workspace, &course_id).exams;
+    let second = views.iter().find(|exam| exam.key == key).unwrap();
+    assert_eq!(second.room, "Personal room");
+    assert_eq!(second.date, "2026-08-05");
+    assert_eq!(second.start_time.as_deref(), Some("13:30"));
+    assert_eq!(views.len(), 2); // Confirming another link keeps the first exam.
 }
 
 #[test]
@@ -1212,9 +1320,27 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
 #[test]
 fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
     let service = service("reminder-times");
+    service
+        .store
+        .put_workspace_setting(
+            "userPreferences",
+            json!({"notifications":{"classes":false,"assignments":true,"classLeadMinutes":30}}),
+            "legacy",
+        )
+        .unwrap();
     let initial = service.snapshot().unwrap();
+    assert_eq!(
+        initial.workspace["settings"]["notifications"]["exams"],
+        false
+    );
+    assert_eq!(
+        initial.workspace["settings"]["notifications"]["examLeadMinutes"],
+        30
+    );
     let settings = settings_with(&initial, |settings| {
-        settings["notifications"]["assignmentLeadMinutes"] = json!([180, 30])
+        settings["notifications"]["exams"] = json!(false);
+        settings["notifications"]["examLeadMinutes"] = json!(1440);
+        settings["notifications"]["assignmentLeadMinutes"] = json!([180, 30]);
     });
     let saved = service
         .mutate(WorkspaceMutation {
@@ -1226,6 +1352,24 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
         service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
         json!([180, 30])
     );
+    let stored = service.snapshot().unwrap().workspace;
+    assert_eq!(stored["settings"]["notifications"]["examLeadMinutes"], 1440);
+    assert_eq!(stored["settings"]["notifications"]["exams"], false);
+    for invalid_lead in [json!(0), json!(10081), json!("one day")] {
+        let invalid = settings_with(&saved, |settings| {
+            settings["notifications"]["examLeadMinutes"] = invalid_lead
+        });
+        assert!(service
+            .mutate(WorkspaceMutation {
+                expected_revision: saved.revision.clone(),
+                intent: WorkspaceIntent::ReplaceSettings { settings: invalid },
+            })
+            .is_err());
+        assert_eq!(
+            service.snapshot().unwrap().workspace["settings"]["notifications"]["examLeadMinutes"],
+            1440
+        );
+    }
     let invalid = settings_with(&saved, |settings| {
         settings["notifications"]["assignmentLeadMinutes"] = json!([])
     });

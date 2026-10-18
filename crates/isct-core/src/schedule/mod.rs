@@ -6,12 +6,14 @@ mod civil;
 mod colors;
 mod course_detail;
 mod credits;
+mod exams;
 mod ics;
 mod occurrence;
 mod range;
 mod reminders;
 pub(crate) use reminders::assignment_lead_minutes;
 mod requests;
+mod search;
 mod tasks;
 
 #[cfg(test)]
@@ -40,6 +42,7 @@ pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use course_detail::{course_detail, CourseDetail};
 pub use credits::declared_term_credits;
+pub use exams::{exam_association, exam_views, ExamAssociation, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
@@ -56,6 +59,7 @@ pub use reminders::{
     ReminderService, DEFAULT_ASSIGNMENT_LEADS,
 };
 pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
+pub use search::LectureSearch;
 pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
 pub(crate) use timing::{clock_for_periods, validate_period_range};
@@ -123,6 +127,14 @@ pub enum WorkspaceQuery {
     },
     CourseDetail {
         course_id: String,
+    },
+    ExamAssociation {
+        exam_key: String,
+        course_id: String,
+    },
+    LectureSearch {
+        term: Option<String>,
+        query: String,
     },
     ScheduleView {
         /// Toolbar/credit context only; agendas include every term in the date range.
@@ -217,6 +229,8 @@ pub struct ScheduleView {
     #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub courses: Vec<Value>,
     pub agendas: Vec<DatedAgenda>,
+    pub exams: Vec<ExamView>,
+    pub upcoming_exams: Vec<ExamView>,
     pub declared_credits: Option<f64>,
     pub colors: std::collections::BTreeMap<String, String>,
     pub enrolled_course_ids: Vec<String>,
@@ -271,6 +285,8 @@ pub enum WorkspaceQueryResult {
     CourseTimeline(CourseTimeline),
     TaskView(TaskView),
     CourseDetail(CourseDetail),
+    ExamAssociation(ExamAssociation),
+    LectureSearch(LectureSearch),
     ScheduleView(ScheduleView),
     DayAgenda(Vec<Occurrence>),
     CalendarState(#[cfg_attr(feature = "ts", ts(type = "unknown | null"))] Option<Value>),
@@ -302,6 +318,22 @@ pub fn query(
     request: WorkspaceQuery,
 ) -> Result<WorkspaceQueryResult, ScheduleError> {
     match request {
+        WorkspaceQuery::LectureSearch { term, query } => {
+            if let Some(term) = &term {
+                Term::parse(term)?;
+            }
+            Ok(WorkspaceQueryResult::LectureSearch(search::lecture_search(
+                workspace,
+                term.as_deref(),
+                &query,
+            )))
+        }
+        WorkspaceQuery::ExamAssociation {
+            exam_key,
+            course_id,
+        } => Ok(WorkspaceQueryResult::ExamAssociation(exam_association(
+            workspace, &exam_key, &course_id,
+        )?)),
         WorkspaceQuery::TeachingPeriods => Ok(WorkspaceQueryResult::TeachingPeriods(
             teaching_periods(workspace)?,
         )),
@@ -390,6 +422,8 @@ pub fn query(
                 range: overview.range,
                 courses,
                 agendas,
+                exams: exam_views(workspace, &term_id),
+                upcoming_exams: exams::upcoming_exams(workspace, &from),
                 colors: overview.colors,
                 enrolled_course_ids: overview.enrolled_course_ids,
                 on_timetable_course_ids: overview.on_timetable_course_ids,
@@ -525,6 +559,7 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
     on_timetable_course_ids.dedup();
     let earned = credits::earned_credits_by_term(array(workspace, "grades"));
     let mut all_terms: Vec<String> = placement_terms(workspace).map(str::to_owned).collect();
+    all_terms.extend(exams::exam_terms(workspace));
     all_terms.extend(earned.keys().cloned());
     all_terms.extend(
         array(workspace, "terms")
@@ -704,6 +739,9 @@ pub fn declarations() -> Vec<String> {
         ColorCourse::decl(),
         ColorOverrides::decl(),
         CourseDetail::decl(),
+        ExamView::decl(),
+        ExamAssociation::decl(),
+        LectureSearch::decl(),
         CourseTimeline::decl(),
         TaskDeadlineView::decl(),
         AssignmentGroups::decl(),

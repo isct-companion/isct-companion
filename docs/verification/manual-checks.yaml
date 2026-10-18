@@ -245,6 +245,16 @@ checks:
         reason: |
           Hidden work must yield to the visible page and resume afterwards.
           Without this step the preemption contract is only asserted by tests.
+      - action: |
+          After a successful fresh pull, browse each available quarter and search
+          its actual course codes in Lecture Desk and Today's cross-quarter
+          course finder. Select a result, switch tabs, and use Filter's clear
+          button. Open a Calendar course and a real linked subscription exam.
+        reason: |
+          Real LMS shortnames and syllabus details must retain searchable class
+          codes and restore room metadata after setup. Calendar navigation must
+          select the exact course or exam in its quarter without stale filters;
+          do not manufacture an exam association when this account has no match.
     observe: |
       The LMS page course and assignment lists, the refresh timestamp, and the
       visible school page that interrupted the second pull.
@@ -261,6 +271,10 @@ checks:
       - crates/isct-core/src/lms_ingest.rs
       - crates/isct-core/src/lms_session.rs
       - crates/isct-core/src/school_parser/lms.rs
+      - crates/isct-core/src/catalog.rs
+      - crates/isct-core/src/data/school_projection.rs
+      - crates/isct-core/src/schedule/search.rs
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14
@@ -1364,20 +1378,21 @@ checks:
 
   - id: DESKTOP-REMINDER-TIMES
     area: desktop
-    title: Deliver class and assignment reminders at the selected times
+    title: Deliver class, exam and assignment reminders at the selected times
     persona: narrow-window-keyboard
     preconditions: |
       An updated native desktop build and OS notification permission available.
     steps:
       - action: |
-          Grant notification permission, enable both reminder types, and choose
-          a class lead time plus a non-default assignment lead time.
+          Grant notification permission, enable class, exam and assignment reminders,
+          and choose a separate non-default lead time for each type.
         reason: |
           Real OS consent and notification delivery are unavailable to the
           headless settings and reminder-plan tests.
       - action: |
-          Arrange the class start and assignment deadline so their selected
-          reminder times occur shortly, then leave the app in the background.
+          In a disposable local workspace, arrange a class, a linked subscription
+          exam and an assignment so their reminder times occur shortly. Turn class
+          reminders off while leaving exam reminders on, then background the app.
         reason: |
           Verifies that native lifecycle wakeups deliver the selected times
           even when the settings page and the application window are inactive.
@@ -1386,7 +1401,8 @@ checks:
       in Settings > Notifications after reopening the page.
     expected: |
       Each native notification arrives at the configured time with the correct
-      class or assignment title, and selected times remain saved.
+      exam or assignment title; the disabled class reminder stays silent, and
+      selected times remain saved.
     why_manual: |
       Requires actual OS notification permission, background lifecycle callbacks
       and native notification delivery; tests use a headless notification sink.

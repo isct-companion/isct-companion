@@ -1,3 +1,5 @@
+import { ExamEditor } from "../../components/exams/ExamEditor";
+import { CloseButton, Input } from "@mantine/core";
 import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
@@ -15,7 +17,7 @@ import type { Assignment, TermId, Workspace } from "../../lib/model";
 import { submissionLabel } from "../../lib/academic";
 import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
 import { addCivilDays as addDays, civilWeekday } from "../../lib/civil-date";
-import { UiInput, UiSelect } from "../../components/mantine";
+import { UiSelect } from "../../components/mantine";
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
 import { t } from "../../i18n";
@@ -24,6 +26,7 @@ import { useFormFactor } from "../../app/form-factor";
 import { useClock } from "../../platform/use-clock";
 import {
   useScheduleQueries,
+  useScheduleQuery,
   type ScheduleView,
   type TaskView,
 } from "../../platform/core-query";
@@ -46,7 +49,9 @@ export function LectureDesk({
   data,
   term,
   entry,
+  examEntry,
   select,
+  selectExam,
   clear,
   active,
   renderWorkspace,
@@ -58,7 +63,9 @@ export function LectureDesk({
   data: Workspace;
   term: TermId;
   entry: CourseEntry | null;
-  select: (courseId: string, assignmentId?: string) => void;
+  examEntry: { key: string; term: TermId; request: number } | null;
+  select: (courseId: string, assignmentId?: string, term?: TermId) => void;
+  selectExam: (key: string, term: string) => void;
   clear: () => void;
   active: boolean;
   renderWorkspace: (
@@ -94,7 +101,8 @@ export function LectureDesk({
   }, [wide, active, collapsed, railHovered, listHovered, listFocused]);
   const choose = (courseId: string, assignmentId?: string) => {
     setFloating(false);
-    select(courseId, assignmentId);
+    setQuery("");
+    select(courseId, assignmentId, shownTerm);
   };
 
   // The quarter shown here is browsed on its own; it starts at the current one.
@@ -107,15 +115,36 @@ export function LectureDesk({
     }
   }, [term]);
   const [query, setQuery] = useState("");
+  const [examKey, setExamKey] = useState<string | null>(null);
   // The list shows the quarter's lectures, or all of its assignments.
-  const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
+  const [mode, setMode] = useState<"lectures" | "assignments" | "exams">(
+    "lectures",
+  );
   useEffect(() => {
     if (!assignmentsRequest) return;
     setMode("assignments");
+    setQuery("");
     setShownTerm(term);
     // Only a new request switches; a quarter change keeps the chosen mode.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignmentsRequest]);
+  useEffect(() => {
+    if (!entry) return;
+    setMode(entry.assignmentId ? "assignments" : "lectures");
+    setQuery("");
+    const course = data.courses.find((course) => course.id === entry.courseId);
+    const target = entry.term ?? course?.termId;
+    if (target) setShownTerm(target as TermId);
+    // Only a new navigation selects its mode and quarter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry?.request]);
+  useEffect(() => {
+    if (!examEntry) return;
+    setMode("exams");
+    setQuery("");
+    setExamKey(examEntry.key);
+    setShownTerm(examEntry.term);
+  }, [examEntry?.request]);
   const nowIso = useClock(active);
   const now = useMemo(() => new Date(nowIso), [nowIso]);
   const today = jstDate(now);
@@ -130,9 +159,19 @@ export function LectureDesk({
     { kind: "taskView", now: nowIso },
   ]).value;
   const schedule = snapshot?.[0];
+  const search = useScheduleQuery<
+    import("../../generated/persistence").LectureSearch
+  >(
+    { kind: "lectureSearch", term: shownTerm, query },
+    Boolean(query.trim()),
+  ).value;
   const taskView = snapshot?.[1];
   const terms = schedule?.allTerms.length ? schedule.allTerms : [term];
   const courses = schedule?.courses ?? [];
+  const selectedExam =
+    mode === "exams"
+      ? schedule?.exams?.find((exam) => exam.key === examKey)
+      : undefined;
   const taskTerm = taskView?.byTerm?.[shownTerm];
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
 
@@ -189,10 +228,7 @@ export function LectureDesk({
   const courseById = new Map(data.courses.map((course) => [course.id, course]));
   const submittedIds = new Set(taskView?.submittedIds);
   const matchesWork = (assignment: Assignment) => {
-    const course = courseById.get(assignment.courseId);
-    return `${assignment.title} ${course?.title ?? ""} ${course?.code ?? ""}`
-      .toLowerCase()
-      .includes(needle);
+    return Boolean(search?.assignmentIds.includes(assignment.id));
   };
   const workRow = (assignment: Assignment) => {
     const course = courseById.get(assignment.courseId);
@@ -255,9 +291,7 @@ export function LectureDesk({
     );
   };
   const shown = needle
-    ? lectures.filter((lecture) =>
-        `${lecture.title} ${lecture.code}`.toLowerCase().includes(needle),
-      )
+    ? lectures.filter((lecture) => search?.courseIds.includes(lecture.id))
     : lectures;
 
   // The two most recent lectures stay mounted so switching back is instant.
@@ -309,7 +343,7 @@ export function LectureDesk({
 
   return (
     <div
-      className={`page lectureDesk${entry ? " open" : ""}`}
+      className={`page lectureDesk${(mode === "exams" ? selectedExam : entry) ? " open" : ""}`}
       data-sidebar-collapsed={wide && collapsed}
       data-sidebar-floating={wide && collapsed && floating}
       onKeyDown={(event) => {
@@ -326,7 +360,7 @@ export function LectureDesk({
         firstCollapsible
         firstPanelRef={sidebar}
         onFirstCollapse={setCollapsed}
-        firstMin={170}
+        firstMin={210}
         firstMax="45%"
         secondMin="45%"
       >
@@ -352,7 +386,10 @@ export function LectureDesk({
               className="lectureTerm"
               aria-label={t("Quarter")}
               value={shownTerm}
-              onChange={(value) => setShownTerm(value as TermId)}
+              onChange={(value) => {
+                setQuery("");
+                setShownTerm(value as TermId);
+              }}
               data={[...new Set(terms.map((item) => item.slice(0, 4)))].map(
                 (year) => ({
                   group: year,
@@ -371,26 +408,99 @@ export function LectureDesk({
             role="group"
             aria-label={t("Show")}
           >
-            {(["lectures", "assignments"] as const).map((item) => (
+            {(["lectures", "assignments", "exams"] as const).map((item) => (
               <button
                 type="button"
                 key={item}
                 aria-pressed={mode === item}
-                onClick={() => setMode(item)}
+                onClick={() => {
+                  setMode(item);
+                  setQuery("");
+                }}
               >
-                {t(item === "lectures" ? "Lectures" : "Assignments")}
+                {t(
+                  item === "lectures"
+                    ? "Lectures"
+                    : item === "exams"
+                      ? "Exams"
+                      : "Assignments",
+                )}
               </button>
             ))}
           </div>
-          <UiInput
+          <Input
             className="lectureFilter"
             type="search"
             aria-label={t("Filter")}
             placeholder={t("Filter…")}
             value={query}
+            rightSectionPointerEvents="all"
+            rightSection={
+              query ? (
+                <CloseButton
+                  aria-label={t("Clear")}
+                  onClick={() => setQuery("")}
+                  size="sm"
+                />
+              ) : null
+            }
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.key === "Escape" && setQuery("")}
           />
+          {mode === "exams" &&
+            (() => {
+              const exams = schedule?.exams ?? [];
+              const needle = query.trim().toLowerCase();
+              const shown = exams.filter((exam) =>
+                needle
+                  ? Boolean(search?.examKeys.includes(exam.key))
+                  : Boolean(exam.courseId) || exam.key === examKey,
+              );
+              return (
+                <>
+                  <div className="lectureExamScope">
+                    <small>
+                      {needle ? t("Search published exams") : t("My exams")}
+                    </small>
+                    {!shown.length && (
+                      <p>
+                        {t(
+                          needle
+                            ? "No matching exams."
+                            : "No linked exams this quarter. Search to find a published exam.",
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  {shown.map((exam) => (
+                    <button
+                      type="button"
+                      key={exam.key}
+                      className={`lectureRow exam${examKey === exam.key ? " selected" : ""}`}
+                      aria-current={examKey === exam.key ? "true" : undefined}
+                      style={{ "--course": exam.color } as React.CSSProperties}
+                      onClick={() => {
+                        setQuery("");
+                        setFloating(false);
+                        selectExam(exam.key, exam.term);
+                      }}
+                    >
+                      <b>{exam.title || exam.code}</b>
+                      <small>
+                        {exam.code} · {exam.date}
+                      </small>
+                      <small>
+                        {exam.courseId ? t("Linked") : t("Not linked")}
+                        {exam.status === "cancelled"
+                          ? ` · ${t("Cancelled")}`
+                          : ""}
+                        {exam.hidden ? ` · ${t("Hidden")}` : ""}
+                      </small>
+                    </button>
+                  ))}
+                </>
+              );
+            })()}
           {mode === "assignments" && (
             <AssignmentGroupList
               key={shownTerm}
@@ -421,8 +531,9 @@ export function LectureDesk({
               >
                 <b>{lecture.title}</b>
                 <small>
-                  {[lecture.when, lecture.room].filter(Boolean).join(" · ") ||
-                    lecture.code}
+                  {[lecture.code, lecture.when, lecture.room]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </small>
                 {lecture.due && (
                   <span className={`dueChip ${lecture.due.tone}`}>
@@ -443,38 +554,90 @@ export function LectureDesk({
         </nav>
         <div
           className="lectureContent"
-          role={stacked && entry ? "dialog" : undefined}
-          aria-modal={stacked && entry ? true : undefined}
+          role={
+            stacked && (mode === "exams" ? selectedExam : entry)
+              ? "dialog"
+              : undefined
+          }
+          aria-modal={
+            stacked && (mode === "exams" ? selectedExam : entry)
+              ? true
+              : undefined
+          }
         >
-          {!entry && wide && (
-            <header className="lectureEmptyHeader">{sidebarToggle}</header>
-          )}
-          {entry && (
-            <button type="button" className="lectureBack" onClick={clear}>
-              ‹ {t("Lectures")}
-            </button>
-          )}
-          {retained.map((item) => (
-            <div
-              className="lectureSlot"
-              key={item.courseId}
-              hidden={entry?.courseId !== item.courseId}
-            >
-              <Activity
-                mode={
-                  active && entry?.courseId === item.courseId
-                    ? "visible"
-                    : "hidden"
-                }
+          {mode === "exams" && (
+            <div className="lectureExamDetails">
+              {sidebarToggle}
+              <button
+                type="button"
+                className="lectureBack"
+                onClick={() => {
+                  setExamKey(null);
+                  clear();
+                }}
               >
-                {renderWorkspace(
-                  item,
-                  active && entry?.courseId === item.courseId,
-                  entry?.courseId === item.courseId ? sidebarToggle : undefined,
-                )}
-              </Activity>
+                ‹ {t("Exams")}
+              </button>
+              {selectedExam ? (
+                <>
+                  <header>
+                    <h1>{selectedExam.title || selectedExam.code}</h1>
+                    <p>
+                      {selectedExam.code} ·{" "}
+                      {selectedExam.term.replace("-", " ")} · {t("Exam")}
+                    </p>
+                  </header>
+                  <ExamEditor
+                    key={`${selectedExam.key}:${data.scheduleOverrides.find((row) => !row.deletedAt && row.targetKey === selectedExam.key)?.rev ?? 0}`}
+                    exam={selectedExam}
+                    data={data}
+                    courses={courses}
+                  />
+                </>
+              ) : (
+                <p className="emptyHint">
+                  {t("Select an exam to edit its schedule or link a course.")}
+                </p>
+              )}
             </div>
-          ))}
+          )}
+          <div className="lectureCourseContent" hidden={mode === "exams"}>
+            {!entry && wide && (
+              <header className="lectureEmptyHeader">{sidebarToggle}</header>
+            )}
+            {entry && (
+              <button type="button" className="lectureBack" onClick={clear}>
+                ‹ {t("Lectures")}
+              </button>
+            )}
+            {retained.map((item) => (
+              <div
+                className="lectureSlot"
+                key={item.courseId}
+                hidden={entry?.courseId !== item.courseId}
+              >
+                <Activity
+                  mode={
+                    active &&
+                    mode !== "exams" &&
+                    entry?.courseId === item.courseId
+                      ? "visible"
+                      : "hidden"
+                  }
+                >
+                  {renderWorkspace(
+                    item,
+                    active &&
+                      mode !== "exams" &&
+                      entry?.courseId === item.courseId,
+                    entry?.courseId === item.courseId
+                      ? sidebarToggle
+                      : undefined,
+                  )}
+                </Activity>
+              </div>
+            ))}
+          </div>
         </div>
       </ResizableWorkspace>
     </div>

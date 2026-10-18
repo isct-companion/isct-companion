@@ -191,7 +191,28 @@ impl DataStore {
             }
         }
         for key in ["userPreferences", "devicePreferences"] {
-            if let Some(value) = read_setting(connection, key)? {
+            if let Some(mut value) = read_setting(connection, key)? {
+                if key == "userPreferences" {
+                    if let Some(notifications) = value
+                        .get_mut("notifications")
+                        .and_then(Value::as_object_mut)
+                    {
+                        // Before independent exam preferences, exams followed
+                        // the class toggle and lead. Preserve that on upgrade.
+                        if !notifications.contains_key("exams") {
+                            let enabled =
+                                notifications.get("classes").cloned().unwrap_or(json!(true));
+                            notifications.insert("exams".into(), enabled);
+                        }
+                        if !notifications.contains_key("examLeadMinutes") {
+                            let lead = notifications
+                                .get("classLeadMinutes")
+                                .cloned()
+                                .unwrap_or(json!(10));
+                            notifications.insert("examLeadMinutes".into(), lead);
+                        }
+                    }
+                }
                 apply_preferences(&mut workspace["settings"], value);
             }
         }

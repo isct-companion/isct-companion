@@ -29,6 +29,7 @@ export type Block = {
   id: string;
   kind: "course" | "event" | "plan" | "exam";
   date?: string;
+  termId?: string;
   title: string;
   subtitle?: string;
   room: string;

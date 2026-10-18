@@ -33,7 +33,7 @@ import type {
   Workspace,
 } from "@app/lib/model";
 import type { SyllabusCourse } from "@app/lib/syllabus";
-import type { AssignmentGroups } from "@app/generated/persistence";
+import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
 
 /**
  * Today, the lecture desk, the grades panel and syllabus details, driven
@@ -662,6 +662,179 @@ async function assignmentModeButton(
 }
 
 describe("the lecture desk", () => {
+  it("shows upcoming exams and lets a historical published exam be linked and edited", async () => {
+    const workspace = lectureWorkspace();
+    const exam: ExamView = {
+      id: "published-exam",
+      key: "reference:exam:2q",
+      term: "2026-2Q",
+      courseId: null,
+      code: "CSC.T241-02",
+      title: "Published exam",
+      date: "2026-08-04",
+      startTime: "10:45",
+      endTime: "12:25",
+      periods: [3, 4],
+      room: "Published room",
+      color: "#c98245",
+      status: "scheduled",
+      edited: false,
+      hidden: false,
+    };
+    const historical = courseRow("history", "Historical course", {
+      termId: "2026-2Q",
+      code: "CSC.T241",
+    });
+    workspace.courses.push(historical);
+    const bound = {
+      ...exam,
+      id: "existing-exam",
+      key: "reference:existing",
+      courseId: historical.id,
+      title: "Existing linked exam",
+    };
+    const upcoming = {
+      ...exam,
+      id: "upcoming",
+      key: "reference:upcoming",
+      term: TERM,
+      courseId: "now",
+      title: "Upcoming linked exam",
+      date: jstDay(1),
+    };
+    app = await mountApp(
+      {
+        workspace,
+        revision: freshRevision(),
+        queries: {
+          ...homeQueries,
+          scheduleView: (query, core) => ({
+            ...lectureSchedule(core.workspace),
+            allTerms: [TERM, "2026-2Q"],
+            courses:
+              (query as { term: string }).term === "2026-2Q"
+                ? [historical]
+                : lectureSchedule(core.workspace).courses,
+            exams:
+              (query as { term: string }).term === "2026-2Q"
+                ? [exam, bound]
+                : [],
+            upcomingExams: [upcoming],
+          }),
+          examAssociation: () => ({
+            requiresConfirmation: true,
+            conflicts: [bound],
+          }),
+          taskView: (_query, core) => lectureTasks(core.workspace),
+          courseTimeline: () => ({
+            lastStarted: null,
+            next: null,
+            classAt: null,
+          }),
+        },
+        handle: nativeNoise,
+      },
+      { route: paths.home() },
+    );
+    await required(
+      () => app!.host.querySelector('[aria-label="Upcoming exams"] .examCard'),
+      "the upcoming exam card",
+    );
+    expect(
+      app.host.querySelector('[aria-label="Upcoming exams"]')?.textContent,
+    ).toContain("Upcoming linked exam");
+    await app.go(paths.lectures());
+    await readyLectureRows(app.host);
+    await click(
+      [
+        ...app.host.querySelectorAll<HTMLButtonElement>(".lectureMode button"),
+      ].find((row) => row.textContent === "Exams")!,
+    );
+    await chooseOption(
+      app.host.querySelector<HTMLInputElement>(
+        '.lectureTerm [role="combobox"]',
+      )!,
+      "2026-2Q",
+    );
+    await required(
+      () =>
+        [...app!.host.querySelectorAll<HTMLElement>(".lectureRow.exam")].find(
+          (row) => row.textContent?.includes("Existing linked exam"),
+        ),
+      "the automatically linked exam",
+    );
+    expect(app.host.querySelector(".lectureList")?.textContent).not.toContain(
+      "Published exam",
+    );
+    await typeInto(
+      app.host.querySelector<HTMLInputElement>(
+        ".lectureFilter input, input.lectureFilter",
+      )!,
+      "Published exam",
+    );
+    const card = await required(
+      () => app!.host.querySelector<HTMLButtonElement>(".lectureRow.exam"),
+      "the searched published exam",
+    );
+    expect(card.textContent).toContain("Not linked");
+    await click(card);
+    const editor = await required(
+      () =>
+        app!.host.querySelector<HTMLElement>(".lectureExamDetails .examEditor"),
+      "the right-hand exam editor",
+    );
+    await chooseOption(
+      editor.querySelector<HTMLInputElement>('[role="combobox"]')!,
+      "history",
+    );
+    await typeInto(
+      editor.querySelector<HTMLInputElement>('input[name="room"]')!,
+      "Personal room",
+    );
+    const save = [...editor.querySelectorAll<HTMLButtonElement>("button")].find(
+      (row) => row.textContent === "Save",
+    )!;
+    await until(() => expect(save.disabled).toBe(false));
+    await click(save);
+    let dialog = await required(
+      () => document.querySelector<HTMLElement>('[role="dialog"]'),
+      "the existing exam confirmation",
+    );
+    expect(dialog.textContent).toContain("Existing linked exam");
+    expect(app.core.intents).toEqual([]);
+    await click(
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+        (row) => row.textContent === "Cancel",
+      )!,
+    );
+    expect(app.core.intents).toEqual([]);
+    await click(save);
+    dialog = await required(
+      () => document.querySelector<HTMLElement>('[role="dialog"]'),
+      "the repeated confirmation",
+    );
+    await click(
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+        (row) => row.textContent === "Link exam",
+      )!,
+    );
+    await until(() =>
+      expect(app!.core.intents).toContainEqual(
+        expect.objectContaining({
+          kind: "saveScheduleOverride",
+          confirmedExamKeys: ["reference:existing"],
+          draft: expect.objectContaining({
+            targetKey: "reference:exam:2q",
+            targetKind: "exam",
+            courseId: "history",
+            date: "2026-08-04",
+            room: "Personal room",
+          }),
+        }),
+      ),
+    );
+  }, 30_000);
+
   it("lists lectures in class order with the Now chip and each lecture's next deadline", async () => {
     const mounted = await mountLectures(lectureWorkspace());
     const rows = await readyLectureRows(mounted.host);

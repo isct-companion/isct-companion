@@ -2430,7 +2430,7 @@ dependencies = [
 
 [[package]]
 name = "isct-companion"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2499,6 +2499,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "strsim",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",

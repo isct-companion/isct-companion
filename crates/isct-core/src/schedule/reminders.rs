@@ -479,81 +479,109 @@ pub fn notification_plan(
         .unwrap_or(&Value::Null);
     let assignment_leads = assignment_lead_minutes(settings)?;
     let mut items = Vec::new();
-    if settings
+    let classes = settings
         .get("classes")
         .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        let lead = settings
-            .get("classLeadMinutes")
-            .and_then(Value::as_i64)
-            .unwrap_or(10);
+        .unwrap_or(false);
+    // Older installations delivered exams with class reminders; keep that
+    // preference until the user sets the independent exam switch.
+    let exams = settings
+        .get("exams")
+        .and_then(Value::as_bool)
+        .unwrap_or(classes);
+    let class_lead = settings
+        .get("classLeadMinutes")
+        .and_then(Value::as_i64)
+        .unwrap_or(10);
+    let exam_lead = settings
+        .get("examLeadMinutes")
+        .and_then(Value::as_i64)
+        .unwrap_or(class_lead);
+    if !(1..=10080).contains(&exam_lead) {
+        return Err(ScheduleError::InvalidInput(
+            "Exam reminder time must be between 1 minute and 7 days.".into(),
+        ));
+    }
+    if classes || exams {
         let term = reminder_term(workspace);
-        let courses = scheduled_courses(workspace, &term);
-        for offset in 0..=days + 1 {
-            let date = (start_date + Duration::days(offset)).to_string();
-            for block in resolve_day_agenda(
-                workspace,
-                &term,
-                &date,
-                AgendaOptions {
-                    include_personal: false,
-                    courses: Some(courses.clone()),
-                    events: Some(vec![]),
-                    ..AgendaOptions::default()
-                },
-            )? {
-                if block.cancelled == Some(true)
-                    || !matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
-                {
-                    continue;
-                }
-                let start = DateTime::parse_from_rfc3339(&format!(
-                    "{}T{}:00+09:00",
-                    block.date, block.start_time
-                ))
-                .map_err(|_| {
-                    ScheduleError::Compatibility("schedule contains an invalid start time".into())
-                })?;
-                let at = start - Duration::minutes(lead);
-                if at < now || at > horizon {
-                    continue;
-                }
-                let title = if block.kind == OccurrenceKind::Exam {
-                    format!(
-                        "{} · {}",
-                        if japanese { "試験" } else { "Exam" },
-                        block.title
-                    )
-                } else {
-                    block.title.clone()
-                };
-                let body = format!(
-                    "{} · {}{}",
-                    if japanese {
-                        format!("{}分後に開始", lead)
-                    } else {
-                        format!("Starts in {lead} min")
+        let mut terms = std::collections::BTreeSet::from([term.clone()]);
+        if exams {
+            terms.extend(super::exams::exam_terms(workspace));
+        }
+        for source_term in terms {
+            let courses = scheduled_courses(workspace, &source_term);
+            for offset in 0..=days + (class_lead.max(exam_lead) + 1439) / 1440 + 1 {
+                let date = (start_date + Duration::days(offset)).to_string();
+                for block in resolve_day_agenda(
+                    workspace,
+                    &source_term,
+                    &date,
+                    AgendaOptions {
+                        include_personal: false,
+                        courses: Some(courses.clone()),
+                        events: Some(vec![]),
+                        ..AgendaOptions::default()
                     },
-                    block.start_time,
-                    if block.room.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" · {}", block.room)
+                )? {
+                    if block.cancelled == Some(true)
+                        || !matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
+                    {
+                        continue;
                     }
-                );
-                items.push(NotificationItem {
-                    key: format!("class:{}", block.key),
-                    at: at.to_rfc3339(),
-                    title,
-                    body,
-                    deep_link: "/today".into(),
-                    priority: if block.kind == OccurrenceKind::Exam {
-                        NotificationPriority::Exam
+                    let is_exam = block.kind == OccurrenceKind::Exam;
+                    if (is_exam && !exams) || (!is_exam && (!classes || source_term != term)) {
+                        continue;
+                    }
+                    let lead = if is_exam { exam_lead } else { class_lead };
+                    let start = DateTime::parse_from_rfc3339(&format!(
+                        "{}T{}:00+09:00",
+                        block.date, block.start_time
+                    ))
+                    .map_err(|_| {
+                        ScheduleError::Compatibility(
+                            "schedule contains an invalid start time".into(),
+                        )
+                    })?;
+                    let at = start - Duration::minutes(lead);
+                    if at < now || at > horizon {
+                        continue;
+                    }
+                    let title = if block.kind == OccurrenceKind::Exam {
+                        format!(
+                            "{} · {}",
+                            if japanese { "試験" } else { "Exam" },
+                            block.title
+                        )
                     } else {
-                        NotificationPriority::Class
-                    },
-                });
+                        block.title.clone()
+                    };
+                    let body = format!(
+                        "{} · {}{}",
+                        if japanese {
+                            format!("{}分後に開始", lead)
+                        } else {
+                            format!("Starts in {lead} min")
+                        },
+                        block.start_time,
+                        if block.room.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" · {}", block.room)
+                        }
+                    );
+                    items.push(NotificationItem {
+                        key: format!("class:{}", block.key),
+                        at: at.to_rfc3339(),
+                        title,
+                        body,
+                        deep_link: "/today".into(),
+                        priority: if block.kind == OccurrenceKind::Exam {
+                            NotificationPriority::Exam
+                        } else {
+                            NotificationPriority::Class
+                        },
+                    });
+                }
             }
         }
     }

@@ -1,16 +1,8 @@
+import { ExamEditor } from "../../components/exams/ExamEditor";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
 import { useRef, useState, type ReactNode } from "react";
-import {
-  ActionIcon,
-  Badge,
-  Button,
-  Group,
-  Menu,
-  Paper,
-  Modal,
-  TextInput,
-} from "@mantine/core";
+import { ActionIcon, Badge, Button, Menu, Paper, Modal } from "@mantine/core";
 import {
   useMediaQuery,
   useLocalStorage,
@@ -33,6 +25,8 @@ import { PullRing } from "../../components/PullRing";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import {
   useScheduleQueries,
+  useScheduleQuery,
+  type CourseDetail,
   type PlanningWeek,
   type WorkspaceOverview,
 } from "../../platform/core-query";
@@ -165,6 +159,14 @@ export function Courses({
   const removable =
     !courseCount && !events.length && (data.terms ?? []).includes(term);
   const [preview, setPreview] = useState<Block | null>(null);
+  const examDetail = useScheduleQuery<CourseDetail>(
+    { kind: "courseDetail", courseId: preview?.id ?? "" },
+    preview?.kind === "exam",
+  );
+  const previewExam = examDetail.value?.exams?.find(
+    (exam) => exam.key === preview?.key,
+  );
+
   const select = (block: Block) => {
     if (!editing && block.kind !== "course") {
       setPreview(block);
@@ -463,101 +465,15 @@ export function Courses({
                 })}
               </p>
             ) : null}
-            {!readOnly &&
-              preview.kind === "exam" &&
-              (() => {
-                const existing = data.scheduleOverrides.find(
-                  (row) => !row.deletedAt && row.targetKey === preview.key,
-                );
-                return (
-                  <form
-                    key={`${preview.key}:${existing?.rev ?? 0}`}
-                    className="scheduleOverrideForm"
-                    onSubmit={async (event) => {
-                      event.preventDefault();
-                      const values = new FormData(event.currentTarget);
-                      try {
-                        await mutate({
-                          kind: "saveScheduleOverride",
-                          existingId: existing?.id,
-                          draft: {
-                            targetKey: preview.key,
-                            targetKind: "exam",
-                            courseId: preview.id,
-                            date: String(
-                              values.get("date") || preview.date || "",
-                            ),
-                            startTime: String(
-                              values.get("startTime") || preview.startTime,
-                            ),
-                            endTime: String(
-                              values.get("endTime") || preview.endTime,
-                            ),
-                            room: String(values.get("room") ?? preview.room),
-                            hidden: false,
-                          },
-                        });
-                        setPreview(null);
-                      } catch {
-                        // The app-level mutation boundary reports the error.
-                      }
-                    }}
-                  >
-                    <TextInput
-                      label={t("Date")}
-                      name="date"
-                      type="date"
-                      defaultValue={existing?.date ?? preview.date}
-                    />
-                    <Group grow>
-                      <TextInput
-                        label={t("Start")}
-                        name="startTime"
-                        type="time"
-                        defaultValue={existing?.startTime ?? preview.startTime}
-                      />
-                      <TextInput
-                        label={t("End")}
-                        name="endTime"
-                        type="time"
-                        defaultValue={existing?.endTime ?? preview.endTime}
-                      />
-                    </Group>
-                    <TextInput
-                      label={t("Room")}
-                      name="room"
-                      defaultValue={existing?.room ?? preview.room}
-                    />
-                    <Group justify="space-between">
-                      <Button
-                        color="red"
-                        variant="subtle"
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await mutate({
-                              kind: "saveScheduleOverride",
-                              existingId: existing?.id,
-                              draft: {
-                                targetKey: preview.key,
-                                targetKind: "exam",
-                                courseId: preview.id,
-                                hidden: true,
-                              },
-                            });
-                            setPreview(null);
-                          } catch {
-                            // The app-level mutation boundary reports the error.
-                          }
-                        }}
-                      >
-                        {t("Hide exam")}
-                      </Button>
-                      <Button type="submit">{t("Save override")}</Button>
-                    </Group>
-                  </form>
-                );
-              })()}
+            {!readOnly && preview.kind === "exam" && previewExam && (
+              <ExamEditor
+                key={previewExam.key}
+                exam={previewExam}
+                data={data}
+                courses={overview.courses}
+                onSaved={() => setPreview(null)}
+              />
+            )}
             {!readOnly && (
               <Button
                 variant="default"
