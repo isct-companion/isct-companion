@@ -114,9 +114,11 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             aliases.insert(format!("{year}-lms-{lms_id}"), id);
         }
     }
+    let registrations = read_visible_rows(connection, "registrations")?;
     project_lms_timetable(
         workspace,
         &lms_courses,
+        &registrations,
         &user_courses,
         &teaching,
         &mut lms_links,
@@ -222,6 +224,7 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
 fn project_lms_timetable(
     workspace: &mut Value,
     lms_courses: &[Value],
+    registrations: &[Value],
     user_courses: &HashSet<String>,
     teaching: &[crate::schedule::TeachingPeriod],
     links: &mut HashMap<u64, String>,
@@ -333,8 +336,18 @@ fn project_lms_timetable(
                         .unwrap_or_else(|| course["meetings"].clone());
                     let mut meetings =
                         crate::workspace::meetings_from_grid(grid, &metadata, teaching)?;
+                    let offering = Some(offering_id)
+                        .filter(|id| !id.is_empty())
+                        .unwrap_or_else(|| text(&course, "offeringId"));
                     for meeting in meetings.as_array_mut().into_iter().flatten() {
                         meeting["termIds"] = json!([term]);
+                        if text(meeting, "room").is_empty() {
+                            if let Some(room) =
+                                registration_room(registrations, offering, term, meeting)
+                            {
+                                meeting["room"] = room.into();
+                            }
+                        }
                     }
                     let clocks = course["meetings"]
                         .as_array_mut()
@@ -381,6 +394,39 @@ fn project_lms_timetable(
         links.insert(lms_id, id);
     }
     Ok(())
+}
+
+/// The 教務 registration room for an LMS slot without a syllabus room. Only
+/// the same offering, quarter and weekday with overlapping periods counts, so
+/// a disagreeing official schedule never lends its room to another slot.
+fn registration_room<'a>(
+    registrations: &'a [Value],
+    offering_id: &str,
+    term: &str,
+    meeting: &Value,
+) -> Option<&'a str> {
+    const DAYS: [&str; 7] = ["日", "月", "火", "水", "木", "金", "土"];
+    let quarter = term.split_once('-')?.1;
+    let day = DAYS.get(usize::try_from(array(meeting, "days").first()?.as_u64()?).ok()?)?;
+    let span = |row: &Value| {
+        let periods = array(row, "periods").iter().filter_map(Value::as_u64);
+        periods.clone().min().zip(periods.max())
+    };
+    let (from, to) = span(meeting)?;
+    if offering_id.is_empty() {
+        return None;
+    }
+    registrations
+        .iter()
+        .filter(|row| text(row, "offeringId") == offering_id)
+        .flat_map(|row| array(row, "schedule"))
+        .find(|slot| {
+            text(slot, "quarter") == quarter
+                && text(slot, "day") == *day
+                && span(slot).is_some_and(|(start, end)| start <= to && from <= end)
+        })
+        .map(|slot| text(slot, "room"))
+        .filter(|room| !room.is_empty())
 }
 
 /// Quarters an LMS course is on. Category metadata bootstraps old caches; a

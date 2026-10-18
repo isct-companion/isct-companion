@@ -21,7 +21,6 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -216,15 +215,6 @@ fun MaterialRow(item: MaterialItem) {
             }
         }
         if (item.addedToday) TagChip("今日追加")
-    }
-}
-
-/** Opens the system maps app at `query`. */
-@Composable
-fun MapButton(query: String, title: String, tint: Color) {
-    val context = LocalContext.current
-    PillButton(title, Icons.Outlined.Place, tint) {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(query))))
     }
 }
 

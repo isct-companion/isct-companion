@@ -495,12 +495,6 @@ pub fn matrix_confidence(text: String, confidence: f64) -> MatrixConfidence {
     }
 }
 
-/// Map search text for a room's building, as on Today's class cards.
-#[uniffi::export]
-pub fn room_map_query(room: String) -> Option<String> {
-    isct_core::schedule::room_map_query(&room)
-}
-
 /// Install these shared scripts at document start before navigating a school view.
 #[uniffi::export]
 pub fn school_browser_initialization() -> Result<Vec<String>, SdkError> {
