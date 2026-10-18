@@ -58,6 +58,7 @@ export type SchoolCredentials = {
   matrix: string;
 };
 export type SchoolCredentialStatus = {
+  suggestedAdmissionYear?: number;
   science: {
     availability:
       | "not-configured"
@@ -101,7 +102,7 @@ export type SchoolLoginEvent = {
   message: string;
 };
 export type SchoolSessionState =
-  "pending" | "active" | "failed" | "not-configured";
+  "pending" | "active" | "maintenance" | "failed" | "not-configured";
 /** A school session state changed (sign-in, launch, credential change, or renewal). */
 export type SchoolSessionEvent = {
   profile: SchoolAuthProfile;
@@ -110,6 +111,7 @@ export type SchoolSessionEvent = {
 };
 export type SchoolSessionSnapshot = {
   revision: number;
+  kyomuMaintenance?: string | null;
   states: {
     science: SchoolSessionState;
     tokyoTech: SchoolSessionState;
@@ -122,13 +124,14 @@ export type SchoolSessionLifecycle = {
 const isSchoolSessionState = (value: unknown): value is SchoolSessionState =>
   value === "pending" ||
   value === "active" ||
+  value === "maintenance" ||
   value === "failed" ||
   value === "not-configured";
 /** One extractor result from LMS or one 教務Web page. */
 export type SchoolIngestOutcome = {
   site: SchoolSite;
   kind: string;
-  state: "ok" | "unavailable" | "reconnect-required" | "error";
+  state: "ok" | "unavailable" | "maintenance" | "reconnect-required" | "error";
   changed: number;
   message: string;
 };
@@ -143,6 +146,7 @@ export type SchoolPullProgress = {
   itemTitle: string;
 };
 export type SchoolPullOptions = {
+  currentOnly?: boolean;
   /** Limit the expensive LMS content pass to one Moodle course. */
   lmsCourseId?: number;
 };
@@ -292,6 +296,7 @@ export type AgentConnection =
 export type PullSnapshot = {
   id: string;
   target:
+    | { type: "catalog"; year: number; query: string }
     | { type: "school"; site: "science-lms" | "kyomu"; courseId: number | null }
     | { type: "reference"; kind: string; indexUrl: string; year: number };
   priority: "automatic" | "manual";
@@ -343,7 +348,43 @@ export type ListenNative = <T>(
   callback: (payload: T) => void,
 ) => Promise<() => void>;
 
+export interface AppUpdateStatus {
+  phase:
+    | "idle"
+    | "checking"
+    | "unpublished"
+    | "current"
+    | "available"
+    | "downloading"
+    | "ready"
+    | "error";
+  version?: string;
+  message?: string;
+  releaseUrl: string;
+  signedUpdates: boolean;
+}
+export type ApplicationLog = {
+  id: number;
+  at: string;
+  level: string;
+  target: string;
+  message: string;
+};
+export type ApplicationLogSnapshot = {
+  entries: ApplicationLog[];
+  cursor: number;
+  dropped: boolean;
+};
+
 export interface DesktopBridge {
+  applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
+  recordApplicationError?(message: string): Promise<void>;
+  checkAppUpdate?(
+    manual: boolean,
+    download?: boolean,
+  ): Promise<AppUpdateStatus>;
+  appUpdateState?(): Promise<AppUpdateStatus>;
+  installAppUpdate?(): Promise<void>;
   workspaceSnapshot(): Promise<CoreWorkspaceSnapshot>;
   mutateWorkspace(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
   finderQuery(request: FinderRequest): Promise<FinderView>;
@@ -356,13 +397,12 @@ export interface DesktopBridge {
   /** The build's operating system; see `nativeOs`. */
   os?: NativeOs;
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
-  resolveSchoolUrl(url: string): Promise<{ site: SchoolSite; url: string }>;
+  resolveSchoolUrl(
+    url: string,
+    site: SchoolSite,
+  ): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
   bootstrapReminders(fired: unknown): Promise<boolean>;
-  lmsMergePreview(
-    scope: "all" | "term",
-    term: string,
-  ): Promise<import("../lib/lms-merge").CoreLmsPreview>;
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
   runScheduledTask(id: string): Promise<string>;
@@ -377,6 +417,7 @@ export interface DesktopBridge {
   deleteSchoolCredentials(profile: SchoolAuthProfile): Promise<boolean>;
   /** Copies the saved Matrix to the system clipboard without exposing it to the WebView. */
   copySchoolMatrix(): Promise<boolean>;
+  copySchoolOtp(setup?: string): Promise<boolean>;
   testSchoolConnection(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -509,11 +550,16 @@ export interface DesktopBridge {
   }>;
   /** Every stored offering of a year, for the course finder's local search. */
   catalogOfferings?(year: number): Promise<FinderCourse[]>;
-  /** One official syllabus search (≤100 rows, no paging); rows are stored. */
+  /** One authenticated official page of up to 100 courses; timings are stored. */
   catalogQuery?(
     year: number,
-    query: { q: string; scope?: string; code?: string; groups?: string[] },
-  ): Promise<{ ids: string[]; total: number; truncated: boolean }>;
+    query: import("../generated/persistence").RemoteQuery & { cursor?: string },
+  ): Promise<{
+    ids: string[];
+    total: number;
+    truncated: boolean;
+    nextCursor?: string;
+  }>;
   /** Fetches detail pages (schedule, credits) for up to 20 stored offerings. */
   catalogSyncOfferings?(ids: string[]): Promise<string[]>;
 }
@@ -566,19 +612,29 @@ export function createTauriDesktopBridge(
     runtime: "tauri",
     target,
     os: nativeOs(),
+    ...(target === "native-desktop"
+      ? {
+          checkAppUpdate: (manual: boolean, download = false) =>
+            result<AppUpdateStatus>("check_app_update", { manual, download }),
+          applicationLogs: (after) => result("application_logs", { after }),
+          recordApplicationError: (message) =>
+            result("application_error", { message }),
+          appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
+          installAppUpdate: () => invokeCommand<void>("install_app_update"),
+        }
+      : {}),
     workspaceSnapshot: () => result("workspace_snapshot"),
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
     getRuntimeCapabilities: () => result("runtime_capabilities"),
-    resolveSchoolUrl: (url) => result("resolve_school_url", { url }),
+    resolveSchoolUrl: (url, site) =>
+      result("resolve_school_url", { url, site }),
     openExternal: async (url) => {
       await invokeCommand("open_external", { url });
     },
     bootstrapReminders: (fired) =>
       booleanCommand("bootstrap_reminders", { fired }),
-    lmsMergePreview: (scope, term) =>
-      result("lms_merge_preview", { scope, term }),
     notify: (title, body) => booleanCommand("notify", { title, body }),
     requestNotificationPermission: async () => {
       const value = await invokeCommand("request_notification_permission");
@@ -621,6 +677,7 @@ export function createTauriDesktopBridge(
     deleteSchoolCredentials: (profile) =>
       booleanCommand("delete_school_credentials", { profile }),
     copySchoolMatrix: () => booleanCommand("copy_school_matrix"),
+    copySchoolOtp: (setup) => booleanCommand("copy_school_otp", { setup }),
     testSchoolConnection: (profile, credentials) =>
       result("test_school_connection", { profile, credentials }),
     loginSchool: (profile) => result("login_school", { profile, bounds: null }),
@@ -784,6 +841,7 @@ export function createTauriDesktopBridge(
       const value = await invokeCommand("pull_school", {
         site,
         lmsCourseId: options?.lmsCourseId,
+        currentOnly: options?.currentOnly,
       });
       if (!Array.isArray(value))
         throw new Error("pull_school returned an invalid result.");
@@ -946,22 +1004,24 @@ export function createTauriDesktopBridge(
       result("syllabus_course", { id: url, language }),
     catalogSyncDepartment: (year, scopePath, quarter) =>
       result("catalog_sync_department", { year, scopePath, quarter }),
-    catalogQuery: async (year, { q, scope, code, groups }) => {
+    catalogQuery: async (year, { q, scope, cursor, ...filters }) => {
       const response = requireObject<{
-        items: { id: string }[];
-        total: number;
+        nextCursor?: string;
+        ids: string[];
         truncated: boolean;
       }>(
         "catalog_query",
         await invokeCommand("catalog_query", {
           query: q,
+          cursor,
           year,
-          filters: { department: scope, code, groups },
+          filters: { ...filters, department: scope },
         }),
       );
       return {
-        ids: response.items.map((item) => item.id),
-        total: response.total,
+        nextCursor: response.nextCursor,
+        ids: response.ids,
+        total: response.ids.length,
         truncated: response.truncated,
       };
     },

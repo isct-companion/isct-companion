@@ -7,6 +7,7 @@ import {
   DEVICE,
   TERM,
   click,
+  chooseOption,
   emptySchoolRecords,
   installFakeCore,
   mount,
@@ -32,6 +33,7 @@ import type {
   Workspace,
 } from "@app/lib/model";
 import type { SyllabusCourse } from "@app/lib/syllabus";
+import type { AssignmentGroups } from "@app/generated/persistence";
 
 /**
  * Today, the lecture desk, the grades panel and syllabus details, driven
@@ -171,9 +173,10 @@ function assignmentRow(
 }
 
 /**
- * Core's task view for the fixtures here: which work is pinned, which is open
- * now, what is already past, and which rows count as submitted. The shell only
- * renders these decisions, so the test states them the way Core would.
+ * Core's task view for the fixtures here: Today's open work and recent
+ * misses, the quarter's full record, and which rows count as submitted. The
+ * shell only renders these decisions, so the test states them the way Core
+ * would.
  */
 function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
   const ids = new Set(
@@ -181,17 +184,33 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
   );
   const pick = (...candidates: string[]) =>
     candidates.filter((id) => ids.has(id));
-  const overdue = pick("closed", "missed");
+  const overdue = pick("closed", "missed", "early");
+  const groups = (
+    pinned: string[],
+    thisWeek: string[],
+    past: string[],
+    rest: Partial<AssignmentGroups> = {},
+  ): AssignmentGroups => ({
+    pinnedIds: pinned,
+    dueThisWeekIds: thisWeek,
+    laterIds: [],
+    undatedIds: [],
+    pastRecentIds: past,
+    pastEarlierIds: [],
+    hiddenIds: [],
+    ...rest,
+  });
   return {
     deadlines: Object.fromEntries(
       workspace.assignments
-        .filter((row) => !row.deletedAt)
+        .filter((row) => !row.deletedAt && row.dueAt)
         .map((row) => [
           row.id,
           {
             at: row.dueAt ?? "",
             label: "Due soon",
             tone: "normal",
+            remainingMilliseconds: 86400000,
             countdownLabel: "1d",
             countdownTone: "soon",
             overdue: overdue.includes(row.id),
@@ -203,14 +222,13 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
     byTerm: {
       [term]: {
         pendingIds: pick("upcoming", "pinned"),
-        pinnedIds: pick("pinned"),
-        overdueIds: [...overdue].reverse(),
-        dueThisWeekIds: pick("upcoming"),
-        laterIds: [],
-        earlierDueThisWeekIds: pick("upcoming", "handed-in"),
-        earlierLaterIds: [],
-        lectureOpenIds: pick("a1"),
-        lectureHiddenIds: pick("a2"),
+        today: groups(pick("pinned"), pick("upcoming", "a1"), pick("missed")),
+        record: groups(
+          pick("pinned"),
+          pick("upcoming", "handed-in", "a1"),
+          pick("missed", "closed"),
+          { pastEarlierIds: pick("early"), hiddenIds: pick("a2") },
+        ),
       },
     },
   };
@@ -314,39 +332,69 @@ describe("Today's assignment scopes", () => {
     expect(section.textContent).toContain("2 active");
   }, 20_000);
 
-  it("shows only open work from now on under Today", async () => {
+  it("shows open work and the last week's misses, never completed work", async () => {
     const mounted = await mountToday(todayWorkspace());
     const section = await assignmentsSection(mounted);
 
     await until(() => expect(dueTitles(section)).toContain("Report upcoming"));
-    expect(dueTitles(section)).toEqual(["Report upcoming"]);
+    expect(dueTitles(section)).toEqual(["Report upcoming", "Report missed"]);
+    expect(dueRow(section, "Report missed")?.className).toContain("missed");
+    expect(section.textContent).toContain("Missed · 1");
+    expect(dueRow(section, "Report handed-in")).toBeUndefined();
+    expect(dueRow(section, "Report closed")).toBeUndefined();
+    expect(dueRow(section, "Report stale")).toBeUndefined();
     expect(section.textContent).toContain("1 active");
   }, 20_000);
 
-  it("moves submitted and past work of this quarter under Earlier", async () => {
-    const mounted = await mountToday(todayWorkspace());
+  it("opens the quarter's full record on Lecture Desk, older work folded", async () => {
+    const workspace = todayWorkspace();
+    workspace.assignments.push(
+      assignmentRow("early", "now", "Report early", "2026-09-20T00:00:00Z", {
+        submission: "submitted",
+      }),
+    );
+    const mounted = await mountToday(workspace);
     const section = await assignmentsSection(mounted);
-    await until(() => expect(dueTitles(section)).toContain("Report upcoming"));
+    const all = await required(
+      () =>
+        [...section.querySelectorAll<HTMLButtonElement>("header button")].find(
+          (button) => button.textContent?.includes("All assignments"),
+        ),
+      "the All assignments link",
+    );
+    await click(all);
+    await until(() => expect(window.location.hash).toContain(paths.lectures()));
+    const rows = await required(() => {
+      const found = lectureRows(mounted.host);
+      return found.length >= 4 ? found : undefined;
+    }, "the quarter's assignment record");
+
+    expect(rows.map((row) => row.querySelector("b")?.textContent)).toEqual([
+      "Report upcoming",
+      "Report handed-in",
+      "Report missed",
+      "Report closed",
+    ]);
+    const list = mounted.host.querySelector(".lectureList")!;
+    expect(list.textContent).toContain("This week · 2");
+    expect(list.textContent).toContain("Past deadline · 2");
+    expect(rows[1].className).toContain("done");
+    expect(rows[2].className).toContain("missed");
+    expect(rows[3].className).toContain("closed");
+    expect(rows[1].querySelector("small")?.textContent).toContain("submitted");
 
     const earlier = await required(
       () =>
-        [
-          ...section.querySelectorAll<HTMLButtonElement>(".dueScope button"),
-        ].find((button) => button.textContent?.trim() === "Earlier"),
-      "the Earlier scope",
+        [...list.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+          button.textContent?.includes("1 earlier, back to the quarter start"),
+        ),
+      "the folded earlier work",
     );
+    expect(lectureTitles(mounted.host)).not.toContain("Report early");
     await click(earlier);
     await until(() =>
-      expect(dueRow(section, "Report handed-in")).toBeDefined(),
+      expect(lectureTitles(mounted.host)).toContain("Report early"),
     );
-
-    expect(dueRow(section, "Report upcoming")?.className).toBe("dueRow");
-    expect(dueRow(section, "Report handed-in")?.className).toContain("done");
-    expect(dueRow(section, "Report missed")?.className).toContain("missed");
-    expect(dueRow(section, "Report closed")?.className).toContain("closed");
-    // Another quarter's work is not this quarter's Earlier.
-    expect(dueRow(section, "Report stale")).toBeUndefined();
-    expect(section.textContent).toContain("Past deadline · 2");
   }, 20_000);
 });
 
@@ -556,6 +604,7 @@ function lectureTasks(workspace: Workspace): TaskView {
         at: "2026-10-08T15:00:00Z",
         label: "Due soon",
         tone: "normal",
+        remainingMilliseconds: 129600000,
         countdownLabel: "1d 12h",
         countdownTone: "soon",
         overdue: false,
@@ -661,7 +710,7 @@ describe("the lecture desk", () => {
     );
   }, 20_000);
 
-  it("switches to the quarter's open assignments and opens the chosen one", async () => {
+  it("switches to the quarter's assignments and opens the chosen one", async () => {
     const mounted = await mountLectures(lectureWorkspace());
     await readyLectureRows(mounted.host);
 
@@ -678,13 +727,83 @@ describe("the lecture desk", () => {
     expect(work.map((row) => row.querySelector("b")?.textContent)).toEqual([
       "Report",
     ]);
-    expect(work[0].querySelector("small")?.textContent).toBe("Course later");
+    expect(work[0].querySelector("small")?.textContent).toBe(
+      "Course later · open",
+    );
     expect(work[0].querySelector(".dueChip")?.textContent).toBe("1d 12h");
 
     await click(work[0]);
     await until(() =>
       expect(window.location.hash).toContain(paths.lectures("later", "a1")),
     );
+  }, 20_000);
+
+  it("keeps the assignments when the quarter changes in Assignments mode", async () => {
+    // Regression: the task view answers for the new quarter at once while that
+    // quarter's courses are still loading, and the list read a missing course.
+    const mounted = await mountApp(
+      {
+        workspace: lectureWorkspace(),
+        revision: freshRevision(),
+        queries: {
+          ...homeQueries,
+          scheduleView: (_query, core) => ({
+            ...lectureSchedule(core.workspace),
+            allTerms: [TERM, "2026-4Q"],
+          }),
+          taskView: (_query, core) => lectureTasks(core.workspace),
+          courseTimeline: () => ({
+            lastStarted: null,
+            next: null,
+            classAt: null,
+          }),
+        },
+        handle: nativeNoise,
+      },
+      { route: paths.lectures() },
+    );
+    app = mounted;
+    await readyLectureRows(mounted.host);
+    await click(await assignmentModeButton(mounted.host));
+    await until(() => expect(mounted.host.textContent).toContain("Report"));
+    const quarter = await required(
+      () =>
+        mounted.host.querySelector<HTMLInputElement>(
+          '.lectureTerm [role="combobox"]',
+        ),
+      "the quarter picker",
+    );
+    const choose = (term: TermId) => chooseOption(quarter, term);
+
+    expect(mounted.host.querySelector("select.lectureTerm")).toBeNull();
+    await click(quarter);
+    await act(async () => {
+      quarter.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          code: "ArrowUp",
+          bubbles: true,
+        }),
+      );
+    });
+    await act(async () => {
+      quarter.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          bubbles: true,
+        }),
+      );
+    });
+    expect(quarter.getAttribute("aria-expanded")).toBe("false");
+    await until(() =>
+      expect(mounted.host.textContent).toContain(
+        "No assignments this quarter.",
+      ),
+    );
+    await choose(TERM);
+    await until(() => expect(mounted.host.textContent).toContain("Report"));
+    expect(mounted.host.querySelector(".pageError")).toBeNull();
   }, 20_000);
 
   it("folds hidden assignments away until asked, then restores one", async () => {
@@ -703,7 +822,11 @@ describe("the lecture desk", () => {
 
     const toggle = await required(
       () =>
-        mounted.host.querySelector<HTMLButtonElement>(".lectureHiddenToggle"),
+        [
+          ...mounted.host.querySelectorAll<HTMLButtonElement>(
+            ".lectureList button",
+          ),
+        ].find((button) => button.textContent?.includes("Hidden assignments")),
       "the hidden-assignment toggle",
     );
     await click(toggle);
@@ -761,7 +884,7 @@ async function mountGrades(
       queries: homeQueries,
       handle: nativeNoise,
     },
-    { route: paths.home() },
+    { route: paths.timetable() },
   );
   app = mounted;
 
@@ -788,6 +911,9 @@ describe("the grades panel", () => {
 
     expect(document.body.textContent).toContain(
       "This GPA page is not provided for this account.",
+    );
+    expect(document.body.textContent).toContain(
+      "Credits for multi-quarter courses are split equally across quarters.",
     );
     expect(document.body.textContent).toContain("Checked:");
     expect(document.body.textContent).not.toContain("Not fetched yet");
@@ -915,7 +1041,11 @@ describe("syllabus details", () => {
       {
         workspace: workspaceFixture({ courses: [course] }),
         revision: freshRevision(),
-        queries: homeQueries,
+        // Core derives the locator from the offering id; the drawer shows it.
+        queries: {
+          ...homeQueries,
+          courseDetail: { syllabusUrl: SYLLABUS_LOCATOR },
+        },
         handle: (command) => {
           if (command === "syllabus_course") return englishSyllabus();
           return nativeNoise(command);

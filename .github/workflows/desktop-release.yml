@@ -1,20 +1,12 @@
 name: Desktop release
 
 on:
-  push:
-    branches: ["main"]
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish all installers to the selected release repository
+        description: Publish desktop installers to this source repository
         type: boolean
         default: false
-      publish_target:
-        description: Release destination (source now, distribution repository for stable releases)
-        type: choice
-        options: [source, distribution]
-        default: source
       replace_existing:
         description: Replace assets for an already published version
         type: boolean
@@ -56,6 +48,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       SIGN_MACOS: ${{ inputs.sign_macos || vars.MACOS_SIGNING_ENABLED == 'true' }}
+      ISCT_UPDATER_PUBLIC_KEY: ${{ vars.ISCT_UPDATER_PUBLIC_KEY }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v7
@@ -95,6 +88,8 @@ jobs:
           fi
       - name: Build desktop installer
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && env.SIGN_MACOS == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
@@ -118,7 +113,16 @@ jobs:
           else
             unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_MACOS_PROVISIONING_PROFILE APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY
           fi
-          yarn desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          updater_args=()
+          if [[ -n "$ISCT_UPDATER_PUBLIC_KEY" ]]; then
+            test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo 'Missing updater signing secret'; exit 1; }
+            node --input-type=module - <<'UPDATERCONFIG'
+          import { writeFileSync } from 'node:fs';
+          writeFileSync(`${process.env.RUNNER_TEMP}/updater-config.json`, JSON.stringify({bundle:{createUpdaterArtifacts:true},plugins:{updater:{pubkey:process.env.ISCT_UPDATER_PUBLIC_KEY,requireSignedVersion:true}}}));
+          UPDATERCONFIG
+            updater_args=(--config "$RUNNER_TEMP/updater-config.json")
+          fi
+          yarn desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} "${updater_args[@]}"
           if [[ "$RUNNER_OS" == macOS ]]; then
             node scripts/checks/verify-platform-bundle.mjs desktop "target/${{ matrix.target }}/release/bundle/macos/IsctCompanion.app"
           fi
@@ -158,14 +162,14 @@ jobs:
       always() && !cancelled() &&
       ((needs.build.result == 'success') ||
        (needs.build.result == 'skipped' && inputs.source_run_id != '')) &&
-      (startsWith(github.ref, 'refs/tags/v') || inputs.publish == true)
+      inputs.publish == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read
     env:
-      GH_TOKEN: ${{ inputs.publish_target == 'distribution' && secrets.PUBLIC_RELEASE_TOKEN || github.token }}
-      GH_REPO: ${{ inputs.publish_target == 'distribution' && 'isct-companion/Isct-Companion-App' || github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       BUILD_REPO: ${{ github.repository }}
       SOURCE_SHA: ${{ github.sha }}
       REPLACE_EXISTING: ${{ inputs.replace_existing == true }}
@@ -213,28 +217,27 @@ jobs:
               cp "$dir"/*.exe release-assets/
             fi
           done
-          echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
-      - name: Check out only the public repository
-        if: inputs.publish_target == 'distribution'
-        uses: actions/checkout@v5
-        with:
-          repository: isct-companion/Isct-Companion-App
-          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
-          path: public-repo
-          ref: main
-      - name: Update public README and licenses
-        if: inputs.publish_target == 'distribution'
-        working-directory: public-repo
-        run: |
-          set -euo pipefail
-          cp ../public-files/{README.md,LICENSE,LICENSE.ja.md} .
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add README.md LICENSE LICENSE.ja.md
-          if ! git diff --cached --quiet; then
-            git commit -m "Update distribution documents for $RELEASE_TAG"
-            git push origin HEAD:main
+          # Only publish a manifest when every desktop target has a signed update.
+          signed_count=$(find installers -name '*.sig' | wc -l)
+          if [[ "$signed_count" != 0 ]]; then
+            test "$signed_count" = 3 || { echo 'Incomplete signed update set'; exit 1; }
+            python3 - <<'PYUPDATE'
+          import json, pathlib, datetime, os
+          platforms = {}
+          for target, platform in [('aarch64-apple-darwin','darwin-aarch64'),('x86_64-apple-darwin','darwin-x86_64'),('x86_64-pc-windows-msvc','windows-x86_64')]:
+              directory = pathlib.Path('installers') / ('desktop-' + target)
+              signature, = directory.glob('*.sig')
+              bundle = signature.with_suffix('')
+              version = (directory / 'VERSION').read_text().strip()
+              import shutil
+              for source in (signature, bundle):
+                  shutil.copy2(source, pathlib.Path('release-assets') / source.name)
+              platforms[platform] = {'signature':signature.read_text().strip(), 'url':f'https://github.com/{os.environ["GH_REPO"]}/releases/download/v{version}/{bundle.name}'}
+          manifest = {'version':version, 'notes':'IsctCompanion desktop update', 'pub_date':datetime.datetime.now(datetime.timezone.utc).isoformat(), 'platforms':platforms}
+          pathlib.Path('release-assets/latest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PYUPDATE
           fi
+          echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
       - name: Verify release destination and source tag
         shell: bash
         run: |
@@ -246,24 +249,19 @@ jobs:
               exit 1
             fi
           fi
-          if [[ "$GH_REPO" != "$BUILD_REPO" ]] && ! gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
-            public_sha=$(git -C public-repo rev-parse HEAD)
-            gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$public_sha"
-          fi
       - name: Upload complete release as a draft
         shell: bash
         run: |
           set -euo pipefail
-          cat > release-notes.md <<'NOTES'
-          IsctCompanion 1.0 desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.
+          printf 'IsctCompanion %s desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.\n\n' "${RELEASE_TAG#v}" > release-notes.md
+          cat >> release-notes.md <<'NOTES'
+          - Timetables now use LMS grids consistently for every quarter, including historical and non-weekly courses.
+          - Home shows submitted and graded assignments, including completed work without a deadline.
+          - School refreshes keep cached data and personal edits, bound slow requests, and show the running task while another refresh is queued.
+          - Lecture Desk aligns its quarter selector, mode switch and search field across sidebar widths.
+          - Saved physics class-group choices load correctly after restarting the app.
 
-          - Schedule and ICS export share one calendar calculation, including teaching-day replacements, holidays and configurable class times.
-          - First sign-in can pull the full LMS data and populate the current quarter's timetable.
-          - Resizable course workspaces include a collapsible lecture sidebar, floating course list and document-specific tool panels.
-          - Assignment workspaces can prepare files or a ZIP in the official LMS draft area. Review the upload and click Save/Submit yourself in LMS.
-          - Academic profiles support study-stage history, term-specific eligibility and quarter-start overrides.
-
-          This 1.0 release includes desktop installers only. Mobile 1.0 will be published separately when ready.
+          This release includes desktop installers only. Mobile will be published separately when ready.
 
           Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.
 
@@ -291,5 +289,5 @@ jobs:
             fi
             gh release create "$RELEASE_TAG" "${tag_args[@]}" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md --draft "${release_flags[0]}"
           fi
-          gh release upload "$RELEASE_TAG" release-assets/*.dmg release-assets/*.exe --clobber
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false "${release_flags[@]}"

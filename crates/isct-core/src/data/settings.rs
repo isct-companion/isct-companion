@@ -6,7 +6,8 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "notifications": {
             "classes": settings.pointer("/notifications/classes"),
             "assignments": settings.pointer("/notifications/assignments"),
-            "classLeadMinutes": settings.pointer("/notifications/classLeadMinutes")
+            "classLeadMinutes": settings.pointer("/notifications/classLeadMinutes"),
+            "assignmentLeadMinutes": settings.pointer("/notifications/assignmentLeadMinutes")
         },
         "customization": settings.get("customization")
     });
@@ -18,6 +19,7 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "appearance": settings.get("appearance"),
         "density": settings.get("density"),
         "textSize": settings.get("textSize"),
+        "automaticAppUpdates": settings.get("automaticAppUpdates"),
         "restoreSchoolPage": settings.get("restoreSchoolPage"),
         "activeSchoolSite": settings.get("activeSchoolSite"),
         "schoolWebZoom": settings.get("schoolWebZoom"),
@@ -80,6 +82,9 @@ pub(super) fn validate_choices(
 
 /// Checks the values present in whole settings or in one stored part of them.
 pub(super) fn validate_preference_values(settings: &Value) -> Result<(), DataError> {
+    crate::schedule::assignment_lead_minutes(settings.get("notifications").unwrap_or(&Value::Null))
+        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+
     validate_choices(settings, PREFERENCE_CHOICES)?;
     settings
         .get("cloud")

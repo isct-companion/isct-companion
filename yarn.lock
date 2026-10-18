@@ -683,11 +683,14 @@ __metadata:
     "@mantine/notifications": "npm:^9.6.3"
     "@milkdown/crepe": "npm:^7.22.2"
     "@milkdown/kit": "npm:^7.22.2"
+    "@tanstack/react-virtual": "npm:^3.14.20"
     "@tauri-apps/api": "npm:^2.12.0"
     "@types/node": "npm:26.5.0"
     "@types/react": "npm:19.2.18"
     "@types/react-dom": "npm:19.2.7"
     "@vitejs/plugin-react": "npm:6.1.1"
+    "@zxing/browser": "npm:^0.2.1"
+    "@zxing/library": "npm:^0.23.0"
     heic-to: "npm:^1.6.5"
     i18next: "npm:^26.4.2"
     jsdom: "npm:30.0.1"
@@ -1818,6 +1821,25 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@tanstack/react-virtual@npm:^3.14.20":
+  version: 3.14.20
+  resolution: "@tanstack/react-virtual@npm:3.14.20"
+  dependencies:
+    "@tanstack/virtual-core": "npm:3.19.5"
+  peerDependencies:
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10c0/ab0321bef36612dba7f677ac8bde68642224ec72b959677428dc342d65846564568dcef8d8cc0e73d1f4014e5347be215f44383e6cdd9f4588c80ca884dbca75
+  languageName: node
+  linkType: hard
+
+"@tanstack/virtual-core@npm:3.19.5":
+  version: 3.19.5
+  resolution: "@tanstack/virtual-core@npm:3.19.5"
+  checksum: 10c0/0530f7ea229f69cd28bb26ca4b18f8f8ca2a355ef5887bc8909cecc565cc838b26c4f181b0635f9cfb23bff4d4e83d1ae4fc8d56bfcf76569f1298b900323b74
+  languageName: node
+  linkType: hard
+
 "@tauri-apps/api@npm:^2.12.0":
   version: 2.12.0
   resolution: "@tauri-apps/api@npm:2.12.0"
@@ -2359,6 +2381,40 @@ __metadata:
   version: 2.23.0
   resolution: "@zip.js/zip.js@npm:2.23.0"
   checksum: 10c0/edba4cd99b33f36504c08693d1976945ee10aeef805772b26b201c16e6ce2cc5da5e352ebea33dc65e21416ca69c8c37e6e36389ca4b10a124025fc136958746
+  languageName: node
+  linkType: hard
+
+"@zxing/browser@npm:^0.2.1":
+  version: 0.2.1
+  resolution: "@zxing/browser@npm:0.2.1"
+  dependencies:
+    "@zxing/text-encoding": "npm:^0.9.0"
+  peerDependencies:
+    "@zxing/library": ^0.23.0
+  dependenciesMeta:
+    "@zxing/text-encoding":
+      optional: true
+  checksum: 10c0/d9972c66b9149757c40daf9f29365027a37748a0e2a0494d5400aa4a1e03ce2bc0c9a9bc4919cdc5ea6dae0d6d56ef8f93897257c61b2776768807cb5d99d222
+  languageName: node
+  linkType: hard
+
+"@zxing/library@npm:^0.23.0":
+  version: 0.23.0
+  resolution: "@zxing/library@npm:0.23.0"
+  dependencies:
+    "@zxing/text-encoding": "npm:~0.9.0"
+    ts-custom-error: "npm:^3.3.1"
+  dependenciesMeta:
+    "@zxing/text-encoding":
+      optional: true
+  checksum: 10c0/6d147ac911dbed1f81ed15ef8d47b979fd9282d6c30c967e5b7aacc9e10f68f4d810640b33c87a65e1bc76dfe548cb3be749ac3dbcd22a34733e15fa76e1b44e
+  languageName: node
+  linkType: hard
+
+"@zxing/text-encoding@npm:^0.9.0, @zxing/text-encoding@npm:~0.9.0":
+  version: 0.9.0
+  resolution: "@zxing/text-encoding@npm:0.9.0"
+  checksum: 10c0/d15bff181d46c2ab709e7242801a8d40408aa8c19b44462e5f60e766bf59105b44957914ab6baab60d10d466a5e965f21fe890c67dfdb7d5c7f940df457b4d0d
   languageName: node
   linkType: hard
 
@@ -5055,6 +5111,13 @@ __metadata:
   version: 2.2.0
   resolution: "trough@npm:2.2.0"
   checksum: 10c0/58b671fc970e7867a48514168894396dd94e6d9d6456aca427cc299c004fe67f35ed7172a36449086b2edde10e78a71a284ec0076809add6834fb8f857ccb9b0
+  languageName: node
+  linkType: hard
+
+"ts-custom-error@npm:^3.3.1":
+  version: 3.3.1
+  resolution: "ts-custom-error@npm:3.3.1"
+  checksum: 10c0/67cc807d03406d7eeb2b908408d455d253cc43b480d669e2e3ea028b9aaa2c78ad1b392425b86368bbbc3c43a15e4abe304312d87ed845091646ec1937bab982
   languageName: node
   linkType: hard
 

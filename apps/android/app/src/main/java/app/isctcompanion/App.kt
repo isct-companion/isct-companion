@@ -1,0 +1,213 @@
+package app.isctcompanion
+
+import android.app.Application
+import android.net.Uri
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.navigation
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import app.isctcompanion.core.AppModel
+import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.WebRouter
+import app.isctcompanion.design.IsctTheme
+import app.isctcompanion.design.Theme
+import app.isctcompanion.features.assignments.AssignmentsScreen
+import app.isctcompanion.features.assignments.RecordScreen
+import app.isctcompanion.features.course.CourseDetailScreen
+import app.isctcompanion.features.timetable.TimetableScreen
+import app.isctcompanion.features.today.TodayScreen
+import app.isctcompanion.features.web.WebPageScreen
+import app.isctcompanion.features.web.WebTabScreen
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
+
+/** Holds the one `AppModel` for the process, so it outlives activities. */
+class IsctApplication : Application() {
+    val scope = MainScope()
+    val model by lazy { AppModel(this, scope) }
+
+    override fun onCreate() {
+        super.onCreate()
+        scope.launch { model.start() }
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) = model.foreground(true)
+            override fun onStop(owner: LifecycleOwner) = model.foreground(false)
+        })
+    }
+}
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        val model = (application as IsctApplication).model
+        model.browser.attachParking(this)
+        setContent {
+            IsctTheme {
+                CompositionLocalProvider(LocalModel provides model) { RootView() }
+            }
+        }
+    }
+}
+
+val LocalModel = staticCompositionLocalOf<AppModel> { error("No AppModel") }
+val LocalNavigator = staticCompositionLocalOf<Navigator> { error("No navigator") }
+
+/** Pushes onto the current tab's stack: a course, or a school page. */
+class Navigator(private val controller: NavHostController) {
+    fun openCourse(id: String) = controller.navigate("course/${Uri.encode(id)}")
+
+    fun openPage(page: WebRouter.PushedPage) = controller.navigate(
+        "page/${page.site.name}?target=${Uri.encode(page.target.orEmpty())}&title=${Uri.encode(page.title)}",
+    )
+
+    fun openRecord() = controller.navigate("record")
+
+    fun back() = controller.popBackStack()
+}
+
+private enum class AppTab(val route: String, val start: String, val label: String, val icon: ImageVector) {
+    Today("tab/today", "today", "今日", Icons.Outlined.CalendarToday),
+    Timetable("tab/timetable", "timetable", "時間割", Icons.Outlined.GridView),
+    Assignments("tab/assignments", "assignments", "課題", Icons.Outlined.Checklist),
+    Web("tab/web", "web", "ウェブ", Icons.Outlined.Language),
+}
+
+@Composable
+private fun RootView() {
+    val model = LocalModel.current
+    when (val status = model.status) {
+        AppModel.Status.Opening -> Box(Modifier.fillMaxSize().background(Theme.colors.bg), Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        is AppModel.Status.Failed -> Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(Icons.Outlined.WarningAmber, null, tint = Theme.colors.muted)
+            Text("起動できませんでした", style = MaterialTheme.typography.titleLarge)
+            Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
+        }
+        AppModel.Status.Ready -> Tabs()
+    }
+}
+
+@Composable
+private fun Tabs() {
+    val controller = rememberNavController()
+    val navigator = remember(controller) { Navigator(controller) }
+    val entry by controller.currentBackStackEntryAsState()
+    val destination = entry?.destination
+    // Courses and pages are pushed above a tab's graph, so the selection is kept here.
+    var current by rememberSaveable { mutableStateOf(AppTab.Today) }
+    // A pushed school page fills the screen, as on iOS.
+    val showsBar = destination?.route?.startsWith("page/") != true
+    CompositionLocalProvider(LocalNavigator provides navigator) {
+        Scaffold(
+            containerColor = Theme.colors.bg,
+            bottomBar = {
+                if (showsBar) {
+                    NavigationBar {
+                        for (tab in AppTab.entries) {
+                            NavigationBarItem(
+                                selected = tab == current,
+                                onClick = {
+                                    if (tab == current) {
+                                        // Tapping the current tab returns it to its root.
+                                        controller.popBackStack(tab.start, inclusive = false)
+                                    } else {
+                                        current = tab
+                                        controller.navigate(tab.route) {
+                                            popUpTo(controller.graph.findStartDestination().id) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                },
+                                icon = { Icon(tab.icon, null) },
+                                label = { Text(tab.label) },
+                            )
+                        }
+                    }
+                }
+            },
+        ) { padding ->
+            NavHost(controller, startDestination = AppTab.Today.route, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
+                tab(AppTab.Today) { TodayScreen() }
+                tab(AppTab.Timetable) { TimetableScreen() }
+                tab(AppTab.Assignments) { AssignmentsScreen() }
+                tab(AppTab.Web) { WebTabScreen() }
+                composable("course/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
+                    CourseDetailScreen(it.arguments?.getString("id").orEmpty())
+                }
+                composable("record") { RecordScreen() }
+                composable(
+                    "page/{site}?target={target}&title={title}",
+                    listOf(
+                        navArgument("site") { type = NavType.StringType },
+                        navArgument("target") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) {
+                    val args = it.arguments
+                    val site = runCatching { SchoolSite.valueOf(args?.getString("site").orEmpty()) }
+                        .getOrDefault(SchoolSite.SCIENCE_LMS)
+                    WebPageScreen(
+                        WebRouter.PushedPage(site, args?.getString("target")?.ifEmpty { null }, args?.getString("title").orEmpty()),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun NavGraphBuilder.tab(tab: AppTab, content: @Composable () -> Unit) {
+    navigation(startDestination = tab.start, route = tab.route) {
+        composable(tab.start) { content() }
+    }
+}

@@ -1,6 +1,6 @@
 {
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.1",
   "type": "module",
   "dependencies": {
     "@codemirror/lang-cpp": "^6.0.0",
@@ -16,8 +16,11 @@
     "@mantine/notifications": "^9.6.3",
     "@milkdown/crepe": "^7.22.2",
     "@milkdown/kit": "^7.22.2",
+    "@tanstack/react-virtual": "^3.14.20",
     "@tauri-apps/api": "^2.12.0",
     "@vitejs/plugin-react": "6.1.1",
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "heic-to": "^1.6.5",
     "i18next": "^26.4.2",
     "katex": "^0.19.0",

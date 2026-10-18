@@ -1,0 +1,38 @@
+//! Local profiling against a disposable database copy; never prints workspace contents.
+use isct_core::{
+    data::DataStore,
+    workspace::{WorkspaceIntent, WorkspaceMutation, WorkspaceService},
+};
+use std::time::Instant;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() != Some("--disposable-db") {
+        return Err(
+            "Use --disposable-db <consistent SQLite backup>; this probe changes quarter selection"
+                .into(),
+        );
+    }
+    let path = args.next().ok_or("Supply a disposable database copy")?;
+    let store = DataStore::initialize(path.into())?.0;
+    let service = WorkspaceService::new(store);
+    for term in ["2026-1Q", "2026-2Q", "2026-3Q", "2026-4Q"] {
+        let start = Instant::now();
+        let snapshot = service.snapshot()?;
+        let read_ms = start.elapsed().as_millis();
+        let start = Instant::now();
+        let next = service.mutate(WorkspaceMutation {
+            expected_revision: snapshot.revision,
+            intent: WorkspaceIntent::SelectTerm {
+                term_id: term.into(),
+            },
+        })?;
+        let mutation_ms = start.elapsed().as_millis();
+        let start = Instant::now();
+        let _ = isct_core::schedule::planning_week(&next.workspace, term)?;
+        println!(
+            "{term}: snapshot_ms={read_ms} mutation_ms={mutation_ms} planning_ms={}",
+            start.elapsed().as_millis()
+        );
+    }
+    Ok(())
+}

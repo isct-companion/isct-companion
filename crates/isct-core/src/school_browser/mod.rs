@@ -7,13 +7,20 @@ mod submission;
 
 pub use assets::{ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN};
 pub use engine::SchoolBrowserEngine;
-pub use policy::{is_login_url, sanitize_school_url, SCHOOL_HOSTS};
+pub use policy::{browsing_target, browsing_url, is_login_url, sanitize_school_url, SCHOOL_HOSTS};
 pub use port::*;
 #[cfg(feature = "desktop-workspaces")]
 pub use submission::{SubmissionError, SubmissionMessages};
 
 use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolWebTarget {
+    pub site: SchoolSite,
+    pub url: String,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,6 +67,7 @@ pub struct SchoolPullProgress {
 pub enum SchoolSessionState {
     Pending,
     Active,
+    Maintenance,
     Failed,
     NotConfigured,
 }
@@ -77,6 +85,7 @@ pub struct SchoolSessionEvent {
 pub struct SchoolSessionSnapshot {
     pub revision: u64,
     pub states: SchoolSessionStates,
+    pub kyomu_maintenance: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -111,6 +120,8 @@ pub enum SchoolBrowserError {
     #[error("{0}")]
     Auth(String),
     #[error("{0}")]
+    Maintenance(String),
+    #[error("{0}")]
     SiteChanged(String),
     #[error("{0}")]
     Timeout(String),
@@ -136,3 +147,9 @@ impl From<BrowserError> for SchoolBrowserError {
 #[cfg(test)]
 #[path = "../tests/school_browser.rs"]
 mod tests;
+
+impl From<SchoolBrowserError> for crate::pull_coordinator::PullError {
+    fn from(error: SchoolBrowserError) -> Self {
+        crate::school_service::map_executor_error(engine::map_executor(error))
+    }
+}

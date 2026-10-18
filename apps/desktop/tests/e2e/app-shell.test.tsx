@@ -12,6 +12,7 @@ import {
 import {
   advance,
   click,
+  chooseOption,
   courseFor,
   emptySchoolRecords,
   installFakeCore,
@@ -153,7 +154,7 @@ const baseHandle: Handle = (command, args) => {
     case "resolve_school_url": {
       const url = String(args.url);
       return {
-        site: url.includes("lms") ? "science-lms" : "science-portal",
+        site: url.includes("lms") ? "science-lms" : args.site,
         url,
       };
     }
@@ -281,69 +282,65 @@ it("replaces a clashing course and Undo restores the previous one", async () => 
     planItems: [planItemFor(clashingCourse)],
   });
 
-  app = await mountApp({
-    workspace: before,
-    queries: {
-      workspaceOverview: (_query, core) => overviewFor(core.workspace),
-      planningWeek: (_query, core) => planningWeekFor(core.workspace),
-      scheduleView: (_query, core) => scheduleViewFor(core.workspace),
-    },
-    finder: (request) => ({
-      context: {
-        currentQuarter: 3,
-        recommended: {},
-        departments: [],
-        busy: [{ day: 2, from: 7, to: 8 }],
+  app = await mountApp(
+    {
+      workspace: before,
+      queries: {
+        workspaceOverview: (_query, core) => overviewFor(core.workspace),
+        planningWeek: (_query, core) => planningWeekFor(core.workspace),
+        scheduleView: (_query, core) => scheduleViewFor(core.workspace),
       },
-      courses: [placed, clashing],
-      factors: [],
-      duplicates: 0,
-      keys: request.keys ?? [],
-      plan: { unsupported: "empty" },
-      rows: [placed, clashing].map((course) => ({ course, matched: [] })),
-      suggestions: [],
-      live: String(request.input ?? ""),
-      clashes: [clashing.id],
-      ineligibleIds: [],
-      eligibility: {},
-      replacements: { [clashing.id]: [placedCourse.id] },
-      credits: { [placed.id]: 2, [clashing.id]: 2 },
-      onTimetable: [placedCourse.code],
-      activeSlots: ["火7-8"],
-      pasteHandled: false,
-      pastedIds: [],
-      missingCodes: [],
-      ineligibleCodes: [],
-      detailIds: [],
-    }),
-    handle: (command) => {
-      if (command === "catalog_offerings") return [placed, clashing];
-      if (command === "catalog_query")
-        return {
-          items: [{ id: placed.id }],
-          total: 1,
-          returned: 1,
-          truncated: false,
-        };
-      return undefined;
+      finder: (request) => ({
+        context: {
+          currentQuarter: 3,
+          recommended: {},
+          departments: [],
+          busy: [{ day: 2, from: 7, to: 8 }],
+        },
+        courses: [placed, clashing],
+        factors: [],
+        duplicates: 0,
+        keys: request.keys ?? [],
+        plan: { unsupported: "empty" },
+        rows: [placed, clashing].map((course) => ({ course, matched: [] })),
+        suggestions: [],
+        live: String(request.input ?? ""),
+        clashes: [clashing.id],
+        ineligibleIds: [],
+        eligibility: {},
+        replacements: { [clashing.id]: [placedCourse.id] },
+        credits: { [placed.id]: 2, [clashing.id]: 2 },
+        onTimetable: [placedCourse.code],
+        activeSlots: ["火7-8"],
+        pasteHandled: false,
+        pastedIds: [],
+        missingCodes: [],
+        ineligibleCodes: [],
+        detailIds: [],
+      }),
+      handle: (command) => {
+        if (command === "catalog_offerings") return [placed, clashing];
+        if (command === "catalog_query")
+          return {
+            items: [{ id: placed.id }],
+            total: 1,
+            returned: 1,
+            truncated: false,
+          };
+        return undefined;
+      },
+      // Core commits the replacement (or the undo) and returns the new snapshot.
+      apply: (intent, core) => {
+        if (intent.kind === "addCatalogCourses") {
+          core.publish(after, "revision:after");
+        } else if (intent.kind === "undoCatalogCourses") {
+          core.publish(before, "revision:undo");
+        }
+      },
     },
-    // Core commits the replacement (or the undo) and returns the new snapshot.
-    apply: (intent, core) => {
-      if (intent.kind === "addCatalogCourses") {
-        core.publish(after, "revision:after");
-      } else if (intent.kind === "undoCatalogCourses") {
-        core.publish(before, "revision:undo");
-      }
-    },
-  });
+    { route: paths.timetable() },
+  );
   const { host, core } = app;
-
-  const editSwitch = await vi.waitFor(() => {
-    const input = host.querySelector<HTMLInputElement>('input[role="switch"]');
-    if (!input) throw new Error("edit switch not ready");
-    return input;
-  });
-  await act(async () => editSwitch.click());
 
   const input = await vi.waitFor(() => {
     const element = host.querySelector<HTMLInputElement>(
@@ -606,18 +603,10 @@ describe("shell navigation", () => {
     list.scrollTop = 128;
     const term = await required(
       () =>
-        host.querySelector<HTMLSelectElement>(
-          ".lectureTerm select, select.lectureTerm",
-        ),
+        host.querySelector<HTMLInputElement>('.lectureTerm [role="combobox"]'),
       "the quarter picker",
     );
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )!.set!.call(term, "2026-2Q");
-      term.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await chooseOption(term, "2026-2Q");
 
     await app.go(paths.home());
     await app.go(paths.lectures(placedCourse.id));
@@ -626,10 +615,8 @@ describe("shell navigation", () => {
     expect(filter.value).toBe("graph");
     expect(host.querySelector(".lectureList")).toBe(list);
     expect(list.scrollTop).toBe(128);
-    expect(host.querySelector(".lectureTerm select, select.lectureTerm")).toBe(
-      term,
-    );
-    expect(term.value).toBe("2026-2Q");
+    expect(host.querySelector('.lectureTerm [role="combobox"]')).toBe(term);
+    expect(term.value).toBe("2026 2Q");
   }, 20_000);
 
   it("blocks Back while the Web page owns the native view and restores the URL when hiding fails", async () => {
@@ -759,7 +746,7 @@ describe("shell navigation", () => {
  * ------------------------------------------------------------------ */
 
 describe("keyboard shortcuts", () => {
-  it("routes ⌘1–4 and Escape, replacing the section and cycling all four drawer tabs", async () => {
+  it("routes ⌘1–5 and Escape, replacing the section and cycling all four drawer tabs", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture({ courses: [placedCourse] }),
@@ -803,9 +790,10 @@ describe("keyboard shortcuts", () => {
 
     for (const [index, target] of [
       paths.home(),
+      paths.timetable(),
       paths.lectures(),
       paths.web(),
-      // ⌘4 returns to the section left above.
+      // ⌘5 returns to the section left above.
       paths.settings("study"),
     ].entries()) {
       await act(async () => {
@@ -900,15 +888,10 @@ describe("native listener ordering", () => {
           return baseHandle(command, args, core);
         },
       }),
-      { route: paths.home() },
+      { route: paths.timetable() },
     );
     const { host, core } = app;
     // The planner timetable is the person-visible view of the workspace rows.
-    const edit = await required(
-      () => host.querySelector<HTMLInputElement>('input[role="switch"]'),
-      "the Edit switch",
-    );
-    await click(edit);
     await until(() => expect(titles(host)).toEqual(["Placed"]));
 
     gateStale = true;
@@ -972,6 +955,25 @@ describe("web-page residency", () => {
     expect(host.querySelector('[aria-label="Current URL"]')).toBe(address);
     // An ordinary resume re-shows the resident session, without a new URL.
     expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBeNull();
+    const search =
+      "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
+    await typeInto(address, search);
+    await act(async () =>
+      address
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    await until(() =>
+      expect(core.commands("navigate_school_web").at(-1)?.args.url).toBe(
+        search,
+      ),
+    );
+    expect(core.commands("resolve_school_url").at(-1)?.args).toEqual({
+      url: search,
+      site: "science-portal",
+    });
   }, 20_000);
 
   it("reopens an explicitly requested URL while an ordinary resume keeps the resident page", async () => {
@@ -982,7 +984,11 @@ describe("web-page residency", () => {
     );
     const workspace = workspaceFixture({ courses: [course] });
     app = await mountShell(
-      shellOptions({ workspace, revision: "rev:explicit" }),
+      shellOptions({
+        workspace,
+        revision: "rev:explicit",
+        queries: { ...shellQueries(), courseDetail: { lmsUrl: url } },
+      }),
       { route: paths.drawer(paths.home(), course.id) },
     );
     const { core } = app;
@@ -1096,7 +1102,7 @@ describe("Chinese UI", () => {
     const { host, core } = app;
 
     await until(() => expect(document.documentElement.lang).toBe("zh"));
-    expect(host.querySelector(".rail button")?.textContent).toContain("首页");
+    expect(host.querySelector(".rail button")?.textContent).toContain("今天");
     expect(document.body.textContent).toContain("中文");
     expect(
       host
@@ -1143,7 +1149,7 @@ describe("mobile shell", () => {
       `the ${label} tab`,
     );
 
-  it("drops the fixed status bar and shows four bottom tabs", async () => {
+  it("drops the fixed status bar and shows the primary bottom tabs", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture(),
@@ -1160,7 +1166,7 @@ describe("mobile shell", () => {
       [...host.querySelectorAll(".mobileTabs button")].map(
         (button) => button.textContent,
       ),
-    ).toEqual(["Home", "Lectures", "Web", "Settings"]);
+    ).toEqual(["Today", "Timetable", "Lectures", "Web", "Settings"]);
     expect(host.querySelector(".mobileStatusDot")).not.toBeNull();
   }, 20_000);
 
@@ -1256,7 +1262,7 @@ describe("mobile shell", () => {
     await until(() =>
       expect(window.location.hash).toBe(`#${paths.home("week")}`),
     );
-    await click(await tab(host, "Home"));
+    await click(await tab(host, "Today"));
     await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
   }, 20_000);
 
@@ -1822,6 +1828,59 @@ describe("schedule query caches", () => {
     ).toEqual(["late-quarter", "quick-quarter"]);
   }, 20_000);
 
+  it("retains the last complete calendar while a replacement is pending", async () => {
+    const workspace = workspaceFixture({ courses: [placedCourse] });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    installFakeCore({
+      workspace,
+      revision: "rev:retained-quarter",
+      handle: (command, args, live) => {
+        if (command !== "schedule_query") return undefined;
+        const term = (args.queries as { term: string }[])[0].term;
+        const answer = () =>
+          scheduleAnswer(
+            "workspaceOverview",
+            overviewFor(live.workspace, { term }),
+            "rev:retained-quarter",
+          );
+        return term === "replacement-quarter" ? gate.then(answer) : answer();
+      },
+    });
+    probe = await mount(
+      <ScheduleSwitchProbe
+        initial="retained-quarter"
+        next="replacement-quarter"
+      />,
+    );
+    await until(() =>
+      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
+        "retained-quarter",
+      ),
+    );
+    await click(probe.host.querySelector(".probeSwitch"));
+    expect(probe.host.querySelector(".probeTerm")?.textContent).toBe(
+      "retained-quarter",
+    );
+    expect(
+      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
+    ).toBe("yes");
+    await act(async () => {
+      release();
+      await gate;
+    });
+    await until(() =>
+      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
+        "replacement-quarter",
+      ),
+    );
+    expect(
+      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
+    ).toBe("no");
+  }, 20_000);
+
   it("retry re-issues the read without a remount and clears the error", async () => {
     const workspace = workspaceFixture({ courses: [placedCourse] });
     let failed = false;
@@ -2051,7 +2110,7 @@ describe("First school connection", () => {
       return element!;
     });
     expect(setup.textContent).toContain(
-      "first full LMS sync builds your timetable automatically",
+      "Tokyo Tech for your timetable and course search",
     );
     await click(setup.querySelector("button"));
     await until(() =>
@@ -2321,3 +2380,298 @@ describe("workspace column sizing", () => {
     }
   });
 });
+
+it("shows progress only for pulls the user started and the data age when idle", async () => {
+  app = await mountShell(
+    shellOptions({
+      workspace: workspaceFixture(),
+      handle: (command, args, core) =>
+        command === "pull_school" ? [] : baseHandle(command, args, core),
+    }),
+  );
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      {
+        id: "kyomu-active",
+        target: { type: "school", site: "kyomu", courseId: null },
+        state: "queued",
+        priority: "manual",
+        phase: null,
+        blockedBy: null,
+        attempt: 0,
+        waiterCount: 1,
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("busy");
+    expect(status.textContent).toContain("教務Web");
+    expect(status.textContent).toContain("Waiting for school refresh");
+    expect(status.querySelector("progress")!.value).toBe(5);
+    // The percentage is an estimate; the bar carries it without a number.
+    expect(status.textContent).not.toContain("%");
+  });
+  // A manual request waiting for the school lane must show the automatic
+  // owner that is making progress, instead of appearing stuck at queued 5%.
+  const waitingKyomu = {
+    id: "kyomu-active",
+    target: { type: "school", site: "kyomu", courseId: null },
+    state: "queued",
+    priority: "manual",
+    phase: null,
+    blockedBy: null,
+    attempt: 0,
+    waiterCount: 1,
+    lastError: null,
+  };
+  await act(async () => {
+    app!.core.emit("pull-state-changed", [
+      waitingKyomu,
+      {
+        ...waitingKyomu,
+        id: "lms-automatic-running",
+        target: { type: "school", site: "science-lms", courseId: null },
+        state: "running",
+        priority: "automatic",
+        phase: "extracting",
+      },
+    ]);
+  });
+  await act(async () =>
+    app!.core.emit("school-pull-progress", {
+      site: "science-lms",
+      phase: "course",
+      completed: 7,
+      total: 62,
+      courseId: 1,
+      courseTitle: "First course",
+      term: "2026-3Q",
+      itemTitle: "",
+    }),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("LMS");
+    expect(status.textContent).toContain("7/62");
+    expect(status.textContent).toContain("教務Web refresh queued");
+    expect(status.querySelector("progress")!.value).toBeGreaterThan(8);
+  });
+  await act(async () => app!.core.emit("pull-state-changed", [waitingKyomu]));
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      state: "ok",
+      kind: "registrations",
+      message: "",
+      imported: 1,
+    }),
+  );
+  await until(() =>
+    expect(
+      app!.host.querySelector<HTMLProgressElement>(".lmsStatus progress")!
+        .value,
+    ).toBe(35),
+  );
+  // A pull Core admitted on its own stays a quiet note without a bar.
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      {
+        id: "lms-automatic",
+        target: { type: "school", site: "science-lms", courseId: null },
+        state: "blocked",
+        priority: "automatic",
+        phase: null,
+        blockedBy: "schoolVisible",
+        attempt: 0,
+        waiterCount: 0,
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("background");
+    expect(status.textContent).toContain("LMS");
+    expect(status.textContent).toContain(
+      "Resumes after you leave the school page",
+    );
+    expect(status.querySelector("progress")).toBeNull();
+  });
+  await act(async () => app!.core.emit("pull-state-changed", []));
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.getAttribute("data-kind")).toBe("idle");
+    expect(status.textContent).toContain("Never updated");
+  });
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      kind: "service",
+      state: "maintenance",
+      changed: 0,
+      message: "Official maintenance · 2031/01/02 10:00–12:30",
+    }),
+  );
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("Under maintenance");
+    expect(status.textContent).toContain("2031/01/02");
+    expect(status.querySelector("progress")).toBeNull();
+    expect(status.getAttribute("data-kind")).toBe("problem");
+  });
+  await act(async () =>
+    app!.core.emit("school-ingest", {
+      site: "kyomu",
+      kind: "service",
+      state: "ok",
+      changed: 0,
+      message: "",
+    }),
+  );
+  await until(() =>
+    expect(
+      app!.host.querySelector(".lmsStatus")!.getAttribute("data-kind"),
+    ).toBe("idle"),
+  );
+  const terminal = {
+    id: "kyomu-partial",
+    target: { type: "school", site: "kyomu", courseId: null },
+    state: "failed",
+    priority: "automatic",
+    phase: "partial",
+    blockedBy: null,
+    attempt: 1,
+    waiterCount: 0,
+    lastError: "registrations unavailable",
+  };
+  await act(async () => app!.core.emit("pull-state-changed", [terminal]));
+  await until(() => {
+    const status = app!.host.querySelector(".lmsStatus")!;
+    expect(status.textContent).toContain("Refresh incomplete");
+    expect(status.textContent).toContain("registrations unavailable");
+    expect(status.querySelector("progress")).toBeNull();
+  });
+  await act(async () =>
+    app!.core.emit("pull-state-changed", [
+      terminal,
+      {
+        ...terminal,
+        id: "kyomu-recovered",
+        state: "succeeded",
+        phase: "complete",
+        lastError: null,
+      },
+    ]),
+  );
+  await until(() =>
+    expect(app!.host.querySelector(".lmsStatus")!.textContent).not.toContain(
+      "Refresh incomplete",
+    ),
+  );
+  const force = app.host.querySelector<HTMLButtonElement>(".lmsStatus button")!;
+  expect(force.textContent).toBe("Refresh now");
+  await click(force);
+  await until(() =>
+    expect(
+      app!.core.calls
+        .filter((call) => call.command === "pull_school")
+        .map((call) => call.args.site),
+    ).toEqual(["kyomu", "science-lms"]),
+  );
+  await until(() => expect(force.disabled).toBe(false));
+  await app.go(paths.timetable());
+  const timetableRefresh = await required(
+    () =>
+      [...app!.host.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent?.trim() === "Refresh timetable",
+      ),
+    "the timetable refresh action",
+  );
+  // Changing pages consumes cache; timetable refresh reads LMS only.
+  expect(
+    app.core.calls.filter((call) => call.command === "pull_school"),
+  ).toHaveLength(2);
+  await click(timetableRefresh);
+  await until(() =>
+    expect(
+      app!.core.calls
+        .filter((call) => call.command === "pull_school")
+        .map((call) => call.args.site),
+    ).toEqual(["kyomu", "science-lms", "science-lms"]),
+  );
+});
+
+/**
+ * Proper names, product names and protocol words that stay in Latin script in
+ * every UI language, plus the fixture's own course data. Anything else in
+ * Latin script on a Chinese screen is an English string that skipped `t()`.
+ */
+const LATIN_ALLOWED = new Set(
+  (
+    "LMS Web Science Tokyo TokyoTech Tech Portal Mail TSUBAME ICS PDF URL ID " +
+    "AI Agent MCP Matrix Wi-Fi Google Drive Microsoft OAuth iCloud CSS " +
+    "JavaScript HTTP Streamable Bearer IsctCompanion GPA GPT ZIP macOS session " +
+    "English https isct-companion Isct-Data test Placed CSC.T Q MB " +
+    "A B C D E F G H I J " +
+    // Course-search operators in the planner's placeholder are typed as is.
+    "teacher room W"
+  ).split(" "),
+);
+
+/** Latin-script words a person would see or hear on screen. */
+function latinWords(root: HTMLElement): string[] {
+  const words = new Set<string>();
+  const add = (text: string | null | undefined) => {
+    for (const word of text?.match(/[A-Za-z][A-Za-z'’.-]*/g) ?? [])
+      if (!LATIN_ALLOWED.has(word.replace(/[.]$/, ""))) words.add(word);
+  };
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode())
+    if (!["STYLE", "SCRIPT"].includes(node.parentElement?.tagName ?? ""))
+      add(node.textContent);
+  for (const element of root.querySelectorAll(
+    "[aria-label],[title],[placeholder]",
+  ))
+    for (const name of ["aria-label", "title", "placeholder"])
+      add(element.getAttribute(name));
+  return [...words];
+}
+
+it("shows every page and settings section in Chinese without English leftovers", async () => {
+  const workspace = workspaceFixture({
+    courses: [placedCourse],
+    planItems: [planItemFor(placedCourse)],
+  });
+  workspace.settings.locale = "zh";
+  app = await mountShell(shellOptions({ workspace }));
+  const sections = [
+    "accounts",
+    "study",
+    "notifications",
+    "calendar",
+    "appearance",
+    "files",
+    "backup",
+    "sources",
+    "agent",
+    "developer",
+    "about",
+  ] as const;
+  const leaks: Record<string, string[]> = {};
+  for (const route of [
+    paths.home(),
+    paths.home("week"),
+    paths.timetable(),
+    paths.lectures(),
+    paths.web(),
+    ...sections.map((section) => paths.settings(section)),
+  ]) {
+    await app.go(route);
+    await advance(300);
+    const words = latinWords(app.host);
+    if (words.length) leaks[route] = words;
+  }
+  expect(leaks).toEqual({});
+}, 60_000);

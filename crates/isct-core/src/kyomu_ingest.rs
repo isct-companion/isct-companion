@@ -295,21 +295,60 @@ pub fn apply_kyomu_payload(
     connection: &mut Connection,
     payload: &KyomuPayload,
 ) -> Result<usize, IngestError> {
+    if payload.status != "ok" {
+        return Err("教務 extraction is not ready".into());
+    }
     let tx = connection.transaction().map_err(IngestError::from)?;
     let run = Uuid::new_v4().to_string();
     tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'kyomu',?2,'running',?3)",params![run,payload.kind,Utc::now().to_rfc3339()]).map_err(IngestError::from)?;
     let mut changed = 0;
     match payload.kind.as_str() {
+        "profile" => {
+            let academic = json!({"department":payload.data["department"],"admittedOn":payload.data["admittedOn"],"programme":payload.data["programme"],"entryCategory":payload.data["entryCategory"]});
+            let value = serde_json::to_string(&academic)?;
+            let hash = content_hash(&academic)?;
+            changed += tx.execute("INSERT INTO settings(key,value,hash,updated_at,updated_by,rev,source)
+                VALUES('kyomuAcademicIdentity',?1,?2,?3,'kyomu',1,'kyomu') ON CONFLICT(key) DO UPDATE SET
+                value=excluded.value,hash=excluded.hash,updated_at=excluded.updated_at,rev=settings.rev+1
+                WHERE settings.hash<>excluded.hash", params![value,hash,Utc::now().to_rfc3339()])?;
+        }
         "registrations" => {
             let mut state_ids = HashSet::new();
             if let Some(state) = payload.data.get("state") {
+                let current = (Utc::now() + chrono::Duration::hours(9)).date_naive();
+                let year = chrono::Datelike::year(&current)
+                    - i32::from(chrono::Datelike::month(&current) < 4);
                 let id = "kyomu-registration-state";
                 state_ids.insert(id.to_string());
                 let mut value = state.clone();
                 if let Some(o) = value.as_object_mut() {
                     o.insert("id".into(), id.into());
+                    o.insert(
+                        "academicYear".into(),
+                        payload.data["courses"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .find_map(|c| c["offeringId"].as_str()?.get(..4)?.parse::<i32>().ok())
+                            .unwrap_or(year)
+                            .into(),
+                    );
+                    o.insert(
+                        "quarters".into(),
+                        payload
+                            .data
+                            .get("quarters")
+                            .cloned()
+                            .unwrap_or_else(|| json!([])),
+                    );
                 }
                 changed += usize::from(upsert(&tx, "registration_states", id, &value, &[])?);
+                let scope_id = format!(
+                    "kyomu-scope:{}:{}",
+                    value["academicYear"], value["quarters"]
+                );
+                value["id"] = scope_id.clone().into();
+                changed += usize::from(upsert(&tx, "registration_states", &scope_id, &value, &[])?);
             }
             let mut ids = HashSet::new();
             for course in payload
@@ -333,7 +372,27 @@ pub fn apply_kyomu_payload(
                 }
                 changed += usize::from(upsert(&tx, "registrations", &id, &value, &[])?);
             }
-            changed += mark_missing(&tx, "registrations", "kyomu-registration:", &ids)?;
+            // This page covers one academic year. Never expire previous years.
+            let current = (Utc::now() + chrono::Duration::hours(9)).date_naive();
+            let year = payload.data["courses"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find_map(|c| c["offeringId"].as_str()?.get(..4)?.parse::<i32>().ok())
+                .unwrap_or(
+                    chrono::Datelike::year(&current)
+                        - i32::from(chrono::Datelike::month(&current) < 4),
+                );
+            changed += expire_registration_scope(
+                &tx,
+                "kyomu-registration:",
+                year,
+                payload.data["quarters"]
+                    .as_array()
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]),
+                &ids,
+            )?;
             changed += mark_missing(
                 &tx,
                 "registration_states",
@@ -351,24 +410,30 @@ pub fn apply_kyomu_payload(
                 let id = row["id"].as_str().unwrap_or_default();
                 changed += usize::from(upsert(&tx, "registrations", id, row, &[])?);
             }
-            // The page lists every declaration; withdrawn ones leave it.
-            let mut statement = tx
-                .prepare("SELECT id FROM registrations WHERE id LIKE 'kyomu-declared:%' AND missing_since IS NULL")
-                .map_err(IngestError::from)?;
-            let stale = statement
-                .query_map([], |r| r.get::<_, String>(0))
-                .map_err(IngestError::from)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(IngestError::from)?;
-            drop(statement);
-            for id in stale.into_iter().filter(|id| !live.contains(id)) {
-                let missing = Utc::now().to_rfc3339();
-                changed += tx
-                    .execute(
-                        "UPDATE registrations SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1",
-                        params![id, missing],
-                    )
-                    .map_err(IngestError::from)?;
+            let scope: Option<String> = tx
+                .query_row(
+                    "SELECT value FROM registration_states WHERE id='kyomu-registration-state'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(scope) = scope {
+                let scope: Value = serde_json::from_str(&scope)?;
+                if let Some(year) = scope["academicYear"]
+                    .as_i64()
+                    .and_then(|y| i32::try_from(y).ok())
+                {
+                    changed += expire_registration_scope(
+                        &tx,
+                        "kyomu-declared:",
+                        year,
+                        scope["quarters"]
+                            .as_array()
+                            .map(Vec::as_slice)
+                            .unwrap_or(&[]),
+                        &live,
+                    )?;
+                }
             }
         }
         "grades" => {
@@ -438,7 +503,8 @@ pub fn apply_kyomu_payload(
                             .get(column + 1)
                             .and_then(Value::as_str)
                             .unwrap_or("");
-                        let id = format!("kyomu-requirement:{table_index}:{category}:{label}");
+                        let id =
+                            format!("kyomu-requirement:{table_index}:{column}:{category}:{label}");
                         live.insert(id.clone());
                         let record = json!({"id":id,"table":table_index,"category":category,"label":label,"value":value});
                         changed +=
@@ -520,3 +586,91 @@ pub fn record_kyomu_unavailable(
 #[cfg(test)]
 #[path = "tests/kyomu_ingest.rs"]
 mod tests;
+
+pub(crate) fn registration_quarters(course: &Value) -> Vec<String> {
+    let mut quarters = course
+        .get("quarters")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|q| {
+            q.as_u64()
+                .filter(|q| (1..=4).contains(q))
+                .map(|q| format!("{q}Q"))
+        })
+        .collect::<Vec<_>>();
+    for slot in course
+        .get("schedule")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(quarter) = slot.get("quarter").and_then(Value::as_str) {
+            quarters.push(quarter.to_string());
+        } else if let Some(raw) = slot.get("raw").and_then(Value::as_str) {
+            let prefix = raw.split('Q').next().unwrap_or_default();
+            let digits: Vec<_> = prefix
+                .chars()
+                .filter_map(|c| c.to_digit(10))
+                .filter(|v| (1..=4).contains(v))
+                .collect();
+            if let (Some(first), Some(last)) = (digits.first(), digits.last()) {
+                quarters.extend((*first..=*last).map(|q| format!("{q}Q")));
+            }
+        }
+    }
+    quarters.sort();
+    quarters.dedup();
+    let inactive = course.get("inactiveQuarters").and_then(Value::as_array);
+    quarters.retain(|q| inactive.is_none_or(|values| !values.contains(&json!(q))));
+    quarters
+}
+
+fn expire_registration_scope(
+    tx: &Transaction<'_>,
+    prefix: &str,
+    year: i32,
+    quarters: &[Value],
+    live: &HashSet<String>,
+) -> Result<usize, IngestError> {
+    // The current-semester page cannot say anything about a previous semester.
+    if quarters.is_empty() {
+        return Ok(0);
+    }
+    let mut statement =
+        tx.prepare("SELECT value FROM registrations WHERE id LIKE ?1 AND missing_since IS NULL")?;
+    let rows = statement
+        .query_map([format!("{prefix}{year}%")], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    let mut changed = 0;
+    for raw in rows {
+        let mut row: Value = serde_json::from_str(&raw)?;
+        let id = row["id"].as_str().unwrap_or_default().to_string();
+        if live.contains(&id) {
+            continue;
+        }
+        let active = registration_quarters(&row);
+        let removed: Vec<_> = active
+            .iter()
+            .filter(|q| quarters.contains(&json!(q)))
+            .map(|q| json!(q))
+            .collect();
+        if removed.is_empty() {
+            continue;
+        }
+        let mut inactive = row
+            .get("inactiveQuarters")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        inactive.extend(removed);
+        row["inactiveQuarters"] = json!(inactive);
+        changed += usize::from(upsert(tx, "registrations", &id, &row, &[])?);
+        if registration_quarters(&row).is_empty() {
+            let missing = Utc::now().to_rfc3339();
+            tx.execute("UPDATE registrations SET missing_since=?2,value=json_set(value,'$.missingSince',?2) WHERE id=?1",params![id,missing])?;
+        }
+    }
+    Ok(changed)
+}

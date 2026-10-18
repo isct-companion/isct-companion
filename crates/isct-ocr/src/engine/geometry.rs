@@ -74,7 +74,7 @@ fn joins_header(image: &RgbImage, previous: Run, next: Run) -> bool {
     total > 0 && hits as f64 / total as f64 > 0.5
 }
 
-fn template(image: &RgbImage, recover_header_gaps: bool) -> Option<[Point; 4]> {
+fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option<[Point; 4]> {
     let (w, h) = (image.width() as f64, image.height() as f64);
     let gap = round(w / 70.).max(3.) as i32;
     let mut runs = vec![];
@@ -224,6 +224,55 @@ fn template(image: &RgbImage, recover_header_gaps: bool) -> Option<[Point; 4]> {
         };
         let brx = right_edge(bottom_line.as_ref().map_or(bottom_left, |f| f(right)));
         let slope = (start_line(right) - start_line(left)) / (right - left);
+        if camera {
+            // The old body estimate fixes its left edge vertically. A rolled
+            // card instead needs the row-label edge and all four intersections.
+            let mut label_edges = vec![];
+            let mut y = start_line(left) + body_height * 0.15;
+            while y < bottom_left - body_height * 0.05 {
+                let mut x = round(left - cw * 1.4);
+                while x < left - cw * 0.6 {
+                    if dark(image, x, y, 155) {
+                        label_edges.push(Point { x: y, y: x });
+                        break;
+                    }
+                    x += 1.;
+                }
+                y += 2f64.max(body_height / 30.);
+            }
+            if label_edges.len() < 10 {
+                continue;
+            }
+            let label_edge = fit(&label_edges);
+            let Some(bottom_line) = bottom_line else {
+                continue;
+            };
+            let cross = |vertical: &dyn Fn(f64) -> f64, horizontal: &dyn Fn(f64) -> f64| {
+                let a = vertical(1.) - vertical(0.);
+                let b = horizontal(1.) - horizontal(0.);
+                let denominator = 1. - a * b;
+                if denominator.abs() < 1e-6 {
+                    return None;
+                }
+                let x = (vertical(0.) + a * horizontal(0.)) / denominator;
+                Some(Point {
+                    x,
+                    y: horizontal(x),
+                })
+            };
+            let Some(corners) = cross(&label_edge, &top_line)
+                .zip(cross(&right_edge, &top_line))
+                .zip(cross(&right_edge, &bottom_line))
+                .zip(cross(&label_edge, &bottom_line))
+                .map(|(((a, b), c), d)| [a, b, c, d])
+            else {
+                continue;
+            };
+            if super::contours::valid(image, &corners) {
+                return Some(corners);
+            }
+            continue;
+        }
         let corners = [
             Point {
                 x: left,
@@ -417,7 +466,7 @@ pub fn locate(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
     if let Some(cells) = super::contours::locate(image) {
         return Some(cells);
     }
-    if let Some(corners) = template(image, false).or_else(|| template(image, true)) {
+    if let Some(corners) = template(image, false, false).or_else(|| template(image, true, false)) {
         return Some(
             (0..70)
                 .map(|i| {
@@ -465,12 +514,37 @@ pub fn locate(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
             .collect(),
     )
 }
+/// Camera admission requires a verified projective grid, including the label
+/// strip. Header fits remain useful when the outer contour is interrupted.
+pub(super) fn locate_capture(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
+    if let Some(cells) = super::contours::locate(image) {
+        return Some(cells);
+    }
+    let corners = template(image, false, true).or_else(|| template(image, true, true))?;
+    Some(
+        (0..70)
+            .map(|i| {
+                let (c, r) = ((i % 10 + 1) as f64, (i / 10 + 1) as f64);
+                [
+                    (c / 11., r / 8.),
+                    ((c + 1.) / 11., r / 8.),
+                    ((c + 1.) / 11., (r + 1.) / 8.),
+                    (c / 11., (r + 1.) / 8.),
+                ]
+                .map(|(u, v)| project(&corners, u, v))
+            })
+            .collect(),
+    )
+}
 pub fn crop(image: &RgbImage, corners: &[Point; 4]) -> RgbImage {
-    image::ImageBuffer::from_fn(64, 64, |x, y| {
+    crop_at(image, corners, 64)
+}
+pub(super) fn crop_at(image: &RgbImage, corners: &[Point; 4], size: u32) -> RgbImage {
+    image::ImageBuffer::from_fn(size, size, |x, y| {
         let p = project(
             corners,
-            0.09 + x as f64 / 63. * 0.82,
-            0.09 + y as f64 / 63. * 0.82,
+            0.09 + x as f64 / size.saturating_sub(1).max(1) as f64 * 0.82,
+            0.09 + y as f64 / size.saturating_sub(1).max(1) as f64 * 0.82,
         );
         *image.get_pixel(
             round(p.x).clamp(0., (image.width() - 1) as f64) as u32,

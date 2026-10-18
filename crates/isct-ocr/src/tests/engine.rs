@@ -355,6 +355,34 @@ fn core_resampling_preserves_the_detected_card_grid() {
     assert_eq!(cells.len(), MATRIX_CELLS);
     assert!((cells[0][0].x - 140.).abs() < 5.);
     assert!((cells[69][2].y - 300.).abs() < 5.);
+    // The encoded camera frame must return the same cell order and normalized
+    // corners used by native cropping, so the overlay cannot drift or transpose.
+    let located = std::cell::Cell::new(false);
+    let frame = MatrixOcrService::default()
+        .scan_frame_with_geometry(
+            png.get_ref(),
+            |quads| {
+                assert_eq!(quads.len(), MATRIX_CELLS);
+                located.set(true);
+                true
+            },
+            |progress| {
+                if progress.completed > 0 {
+                    assert!(located.get(), "geometry must precede inference");
+                }
+                true
+            },
+        )
+        .unwrap();
+    assert_eq!(frame.cells.len(), MATRIX_CELLS);
+    assert_eq!(frame.quads.len(), MATRIX_CELLS);
+    for (actual, expected) in frame.quads.iter().zip(&cells) {
+        for ([x, y], point) in actual.iter().zip(expected) {
+            assert!((x - point.x / preview.width() as f64).abs() < 1e-9);
+            assert!((y - point.y / preview.height() as f64).abs() < 1e-9);
+            assert!((0. ..=1.).contains(x) && (0. ..=1.).contains(y));
+        }
+    }
 }
 
 #[test]
@@ -379,6 +407,13 @@ fn cancellation_releases_the_service_for_a_later_scan() {
         service.scan(b"not decoded", |_| true),
         Err(MatrixOcrError::InvalidImage(_))
     ));
+    let mut png = Cursor::new(Vec::new());
+    card().write_to(&mut png, image::ImageFormat::Png).unwrap();
+    assert!(matches!(
+        service.scan_frame_with_geometry(png.get_ref(), |_| false, |_| true),
+        Err(MatrixOcrError::Cancelled)
+    ));
+    assert!(service.scan_frame(png.get_ref(), |_| true).is_ok());
 }
 
 #[test]
@@ -515,10 +550,82 @@ fn arbitrary_rotation_stretch_and_perspective_keep_cell_order() {
             );
             let cells = geometry::locate(&rotated)
                 .unwrap_or_else(|| panic!("grid lost at {degrees} degrees case {case}"));
+            if degrees == 17.5 || degrees == 359. {
+                let camera = geometry::locate_capture(&rotated)
+                    .unwrap_or_else(|| panic!("camera grid lost at {degrees} degrees case {case}"));
+                for (actual, original) in [(camera[0][0], (150., 210.)), (camera[69][2], (450., 420.))] {
+                    let expected = transform * original;
+                    assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "camera crop changed cell identity at {degrees} degrees: {actual:?} vs {expected:?}");
+                }
+            }
             for (actual, original) in [(cells[0][0], (150., 210.)), (cells[69][2], (450., 420.))] {
                 let expected = transform * original;
                 assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "incorrect cell order/geometry at {degrees} degrees: {actual:?} vs {expected:?}");
             }
         }
     }
+}
+
+#[test]
+fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries() {
+    let sheet = image::load_from_memory(include_bytes!("fixtures/latin-cells.png"))
+        .unwrap()
+        .to_luma8();
+    let mut paddle = Paddle::new().unwrap();
+    for start in (0..26).step_by(5) {
+        let end = (start + 5).min(26);
+        let crops: Vec<_> = (start..end)
+            .map(|i| image::imageops::crop_imm(&sheet, i * 96, 0, 96, 96).to_image())
+            .collect();
+        let (narrow, _, _) = paddle
+            .recognize_glyphs(&crops.iter().collect::<Vec<_>>())
+            .unwrap();
+        for (offset, (crop, actual)) in crops.iter().zip(narrow).enumerate() {
+            let expected = ((b'A' + start as u8 + offset as u8) as char).to_string();
+            let wide = paddle.recognize(preprocess::prepare(crop).tensor).unwrap();
+            let actual = recognition::accept(&actual.text, actual.confidence);
+            let wide = recognition::accept(&wide.text, wide.confidence);
+            assert_eq!(
+                actual.text, expected,
+                "adaptive batch changed {expected}: {actual:?}, wide {wide:?}"
+            );
+        }
+    }
+    let full = MatrixOcrService::default()
+        .scan_live_frame(
+            include_bytes!("fixtures/matrix-card.jpg"),
+            &(0..70).collect::<Vec<_>>(),
+            |_| true,
+            |_| true,
+        )
+        .unwrap();
+    for (i, cell) in full.cells.iter().enumerate() {
+        let expected = ((b'A' + (i % 26) as u8) as char).to_string();
+        assert_eq!(cell.text, expected, "live cell {i}: {cell:?}");
+        assert!(
+            cell.confidence >= 0.8,
+            "live cell {i} did not qualify: {cell:?}"
+        );
+    }
+    let mut encoded = Cursor::new(Vec::new());
+    card()
+        .write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    let service = MatrixOcrService::default();
+    for invalid in [vec![], vec![70], vec![1, 1]] {
+        assert!(matches!(
+            service.scan_live_frame(encoded.get_ref(), &invalid, |_| true, |_| true),
+            Err(MatrixOcrError::InvalidImage(_))
+        ));
+    }
+    assert!(matches!(
+        service.scan_live_frame(encoded.get_ref(), &[20, 11], |_| false, |_| true),
+        Err(MatrixOcrError::Cancelled)
+    ));
+    let selected = service
+        .scan_live_frame(encoded.get_ref(), &[20, 11], |_| true, |_| true)
+        .unwrap();
+    assert_eq!(selected.cells.len(), 2);
+    assert_eq!(selected.quads.len(), MATRIX_CELLS);
+    assert!(selected.timing.total_ms >= selected.timing.inference_ms);
 }

@@ -903,6 +903,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
                         .await
                         .map_err(transport)?;
                     if current.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+                        log::warn!("Google Drive changed during conditional read");
                         return Err(DocumentError::Conflict);
                     }
                     if !current.status().is_success() {
@@ -921,10 +922,16 @@ impl<V: SecretVault> DesktopCloudService<V> {
                             )
                         })
                     {
+                        log::warn!(
+                            "Google Drive changed before write: expected {:?}, observed {}",
+                            expected,
+                            current.revision
+                        );
                         return Err(DocumentError::Conflict);
                     }
                     let response = self.send_matching(provider,reqwest::Method::PUT,Url::parse(&format!("https://www.googleapis.com/upload/drive/v2/files/{id}?uploadType=media")).map_err(|e|transport(e.to_string()))?,Some("application/json"),Some(bytes),Some(etag)).await.map_err(transport)?;
                     if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+                        log::warn!("Google Drive rejected conditional write");
                         return Err(DocumentError::Conflict);
                     }
                     if !response.status().is_success() {

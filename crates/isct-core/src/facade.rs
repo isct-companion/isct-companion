@@ -136,6 +136,26 @@ impl Core {
         Ok(engine)
     }
 
+    /// Desktop and foreign shells share the same authenticated page and cursor policy.
+    pub async fn catalog_query(
+        &self,
+        query: String,
+        year: u16,
+        filters: Option<crate::catalog::CatalogFilters>,
+        cursor: Option<String>,
+    ) -> Result<crate::catalog::CatalogPage, crate::catalog::CatalogError> {
+        crate::catalog::kyomu_query(
+            self.store.clone(),
+            self.school_browser()?,
+            self.runtime.coordinator.clone(),
+            query,
+            year,
+            filters,
+            cursor,
+        )
+        .await
+    }
+
     pub fn school_browser(&self) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
         self.school_browser
             .lock()
@@ -196,6 +216,7 @@ impl Core {
                 self.runtime.coordinator.clone(),
                 self.auth.clone(),
                 events.clone(),
+                self.runtime.refresh.clone(),
             ),
             refresh: self.runtime.refresh.clone(),
             store: self.store.clone(),
@@ -221,6 +242,7 @@ impl Core {
         }
         let mut snapshot = self.workspace.snapshot()?;
         snapshot.workspace["registrations"] = snapshot.school_records["registrations"].clone();
+        snapshot.workspace["grades"] = snapshot.school_records["grades"].clone();
         snapshot.workspace["lmsCourses"] = snapshot.school_records["lmsCourses"].clone();
         let values = queries
             .into_iter()
@@ -238,29 +260,15 @@ impl Core {
     ) -> Result<crate::course_query::FinderView, ReadModelError> {
         let snapshot = self.workspace.snapshot()?;
         let offerings = crate::catalog::offerings(&self.store, request.year)?;
-        Ok(crate::course_query::finder_view(
-            &snapshot.workspace,
-            offerings,
-            request,
-        )?)
-    }
-
-    pub fn lms_merge_preview(
-        &self,
-        scope: &str,
-        term: &str,
-    ) -> Result<serde_json::Value, ReadModelError> {
-        let snapshot = self.workspace.snapshot()?;
-        let offerings = self
+        let mut workspace = snapshot.workspace;
+        workspace["kyomuSearchOptions"] = self
             .store
-            .catalog_search("")
-            .map_err(crate::catalog::CatalogError::from)?;
-        Ok(crate::workspace::lms_merge_preview(
-            &snapshot.workspace,
-            &snapshot.school_records,
-            scope,
-            term,
-            &offerings,
+            .reference_cache_marker("kyomu-search-options", i32::from(request.year))
+            .map_err(crate::catalog::CatalogError::from)?
+            .map(|marker| marker["options"].clone())
+            .unwrap_or_else(|| serde_json::json!([]));
+        Ok(crate::course_query::finder_view(
+            &workspace, offerings, request,
         )?)
     }
 

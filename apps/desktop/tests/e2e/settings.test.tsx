@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buttonByText,
   click,
+  chooseOption,
   typeInto,
   courseFor,
   offering,
@@ -32,12 +33,14 @@ import { schoolSessions } from "@app/platform/school-session";
  * editor, backup and cloud sync, the study profile, and local agent access.
  *
  * Everything runs over the scripted host installed by `mountApp`, so the real
- * bridge, query cache and workspace store drive the real pages. Only two seams
- * are stubbed, and each is a runtime fact jsdom cannot provide:
+ * bridge, query cache and workspace store drive the real pages. Platform seams
+ * are stubbed only where jsdom cannot supply the native runtime:
  *
  * - `isTauri` is set the way the native bootstrap sets it, because
  *   `recognizeMatrixImage` refuses to run without it.
  * - `navigator.clipboard` is absent in jsdom, so the agent suite installs one.
+ * - ZXing camera/canvas decoding is replaced by controlled results; account
+ *   selection, draft replacement and explicit credential saves remain real.
  *
  * `mountApp` must stay the first thing that imports the shell: `app/native.ts`
  * captures its bridge at first import.
@@ -49,6 +52,17 @@ const TIMEOUT = 60_000;
 
 type Handler = NonNullable<FakeCoreOptions["handle"]>;
 type Apply = NonNullable<FakeCoreOptions["apply"]>;
+
+// ZXing needs native camera/canvas APIs unavailable in jsdom. Only the
+// decoder transport is replaced; the real input, import intent and save flow run.
+const qrDecode = vi.hoisted(() => vi.fn());
+const qrVideo = vi.hoisted(() => vi.fn());
+vi.mock("@zxing/browser", () => ({
+  BrowserQRCodeReader: class {
+    decodeFromImageUrl = qrDecode;
+    decodeFromVideoDevice = qrVideo;
+  },
+}));
 
 let app: MountedApp | undefined;
 
@@ -62,6 +76,9 @@ afterEach(async () => {
   await app?.unmount();
   app = undefined;
   delete (globalThis as unknown as Record<string, unknown>).isTauri;
+  vi.unstubAllGlobals();
+  qrDecode.mockReset();
+  qrVideo.mockReset();
 });
 
 /** A wait long enough for a cold shell boot on a loaded machine. */
@@ -98,16 +115,6 @@ async function answerDialog(label: string): Promise<void> {
 /** Sends a native event to the shell under test. */
 function emitNative(core: FakeCore, event: string, payload: unknown): void {
   core.emit(event, payload);
-}
-
-async function change(select: HTMLSelectElement, value: string): Promise<void> {
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLSelectElement.prototype,
-      "value",
-    )!.set!.call(select, value);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
 }
 
 /** The host starts every suite with the reminder bootstrap reporting success. */
@@ -202,6 +209,147 @@ function cardButtons(card: HTMLElement): (string | undefined)[] {
 }
 
 describe("School accounts", () => {
+  it(
+    "imports a selected QR account into the draft and saves only on Connect",
+    async () => {
+      const setup =
+        "otpauth://totp/School?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+      qrDecode.mockResolvedValue({ getText: () => "google-export-fixture" });
+      const revoke = vi.fn();
+      vi.stubGlobal(
+        "URL",
+        class extends URL {
+          static createObjectURL() {
+            return "blob:qr-test";
+          }
+          static revokeObjectURL = revoke;
+        },
+      );
+      const mounted = await mountAccounts({
+        handle: (command) => {
+          if (command === "school_credential_status")
+            return {
+              science: saved({ hasOtp: true }),
+              tokyoTech: notConfigured(),
+            };
+          if (command === "school_session_snapshot") return noSession;
+          if (command === "copy_school_otp") return true;
+          if (command === "import_school_otp")
+            return [
+              {
+                label: "Other account",
+                issuer: "Other",
+                setup: "other-secret",
+              },
+              { label: "School account", issuer: "School", setup },
+            ];
+          if (command === "save_school_credentials") return true;
+          if (command === "test_school_connection")
+            return {
+              site: "science-portal",
+              url: "https://example.test",
+              phase: "login",
+            };
+          return undefined;
+        },
+      });
+      const science = account(mounted, "science");
+      const help = science.querySelector<HTMLButtonElement>(
+        'button[aria-label="How do I find the QR code?"]',
+      )!;
+      await click(help);
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "Transfer accounts → Export accounts",
+        ),
+      );
+      const other = [
+        ...document.querySelectorAll<HTMLLabelElement>(
+          ".mantine-SegmentedControl-label",
+        ),
+      ].find((label) => label.textContent === "Microsoft / other")!;
+      await click(other);
+      expect(document.body.textContent).toContain(
+        "Replace its old entry with the new one",
+      );
+      const newSetup = [
+        ...document.querySelectorAll<HTMLLabelElement>(
+          ".mantine-SegmentedControl-label",
+        ),
+      ].find((label) => label.textContent === "Not set up")!;
+      await click(newSetup);
+      expect(document.body.textContent).toContain(
+        "Replace its old entry with the new one",
+      );
+      await click(help);
+      await click(
+        science.querySelector<HTMLButtonElement>(
+          '[aria-label="Copy OTP setup"]',
+        )!,
+      );
+      await wait(() =>
+        expect(mounted.core.commands("copy_school_otp")[0]?.args).toEqual({
+          setup: undefined,
+        }),
+      );
+      await scanFile(science, PNG());
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "Choose your school account",
+        ),
+      );
+      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      await clickButton(document.body, "School · School account");
+      expect(
+        science.querySelector<HTMLInputElement>("#school-otp-setup")!.value,
+      ).toBe(setup);
+      expect(revoke).toHaveBeenCalledWith("blob:qr-test");
+      await click(
+        science.querySelector<HTMLButtonElement>(
+          '[aria-label="Copy OTP setup"]',
+        )!,
+      );
+      await wait(() =>
+        expect(mounted.core.commands("copy_school_otp").at(-1)?.args).toEqual({
+          setup,
+        }),
+      );
+      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      await clickButton(science, "Connect");
+      await wait(() =>
+        expect(
+          mounted.core.commands("save_school_credentials")[0].args,
+        ).toMatchObject({ credentials: { otpSecret: setup } }),
+      );
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "stops a QR camera that finishes opening after the dialog is closed",
+    async () => {
+      let resolveCamera: (controls: { stop: () => void }) => void = () => {};
+      qrVideo.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveCamera = resolve;
+          }),
+      );
+      const mounted = await mountAccounts();
+      await clickButton(account(mounted, "science"), "Scan QR");
+      await wait(() => expect(qrVideo).toHaveBeenCalled());
+      const close = document.querySelector<HTMLButtonElement>(
+        '.mantine-Modal-root button[aria-label="Close"]',
+      )!;
+      await click(close);
+      const stop = vi.fn();
+      await act(async () => resolveCamera({ stop }));
+      await wait(() => expect(stop).toHaveBeenCalled());
+      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+    },
+    TIMEOUT,
+  );
+
   it(
     "offers Connect and Forget on a saved portal and Not set up on an empty one",
     async () => {
@@ -528,6 +676,164 @@ const matrixStatus = (
 
 describe("Matrix scan and paste", () => {
   it(
+    "shows only the Matrix outline and automatically closes when all cells have a result",
+    async () => {
+      // Camera/decoder/canvas are hardware ports without a jsdom implementation.
+      // The real modal, capture loop, native transport and editor stay mounted.
+      const original = Object.getOwnPropertyDescriptor(
+        navigator,
+        "mediaDevices",
+      );
+      const stop = vi.fn();
+      const track = Object.assign(new EventTarget(), { stop });
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          getUserMedia: async () => ({
+            getTracks: () => [track],
+            getVideoTracks: () => [track],
+          }),
+        },
+      });
+      vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+      vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(
+        2,
+      );
+      vi.spyOn(
+        HTMLMediaElement.prototype,
+        "currentTime",
+        "get",
+      ).mockImplementation(() => performance.now());
+      vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(
+        1920,
+      );
+      vi.spyOn(
+        HTMLVideoElement.prototype,
+        "videoHeight",
+        "get",
+      ).mockReturnValue(1080);
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+        drawImage: vi.fn(),
+      } as unknown as CanvasRenderingContext2D);
+      vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+        "data:image/jpeg;base64,Y2FtZXJh",
+      );
+      let finishCapture: (() => void) | undefined;
+      let finishScan: (() => void) | undefined;
+      let frames = 0;
+      const captured = {
+        phase: "processing",
+        readyCells: 70,
+        captureElapsedMs: 800,
+        timedOut: false,
+        completedSamples: 0,
+        totalSamples: 210,
+        cells: [],
+        bounds: [
+          { x: 0.1, y: 0.2 },
+          { x: 0.9, y: 0.2 },
+          { x: 0.9, y: 0.8 },
+          { x: 0.1, y: 0.8 },
+        ],
+      };
+      try {
+        const mounted = await mountAccounts({
+          capabilities: { matrixOcr: true },
+          handle: (command) => {
+            if (command === "school_credential_status")
+              return { science: notConfigured(), tokyoTech: notConfigured() };
+            if (command === "school_session_snapshot") return noSession;
+            if (command === "begin_matrix_camera") return "camera";
+            if (command === "capture_matrix_camera_frame") {
+              if (frames++ === 0)
+                return { ...captured, phase: "capturing", readyCells: 69 };
+              return new Promise((resolve) => {
+                finishCapture = () => resolve(captured);
+              });
+            }
+            if (command === "process_matrix_camera")
+              return new Promise((resolve) => {
+                finishScan = () =>
+                  resolve({
+                    ...captured,
+                    phase: "complete",
+                    completedSamples: 210,
+                    cells: Array.from({ length: 70 }, (_, i) => ({
+                      text: "A",
+                      confidence: 0.98,
+                      stable: i !== 69,
+                    })),
+                  });
+              });
+            return undefined;
+          },
+        });
+        const card = matrixCard(mounted);
+        await wait(() =>
+          expect(cardButtons(card)).toContain("Scan with camera"),
+        );
+        await click(buttonIn(card, "Scan with camera"));
+        await wait(() =>
+          expect(
+            document.body.querySelectorAll(".matrixCameraPreview polygon"),
+          ).toHaveLength(1),
+        );
+        expect(
+          document.body
+            .querySelector(".matrixCameraPreview polygon")
+            ?.getAttribute("points"),
+        ).toBe("0.1,0.2 0.9,0.2 0.9,0.8 0.1,0.8");
+        expect(
+          document.body.querySelector(".matrixCameraPreview text"),
+        ).toBeNull();
+        expect(document.body.textContent).not.toContain(
+          "Use current result and review",
+        );
+        expect(document.body.textContent).toContain(
+          "Capturing Matrix… 69/70 cells ready.",
+        );
+        expect(matrixInputs(card).every((input) => input.value === "")).toBe(
+          true,
+        );
+        await wait(() => expect(finishCapture).toBeDefined());
+        await act(async () => finishCapture?.());
+        await wait(() =>
+          expect(document.body.textContent).toContain(
+            "Processing Matrix… You can put your card down.",
+          ),
+        );
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(matrixInputs(card).every((input) => input.value === "")).toBe(
+          true,
+        );
+        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(0);
+        await wait(() => expect(finishScan).toBeDefined());
+        await act(async () => finishScan?.());
+        await wait(() =>
+          expect(
+            document.body.querySelector(".matrixCameraPreview"),
+          ).toBeNull(),
+        );
+        expect(matrixInputs(card).every((input) => input.value === "A")).toBe(
+          true,
+        );
+        expect(matrixInputs(card)[0].dataset.confidence).toBe("high");
+        expect(matrixInputs(card)[69].dataset.confidence).toBe("medium");
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(1);
+      } finally {
+        await app?.unmount();
+        app = undefined;
+        vi.restoreAllMocks();
+        if (original)
+          Object.defineProperty(navigator, "mediaDevices", original);
+        else Reflect.deleteProperty(navigator, "mediaDevices");
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
     "hides image scanning when this build cannot read Matrix photographs",
     async () => {
       const mounted = await mountAccounts({
@@ -549,7 +855,16 @@ describe("Matrix scan and paste", () => {
       );
       await flush();
       expect(cardButtons(matrixCard(mounted))).not.toContain("Scan image");
-      expect(pane.querySelector('input[type="file"]')).toBeNull();
+      expect(cardButtons(matrixCard(mounted))).not.toContain(
+        "Scan with camera",
+      );
+      expect(
+        matrixCard(mounted).querySelector('input[type="file"]'),
+      ).toBeNull();
+      // QR reading is independent of native Matrix OCR availability.
+      expect(
+        account(mounted, "science").querySelector('input[type="file"]'),
+      ).not.toBeNull();
     },
     TIMEOUT,
   );
@@ -613,18 +928,30 @@ describe("Matrix scan and paste", () => {
         mounted.core.commands("test_school_connection").length,
       ).toBeGreaterThan(0);
 
+      // A saved Matrix keeps its 7×10 shape with every letter and confidence
+      // hidden; typing over a cell is how it is replaced.
       await wait(() =>
         expect(
           matrixInputs(card).every(
-            (input) =>
-              input.value === "" &&
-              input.placeholder === "•" &&
-              input.dataset.confidence === undefined,
+            (input) => input.value === "" && input.placeholder === "•",
           ),
         ).toBe(true),
       );
-      await act(async () => matrixInput(card, 0).focus());
-      expect(matrixInput(card, 0).placeholder).toBe("•");
+      expect(matrixInputs(card)).toHaveLength(70);
+      expect(matrixInputs(card).some((input) => input.dataset.confidence)).toBe(
+        false,
+      );
+      expect(card.textContent).toContain("70/70");
+      expect(card.textContent).not.toContain("AAAA");
+      // Connect's sign-in check holds the card until the portal answers.
+      await act(async () =>
+        emitNative(mounted.core, "school-login-status", {
+          profile: "tokyo-tech",
+          state: "connected",
+          message: "",
+        }),
+      );
+      await wait(() => expect(matrixInputs(card)[0].disabled).toBe(false));
     },
     TIMEOUT,
   );
@@ -838,6 +1165,63 @@ describe("Matrix scan and paste", () => {
   );
 });
 
+it(
+  "renders bounded virtual application logs and pauses following while reading older entries",
+  async () => {
+    const entries = Array.from({ length: 1500 }, (_, index) => ({
+      id: index + 1,
+      at: "2026-10-17T01:00:00Z",
+      level: "INFO",
+      target: "cloud-sync",
+      message: `Confirmed log ${index + 1}`,
+    }));
+    app = await mountSettings(paths.settings("developer"), {
+      handle: (command, args) => {
+        if (command === "application_logs")
+          return {
+            entries: args.after ? [] : entries,
+            cursor: 1500,
+            dropped: false,
+          };
+        return undefined;
+      },
+    });
+    const toggle = await wait(() =>
+      settingsPane(app!).querySelector<HTMLInputElement>(
+        '[data-setting="developer-mode"] input',
+      )!,
+    );
+    await click(toggle);
+    await app.go(paths.settings("diagnostics"));
+    await wait(() =>
+      expect(settingsPane(app!).textContent).toContain("1500 log entries"),
+    );
+    const pane = settingsPane(app);
+    await wait(() =>
+      expect(pane.querySelectorAll(".diagnosticLogRow").length).toBeGreaterThan(
+        0,
+      ),
+    );
+    expect(pane.querySelectorAll(".diagnosticLogRow").length).toBeLessThan(40);
+    expect(pane.querySelector('[contenteditable="true"],textarea')).toBeNull();
+    const follow = pane.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )!;
+    expect(follow.checked).toBe(true);
+    await act(async () =>
+      pane
+        .querySelector(".diagnosticLogs")!
+        .dispatchEvent(
+          new WheelEvent("wheel", { deltaY: -100, bubbles: true }),
+        ),
+    );
+    expect(follow.checked).toBe(false);
+    await click(follow);
+    expect(follow.checked).toBe(true);
+  },
+  TIMEOUT,
+);
+
 /* -------------------------------------------------------------------- backup */
 
 function cloudState(overrides: Partial<CloudSyncState> = {}): CloudSyncState {
@@ -982,7 +1366,14 @@ describe("Backup", () => {
     async () => {
       const mounted = await mountBackup({
         handle: (command) => {
-          if (command === "cloud_sync_state") return cloudState();
+          if (command === "cloud_sync_state")
+            return cloudState({
+              recoveryPoints: Array.from({ length: 9 }, (_, index) => ({
+                id: `local:${index}`,
+                version: `v1-${index}`,
+                savedAt: `2026-10-${String(12 - index).padStart(2, "0")}T03:00:00Z`,
+              })),
+            });
           if (command === "sync_cloud_now") return cloudState();
           if (command === "restore_cloud_version") return cloudState();
           return undefined;
@@ -990,6 +1381,31 @@ describe("Backup", () => {
       });
       const pane = settingsPane(mounted);
 
+      const visibleExportRows = () =>
+        [...pane.querySelectorAll("button")]
+          .filter((button) => button.textContent === "Export…")
+          .map((button) => button.closest(".row")?.textContent);
+      const firstPageRows = visibleExportRows();
+      expect(
+        [...pane.querySelectorAll("button")].filter(
+          (button) => button.textContent === "Export…",
+        ),
+      ).toHaveLength(5); // four recovery files plus manual export
+      const localPages = pane.querySelector(
+        '[aria-label="Local recovery pages"]',
+      )!;
+      await click(
+        localPages.querySelector<HTMLButtonElement>('[aria-label="2"]') ??
+          [...localPages.querySelectorAll<HTMLButtonElement>("button")].find(
+            (button) => button.textContent === "2",
+          )!,
+      );
+      expect(
+        [...pane.querySelectorAll("button")].filter(
+          (button) => button.textContent === "Export…",
+        ),
+      ).toHaveLength(5);
+      expect(visibleExportRows()).not.toEqual(firstPageRows);
       await clickButton(pane, "Upload");
       await wait(() =>
         expect(mounted.core.commands("sync_cloud_now")).toHaveLength(1),
@@ -1111,8 +1527,13 @@ describe("Backup", () => {
         ),
       );
 
-      await wait(() => expect(pane.textContent).toContain("Waiting to sync"));
-      expect(pane.textContent).toContain("task-1");
+      await wait(() =>
+        expect(pane.textContent).toContain("Saved on this device"),
+      );
+      // Transport attempts belong in application logs, not the backup history.
+      expect(pane.textContent).not.toContain("Waiting to retry");
+      expect(pane.textContent).not.toContain("Attempts");
+      expect(pane.textContent).not.toContain("task-1");
       expect(pane.textContent).not.toContain("Up to date");
       expect(buttonIn(pane, "Restore").disabled).toBe(true);
     },
@@ -1138,12 +1559,14 @@ function studyWorkspace(): Workspace {
 }
 
 const stageSelect = (pane: HTMLElement) =>
-  pane.querySelector<HTMLSelectElement>(
-    '[aria-label="Degree stage, stage 1"]',
+  pane.querySelector<HTMLInputElement>(
+    '[role="combobox"][aria-label="Degree programme"]',
   )!;
 
 const departmentSelect = (pane: HTMLElement) =>
-  pane.querySelector<HTMLSelectElement>('[data-setting="department"] select')!;
+  pane.querySelector<HTMLInputElement>(
+    '[data-setting="department"] [role="combobox"]',
+  )!;
 
 async function mountStudy(
   workspace: Workspace,
@@ -1169,39 +1592,117 @@ function studyIntents(mounted: MountedApp) {
 }
 
 describe("Study profile", () => {
+  it("persists a department selection after the controlled field rerenders", async () => {
+    const mounted = await mountStudy(studyWorkspace(), {
+      apply: (intent, core) => {
+        if (intent.kind === "replaceSettings")
+          core.publish(
+            {
+              ...core.workspace,
+              settings: intent.settings as Workspace["settings"],
+            },
+            "revision:profile-edit",
+          );
+      },
+    });
+    const pane = settingsPane(mounted);
+    await chooseOption(departmentSelect(pane), "cs");
+    await wait(() =>
+      expect(mounted.core.workspace.settings.departmentId).toBe("cs"),
+    );
+    expect(departmentSelect(pane).value).toBe("Computer Science");
+  });
+
+  it("prefills the detected entry year and saves it only on request", async () => {
+    const workspace = studyWorkspace();
+    delete workspace.academicProfile.admissionYear;
+    workspace.academicProfile.studyEnrollments = [];
+    const mounted = await mountStudy(workspace, {
+      apply: (intent, core) => {
+        if (intent.kind === "setStudyProfile")
+          core.publish(
+            {
+              ...core.workspace,
+              academicProfile: {
+                ...core.workspace.academicProfile,
+                admissionYear: intent.admissionYear ?? undefined,
+                studyEnrollments: intent.studyEnrollments,
+              },
+            },
+            "revision:profile-edit",
+          );
+      },
+      handle: (command) => {
+        if (command === "school_credential_status")
+          return { ...matrixStatus(), suggestedAdmissionYear: 2025 };
+      },
+    });
+    const pane = settingsPane(mounted);
+    await wait(() =>
+      expect(
+        pane.querySelector<HTMLInputElement>(
+          '[data-setting="admission-year"] [role="combobox"]',
+        )!.value,
+      ).toBe("2025 entry"),
+    );
+    expect(studyIntents(mounted)).toHaveLength(0);
+    await chooseOption(stageSelect(pane), "undergraduate");
+    await clickButton(pane, "Save enrollment details");
+    await wait(() =>
+      expect(mounted.core.workspace.academicProfile.admissionYear).toBe(2025),
+    );
+    expect(mounted.core.workspace.academicProfile.studyEnrollments).toEqual([
+      { stage: "undergraduate", entryKind: "unknown", admittedTerm: "2025-1Q" },
+    ]);
+  });
+
+  it("keeps a manually saved admission year when a different year is detected", async () => {
+    const workspace = studyWorkspace();
+    workspace.academicProfile.admissionYear = 2024;
+    const mounted = await mountStudy(workspace, {
+      handle: (command) => {
+        if (command === "school_credential_status")
+          return { ...matrixStatus(), suggestedAdmissionYear: 2025 };
+      },
+    });
+    const pane = settingsPane(mounted);
+    await flush();
+    expect(
+      pane.querySelector<HTMLInputElement>(
+        '[data-setting="admission-year"] [role="combobox"]',
+      )!.value,
+    ).toBe("2024 entry");
+    expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true);
+    expect(studyIntents(mounted)).toHaveLength(0);
+  });
+
   it(
-    "saves consecutive stage edits as one profile without losing any field",
+    "saves the simple year and degree fields without discarding known enrollment details",
     async () => {
       const mounted = await mountStudy(studyWorkspace());
       const pane = settingsPane(mounted);
+      expect(pane.querySelectorAll('[role="combobox"]')).toHaveLength(3);
+      expect(pane.textContent).not.toContain("Add degree programme");
+      await chooseOption(stageSelect(pane), "professional");
+      await chooseOption(
+        pane.querySelector<HTMLElement>(
+          '[data-setting="admission-year"] [role="combobox"]',
+        )!,
+        "2025",
+      );
 
-      const stage = stageSelect(pane);
-      const kind = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Entry kind, stage 1"]',
-      )!;
-      const grade = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Entry grade, stage 1"]',
-      )!;
-      const term = pane.querySelector<HTMLSelectElement>(
-        '[aria-label="Stage admission term, stage 1"]',
-      )!;
-      await change(stage, "professional");
-      await change(kind, "transfer");
-      await change(grade, "2");
-      await change(term, "2026-2Q");
-
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       await wait(() => expect(studyIntents(mounted)).toHaveLength(1));
       // One save carries every edit, so a field cannot be lost half-way.
       expect(studyIntents(mounted)[0]).toEqual({
         kind: "setStudyProfile",
-        admissionYear: 2026,
+        admissionYear: 2025,
         studyEnrollments: [
           {
             stage: "professional",
-            entryKind: "transfer",
-            entryGrade: 2,
-            admittedTerm: "2026-2Q",
+            entryKind: "regular",
+            entryGrade: 1,
+            admittedTerm: "2026-1Q",
           },
         ],
       });
@@ -1231,12 +1732,12 @@ describe("Study profile", () => {
       });
       const pane = settingsPane(mounted);
 
-      await change(stageSelect(pane), "doctoral");
-      await clickButton(pane, "Save study profile");
+      await chooseOption(stageSelect(pane), "doctoral");
+      await clickButton(pane, "Save enrollment details");
       await wait(() => expect(stageSelect(pane).disabled).toBe(true));
       expect(
-        pane.querySelector<HTMLSelectElement>(
-          '[aria-label="Entry kind, stage 1"]',
+        pane.querySelector<HTMLInputElement>(
+          '[data-setting="admission-year"] [role="combobox"]',
         )!.disabled,
       ).toBe(true);
       expect(buttonIn(pane, "Saving…").disabled).toBe(true);
@@ -1258,16 +1759,16 @@ describe("Study profile", () => {
       });
       const pane = settingsPane(mounted);
 
-      await change(stageSelect(pane), "doctoral");
-      await clickButton(pane, "Save study profile");
+      await chooseOption(stageSelect(pane), "doctoral");
+      await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
         const alert = pane.querySelector('[role="alert"]');
         if (!alert) throw new Error("The rejection is not reported yet.");
         return alert;
       });
       expect(error.textContent).toContain("duplicate term");
-      expect(stageSelect(pane).value).toBe("doctoral");
-      expect(buttonIn(pane, "Save study profile").disabled).toBe(false);
+      expect(stageSelect(pane).value).toBe("Doctoral");
+      expect(buttonIn(pane, "Save enrollment details").disabled).toBe(false);
     },
     TIMEOUT,
   );
@@ -1279,7 +1780,7 @@ describe("Study profile", () => {
       const mounted = await mountStudy(initial);
       const pane = settingsPane(mounted);
 
-      await change(stageSelect(pane), "doctoral");
+      await chooseOption(stageSelect(pane), "doctoral");
 
       // Another device changed the profile while this draft was open.
       const external = structuredClone(initial);
@@ -1294,16 +1795,16 @@ describe("Study profile", () => {
       );
       // The department is not part of the draft, so it proves the newer profile
       // has really been adopted before Save is pressed.
-      await wait(() => expect(departmentSelect(pane).value).toBe("physics"));
+      await wait(() => expect(departmentSelect(pane).value).toBe("Physics"));
 
-      await clickButton(pane, "Save study profile");
+      await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
         const alert = pane.querySelector('[role="alert"]');
         if (!alert) throw new Error("The conflict is not reported yet.");
         return alert;
       });
       expect(error.textContent).toContain("changed elsewhere");
-      expect(stageSelect(pane).value).toBe("doctoral");
+      expect(stageSelect(pane).value).toBe("Doctoral");
       expect(studyIntents(mounted)).toHaveLength(0);
     },
     TIMEOUT,
@@ -1325,12 +1826,12 @@ describe("Study profile", () => {
       });
       const pane = settingsPane(mounted);
 
-      await change(stageSelect(pane), "master");
-      await clickButton(pane, "Save study profile");
+      await chooseOption(stageSelect(pane), "master");
+      await clickButton(pane, "Save enrollment details");
       await wait(() =>
-        expect(buttonIn(pane, "Save study profile").disabled).toBe(true),
+        expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true),
       );
-      expect(stageSelect(pane).value).toBe("master");
+      expect(stageSelect(pane).value).toBe("Master");
 
       const external = structuredClone(initial);
       external.academicProfile.studyEnrollments = [
@@ -1348,7 +1849,7 @@ describe("Study profile", () => {
       await act(async () =>
         emitNative(mounted.core, "workspace-changed", { source: "cloud-sync" }),
       );
-      await wait(() => expect(stageSelect(pane).value).toBe("doctoral"));
+      await wait(() => expect(stageSelect(pane).value).toBe("Doctoral"));
     },
     TIMEOUT,
   );
@@ -1435,8 +1936,9 @@ describe("Agent access", () => {
       const pane = settingsPane(mounted);
 
       await wait(() =>
-        expect(pane.textContent).toContain("Turn on Allow local agents"),
+        expect(pane.textContent).toContain("Allow local agents"),
       );
+      expect(pane.textContent).not.toContain("Connect an agent");
       expect(pane.querySelector("code")).toBeNull();
       expect(pane.querySelector('[role="alert"]')).toBeNull();
       expect(pane.textContent).not.toContain("Copy token");
@@ -1546,6 +2048,105 @@ describe("Academic calendar profile", () => {
           mounted.host.querySelector(".ttAxis")?.textContent,
         ).not.toContain("07:30");
       });
+    },
+    TIMEOUT,
+  );
+});
+
+describe("Notification preferences", () => {
+  it("groups lead times under each reminder and persists both choices", async () => {
+    app = await mountSettings(paths.settings("notifications"), {
+      apply: (intent, core) => {
+        if (intent.kind === "replaceSettings")
+          core.publish(
+            {
+              ...core.workspace,
+              settings: intent.settings as Workspace["settings"],
+            },
+            "revision:reminders",
+          );
+      },
+    });
+    const pane = settingsPane(app);
+    const classTime = pane.querySelector<HTMLInputElement>(
+      '[data-setting="class-lead"] [role="combobox"]',
+    )!;
+    expect(
+      classTime.closest('[role="group"]')!.getAttribute("aria-label"),
+    ).toBe("Class reminders");
+    await chooseOption(classTime, "30");
+    await wait(() =>
+      expect(app!.core.workspace.settings.notifications.classLeadMinutes).toBe(
+        30,
+      ),
+    );
+    const assignmentTime = pane.querySelector<HTMLInputElement>(
+      '[aria-label="Assignment reminder times"]',
+    )!;
+    expect(
+      assignmentTime.closest(".settingsSuboptions")!.getAttribute("aria-label"),
+    ).toBe("Assignment reminders");
+    await click(assignmentTime);
+    const option = await wait(() => {
+      const option = [
+        ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ].find((item) => item.textContent === "3 hours before");
+      if (!option) throw new Error("Reminder choice not visible");
+      return option;
+    });
+    await click(option);
+    await wait(() =>
+      expect(
+        app!.core.workspace.settings.notifications.assignmentLeadMinutes,
+      ).toEqual([1440, 60, 180]),
+    );
+    const assignments = pane.querySelector(
+      '[data-setting="assignments"] input',
+    )!;
+    await click(assignments);
+    await wait(() =>
+      expect(pane.querySelector('[data-setting="assignment-lead"]')).toBeNull(),
+    );
+    await click(assignments);
+    await wait(() =>
+      expect(
+        pane.querySelector('[data-setting="assignment-lead"]'),
+      ).not.toBeNull(),
+    );
+    expect(
+      app.core.workspace.settings.notifications.assignmentLeadMinutes,
+    ).toEqual([1440, 60, 180]);
+  });
+});
+
+describe("desktop app updates", () => {
+  it(
+    "shows an unpublished stable channel without claiming the app is up to date",
+    async () => {
+      const workspace = workspaceFixture();
+      workspace.settings.locale = "zh";
+      app = await mountSettings(paths.settings("about"), {
+        workspace,
+        handle: (command) => {
+          if (command === "check_app_update" || command === "app_update_state")
+            return {
+              phase: "unpublished",
+              signedUpdates: true,
+              releaseUrl:
+                "https://github.com/isct-companion/isct-companion/releases/latest",
+            };
+          return undefined;
+        },
+      });
+      await wait(() =>
+        expect(app!.host.textContent).toContain("尚未发布稳定版"),
+      );
+      expect(app.host.textContent).not.toContain("已是最新版本");
+      expect(buttonByText(app.host, "下载更新")).toBeUndefined();
+      await clickButton(app.host, "检查更新");
+      await wait(() =>
+        expect(app!.host.textContent).toContain("尚未发布稳定版"),
+      );
     },
     TIMEOUT,
   );

@@ -7,23 +7,19 @@
 mod calendar;
 mod catalog;
 mod courses;
-mod lms_merge;
 
 use calendar::*;
 pub use catalog::catalog_course;
-pub(crate) use catalog::planned_catalog_course;
 use catalog::*;
+pub(crate) use catalog::{catalog_instructor_names, meetings_from_grid, planned_catalog_course};
 use courses::*;
-pub use lms_merge::lms_merge_preview;
-use lms_merge::*;
 
 use crate::data::{DataError, DataStore, WorkspaceWrite};
 use crate::schedule::ClassGroup;
 use crate::study_profile::StudyEnrollment;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
 #[cfg(feature = "ts")]
@@ -124,12 +120,6 @@ pub enum WorkspaceIntent {
     UndoCatalogCourses {
         term_id: String,
         offering_ids: Vec<String>,
-    },
-    ApplyLmsMerge {
-        terms: Vec<String>,
-        add: Vec<String>,
-        keep: Vec<String>,
-        retime: Vec<String>,
     },
     SaveEvent {
         #[cfg_attr(feature = "ts", ts(type = "unknown"))]
@@ -327,8 +317,14 @@ impl WorkspaceService {
     }
 
     pub fn snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceError> {
-        let (workspace, school_records, revision) = self.store.workspace_snapshot_parts()?;
-        snapshot(workspace, school_records, revision).map_err(WorkspaceError::from)
+        let ((workspace, school_records, revision), content_revision) =
+            self.store.workspace_snapshot_with_revision()?;
+        Ok(WorkspaceSnapshot {
+            workspace,
+            school_records,
+            revision,
+            content_revision,
+        })
     }
 
     pub fn mutate(&self, mutation: WorkspaceMutation) -> Result<WorkspaceSnapshot, WorkspaceError> {
@@ -340,9 +336,21 @@ impl WorkspaceService {
         let result = self.store.workspace_write(
             &mutation.expected_revision,
             |write, current, school_records| {
-                apply_intent(write, current, school_records, mutation.intent, &mut undo)?;
-                let (workspace, school_records, revision) = write.snapshot_parts()?;
-                snapshot(workspace, school_records, revision)
+                let selection = match &mutation.intent {
+                    WorkspaceIntent::SelectTerm { term_id } => Some(term_id.clone()),
+                    _ => None,
+                };
+                apply_intent(write, current, mutation.intent, &mut undo)?;
+                let parts = if let Some(term) = selection {
+                    let mut workspace = current.clone();
+                    workspace["selectedTerm"] = term.into();
+                    (workspace, school_records.clone(), write.revision()?)
+                } else {
+                    write.snapshot_parts()?
+                };
+                let result = snapshot(parts.0.clone(), parts.1.clone(), parts.2.clone())?;
+                let hash = result.content_revision.clone();
+                Ok((result, parts, hash))
             },
         )?;
         // Only a committed add or undo changes what Undo reverses.
@@ -365,10 +373,10 @@ fn snapshot(
     school_records: Value,
     revision: String,
 ) -> Result<WorkspaceSnapshot, DataError> {
-    let bytes = serde_json::to_vec(&(&workspace, &school_records)).map_err(DataError::from)?;
+    let content_revision = crate::data::content_revision(&workspace, &school_records)?;
     Ok(WorkspaceSnapshot {
         revision,
-        content_revision: format!("{:x}", Sha256::digest(bytes)),
+        content_revision,
         workspace,
         school_records,
     })
@@ -377,7 +385,6 @@ fn snapshot(
 fn apply_intent(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
-    school_records: &Value,
     intent: WorkspaceIntent,
     catalog_undo: &mut Option<CatalogAddReceipt>,
 ) -> Result<(), DataError> {
@@ -488,12 +495,6 @@ fn apply_intent(
             let receipt = catalog_undo.take();
             undo_catalog_courses(write, current, &term_id, offering_ids, receipt)
         }
-        WorkspaceIntent::ApplyLmsMerge {
-            terms,
-            add,
-            keep,
-            retime,
-        } => apply_lms_merge(write, current, school_records, terms, add, keep, retime),
         WorkspaceIntent::SaveEvent {
             draft,
             term_id,

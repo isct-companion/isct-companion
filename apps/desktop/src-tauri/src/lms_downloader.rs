@@ -65,6 +65,7 @@ impl LmsSessionPort for NativeSession {
         Ok(match snapshot.states.science {
             SchoolSessionState::Active => SessionState::Active,
             SchoolSessionState::Pending => SessionState::Pending,
+            SchoolSessionState::Maintenance => return Err(FetchError::Network),
             SchoolSessionState::Failed | SchoolSessionState::NotConfigured => SessionState::Failed,
         })
     }

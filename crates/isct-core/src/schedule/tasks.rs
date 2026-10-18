@@ -7,8 +7,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::{
-    array, course_terms, parse_timestamp, placement_terms, scheduled_courses, text, visible,
-    ScheduleError,
+    array, parse_timestamp, placement_terms, scheduled_courses, text, visible, ScheduleError,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -16,6 +15,8 @@ use super::{
 #[serde(rename_all = "camelCase")]
 pub struct TaskDeadlineView {
     pub at: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub remaining_milliseconds: i64,
     pub label: String,
     pub tone: String,
     pub countdown_label: String,
@@ -23,19 +24,37 @@ pub struct TaskDeadlineView {
     pub overdue: bool,
 }
 
+/// One quarter's assignments, grouped the way every list shows them: what is
+/// pinned, due this week, due later, without a deadline, then past deadlines
+/// newest first. Upcoming groups are ordered by deadline.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AssignmentGroups {
+    pub pinned_ids: Vec<String>,
+    pub due_this_week_ids: Vec<String>,
+    pub later_ids: Vec<String>,
+    pub undated_ids: Vec<String>,
+    /// Past deadlines shown at once: the recent window of the current
+    /// quarter, or every past deadline of any other quarter.
+    pub past_recent_ids: Vec<String>,
+    /// Older past deadlines of the current quarter, back to its start; a list
+    /// folds these until asked.
+    pub past_earlier_ids: Vec<String>,
+    pub hidden_ids: Vec<String>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TermTaskView {
+    /// Unsubmitted work with a future deadline.
     pub pending_ids: Vec<String>,
-    pub pinned_ids: Vec<String>,
-    pub overdue_ids: Vec<String>,
-    pub due_this_week_ids: Vec<String>,
-    pub later_ids: Vec<String>,
-    pub earlier_due_this_week_ids: Vec<String>,
-    pub earlier_later_ids: Vec<String>,
-    pub lecture_open_ids: Vec<String>,
-    pub lecture_hidden_ids: Vec<String>,
+    /// What is left to do: unsubmitted upcoming or pinned work, and work
+    /// missed during the last week.
+    pub today: AssignmentGroups,
+    /// Every assignment of the quarter, whatever its submission state.
+    pub record: AssignmentGroups,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -55,6 +74,11 @@ pub(crate) fn assignment_submitted(row: &Value) -> bool {
     matches!(text(row, "submission"), Some("submitted" | "graded"))
         || text(row, "submissionStatus") == Some("submitted")
 }
+
+/// Missed work stays on Today for a week.
+const TODAY_MISSED_DAYS: i64 = 7;
+/// The current quarter's record shows the last two weeks of past work.
+const RECORD_RECENT_DAYS: i64 = 14;
 
 pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskView, ScheduleError> {
     let mut parsed = BTreeMap::new();
@@ -109,93 +133,104 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
             terms.insert(term.to_owned());
         }
     }
-    // Quarters each assignment's course belongs to (a 3Q–4Q course's work
-    // counts in both); `None` when the course is unknown.
-    let assignment_terms: BTreeMap<&str, Option<Vec<String>>> = array(workspace, "assignments")
+    let current_term = text(workspace, "currentTerm");
+    let week = now + Duration::days(7);
+    let missed_since = now - Duration::days(TODAY_MISSED_DAYS);
+    let recent_since = now - Duration::days(RECORD_RECENT_DAYS);
+    let known_courses: HashSet<&str> = array(workspace, "courses")
         .iter()
-        .filter_map(|row| {
-            let course_terms = text(row, "courseId")
-                .and_then(|course| {
-                    array(workspace, "courses")
-                        .iter()
-                        .find(|item| visible(item) && text(item, "id") == Some(course))
-                })
-                .map(|course| course_terms(workspace, course));
-            Some((text(row, "id")?, course_terms))
-        })
+        .filter(|row| visible(row))
+        .filter_map(|row| text(row, "id"))
         .collect();
     let mut by_term = BTreeMap::new();
     for term in terms {
+        // A course on several quarters' timetables (3Q–4Q) lists its work in
+        // each. Work whose course is unknown joins the current quarter while
+        // it is still recent.
         let course_ids: HashSet<String> = scheduled_courses(workspace, &term)
             .iter()
             .filter_map(|row| text(row, "id").map(str::to_owned))
             .collect();
+        let current = current_term == Some(term.as_str());
         let mut view = TermTaskView::default();
-        let mut today = Vec::new();
+        let mut upcoming = Vec::new();
+        let mut undated = Vec::new();
+        let mut past = Vec::new();
+        let mut hidden = Vec::new();
+        // Pinned work stays on Today until it is submitted or unpinned.
+        let mut today_pinned = Vec::new();
         for row in array(workspace, "assignments")
             .iter()
             .filter(|row| visible(row))
         {
             let Some(id) = text(row, "id") else { continue };
-            let in_course = text(row, "courseId").is_some_and(|course| course_ids.contains(course));
-            let hidden = row.get("hidden").and_then(Value::as_bool) == Some(true);
-            if in_course {
-                if hidden {
-                    view.lecture_hidden_ids.push(id.into());
-                } else if !assignment_submitted(row)
-                    && text(row, "dueAt")
-                        .is_none_or(|_| parsed.get(id).is_some_and(|due| *due >= now))
-                {
-                    view.lecture_open_ids.push(id.into());
-                }
-            }
-            let Some(due) = parsed.get(id) else { continue };
-            let in_term = match assignment_terms.get(id).and_then(Option::as_ref) {
-                Some(terms) => terms.contains(&term),
-                None => *due >= now,
+            let due = parsed.get(id).copied();
+            let belongs = match text(row, "courseId") {
+                Some(course) if known_courses.contains(course) => course_ids.contains(course),
+                _ => current && due.is_some_and(|due| due >= missed_since),
             };
-            if hidden || !in_term {
+            if !belongs {
                 continue;
             }
-            today.push((*due, id.to_owned(), row));
-        }
-        today.sort_by_key(|(due, id, _)| (*due, id.clone()));
-        let week = now + Duration::days(7);
-        for (due, id, row) in &today {
-            let is_submitted = assignment_submitted(row);
+            if row.get("hidden").and_then(Value::as_bool) == Some(true) {
+                hidden.push((due, id));
+                continue;
+            }
+            let submitted = assignment_submitted(row);
             let pinned = row.get("pinned").and_then(Value::as_bool) == Some(true);
-            if !is_submitted && *due >= now {
-                view.pending_ids.push(id.clone());
+            if pinned && !submitted {
+                today_pinned.push((due, id));
+            }
+            match due {
+                Some(due) if due < now => past.push((due, id, submitted, pinned)),
+                Some(due) => upcoming.push((due, id, submitted, pinned)),
+                None => undated.push((id, pinned)),
+            }
+        }
+        upcoming.sort_by_key(|(due, id, ..)| (*due, *id));
+        for (due, id, submitted, pinned) in upcoming {
+            if !submitted {
+                view.pending_ids.push(id.into());
             }
             if pinned {
-                view.pinned_ids.push(id.clone());
+                view.record.pinned_ids.push(id.into());
                 continue;
             }
-            if *due < now {
-                view.overdue_ids.push(id.clone());
-                continue;
-            }
-            let target = if *due <= week {
-                &mut view.earlier_due_this_week_ids
+            let groups: &mut [&mut AssignmentGroups] = if submitted {
+                &mut [&mut view.record]
             } else {
-                &mut view.earlier_later_ids
+                &mut [&mut view.today, &mut view.record]
             };
-            target.push(id.clone());
-            if !is_submitted {
-                let target = if *due <= week {
-                    &mut view.due_this_week_ids
+            for group in groups.iter_mut() {
+                if due <= week {
+                    group.due_this_week_ids.push(id.into());
                 } else {
-                    &mut view.later_ids
-                };
-                target.push(id.clone());
+                    group.later_ids.push(id.into());
+                }
             }
         }
-        view.overdue_ids.reverse();
-        let sort_due = |ids: &mut Vec<String>| {
-            ids.sort_by_key(|id| (!parsed.contains_key(id), parsed.get(id).copied()))
-        };
-        sort_due(&mut view.lecture_open_ids);
-        sort_due(&mut view.lecture_hidden_ids);
+        for (id, pinned) in undated {
+            if pinned {
+                view.record.pinned_ids.push(id.into());
+            } else {
+                view.record.undated_ids.push(id.into());
+            }
+        }
+        today_pinned.sort_by_key(|(due, id)| (due.is_none(), *due, *id));
+        view.today.pinned_ids = today_pinned.into_iter().map(|(_, id)| id.into()).collect();
+        past.sort_by_key(|(due, id, ..)| std::cmp::Reverse((*due, *id)));
+        for (due, id, submitted, pinned) in past {
+            if !submitted && !pinned && due >= missed_since {
+                view.today.past_recent_ids.push(id.into());
+            }
+            if !current || due >= recent_since {
+                view.record.past_recent_ids.push(id.into());
+            } else {
+                view.record.past_earlier_ids.push(id.into());
+            }
+        }
+        hidden.sort_by_key(|(due, id)| (due.is_none(), *due, *id));
+        view.record.hidden_ids = hidden.into_iter().map(|(_, id)| id.into()).collect();
         by_term.insert(term, view);
     }
     Ok(TaskView {
@@ -243,6 +278,7 @@ fn deadline_view(due: DateTime<FixedOffset>, now: DateTime<FixedOffset>) -> Task
     };
     TaskDeadlineView {
         at: due.to_rfc3339(),
+        remaining_milliseconds: ms,
         label,
         tone: tone.into(),
         countdown_label,

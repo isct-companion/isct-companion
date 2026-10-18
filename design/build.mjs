@@ -19,8 +19,8 @@ export const outputs = {
   corePalette: "crates/isct-core/src/schedule/course_palette.rs",
   swiftLight: "apps/ios/IsctCompanion/Design/Generated/IsctTokens.swift",
   swiftDark: "apps/ios/IsctCompanion/Design/Generated/IsctTokensDark.swift",
-  composeLight: "design/dist/android/IsctTokens.kt",
-  composeDark: "design/dist/android/IsctTokensDark.kt",
+  composeLight: "apps/android/app/src/main/java/app/isct/design/IsctTokens.kt",
+  composeDark: "apps/android/app/src/main/java/app/isct/design/IsctTokensDark.kt",
 };
 
 const group =

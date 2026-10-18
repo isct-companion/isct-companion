@@ -62,7 +62,7 @@ impl SchoolBrowserEngine {
         let Some(target) = target else {
             return Ok(false);
         };
-        self.dispatch(browser, BrowserAction::Navigate(site_url(site, &target)?))?;
+        self.dispatch(browser, BrowserAction::Navigate(interactive_url(&target)?))?;
         Ok(true)
     }
 
@@ -81,16 +81,13 @@ impl SchoolBrowserEngine {
         let Some(target) = target else {
             return Ok(false);
         };
-        self.dispatch(browser, BrowserAction::Navigate(site_url(site, &target)?))?;
+        self.dispatch(browser, BrowserAction::Navigate(interactive_url(&target)?))?;
         Ok(true)
     }
 }
 
-pub(super) fn history_entry(site: SchoolSite, raw: &str) -> Option<String> {
-    let safe = sanitize_school_url(raw)?;
-    if SchoolSite::for_url(&safe) != Some(site) {
-        return None;
-    }
+pub(super) fn history_entry(_site: SchoolSite, raw: &str) -> Option<String> {
+    let safe = browsing_url(raw)?;
     let url = Url::parse(&safe).ok()?;
     match url.host_str().and_then(SchoolAuthProfile::for_auth_host) {
         Some(profile) if !login_succeeded(&safe, profile) => None,

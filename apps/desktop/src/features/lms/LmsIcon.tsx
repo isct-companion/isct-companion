@@ -1,7 +1,7 @@
 import type { FileFamily } from "./file-types";
 
 const sheet = "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5";
-const paths: Record<FileFamily | "chevron" | "plus" | "close" | "search" | "refresh" | "back" | "download" | "external" | "trash" | "code", string> = {
+const paths: Record<FileFamily | "chevron" | "plus" | "minus" | "close" | "search" | "refresh" | "back" | "download" | "external" | "trash" | "code", string> = {
   pdf: `${sheet} M9 13h6 M9 17h4`,
   doc: `${sheet} M9 12h6 M9 15h6 M9 18h3`,
   page: `${sheet} M9 12h6 M9 15h6 M9 18h3`,
@@ -20,6 +20,7 @@ const paths: Record<FileFamily | "chevron" | "plus" | "close" | "search" | "refr
   note: "M4 20h4L19.5 8.5a2.1 2.1 0 0 0-4-4L4 16z M13.5 6.5l4 4",
   chevron: "m9 6 6 6-6 6",
   plus: "M12 5v14 M5 12h14",
+  minus: "M5 12h14",
   close: "M6 6l12 12 M18 6 6 18",
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z m9 2-4-4",
   refresh: "M20 11a8 8 0 0 0-14.9-3 M4 4v4h4 M4 13a8 8 0 0 0 14.9 3 M20 20v-4h-4",

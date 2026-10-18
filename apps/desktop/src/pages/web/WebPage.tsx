@@ -5,7 +5,7 @@ import { Drawer } from "@mantine/core";
 import { UiButton, UiInput } from "../../components/mantine";
 import { MobileWebList } from "../../layouts/compact/MobileWeb";
 import { t } from "../../i18n";
-import { type SchoolSite } from "../../platform/desktop-bridge";
+import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
 import type { Workspace } from "../../lib/model";
@@ -27,8 +27,8 @@ const normalizeAddress = (raw: string) => {
   const url = new URL(
     /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`,
   );
-  if (url.protocol !== "https:")
-    throw new Error("School pages must use HTTPS.");
+  if (url.protocol !== "https:" && url.protocol !== "http:")
+    throw new Error("Enter an HTTP or HTTPS URL without embedded credentials.");
   return url.toString();
 };
 
@@ -162,7 +162,8 @@ export function Web({
     const dispose = desktopBridge?.onSchoolDownload?.((event) => {
       window.clearTimeout(hide);
       setSavedFile(undefined);
-      if (event.state === "started") setStatus(`Downloading ${event.name}…`);
+      if (event.state === "started")
+        setStatus(t("Downloading {{name}}…", { name: event.name }));
       else if (event.state === "done") {
         setStatus("");
         notifyRef.current(`Saved ${event.name}`);
@@ -170,7 +171,7 @@ export function Web({
           setSavedFile({ name: event.name, path: event.path });
           hide = window.setTimeout(() => setSavedFile(undefined), 30_000);
         }
-      } else setStatus(`Download failed: ${event.name}`);
+      } else setStatus(t("Download failed: {{name}}", { name: event.name }));
     });
     return () => {
       dispose?.();
@@ -218,7 +219,7 @@ export function Web({
         claimSchoolView(owner.current);
         return (
           target
-            ? desktopBridge!.resolveSchoolUrl(target)
+            ? desktopBridge!.resolveSchoolUrl(target, site)
             : Promise.resolve({ site, url: undefined })
         ).then((resolved) => {
           if (resolved.site !== site) {
@@ -288,7 +289,7 @@ export function Web({
       const target = normalizeAddress(address);
       if (!desktopBridge)
         throw new Error("School navigation needs the installed app.");
-      const resolved = await desktopBridge.resolveSchoolUrl(target);
+      const resolved = await desktopBridge.resolveSchoolUrl(target, site);
       await openTarget(resolved.url, resolved.site);
     } catch (error) {
       setStatus(errorText(error) ?? "Invalid address");
@@ -448,7 +449,7 @@ export function Web({
               ›
             </UiButton>
           )}
-          <b className="mobileBrowserTitle">{official[site].name}</b>
+          <b className="mobileBrowserTitle">{t(official[site].name)}</b>
           {embedded && desktopBridge?.reloadSchoolWeb && (
             <UiButton
               className="iconButton"
@@ -474,7 +475,7 @@ export function Web({
         <div className="webHost" ref={host}>
           {!embedded && (
             <div className="webFallback">
-              <b>{official[site].name}</b>
+              <b>{t(official[site].name)}</b>
               <UiButton className="button primary" onClick={openOutside}>
                 {t("Open in browser")} ↗
               </UiButton>
@@ -501,7 +502,7 @@ export function Web({
                       openMobileSite?.(key, true);
                     }}
                   >
-                    {official[key].name}
+                    {t(official[key].name)}
                   </UiButton>
                 </li>
               ))}
@@ -516,11 +517,12 @@ export function Web({
           id="web"
           enabled={wide}
           firstSize={168}
-          firstMin={132}
+          firstMin={104}
           firstMax={360}
           secondMin="40%"
+          secondMax="100%"
         >
-          <nav className="servicePicker" aria-label="School services">
+          <nav className="servicePicker" aria-label={t("School services")}>
             {serviceTiers.map((tier, tierIndex) => (
               <div className="serviceTier" key={tier.frequency}>
                 {tierIndex > 0 && <div className="serviceDivider" />}
@@ -529,12 +531,12 @@ export function Web({
                     type="button"
                     className={site === key ? "active" : ""}
                     data-frequency={tier.frequency}
-                    title={`${official[key].name} · ${tier.frequency} frequency`}
+                    title={t(official[key].name)}
                     onClick={() => choose(key)}
                     key={key}
                   >
                     <i aria-hidden="true" />
-                    <span>{official[key].name}</span>
+                    <span>{t(official[key].name)}</span>
                   </UiButton>
                 ))}
               </div>
@@ -542,11 +544,8 @@ export function Web({
           </nav>
           <section
             className="workspacePane webWorkspace"
-            aria-label={official[site].name}
+            aria-label={t(official[site].name)}
           >
-            <header className="workspaceTabStrip">
-              <span className="workspaceCurrentTab">{official[site].name}</span>
-            </header>
             <form
               className="webToolbar"
               onSubmit={(event) => void navigate(event)}
@@ -556,8 +555,8 @@ export function Web({
                   <UiButton
                     type="button"
                     className="iconButton"
-                    title={`Back to ${returnLabel}`}
-                    aria-label={`Back to ${returnLabel}`}
+                    title={t("Back to {{page}}", { page: returnLabel })}
+                    aria-label={t("Back to {{page}}", { page: returnLabel })}
                     onClick={onReturn}
                   >
                     ←
@@ -569,7 +568,7 @@ export function Web({
                 <UiInput
                   ref={addressInput}
                   className="webAddressInput"
-                  aria-label="Current URL"
+                  aria-label={t("Current URL")}
                   spellCheck={false}
                   value={address}
                   onChange={(event) => setAddress(event.currentTarget.value)}
@@ -584,23 +583,27 @@ export function Web({
                   }}
                 />
                 <span className="webStatus" role="status">
-                  {status}
+                  {t(status)}
                 </span>
                 {savedFile && desktopBridge?.revealSchoolDownload && (
                   <UiButton
                     type="button"
-                    title={`Show ${savedFile.name} in Finder`}
+                    title={savedFile.name}
                     onClick={() => void revealSaved(savedFile.path)}
                   >
-                    Reveal
+                    {t(
+                      nativeOs() === "macos"
+                        ? "Show in Finder"
+                        : "Show in folder",
+                    )}
                   </UiButton>
                 )}
                 {embedded && desktopBridge?.schoolWebBack && (
                   <UiButton
                     type="button"
                     className="iconButton"
-                    title="Previous page"
-                    aria-label="Previous page"
+                    title={t("Previous page")}
+                    aria-label={t("Previous page")}
                     onClick={() => void goBack()}
                   >
                     ←
@@ -610,8 +613,8 @@ export function Web({
                   <UiButton
                     type="button"
                     className="iconButton"
-                    title="Next page"
-                    aria-label="Next page"
+                    title={t("Next page")}
+                    aria-label={t("Next page")}
                     onClick={() => void goForward()}
                   >
                     →
@@ -621,33 +624,20 @@ export function Web({
                   <UiButton
                     type="button"
                     className="iconButton"
-                    title="Reload"
-                    aria-label="Reload"
+                    title={t("Reload")}
+                    aria-label={t("Reload")}
                     onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
                   >
                     ↻
                   </UiButton>
                 )}
-                {embedded && site === "kyomu" && (
-                  <UiButton
-                    type="button"
-                    title="教務Web top page"
-                    onClick={() =>
-                      void openTarget(official.kyomu.url, "kyomu").catch(
-                        (error) => setStatus(errorText(error) ?? "Unavailable"),
-                      )
-                    }
-                  >
-                    Top
-                  </UiButton>
-                )}
               </div>
-              <div className="webZoom" aria-label="Page zoom">
+              <div className="webZoom" aria-label={t("Page zoom")}>
                 <UiButton
                   type="button"
                   className="iconButton"
-                  aria-label="Zoom out"
-                  title="Zoom out"
+                  aria-label={t("Zoom out")}
+                  title={t("Zoom out")}
                   disabled={resolvedZoom <= 0.5}
                   onClick={() => setPageZoom(resolvedZoom - 0.1)}
                 >
@@ -656,7 +646,7 @@ export function Web({
                 <UiButton
                   type="button"
                   className="zoomValue"
-                  title="Reset zoom"
+                  title={t("Reset zoom")}
                   onClick={() => setPageZoom(1)}
                 >
                   {Math.round(resolvedZoom * 100)}%
@@ -664,8 +654,8 @@ export function Web({
                 <UiButton
                   type="button"
                   className="iconButton"
-                  aria-label="Zoom in"
-                  title="Zoom in"
+                  aria-label={t("Zoom in")}
+                  title={t("Zoom in")}
                   disabled={resolvedZoom >= 2}
                   onClick={() => setPageZoom(resolvedZoom + 0.1)}
                 >
@@ -675,8 +665,8 @@ export function Web({
               <UiButton
                 type="button"
                 className="iconButton webOpenOutside"
-                title="Open in browser"
-                aria-label="Open in browser"
+                title={t("Open in browser")}
+                aria-label={t("Open in browser")}
                 onClick={openOutside}
               >
                 ↗
@@ -686,7 +676,7 @@ export function Web({
               {embedded ? null : platform === "browser-preview" && frameable ? (
                 <iframe
                   key={`${site}:${targetUrl}`}
-                  title={official[site].name}
+                  title={t(official[site].name)}
                   src={targetUrl}
                   referrerPolicy="no-referrer"
                   style={{
@@ -697,16 +687,18 @@ export function Web({
                 />
               ) : (
                 <div className="webFallback">
-                  <b>{official[site].name}</b>
+                  <b>{t(official[site].name)}</b>
                   <p>
-                    {platform === "browser-preview"
-                      ? "T2SCHOLA does not allow embedding in a browser."
-                      : desktopBridge
-                        ? "This build opens school pages in a separate window."
-                        : "School pages need the desktop app."}
+                    {t(
+                      platform === "browser-preview"
+                        ? "T2SCHOLA does not allow embedding in a browser."
+                        : desktopBridge
+                          ? "This build opens school pages in a separate window."
+                          : "School pages need the desktop app.",
+                    )}
                   </p>
                   <UiButton className="button primary" onClick={openOutside}>
-                    Open {official[site].name} ↗
+                    {t("Open {{site}}", { site: t(official[site].name) })} ↗
                   </UiButton>
                 </div>
               )}

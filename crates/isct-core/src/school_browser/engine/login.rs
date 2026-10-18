@@ -47,9 +47,13 @@ impl SchoolBrowserEngine {
     ) -> Result<bool, SchoolBrowserError> {
         loop {
             self.wait_until_hidden_without_context().await?;
+            let started = Instant::now();
+            log::info!(target: "isct_core::school_browser", "session check waiting profile={profile:?}");
             let lane = self.acquire_lane().await?;
+            log::info!(target: "isct_core::school_browser", "session check acquired profile={profile:?} waited_ms={}", started.elapsed().as_millis());
             let result = self.ensure_session_once(profile).await;
             drop(lane);
+            log::info!(target: "isct_core::school_browser", "session check finished profile={profile:?} elapsed_ms={} result={result:?}", started.elapsed().as_millis());
             match result {
                 Err(SchoolBrowserError::Preempted) => continue,
                 result => return result,
@@ -196,6 +200,12 @@ impl SchoolBrowserEngine {
                     }) if found == profile && state != SchoolSessionState::Pending => {
                         return Ok(state)
                     }
+                    Ok(Trace::Maintenance {
+                        browser: found,
+                        message,
+                    }) if found == browser => {
+                        return Err(SchoolBrowserError::Maintenance(message));
+                    }
                     Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
@@ -256,10 +266,22 @@ impl SchoolBrowserEngine {
         }
         let _ = self.0.events.emit(CoreEvent::SchoolLogin(SchoolLoginEvent {
             profile,
-            state: "error".into(),
+            state: if matches!(error, SchoolBrowserError::Maintenance(_)) {
+                "maintenance"
+            } else {
+                "error"
+            }
+            .into(),
             message: error.to_string(),
         }));
-        self.set_session(profile, SchoolSessionState::Failed);
+        self.set_session(
+            profile,
+            if matches!(error, SchoolBrowserError::Maintenance(_)) {
+                SchoolSessionState::Maintenance
+            } else {
+                SchoolSessionState::Failed
+            },
+        );
     }
 
     pub(super) async fn ensure_session_once(
@@ -291,6 +313,12 @@ impl SchoolBrowserEngine {
                     }) if found == profile && state != SchoolSessionState::Pending => {
                         return Ok(state == SchoolSessionState::Active)
                     }
+                    Ok(Trace::Maintenance {
+                        browser: found,
+                        message,
+                    }) if found == browser => {
+                        return Err(SchoolBrowserError::Maintenance(message));
+                    }
                     Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Stopped) | Err(broadcast::error::RecvError::Closed) => {
@@ -317,6 +345,9 @@ impl SchoolBrowserEngine {
                 SchoolBrowserError::Preempted | SchoolBrowserError::Stopped
             ) {
                 self.clear_heartbeat(profile);
+            } else if matches!(error, SchoolBrowserError::Maintenance(_)) {
+                self.clear_heartbeat(profile);
+                self.set_session(profile, SchoolSessionState::Maintenance);
             } else {
                 self.fail_heartbeat(profile);
             }
@@ -437,6 +468,7 @@ impl Inner {
         if !valid_login_relay(&relay.state, &relay.message) {
             return;
         }
+        let maintenance = relay.state == "maintenance";
         let mut failed = false;
         let matched = self.state.with(|state| {
             let matched = state
@@ -445,7 +477,9 @@ impl Inner {
                 .is_some_and(|active| active.profile == relay.profile && active.run == relay.run);
             if matched && relay.state != "progress" && relay.state != "needs-user" {
                 state.login = None;
-                state.auto_blocked.insert(relay.profile);
+                if !maintenance {
+                    state.auto_blocked.insert(relay.profile);
+                }
                 failed = true;
             }
             matched
@@ -459,7 +493,14 @@ impl Inner {
             }));
         }
         if failed {
-            self.set_session_from_inner(relay.profile, SchoolSessionState::Failed);
+            self.set_session_from_inner(
+                relay.profile,
+                if maintenance {
+                    SchoolSessionState::Maintenance
+                } else {
+                    SchoolSessionState::Failed
+                },
+            );
         }
     }
 
@@ -587,6 +628,7 @@ pub(super) fn snapshot(state: &State) -> SchoolSessionSnapshot {
     };
     SchoolSessionSnapshot {
         revision: state.revision,
+        kyomu_maintenance: state.kyomu_maintenance.clone(),
         states: SchoolSessionStates {
             science: get(SchoolAuthProfile::Science),
             tokyo_tech: get(SchoolAuthProfile::TokyoTech),

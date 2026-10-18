@@ -1,3 +1,5 @@
+import { deadlineText } from "../../lib/deadline-text";
+import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
 import { SwipeActions } from "../../components/SwipeActions";
@@ -16,6 +18,7 @@ import {
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
 import { CourseFinder } from "./CourseFinder";
+import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
 import { addCivilDays as addDays, civilWeekday } from "../../lib/civil-date";
 import {
   useScheduleQuery,
@@ -36,6 +39,7 @@ export function Today({
   openEvent,
   openPlan,
   openTask,
+  openAssignments,
   hideAssignment,
   pinAssignment,
   openSchedule,
@@ -54,6 +58,8 @@ export function Today({
   openEvent: (event: PersonalEvent) => void;
   openPlan: (plan: Plan) => void;
   openTask: (assignmentId: string) => void;
+  /** Lecture Desk's full list of the quarter's assignments. */
+  openAssignments?: () => void;
   hideAssignment: (assignmentId: string) => void;
   pinAssignment?: (assignmentId: string) => void;
   openSchedule: () => void;
@@ -71,8 +77,6 @@ export function Today({
         ?.scrollIntoView?.({ block: "start" });
   }, [focusSection]);
   const [allClasses, setAllClasses] = useState(false);
-  const [allDue, setAllDue] = useState(false);
-  const [dueScope, setDueScope] = useState<"today" | "earlier">("today");
   const nowIso = useClock(active);
   const now = new Date(nowIso);
   const todayIso = jstDate(now);
@@ -131,29 +135,16 @@ export function Today({
   const taskTerm = taskView?.byTerm[term];
   const submittedIds = new Set(taskView?.submittedIds);
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
-  const rows = (ids: string[] | undefined) =>
-    (ids ?? []).flatMap((id) => byAssignment.get(id) ?? []);
-  const pending = rows(taskTerm?.pendingIds);
-  const pinned = rows(taskTerm?.pinnedIds);
-  const soon = rows(
-    dueScope === "earlier"
-      ? taskTerm?.earlierDueThisWeekIds
-      : taskTerm?.dueThisWeekIds,
-  );
-  const later = rows(
-    dueScope === "earlier" ? taskTerm?.earlierLaterIds : taskTerm?.laterIds,
-  );
-  const past = dueScope === "earlier" ? rows(taskTerm?.overdueIds) : [];
+  const pendingCount = taskTerm?.pendingIds.length ?? 0;
   const row = (assignment: Assignment) => {
     const course = data.courses.find(
       (item) => item.id === assignment.courseId && !item.deletedAt,
     );
     const due = taskView?.deadlines?.[assignment.id];
-    if (!due) return null;
     const submitted = submittedIds.has(assignment.id);
     // Past and submitted: gray; past and never submitted: red; submitted
     // ahead of the deadline: green.
-    const state = due.overdue
+    const state = due?.overdue
       ? submitted
         ? " closed"
         : " missed"
@@ -180,19 +171,20 @@ export function Today({
               {submissionLabel(assignment, t, submitted)}
             </small>
           </span>
-          {!due.overdue && !submitted ? (
-            <time
-              className={`dueChip ${due.countdownTone}`}
-              dateTime={assignment.dueAt!}
-              title={due.label}
-            >
-              {due.countdownLabel}
-            </time>
-          ) : (
-            <time className={due.overdue ? "overdue" : due.tone}>
-              {due.label}
-            </time>
-          )}
+          {due &&
+            (!due.overdue && !submitted ? (
+              <time
+                className={`dueChip ${due.countdownTone}`}
+                dateTime={assignment.dueAt!}
+                title={deadlineText(due, data.settings.locale).label}
+              >
+                {deadlineText(due, data.settings.locale).countdownLabel}
+              </time>
+            ) : (
+              <time className={due.overdue ? "overdue" : due.tone}>
+                {deadlineText(due, data.settings.locale).label}
+              </time>
+            ))}
         </UiButton>
         {!mobile && (
           <UiButton
@@ -239,7 +231,7 @@ export function Today({
         return {
           ...first,
           date: date,
-          day: offset === 1 && isToday ? "Tomorrow" : DAY_NAMES[day - 1],
+          day: t(offset === 1 && isToday ? "Tomorrow" : DAY_NAMES[day - 1]),
         };
     }
     return undefined;
@@ -247,7 +239,7 @@ export function Today({
   const more = (hidden: number, expanded: boolean, toggle: () => void) =>
     hidden > 0 || expanded ? (
       <UiButton className="textButton moreToggle" onClick={toggle}>
-        {expanded ? "Show less" : `+${hidden} more`}
+        {expanded ? t("Show less") : t("+{{count}} more", { count: hidden })}
       </UiButton>
     ) : null;
   const rawStateLabel = teachingState?.label;
@@ -258,9 +250,7 @@ export function Today({
         ? (rawStateLabel[contentLanguage(data.settings)] ??
           rawStateLabel.ja ??
           rawStateLabel.en)
-        : effectiveDay > 5
-          ? "Weekend"
-          : "Teaching day";
+        : t(effectiveDay > 5 ? "Weekend" : "Teaching day");
 
   return (
     <div
@@ -273,17 +263,17 @@ export function Today({
       <header className="todayHeader">
         <div className="daySwap" key={viewIso} style={swap}>
           <p className="todayEyebrow">
-            {new Intl.DateTimeFormat("en-GB", {
+            {formatJst(viewDate, data.settings.locale, {
               weekday: "long",
               timeZone: "Asia/Tokyo",
-            }).format(viewDate)}
+            })}
           </p>
           <h1>
-            {new Intl.DateTimeFormat("en-GB", {
+            {formatJst(viewDate, data.settings.locale, {
               day: "numeric",
               month: "long",
               timeZone: "Asia/Tokyo",
-            }).format(viewDate)}
+            })}
           </h1>
         </div>
         {!compact && (
@@ -291,7 +281,7 @@ export function Today({
             <div
               className="weekStrip"
               role="group"
-              aria-label="Week"
+              aria-label={t("Week")}
               style={
                 {
                   "--day": effectiveDay - 1,
@@ -301,12 +291,12 @@ export function Today({
             >
               <UiButton
                 className="weekShift"
-                aria-label="Previous week"
+                aria-label={t("Previous week")}
                 onClick={() => pick(addDays(viewIso, -7))}
               >
                 ‹
               </UiButton>
-              {week.map(({ date, busy }, index) => (
+              {week.map(({ date, busy }) => (
                 <UiButton
                   key={date}
                   className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
@@ -314,13 +304,17 @@ export function Today({
                   aria-label={date}
                   onClick={() => pick(date === todayIso ? null : date)}
                 >
-                  <small>{DAY_NAMES[index].slice(0, 1)}</small>
+                  <small>
+                    {formatJst(date, data.settings.locale, {
+                      weekday: "narrow",
+                    })}
+                  </small>
                   <b>{Number(date.slice(8))}</b>
                 </UiButton>
               ))}
               <UiButton
                 className="weekShift"
-                aria-label="Next week"
+                aria-label={t("Next week")}
                 onClick={() => pick(addDays(viewIso, 7))}
               >
                 ›
@@ -329,7 +323,7 @@ export function Today({
             <span className="teachingState">
               {!isToday && (
                 <UiButton className="textButton" onClick={() => pick(null)}>
-                  Today
+                  {t("Today")}
                 </UiButton>
               )}
               {stateLabel}
@@ -340,14 +334,14 @@ export function Today({
 
       <div className="todayFlow">
         {importantDates.length > 0 && (
-          <aside className="importantDates" aria-label="Important dates">
+          <aside className="importantDates" aria-label={t("Important dates")}>
             {importantDates.map((item) => (
               <span key={item.id}>
                 <b>
                   {pickLocalized(
                     item.label,
                     contentLanguage(data.settings),
-                    "Important date",
+                    t("Important date"),
                   )}
                 </b>
                 {item.startDate !== item.endDate && (
@@ -361,9 +355,9 @@ export function Today({
         )}
         <section className="todaySection" data-today-section="classes">
           <header>
-            <h2>Schedule</h2>
+            <h2>{t("Schedule", { context: "today" })}</h2>
             <UiButton className="textButton" onClick={openSchedule}>
-              Week
+              {t("Week")}
             </UiButton>
           </header>
           <div className="dayAgenda daySwap" key={viewIso} style={swap}>
@@ -371,13 +365,15 @@ export function Today({
               (block, index) => {
                 const state = !isToday
                   ? ""
-                  : index === activeIndex
-                    ? "Now"
-                    : index === nextIndex
-                      ? "Next"
-                      : block.endTime <= clock
-                        ? "Earlier"
-                        : "Later";
+                  : t(
+                      index === activeIndex
+                        ? "Now"
+                        : index === nextIndex
+                          ? "Next"
+                          : block.endTime <= clock
+                            ? "Earlier"
+                            : "Later",
+                    );
                 return (
                   <UiButton
                     className={`dayAgendaRow ${block.kind}${index === focusIndex ? " focus" : ""}${selection?.courseId === block.id && !selection.assignmentId ? " selected" : ""}${block.conflict ? " conflict" : ""}`}
@@ -413,7 +409,9 @@ export function Today({
                     <time>
                       {timeLabel(block.startTime)}
                       {block.kind === "exam" && (
-                        <small>EXAM · {block.timeLabel}</small>
+                        <small>
+                          {t("Exam")} · {block.timeLabel}
+                        </small>
                       )}
                     </time>
                     <span className="agendaLine" aria-hidden="true" />
@@ -423,7 +421,9 @@ export function Today({
                         {[
                           block.room || block.subtitle,
                           block.conflictWith?.length
-                            ? `Overlaps ${block.conflictWith.join(", ")}`
+                            ? t("Overlaps {{courses}}", {
+                                courses: block.conflictWith.join(", "),
+                              })
                             : "",
                         ]
                           .filter(Boolean)
@@ -443,7 +443,7 @@ export function Today({
             {!blocks.length && (
               <>
                 <p className="quietEmpty compact">
-                  {isToday ? "Nothing scheduled today" : "Nothing scheduled"}
+                  {t(isToday ? "Nothing scheduled today" : "Nothing scheduled")}
                 </p>
                 {nextClass && (
                   <UiButton
@@ -470,7 +470,7 @@ export function Today({
                         });
                     }}
                   >
-                    <span className="agendaState">Next</span>
+                    <span className="agendaState">{t("Next")}</span>
                     <time>
                       <small>{nextClass.day}</small>
                       {timeLabel(nextClass.startTime)}
@@ -494,51 +494,27 @@ export function Today({
           data-today-section="assignments"
         >
           <header>
-            <h2>Assignments</h2>
-            <div
-              className="dueScope"
-              role="group"
-              aria-label="Assignments shown"
-            >
-              {(["today", "earlier"] as const).map((scope) => (
-                <UiButton
-                  key={scope}
-                  aria-pressed={dueScope === scope}
-                  onClick={() => setDueScope(scope)}
-                >
-                  {scope === "today" ? "Today" : "Earlier"}
-                </UiButton>
-              ))}
-            </div>
-            <span>{pending.length ? `${pending.length} active` : "Clear"}</span>
+            <h2>{t("Assignments")}</h2>
+            <span>
+              {pendingCount
+                ? t("{{count}} active", { count: pendingCount })
+                : t("All clear")}
+            </span>
+            {openAssignments && (
+              <UiButton className="textButton" onClick={openAssignments}>
+                {t("All assignments")} →
+              </UiButton>
+            )}
           </header>
           <div className="dueList">
-            {pinned.length > 0 && (
-              <div className="duePinned">
-                <small>{t("Pinned")}</small>
-                {pinned.map(row)}
-              </div>
-            )}
-            {(allDue ? soon : soon.slice(0, DUE_ROWS)).map(row)}
-            {soon.length > DUE_ROWS &&
-              more(allDue ? 0 : soon.length - DUE_ROWS, allDue, () =>
-                setAllDue((value) => !value),
-              )}
-            {!soon.length && (
-              <p className="quietEmpty compact">Nothing due this week.</p>
-            )}
-            {later.length > 0 && (
-              <div className="dueLater">
-                <small>Later · {later.length}</small>
-                {later.map(row)}
-              </div>
-            )}
-            {past.length > 0 && (
-              <div className="dueLater duePast">
-                <small>Past deadline · {past.length}</small>
-                {past.map(row)}
-              </div>
-            )}
+            <AssignmentGroupList
+              groups={taskTerm?.today}
+              assignments={byAssignment}
+              row={row}
+              thisWeekLimit={DUE_ROWS}
+              pastLabel={t("Missed")}
+              empty={t("Nothing due this week")}
+            />
           </div>
         </section>
       </div>

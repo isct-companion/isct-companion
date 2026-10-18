@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+import { MantineProvider } from "@mantine/core";
 import { Activity, act, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   advance,
   buttonByText,
   click,
+  chooseOption,
   courseFor,
   emptySchoolRecords,
   installFakeCore,
@@ -246,6 +248,8 @@ type WorkspaceOptions = {
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
   timeline?: unknown;
   tasks?: unknown;
+  /** Core's `courseDetail` answer, which carries the course's syllabus link. */
+  detail?: unknown;
   handle?: FakeCoreOptions["handle"];
 };
 
@@ -265,6 +269,7 @@ async function openWorkspace(
       queries: {
         courseTimeline: () => options.timeline ?? null,
         taskView: () => options.tasks ?? null,
+        courseDetail: () => options.detail ?? null,
       },
       handle: (command, args) => {
         if (command === "list_course_notes") return [];
@@ -287,7 +292,7 @@ async function openWorkspace(
     close: () => {},
     markLesson: options.markLesson,
   };
-  const view = await mount(<real.LmsWorkspace {...props} />);
+  const view = await mount(<MantineProvider><real.LmsWorkspace {...props} /></MantineProvider>);
   views.push(view);
   await waitFor(() =>
     expect(view.host.querySelector(".lmsWorkspace")).not.toBeNull(),
@@ -299,7 +304,7 @@ async function openWorkspace(
     host: view.host,
     render: async (overrides: Partial<typeof props> = {}) => {
       await act(async () =>
-        view.root.render(<real.LmsWorkspace {...props} {...overrides} />),
+        view.root.render(<MantineProvider><real.LmsWorkspace {...props} {...overrides} /></MantineProvider>),
       );
     },
   };
@@ -616,7 +621,7 @@ describe("the LMS reading workspace", () => {
       bodyHtml: "",
       url: "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7",
     });
-    const { host } = await openWorkspace(f, { entry: { request: 610 } });
+    const { host, core } = await openWorkspace(f, { entry: { request: 610 } });
 
     const forum = [...host.querySelectorAll(".lmsInlineActivity")].find(
       (item) => item.textContent?.includes("アナウンスメント"),
@@ -627,18 +632,33 @@ describe("the LMS reading workspace", () => {
     await click(buttonByText(host, "Open in LMS"));
     await waitFor(() =>
       expect(host.querySelector(".lmsSourceBar")?.textContent).toContain(
-        "Official LMS",
+        "lms.s.isct.ac.jp",
+      ),
+    );
+    await act(async () =>
+      core.emit("school-web-url", {
+        site: "science-lms",
+        url: "https://docs.google.com/forms/d/test/viewform",
+      }),
+    );
+    await waitFor(() =>
+      expect(host.querySelector(".lmsSourceBar")?.textContent).toBe(
+        "docs.google.com",
       ),
     );
   }, 30_000);
 
   it("hides the redundant syllabus item and opens the syllabus in its own panel", async () => {
     const f = lectureFixture();
-    f.course.offeringId = "20260001";
     f.workspace.materials.push(
       material({ id: "syllabus-item", title: "シラバス", module: "url" }),
     );
-    const { host } = await openWorkspace(f, { entry: { request: 502 } });
+    const { host } = await openWorkspace(f, {
+      entry: { request: 502 },
+      detail: {
+        syllabusUrl: "https://syllabus.s.isct.ac.jp/courses/-/-/-/202600001",
+      },
+    });
 
     expect(
       [...host.querySelectorAll(".lmsItemRow")].some((row) =>
@@ -769,6 +789,7 @@ describe("the LMS reading workspace", () => {
             at: "2026-10-10T09:00:00+09:00",
             label: "Due 10 Oct, 09:00",
             tone: "normal",
+            remainingMilliseconds: 172800000,
             countdownLabel: "2d",
             countdownTone: "soon",
             overdue: false,
@@ -1674,7 +1695,7 @@ describe("the PDF viewer", () => {
       () => import("@app/features/lms/PdfDocument"),
     );
     const view = await mount(
-      <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />,
+      <MantineProvider><real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" /></MantineProvider>,
     );
     views.push(view);
     return { view, host: view.host };
@@ -1791,14 +1812,8 @@ describe("the PDF viewer", () => {
     expect(scroll).toHaveBeenCalled();
     expect(host.querySelectorAll("canvas")).toHaveLength(1);
 
-    const zoom = host.querySelector<HTMLSelectElement>("select")!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )!.set!.call(zoom, "1.5");
-      zoom.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    const zoom = host.querySelector<HTMLInputElement>('[role="combobox"][aria-label="Zoom"]')!;
+    await chooseOption(zoom, "1.5");
     expect(
       (host.querySelector(".lmsPdfPages") as HTMLElement).style.width,
     ).toBe("150%");

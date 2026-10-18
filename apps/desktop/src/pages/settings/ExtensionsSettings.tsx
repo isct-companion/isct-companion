@@ -30,7 +30,7 @@ export function ExtensionsSettings({
           return (
             <details className="siteEditor" key={site}>
               <summary>
-                <b>{customizationNames[site]}</b>
+                <b>{t(customizationNames[site])}</b>
                 <Badge variant="light" color={enabled ? "green" : "gray"}>
                   {t(enabled ? "On" : "Off")}
                 </Badge>

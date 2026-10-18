@@ -1,3 +1,6 @@
+mod otp_import;
+pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
+
 use crate::lifecycle::SchoolSite;
 use crate::ports::{SecretError, SecretVault};
 use ring::hmac;
@@ -128,9 +131,27 @@ impl SchoolCredentials {
     }
 }
 
+// Undergraduate student numbers identify the guide cohort (e.g. 25Bxxxxx).
+// Graduate numbers identify a different degree's entry, so cannot supply this cohort.
+fn student_admission_year(username: &str) -> Option<i32> {
+    let number = username.trim().as_bytes();
+    if number.len() != 8
+        || !matches!(number[2], b'B' | b'b')
+        || !number[..2]
+            .iter()
+            .chain(number[3..].iter())
+            .all(u8::is_ascii_digit)
+    {
+        return None;
+    }
+    Some(2000 + i32::from(number[0] - b'0') * 10 + i32::from(number[1] - b'0'))
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchoolCredentialStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_admission_year: Option<i32>,
     pub science: CredentialSummary,
     pub tokyo_tech: CredentialSummary,
 }
@@ -551,6 +572,7 @@ impl SchoolAuthService {
                     summary.availability = CredentialAvailability::NotConfigured;
                 }
             }
+            status.suggested_admission_year = student_admission_year(&status.tokyo_tech.username);
             return Ok(status);
         }
         let summary = |credentials: Option<SchoolCredentials>| match credentials {
@@ -563,12 +585,36 @@ impl SchoolAuthService {
             },
             None => CredentialSummary::default(),
         };
-        let status = SchoolCredentialStatus {
+        let mut status = SchoolCredentialStatus {
             science: summary(self.load(SchoolAuthProfile::Science)?),
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
+            ..Default::default()
         };
+        status.suggested_admission_year = student_admission_year(&status.tokyo_tech.username);
         self.write_status(&status);
         Ok(status)
+    }
+
+    /// Explicit export only. Native shells write the result directly to the
+    /// clipboard instead of returning a saved secret to their WebView.
+    pub fn otp_setup_text(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
+        let text = if let Some(value) = draft.filter(|value| !value.trim().is_empty()) {
+            value.trim().replace(' ', "")
+        } else {
+            self.load(SchoolAuthProfile::Science)?
+                .map(|credentials| credentials.otp_secret)
+                .unwrap_or_default()
+        };
+        if text.is_empty() {
+            return Err(SchoolAuthError::invalid(
+                "Set up school verification codes before copying.",
+            ));
+        }
+        if text.len() > 1_024 {
+            return Err(SchoolAuthError::invalid("OTP setup is too long."));
+        }
+        otp_config(&text)?;
+        Ok(text)
     }
 
     pub fn matrix_text(&self) -> Result<String, SchoolAuthError> {

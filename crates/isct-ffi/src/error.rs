@@ -10,6 +10,8 @@ pub enum SdkError {
     Compatibility { detail: String },
     #[error("Authentication required: {detail}")]
     Authentication { detail: String },
+    #[error("School service under maintenance: {detail}")]
+    Maintenance { detail: String },
     #[error("Network failure: {detail}")]
     Network { detail: String },
     #[error("Operation timed out: {detail}")]
@@ -156,6 +158,7 @@ impl From<isct_core::school_browser::SchoolBrowserError> for SdkError {
             E::Timeout(detail) => Self::Timeout { detail },
             E::Cancelled | E::Preempted => Self::Cancelled,
             E::Stopped => Self::Closed,
+            E::Maintenance(detail) => Self::Maintenance { detail },
             E::Platform(detail) | E::SiteChanged(detail) => Self::Unavailable { detail },
         }
     }
@@ -166,6 +169,7 @@ impl From<isct_core::pull_coordinator::PullError> for SdkError {
         match e {
             E::InvalidInput(detail) | E::InvalidTarget(detail) => Self::InvalidInput { detail },
             E::Authentication(detail) => Self::Authentication { detail },
+            E::Maintenance(detail) => Self::Maintenance { detail },
             E::Network(detail) => Self::Network { detail },
             E::Storage(detail) => Self::Storage { detail },
             E::Timeout(detail) => Self::Timeout { detail },
@@ -186,6 +190,7 @@ impl From<isct_core::school_service::SchoolError> for SdkError {
             E::InvalidInput(detail) => Self::InvalidInput { detail },
             E::Storage(detail) => Self::Storage { detail },
             E::Authentication(detail) => Self::Authentication { detail },
+            E::Maintenance(detail) => Self::Maintenance { detail },
             E::Timeout(detail) => Self::Timeout { detail },
             E::Stopped(_) => Self::Closed,
             E::Cancelled => Self::Cancelled,
@@ -203,6 +208,8 @@ impl From<isct_core::catalog::CatalogError> for SdkError {
         use isct_core::catalog::CatalogError as E;
         match e {
             E::Data(e) => e.into(),
+            E::Pull(e) => e.into(),
+            E::School(e) => e.into(),
             E::InvalidInput(detail) => Self::InvalidInput { detail },
             E::Json(e) => Self::Compatibility {
                 detail: e.to_string(),

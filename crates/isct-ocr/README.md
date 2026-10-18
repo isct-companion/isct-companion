@@ -24,3 +24,96 @@ recognition result.
 This crate isolates an optional dependency and its failure handling at the API
 boundary. It runs in the caller's process and does not claim to contain a native
 abort or memory fault; process isolation would require a separate worker.
+
+Desktop camera scanning has two phases. `capture_matrix_frame` decodes and
+locates a frame, rectifies 96×96 glyphs with bilinear interpolation, keeps
+Rec.601 grayscale, and measures contrast, Laplacian sharpness, source resolution
+and whether texture lies inside the glyph instead of on a cropped grid edge.
+It performs no character-model inference and no input binarization. Geometry
+localization retains its existing grid/header detection internally.
+
+`isct_core::matrix_scan::MatrixCameraScanner` owns the bounded acquisition.
+The first plausible Matrix (at least half its cells have usable texture) starts
+an eight-second deadline. Each cell independently retains up to six candidate
+gray images from observations at least 100 ms apart, preferring sharp centered
+texture. Acquisition stops immediately once every cell has five candidates, or
+at the deadline. A periodic shell wakeup enforces the deadline even when video
+stalls. Missing geometry never restarts it. Before first detection there is no
+capture deadline. Candidate memory is bounded at 70×6×96×96 bytes plus small
+metadata; buffers remain resident only for the current session.
+
+The shell releases the camera and closes its dialog before invoking background
+processing. `MatrixAlphabetService` uses the bundled A–Z + blank classifier on
+batches of up to ten candidate glyphs. Only results at confidence >= 0.8 vote.
+Each cell requires at least three qualified observations and a strict weighted
+and count majority. Offline votes accumulate across all retained candidates;
+a later candidate does not erase earlier votes. The result is returned only
+after every candidate is processed. Unsettled cells are marked for review rather
+than presented as settled recognition. Closing/cancelling invalidates the session;
+workers check ownership between batches and ignore stale results.
+
+Desktop requests a 30 fps stream with one capture request in flight. It consumes
+the newest decoded frame, dropping intervening frames without canvas/JPEG work.
+The preview displays only one red outline. Processing has inline progress and
+can continue while the app is in the background after capture has stopped.
+`matrix-scan/latest.json` under the app cache contains acquisition/processing
+times, per-cell candidate/vote counts, weak coverage and shell capture timing;
+it contains no images or recognized letters. `trackedMs` measures first visible
+outline to camera release, not the later inference completion.
+
+Photo imports retain the existing Paddle service and acceptance rules. The
+older `scan_live_frame` and `MatrixScanner` API remain for its adaptive replay
+profiler. That path scans all 70 cells, refines unsettled cells and verifies the
+whole card before completion; its policies are not a second owner of the new
+camera acquisition session.
+
+Replay the two-stage camera flow (the input files are `capture-*.jpg`):
+
+```sh
+cargo run -p isct-ocr --release --example matrix_capture -- FRAME_DIRECTORY EXPECTED_TEXT CAPTURE_FPS
+```
+
+The reported capture duration follows the recording timestamps; it is not a
+new live-camera measurement. Frame processing and offline model time are measured
+on the host. `ISCT_MATRIX_ALPHABET_MODEL` can select local experimental weights
+at build time; ordinary builds embed the synthetic-only printed model documented
+under `models/alphabet/`. No captured card data belongs in that directory.
+
+Run a local replay through the real scheduler and model:
+
+```sh
+cargo run -p isct-ocr --release --example matrix_profile -- IMAGE_OR_FRAME_DIRECTORY EXPECTED_TEXT [MAX_FRAMES]
+```
+
+This reports first-pass time, refinement latency, effective update frequency,
+full-card-equivalent throughput, completion time and ground-truth mismatches.
+Replay timing excludes camera/IPC overhead; physical focus, framing and live
+acquisition remain manual check `OCR-CAMPUS-CARD`. The Latin glyph fixture is
+rendered from the system Helvetica font and contains no student data.
+
+## Candidate alphabet classifier evaluation
+
+`matrix_live CAPTURE_DIRECTORY [ALPHABET_ONNX] [TIMEOUT_SECONDS]` can run an
+external A–Z + blank classifier against live `latest.jpg` frames. It uses the
+production capture preprocessing and legacy core consensus, with direct 96×96 grayscale input.
+Unlike production metadata logging, this supervised diagnostic saves source
+frames, geometry and readings locally for replay; use a disposable test card.
+
+`scripts/ocr/alphabet_eval.py` evaluates a local rectified card.
+`alphabet_motion.py` evaluates the recorded frames.
+`alphabet_synthetic.py` generates printed training/validation images with held-out
+font families, camera sampling and motion degradation. `alphabet_finetune.py`
+continues the specified ONNX weights and exports a dynamic-batch model after
+checking conversion/export parity. Synthetic training needs no captured card.
+`alphabet_adapt.py` optionally prepares local adaptation data from one labelled
+card; keep those data and weights local, and evaluate on a separate motion
+recording. Fitting that card does not establish generalization to other cards.
+
+The diagnostic uses bilinear perspective correction and Rec.601 grayscale to
+match PIL/TorchVision training pixels, then normalizes to [-1, 1]; it does not
+binarize inputs. It evaluates all 70 cells in batches of ten. Core
+`MatrixScanner::full_frame()` rejects frames with fewer than 49 qualified cells
+to keep false background grids and motion blur out of the vote pool. Accepted
+frames still vote independently per cell at confidence >= 0.8. Live adapters
+should replace `latest.jpg` atomically at camera speed; the consumer has no
+fixed inference frequency or frame queue. This legacy diagnostic does not change the app's embedded model.

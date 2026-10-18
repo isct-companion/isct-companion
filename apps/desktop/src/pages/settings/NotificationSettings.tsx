@@ -1,3 +1,4 @@
+import { MultiSelect } from "@mantine/core";
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../app/native";
@@ -5,6 +6,8 @@ import { resolveCapabilities } from "../../platform/capabilities";
 import {
   CLASS_LEAD_CHOICES,
   DEFAULT_CLASS_LEAD,
+  ASSIGNMENT_LEAD_CHOICES,
+  DEFAULT_ASSIGNMENT_LEADS,
 } from "../../platform/reminders";
 import { UiButton, UiSelect } from "../../components/mantine";
 import {
@@ -27,6 +30,18 @@ export function NotificationSettings({
   notify: (message: string) => void;
 }) {
   const settings = data.settings.notifications;
+  const assignmentLeads =
+    settings.assignmentLeadMinutes ?? DEFAULT_ASSIGNMENT_LEADS;
+  const leadLabel = (minutes: number) =>
+    minutes % 1440 === 0
+      ? minutes === 1440
+        ? t("1 day before")
+        : t("{{days}} days before", { days: minutes / 1440 })
+      : minutes % 60 === 0
+        ? minutes === 60
+          ? t("1 hour before")
+          : t("{{hours}} hours before", { hours: minutes / 60 })
+        : t("{{minutes}} minutes before", { minutes });
   const capability = caps["local-notifications"];
   const allowed = settings.localPermission === "granted";
   const canAsk = capability.support === "supported";
@@ -84,31 +99,61 @@ export function NotificationSettings({
           />
         </Row>
         {settings.classes && (
-          <Row id="class-lead" title="Remind me">
-            <UiSelect
-              value={settings.classLeadMinutes ?? DEFAULT_CLASS_LEAD}
-              onChange={(event) =>
-                set((n) => (n.classLeadMinutes = Number(event.target.value)))
-              }
-            >
-              {CLASS_LEAD_CHOICES.map((minutes) => (
-                <option key={minutes} value={minutes}>
-                  {t("{{minutes}} minutes before", { minutes })}
-                </option>
-              ))}
-            </UiSelect>
-          </Row>
+          <div
+            className="settingsSuboptions"
+            role="group"
+            aria-label={t("Class reminders")}
+          >
+            <Row id="class-lead" title="Remind me">
+              <UiSelect
+                value={settings.classLeadMinutes ?? DEFAULT_CLASS_LEAD}
+                onChange={(value) => {
+                  const minutes = Number(value);
+                  set((n) => (n.classLeadMinutes = minutes));
+                }}
+                data={CLASS_LEAD_CHOICES.map((minutes) => ({
+                  value: String(minutes),
+                  label: t("{{minutes}} minutes before", { minutes }),
+                }))}
+              />
+            </Row>
+          </div>
         )}
-        <Row
-          id="assignments"
-          title="Assignment reminders"
-          hint="1 day and 1 hour before"
-        >
+        <Row id="assignments" title="Assignment reminders">
           <Toggle
             checked={settings.assignments}
             onChange={(value) => set((n) => (n.assignments = value))}
           />
         </Row>
+        {settings.assignments && (
+          <div
+            className="settingsSuboptions"
+            role="group"
+            aria-label={t("Assignment reminders")}
+          >
+            <Row id="assignment-lead" title="Remind me" group>
+              <MultiSelect
+                className="assignmentTimes"
+                aria-label={t("Assignment reminder times")}
+                value={assignmentLeads.map(String)}
+                data={[
+                  ...new Set([...ASSIGNMENT_LEAD_CHOICES, ...assignmentLeads]),
+                ]
+                  .sort((a, b) => b - a)
+                  .map((minutes) => ({
+                    value: String(minutes),
+                    label: leadLabel(minutes),
+                  }))}
+                maxValues={8}
+                onChange={(values) => {
+                  if (!values.length) return;
+                  const minutes = values.map(Number);
+                  set((n) => (n.assignmentLeadMinutes = minutes));
+                }}
+              />
+            </Row>
+          </div>
+        )}
       </SettingsGroup>
     </>
   );

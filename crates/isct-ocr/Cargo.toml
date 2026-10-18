@@ -24,5 +24,9 @@ ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "
 serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
+# Replay tools still emit reports when the native model backend is disabled.
+serde_json = "1"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
+# The replay profiler composes the actual scheduler with OCR; no production edge.
+isct-core = { path = "../isct-core" }

@@ -3,13 +3,15 @@ mod catalog_store;
 mod defaults;
 mod lms_store;
 mod records;
+mod school_projection;
 mod settings;
 mod snapshot;
+pub(crate) use snapshot::content_revision;
 
 pub use defaults::initial_workspace;
 use defaults::*;
 use records::*;
-pub(crate) use records::{canonical_course_id, resolve_course_id};
+pub(crate) use records::{canonical_course_id, lms_course_code, resolve_course_id};
 pub(crate) use settings::ADMISSION_YEARS;
 use settings::*;
 
@@ -526,6 +528,10 @@ pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
 }
 
 impl WorkspaceWrite<'_, '_> {
+    pub(crate) fn revision(&self) -> Result<String, DataError> {
+        intent_revision(self.transaction)
+    }
+
     /// `(workspace, school records, user-intent revision)` as written so far.
     pub(crate) fn snapshot_parts(&self) -> Result<(Value, Value, String), DataError> {
         Ok((
@@ -594,40 +600,6 @@ impl WorkspaceWrite<'_, '_> {
             .and_then(|value| value.as_str().map(str::to_string))
             .unwrap_or_else(|| "workspace".to_string());
         save_setting(self.transaction, key, value, &actor).map(|_| ())
-    }
-
-    /// The catalog rows `Core::lms_merge_preview` compares with, read inside
-    /// this transaction so an applied merge sees the reviewed offerings.
-    pub(crate) fn catalog_rows(&self) -> Result<Vec<Value>, DataError> {
-        catalog_list(self.transaction)
-    }
-
-    /// Points the LMS assignments and materials of one LMS course at the
-    /// timetable course it was matched with. The content hash is left alone:
-    /// it tracks what the LMS sent, so an unchanged pull keeps the link and a
-    /// changed one is relinked by the next merge.
-    pub(crate) fn relink_lms_records(
-        &self,
-        lms_course_id: u64,
-        course_id: &str,
-    ) -> Result<usize, DataError> {
-        let timestamp = now();
-        let mut changed = 0;
-        for table in ["assignments", "lms_items"] {
-            changed += self
-                .transaction
-                .execute(
-                    &format!(
-                        "UPDATE {table} SET rev=rev+1, updated_at=?3,
-                           value=json_set(value,'$.courseId',?2,'$.rev',rev+1,'$.updatedAt',?3)
-                         WHERE json_extract(value,'$.lmsCourseId')=?1
-                           AND COALESCE(json_extract(value,'$.courseId'),'')<>?2"
-                    ),
-                    params![lms_course_id as i64, course_id, timestamp],
-                )
-                .map_err(DataError::from)?;
-        }
-        Ok(changed)
     }
 
     pub(crate) fn save_settings(&self, settings: &Value) -> Result<(), DataError> {
@@ -785,6 +757,7 @@ fn record_agent_write_in(
 #[derive(Clone)]
 pub struct DataStore {
     path: PathBuf,
+    snapshot_reader: std::sync::Arc<std::sync::Mutex<snapshot::SnapshotReader>>,
 }
 
 impl DataStore {
@@ -793,7 +766,7 @@ impl DataStore {
             std::fs::create_dir_all(parent).map_err(DataError::from)?;
         }
         let mut connection = Connection::open(&path).map_err(DataError::from)?;
-        let rebuilt = migrations::migrate(&mut connection)?;
+        let schema_changed = migrations::migrate(&mut connection)?;
         // Catalog offerings are never deleted by the person; earlier workspace
         // saves tombstoned rows the window had not loaded yet. Restore them.
         connection
@@ -803,9 +776,12 @@ impl DataStore {
                 [],
             )
             .map_err(DataError::from)?;
-        let store = Self { path };
+        let store = Self {
+            path,
+            snapshot_reader: std::sync::Arc::default(),
+        };
         store.ensure_defaults()?;
-        Ok((store, rebuilt))
+        Ok((store, schema_changed))
     }
 
     fn open(&self) -> Result<Connection, DataError> {

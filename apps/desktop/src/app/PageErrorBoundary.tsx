@@ -1,4 +1,6 @@
 import { Component, type ReactNode } from "react";
+import { traceEvent } from "./interaction-trace";
+import { t } from "../i18n";
 
 /**
  * One page failing to render shows its error here instead of blanking the
@@ -13,17 +15,31 @@ export class PageErrorBoundary extends Component<
     return { error };
   }
   componentDidCatch(error: Error, info: { componentStack?: string | null }) {
-    console.error(`[${this.props.name}] page crashed`, error, info.componentStack);
+    console.error(
+      `[${this.props.name}] page crashed`,
+      error,
+      info.componentStack,
+    );
+    traceEvent("error", {
+      source: `page ${this.props.name}`,
+      message: error.message,
+      stack: error.stack?.split("\n").slice(0, 12).join("\n"),
+      componentStack: info.componentStack?.split("\n").slice(0, 25).join("\n"),
+    });
   }
   render() {
     const { error } = this.state;
     if (!error) return this.props.children;
     return (
       <div className="pageError" role="alert">
-        <b>This page hit an error.</b>
+        <b>{t("This page hit an error.")}</b>
         <code>{error.message}</code>
-        <button type="button" className="button" onClick={() => this.setState({ error: undefined })}>
-          Try again
+        <button
+          type="button"
+          className="button"
+          onClick={() => this.setState({ error: undefined })}
+        >
+          {t("Try again")}
         </button>
       </div>
     );

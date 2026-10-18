@@ -40,6 +40,7 @@ export type Meeting = {
   periods: Array<number>;
   startTime: string;
   endTime: string;
+  termIds?: Array<string>;
   room: string;
   roomNames?: Localized;
   validFrom?: string;
@@ -63,6 +64,7 @@ export type Course = {
   sourceKey?: string;
   offeringId?: string;
   names?: CourseNames;
+  lmsCourseId?: number;
   code: string;
   title: string;
   instructor: string;
@@ -515,6 +517,7 @@ export type Notifications = {
   classes: boolean;
   assignments: boolean;
   classLeadMinutes?: number;
+  assignmentLeadMinutes?: Array<number>;
   localPermission: NotificationPermission;
 };
 
@@ -565,6 +568,7 @@ export type Settings = {
   appearance: "system" | "light" | "dark";
   density: "comfortable" | "compact";
   textSize?: "small" | "medium" | "large";
+  automaticAppUpdates?: boolean;
   restoreSchoolPage?: boolean;
   activeSchoolSite?: string;
   schoolWebZoom?: number;
@@ -942,10 +946,33 @@ export type DatedAgenda = {
 
 export type PlanningDay = { day: number; blocks: Array<Occurrence> };
 
+export type CourseConflict = {
+  courseId: string;
+  /**
+   * 1 = Monday … 7 = Sunday.
+   */
+  day: number;
+  /**
+   * This course's meeting, not the overlap window.
+   */
+  startTime: string;
+  endTime: string;
+  /**
+   * The other course; absent when the other block is a personal event.
+   */
+  withCourseId: string | null;
+  withTitle: string;
+};
+
 export type PlanningWeek = {
   courses: unknown[];
   days: Array<PlanningDay>;
   conflictCount: number;
+  /**
+   * Every clash, once per course involved, so a shell can explain a
+   * red block without re-deriving overlaps.
+   */
+  conflicts: Array<CourseConflict>;
 };
 
 export type PlanCivilStart = { date: string; time: string };
@@ -982,6 +1009,7 @@ export type CourseTimeline = {
 
 export type TaskDeadlineView = {
   at: string;
+  remainingMilliseconds: number;
   label: string;
   tone: string;
   countdownLabel: string;
@@ -989,16 +1017,38 @@ export type TaskDeadlineView = {
   overdue: boolean;
 };
 
-export type TermTaskView = {
-  pendingIds: Array<string>;
+export type AssignmentGroups = {
   pinnedIds: Array<string>;
-  overdueIds: Array<string>;
   dueThisWeekIds: Array<string>;
   laterIds: Array<string>;
-  earlierDueThisWeekIds: Array<string>;
-  earlierLaterIds: Array<string>;
-  lectureOpenIds: Array<string>;
-  lectureHiddenIds: Array<string>;
+  undatedIds: Array<string>;
+  /**
+   * Past deadlines shown at once: the recent window of the current
+   * quarter, or every past deadline of any other quarter.
+   */
+  pastRecentIds: Array<string>;
+  /**
+   * Older past deadlines of the current quarter, back to its start; a list
+   * folds these until asked.
+   */
+  pastEarlierIds: Array<string>;
+  hiddenIds: Array<string>;
+};
+
+export type TermTaskView = {
+  /**
+   * Unsubmitted work with a future deadline.
+   */
+  pendingIds: Array<string>;
+  /**
+   * What is left to do: unsubmitted upcoming or pinned work, and work
+   * missed during the last week.
+   */
+  today: AssignmentGroups;
+  /**
+   * Every assignment of the quarter, whatever its submission state.
+   */
+  record: AssignmentGroups;
 };
 
 export type TaskView = {
@@ -1111,21 +1161,20 @@ export type TodayView = {
   nextBoundary: string | null;
 };
 
+export type DeadlineGroups = {
+  pinned: Array<DeadlineItem>;
+  dueThisWeek: Array<DeadlineItem>;
+  later: Array<DeadlineItem>;
+  undated: Array<DeadlineItem>;
+  pastRecent: Array<DeadlineItem>;
+  pastEarlier: Array<DeadlineItem>;
+  hidden: Array<DeadlineItem>;
+};
+
 export type AssignmentBoard = {
   term: string;
-  pinned: Array<DeadlineItem>;
-  overdue: Array<DeadlineItem>;
-  today: Array<DeadlineItem>;
-  /**
-   * Due within seven days, after today.
-   */
-  thisWeek: Array<DeadlineItem>;
-  /**
-   * Due later, then assignments without a deadline.
-   */
-  later: Array<DeadlineItem>;
-  submitted: Array<DeadlineItem>;
-  hidden: Array<DeadlineItem>;
+  today: DeadlineGroups;
+  record: DeadlineGroups;
 };
 
 export type AcademicYearIndex = { currentYear: number; years: Array<number> };
@@ -1310,13 +1359,6 @@ export type WorkspaceIntent =
   | { kind: "setCourseOnTimetable"; courseId: string; onTimetable: boolean }
   | { kind: "addCatalogCourses"; termId: string; offerings: unknown[] }
   | { kind: "undoCatalogCourses"; termId: string; offeringIds: Array<string> }
-  | {
-      kind: "applyLmsMerge";
-      terms: Array<string>;
-      add: Array<string>;
-      keep: Array<string>;
-      retime: Array<string>;
-    }
   | { kind: "saveEvent"; draft: unknown; termId: string; existingId?: string }
   | { kind: "deleteEvent"; eventId: string }
   | { kind: "savePlan"; draft: unknown; existingId?: string }
@@ -1394,12 +1436,30 @@ export type FinderSchedule = {
 export type FinderRow = { course: FinderCourse; matched: Array<string> };
 
 export type Suggestion =
+  | { kind: "category"; key: string; label: string }
   | { kind: "condition"; key: string; condition: Condition; count: number }
   | { kind: "course"; course: FinderCourse }
   | { kind: "text"; key: string; count: number };
 
+export type OfficialSelection = { id: string; value: string };
+
+export type OfficialFilterOption = {
+  id: string;
+  value: string;
+  label: string;
+  family: string;
+};
+
 export type RemoteQuery = {
+  controls?: Array<OfficialSelection>;
+  recommended?: boolean;
+  quarters?: Array<number>;
+  days?: Array<number>;
+  periodStarts?: Array<number>;
+  language?: string;
+  requirementGroups?: Array<string>;
   q: string;
+  teacher?: string;
   scope?: string;
   code?: string;
   groups?: Array<string>;
@@ -1413,6 +1473,7 @@ export type FinderContext = {
   recommended: { [key in string]?: Recommendation };
   departments: Array<FinderDepartment>;
   busy: Array<BusySlot>;
+  officialOptions: Array<OfficialFilterOption>;
 };
 
 export type Recommendation = { group: string; mark?: string | null };
@@ -1421,6 +1482,7 @@ export type FinderDepartment = {
   id: string;
   name: { [key in string]?: string };
   unitCode: string;
+  codePrefix: string;
   scope: string | null;
 };
 
@@ -1430,7 +1492,7 @@ export type Condition = {
   type: string;
   key: string;
   label: string;
-  values: (string | number | TimeValue)[];
+  values: (string | number | TimeValue | { id: string; value: string })[];
   prefix?: boolean;
   exclude?: boolean;
 };
@@ -1485,6 +1547,68 @@ export type FinderView = {
   detailIds: Array<string>;
 };
 
+export type MatrixPoint = { x: number; y: number };
+
+export type MatrixReading = { text: string; confidence: number };
+
+export type MatrixVote = { text: string; confidence: number; stable: boolean };
+
+export type MatrixScanPhase = "initial" | "refine" | "verify" | "complete";
+
+export type MatrixScanTiming = {
+  decodeMs: number;
+  geometryMs: number;
+  preprocessMs: number;
+  inferenceMs: number;
+  totalMs: number;
+};
+
+export type MatrixScanSnapshot = {
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
+  confidence: number;
+  cells: Array<MatrixVote>;
+  stableCells: number;
+  complete: boolean;
+  needsAdjustment: boolean;
+  phase: MatrixScanPhase;
+  sampledCells: number;
+  frames: number;
+  timing: MatrixScanTiming;
+};
+
+export type MatrixScanOutline = {
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint];
+};
+
+export type MatrixCaptureMetrics = {
+  elapsedMs: number;
+  trackedMs: number | null;
+  frames: number;
+  frameMs: Array<number>;
+};
+
+export type MatrixCameraPhase = "capturing" | "processing" | "complete";
+
+export type MatrixCameraSnapshot = {
+  phase: MatrixCameraPhase;
+  bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
+  readyCells: number;
+  captureElapsedMs: number;
+  timedOut: boolean;
+  completedSamples: number;
+  totalSamples: number;
+  cells: Array<MatrixVote>;
+};
+
+export type OtpImportAccount = {
+  label: string;
+  issuer: string;
+  /**
+   * Sensitive: only the selected value enters the unsaved credential draft.
+   */
+  setup: string;
+};
+
 export const DATA_POLICY: DataPolicy = {
   lms: {
     staleAfterSeconds: 43200,
@@ -1531,6 +1655,8 @@ export const COURSE_PALETTE = [
   "#806a9d",
   "#5c7d93",
 ] as const;
+
+export const DEFAULT_ASSIGNMENT_LEADS = [1440, 60] as const;
 
 export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
   {
@@ -1684,7 +1810,6 @@ export const PUBLIC_DATA_INDEX =
 
 export const REFERENCE_KINDS = [
   "calendar",
-  "departments",
   "important-dates",
   "exams",
   "class-schedules",

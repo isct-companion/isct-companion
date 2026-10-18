@@ -63,10 +63,17 @@ fn store(name: &str) -> DataStore {
 }
 
 #[test]
-fn freshness_checks_all_five_kyomu_pages_and_exact_ttl() {
+fn freshness_checks_all_six_kyomu_pages_and_exact_ttl() {
     let now: DateTime<Utc> = "2026-10-12T00:00:00Z".parse().unwrap();
     let mut runs = json!({});
-    for page in ["gpa", "registrations", "declared", "grades", "requirements"] {
+    for page in [
+        "gpa",
+        "registrations",
+        "declared",
+        "profile",
+        "grades",
+        "requirements",
+    ] {
         runs[format!("kyomu:{page}")] = json!(now.to_rfc3339());
     }
     assert!(!due(SchoolAuthProfile::TokyoTech, &runs, now));
@@ -126,6 +133,149 @@ fn foreground_rechecks_each_known_profile_once() {
         .take_ready(&json!({}), now, Instant::now())
         .unwrap()
         .is_some());
+}
+
+// Protect the admission boundary even when a page never succeeds. Data TTL
+// and attempt cooldown must remain separate, including a dropped executor.
+#[test]
+fn full_pull_lifetime_defers_stale_intents_until_cooldown_expires() {
+    let refresh = SchoolRefresh::new(PullNetwork::Wifi);
+    refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
+    let now = Utc::now();
+    let lease = refresh.begin_full_pull(SchoolSite::Kyomu).unwrap();
+    assert!(refresh
+        .take_ready(&json!({}), now, Instant::now() + FULL_PULL_COOLDOWN * 2)
+        .unwrap()
+        .is_none());
+    drop(lease);
+    let finished = refresh.0.lock().unwrap().full_pulls[&SchoolAuthProfile::TokyoTech]
+        .finished
+        .unwrap();
+    for _ in 0..3 {
+        refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
+        refresh.event(RefreshEvent::lifecycle(true)).unwrap();
+    }
+    assert!(refresh
+        .take_ready(
+            &json!({}),
+            now,
+            finished + FULL_PULL_COOLDOWN - Duration::from_nanos(1)
+        )
+        .unwrap()
+        .is_none());
+    assert!(due(SchoolAuthProfile::TokyoTech, &json!({}), now));
+    assert_eq!(
+        refresh
+            .take_ready(&json!({}), now, finished + FULL_PULL_COOLDOWN)
+            .unwrap()
+            .unwrap()
+            .0,
+        [SchoolAuthProfile::TokyoTech]
+    );
+    drop(RunningBatch(refresh.clone()));
+    assert!(refresh
+        .take_ready(&json!({}), now, finished + FULL_PULL_COOLDOWN)
+        .unwrap()
+        .is_none());
+
+    // Each pull that leaves a page missing triples the wait, up to six hours,
+    // so a permanently broken page cannot cost a sign-in every five minutes.
+    let retry_after = |misses: u32| {
+        let mut queue = refresh.0.lock().unwrap();
+        let activity = queue
+            .full_pulls
+            .get_mut(&SchoolAuthProfile::TokyoTech)
+            .unwrap();
+        activity.misses = misses;
+        activity.cooldown()
+    };
+    assert_eq!(retry_after(1), FULL_PULL_COOLDOWN);
+    assert_eq!(retry_after(2), FULL_PULL_COOLDOWN * 3);
+    assert_eq!(retry_after(3), FULL_PULL_COOLDOWN * 9);
+    assert_eq!(retry_after(30), FULL_PULL_MAX_COOLDOWN);
+    refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
+    assert!(refresh
+        .take_ready(&json!({}), now, finished + FULL_PULL_COOLDOWN * 9)
+        .unwrap()
+        .is_none());
+    drop(refresh.begin_full_pull(SchoolSite::Kyomu).unwrap());
+    assert_eq!(
+        refresh.0.lock().unwrap().full_pulls[&SchoolAuthProfile::TokyoTech].misses,
+        31
+    );
+
+    // Observing every page fresh forgets the misses.
+    let mut fresh = json!({});
+    for (_, page) in crate::school_parser::kyomu::PAGES {
+        fresh[format!("kyomu:{page}")] = json!(now.to_rfc3339());
+    }
+    refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
+    assert!(refresh
+        .take_ready(&fresh, now, Instant::now())
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        refresh.0.lock().unwrap().full_pulls[&SchoolAuthProfile::TokyoTech].misses,
+        0
+    );
+    assert_eq!(retry_after(0), FULL_PULL_COOLDOWN);
+}
+
+#[tokio::test]
+async fn manual_partial_pull_cools_automatic_retries_but_can_be_forced_again() {
+    let coordinator = PullCoordinator::default();
+    coordinator
+        .set_conditions(PullConditions {
+            network: PullNetwork::Wifi,
+            foreground: true,
+            school_visible: false,
+            allow_cellular: false,
+        })
+        .await;
+    let refresh = SchoolRefresh::new(PullNetwork::Wifi);
+    let service = SchoolService::new(
+        coordinator.clone(),
+        Arc::new(SchoolAuthService::new(EmptyVault)),
+        Arc::new(NoopEvents),
+        refresh.clone(),
+    );
+    let partial = vec![IngestOutcome {
+        site: SchoolSite::Kyomu,
+        kind: "registrations".into(),
+        state: IngestState::Error,
+        changed: 0,
+        message: "Page unavailable".into(),
+    }];
+    let executor = Arc::new(SequencedExecutor {
+        calls: AtomicUsize::new(0),
+        results: Mutex::new(VecDeque::from([Ok(partial.clone()), Ok(partial)])),
+    });
+    for expected in 1..=2 {
+        let outcomes = service
+            .pull(
+                executor.clone(),
+                SchoolSite::Kyomu,
+                None,
+                PullOptions::manual(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcomes[0].state, IngestState::Error);
+        assert_eq!(executor.calls.load(Ordering::Relaxed), expected);
+        let snapshots = coordinator.snapshots().await;
+        assert_eq!(snapshots.last().unwrap().phase.as_deref(), Some("partial"));
+        refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
+        refresh.event(RefreshEvent::lifecycle(true)).unwrap();
+        assert!(refresh
+            .take_ready(&json!({}), Utc::now(), Instant::now())
+            .unwrap()
+            .is_none());
+    }
+    assert_eq!(
+        refresh.0.lock().unwrap().full_pulls[&SchoolAuthProfile::TokyoTech].running,
+        0
+    );
 }
 
 #[test]
@@ -196,10 +346,12 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
             allow_cellular: false,
         })
         .await;
+    let refresh = SchoolRefresh::new(PullNetwork::Wifi);
     let service = SchoolService::new(
         coordinator,
         Arc::new(SchoolAuthService::new(EmptyVault)),
         Arc::new(NoopEvents),
+        refresh.clone(),
     );
     let executor = Arc::new(SequencedExecutor {
         calls: AtomicUsize::new(0),
@@ -214,8 +366,6 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
             }]),
         ])),
     });
-    let refresh = SchoolRefresh::new(PullNetwork::Wifi);
-
     refresh
         .event(RefreshEvent {
             kind: RefreshKind::LectureOpened,
@@ -271,7 +421,11 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
     assert_eq!(executor.calls.load(Ordering::Relaxed), 2);
 }
 
-struct RecordingExecutor(Mutex<Vec<(SchoolSite, Option<u64>)>>);
+struct RecordingExecutor {
+    calls: Mutex<Vec<(SchoolSite, Option<u64>)>>,
+    lms_started: tokio::sync::Notify,
+    release_lms: tokio::sync::Notify,
+}
 
 impl SchoolExecutor for RecordingExecutor {
     fn execute(
@@ -280,10 +434,14 @@ impl SchoolExecutor for RecordingExecutor {
         _context: PullContext,
     ) -> crate::school_service::SchoolExecutorFuture<'_> {
         Box::pin(async move {
-            self.0
+            self.calls
                 .lock()
                 .unwrap()
                 .push((request.site, request.course_id));
+            if request.site == SchoolSite::ScienceLms && request.course_id.is_none() {
+                self.lms_started.notify_one();
+                self.release_lms.notified().await;
+            }
             Ok(vec![IngestOutcome {
                 site: request.site,
                 kind: "lms".into(),
@@ -296,7 +454,7 @@ impl SchoolExecutor for RecordingExecutor {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn tick_runs_science_then_kyomu_then_details_in_order() {
+async fn batch_rechecks_later_profiles_after_a_manual_pull_and_keeps_detail_order() {
     let store = store("batch-order");
     let coordinator = PullCoordinator::default();
     coordinator
@@ -307,12 +465,13 @@ async fn tick_runs_science_then_kyomu_then_details_in_order() {
             allow_cellular: false,
         })
         .await;
+    let refresh = SchoolRefresh::new(PullNetwork::Wifi);
     let service = SchoolService::new(
-        coordinator,
+        coordinator.clone(),
         Arc::new(SchoolAuthService::new(EmptyVault)),
         Arc::new(NoopEvents),
+        refresh.clone(),
     );
-    let refresh = SchoolRefresh::new(PullNetwork::Wifi);
     refresh
         .event(RefreshEvent {
             kind: RefreshKind::LectureOpened,
@@ -332,16 +491,57 @@ async fn tick_runs_science_then_kyomu_then_details_in_order() {
             })
             .unwrap();
     }
-    let executor = Arc::new(RecordingExecutor(Mutex::new(Vec::new())));
+    let executor = Arc::new(RecordingExecutor {
+        calls: Mutex::new(Vec::new()),
+        lms_started: tokio::sync::Notify::new(),
+        release_lms: tokio::sync::Notify::new(),
+    });
     let tasks = RuntimeTasks::default();
     let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
     refresh
         .tick(&inputs, &service, executor.clone(), &tasks)
         .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), executor.lms_started.notified())
+        .await
+        .unwrap();
+    // Queue manual Kyomu while the batch is still waiting for LMS. Manual
+    // priority runs it first; the automatic continuation must join or defer it.
+    let manual = {
+        let service = service.clone();
+        let executor = executor.clone();
+        tokio::spawn(async move {
+            service
+                .pull(
+                    executor,
+                    SchoolSite::Kyomu,
+                    None,
+                    PullOptions::manual(),
+                    false,
+                )
+                .await
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if coordinator
+                .snapshots()
+                .await
+                .iter()
+                .any(|row| row.priority == crate::pull_coordinator::PullPriority::Manual)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    executor.release_lms.notify_one();
+    manual.await.unwrap().unwrap();
     tasks.close();
     tasks.wait().await;
     assert_eq!(
-        *executor.0.lock().unwrap(),
+        *executor.calls.lock().unwrap(),
         [
             (SchoolSite::ScienceLms, None),
             (SchoolSite::Kyomu, None),

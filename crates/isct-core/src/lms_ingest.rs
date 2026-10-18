@@ -96,6 +96,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     const endpoint = '/2025/lib/ajax/service.php?sesskey=' + encodeURIComponent(cfg.sesskey)
       + '&info=' + encodeURIComponent(methodname);
     const response = await fetch(endpoint, {method:'POST', credentials:'same-origin',
+      signal:AbortSignal.timeout(20000),
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify([{index:0, methodname, args}])});
     if (!response.ok || !(response.headers.get('content-type') || '').includes('json'))
@@ -106,35 +107,76 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     return result.data;
   };
   const pick = (object, keys) => Object.fromEntries(keys.filter(key => object && key in object).map(key => [key, object[key]]));
-  // The dashboard timetable block (rendered by the GET of /my/; its filter
-  // form is a POST and is never submitted). Rows are periods (first cell),
-  // columns are weekdays (header row); each cell links the course.
-  const readTimetable = () => {
-    const block = document.querySelector('[data-block="tttimetable"]');
+  // The dashboard's POST is a read-only year/quarter query. Only these three
+  // filter fields and this exact endpoint are allowed; no Moodle edits run.
+  const readTimetable = (page = document) => {
+    const block = page.querySelector('[data-block="tttimetable"]');
     const [grid, other] = block ? block.querySelectorAll('table') : [];
-    if (!grid || !grid.rows.length) return null;
+    if (!grid || grid.rows.length < 2 || grid.rows[0].cells.length < 6 || !other) return null;
     const selected = name => block.querySelector('select[name="' + name + '"]')?.selectedOptions[0]?.textContent.trim() || '';
-    const dayNames = ['月','火','水','木','金','土','日'];
-    const header = [...grid.rows[0].cells].map(cell => cell.textContent.trim());
-    const courseId = link => Number(new URL(link.href, location.href).searchParams.get('id'));
+    const year = Number(selected('year')), quarter = selected('quota');
+    if (!Number.isInteger(year) || year < 2000 || year >= 2100 || !/^[1-4]$/.test(quarter)) return null;
     const slots = [];
+    const courseId = link => {
+      const url = new URL(link.getAttribute('href'), sourceUrl);
+      return url.origin === location.origin && url.pathname === '/2025/course/view.php'
+        ? Number(url.searchParams.get('id')) : 0;
+    };
     for (const row of [...grid.rows].slice(1)) {
       const period = Number(row.cells[0]?.textContent.trim());
-      if (!Number.isInteger(period) || period < 1 || period > 12) continue;
+      if (!Number.isInteger(period) || period < 1 || period > 12) return null;
       [...row.cells].slice(1).forEach((cell, index) => {
-        const named = dayNames.indexOf(header[index + 1]);
-        const day = named >= 0 ? named + 1 : index + 1;
         for (const link of cell.querySelectorAll('a[href*="/course/view.php?id="]')) {
           const id = courseId(link);
-          if (id > 0) slots.push({courseId:id, day, period});
+          if (id > 0 && index < 7) slots.push({courseId:id, day:index + 1, period});
         }
       });
     }
-    const unscheduled = other ? [...other.querySelectorAll('a[href*="/course/view.php?id="]')].map(courseId).filter(id => id > 0) : [];
-    return {year:Number(selected('year')) || null, quarter:selected('quota'), slots, unscheduled};
+    const unscheduled = [...other.querySelectorAll('a[href*="/course/view.php?id="]')].map(courseId).filter(id => id > 0);
+    return {year, quarter, slots, unscheduled};
+  };
+  const readTimetables = async () => {
+    const current = readTimetable();
+    const grids = current ? [current] : [];
+    const errors = [];
+    if (!fullScan || requestedCourseId) return {grids, errors};
+    const block = document.querySelector('[data-block="tttimetable"]');
+    const years = [...block?.querySelectorAll('select[name="year"] option') || []]
+      .filter(option => /^20\d{2}$/.test(option.textContent.trim()));
+    const quarters = [...block?.querySelectorAll('select[name="quota"] option') || []]
+      .filter(option => /^[1-4]$/.test(option.textContent.trim()));
+    // Preserve the form's search flag; an empty replacement makes Moodle
+    // ignore year/quota and return the current quarter for every request.
+    const search = block?.querySelector('input[name="search"]')?.value ?? '';
+    if (!years.length || quarters.length !== 4) errors.push('timetable-filters-unavailable');
+    for (const year of years) for (const quarter of quarters) {
+      const expected = year.textContent.trim() + '-' + quarter.textContent.trim() + 'Q';
+      if (current && expected === current.year + '-' + current.quarter + 'Q') continue;
+      try {
+        const response = await fetch('/2025/my/index.php', {method:'POST', credentials:'same-origin',
+          signal:AbortSignal.timeout(20000), headers:{'Content-Type':'application/x-www-form-urlencoded'},
+          body:new URLSearchParams({year:year.value, quota:quarter.value, search}).toString()});
+        if (!response.ok || new URL(response.url, sourceUrl).origin !== location.origin)
+          throw new Error('timetable-request-failed: HTTP ' + response.status);
+        const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const grid = readTimetable(page);
+        if (!grid) {
+          const block = page.querySelector('[data-block="tttimetable"]');
+          const tables = [...block?.querySelectorAll('table') || []];
+          const labels = [...block?.querySelectorAll('select') || []]
+            .map(select => select.name + '=' + select.selectedOptions[0]?.textContent.trim()).join(',');
+          throw new Error('timetable-unreadable: tables=' + tables.length + ', rows='
+            + tables.map(table => table.rows.length).join(',') + ', selection=' + labels);
+        }
+        if (expected !== grid.year + '-' + grid.quarter + 'Q')
+          throw new Error('timetable-quarter-mismatch: got ' + grid.year + '-' + grid.quarter + 'Q');
+        grids.push(grid);
+      } catch (error) { errors.push(expected + ': ' + String(error?.message || error)); }
+    }
+    return {grids, errors};
   };
   try {
-    const timetable = readTimetable();
+    const {grids:timetables, errors:timetableErrors} = await readTimetables();
     const courses = [];
     let offset = 0;
     let coursesComplete = false;
@@ -182,11 +224,6 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       datedEvents = (Array.isArray(upcoming?.events) ? upcoming.events.slice(0, 5000) : []).map(event => ({
         ...pick(event, ['id','instance','modulename','name','timesort','eventtype','url']), course:{id:event.course?.id}}));
     }
-    const now = new Date();
-    const academicYear = now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear();
-    const category = now.getMonth() < 2 ? 4 : now.getMonth() < 5 ? 1
-      : now.getMonth() < 8 ? 2 : now.getMonth() < 11 ? 3 : 4;
-    const wanted = new Set([category, category === 4 ? 1 : category + 1]);
     // The category name is the course's quarter ("1"…"4").
     const structures = [];
     let contentBudget = 3000000;
@@ -197,12 +234,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       return {year, quarter, term:Number.isInteger(year) && quarter >= 1 && quarter <= 4 ? year + '-' + quarter + 'Q' : ''};
     };
     const selectedCourses = courses.filter(course => {
-      const {year, quarter} = courseContext(course);
-      const nextYear = category === 4 ? academicYear + 1 : academicYear;
-      return requestedCourseId
-        ? Number(course.id) === requestedCourseId
-        : fullScan && ((year === academicYear && wanted.has(quarter))
-          || (category === 4 && year === nextYear && quarter === 1));
+      return requestedCourseId ? Number(course.id) === requestedCourseId : fullScan;
     });
     let structuresDone = 0;
     const loadStructure = async course => {
@@ -215,7 +247,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
         // Shared course-format DOM only: preserve teacher content without
         // interpreting headings, dates or course-specific conventions.
         try {
-          const response = await fetch('/2025/course/view.php?id=' + Number(course.id), {credentials:'same-origin'});
+          const response = await fetch('/2025/course/view.php?id=' + Number(course.id), {credentials:'same-origin', signal:AbortSignal.timeout(20000)});
           if (response.ok && response.url.includes('/course/view.php')) {
             const page = new DOMParser().parseFromString(await response.text(), 'text/html');
             enrichCourseContent(page, state, response.url, boundedBody);
@@ -235,8 +267,47 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       courseId:Number(selectedCourses[0]?.id) || 0,
       courseTitle:String(selectedCourses[0]?.fullname || selectedCourses[0]?.shortname || ''),
       term:selectedCourses[0] ? courseContext(selectedCourses[0]).term : ''});
-    for (let index = 0; index < selectedCourses.length; index += 4)
-      await Promise.all(selectedCourses.slice(index, index + 4).map(loadStructure));
+    // Fetch deadlines include response bodies. A fixed worker pool keeps the
+    // other slots moving when one school request is slow. No transport library
+    // is available inside the injected, standalone browser script.
+    const readWithWorkers = async (items, read) => {
+      let next = 0;
+      await Promise.all(Array.from({length:Math.min(4, items.length)}, async () => {
+        while (next < items.length) await read(items[next++]);
+      }));
+    };
+    await readWithWorkers(selectedCourses, loadStructure);
+    // The upcoming view and open-work events forget finished work, so a full
+    // pull reads each month of the enrolled academic years up to now; past
+    // due/close events still carry the deadline of submitted and graded work.
+    if (fullScan && !requestedCourseId) {
+      const today = new Date();
+      const months = [];
+      for (const year of new Set(courses.map(course => courseContext(course).year).filter(Number.isInteger))) {
+        for (let index = 0; index < 12 && months.length < 48; index += 1) {
+          const month = new Date(year, 3 + index, 1);
+          if (month <= today) months.push({year:month.getFullYear(), month:month.getMonth() + 1});
+        }
+      }
+      await readWithWorkers(months, async ({year, month}) => {
+        try {
+          const view = await call('core_calendar_get_calendar_monthly_view',
+            {year, month, courseid:1, categoryid:0, day:1});
+          for (const week of Array.isArray(view?.weeks) ? view.weeks : []) {
+            for (const day of Array.isArray(week?.days) ? week.days : []) {
+              for (const event of Array.isArray(day?.events) ? day.events : []) {
+                if (!['assign','quiz'].includes(event.modulename) || !['due','close'].includes(event.eventtype)) continue;
+                if (datedEvents.length >= 5000) return;
+                datedEvents.push({...pick(event, ['id','instance','modulename','name','eventtype','url']),
+                  timesort:event.timesort ?? event.timestart, course:{id:event.course?.id}});
+              }
+            }
+          }
+        } catch {
+          // A month that cannot be read leaves the deadlines already stored.
+        }
+      });
+    }
     // Bounded read-only module details, using the same signed-in session.
     const courseById = new Map(courses.map(course => [Number(course.id), course]));
     // Two layers. A pull across courses reads only what Today needs: the
@@ -247,7 +318,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     // Details are written onto the returned state's own module objects. Each
     // course gets its own share, newest modules first, so a large or
     // fast-loading course cannot starve the rest; cached details fill gaps.
-    const detailModules = requestedCourseId
+    const detailModules = requestedCourseId || fullScan
       ? ['resource','folder','url','page','forum','assign']
       : ['assign'];
     const detailCms = structures.flatMap(item => (item.state?.cm || [])
@@ -259,7 +330,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       try {
         const target = new URL(cm.url, sourceUrl);
         if (target.origin !== location.origin || !/^\/2025\/mod\/(resource|folder|url|page|forum|assign)\/view\.php$/.test(target.pathname)) return;
-        const response = await fetch(target.href, {credentials:'same-origin'});
+        const response = await fetch(target.href, {credentials:'same-origin', signal:AbortSignal.timeout(20000)});
         if (!response.ok) return;
         if (new URL(response.url).origin !== location.origin) { response.body?.cancel(); return; }
         if (response.url.includes('/pluginfile.php/')) {
@@ -289,7 +360,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
           const bodies = [];
           for (const url of discussions) {
             try {
-              const detail = await fetch(url, {credentials:'same-origin'});
+              const detail = await fetch(url, {credentials:'same-origin', signal:AbortSignal.timeout(20000)});
               if (!detail.ok || new URL(detail.url).origin !== location.origin || !(detail.headers.get('content-type') || '').includes('text/html')) { detail.body?.cancel(); continue; }
               const html = await detail.text();
               if (html.length > 1000000) continue;
@@ -314,8 +385,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
         courseId:Number(courseId) || 0, courseTitle:String(course?.fullname || course?.shortname || ''),
         term:course ? courseContext(course).term : '', itemTitle:String(cm.name || '')});
     };
-    for (let index = 0; index < detailCms.length; index += 4)
-      await Promise.all(detailCms.slice(index, index + 4).map(readDetailWithProgress));
+    await readWithWorkers(detailCms, readDetailWithProgress);
     // Submission state as the assignment or quiz page shows it (a plain GET),
     // for the work of the loaded quarters.
     const statusRead = new Set(assignStatus.map(item => item.cmid));
@@ -327,7 +397,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     const readStatus = async item => {
       const cmid = item.id;
       try {
-        const response = await fetch('/2025/mod/' + item.module + '/view.php?id=' + cmid, {credentials:'same-origin'});
+        const response = await fetch('/2025/mod/' + item.module + '/view.php?id=' + cmid, {credentials:'same-origin', signal:AbortSignal.timeout(20000)});
         if (!response.ok) return;
         const page = new DOMParser().parseFromString(await response.text(), 'text/html');
         const status = submissionStatus({page, cmid, module:item.module});
@@ -340,11 +410,10 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
           term:course ? courseContext(course).term : '', itemTitle:item.name});
       }
     };
-    for (let index = 0; index < assignIds.length; index += 4)
-      await Promise.all(assignIds.slice(index, index + 4).map(readStatus));
+    await readWithWorkers(assignIds, readStatus);
     return {status:'ok', sourceUrl, language:String(cfg.language || ''), coursesComplete,
       fullScan:fullScan && !requestedCourseId,
-      courses, structures, actionEvents, datedEvents, timetable, assignStatus};
+      courses, structures, actionEvents, datedEvents, timetables, timetableErrors, assignStatus};
   } catch (error) {
     return {status:String(error?.message || error) === 'reconnect-required' ? 'login' : 'error',
       sourceUrl, language:String(cfg.language || ''), coursesComplete:false,
@@ -577,8 +646,15 @@ pub fn apply_lms_payload(
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
-    let scope = if payload.full_scan && payload.courses_complete {
-        "full"
+    let scope = if payload.full_scan
+        && payload.courses_complete
+        && payload.timetable_errors.is_empty()
+        && payload
+            .structures
+            .iter()
+            .all(|structure| structure.complete)
+    {
+        "all"
     } else {
         "summary"
     };
@@ -628,14 +704,19 @@ pub fn apply_lms_payload(
             .and_then(|stored| stored.get("timetables").cloned())
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
-        if let Some(grid) = &payload.timetable {
+        for grid in payload.timetables.iter().chain(payload.timetable.iter()) {
             let shown = grid
                 .meetings
                 .get(&course.id)
                 .cloned()
                 .or_else(|| grid.unscheduled.contains(&course.id).then(Vec::new));
-            if let (Some(meetings), Some(map)) = (shown, timetables.as_object_mut()) {
-                map.insert(grid.term.clone(), Value::Array(meetings));
+            if year.is_some_and(|year| grid.term.starts_with(&format!("{year}-"))) {
+                if let Some(map) = timetables.as_object_mut() {
+                    map.insert(
+                        grid.term.clone(),
+                        shown.map(Value::Array).unwrap_or(Value::Null),
+                    );
+                }
             }
         }
         let prior_sections: Option<Value> = tx

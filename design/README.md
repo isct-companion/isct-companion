@@ -30,7 +30,7 @@ Tokens use the [W3C Design Tokens (DTCG) format](https://www.designtokens.org/tr
 | `apps/desktop/src/generated/design/tokens.json` | Mantine theme (`app/theme.ts`): tonal scale, font |
 | `crates/isct-core/src/schedule/course_palette.rs` | `display_color` in core, included by `colors.rs` |
 | `apps/ios/IsctCompanion/Design/Generated/IsctTokens*.swift` | SwiftUI shell (light constants + dark colours) |
-| `design/dist/android/IsctTokens*.kt` | Compose shell (light constants + dark colours; ignored until the Android app exists) |
+| `apps/android/app/src/main/java/app/isct/design/IsctTokens*.kt` | Compose shell (light constants + dark colours) |
 
 Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
 `yarn test` fails when one is stale (`design/build.test.mjs`).
@@ -42,7 +42,9 @@ Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
 - **Course colour has two uses only**: a tint of the course colour on the
   surface for something that occupies time (`course.tint.fill`, timetable
   block) or emphasis on a row (`course.tint.soft`, the current or next class),
-  and a small square for "belongs to this course" in lists.
+  and a small square for "belongs to this course" in lists. Text on a fill
+  takes the course colour mixed into ink (`course.tint.ink`), so a block reads
+  as one colour on desktop and phone.
 - **System chrome is not tokenised**: tab bars, navigation bars, sheets,
   switches and system fonts on phones come from the platform. Tokens cover
   what we draw and the neutrals behind it.
@@ -54,11 +56,11 @@ Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
 The shared workspace treatment lives in
 `apps/desktop/src/components/workspace-chrome.css`; `ResizableWorkspace` owns
 column sizing and local layout persistence. Web and course readers share
-`workspacePane`; their headers use `workspaceTabStrip` or `workspaceToolPanel`.
+`workspacePane`; readers head it with `workspaceToolPanel`, Web with its address toolbar.
 Keep the outer panel rounder than its controls, use one quiet border, and reserve the accent for interaction.
 Readers open one document at a time. PDF, file and Markdown tools render into
-the fixed tool panel through `ReaderTools`; only the content scrolls. Web keeps
-its service title above the address tools. The lesson progress rail stays above
+the fixed tool panel through `ReaderTools`; only the content scrolls. Web names
+its service in the left picker only. The lesson progress rail stays above
 the two columns, and search stays in the outline. A narrow pane wraps tools instead of clipping
 operations. Compact layouts keep the same content mounted while showing one pane.
 

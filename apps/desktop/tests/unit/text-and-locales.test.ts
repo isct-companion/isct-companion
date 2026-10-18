@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import i18n, { intlLocale, t } from "@app/i18n";
+import i18n, { intlLocale, relativeTimeAgo, t } from "@app/i18n";
 import { EMPTY_WORKSPACE } from "@app/generated/persistence";
 import { termForDate } from "@app/lib/academic";
 import {
@@ -252,6 +252,17 @@ describe("Chinese translation catalogue", () => {
     expect(intlLocale("ja")).toBe("ja-JP");
     expect(intlLocale("zh")).toBe("zh-CN");
     expect(intlLocale("fr")).toBe("en-GB");
+  });
+
+  it("states a data age in the largest whole unit and leaves the first minute to the caller", () => {
+    const now = "2026-10-17T12:00:00Z";
+    expect(relativeTimeAgo("2026-10-17T11:59:30Z", now, "en")).toBeNull();
+    expect(relativeTimeAgo("2026-10-17T11:48:00Z", now, "en")).toBe(
+      "12 minutes ago",
+    );
+    expect(relativeTimeAgo("2026-10-17T09:10:00Z", now, "zh")).toBe("2小时前");
+    expect(relativeTimeAgo("2026-10-16T08:00:00Z", now, "ja")).toBe("昨日");
+    expect(relativeTimeAgo("not a time", now, "en")).toBeNull();
   });
 });
 

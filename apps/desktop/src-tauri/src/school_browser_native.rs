@@ -156,7 +156,7 @@ impl NativeBrowser {
         let (id, cause, result) = match op {
             Operation::Ensure(id, url) => {
                 if let Err(error) = self.create(id, url) {
-                    eprintln!(
+                    log::error!(
                         "[school-web] {} could not be created: {error}",
                         id.site.webview_label()
                     );

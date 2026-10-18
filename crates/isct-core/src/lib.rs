@@ -12,6 +12,7 @@
 )]
 
 pub mod agent;
+pub mod app_updates;
 pub mod backup;
 pub mod catalog;
 pub mod cloud_credentials;
@@ -22,7 +23,7 @@ pub mod contracts;
 pub mod course_materials;
 pub mod course_query;
 pub mod data;
-mod diagnostics;
+pub mod diagnostics;
 pub mod downloads;
 pub mod events;
 pub mod kyomu_guide;
@@ -30,6 +31,7 @@ pub mod kyomu_ingest;
 pub mod lifecycle;
 pub mod lms_ingest;
 pub mod lms_session;
+pub mod matrix_scan;
 pub mod notes;
 pub mod notification;
 pub mod plans;

@@ -1,4 +1,4 @@
-use super::policy::{is_identity_login, is_login_step, sanitize_school_url};
+use super::policy::{browsing_url, is_identity_login, is_login_step, sanitize_school_url};
 use super::{
     assets::SCHOOL_LOGIN, ActionId, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     LoadFailed, NavigationDecision, NewWindowDecision, PageId, PageLoaded, SchoolBrowser,
@@ -102,6 +102,7 @@ struct State {
     extraction: Option<Extraction>,
     hidden: Option<HiddenWork>,
     sessions: HashMap<SchoolAuthProfile, SchoolSessionState>,
+    kyomu_maintenance: Option<String>,
     revision: u64,
     last_focus: Option<Instant>,
     last_launch: Option<Instant>,
@@ -123,9 +124,13 @@ struct ViewState {
     id: BrowserId,
     last_page: u64,
     url: String,
+    user_url: Option<String>,
+    background_navigation: bool,
     extraction_relay: String,
     auth_relay: String,
     progress_relay: String,
+    availability_relay: String,
+    pending_availability: Option<PageLoaded>,
     navigation: Option<ActionId>,
     actions: HashMap<ActionId, bool>,
 }
@@ -133,6 +138,10 @@ struct ViewState {
 #[derive(Clone, Debug)]
 enum Trace {
     Loaded(PageLoaded),
+    Maintenance {
+        browser: BrowserId,
+        message: String,
+    },
     Failed(LoadFailed),
     Extraction {
         browser: BrowserId,
@@ -212,31 +221,32 @@ impl SchoolBrowserEngine {
         site: SchoolSite,
         target: Option<String>,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        let current = self
-            .0
-            .state
-            .guard()
-            .views
-            .get(&site)
-            .map(|view| view.url.clone());
-        let already_open = current.is_some();
+        let (already_open, current, background_changed) = {
+            let state = self.0.state.guard();
+            let view = state.views.get(&site);
+            (
+                view.is_some(),
+                view.and_then(|v| {
+                    v.user_url
+                        .clone()
+                        .or_else(|| (!v.background_navigation).then(|| v.url.clone()))
+                }),
+                view.is_some_and(|v| v.background_navigation),
+            )
+        };
         let explicit_target = target.is_some();
         let target = target
             .or(current)
             .or_else(|| self.restored_target(site))
             .unwrap_or_else(|| site.start_url().to_string());
-        let url = if explicit_target {
-            site_url(site, &target)?
-        } else {
-            safe_url(&target)?
-        };
+        let url = interactive_url(&target)?;
         self.user_browsing(Some(site))?;
         let opened = (|| {
             let browser = self.ensure_browser(site, url.clone())?;
             // Revealing an existing resident view must preserve its exact native URL.
             // Re-navigating to our sanitized identity would strip SSO query state.
             if already_open
-                && explicit_target
+                && (explicit_target || background_changed)
                 && self.0.browser.current_url(browser)?.as_ref() != Some(&url)
             {
                 self.dispatch(browser, BrowserAction::Navigate(url))?;
@@ -273,7 +283,8 @@ impl SchoolBrowserEngine {
     }
 
     pub fn navigate(&self, site: SchoolSite, raw: &str) -> Result<bool, SchoolBrowserError> {
-        let url = site_url(site, raw)?;
+        let url = interactive_url(raw)?;
+        self.user_browsing(Some(site))?;
         let browser = self.ensure_browser(site, url.clone())?;
         self.dispatch(browser, BrowserAction::Navigate(url))?;
         Ok(true)
@@ -367,9 +378,13 @@ impl SchoolBrowserEngine {
                     id,
                     last_page: 0,
                     url: initial.to_string(),
+                    user_url: None,
+                    background_navigation: false,
                     extraction_relay: format!("isct-companion-extract://{nonce}/"),
                     auth_relay: format!("isct-companion-auth:{nonce}:"),
                     progress_relay: format!("isct-companion-progress:{nonce}:"),
+                    availability_relay: format!("isct-companion-availability:{nonce}:"),
+                    pending_availability: None,
                     navigation: None,
                     actions: HashMap::new(),
                 },
@@ -430,11 +445,12 @@ impl SchoolExecutor for SchoolBrowserEngine {
     }
 }
 
-fn map_executor(error: SchoolBrowserError) -> SchoolExecutorError {
+pub(crate) fn map_executor(error: SchoolBrowserError) -> SchoolExecutorError {
     match error {
         SchoolBrowserError::InvalidInput(message) => SchoolExecutorError::InvalidInput(message),
         SchoolBrowserError::Storage(message) => SchoolExecutorError::Storage(message),
         SchoolBrowserError::Auth(message) => SchoolExecutorError::Authentication(message),
+        SchoolBrowserError::Maintenance(message) => SchoolExecutorError::Maintenance(message),
         SchoolBrowserError::SiteChanged(message) => SchoolExecutorError::SiteChanged(message),
         SchoolBrowserError::Timeout(message) => SchoolExecutorError::Timeout(message),
         SchoolBrowserError::Cancelled => SchoolExecutorError::Cancelled,
@@ -507,7 +523,60 @@ impl Inner {
         if !self.current(event.page.browser) {
             return;
         }
-        let Some(safe_loaded) = sanitize_school_url(event.url.as_str()) else {
+        if event.url.scheme() == "https"
+            && event.url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
+        {
+            let relay = self.state.with(|state| {
+                let view = state.views.get_mut(&event.page.browser.site)?;
+                if view.id != event.page.browser
+                    || event.page.sequence <= view.last_page
+                    || view
+                        .pending_availability
+                        .as_ref()
+                        .is_some_and(|pending| pending.page.sequence >= event.page.sequence)
+                    || event
+                        .cause
+                        .is_some_and(|cause| view.navigation != Some(cause))
+                {
+                    return None;
+                }
+                view.pending_availability = Some(event.clone());
+                Some(view.availability_relay.clone())
+            });
+            if let Some(relay) = relay {
+                let relay = serde_json::to_string(&relay).unwrap_or_default();
+                let sequence = event.page.sequence;
+                let script = format!("{};(()=>{{const message=globalThis.__isctKyomuMaintenance(document);document.title={relay}+btoa(unescape(encodeURIComponent(JSON.stringify({{sequence:{sequence},message,title:document.title}})))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');}})()", include_str!("assets/kyomu-maintenance.js"));
+                if self
+                    .dispatch_eval(event.page.browser, script, true)
+                    .is_err()
+                {
+                    self.load_failed(LoadFailed {
+                        page: event.page,
+                        cause: event.cause,
+                        url: Some(event.url.clone()),
+                        message: "Could not check school service availability.".into(),
+                    });
+                }
+            }
+            return;
+        }
+        self.page_available(event);
+    }
+
+    fn page_available(self: &Arc<Self>, event: PageLoaded) {
+        if !self.current(event.page.browser) {
+            return;
+        }
+        let official_loaded = sanitize_school_url(event.url.as_str());
+        let foreground = self
+            .state
+            .with(|state| state.browsing == Some(event.page.browser.site));
+        let Some(safe_loaded) = (if foreground {
+            browsing_url(event.url.as_str())
+        } else {
+            official_loaded.clone()
+        }) else {
             return;
         };
         let (
@@ -520,8 +589,10 @@ impl Inner {
             guide,
             popup_return,
             restore,
+            foreground,
         ) = {
             let mut state = self.state.guard();
+            let foreground = state.browsing == Some(event.page.browser.site);
             let Some(view) = state.views.get_mut(&event.page.browser.site) else {
                 return;
             };
@@ -542,6 +613,10 @@ impl Inner {
             }
             view.navigation = None;
             view.url = safe_loaded.clone();
+            if foreground {
+                view.user_url = Some(safe_loaded.clone());
+                view.background_navigation = false;
+            }
             let relays = (view.auth_relay.clone(), view.progress_relay.clone());
             let suppressed = state.suppress_history.remove(&event.page.browser.site);
             if !suppressed && state.browsing == Some(event.page.browser.site) {
@@ -565,6 +640,7 @@ impl Inner {
                     baseline: event.page.sequence.saturating_sub(1),
                     target: event.url.to_string(),
                     visible: true,
+                    catalog_page: None,
                 });
             }
             let popup_return = match state.popup_return.get(&event.page.browser.site).cloned() {
@@ -604,15 +680,23 @@ impl Inner {
                     .then(|| crate::kyomu_guide::script(&state.guide))
                     .flatten(),
                 popup_return,
-                state.restore.clone(),
+                foreground.then(|| state.restore.clone()).flatten(),
+                foreground,
             )
         };
-        let _ = self.events.emit(CoreEvent::SchoolWebUrl {
-            site: event.page.browser.site,
-            url: safe_loaded.clone(),
-        });
-        if let Some((path, epoch)) = restore {
-            self.write_restore(path, epoch, event.page.browser.site, safe_loaded);
+        if foreground {
+            let _ = self.events.emit(CoreEvent::SchoolWebUrl {
+                site: event.page.browser.site,
+                url: safe_loaded.clone(),
+            });
+        }
+        if let (Some((path, epoch)), Some(official)) = (restore, official_loaded.as_ref()) {
+            self.write_restore(path, epoch, event.page.browser.site, official.clone());
+        }
+        // External browsing gets history/address updates, never school scripts,
+        // saved credentials, customizations or automatic ingestion.
+        if official_loaded.is_none() {
+            return;
         }
         if !customization.css.trim().is_empty() {
             if let Ok(css) = serde_json::to_string(&customization.css) {
@@ -692,8 +776,16 @@ impl Inner {
                     .unwrap_or_else(|| {
                         "delete globalThis.__ISCT_COMPANION_LMS_COURSE_ID__;".into()
                     });
+                let catalog_page = serde_json::to_string(&extraction.catalog_page)
+                    .unwrap_or_else(|_| "null".into());
+                let course =
+                    format!("{course}globalThis.__ISCT_COMPANION_KYOMU_PAGE__={catalog_page};");
                 let quoted_run =
                     serde_json::to_string(&extraction.run).unwrap_or_else(|_| "\"\"".into());
+                let course = format!(
+                    "{course}globalThis.__ISCT_COMPANION_KYOMU_HIDDEN__={};",
+                    !extraction.visible
+                );
                 let setup = format!("{course}globalThis.__ISCT_COMPANION_LMS_FULL__={};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>{{if(v&&typeof v==='object')v._isctExtractionRun={quoted_run};document.title='{progress_relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}};", extraction.full);
                 let relay = self.state.with(|state| {
                     state
@@ -708,6 +800,18 @@ impl Inner {
             }
         }
         let _ = self.traces.send(Trace::Loaded(event));
+    }
+
+    fn report_kyomu_maintenance(&self, message: &str) {
+        self.state
+            .with(|state| state.kyomu_maintenance = Some(message.into()));
+        let _ = self.events.emit(CoreEvent::SchoolIngest(IngestOutcome {
+            site: SchoolSite::Kyomu,
+            kind: "service".into(),
+            state: IngestState::Maintenance,
+            changed: 0,
+            message: message.into(),
+        }));
     }
 
     fn load_failed(&self, event: LoadFailed) {
@@ -742,8 +846,86 @@ impl Inner {
         }
     }
 
-    fn title_changed(&self, page: PageId, title: &str) {
+    fn title_changed(self: &Arc<Self>, page: PageId, title: &str) {
         if !self.current(page.browser) {
+            return;
+        }
+        let availability = self.state.with(|state| {
+            state
+                .views
+                .get(&page.browser.site)
+                .map(|v| v.availability_relay.clone())
+        });
+        if let Some(encoded) = availability
+            .as_deref()
+            .and_then(|prefix| title.strip_prefix(prefix))
+        {
+            if encoded.len() > 16 * 1024 {
+                return;
+            }
+            #[derive(Deserialize)]
+            struct Availability {
+                sequence: u64,
+                message: Option<String>,
+                #[serde(default)]
+                title: String,
+            }
+            let Some(value) = URL_SAFE_NO_PAD
+                .decode(encoded)
+                .ok()
+                .and_then(|v| serde_json::from_slice::<Availability>(&v).ok())
+            else {
+                return;
+            };
+            let event = self.state.with(|state| {
+                let view = state.views.get_mut(&page.browser.site)?;
+                if view.id != page.browser
+                    || view.pending_availability.as_ref()?.page.sequence != value.sequence
+                    || page.sequence != value.sequence
+                {
+                    return None;
+                }
+                view.pending_availability.take()
+            });
+            if let Some(event) = event {
+                if let Ok(title) =
+                    serde_json::to_string(&value.title.chars().take(512).collect::<String>())
+                {
+                    let _ =
+                        self.dispatch_eval(page.browser, format!("document.title={title};"), false);
+                }
+                if let Some(message) = value.message.filter(|v| !v.trim().is_empty()) {
+                    let message: String = message.chars().take(1800).collect();
+                    // Bookkeep navigation/history, but never treat this page as
+                    // a successful login or a complete data extraction.
+                    self.state.with(|state| {
+                        if let Some(view) = state.views.get_mut(&page.browser.site) {
+                            view.last_page = page.sequence;
+                            view.navigation = None;
+                            view.url = event.url.to_string();
+                        }
+                    });
+                    self.report_kyomu_maintenance(&message);
+                    let _ = self.traces.send(Trace::Maintenance {
+                        browser: page.browser,
+                        message,
+                    });
+                } else {
+                    let recovered = self
+                        .state
+                        .with(|state| state.kyomu_maintenance.take().is_some());
+                    if recovered {
+                        let _ = self.events.emit(CoreEvent::SchoolIngest(IngestOutcome {
+                            site: SchoolSite::Kyomu,
+                            kind: "service".into(),
+                            state: IngestState::Ok,
+                            changed: 0,
+                            message: String::new(),
+                        }));
+                    }
+                    self.page_available(event);
+                }
+            }
             return;
         }
         let prefixes = self.state.with(|state| {
@@ -829,7 +1011,16 @@ impl Inner {
             }
             return NavigationDecision::Cancel;
         }
-        if sanitize_school_url(url.as_str()).is_some() {
+        // Empty editor frames inherit the embedding origin. Blocking them
+        // breaks TinyMCE/contenteditable before keyboard input can begin.
+        let editor_frame = url.as_str() == "about:blank" || url.as_str() == "about:srcdoc";
+        let interactive = self
+            .state
+            .with(|state| state.browsing == Some(page.browser.site));
+        if editor_frame
+            || (interactive && browsing_url(url.as_str()).is_some())
+            || sanitize_school_url(url.as_str()).is_some()
+        {
             NavigationDecision::Allow
         } else {
             NavigationDecision::Cancel
@@ -840,9 +1031,16 @@ impl Inner {
         if !self.current(page.browser) {
             return NewWindowDecision::Ignore;
         }
-        let school_url = sanitize_school_url(url.as_str())
-            .and_then(|safe| Url::parse(&safe).ok())
-            .and_then(|safe| SchoolSite::for_url(safe.as_str()).map(|site| (site, safe)));
+        let interactive = self
+            .state
+            .with(|state| state.browsing == Some(page.browser.site));
+        let school_url = (if interactive {
+            browsing_url(url.as_str())
+        } else {
+            sanitize_school_url(url.as_str())
+        })
+        .and_then(|safe| Url::parse(&safe).ok())
+        .and_then(|safe| SchoolSite::for_url(safe.as_str()).map(|site| (site, safe)));
         match school_url {
             Some((site, safe)) if site == page.browser.site => {
                 {
@@ -867,6 +1065,9 @@ impl Inner {
                     url: safe.to_string(),
                 });
                 NewWindowDecision::OpenSchool { site, url: safe }
+            }
+            None if interactive && browsing_url(url.as_str()).is_some() => {
+                NewWindowDecision::SameView(url)
             }
             None if matches!(url.scheme(), "http" | "https")
                 && url.username().is_empty()
@@ -915,6 +1116,7 @@ impl Inner {
             let mut state = self.state.guard();
             if let Some(view) = state.views.get_mut(&browser.site) {
                 if view.id == browser {
+                    view.pending_availability = None;
                     view.navigation = Some(action);
                     if view.actions.len() >= 64 {
                         view.actions.clear();
@@ -926,6 +1128,7 @@ impl Inner {
             let mut state = self.state.guard();
             if let Some(view) = state.views.get_mut(&browser.site) {
                 if view.id == browser {
+                    view.pending_availability = None;
                     view.navigation = Some(action);
                     view.actions.insert(action, true);
                 }
@@ -1020,14 +1223,13 @@ fn safe_url(raw: &str) -> Result<Url, SchoolBrowserError> {
     })?;
     Url::parse(&safe).map_err(|_| SchoolBrowserError::InvalidInput("School URL is invalid.".into()))
 }
-fn site_url(site: SchoolSite, raw: &str) -> Result<Url, SchoolBrowserError> {
-    let url = safe_url(raw)?;
-    if SchoolSite::for_url(url.as_str()) != Some(site) {
-        return Err(SchoolBrowserError::InvalidInput(
-            "School URL belongs to a different service.".into(),
-        ));
-    }
-    Ok(url)
+fn interactive_url(raw: &str) -> Result<Url, SchoolBrowserError> {
+    let safe = browsing_url(raw).ok_or_else(|| {
+        SchoolBrowserError::InvalidInput(
+            "Enter an HTTP or HTTPS URL without embedded credentials.".into(),
+        )
+    })?;
+    Url::parse(&safe).map_err(|_| SchoolBrowserError::InvalidInput("Web URL is invalid.".into()))
 }
 fn new_id() -> String {
     uuid::Uuid::now_v7().simple().to_string()

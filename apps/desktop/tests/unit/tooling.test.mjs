@@ -5,7 +5,15 @@
 // through the harness. Plain node: nothing here touches the DOM.
 import path from "node:path";
 import os from "node:os";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  mkdirSync,
+  cpSync,
+  existsSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
@@ -320,12 +328,89 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
           (args) => args[0] === "release" && args[1] === "upload",
         );
         expect(upload).toBeLessThan(calls.indexOf(edit));
-        expect(
-          readFileSync(path.join(dir, "release-notes.md"), "utf8"),
-        ).toContain("desktop installers only");
+        const notes = readFileSync(path.join(dir, "release-notes.md"), "utf8");
+        expect(notes).toContain(`IsctCompanion ${tag.slice(1)} desktop release`);
+        expect(notes).toContain("desktop installers only");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     },
   );
+});
+
+describe("desktop update distribution", () => {
+  it("pairs native update bundles with signatures and rejects an incomplete signed build", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "isct-release-"));
+    const put = (name, text) => {
+      const dest = path.join(root, name);
+      mkdirSync(path.dirname(dest), { recursive: true });
+      writeFileSync(dest, text);
+    };
+    try {
+      for (const name of [
+        "package.json",
+        "apps/desktop/package.json",
+        "apps/desktop/src-tauri/tauri.conf.json",
+        "apps/desktop/src-tauri/Cargo.toml",
+        "docs/legal/EULA.md",
+        "docs/legal/EULA.ja.md",
+        "docs/distribution/README.md",
+        "scripts/desktop/desktop-release.mjs",
+      ]) {
+        const dest = path.join(root, name);
+        mkdirSync(path.dirname(dest), { recursive: true });
+        cpSync(path.join(repositoryRoot, name), dest);
+      }
+      put("apps/desktop/dist/THIRD-PARTY-NOTICES.txt", "Test notices");
+      const version = JSON.parse(readRepoFile("package.json")).version;
+      // The collector packages existing bundles. Native compilation and cryptographic
+      // verification belong to Tauri; these bytes are explicitly inert fixtures.
+      for (const [target, format, extension, updateFormat, updateExtension] of [
+        ["aarch64-apple-darwin", "dmg", ".dmg", "macos", ".app.tar.gz"],
+        ["x86_64-apple-darwin", "dmg", ".dmg", "macos", ".app.tar.gz"],
+        ["x86_64-pc-windows-msvc", "nsis", ".exe", "nsis", ".exe"],
+      ]) {
+        put(
+          `target/${target}/release/bundle/${format}/fixture${extension}`,
+          "test installer",
+        );
+        const bundle = `target/${target}/release/bundle/${updateFormat}/fixture${updateExtension}`;
+        put(bundle, "test update");
+        put(`${bundle}.sig`, "test signature");
+        const run = () =>
+          spawnSync(
+            process.execPath,
+            [
+              path.join(root, "scripts/desktop/desktop-release.mjs"),
+              "collect",
+              target,
+            ],
+            {
+              encoding: "utf8",
+              env: {
+                ...process.env,
+                GITHUB_REF: "",
+                ISCT_UPDATER_PUBLIC_KEY: "test public key",
+              },
+            },
+          );
+        expect(run().status).toBe(0);
+        const output = path.join(
+          root,
+          `artifacts/desktop/${target}/IsctCompanion_${version}_${target}${updateExtension}`,
+        );
+        expect(readFileSync(output, "utf8")).toBe("test update");
+        expect(readFileSync(`${output}.sig`, "utf8")).toBe("test signature");
+        rmSync(path.join(root, `${bundle}.sig`));
+        const missing = run();
+        expect(missing.status).not.toBe(0);
+        expect(missing.stderr).toContain("missing its signed bundle");
+        expect(
+          existsSync(path.join(root, "artifacts/desktop", target, "LICENSE")),
+        ).toBe(true);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

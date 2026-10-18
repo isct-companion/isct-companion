@@ -175,11 +175,13 @@ function FileActions({ course, openInApp }: { course: CourseFile; openInApp?: ()
     const material = await openMaterial(context, url, { download: true });
     if (material.state === "ready") await openStoredFile(material.file.path, !open);
   };
-  return <>
-    {view.state === "ready" && course.managed && <button type="button" onClick={() => void reveal()}><LmsIcon name="folder" size={14} />{t(revealLabel)}</button>}
-    {openInApp && <button type="button" onClick={openInApp}><LmsIcon name="page" size={14} />{t("Open in LMS")}</button>}
-    <ExternalLink href={url}><LmsIcon name="external" size={14} />{t("Open in browser")}</ExternalLink>
-  </>;
+  // In the reader panel these collapse to icons; the label stays as tooltip and name.
+  const label = (text: string) => ({ "aria-label": t(text), title: t(text) });
+  return <div className="lmsFileActions">
+    {view.state === "ready" && course.managed && <button type="button" {...label(revealLabel)} onClick={() => void reveal()}><LmsIcon name="folder" size={15} /><span className="lmsToolLabel">{t(revealLabel)}</span></button>}
+    {openInApp && <button type="button" {...label("Open in LMS")} onClick={openInApp}><LmsIcon name="page" size={15} /><span className="lmsToolLabel">{t("Open in LMS")}</span></button>}
+    <ExternalLink href={url} {...label("Open in browser")}><LmsIcon name="external" size={15} /><span className="lmsToolLabel">{t("Open in browser")}</span></ExternalLink>
+  </div>;
 }
 
 /** Name, size, state and one primary action for the file's current state. */

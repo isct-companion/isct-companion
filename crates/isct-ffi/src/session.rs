@@ -305,17 +305,24 @@ impl Session {
             })
         })
     }
-    pub fn lms_merge_preview(
+    pub fn catalog_query(
         &self,
-        scope: String,
-        term: String,
+        query: String,
+        year: u16,
+        filters: Option<CatalogFilters>,
+        cursor: Option<String>,
     ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            Ok(OperationResult::Document {
-                value: JsonValue(i.core.lms_merge_preview(&scope, &term)?),
+        self.start(false, move |i, _| async move {
+            let page = i
+                .core
+                .catalog_query(query, year, project_input(filters)?, cursor)
+                .await?;
+            Ok(OperationResult::Catalog {
+                page: project(page)?,
             })
         })
     }
+
     pub fn credential_status(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(|i| {
             Ok(OperationResult::Credentials {

@@ -24,6 +24,40 @@ use thiserror::Error;
 
 pub const MATRIX_CELLS: usize = 70;
 
+/// One frame's readings and normalized cell corners (top-left clockwise).
+pub struct MatrixFrame {
+    pub cells: Vec<Recognition>,
+    pub quads: Vec<[[f64; 2]; 4]>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct MatrixFrameTiming {
+    pub decode_ms: f64,
+    pub geometry_ms: f64,
+    pub preprocess_ms: f64,
+    pub inference_ms: f64,
+    pub total_ms: f64,
+}
+pub struct MatrixLiveFrame {
+    /// Selected readings in the same order as the requested cell indices.
+    pub cells: Vec<Recognition>,
+    pub quads: Vec<[[f64; 2]; 4]>,
+    pub timing: MatrixFrameTiming,
+}
+/// Capability measurements only; capture admission and lifetime belong to core.
+pub struct MatrixCaptureGlyph {
+    pub gray: Vec<u8>,
+    pub contrast: f64,
+    pub sharpness: f64,
+    pub source_size: f64,
+    pub centering: f64,
+}
+pub struct MatrixCaptureFrame {
+    pub quads: Vec<[[f64; 2]; 4]>,
+    pub glyphs: Vec<MatrixCaptureGlyph>,
+    pub timing: MatrixFrameTiming,
+}
+
 /// Compile-time backend availability; model initialization remains lazy.
 pub const fn available() -> bool {
     cfg!(matrix_ocr)
@@ -72,7 +106,21 @@ pub enum MatrixOcrError {
 }
 
 #[cfg(matrix_ocr)]
-pub use engine::MatrixOcrService;
+pub use engine::{capture_matrix_frame, MatrixAlphabetService, MatrixOcrService};
+
+#[cfg(not(matrix_ocr))]
+pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+#[derive(Clone, Default)]
+pub struct MatrixAlphabetService;
+#[cfg(not(matrix_ocr))]
+impl MatrixAlphabetService {
+    pub fn recognize(&self, _images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
+}
 
 #[cfg(not(matrix_ocr))]
 #[derive(Clone, Default)]
@@ -87,6 +135,33 @@ impl MatrixOcrService {
     #[cfg(debug_assertions)]
     pub fn with_debug_dir(self, _directory: Option<PathBuf>) -> Self {
         self
+    }
+
+    pub fn scan_live_frame(
+        &self,
+        _image: &[u8],
+        _indices: &[usize],
+        _geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
+        _progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<MatrixLiveFrame, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
+
+    pub fn scan_frame_with_geometry(
+        &self,
+        _image: &[u8],
+        _geometry: impl Fn(&[[[f64; 2]; 4]]) -> bool,
+        _progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<MatrixFrame, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
+
+    pub fn scan_frame(
+        &self,
+        _image: &[u8],
+        _progress: impl Fn(OcrProgress) -> bool,
+    ) -> Result<MatrixFrame, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
     }
 
     pub fn scan(

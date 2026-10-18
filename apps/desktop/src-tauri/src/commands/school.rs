@@ -4,35 +4,23 @@ use crate::{
     pull_coordinator, require_local_main, school_refresh,
     school_web::{self, SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds},
 };
-use isct_core::school_browser::sanitize_school_url;
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
-/// School pages keep their sanitized form; any other link must be plain
-/// http(s) without embedded credentials.
+/// Explicit user browsing preserves the full web address, including search
+/// state. Core automation uses its separate official-origin sanitizer.
 pub(crate) fn external_url(raw: &str) -> Option<String> {
-    if let Some(safe) = sanitize_school_url(raw) {
-        return Some(safe);
-    }
-    let url = url::Url::parse(raw).ok()?;
-    let plain = matches!(url.scheme(), "https" | "http")
-        && url.host_str().is_some()
-        && url.username().is_empty()
-        && url.password().is_none();
-    plain.then(|| url.to_string())
+    isct_core::school_browser::browsing_url(raw)
 }
 
 #[tauri::command]
 pub(crate) fn resolve_school_url(
     webview: tauri::Webview,
     url: String,
-) -> Result<serde_json::Value, String> {
+    site: SchoolSite,
+) -> Result<isct_core::school_browser::SchoolWebTarget, String> {
     require_local_main(&webview)?;
-    let safe = sanitize_school_url(&url)
-        .ok_or_else(|| "Use an official Science Tokyo school URL.".to_string())?;
-    let site = SchoolSite::for_url(&safe)
-        .ok_or_else(|| "Use an official Science Tokyo school URL.".to_string())?;
-    Ok(serde_json::json!({"site": site, "url": safe}))
+    isct_core::school_browser::browsing_target(&url, site).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -95,7 +83,7 @@ pub(crate) fn hide_school_web(
     controller: tauri::State<'_, SchoolWebController>,
 ) -> Result<bool, String> {
     if let Err(error) = require_local_main(&webview) {
-        eprintln!("hide_school_web rejected for {}: {error}", webview.label());
+        log::error!("hide_school_web rejected for {}: {error}", webview.label());
         return Err(error);
     }
     controller.hide_all()
@@ -180,11 +168,18 @@ pub(crate) async fn pull_school(
     app: tauri::AppHandle,
     site: SchoolSite,
     lms_course_id: Option<u64>,
+    current_only: Option<bool>,
 ) -> Result<Vec<school_web::IngestOutcome>, String> {
     require_local_main(&webview)?;
     let services = core_ports::services(&app);
     core_ports::runtime(&app)
         .run(async move {
+            if site == SchoolSite::ScienceLms && current_only == Some(true) {
+                return services
+                    .school
+                    .pull_current_term(&services.store, services.executor)
+                    .await;
+            }
             services
                 .school
                 .pull(

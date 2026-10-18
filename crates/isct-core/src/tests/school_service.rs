@@ -137,7 +137,12 @@ fn outcome(state: IngestState) -> IngestOutcome {
 }
 
 fn service(coordinator: PullCoordinator, auth: Arc<SchoolAuthService>) -> SchoolService {
-    SchoolService::new(coordinator, auth, Arc::new(RecordingEvents::default()))
+    SchoolService::new(
+        coordinator,
+        auth,
+        Arc::new(RecordingEvents::default()),
+        crate::school_refresh::SchoolRefresh::new(crate::pull_coordinator::PullNetwork::Wifi),
+    )
 }
 
 #[tokio::test]
@@ -238,6 +243,10 @@ async fn executor_errors_and_panics_release_the_school_lane() {
 #[tokio::test]
 async fn typed_executor_errors_keep_their_category_and_release_the_lane() {
     let cases = [
+        (
+            SchoolExecutorError::Maintenance("Official outage notice".into()),
+            SchoolError::Maintenance("Official outage notice".into()),
+        ),
         (
             SchoolExecutorError::Authentication("Sign-in expired.".into()),
             SchoolError::Authentication("Sign-in expired.".into()),

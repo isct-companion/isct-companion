@@ -1,12 +1,12 @@
 # IsctCompanion
 
 A local-first companion for Institute of Science Tokyo schedules, courses and
-school services. This is the public download repository maintained by
+school services. Source and desktop releases are maintained here by
 [@Gliese129](https://github.com/Gliese129) and [@OHNope](https://github.com/OHNope).
 
 ## Downloads
 
-Get the 1.0 desktop release from [Releases](https://github.com/isct-companion/Isct-Companion-App/releases).
+Get desktop releases from [Releases](https://github.com/isct-companion/isct-companion/releases).
 
 | System | Download filename contains | Requirements |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ IsctCompanion is an independent project and is not an official university app.
 
 ## Support
 
-Report problems in [Issues](https://github.com/isct-companion/Isct-Companion-App/issues).
+Report problems in [Issues](https://github.com/isct-companion/isct-companion/issues).
 Include your app version, operating system and steps to reproduce. Keep
 passwords, authentication tokens and private school records out of reports.
 

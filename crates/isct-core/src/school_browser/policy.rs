@@ -1,11 +1,12 @@
 use crate::school_auth::SchoolAuthProfile;
 use url::Url;
 
-/// Every official host a school page may navigate to.
+/// Official origins eligible for school automation and persisted restore URLs.
+/// Interactive WebView browsing is governed separately by `browsing_url`.
 ///
 /// The list is grouped by the campus that publishes the system, following the
 /// student site's 学修関連システム page. An origin in this list may be loaded in a
-/// school WebView; membership does not imply an adapter, a start page or a
+/// school automation flow; membership does not imply an adapter, a start page or a
 /// `SchoolSite` mapping.
 pub const SCHOOL_HOSTS: &[&str] = &[
     // 理工学系 (Science and engineering): portal, LMS, syllabus, 教務, library,
@@ -62,6 +63,17 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
                 && value
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+            (url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
+                && url.path().eq_ignore_ascii_case(crate::catalog::KYOMU_SEARCH_PATH)
+                && match key.as_ref() {
+                    "Quarters" | "Youbi" | "KaisiJigenS" | "KamokuCodeSeries" | "HisshuKbn" => value.len()<=128 && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b','),
+                    "Lang_kj" | "Lang_ke" => value == "True",
+                    "TermUnit" => value.len() == 5 && value.bytes().all(|b| b.is_ascii_digit()) && matches!(value.as_bytes().last(),Some(b'1'|b'2')),
+                    "_search" | "ZengakuSenmonAll" | "Suisho" | "Zengaku" | "Senmon" | "SE" | "MD" => matches!(value.as_ref(),"True"|"False"),
+                    "ShinkokuNoS" | "Name" | "KyouinName" => value.chars().count() <= 200 && !value.chars().any(char::is_control),
+                    "back" => value == "0",
+                    _ => false,
+                }) ||
             (matches!(key.as_ref(), "id" | "course" | "page" | "section") && identifier)
                 // Keep only the draft editor action on the LMS assignment route.
                 || (key == "action"
@@ -81,6 +93,32 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
         url.query_pairs_mut().extend_pairs(kept);
     }
     Some(url.to_string())
+}
+
+/// Interactive browsing preserves query/fragment state. This grants no login
+/// or extraction authority; those continue to use `sanitize_school_url`.
+pub fn browsing_url(raw: &str) -> Option<String> {
+    let url = Url::parse(raw).ok()?;
+    (matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none())
+    .then(|| url.to_string())
+}
+
+pub fn browsing_target(
+    raw: &str,
+    fallback: crate::lifecycle::SchoolSite,
+) -> Result<super::SchoolWebTarget, super::SchoolBrowserError> {
+    let url = browsing_url(raw).ok_or_else(|| {
+        super::SchoolBrowserError::InvalidInput(
+            "Enter an HTTP or HTTPS URL without embedded credentials.".into(),
+        )
+    })?;
+    Ok(super::SchoolWebTarget {
+        site: crate::lifecycle::SchoolSite::for_url(&url).unwrap_or(fallback),
+        url,
+    })
 }
 
 /// Whether a loaded or fetched URL is a school sign-in page: an identity

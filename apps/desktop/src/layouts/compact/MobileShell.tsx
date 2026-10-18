@@ -8,7 +8,7 @@ import type { Page } from "../../app/shared";
 import { useEdgeSwipeBack } from "./edge-swipe";
 import { t } from "../../i18n";
 
-const tabs: Page[] = ["home", "lectures", "web", "settings"];
+const tabs: Page[] = ["home", "timetable", "lectures", "web", "settings"];
 
 export type MobileAccountStatus = {
   profile: "science" | "tokyo-tech";

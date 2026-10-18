@@ -52,6 +52,7 @@ struct FakeBrowser {
     current: Mutex<HashMap<BrowserId, Url>>,
     /// Report the next dispatch as sent to a view that no longer exists.
     unavailable: AtomicBool,
+    maintenance: Mutex<Option<String>>,
 }
 
 impl FakeBrowser {
@@ -133,7 +134,12 @@ impl FakeBrowser {
                 .unwrap()
                 .iter()
                 .filter_map(|command| match &command.command {
-                    BrowserAction::Eval(script) => Some(script.clone()),
+                    BrowserAction::Eval(script)
+                        if !script.contains("isct-companion-availability:")
+                            && !script.starts_with("document.title=") =>
+                    {
+                        Some(script.clone())
+                    }
                     _ => None,
                 })
                 .collect();
@@ -183,7 +189,38 @@ impl SchoolBrowser for FakeBrowser {
                 .unwrap()
                 .insert(command.browser, url.clone());
         }
+        let availability = match &command.command {
+            BrowserAction::Eval(script) if script.contains("isct-companion-availability:") => {
+                let prefix = script
+                    .split("document.title=")
+                    .nth(1)
+                    .unwrap()
+                    .split('+')
+                    .next()
+                    .unwrap();
+                let prefix: String = serde_json::from_str(prefix).unwrap();
+                let sequence: u64 = script
+                    .split("sequence:")
+                    .nth(1)
+                    .unwrap()
+                    .split(',')
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                Some((prefix, sequence))
+            }
+            _ => None,
+        };
+        let browser = command.browser;
         self.commands.lock().unwrap().push(command);
+        if let Some((prefix, sequence)) = availability {
+            let payload = serde_json::json!({"sequence":sequence,"message":self.maintenance.lock().unwrap().clone()});
+            self.listener().title_changed(
+                PageId { browser, sequence },
+                format!("{prefix}{}", URL_SAFE_NO_PAD.encode(payload.to_string())),
+            );
+        }
         Ok(())
     }
 
@@ -332,17 +369,15 @@ impl SecretVault for BlockingVault {
 }
 
 fn extraction_relay(script: &str, raw: serde_json::Value) -> Url {
-    let relay = script
-        .split("location.href='")
-        .nth(1)
-        .and_then(|value| value.split("'+btoa").next())
-        .unwrap();
-    let encoded_run = script
-        .split("_isctExtractionRun=")
-        .nth(1)
-        .and_then(|value| value.split(';').next())
-        .unwrap();
-    let run: String = serde_json::from_str(encoded_run).unwrap();
+    let quoted = |key: &str| {
+        script
+            .split(key)
+            .nth(1)
+            .and_then(|value| value.split(';').next())
+            .unwrap()
+    };
+    let relay: String = serde_json::from_str(quoted("const relay = ")).unwrap();
+    let run: String = serde_json::from_str(quoted("const run = ")).unwrap();
     let mut raw = raw;
     raw.as_object_mut()
         .unwrap()
@@ -362,6 +397,151 @@ fn login_config(script: &str) -> serde_json::Value {
         .and_then(|value| value.strip_suffix(");"))
         .unwrap_or_else(|| panic!("login configuration missing from script: {script}"));
     serde_json::from_str(raw).unwrap()
+}
+
+// Protect real engine routing: rich editors need inherited-origin frames;
+// interactive external pages must not inherit school automation authority.
+#[tokio::test]
+async fn interactive_browsing_supports_editor_frames_and_external_history_without_school_scripts() {
+    let (engine, browser, events, _) = engine();
+    let site = SchoolSite::ScienceLms;
+    let official =
+        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission#editor";
+    engine.open(site, Some(official.into())).await.unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let page = PageId {
+        browser: id,
+        sequence: 1,
+    };
+    listener.page_loaded(PageLoaded {
+        page,
+        cause: None,
+        url: Url::parse(official).unwrap(),
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if events
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == official))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    engine
+        .set_customization(
+            site,
+            SchoolPageCustomization {
+                css: "body{color:red}".into(),
+                javascript: "schoolCustomization()".into(),
+            },
+        )
+        .unwrap();
+    for main_frame in [false, true] {
+        for raw in [
+            "about:blank",
+            "about:srcdoc",
+            "https://docs.google.com/forms/d/test/viewform?entry.1=a%20b#section",
+            "http://example.com/search?q=course",
+        ] {
+            assert_eq!(
+                listener.decide_navigation(page, Url::parse(raw).unwrap(), main_frame),
+                NavigationDecision::Allow,
+                "{raw}"
+            );
+        }
+    }
+    for raw in [
+        "javascript:alert(1)",
+        "file:///tmp/private",
+        "data:text/html,test",
+        "https://user:secret@example.com/",
+    ] {
+        assert_eq!(
+            listener.decide_navigation(page, Url::parse(raw).unwrap(), true),
+            NavigationDecision::Cancel,
+            "{raw}"
+        );
+    }
+    let external = "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
+    let resolved = browsing_target(external, site).unwrap();
+    assert_eq!(resolved.site, site);
+    assert_eq!(resolved.url, external);
+    assert!(sanitize_school_url(external).is_none());
+    assert!(
+        matches!(listener.new_window(page, Url::parse(external).unwrap()), NewWindowDecision::SameView(url) if url.as_str() == external)
+    );
+    let scripts_before = browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| matches!(command.command, BrowserAction::Eval(_)))
+        .count();
+    engine.navigate(site, external).unwrap();
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(external).unwrap(),
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if events
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == external))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let scripts_after = browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| matches!(command.command, BrowserAction::Eval(_)))
+        .count();
+    assert_eq!(
+        scripts_after, scripts_before,
+        "external page received a school script"
+    );
+    assert!(events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == external)));
+    assert!(engine.back(site).unwrap());
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), official);
+    assert!(engine.forward(site).unwrap());
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), external);
+    assert_eq!(engine.open(site, None).await.unwrap().url, external);
+    engine.user_browsing(None).unwrap();
+    assert_eq!(
+        listener.decide_navigation(page, Url::parse(external).unwrap(), true),
+        NavigationDecision::Cancel
+    );
+    assert!(matches!(
+        listener.new_window(page, Url::parse(external).unwrap()),
+        NewWindowDecision::OpenExternal(_)
+    ));
+    engine.shutdown().await;
 }
 
 #[tokio::test]
@@ -1798,7 +1978,7 @@ async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
 }
 
 #[tokio::test]
-async fn first_automatic_full_pull_also_builds_the_timetable() {
+async fn full_lms_pull_projects_fallback_without_writing_user_timetable() {
     let (engine, browser, events, store) = engine();
     let coordinator = PullCoordinator::default();
     let request = spawn_pull(
@@ -1842,13 +2022,219 @@ async fn first_automatic_full_pull_also_builds_the_timetable() {
         .unwrap()
         .unwrap();
     let workspace = store.load_workspace().unwrap();
-    assert!(workspace["importStatus"]["timetableReviewedAt"].is_string());
-    let week = crate::schedule::planning_week(&workspace, "2026-3Q").unwrap();
-    assert_eq!(week.days[4].blocks.len(), 1);
-    assert_eq!(week.days[4].blocks[0].title, "Algorithms");
-    assert_eq!(week.days[4].blocks[0].start_time, "13:30");
-    assert!(store.last_import_runs().unwrap()["lms:full"].is_string());
-    assert!(events.0.lock().unwrap().iter().any(|event| matches!(event,
+    assert!(workspace["importStatus"]["timetableReviewedAt"].is_null());
+    let courses = crate::schedule::scheduled_courses(&workspace, "2026-3Q");
+    assert_eq!(courses.len(), 1);
+    assert_eq!(courses[0]["meetings"][0]["days"], serde_json::json!([5]));
+    assert_eq!(
+        courses[0]["meetings"][0]["periods"],
+        serde_json::json!([5, 6])
+    );
+    assert!(store.user_rows("manual_courses").unwrap().is_empty());
+    assert!(store.user_rows("manual_memberships").unwrap().is_empty());
+    assert_eq!(store.table_rows("lms_courses").unwrap().len(), 1);
+    assert!(store.last_import_runs().unwrap()["lms:all"].is_string());
+    assert!(!events.0.lock().unwrap().iter().any(|event| matches!(event,
         CoreEvent::SchoolPullProgress(progress) if progress.phase == "timetable")));
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn hidden_catalogue_search_preserves_the_foreground_web_location() {
+    let (engine, browser, events, _) = engine();
+    let original = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/Default.aspx";
+    engine
+        .open(SchoolSite::Kyomu, Some(original.into()))
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse(original).unwrap(),
+    });
+    for attempt in 0..10_000 {
+        if events
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| matches!(event, CoreEvent::SchoolWebUrl { url, .. } if url == original))
+        {
+            break;
+        }
+        settle(attempt).await;
+    }
+    engine.user_browsing(None).unwrap();
+    let search = format!(
+        "https://kyomu0.gakumu.titech.ac.jp{}?_search=True",
+        crate::catalog::KYOMU_SEARCH_PATH
+    );
+    let coordinator = PullCoordinator::default();
+    let request = {
+        let engine = engine.clone();
+        let search = search.clone();
+        tokio::spawn(async move {
+            coordinator
+                .run(
+                    PullTarget::Catalog {
+                        year: 2026,
+                        query: search.clone(),
+                    },
+                    PullOptions::manual(),
+                    move |context| {
+                        let engine = engine.clone();
+                        let search = search.clone();
+                        async move {
+                            engine
+                                .catalog_search(&search, None, Default::default(), &context)
+                                .await
+                                .map_err(Into::into)
+                        }
+                    },
+                )
+                .await
+        })
+    };
+    browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(&search).unwrap(),
+    });
+    let relay = extraction_relay(
+        &browser.extraction_script().await,
+        serde_json::json!({
+            "status":"ok", "kind":"catalog", "sourceUrl":search,
+            "data":{"complete":true,"shape":"course-search","empty":true,"courses":[],"nextCursor":null,"truncated":false}
+        }),
+    );
+    browser.listener().decide_navigation(
+        PageId {
+            browser: id,
+            sequence: 2,
+        },
+        relay,
+        true,
+    );
+    request.await.unwrap().unwrap();
+    assert!(!events.0.lock().unwrap().iter().any(
+        |event| matches!(event, CoreEvent::SchoolWebUrl { url, .. } if url.contains("_search"))
+    ));
+    let reopened = engine.open(SchoolSite::Kyomu, None).await.unwrap();
+    assert_eq!(reopened.url, original);
+    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), original);
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn maintenance_redirect_finishes_the_pull_and_recovery_releases_the_browser_lane() {
+    let (engine, browser, events, _) = engine();
+    *browser.maintenance.lock().unwrap() =
+        Some("ただいまメンテナンス中です 2031/01/02 10:00–12:30".into());
+    let coordinator = PullCoordinator::default();
+    let pull = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::Kyomu,
+        PullOptions::manual(),
+    );
+    let landing = browser.navigation(0).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: landing.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx").unwrap(),
+    });
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), pull)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(result.unwrap_err().to_string().contains("2031/01/02"));
+    assert!(events.0.lock().unwrap().iter().any(|event| matches!(event, CoreEvent::SchoolIngest(outcome) if outcome.state == IngestState::Maintenance)));
+    assert_eq!(coordinator.snapshots().await[0].state, PullState::Failed);
+    assert!(engine
+        .session_snapshot()
+        .unwrap()
+        .kyomu_maintenance
+        .unwrap()
+        .contains("2031/01/02"));
+
+    *browser.maintenance.lock().unwrap() = None;
+    let next = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::Kyomu,
+        PullOptions::manual(),
+    );
+    let landing = browser.navigation(1).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: landing.browser,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/").unwrap(),
+    });
+    let _ = browser.navigation(2).await;
+    assert!(engine
+        .session_snapshot()
+        .unwrap()
+        .kyomu_maintenance
+        .is_none());
+    assert!(events.0.lock().unwrap().iter().any(|event| matches!(event, CoreEvent::SchoolIngest(outcome) if outcome.kind == "service" && outcome.state == IngestState::Ok)));
+    coordinator.shutdown().await;
+    assert!(next.await.unwrap().is_err());
+
+    // Signing in during the same outage is a temporary service state, not a
+    // credential rejection. It must settle promptly and remain retryable.
+    *browser.maintenance.lock().unwrap() = Some("ただいまメンテナンス中です".into());
+    let login = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .login(
+                    SchoolAuthProfile::TokyoTech,
+                    SchoolCredentials {
+                        username: "test-student".into(),
+                        password: "test-password".into(),
+                        otp_secret: String::new(),
+                        matrix: String::new(),
+                    },
+                )
+                .await
+        })
+    };
+    let navigation = browser.navigation(3).await;
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: navigation.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx").unwrap(),
+    });
+    assert!(matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), login)
+            .await
+            .unwrap()
+            .unwrap(),
+        Err(SchoolBrowserError::Maintenance(_))
+    ));
+    assert_eq!(
+        engine.session_snapshot().unwrap().states.tokyo_tech,
+        SchoolSessionState::Maintenance
+    );
+    assert!(events.0.lock().unwrap().iter().any(
+        |event| matches!(event, CoreEvent::SchoolLogin(outcome) if outcome.state == "maintenance")
+    ));
     engine.shutdown().await;
 }

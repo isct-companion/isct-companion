@@ -1,6 +1,6 @@
 import { workspaceActions } from "../../store/workspace";
 import { notify as appNotify } from "../../app/notify";
-import { Fragment, useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { t } from "../../i18n";
 import type { Subscription, Workspace } from "../../lib/model";
 import { UiButton, UiInput } from "../../components/mantine";
@@ -35,7 +35,6 @@ const DATASETS: Record<
     title: "Alternating class schedules",
     follows: "academic",
   },
-  departments: { title: "Study guide", follows: "admission" },
 };
 
 /** Official reference data from the public Isct-Data repository. */
@@ -45,8 +44,11 @@ export function DataUpdatesSettings({
   platform,
   refreshReferences,
   notify,
+  tasks,
 }: {
   data: Workspace;
+  /** The scheduled tasks, which keep this data and school records fresh. */
+  tasks?: ReactNode;
   /** Device preferences. */
   update: Update;
   platform: Platform;
@@ -74,7 +76,6 @@ export function DataUpdatesSettings({
     <>
       <SettingsHeader
         title="Data updates"
-        description="Calendars, exam timetables and study guides come from a public, reviewed data set. The app checks for changes once a day."
         actions={
           refreshReferences && (
             <UiButton
@@ -87,7 +88,9 @@ export function DataUpdatesSettings({
           )
         }
       />
+      {tasks}
       <SettingsGroup
+        title="Official data"
         footer={
           <>
             {lastChecked

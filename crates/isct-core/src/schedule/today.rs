@@ -1,6 +1,8 @@
-//! Phone read models: what Today shows right now and how open assignments are
-//! grouped. Core decides the phase, the hero and every list; shells render the
-//! fields in order and format countdowns from the timestamps.
+//! Phone read models: what Today shows right now and the quarter's assignments
+//! as rows. Core decides the phase, the hero and every list; which assignment
+//! belongs to which group comes from the one task timeline (`tasks.rs`) that
+//! desktop also renders. Shells render the fields in order and format
+//! countdowns from the timestamps.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use chrono::{DateTime, Datelike, Duration, FixedOffset};
@@ -11,15 +13,13 @@ use ts_rs::TS;
 
 use super::calendar::quarter_range;
 use super::reminders::reminder_term;
-use super::tasks::countdown_tone;
+use super::tasks::{countdown_tone, task_view, AssignmentGroups};
 use super::{
     array, assignment_submitted, calendar_between, display_color, parse_civil_date,
-    teaching_periods, term_courses, text, tokyo_date, visible, Occurrence, OccurrenceKind,
-    ScheduleError, TeachingPeriod,
+    teaching_periods, text, tokyo_date, visible, Occurrence, OccurrenceKind, ScheduleError,
+    TeachingPeriod,
 };
 
-/// Overdue work older than this stays on the assignment board but leaves Today.
-const TODAY_OVERDUE_DAYS: i64 = 7;
 const TODAY_DEADLINES: usize = 3;
 const RECENT_DAYS: i64 = 3;
 const RECENT_ITEMS: usize = 3;
@@ -147,20 +147,29 @@ pub struct TodayView {
     pub next_boundary: Option<String>,
 }
 
+/// `AssignmentGroups` with each id resolved to its row.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct DeadlineGroups {
+    pub pinned: Vec<DeadlineItem>,
+    pub due_this_week: Vec<DeadlineItem>,
+    pub later: Vec<DeadlineItem>,
+    pub undated: Vec<DeadlineItem>,
+    pub past_recent: Vec<DeadlineItem>,
+    pub past_earlier: Vec<DeadlineItem>,
+    pub hidden: Vec<DeadlineItem>,
+}
+
+/// The quarter's assignment timeline as rows: `today` is what is left to do,
+/// `record` every assignment whatever its state (`TermTaskView`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AssignmentBoard {
     pub term: String,
-    pub pinned: Vec<DeadlineItem>,
-    pub overdue: Vec<DeadlineItem>,
-    pub today: Vec<DeadlineItem>,
-    /// Due within seven days, after today.
-    pub this_week: Vec<DeadlineItem>,
-    /// Due later, then assignments without a deadline.
-    pub later: Vec<DeadlineItem>,
-    pub submitted: Vec<DeadlineItem>,
-    pub hidden: Vec<DeadlineItem>,
+    pub today: DeadlineGroups,
+    pub record: DeadlineGroups,
 }
 
 fn jst() -> Result<FixedOffset, ScheduleError> {
@@ -283,15 +292,60 @@ fn materials(workspace: &Value) -> impl Iterator<Item = &Value> {
     })
 }
 
-fn open_deadlines(workspace: &Value, now: DateTime<FixedOffset>) -> Vec<DeadlineItem> {
-    let mut rows: Vec<_> = array(workspace, "assignments")
-        .iter()
-        .filter(|row| visible(row))
-        .filter_map(|row| deadline_item(workspace, row, now))
-        .filter(|item| !item.hidden && !item.submitted && item.due_at.is_some())
-        .collect();
-    rows.sort_by(|a, b| a.due_at.cmp(&b.due_at));
-    rows
+fn deadline_groups(
+    workspace: &Value,
+    groups: &AssignmentGroups,
+    now: DateTime<FixedOffset>,
+) -> DeadlineGroups {
+    let rows = |ids: &[String]| -> Vec<DeadlineItem> {
+        ids.iter()
+            .filter_map(|id| {
+                array(workspace, "assignments")
+                    .iter()
+                    .find(|row| visible(row) && text(row, "id") == Some(id))
+            })
+            .filter_map(|row| deadline_item(workspace, row, now))
+            .collect()
+    };
+    DeadlineGroups {
+        pinned: rows(&groups.pinned_ids),
+        due_this_week: rows(&groups.due_this_week_ids),
+        later: rows(&groups.later_ids),
+        undated: rows(&groups.undated_ids),
+        past_recent: rows(&groups.past_recent_ids),
+        past_earlier: rows(&groups.past_earlier_ids),
+        hidden: rows(&groups.hidden_ids),
+    }
+}
+
+/// What is left to do this quarter, by deadline: the timeline's `today` groups.
+fn open_deadlines(
+    workspace: &Value,
+    term: &str,
+    now: DateTime<FixedOffset>,
+) -> Result<Vec<DeadlineItem>, ScheduleError> {
+    let view = task_view(workspace, now)?;
+    let Some(groups) = view.by_term.get(term) else {
+        return Ok(Vec::new());
+    };
+    let groups = deadline_groups(workspace, &groups.today, now);
+    let mut rows: Vec<_> = [
+        groups.pinned,
+        groups.due_this_week,
+        groups.later,
+        groups.past_recent,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    // Dated rows by deadline, undated pinned rows last.
+    rows.sort_by(|a, b| {
+        a.due_at
+            .is_none()
+            .cmp(&b.due_at.is_none())
+            .then_with(|| a.due_at.cmp(&b.due_at))
+    });
+    Ok(rows)
 }
 
 pub fn today_view(
@@ -366,16 +420,7 @@ pub fn today_view(
     };
 
     let midnight = start_of_next_day(&date)?;
-    let recent_overdue = now - Duration::days(TODAY_OVERDUE_DAYS);
-    let open: Vec<_> = open_deadlines(workspace, now)
-        .into_iter()
-        .filter(|item| {
-            item.due_at
-                .as_deref()
-                .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
-                .is_some_and(|due| due >= recent_overdue)
-        })
-        .collect();
+    let open = open_deadlines(workspace, &term, now)?;
     let due_before = |item: &DeadlineItem, limit: DateTime<FixedOffset>| {
         item.due_at
             .as_deref()
@@ -513,53 +558,11 @@ pub fn assignment_board(
 ) -> Result<AssignmentBoard, ScheduleError> {
     let now = now.with_timezone(&jst()?);
     let term = reminder_term(workspace);
-    let midnight = start_of_next_day(&tokyo_date(now))?;
-    let week = now + Duration::days(7);
-    let course_ids: Vec<&str> = term_courses(workspace, &term)
-        .into_iter()
-        .filter_map(|course| text(course, "id"))
-        .collect();
-    let mut rows: Vec<_> = array(workspace, "assignments")
-        .iter()
-        .filter(|row| {
-            visible(row) && text(row, "courseId").is_some_and(|id| course_ids.contains(&id))
-        })
-        .filter_map(|row| deadline_item(workspace, row, now))
-        .collect();
-    // Dated rows by deadline, undated rows last.
-    rows.sort_by(|a, b| {
-        a.due_at
-            .is_none()
-            .cmp(&b.due_at.is_none())
-            .then_with(|| a.due_at.cmp(&b.due_at))
-    });
-    let mut board = AssignmentBoard {
+    let view = task_view(workspace, now)?;
+    let groups = view.by_term.get(&term).cloned().unwrap_or_default();
+    Ok(AssignmentBoard {
+        today: deadline_groups(workspace, &groups.today, now),
+        record: deadline_groups(workspace, &groups.record, now),
         term,
-        ..AssignmentBoard::default()
-    };
-    for item in rows {
-        let due = item
-            .due_at
-            .as_deref()
-            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok());
-        let list = if item.hidden {
-            &mut board.hidden
-        } else if item.submitted {
-            &mut board.submitted
-        } else if item.pinned {
-            &mut board.pinned
-        } else {
-            match due {
-                Some(due) if due < now => &mut board.overdue,
-                Some(due) if due < midnight => &mut board.today,
-                Some(due) if due <= week => &mut board.this_week,
-                _ => &mut board.later,
-            }
-        };
-        list.push(item);
-    }
-    // The most recent overdue and submitted work comes first.
-    board.overdue.reverse();
-    board.submitted.reverse();
-    Ok(board)
+    })
 }

@@ -5,6 +5,12 @@ pub struct Binary {
     pub original: GrayImage,
     pub ink: usize,
 }
+impl Binary {
+    pub(super) fn has_glyph(&self) -> bool {
+        let pixels = self.cleaned.width() as f64 * self.cleaned.height() as f64;
+        self.ink as f64 >= pixels * 12. / 4096. && self.ink as f64 <= pixels * 0.55
+    }
+}
 /// Preserve the previous grayscale / unsharp / 15×15 mean-minus-10 pipeline.
 pub fn binarize(image: &RgbImage) -> Binary {
     let (w, h) = (image.width() as usize, image.height() as usize);
@@ -112,6 +118,9 @@ pub struct Prepared {
 }
 /// Tight glyph bounds + 8 white pixels; half-pixel bilinear resize, CHW, zero padding.
 pub fn prepare(image: &GrayImage) -> Prepared {
+    prepare_width(image, 320)
+}
+pub(super) fn prepare_width(image: &GrayImage, width: usize) -> Prepared {
     let (mut left, mut top, mut right, mut bottom) =
         (image.width() as i32, image.height() as i32, -1, -1);
     for (x, y, p) in image.enumerate_pixels() {
@@ -126,11 +135,11 @@ pub fn prepare(image: &GrayImage) -> Prepared {
         (left, top, right, bottom) = (0, 0, image.width() as i32 - 1, image.height() as i32 - 1);
     }
     let (w, h) = (right - left + 17, bottom - top + 17);
-    let rw = ((48. * w as f64 / h as f64).ceil() as usize).min(320);
-    let plane = 48 * 320;
+    let rw = ((48. * w as f64 / h as f64).ceil() as usize).min(width);
+    let plane = 48 * width;
     let mut tensor = vec![0.; 3 * plane];
     #[cfg(any(debug_assertions, test))]
-    let mut preview = GrayImage::from_pixel(320, 48, Luma([128]));
+    let mut preview = GrayImage::from_pixel(width as u32, 48, Luma([128]));
     let value = |x: i32, y: i32| {
         if x < 8 || y < 8 || x >= w - 8 || y >= h - 8 {
             255.
@@ -152,7 +161,7 @@ pub fn prepare(image: &GrayImage) -> Prepared {
             preview.put_pixel(x as u32, y as u32, Luma([pixel]));
             // Grayscale channels are identical in BGR and RGB.
             for channel in 0..3 {
-                tensor[channel * plane + y * 320 + x] = (pixel as f64 / 127.5 - 1.) as f32;
+                tensor[channel * plane + y * width + x] = (pixel as f64 / 127.5 - 1.) as f32;
             }
         }
     }

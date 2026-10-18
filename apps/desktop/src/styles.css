@@ -47,6 +47,36 @@ p {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* Web select menus share shell tokens even when portalled outside the page. */
+.uiSelect { min-width: 0; }
+.uiSelect .mantine-Input-input {
+  background: var(--surface-3);
+  border-color: var(--line);
+  color: var(--ink);
+  font-size: calc(13px * var(--text));
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.uiSelect .mantine-Input-input:focus { border-color: var(--accent); }
+.uiSelect .mantine-Input-input:focus-visible { outline: none; }
+.uiSelect .mantine-Input-section { color: var(--muted); }
+.uiSelectDropdown {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--shadow);
+}
+.uiSelectDropdown .mantine-Select-option {
+  font-size: calc(13px * var(--text));
+  border-radius: var(--radius-control);
+}
+.uiSelectDropdown .mantine-Select-option[data-combobox-active],
+.uiSelectDropdown .mantine-Select-option[data-combobox-selected] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.uiSelectDropdown .mantine-Select-groupLabel { color: var(--muted); }
 .muted {
   color: var(--muted);
 }
@@ -150,7 +180,8 @@ p {
   overflow: hidden;
 }
 /* Home fits the window; the day and the syllabus list scroll inside their panels. */
-.workspaceMain.homeMain {
+.workspaceMain.homeMain,
+.workspaceMain.timetableMain {
   height: 100dvh;
   overflow: hidden;
 }
@@ -307,6 +338,10 @@ p {
   background: #2f9e62;
   box-shadow: 0 0 0 3px color-mix(in srgb, #2f9e62 14%, transparent);
 }
+.schoolStatusAccount[data-state="maintenance"] > i {
+  background: var(--color-warning, #d5a34f);
+}
+
 .schoolStatusAccount[data-state="failed"] > i {
   background: var(--danger);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
@@ -336,27 +371,66 @@ p {
   min-width: 0;
 }
 .lmsStatusLine {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 9px;
+  min-width: 0;
   color: var(--muted);
   font-size: calc(11px * var(--text));
 }
-.lmsStatusLine span {
+.lmsStatusLine > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lmsStatusLine output {
-  color: var(--accent);
+.lmsStatusLine > .textButton {
+  flex: 0 0 auto;
+  margin-inline-start: 6px;
+}
+.lmsStatus[data-kind="problem"] .lmsStatusLine > span {
+  color: var(--danger);
+}
+/* Idle: one quiet "source · age" pair per school site. */
+.schoolUpdated {
+  display: flex;
+  gap: 16px;
+}
+.schoolUpdated > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+}
+.schoolUpdated b {
+  font-weight: 600;
+}
+/* Background pulls Core started on its own: a small turning ring, no bar. */
+.schoolStatusSpinner {
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: schoolStatusSpin 0.9s linear infinite;
+}
+@keyframes schoolStatusSpin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .schoolStatusSpinner {
+    animation: none;
+  }
 }
 .lmsStatus progress {
   display: block;
   width: 100%;
-  height: 4px;
+  height: 3px;
   margin-top: 5px;
   border: 0;
   border-radius: 999px;
@@ -384,7 +458,7 @@ p {
 
 /* ---------- timetable ---------- */
 .tt {
-  height: 100%;
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -502,14 +576,13 @@ p {
   right: 3px;
   overflow: hidden;
   border: 0;
-  border-left: 4px solid var(--course);
   border-radius: var(--radius-chip);
   background: color-mix(
     in srgb,
     var(--course) var(--course-tint-fill),
     var(--surface)
   );
-  color: var(--ink);
+  color: color-mix(in srgb, var(--course) var(--course-tint-ink), var(--ink));
   padding: 6px 7px;
   text-align: left;
   display: grid;
@@ -534,14 +607,21 @@ p {
 .ttBlock span,
 .ttBlock small {
   font-size: calc(10.5px * var(--text));
-  color: var(--muted);
+  color: inherit;
+  opacity: 0.8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .ttBlock.event {
   background: color-mix(in srgb, var(--surface-2) 82%, var(--surface));
-  border-left-color: var(--muted);
+  color: var(--ink);
+}
+/* A plan is intent, not a booked class: outline only, as on the phone. */
+.ttBlock.plan {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px
+    color-mix(in srgb, var(--course) 45%, var(--surface));
 }
 .ttBlock.exam {
   z-index: 4;
@@ -2530,28 +2610,6 @@ p {
   color: var(--warn);
   flex-basis: 100%;
 }
-.finderPager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 6px;
-  border-top: 1px solid var(--line);
-  font-size: calc(12px * var(--text));
-  color: var(--muted);
-}
-.finderPager .textButton {
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-}
-.finderPager .textButton:disabled {
-  color: var(--muted);
-  opacity: 0.5;
-  cursor: default;
-}
 .courseFinder .finderResults {
   flex: 1;
   min-height: 0;
@@ -3134,6 +3192,45 @@ p {
   padding: 10px 14px;
   border-top: 1px solid var(--line);
 }
+/* A clash is explained where the click lands, with the way out beside it. */
+.coursePanelConflict {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-chip);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: calc(12.5px * var(--text));
+}
+.coursePanelConflict ul {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.coursePanelConflict li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ink);
+}
+.coursePanelConflict li span:nth-child(2) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.coursePanelConflict p {
+  margin: 0;
+  color: var(--muted);
+}
+.conflictBadge {
+  cursor: pointer;
+}
 .finderTitle b small {
   font-weight: 400;
   color: var(--muted);
@@ -3171,123 +3268,27 @@ p {
   font-size: calc(12px * var(--text));
 }
 
-/* LMS pull review */
-.mergeBody {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.mergeGrid {
+.dueGroup {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 12px;
-  height: min(60vh, 560px);
-}
-.mergeSides {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  min-height: 0;
-}
-.mergeColumn {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-.mergeColumn > header {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
-}
-.mergeColumn > header span {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.mergeList {
-  flex: 1;
-  overflow: auto;
-  padding: 6px;
-  display: grid;
-  align-content: start;
-  gap: 4px;
-}
-.mergeEmpty {
-  padding: 10px;
-  color: var(--muted);
-}
-.mergeItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  cursor: pointer;
-}
-.mergeItem.common {
-  cursor: default;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0;
-}
-.mergeItem > span {
-  display: grid;
-  flex: 1;
-  min-width: 0;
-}
-.mergeItem b {
-  font-size: 13px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mergeItem small {
-  color: var(--muted);
-  font-size: 11px;
-}
-.mergeItem.conflict {
-  border-color: var(--conflict);
-  box-shadow: inset 4px 0 0 var(--conflict);
-  background: color-mix(in srgb, var(--conflict) 9%, var(--surface));
-}
-.mergeConflictBadge {
-  background: var(--conflict);
-  flex: none;
-}
-.mergeFoot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.mergeFoot small {
-  flex: 1;
-  color: var(--muted);
-}
-.mergeItem.retime {
-  border-color: var(--warn);
-  background: var(--warn-soft);
-}
-.dueLater {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
-.dueLater > small {
+.dueGroup:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.dueGroup > small {
   display: block;
   color: var(--muted);
   font-size: 12px;
   padding-bottom: 4px;
 }
 
-/* Today: "Today" / "Earlier" switch beside the assignments heading */
+/* Today: assignments heading with its count and link */
 .dueSection > header {
+  flex-wrap: wrap;
   gap: 10px;
 }
 .dueScope {
@@ -3373,13 +3374,6 @@ p {
 .dueRow.touchRow .dueAssignment {
   min-height: 48px;
   touch-action: pan-y;
-}
-.duePinned {
-  display: grid;
-  gap: 4px;
-}
-.duePinned > small {
-  color: var(--muted);
 }
 .moreToggle {
   justify-self: start;
@@ -3548,17 +3542,17 @@ p {
 }
 .tt .ttBlock .ttRoom {
   flex: none;
-  color: var(--ink);
-  opacity: 0.72;
-  font-weight: 600;
+  color: inherit;
+  opacity: 1;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .tt .ttBlock .ttAlternation {
   flex: none;
-  color: var(--ink);
-  opacity: 0.72;
+  color: inherit;
+  opacity: 0.8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3788,7 +3782,8 @@ p {
   clip-path: inset(50%);
 }
 @media (max-width: 760px) {
-  .workspaceMain.homeMain {
+  .workspaceMain.homeMain,
+  .workspaceMain.timetableMain {
     height: auto;
     min-height: 100dvh;
     overflow: visible;
@@ -4042,8 +4037,10 @@ p {
   --course: var(--muted) !important;
   background: color-mix(in srgb, var(--muted) 14%, var(--surface));
   color: var(--muted);
-  border-left-color: color-mix(in srgb, var(--muted) 55%, var(--surface));
   box-shadow: none;
+}
+.ttAgendaRow.cancelled {
+  border-left-color: color-mix(in srgb, var(--muted) 55%, var(--surface));
 }
 
 /* ---------- settings: lists, configs ---------- */
@@ -4624,4 +4621,39 @@ textarea.codeArea {
 .dueChip.urgent {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.finderLoadMore {
+  display: flex;
+  justify-content: center;
+}
+.finderLoadMore:has(button) {
+  padding: 12px;
+}
+
+.quarterPage,
+.calendarWorkspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.calendarWorkspace {
+  gap: 16px;
+}
+.calendarWorkspace .ttCard {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+:lang(zh) {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+:lang(ja) {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI",
+    "Meiryo", "Noto Sans CJK JP", system-ui, sans-serif;
 }

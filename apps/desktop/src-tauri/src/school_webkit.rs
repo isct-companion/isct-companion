@@ -209,7 +209,7 @@ define_class!(
             let (Ok(bytes), Some(web_view), Some(url)) =
                 (bytes, unsafe { download.webView() }, response.URL())
             else {
-                eprintln!("[school-download] attachment could not be shown");
+                log::error!("[school-download] attachment could not be shown");
                 return;
             };
             // The same response minus its headers, so WebKit displays it.
@@ -236,7 +236,7 @@ define_class!(
             error: &NSError,
             _resume_data: Option<&NSData>,
         ) {
-            eprintln!(
+            log::error!(
                 "[school-download] attachment failed: {}",
                 error.localizedDescription()
             );
@@ -383,7 +383,7 @@ pub unsafe fn install(
         };
         let ui_object = ui.as_deref().map(|shim| shim.as_ref());
         let navigation_object = navigation.as_deref().map(|shim| shim.as_ref());
-        eprintln!(
+        log::info!(
             "[school-download] WebKit hooks installed: new-window forwarded={}, pdf-save={}, attachment={}, page-load forwarded={}",
             check(ui_object, sel!(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:)),
             check(ui_object, sel!(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:)),

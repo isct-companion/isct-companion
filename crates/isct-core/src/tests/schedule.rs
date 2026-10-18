@@ -227,6 +227,18 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
         view.default_finder_keys,
         vec!["curr".to_string(), "情報工学系".to_string()]
     );
+    let WorkspaceQueryResult::WorkspaceOverview(future) = query(
+        &data,
+        WorkspaceQuery::WorkspaceOverview {
+            term: "2027-1Q".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("expected explicit quarter overview")
+    };
+    assert_eq!(future.default_finder_keys, vec!["1Q", "情報工学系"]);
+    assert_eq!(future.courses_term, "2026-1Q");
+    assert_eq!(future.term, "2027-1Q");
 }
 
 #[test]
@@ -592,6 +604,28 @@ fn academic_year_credits_and_colors_preserve_source_semantics() {
         declared_term_credits(pair.as_array().unwrap(), "2026-1Q").unwrap(),
         Some(2.5)
     );
+    // Fractions, historical spans and failed/pending results must not be
+    // replaced by declaration totals or by competency points.
+    let grades = json!([
+        {"completed":"2025前学期","quarter":"1","credits":"0.5-0.5-0","result":"合格"},
+        {"completed":"2025後学期","quarter":"3-4","credits":"1-0.5-0","effectiveCredits":1.5,"result":"75"},
+        {"completed":"2026前学期","quarter":"1-4","credits":"4-0-0","result":"認定"},
+        {"completed":"2024後学期","quarter":"3","credits":"2-0-0","result":"不合格"},
+        {"completed":"2026後学期","quarter":"3","credits":"2-0-0","result":"未報告"},
+        {"completed":"2023後学期","quarter":"3","credits":"2-0-0","result":"合格","missingSince":"x"}
+    ]);
+    let ledger = credits::earned_credits_by_term(grades.as_array().unwrap());
+    assert_eq!(ledger["2025-1Q"], 1.0);
+    assert_eq!(ledger["2025-3Q"], 0.75);
+    assert_eq!(ledger["2025-4Q"], 0.75);
+    assert_eq!(ledger["2026-2Q"], 1.0);
+    assert_eq!(ledger["2026-3Q"], 1.0);
+    assert_eq!(ledger["2024-3Q"], 0.0);
+    assert!(!ledger.contains_key("2023-3Q"));
+    assert_eq!(
+        declared_term_credits(pair.as_array().unwrap(), "2026-3Q").unwrap(),
+        None
+    );
     assert_eq!(
         display_color(
             &json!({"id":"c","code":"CSC.T262","color":"#526e91","overrides":{"color":"#806a9d"}})
@@ -716,32 +750,65 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     data["assignments"] = json!([
         {"id":"soon","courseId":"course","title":"Soon","dueAt":"2026-04-13T10:00:00+09:00"},
         {"id":"later","courseId":"course","title":"Later","dueAt":"2026-04-22T10:00:00+09:00","pinned":true},
-        {"id":"past","courseId":"course","title":"Past","dueAt":"2026-04-12T10:00:00+09:00"},
+        {"id":"past","courseId":"course","title":"Past","dueAt":"2026-04-12T10:00:00+09:00","pinned":true},
+        {"id":"past-done","courseId":"course","title":"Past done","dueAt":"2026-04-11T10:00:00+09:00","submission":"graded","pinned":true},
+        {"id":"missed","courseId":"course","title":"Missed","dueAt":"2026-04-10T10:00:00+09:00"},
+        {"id":"old","courseId":"course","title":"Old","dueAt":"2026-03-20T10:00:00+09:00","submission":"submitted"},
+        {"id":"orphan","courseId":"gone","title":"Unlinked","dueAt":"2026-04-12T12:00:00+09:00"},
         {"id":"done","courseId":"course","title":"Done","dueAt":"2026-04-14T10:00:00+09:00","submission":"submitted"},
+        {"id":"undated-done","courseId":"course","title":"Graded without date","dueAt":null,"submission":"graded"},
         {"id":"hidden","courseId":"course","title":"Hidden","dueAt":null,"hidden":true},
         {"id":"invalid","courseId":"course","title":"Invalid","dueAt":"yesterday"},
         {"id":"undated","courseId":"course","title":"Undated","dueAt":null},
         {"id":"lms-done","courseId":"course","title":"LMS done","dueAt":"2026-04-15T10:00:00+09:00","submissionStatus":"submitted"},
         {"id":"graded","courseId":"course","title":"Graded","dueAt":"2026-04-01T10:00:00+09:00","submission":"graded","deletedAt":"2026-04-02T00:00:00Z"}
     ]);
-    let view = task_view(
-        &data,
-        DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap(),
-    )
-    .unwrap();
+    let now = DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap();
+    let view = task_view(&data, now).unwrap();
     let term = &view.by_term["2026-1Q"];
     assert_eq!(term.pending_ids, vec!["soon", "later"]);
-    assert_eq!(term.pinned_ids, vec!["later"]);
-    assert_eq!(term.overdue_ids, vec!["past"]);
-    assert_eq!(term.due_this_week_ids, vec!["soon"]);
+    // Today: open work, pinned work until it is submitted (even overdue),
+    // and the last week's misses, including unlinked work of this quarter.
+    assert_eq!(term.today.pinned_ids, vec!["past", "later"]);
+    assert_eq!(term.today.due_this_week_ids, vec!["soon"]);
+    assert!(term.today.later_ids.is_empty() && term.today.undated_ids.is_empty());
+    assert_eq!(term.today.past_recent_ids, vec!["orphan", "missed"]);
+    assert!(term.today.past_earlier_ids.is_empty() && term.today.hidden_ids.is_empty());
+    // Record: every assignment whatever its state; the current quarter folds
+    // past work older than two weeks.
+    assert_eq!(term.record.pinned_ids, vec!["later"]);
     assert_eq!(
-        term.earlier_due_this_week_ids,
+        term.record.due_this_week_ids,
         vec!["soon", "done", "lms-done"]
     );
+    assert_eq!(
+        term.record.undated_ids,
+        vec!["undated-done", "invalid", "undated"]
+    );
+    assert_eq!(
+        term.record.past_recent_ids,
+        vec!["orphan", "past", "past-done", "missed"]
+    );
+    assert_eq!(term.record.past_earlier_ids, vec!["old"]);
+    assert_eq!(term.record.hidden_ids, vec!["hidden"]);
+    assert!(!view.deadlines.contains_key("undated-done"));
     // One submitted rule for every shell, including the LMS status field.
-    assert_eq!(view.submitted_ids, vec!["done", "lms-done"]);
-    assert_eq!(term.lecture_open_ids, vec!["soon", "later", "undated"]);
-    assert_eq!(term.lecture_hidden_ids, vec!["hidden"]);
+    assert_eq!(
+        view.submitted_ids,
+        vec!["done", "lms-done", "old", "past-done", "undated-done"]
+    );
+    // Another quarter lists all of its past work at once; unlinked work
+    // belongs only to the current quarter.
+    let mut ended = data.clone();
+    ended["currentTerm"] = json!("2026-2Q");
+    let ended = task_view(&ended, now).unwrap();
+    let ended = &ended.by_term["2026-1Q"].record;
+    assert_eq!(
+        ended.past_recent_ids,
+        vec!["past", "past-done", "missed", "old"]
+    );
+    assert!(ended.past_earlier_ids.is_empty());
+    assert_eq!(ended.hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");
     assert_eq!(view.deadlines["soon"].countdown_label, "2h");
     assert_eq!(view.deadlines["soon"].countdown_tone, "urgent");
@@ -869,7 +936,7 @@ fn phone_workspace() -> Value {
 }
 
 #[test]
-fn today_moves_through_the_day_and_board_groups_open_work() {
+fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     let data = phone_workspace();
     let today = |raw: &str| {
         let WorkspaceQueryResult::Today(view) = query(
@@ -975,6 +1042,8 @@ fn today_moves_through_the_day_and_board_groups_open_work() {
     assert_eq!(recent, ["slides-2", "graded"]);
     assert_eq!(holiday.next_class.unwrap().occurrence.date, "2026-04-20");
 
+    // The board resolves the quarter's one task timeline: what is left to do,
+    // then every assignment whatever its state.
     let WorkspaceQueryResult::AssignmentBoard(board) = query(
         &data,
         WorkspaceQuery::AssignmentBoard {
@@ -984,14 +1053,19 @@ fn today_moves_through_the_day_and_board_groups_open_work() {
     .unwrap() else {
         panic!("board expected")
     };
-    assert_eq!(ids(&board.pinned), ["pin"]);
-    assert_eq!(ids(&board.overdue), ["late", "ancient"]);
-    assert_eq!(ids(&board.today), ["tonight"]);
-    assert_eq!(ids(&board.this_week), ["soon"]);
-    assert_eq!(ids(&board.later), ["next-week", "undated"]);
-    assert_eq!(ids(&board.submitted), ["done", "graded"]);
-    assert_eq!(ids(&board.hidden), ["gone"]);
-    assert_eq!(board.submitted[1].grade.as_deref(), Some("8/10"));
+    assert_eq!(board.term, "2026-1Q");
+    assert_eq!(ids(&board.today.pinned), ["pin"]);
+    assert_eq!(ids(&board.today.due_this_week), ["tonight", "soon"]);
+    assert_eq!(ids(&board.today.later), ["next-week"]);
+    assert_eq!(ids(&board.today.past_recent), ["late"]);
+    assert!(board.today.undated.is_empty() && board.today.hidden.is_empty());
+    assert_eq!(ids(&board.record.due_this_week), ["tonight", "done", "soon"]);
+    assert_eq!(ids(&board.record.undated), ["undated"]);
+    assert_eq!(ids(&board.record.past_recent), ["late", "graded"]);
+    assert_eq!(ids(&board.record.past_earlier), ["ancient"]);
+    assert_eq!(ids(&board.record.hidden), ["gone"]);
+    assert_eq!(board.record.past_recent[1].grade.as_deref(), Some("8/10"));
+    assert!(board.record.past_recent[1].submitted);
 }
 
 #[test]
@@ -1501,4 +1575,95 @@ fn date_range_crosses_academic_years_and_merges_conflicts_once() {
     data["academicCalendar"][1]["date"] = json!("2027-04-02");
     let overlap = calendar_between(&data, "2027-04-01", "2027-04-01").unwrap();
     assert_eq!(overlap[0].occurrences.len(), 2);
+}
+
+#[test]
+fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
+    let mut data = workspace();
+    data["settings"]["notifications"]["classes"] = json!(false);
+    data["assignments"] =
+        json!([{"id":"report","title":"Report","dueAt":"2026-04-14T18:00:00+09:00"}]);
+    data["settings"]["notifications"]["assignmentLeadMinutes"] = json!([180, 30]);
+    let from = DateTime::parse_from_rfc3339("2026-04-13T00:00:00+09:00").unwrap();
+    let to = DateTime::parse_from_rfc3339("2026-04-14T18:00:00+09:00").unwrap();
+    let plan = notification_plan(&data, from, to, Some(NotificationLocale::En)).unwrap();
+    assert_eq!(plan.items.len(), 2);
+    assert_eq!(plan.items[0].at, "2026-04-14T15:00:00+09:00");
+    assert_eq!(plan.items[0].body, "Due in 3 hours");
+    assert_eq!(plan.items[1].at, "2026-04-14T17:30:00+09:00");
+    assert_eq!(plan.items[1].body, "Due in 30 minutes");
+    let ja = notification_plan(&data, from, to, Some(NotificationLocale::Ja)).unwrap();
+    assert_eq!(ja.items[1].body, "締切まで30分");
+    for invalid in [
+        json!([]),
+        json!([0]),
+        json!([30, 30]),
+        json!([10081]),
+        json!([1.5]),
+        json!(["60"]),
+        json!([1, 2, 3, 4, 5, 6, 7, 8, 9]),
+    ] {
+        data["settings"]["notifications"]["assignmentLeadMinutes"] = invalid;
+        assert!(notification_plan(&data, from, to, None).is_err());
+    }
+}
+
+#[test]
+fn contained_import_slots_do_not_make_a_course_conflict_with_itself() {
+    let mut data = workspace();
+    data["courses"][0]["meetings"] = json!([
+        {"days":[1],"periods":[5,6,7,8],"room":"M-156"},
+        {"days":[1],"periods":[7,8],"room":"M-156"},
+        {"days":[4],"periods":[5,6,7,8],"room":"M-156"},
+        {"days":[4],"periods":[5,6],"room":"M-156"}
+    ]);
+    let template = planning_week(&data, "2026-1Q").unwrap();
+    assert_eq!(template.conflict_count, 0);
+    assert_eq!(template.days[0].blocks.len(), 1);
+    assert_eq!(template.days[3].blocks.len(), 1);
+    let daily =
+        occurrences_on_date(&data, "2026-1Q", "2026-04-13", AgendaOptions::default()).unwrap();
+    assert_eq!(daily.len(), 1);
+    assert_eq!(
+        (&daily[0].start_time, &daily[0].end_time),
+        (&"13:30".to_string(), &"17:05".to_string())
+    );
+    let mut other = data["courses"][0].clone();
+    other["id"] = json!("other");
+    other["title"] = json!("Other course");
+    other["meetings"] = json!([{"days":[1],"periods":[7,8],"room":"M-156"}]);
+    data["courses"].as_array_mut().unwrap().push(other);
+    data["memberships"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"other-member","courseId":"other","termId":"2026-1Q"}));
+    let clash = planning_week(&data, "2026-1Q").unwrap();
+    assert_eq!(clash.conflict_count, 1);
+    // Each side names the other, so a click on either block can explain it.
+    let first = data["courses"][0]["id"].as_str().unwrap().to_string();
+    let mut pairs: Vec<_> = clash
+        .conflicts
+        .iter()
+        .map(|c| (c.course_id.clone(), c.with_course_id.clone(), c.day))
+        .collect();
+    pairs.sort();
+    let mut expected = vec![
+        (first.clone(), Some("other".to_string()), 1),
+        ("other".to_string(), Some(first), 1),
+    ];
+    expected.sort();
+    assert_eq!(pairs, expected);
+    let title = data["courses"][0]["title"].as_str().unwrap().to_string();
+    let named = |id: &str| {
+        clash.days[0]
+            .blocks
+            .iter()
+            .find(|b| b.course_id.as_deref() == Some(id))
+            .and_then(|b| b.conflict_with.clone())
+    };
+    assert_eq!(named("other"), Some(vec![title]));
+    assert_eq!(
+        named(data["courses"][0]["id"].as_str().unwrap()),
+        Some(vec!["Other course".to_string()])
+    );
 }

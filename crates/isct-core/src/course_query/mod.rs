@@ -71,7 +71,20 @@ pub struct FinderContext {
     pub departments: Vec<FinderDepartment>,
     #[serde(default)]
     pub busy: Vec<BusySlot>,
+    #[serde(default)]
+    pub official_options: Vec<OfficialFilterOption>,
 }
+/// Public search controls captured from the authenticated official form.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct OfficialFilterOption {
+    pub id: String,
+    pub value: String,
+    pub label: String,
+    pub family: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 pub struct Recommendation {
@@ -86,6 +99,8 @@ pub struct FinderDepartment {
     pub id: String,
     pub name: BTreeMap<String, String>,
     pub unit_code: String,
+    #[serde(default)]
+    pub code_prefix: String,
     #[serde(default)]
     pub scope: Option<String>,
 }
@@ -102,7 +117,10 @@ pub struct Condition {
     pub r#type: String,
     pub key: String,
     pub label: String,
-    #[cfg_attr(feature = "ts", ts(type = "(string | number | TimeValue)[]"))]
+    #[cfg_attr(
+        feature = "ts",
+        ts(type = "(string | number | TimeValue | { id: string; value: string })[]")
+    )]
     pub values: Vec<Value>,
     #[serde(default, skip_serializing_if = "false_value")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
@@ -181,6 +199,40 @@ fn recognize(word: &str, ctx: &FinderContext, next: Option<&str>) -> Condition {
     let normalized = normalized(word);
     let w = normalized.trim();
     let lw = w.to_lowercase();
+    if let Some(option) = ctx.official_options.iter().find(|option| {
+        w == format!("kyomu:{}:{}", option.id, option.value)
+            || (option.family != "quarter" && w == option.label)
+            || (option.family == "level"
+                && [
+                    format!("{}番台", option.label),
+                    format!("{}-level", option.label),
+                    format!("{}xx", option.label.trim_end_matches('0')),
+                ]
+                .iter()
+                .any(|alias| lw == alias.to_lowercase()))
+    }) {
+        return make(
+            &format!("official-{}", option.family),
+            format!("kyomu:{}:{}", option.id, option.value),
+            &option.label,
+            json!({"id":option.id,"value":option.value}),
+        );
+    }
+    if let Some((prefix, value)) = w.split_once(':').filter(|(_, v)| !v.trim().is_empty()) {
+        let kind = match prefix.to_ascii_lowercase().as_str() {
+            "teacher" | "instructor" | "教員" | "教师" => Some("teacher"),
+            "room" | "教室" => Some("room"),
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            return make(
+                kind,
+                format!("{kind}:{}", value.trim()),
+                format!("{prefix}: {}", value.trim()),
+                json!(value.trim().to_lowercase()),
+            );
+        }
+    }
     if ["curr", "current", "当前", "今期"].contains(&lw.as_str()) {
         return make(
             "quarter",
@@ -262,7 +314,7 @@ fn recognize(word: &str, ctx: &FinderContext, next: Option<&str>) -> Condition {
         return from_match(m, None, 1, 2);
     }
     if let Some(m) =
-        captures!(r"^([1-6])00(?:番台|-level)$", w).or_else(|| captures!(r"^([1-6])xx$", &lw))
+        captures!(r"^([1-9])00(?:番台|-level)$", w).or_else(|| captures!(r"^([1-9])xx$", &lw))
     {
         let level = m
             .get(1)
@@ -534,10 +586,37 @@ fn searchable(course: &Value) -> String {
     )
 }
 fn remote_factor(f: &Factor) -> bool {
-    f.r#type != "exclude" && ["dept", "code", "level", "text"].contains(&f.r#type.as_str())
+    f.r#type.starts_with("official-")
+        || f.r#type != "exclude"
+            && ["code", "level", "text", "teacher", "mark", "group"].contains(&f.r#type.as_str())
 }
 fn hit(course: &Value, c: &Condition, ctx: &FinderContext) -> bool {
+    // Official-only controls are matched by the server against its full catalogue.
+    // They must not reject valid rows because a local guide lacks metadata.
+    if c.r#type.starts_with("official-") {
+        return true;
+    }
     c.values.iter().any(|v| match c.r#type.as_str() {
+        "teacher" => v.as_str().is_some_and(|needle| {
+            array(course, "instructors").iter().any(|name| {
+                ["ja", "en"]
+                    .iter()
+                    .any(|lang| lower(text(name, lang)).contains(needle))
+            })
+        }),
+        "room" => v.as_str().is_some_and(|needle| {
+            array(course, "schedule").iter().any(|slot| {
+                ["ja", "en"].iter().any(|lang| {
+                    lower(
+                        slot.get("room")
+                            .and_then(|r| r.get(*lang))
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                    )
+                    .contains(needle)
+                })
+            })
+        }),
         "quarter" => array(course, "quarters").contains(&json!(format!("{}Q", v))),
         "time" => weekly(course).any(|s| {
             (v.get("day").is_none() || v.get("day") == s.get("day"))
@@ -667,16 +746,29 @@ pub fn remote_plan(factors: &[Factor], scopes: &BTreeMap<String, String>) -> Val
         })
         .collect();
     let codes: Vec<_> = alts("code").iter().map(|c| c.key.clone()).collect();
+    let teachers: Vec<_> = alts("teacher")
+        .iter()
+        .flat_map(|c| &c.values)
+        .filter_map(Value::as_str)
+        .collect();
     let groups: Vec<_> = alts("level")
         .iter()
         .filter_map(|c| c.values.first().map(Value::to_string))
         .collect();
-    if words.is_empty() && scoped.is_empty() && codes.is_empty() {
+    if words.is_empty() && scoped.is_empty() && codes.is_empty() && factors.is_empty() {
         return json!({"unsupported":"empty"});
     }
-    if scoped.len().max(1) * codes.len().max(1) > 4 {
+    if scoped.len().max(1) * codes.len().max(1) * teachers.len().max(1) > 4 {
         return json!({"unsupported":"too-many"});
     }
+    let official_controls: Vec<_> = factors
+        .iter()
+        .filter(|factor| {
+            factor.r#type.starts_with("official-") && factor.r#type != "official-category"
+        })
+        .flat_map(|factor| &factor.alts)
+        .flat_map(|c| c.values.clone())
+        .collect();
     let q = if words.is_empty() { "." } else { &words };
     let scoped = if scoped.is_empty() {
         vec![None]
@@ -692,6 +784,75 @@ pub fn remote_plan(factors: &[Factor], scopes: &BTreeMap<String, String>) -> Val
     for scope in &scoped {
         for code in &codes {
             let mut query = json!({"q":q});
+            if !official_controls.is_empty() {
+                query["controls"] = json!(official_controls);
+            }
+            if !alts("mark").is_empty() {
+                query["recommended"] = json!(true);
+                if alts("mark")
+                    .iter()
+                    .all(|c| c.values == vec![json!("required")])
+                {
+                    query["requirementGroups"] = json!(["R"]);
+                }
+            }
+            let quarters: Vec<_> = alts("quarter")
+                .iter()
+                .flat_map(|c| &c.values)
+                .filter_map(Value::as_u64)
+                .collect();
+            if !quarters.is_empty() {
+                query["quarters"] = json!(quarters);
+            }
+            let times = alts("time");
+            if !times.is_empty() {
+                let days: Vec<_> = times
+                    .iter()
+                    .flat_map(|c| &c.values)
+                    .filter_map(|v| v["day"].as_u64())
+                    .collect();
+                if times
+                    .iter()
+                    .flat_map(|c| &c.values)
+                    .all(|v| v["day"].is_u64())
+                {
+                    query["days"] = json!(days);
+                }
+                // Start-time filtering is a superset: an earlier, longer class
+                // can overlap a requested slot. The local matcher checks overlap.
+                if times
+                    .iter()
+                    .flat_map(|c| &c.values)
+                    .all(|v| v["to"].is_u64())
+                {
+                    if let Some(to) = times
+                        .iter()
+                        .flat_map(|c| &c.values)
+                        .filter_map(|v| v["to"].as_u64())
+                        .max()
+                    {
+                        query["periodStarts"] = json!((1..=to).collect::<Vec<_>>());
+                    }
+                }
+            }
+            let languages = alts("lang");
+            if languages.len() == 1 && languages[0].values.len() == 1 {
+                query["language"] = languages[0].values[0].clone();
+            }
+            let requirements: Vec<_> = alts("group")
+                .iter()
+                .flat_map(|c| &c.values)
+                .cloned()
+                .collect();
+            if !requirements.is_empty() {
+                let mut all = query["requirementGroups"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                all.extend(requirements);
+                query["requirementGroups"] = json!(all);
+            }
+
             if let Some(scope) = scope {
                 query["scope"] = json!(scope);
             }
@@ -701,12 +862,91 @@ pub fn remote_plan(factors: &[Factor], scopes: &BTreeMap<String, String>) -> Val
             if !groups.is_empty() {
                 query["groups"] = json!(groups);
             }
-            queries.push(query);
+            if teachers.is_empty() {
+                queries.push(query);
+            } else {
+                for teacher in &teachers {
+                    let mut query = query.clone();
+                    query["teacher"] = json!(teacher);
+                    queries.push(query);
+                }
+            }
         }
+    }
+    // Category radios/selects are single-valued on the official form. OR
+    // alternatives need separate searches, never duplicate form values.
+    let categories: Vec<_> = alts("official-category")
+        .iter()
+        .flat_map(|c| c.values.clone())
+        .collect();
+    if !categories.is_empty() {
+        if queries.len() * categories.len() > 4 {
+            return json!({"unsupported":"too-many"});
+        }
+        queries = queries
+            .into_iter()
+            .flat_map(|query| {
+                categories.iter().map(move |category| {
+                    let mut query = query.clone();
+                    let mut controls = query["controls"].as_array().cloned().unwrap_or_default();
+                    controls.push(category.clone());
+                    query["controls"] = json!(controls);
+                    query
+                })
+            })
+            .collect();
     }
     json!({"queries":queries})
 }
 
+// Stable keyboard categories; the authenticated form supplies their choices.
+const OFFICIAL_GROUPS: [(&str, &str, &[&str]); 9] = [
+    ("level", "Course level", &["level", "番台", "课程番台"]),
+    ("quarter", "Quarter", &["quarter", "学季", "クォーター"]),
+    (
+        "delivery",
+        "Day / delivery",
+        &["day", "weekday", "星期", "授课形式", "曜日"],
+    ),
+    ("start", "Starting period", &["period", "时限", "開始時限"]),
+    (
+        "category",
+        "Course category",
+        &["category", "科目分类", "科目区分"],
+    ),
+    (
+        "requirement",
+        "Requirement category",
+        &["requirement", "必修分类", "必修"],
+    ),
+    (
+        "language",
+        "Teaching language",
+        &["language", "开讲语言", "開講言語"],
+    ),
+    (
+        "recommended",
+        "Official recommendations",
+        &["recommended", "教务推荐", "推奨"],
+    ),
+    (
+        "other",
+        "Other official filters",
+        &["other", "其他教务筛选", "その他"],
+    ),
+];
+fn official_group(input: &str) -> Option<(&'static str, &str)> {
+    let (prefix, value) = input.split_once(':')?;
+    OFFICIAL_GROUPS
+        .iter()
+        .find(|(family, _, aliases)| {
+            prefix.eq_ignore_ascii_case(family)
+                || aliases
+                    .iter()
+                    .any(|alias| prefix.eq_ignore_ascii_case(alias))
+        })
+        .map(|(family, _, _)| (*family, value.trim()))
+}
 fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
     let mut out = vec![(
         "curr".into(),
@@ -744,7 +984,7 @@ fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
             ));
         }
     }
-    if !ctx.recommended.is_empty() {
+    {
         out.extend([
             (
                 "推荐".into(),
@@ -788,9 +1028,21 @@ fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
                 .collect(),
         ));
     }
+    for option in &ctx.official_options {
+        out.push((
+            format!("kyomu:{}:{}", option.id, option.value),
+            if option.family == "level" {
+                vec![
+                    option.label.clone(),
+                    format!("{}番台", option.label),
+                    format!("{}xx", option.label.chars().next().unwrap_or('0')),
+                ]
+            } else {
+                vec![option.label.clone()]
+            },
+        ));
+    }
     for (key, aliases) in [
-        ("200番台", vec!["200番台", "200", "2xx"]),
-        ("300番台", vec!["300番台", "300", "3xx"]),
         ("講義", vec!["講義", "lecture"]),
         ("演習", vec!["演習", "exercise"]),
         ("実験", vec!["実験", "experiment"]),
@@ -837,25 +1089,56 @@ pub fn suggest(
             return;
         }
         let c = condition(&full, ctx);
-        if ctx.recommended.is_empty() && ["mark", "group"].contains(&c.r#type.as_str()) {
+        // The official form only supports positive filters. Do not advertise
+        // an exclusion that the server cannot execute or the cache cannot prove.
+        if c.exclude && c.r#type.starts_with("official-") {
             return;
         }
-        let remote = !c.exclude && ["dept", "code", "level", "text"].contains(&c.r#type.as_str());
+        let remote = !c.exclude
+            && (c.r#type.starts_with("official-")
+                || ["dept", "code", "level", "text", "mark", "group"].contains(&c.r#type.as_str()));
         out.push(Suggestion::Condition {
             count: if remote { -1 } else { count(&full) as i64 },
             key: full,
             condition: c,
         });
     };
+    if let Some((family, value)) = official_group(typed) {
+        if !exclude {
+            for option in ctx.official_options.iter().filter(|option| {
+                option.family == family && lower(&option.label).contains(&lower(value))
+            }) {
+                add(&format!("kyomu:{}:{}", option.id, option.value), &mut out);
+            }
+        }
+        return out;
+    }
+    if !exclude {
+        for (family, label, aliases) in OFFICIAL_GROUPS {
+            if ctx
+                .official_options
+                .iter()
+                .any(|option| option.family == family)
+                && (typed.is_empty()
+                    || aliases
+                        .iter()
+                        .chain(std::iter::once(&label))
+                        .any(|alias| lower(alias).contains(&lt)))
+            {
+                out.push(Suggestion::Category {
+                    key: format!("{family}:"),
+                    label: label.into(),
+                });
+            }
+        }
+    }
     if typed.is_empty() {
         for key in if exclude {
             &["集中", "特課研", "英語", "演習"][..]
         } else {
             &["curr", "推荐", "空き", "講義", "演習", "英語"][..]
         } {
-            if *key != "推荐" || !ctx.recommended.is_empty() {
-                add(key, &mut out);
-            }
+            add(key, &mut out);
         }
         return out;
     }
@@ -884,6 +1167,11 @@ pub fn suggest(
     scored.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     let literal = condition(typed, ctx);
     if literal.r#type != "text"
+        && (literal.r#type != "level"
+            || ctx
+                .official_options
+                .iter()
+                .any(|o| o.family == "level" && o.label == literal.values[0].to_string()))
         && !scored
             .iter()
             .any(|(score, key)| *key == literal.key || *score == 3)
@@ -930,6 +1218,7 @@ pub fn suggest(
 pub fn live_text(input: &str, keys: &[String], courses: &[Value], ctx: &FinderContext) -> String {
     let value = input.trim();
     if value.is_empty()
+        || official_group(value).is_some()
         || value.starts_with('!')
         || condition(value, ctx).r#type != "text"
         || suggest(value, keys, courses, ctx)
@@ -1059,26 +1348,35 @@ pub fn finder_view(
         .pointer("/settings/departmentId")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let admission = workspace.pointer("/academicProfile/admissionYear");
-    let recommended = array(workspace, "recommendedCourses")
+    let department_name = department_name_ja(selected_department)?;
+    let recommended = offerings
         .iter()
         .filter(|r| {
-            r.get("deletedAt").is_none_or(Value::is_null)
-                && r.get("admissionYear") == admission
-                && catalog_course_eligibility(workspace, &request.term, r).status
-                    != CourseEligibilityStatus::Ineligible
-                && !selected_department.is_empty()
-                && (text(r, "departmentId") == selected_department
-                    || selected_department.ends_with(&format!(":{}", text(r, "departmentId"))))
+            r["year"].as_u64() == Some(u64::from(request.year))
+                && department_name.as_deref().is_some_and(|name| {
+                    r.pointer("/kyomu/department").and_then(Value::as_str) == Some(name)
+                })
         })
-        .map(|r| {
-            (
+        .filter(|r| {
+            catalog_course_eligibility(workspace, &request.term, r).status
+                != CourseEligibilityStatus::Ineligible
+        })
+        .filter_map(|r| {
+            let group = r.pointer("/kyomu/group")?.as_str()?;
+            if group.is_empty() {
+                return None;
+            }
+            Some((
                 text(r, "code").to_string(),
                 Recommendation {
-                    group: text(r, "group").into(),
-                    mark: r.get("mark").and_then(Value::as_str).map(String::from),
+                    group: group.into(),
+                    mark: r
+                        .pointer("/kyomu/mark")
+                        .and_then(Value::as_str)
+                        .filter(|m| !m.is_empty())
+                        .map(str::to_string),
                 },
-            )
+            ))
         })
         .collect();
     let placed = crate::schedule::scheduled_courses(workspace, &request.term);
@@ -1116,6 +1414,14 @@ pub fn finder_view(
         recommended,
         departments,
         busy,
+        official_options: workspace
+            .get("kyomuSearchOptions")
+            .map(|options| {
+                serde_json::from_value(options.clone())
+                    .map_err(|e| FinderError::InvalidInput(e.to_string()))
+            })
+            .transpose()?
+            .unwrap_or_default(),
     };
     let courses = offerings
         .into_iter()
@@ -1155,6 +1461,17 @@ pub fn finder_view(
         _ => {}
     }
     let parsed = factors_of(&keys, &ctx);
+    if parsed
+        .factors
+        .iter()
+        .filter(|f| f.r#type == "exclude")
+        .flat_map(|f| &f.alts)
+        .any(|c| c.r#type.starts_with("official-"))
+    {
+        return Err(FinderError::InvalidInput(
+            "Official form filters support inclusion only.".into(),
+        ));
+    }
     let keys: Vec<_> = parsed
         .factors
         .iter()
@@ -1382,6 +1699,8 @@ pub fn declarations() -> Vec<String> {
         FinderSchedule::decl(),
         FinderRow::decl(),
         Suggestion::decl(),
+        OfficialSelection::decl(),
+        OfficialFilterOption::decl(),
         RemoteQuery::decl(),
         RemotePlan::decl(),
         FinderContext::decl(),

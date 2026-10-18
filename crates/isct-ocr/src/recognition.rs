@@ -47,7 +47,7 @@ pub(crate) fn review(mut cleaned: Recognition, original: &str) -> Recognition {
     }
     cleaned
 }
-#[cfg(any(matrix_ocr, test))]
+#[cfg(any(all(matrix_ocr, debug_assertions), test))]
 pub(crate) fn is_red(result: &Recognition) -> bool {
     result.text.is_empty() || result.confidence < 0.75
 }

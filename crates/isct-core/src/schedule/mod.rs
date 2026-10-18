@@ -10,6 +10,7 @@ mod ics;
 mod occurrence;
 mod range;
 mod reminders;
+pub(crate) use reminders::assignment_lead_minutes;
 mod requests;
 mod tasks;
 mod today;
@@ -35,6 +36,7 @@ pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
     CalendarDayView, QuarterRange, QuarterView, TeachingRange,
 };
+pub(crate) use calendar::{content_language, localized};
 pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use course_detail::{course_detail, CourseDetail};
@@ -44,26 +46,26 @@ pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
     course_terms, course_timeline, intensive_days, next_plan_occurrences, occurrences_on_date,
     plan_start, planning_week, resolve_day_agenda, schedule_problems, scheduled_courses,
-    term_courses, validate_academic_profile, AgendaOptions, CourseTimeline, Occurrence,
-    OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek, ScheduleProblem,
+    term_courses, validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline,
+    Occurrence, OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek, ScheduleProblem,
     ScheduleProblemKind,
 };
 pub use range::calendar_between;
 pub use reminders::{
     glance, notification_plan, GlanceSnapshot, NotificationItem, NotificationLocale,
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
-    ReminderService,
+    ReminderService, DEFAULT_ASSIGNMENT_LEADS,
 };
 pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
 pub(crate) use tasks::assignment_submitted;
-pub use tasks::{task_view, TaskDeadlineView, TaskView, TermTaskView};
+pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
 pub(crate) use timing::{clock_for_periods, validate_period_range};
 pub use timing::{
     default_teaching_periods, teaching_periods, validate_teaching_periods, TeachingPeriod,
 };
 pub use today::{
-    assignment_board, room_map_query, today_view, AssignmentBoard, DeadlineItem, MaterialItem,
-    RecentItem, TodayClass, TodayPhase, TodayView,
+    assignment_board, room_map_query, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem,
+    MaterialItem, RecentItem, TodayClass, TodayPhase, TodayView,
 };
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -128,7 +130,7 @@ pub enum WorkspaceQuery {
     Today {
         now: String,
     },
-    /// Phone assignment list grouped by deadline.
+    /// Phone assignment lists: the current quarter's timeline as rows.
     AssignmentBoard {
         now: String,
     },
@@ -546,7 +548,9 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
     );
     on_timetable_course_ids.sort();
     on_timetable_course_ids.dedup();
+    let earned = credits::earned_credits_by_term(array(workspace, "grades"));
     let mut all_terms: Vec<String> = placement_terms(workspace).map(str::to_owned).collect();
+    all_terms.extend(earned.keys().cloned());
     all_terms.extend(
         array(workspace, "terms")
             .iter()
@@ -563,12 +567,7 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
         .filter(|course| visible(course))
         .filter_map(|course| Some((text(course, "id")?.to_owned(), display_color(course))))
         .collect();
-    // Today and Lecture Desk follow the current quarter once it has courses.
-    let today_term = if !term_courses(workspace, &current_term).is_empty() {
-        current_term.clone()
-    } else {
-        selected_term.clone()
-    };
+    let today_term = current_term.clone();
     let courses_term = if all_terms.contains(&selected_term) {
         selected_term.clone()
     } else {
@@ -591,14 +590,23 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
         .filter_map(|row| text(row, "courseId").map(str::to_owned))
         .collect();
     let declared_credits = declared_term_credits(array(workspace, "registrations"), &term)?;
-    let term_credits = declared_credits.unwrap_or_else(|| {
+    let current = Term::parse(&current_term)?;
+    let selected = Term::parse(&term)?;
+    let current_semester =
+        current.year == selected.year && (current.quarter - 1) / 2 == (selected.quarter - 1) / 2;
+    let term_credits = if current_semester {
+        declared_credits.or_else(|| earned.get(&term).copied())
+    } else {
+        earned.get(&term).copied().or(declared_credits)
+    }
+    .unwrap_or_else(|| {
         courses
             .iter()
             .filter_map(|course| course.get("credits").and_then(Value::as_f64))
             .sum()
     });
-    let planned = Term::parse(&courses_term)?;
-    let mut default_finder_keys = vec![if courses_term == current_term {
+    let planned = Term::parse(&term)?;
+    let mut default_finder_keys = vec![if term == current_term {
         "curr".into()
     } else {
         format!("{}Q", planned.quarter)
@@ -714,6 +722,7 @@ pub fn declarations() -> Vec<String> {
         AgendaRequestOptions::decl(),
         DatedAgenda::decl(),
         PlanningDay::decl(),
+        CourseConflict::decl(),
         PlanningWeek::decl(),
         PlanCivilStart::decl(),
         PlanStartInput::decl(),
@@ -722,6 +731,7 @@ pub fn declarations() -> Vec<String> {
         CourseDetail::decl(),
         CourseTimeline::decl(),
         TaskDeadlineView::decl(),
+        AssignmentGroups::decl(),
         TermTaskView::decl(),
         TaskView::decl(),
         TodayPhase::decl(),
@@ -730,6 +740,7 @@ pub fn declarations() -> Vec<String> {
         MaterialItem::decl(),
         RecentItem::decl(),
         TodayView::decl(),
+        DeadlineGroups::decl(),
         AssignmentBoard::decl(),
         AcademicYearIndex::decl(),
         WorkspaceOverview::decl(),

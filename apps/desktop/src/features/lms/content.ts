@@ -1,5 +1,6 @@
-import { intlLocale } from "../../i18n/locale";
+import { formatJst } from "../../lib/civil-date";
 import { extension, fileFamily, previewKind } from "./file-types";
+import { t } from "../../i18n";
 /** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
 export function safeContent(html: string, language?: "ja" | "en"): string {
   const source = new DOMParser().parseFromString(
@@ -69,7 +70,7 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
         const link = document.createElement("a");
         link.href = url;
         link.className = "lmsAttachmentCard";
-        link.textContent = node.getAttribute("alt") || "Image";
+        link.textContent = node.getAttribute("alt") || t("Image");
         const placeholder = document.createElement("span");
         placeholder.dataset.imageSrc = url;
         placeholder.dataset.imageAlt = link.textContent;
@@ -102,7 +103,7 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
       if (url && previewKind(url) === "image" && !el.querySelector("[data-image-src]")) {
         const placeholder = document.createElement("span");
         placeholder.dataset.imageSrc = url;
-        placeholder.dataset.imageAlt = el.textContent || "Image";
+        placeholder.dataset.imageAlt = el.textContent || t("Image");
         el.classList.add("lmsImageCard", "lmsAttachmentCard");
         el.replaceChildren(placeholder, caption(placeholder.dataset.imageAlt));
       } else if (url && el.classList.contains("lmsAttachmentCard") && !el.classList.contains("lmsImageCard")) {
@@ -157,7 +158,7 @@ function caption(text: string) {
 function fileCard(link: HTMLElement, url: string) {
   const name = document.createElement("span");
   name.className = "lmsAttachmentName";
-  name.textContent = link.textContent?.trim() || url.split("/").pop() || "File";
+  name.textContent = link.textContent?.trim() || url.split("/").pop() || t("File");
   const meta = document.createElement("small");
   meta.textContent = extension(url).toUpperCase() || "FILE";
   link.dataset.family = fileFamily(url);
@@ -235,7 +236,7 @@ export function announcements(html?: string) {
   const page = new DOMParser().parseFromString(html.slice(0, 100000), "text/html");
   return [...page.getElementsByTagName("article")].map((article, index) => {
     const titleNode = article.getElementsByTagName("h5")[0];
-    const title = titleNode?.textContent?.trim() || "Announcement";
+    const title = titleNode?.textContent?.trim() || t("Announcement");
     const time = article.getElementsByTagName("time")[0] || (article.getElementsByTagName("p")[0]?.textContent?.match(/^\d{4}年/) ? article.getElementsByTagName("p")[0] : undefined);
     const date = time?.textContent || "";
     titleNode?.remove(); time?.remove();
@@ -244,9 +245,21 @@ export function announcements(html?: string) {
 }
 
 export function formatLmsDate(value: string, locale: string) {
-  const parts = value.match(/(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日.*?(\d{1,2}):(\d{2})/);
-  if (!parts || locale === "ja") return value;
-  const [,year,month,day,hour,minute] = parts;
-  const date = new Date(`${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}T${hour.padStart(2,"0")}:${minute}:00+09:00`);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(intlLocale(locale), {year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:"Asia/Tokyo"}).format(date);
+  const parts = value.match(
+    /(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日.*?(\d{1,2}):(\d{2})/,
+  );
+  if (!parts) return value;
+  const [, year, month, day, hour, minute] = parts;
+  const date = new Date(
+    `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${hour.padStart(2, "0")}:${minute}:00+09:00`,
+  );
+  return Number.isNaN(date.getTime())
+    ? value
+    : formatJst(date, locale, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 }

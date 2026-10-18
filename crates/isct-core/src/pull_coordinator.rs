@@ -32,6 +32,8 @@ pub enum PullError {
     #[error("{0}")]
     Authentication(String),
     #[error("{0}")]
+    Maintenance(String),
+    #[error("{0}")]
     Network(String),
     #[error("{0}")]
     Storage(String),
@@ -67,6 +69,10 @@ type PullWork = Arc<dyn Fn(PullContext) -> PullFuture + Send + Sync>;
     rename_all_fields = "camelCase"
 )]
 pub enum PullTarget {
+    Catalog {
+        year: u16,
+        query: String,
+    },
     School {
         site: SchoolSite,
         course_id: Option<u64>,
@@ -81,6 +87,12 @@ pub enum PullTarget {
 impl PullTarget {
     pub fn normalized(self) -> Result<Self, PullError> {
         match self {
+            Self::Catalog { year, query } => {
+                if !(2020..=2200).contains(&year) || query.len() > 4096 {
+                    return Err(PullError::InvalidTarget("Invalid course search.".into()));
+                }
+                Ok(Self::Catalog { year, query })
+            }
             Self::Reference {
                 kind,
                 index_url,
@@ -132,7 +144,7 @@ impl PullTarget {
 
     fn lane(&self) -> PullLane {
         match self {
-            Self::School { .. } => PullLane::School,
+            Self::School { .. } | Self::Catalog { .. } => PullLane::School,
             Self::Reference { .. } => PullLane::Http,
         }
     }
@@ -980,7 +992,11 @@ impl PullCoordinator {
                             let target = job.target.clone();
                             remove_key_if_current(&mut state, &target, &id);
                         }
-                        Err(error) if !closed && job.attempt <= job.retry_limit => {
+                        Err(error)
+                            if !closed
+                                && job.attempt <= job.retry_limit
+                                && !matches!(error, PullError::Maintenance(_)) =>
+                        {
                             let transition = reduce(job.state, PullEvent::WaitRetry);
                             job.state = transition.state;
                             job.phase = Some("retryWaiting".into());
@@ -1019,7 +1035,30 @@ impl PullCoordinator {
 }
 
 fn publish_locked(shared: &PullShared, state: &CoordinatorState) {
-    shared.snapshots.send_replace(snapshots_locked(state));
+    let snapshots = snapshots_locked(state);
+    {
+        let previous = shared.snapshots.borrow();
+        for next in &snapshots {
+            let unchanged = previous
+                .iter()
+                .find(|old| old.id == next.id)
+                .is_some_and(|old| {
+                    old.state == next.state
+                        && old.priority == next.priority
+                        && old.phase == next.phase
+                        && old.blocked_by == next.blocked_by
+                        && old.attempt == next.attempt
+                        && old.waiter_count == next.waiter_count
+                });
+            if !unchanged {
+                log::info!(target: "isct_core::pull", "{} target={:?} state={:?} priority={:?} phase={:?} blocked={:?} attempt={} waiters={} school_lane={} http_lanes={} suspended={}",
+                    next.id, next.target, next.state, next.priority, next.phase,
+                    next.blocked_by, next.attempt, next.waiter_count,
+                    state.school_running, state.http_running, state.suspended);
+            }
+        }
+    }
+    shared.snapshots.send_replace(snapshots);
 }
 
 fn settle_waiters(

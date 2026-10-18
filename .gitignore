@@ -54,6 +54,8 @@ scripts/research/syllabus-sample-output/
 apps/ios/build/
 apps/android/.gradle/
 apps/android/**/build/
+apps/android/.kotlin/
+apps/android/local.properties
 bindings/**/build/
 
 # Generated native bindings and binary SDK packages
@@ -62,3 +64,6 @@ bindings/swift/.build/
 bindings/swift/Sources/IsctCore/Generated.swift
 bindings/kotlin/src/main/kotlin/app/isctcompanion/core/isct_ffi.kt
 bindings/kotlin/artifacts/
+
+# Local encrypted updater signing key and public companion file
+.update/

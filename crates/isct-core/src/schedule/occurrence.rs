@@ -104,6 +104,26 @@ pub struct PlanningWeek {
     pub courses: Vec<Value>,
     pub days: Vec<PlanningDay>,
     pub conflict_count: usize,
+    /// Every clash, once per course involved, so a shell can explain a
+    /// red block without re-deriving overlaps.
+    pub conflicts: Vec<CourseConflict>,
+}
+
+/// One meeting of a course that overlaps another block in the quarter template.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct CourseConflict {
+    pub course_id: String,
+    /// 1 = Monday … 7 = Sunday.
+    pub day: u8,
+    /// This course's meeting, not the overlap window.
+    pub start_time: String,
+    pub end_time: String,
+    /// The other course; absent when the other block is a personal event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub with_course_id: Option<String>,
+    pub with_title: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -146,6 +166,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
         .collect();
     let mut days = Vec::new();
     let mut conflict_count = 0;
+    let mut conflicts = Vec::new();
     for day in 1..=7_u8 {
         let date = add_days("2000-01-02", i64::from(day))?;
         let mut blocks = Vec::new();
@@ -222,8 +243,30 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
         }
         for left in 0..blocks.len() {
             for right in left + 1..blocks.len() {
-                if overlap(&blocks[left], &blocks[right])? {
-                    conflict_count += 1;
+                if !overlap(&blocks[left], &blocks[right])? {
+                    continue;
+                }
+                conflict_count += 1;
+                for (own, other) in [(left, right), (right, left)] {
+                    let (own, other) = (&blocks[own], &blocks[other]);
+                    let Some(course_id) = own
+                        .course_id
+                        .clone()
+                        .filter(|_| own.kind == OccurrenceKind::Course)
+                    else {
+                        continue;
+                    };
+                    if other.course_id.as_ref() == Some(&course_id) {
+                        continue;
+                    }
+                    conflicts.push(CourseConflict {
+                        course_id,
+                        day,
+                        start_time: own.start_time.clone(),
+                        end_time: own.end_time.clone(),
+                        with_course_id: other.course_id.clone(),
+                        with_title: other.title.clone(),
+                    });
                 }
             }
         }
@@ -239,6 +282,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
         courses,
         days,
         conflict_count,
+        conflicts,
     })
 }
 
@@ -329,6 +373,7 @@ fn placements(workspace: &Value) -> impl Iterator<Item = &Value> {
 /// item there. A course running 3Q–4Q is one course (its `termId` is where it
 /// was added) with a row in each quarter.
 pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
+    let clock = teaching_periods(workspace).unwrap_or_default();
     let ids: HashSet<&str> = placements(workspace)
         .filter(|row| text(row, "termId") == Some(term))
         .filter_map(|row| text(row, "courseId"))
@@ -337,6 +382,40 @@ pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
         .iter()
         .filter(|row| visible(row) && text(row, "id").is_some_and(|id| ids.contains(id)))
         .cloned()
+        .map(|mut course| {
+            if let Some(meetings) = course.get_mut("meetings").and_then(Value::as_array_mut) {
+                meetings.retain(|meeting| {
+                    meeting
+                        .get("termIds")
+                        .and_then(Value::as_array)
+                        .is_none_or(|terms| terms.iter().any(|t| t.as_str() == Some(term)))
+                });
+                // Imported summaries can contain both a full meeting and a
+                // contained slot (5–8 plus 7–8). One course cannot clash with
+                // its own duplicate; retain the covering slot for each day.
+                let mut normalized = Vec::<Value>::new();
+                for meeting in meetings.iter() {
+                    let covers = |a: &Value, b: &Value| {
+                        a["days"] == b["days"]
+                            && a["room"] == b["room"]
+                            && a["termIds"] == b["termIds"]
+                            && meeting_clock(a, &clock)
+                                .ok()
+                                .zip(meeting_clock(b, &clock).ok())
+                                .is_some_and(|((start_a, end_a), (start_b, end_b))| {
+                                    start_a <= start_b && end_a >= end_b
+                                })
+                    };
+                    if normalized.iter().any(|existing| covers(existing, meeting)) {
+                        continue;
+                    }
+                    normalized.retain(|existing| !covers(meeting, existing));
+                    normalized.push(meeting.clone());
+                }
+                *meetings = normalized;
+            }
+            course
+        })
         .collect()
 }
 
@@ -773,7 +852,17 @@ fn mark_conflicts(blocks: &mut [Occurrence]) -> Result<(), ScheduleError> {
             }
             if overlap(&blocks[i], &blocks[j])? {
                 blocks[i].conflict = Some(true);
-                blocks[j].conflict = Some(true)
+                blocks[j].conflict = Some(true);
+                // Name the other block so a red block says what it clashes with.
+                if blocks[i].course_id.is_none() || blocks[i].course_id != blocks[j].course_id {
+                    let (left, right) = (blocks[i].title.clone(), blocks[j].title.clone());
+                    for (block, name) in [(i, right), (j, left)] {
+                        let names = blocks[block].conflict_with.get_or_insert_with(Vec::new);
+                        if !names.contains(&name) {
+                            names.push(name);
+                        }
+                    }
+                }
             }
         }
     }

@@ -227,13 +227,16 @@ checks:
       The account from SCHOOL-SIGNIN-SCIENCE is Signed in.
     steps:
       - action: |
-          Trigger a full LMS pull and leave the window alone until it ends.
+          In a fresh disposable workspace, sign in and let the initial automatic
+          full LMS pull finish. Then use Pull from LMS and verify it defaults
+          to all courses, including quarters outside the current semester.
         reason: |
           The uninterrupted path establishes the baseline the interrupted path
           is compared against.
       - action: |
-          Compare the pulled course list and assignments with the LMS open in
-          another browser.
+          Compare courses and assignments with the authenticated LMS. Select
+          Pull current quarter only, then reopen a previously cached lecture.
+          Keep reading while the later partial background refresh finishes.
         reason: |
           A pull that "succeeds" with silently dropped courses is the failure
           this step catches; matching counts alone would not.
@@ -246,8 +249,10 @@ checks:
       The LMS page course and assignment lists, the refresh timestamp, and the
       visible school page that interrupted the second pull.
     expected: |
-      The first pull matches the LMS exactly and advances its timestamp; the
-      interrupted pull leaves the previous rows intact and resumes.
+      The first pull matches the LMS course list and advances its timestamp;
+      current-only reads the actual current quarter. Cached lecture content
+      remains usable during refresh and changed content produces one quiet,
+      short in-app update notice. Interrupted work retains old rows and resumes.
     why_manual: |
       Depends on the authenticated Moodle session above. The AJAX surface is
       read-only but account-scoped, so no fixture can stand in for a real
@@ -463,6 +468,70 @@ checks:
       notes: The 2017 manual fixture covers the documented shape only.
       evidence: docs/verification/native-sdk.md
 
+  - id: SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS
+    area: school
+    title: 教務Web registration and requirements pages import or report unavailable
+    persona: undergraduate-senior
+    preconditions: |
+      Signed desktop bundle, Tokyo Tech account Signed in, campus network or
+      VPN. Run once inside a 科目申告 window and once outside it. Outside the
+      window was observed passing on 2026-10-17 (state 本登録済); the window
+      itself, where courses are still being edited, is not yet observed.
+    steps:
+      - action: |
+          Quit the app, then start it from a terminal so stderr is kept:
+          `/Applications/IsctCompanion.app/Contents/MacOS/isct-companion 2>&1 | tee artifacts/kyomu-pull.log`
+        reason: |
+          Partial page failures are only reported to stderr, which a bundle
+          launched from Finder discards. Without this the run gives no reason
+          for the failure, as happened on 2026-10-17.
+      - action: |
+          Use the manual 教務Web refresh and wait until the footer settles.
+        reason: |
+          Manual refresh bypasses the retry backoff, so the run reaches the
+          registration (PID1_0) and requirements (PID2_6) pages now.
+      - action: |
+          Find the `[school-pull] Kyomu/registrations:` and
+          `[school-pull] Kyomu/requirements:` lines in the log and copy the
+          text after `kyomu extraction was incomplete:`.
+        reason: |
+          That text is the extractor check that rejected the page. On
+          2026-10-17 it was a header-less empty unit GridView
+          (`kamokuUnit_-2_gvKamoku`) and a requirement table whose header has
+          no <thead>; both are now read. A new reason names the next shape.
+      - action: |
+          Open both pages in the visible 教務Web view. Read the page's notice,
+          if any, and inspect the element that holds it (its id or class).
+          Check whether the elements named in the log line exist.
+        reason: |
+          Decides the fix. If the page shows a notice such as "outside the
+          申告 period", the extractor's unavailable pattern must learn that
+          notice and its element. If the data is visible but the selector
+          does not match, the selector is broken.
+      - action: |
+          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT scope,state,max(finished_at) FROM import_runs WHERE provider='kyomu' GROUP BY scope,state"`.
+        reason: |
+          Freshness counts only `complete` or `unavailable` runs. A page with
+          neither keeps 教務Web due for an automatic refresh indefinitely.
+    observe: |
+      artifacts/kyomu-pull.log, the two 教務Web pages in the visible view, and
+      the import_runs query output.
+    expected: |
+      `registrations` and `requirements` each have a `complete` or an
+      `unavailable` run, the log has no `school-pull` line for either page,
+      and the footer no longer shows a 教務Web failure after a refresh.
+    why_manual: |
+      The live registration and requirement DOM is account-scoped and changes
+      with the 申告 window. The extractor tests reproduce only the two shapes
+      observed outside the window, with placeholder values; no committed
+      fixture is a capture. Only a real session shows what the portal serves
+      while registration is open.
+    covers:
+      - crates/isct-core/src/school_browser/assets/kyomu-extract.js
+      - crates/isct-core/src/school_parser/kyomu.rs
+      - crates/isct-core/src/kyomu_ingest.rs
+    verified: null
+
   - id: IDENTITY-LANGUAGE-SWITCH
     area: identity
     title: English UI and English content stay English
@@ -666,6 +735,34 @@ checks:
           pipeline; a real card is what exposes lighting, angle and printing
           variation that no fixture reproduces.
       - action: |
+          Open Scan with camera in a packaged desktop app, allow camera access,
+          and bring the real card toward the camera. Check that one red outline
+          follows the Matrix, with no cell boxes or letter overlays. Move the
+          card, introduce glare, then briefly hold it steady with labels visible.
+          Observe the per-cell acquisition coverage. The camera must stop as
+          soon as every cell has enough clear candidates, or within eight seconds
+          of the first detected Matrix; waiting before detection does not count.
+          After acquisition, the dialog closes, the camera indicator turns off,
+          and inline processing progress appears. Put the card down and verify
+          results arrive; insufficient votes must be highlighted for review.
+          Inspect matrix-scan/latest.json under the app cache for separate
+          acquisition/processing times, per-cell candidate and qualified-vote
+          counts. Compare all 70 letters with the real card.
+        reason: |
+          OS camera permissions, native WebView video capture, optical focus,
+          and the alignment of recognition boxes over a physical card require
+          real hardware. Scripted frames cannot validate these surfaces.
+      - action: |
+          Cancel and reopen the camera, then background the app during capture.
+          Repeat and background it during processing: acquisition stops in the
+          former case, but the latter may finish without reopening the camera.
+          Cancel processing and confirm late results do not overwrite the editor.
+          Deny permission on a fresh permission state and retry after granting it.
+        reason: |
+          Verify the camera indicator switches off and permissions can recover
+          in the signed native app; headless tests cannot observe OS resource
+          release or the native privacy prompt.
+      - action: |
           Review the recognised cells and compare them with the card.
         reason: |
           The contract is "no wrong accepted cell", not "most cells right". A
@@ -686,13 +783,24 @@ checks:
     covers:
       - crates/isct-ocr/**
       - apps/desktop/src/lib/matrix-ocr.ts
+      - crates/isct-core/src/matrix_scan.rs
+      - crates/isct-core/src/matrix_scan/**
+      - apps/desktop/src/platform/matrix-camera.ts
+      - apps/desktop/src/components/MatrixCamera.tsx
+      - apps/desktop/src/components/matrix-camera.css
+      - apps/desktop/src/pages/settings/SchoolAccounts.tsx
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/src/commands/matrix_camera.rs
+      - apps/desktop/src-tauri/Info.plist
+      - apps/desktop/src-tauri/Entitlements.plist
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14
       commit: 7fdf1b6
       by: human
       result: pass
-      notes: 67 expected cells recognised, no wrong accepted cells; private image not committed.
+      notes: 67 expected cells recognised, no wrong accepted cells; private image not
+        committed.
       evidence: docs/verification/core-consolidation.md#automated-acceptance
 
   - id: DESKTOP-SCHOOL-WEBVIEW
@@ -882,6 +990,66 @@ checks:
       - apps/desktop/src-tauri/src/school_downloads.rs
     verified: null
 
+  - id: DESKTOP-PULL-STRESS
+    area: desktop
+    title: Fast navigation while a live LMS pull lands data
+    persona: undergraduate-senior
+    preconditions: |
+      A development build started with `VITE_INTERACTION_TRACE=1 yarn
+      desktop:dev`, the account from SCHOOL-SIGNIN-SCIENCE signed in, and at
+      least two quarters that have courses, one of them with open assignments.
+    steps:
+      - action: |
+          Confirm the dev terminal prints `[trace] recording to
+          tmp/interaction-trace/…`.
+        reason: |
+          A crash found by hand is only useful if the steps before it can be
+          read back. The 2026-10-16 Lecture Desk crash looked random until its
+          timeline showed the quarter change that triggered it.
+      - action: |
+          Start a full LMS pull. While it runs, open several lectures in quick
+          succession, toggle Lectures and Assignments, change the quarter in
+          both modes, and jump to Home and Web and back.
+        reason: |
+          Each ingest publishes a new revision while revision-keyed queries
+          refetch, so a view that joins two queries can render with one
+          answered and the other still loading. That only happens when an
+          ingest lands in the middle of input, which no scripted run times.
+      - action: |
+          Keep going until the trace shows at least two `school-ingest` events
+          that arrived between your clicks.
+        reason: |
+          One ingest can fall into a pause between clicks and prove nothing.
+          The trace, not a feeling of having clicked enough, decides when the
+          overlap actually happened.
+      - action: |
+          After the pull ends, compare Lectures (both modes, every quarter) and
+          Home with the same pages after a cold relaunch.
+        reason: |
+          The quieter failure is a view that survives but keeps the rows it
+          skipped while data was loading. Work hidden during a load has to
+          reappear once its course arrives.
+    observe: |
+      Every page for "This page hit an error"; the dev terminal for `[trace]`
+      error blocks; `error`, `rejected` and `console.error` entries in the
+      newest tmp/interaction-trace/*.jsonl.
+    expected: |
+      No page error and no error entries in the trace; after the pull, each
+      page matches the cold relaunch.
+    why_manual: |
+      The interleaving comes from a real, account-scoped LMS pull meeting
+      human input at real timing. The e2e harness scripts revisions but not
+      that race. A failure found here that reproduces deterministically moves
+      into a suite, as the quarter-switch case did in
+      tests/e2e/today-and-lectures.test.tsx.
+    covers:
+      - apps/desktop/src/store/workspace.ts
+      - apps/desktop/src/platform/core-query.ts
+      - apps/desktop/src/app/usePullState.ts
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/app/interaction-trace.ts
+    verified: null
+
   - id: NATIVE-IOS-SIMULATOR
     area: native
     title: Swift SDK and OCR on an iOS simulator
@@ -985,6 +1153,15 @@ checks:
           desktop acceptance says nothing about them. Pulls run through the
           WKWebView browser port, which only a real identity provider and OTP
           exercise.
+      - action: |
+          On Android, sign in from 設定, pull to refresh on 今日, open the
+          ウェブ tab and a course's T2SCHOLA link, swipe an assignment to hide
+          it, then turn on reminders and wait for one to arrive.
+        reason: |
+          Pulls run through the WebView browser port and Core's injected
+          scripts, which only a real identity provider and OTP exercise;
+          reminders depend on the notification permission and alarm delivery
+          of a real device.
     observe: |
       Each device's screens, its authorization prompts, and the notifications
       it delivers.
@@ -994,9 +1171,9 @@ checks:
       Safari, and a pull fills 今日 and 課題.
     why_manual: |
       Needs a real student id and OTP, iCloud Keychain on two devices, signing
-      and provisioning for physical hardware. The Compose shell is not
-      implemented yet.
+      and provisioning for physical hardware.
     covers:
+      - apps/android/**
       - apps/ios/**
       - bindings/**
       - crates/isct-ffi/**
@@ -1053,7 +1230,8 @@ checks:
     title: Installers on a clean machine of each platform
     persona: careless-multidevice
     preconditions: |
-      The published installers and a machine that has never run the app.
+      The published installers, a clean machine and a separate installation with
+      an existing workspace (including schema 6 for the 1.0 update).
     steps:
       - action: |
           Install on macOS (both architectures) and Windows x64.
@@ -1063,8 +1241,16 @@ checks:
       - action: |
           Launch, complete first-run, and open a workspace from a backup.
         reason: |
-          An existing workspace must import into a fresh install, which is the
-          upgrade path every current user takes.
+          An existing workspace must import into a fresh install, independently of the
+          normal update path.
+      - action: |
+          On the existing installation, change a timetable and a preference,
+          quit, replace the application with the new installer, and relaunch
+          without exporting or importing a backup.
+        reason: |
+          Checks that an actual OS installer uses the same application-data
+          directory and retains data across a normal update. SQL migration
+          tests cannot exercise app replacement and installed identities.
       - action: |
           Observe the Gatekeeper and SmartScreen prompts.
         reason: |
@@ -1075,11 +1261,13 @@ checks:
       workspace.
     expected: |
       Installation succeeds, the OS prompts match the release notes, and
-      existing workspace data imports.
+      existing workspace data imports and survives ordinary app updates.
     why_manual: |
       Requires clean machines and real installers; build success is not
       runtime compatibility.
     covers:
+      - crates/isct-core/src/data/migrations.rs
+      - apps/desktop/src-tauri/src/lib.rs
       - scripts/desktop/desktop-release.mjs
       - .github/workflows/desktop-release.yml
     verified: null
@@ -1098,6 +1286,12 @@ checks:
           WKWebView is a separate native surface and can intercept the pointer;
           a DOM splitter test cannot prove that the drag stays captured.
       - action: |
+          Release the separator, then slowly move the pointer across blank page
+          areas, links and text in the native browser, including near its edges.
+        reason: |
+          macOS and the DOM host own separate cursor surfaces. This detects a
+          lingering document-wide resize cursor competing with WKWebView.
+      - action: |
           Open an official LMS page in a lecture reader, resize its left outline,
           then shrink and widen the window across the compact breakpoint.
         reason: |
@@ -1115,12 +1309,14 @@ checks:
     expected: |
       The separator follows the pointer until release. The native page stays
       inside its content area and both toolbars remain clickable after resizing.
+      The resize cursor appears only on the separator; page cursors stay stable.
     why_manual: |
       Requires a signed native shell and a real WKWebView over authenticated
       school content; jsdom and the browser preview render only the DOM host.
     covers:
       - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src/components/ResizableWorkspace.tsx
+      - apps/desktop/src/components/resizable-workspace.css
       - apps/desktop/src/pages/web/WebPage.tsx
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/pages/lectures/lectures.css
@@ -1156,13 +1352,25 @@ checks:
         reason: |
           Checks target binding and native navigation: files must only enter
           the requested assignment, and reopening must not upload a second copy.
+      - action: |
+          Open an assignment accepting online text in the right-hand LMS pane.
+          Type Japanese and Chinese with the IME, paste text, select a word and
+          use a TinyMCE formatting command. Leave without saving or submitting.
+          Follow its external Google Form link, search from the Web address bar,
+          and use Back to return to the LMS.
+        reason: |
+          Verifies native WebView focus, composition and inherited-origin editor
+          frames, plus external navigation. Headless routing tests cannot run
+          the live Moodle editor or native IME.
     observe: |
       The LMS draft file manager, its upload progress/errors, the assignment
       name/URL and the untouched official Save/Submit controls in the right pane.
     expected: |
       Exactly the chosen workspace files appear in the requested assignment's
       draft. Only user action can save or submit; unsupported uploads show the
-      normal LMS error. Reopening does not duplicate files.
+      normal LMS error. Reopening does not duplicate files. Online text accepts
+      typing, IME composition, paste and formatting; external pages keep their
+      query parameters and Back returns to the LMS without auto-submitting.
     why_manual: |
       Requires real authenticated Moodle uploads and WebKit drag-transfer APIs.
       Headless tests verify injection and routing but cannot execute the remote
@@ -1175,4 +1383,188 @@ checks:
       - crates/isct-core/src/school_browser/assets/assignment-upload.js
       - apps/desktop/src-tauri/src/workspaces.rs
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
+    verified: null
+
+  - id: DESKTOP-REMINDER-TIMES
+    area: desktop
+    title: Deliver class and assignment reminders at the selected times
+    persona: narrow-window-keyboard
+    preconditions: |
+      An updated native desktop build and OS notification permission available.
+    steps:
+      - action: |
+          Grant notification permission, enable both reminder types, and choose
+          a class lead time plus a non-default assignment lead time.
+        reason: |
+          Real OS consent and notification delivery are unavailable to the
+          headless settings and reminder-plan tests.
+      - action: |
+          Arrange the class start and assignment deadline so their selected
+          reminder times occur shortly, then leave the app in the background.
+        reason: |
+          Verifies that native lifecycle wakeups deliver the selected times
+          even when the settings page and the application window are inactive.
+    observe: |
+      The operating system notification centre and the selected reminder times
+      in Settings > Notifications after reopening the page.
+    expected: |
+      Each native notification arrives at the configured time with the correct
+      class or assignment title, and selected times remain saved.
+    why_manual: |
+      Requires actual OS notification permission, background lifecycle callbacks
+      and native notification delivery; tests use a headless notification sink.
+    covers:
+      - apps/desktop/src/pages/settings/NotificationSettings.tsx
+      - apps/desktop/src-tauri/src/commands/notifications.rs
+      - crates/isct-core/src/schedule/reminders.rs
+    verified: null
+
+  - id: SCHOOL-OFFICIAL-COURSE-PAGES
+    area: desktop
+    title: Official course search and enrollment use the authenticated native session
+    persona: undergraduate-senior
+    preconditions: |
+      An updated native desktop build, a real Tokyo Tech account, and the
+      student's registered timetable available in 教務Web. Use a disposable
+      local workspace for the fresh-profile check.
+    steps:
+      - action: |
+          Connect Tokyo Tech in the fresh workspace, refresh 教務Web, and compare
+          the department and admission year with the source. Refresh LMS and compare
+          each offered year/quarter grid, including non-weekly courses.
+        reason: |
+          Only a real account exposes the current programme and the registered
+          timetable. It also exercises native redirects and the hidden reader.
+      - action: |
+          Search a broad course prefix with more than 100 results, scroll to
+          load another page, then narrow by teacher, quarter and start period.
+        reason: |
+          Exercises live ASP.NET paging and session form state in the native
+          hidden browser; fixture tests cannot prove the university accepts
+          those postbacks. Changing conditions must start a fresh query.
+      - action: |
+          Leave 教務Web on a known page, return to Timetable, rapidly switch
+          quarters while search or a school pull is active, then reopen Web.
+        reason: |
+          Real native navigation and authenticated postbacks share a browser.
+          Hidden search must not replace the user's Web destination or hold the
+          school queue while Web is visible; native timing is not reproduced by
+          the scripted browser.
+      - action: |
+          Open one result's syllabus details and one registered course's LMS
+          materials; refresh LMS and reopen the timetable.
+        reason: |
+          Real school sessions must support both content destinations without
+          a detail refresh changing course identity or mixing syllabus clocks
+          into the LMS timetable. Include one cross-quarter course.
+    observe: |
+      Settings > Study, Schedule, the course search list and the native school
+      browser. Compare the same course code, quarter, time and room in 教務Web.
+    expected: |
+      Fresh profile fields and registration records match 教務Web; timetable
+      membership and weekday/period slots match each LMS quarter grid, and
+      rooms come from syllabus metadata. Search appends at most 100 courses per batch without
+      duplicates, changes filters on the server, and preserves loaded results.
+      The active school source and progress agree; returning to Web restores
+      its foreground page rather than the hidden search destination.
+      Syllabus details and LMS materials open for the same course; LMS refresh
+      keeps personal edits and removals, and retains cached clocks when a
+      quarter read fails. No university registration is changed.
+    why_manual: |
+      Requires real student authentication, native hidden-browser ownership,
+      the live university postback state and authenticated content destinations.
+      Headless tests exercise the parser, shared projections and UI paging only.
+    covers:
+      - crates/isct-core/src/school_browser/engine/extraction.rs
+      - crates/isct-core/src/school_browser/assets/kyomu-search.js
+      - crates/isct-core/src/school_browser/assets/kyomu-extract.js
+      - crates/isct-core/src/data/school_projection.rs
+      - apps/desktop/src/pages/courses/CourseFinder.tsx
+    verified: null
+
+  - id: DESKTOP-SIGNED-UPDATES
+    area: desktop
+    title: Signed macOS updates preserve the existing workspace
+    persona: undergraduate-senior
+    preconditions: |
+      An installed Developer-ID-signed macOS update-enabled bundle, a newer
+      version signed with the configured updater key, and a rollback copy of
+      the app and its data. A debug build may use the strictly loopback fixture
+      origin; release builds always use the source repository.
+    steps:
+      - action: Detect an update, download a tampered copy, then retry with the valid
+          signed bundle.
+        reason: The real native updater must reject modified bytes before permitting
+          installation; fixtures alone do not exercise the packaged app and key.
+      - action: Enable automatic updates, quit through the app menu or Cmd-Q, and
+          reopen.
+        reason: Cocoa's predefined Quit can bypass ExitRequested; the native menu must
+          enter owned shutdown before installing verified bytes.
+      - action: Compare the installed version, login state, saved settings, timetable
+          and course records with the rollback copy.
+        reason: A real bundle replacement must preserve the same app-data and Keychain
+          access; an isolated parser test cannot verify that.
+    observe: Settings > About, the application bundle version,
+      updater-install-result.json in app data, and the retained workspace.
+    expected: |
+      Tampered content is rejected, the valid bundle installs through Cmd-Q,
+      the new version reopens and saved data and login credentials remain.
+      A source repository with no stable release is reported as unpublished.
+    why_manual: Requires Developer ID signing, real macOS menu dispatch, Keychain
+      access and native app-bundle replacement.
+    covers:
+      - apps/desktop/src-tauri/src/desktop_updates.rs
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/tauri.conf.json
+    verified:
+      version: 1.0.1-dev.1
+      date: 2026-10-16
+      commit: af4f026b552d2e36e830966df9b74dad96eb8fb2
+      by: agent
+      result: pass
+      notes: Developer-ID-signed local 1.0.0 to 1.0.1-dev.1; tampered archive
+        rejected; Cmd-Q automatic install and reopen succeeded; original IDs,
+        settings and both logins retained.
+      evidence: docs/verification/desktop-updater.md
+
+  - id: DESKTOP-WINDOWS-LAUNCH
+    area: desktop
+    title: Windows release launches without a companion terminal
+    persona: undergraduate-senior
+    preconditions: A Windows release installer built from the current desktop source
+      and a real Windows desktop.
+    steps:
+      - action: Install the release, launch it from Explorer, and open a course
+          workspace file.
+        reason: Windows subsystem and child-process consoles cannot be observed by
+          headless Unix tests.
+    observe: The Windows desktop, app window and taskbar.
+    expected: The app and workspace open without an accompanying console window.
+    why_manual: Requires a native Windows release executable, Explorer and the real
+      desktop shell.
+    covers:
+      - apps/desktop/src-tauri/src/main.rs
+      - .github/workflows/desktop-release.yml
+    verified: null
+
+  - id: SCHOOL-OTP-QR
+    area: school
+    title: Authenticator QR import with native camera permissions
+    persona: undergraduate-first-term
+    preconditions: A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display.
+    steps:
+      - action: Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
+        reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
+      - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
+        reason: Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
+      - action: Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
+        reason: Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
+    observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
+    expected: Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault.
+    covers:
+      - apps/desktop/src/components/OtpSetupInput.tsx
+      - apps/desktop/src-tauri/src/commands/school_auth.rs
+      - apps/desktop/src/components/QrCamera.tsx
+      - apps/desktop/src/components/CameraPreview.tsx
     verified: null

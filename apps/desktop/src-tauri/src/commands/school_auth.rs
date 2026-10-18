@@ -60,6 +60,25 @@ pub(crate) async fn delete_school_credentials(
         .map_err(|error| error.to_string())
 }
 
+/// Export the current draft or saved OTP setup directly to the OS clipboard.
+#[tauri::command]
+pub(crate) async fn copy_school_otp(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    auth: tauri::State<'_, Arc<SchoolAuthService>>,
+    setup: Option<String>,
+) -> Result<bool, String> {
+    require_local_main(&webview)?;
+    let text = with_credentials(auth.inner().clone(), move |auth| {
+        auth.otp_setup_text(setup.as_deref())
+    })
+    .await?;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|_| "OTP setup could not be copied to the clipboard.".to_string())?;
+    Ok(true)
+}
+
 /// Copies the saved Matrix directly from the vault to the system clipboard,
 /// so the plaintext never passes through the WebView.
 #[tauri::command]
@@ -151,4 +170,14 @@ pub(crate) async fn test_school_connection(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+/// Import is local parsing only; saving still requires the credential intent.
+#[tauri::command]
+pub(crate) fn import_school_otp(
+    webview: tauri::Webview,
+    payload: String,
+) -> Result<Vec<isct_core::school_auth::OtpImportAccount>, isct_core::school_auth::OtpImportError> {
+    require_local_main(&webview).map_err(|_| isct_core::school_auth::OtpImportError::Invalid)?;
+    isct_core::school_auth::import_otp(&payload)
 }

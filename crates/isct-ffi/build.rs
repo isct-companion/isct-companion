@@ -83,6 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schedule/reminders.rs",
         "schedule/ics.rs",
         "course_query/mod.rs",
+        "catalog.rs",
         "course_query/contracts.rs",
         "school_auth.rs",
         "school_service.rs",
@@ -114,7 +115,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     && a.to_token_stream().to_string().contains("Deserialize")
                         }) =>
                 {
-                    if name == "course_query/contracts.rs" && item.ident != "FinderRow" {
+                    if name == "course_query/contracts.rs"
+                        && item.ident != "FinderRow"
+                        && item.ident != "OfficialSelection"
+                    {
                         continue;
                     }
                     if name == "school_parser/lms.rs" && item.ident != "ResolvedFile" {

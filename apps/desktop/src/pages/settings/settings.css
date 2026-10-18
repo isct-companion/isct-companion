@@ -127,35 +127,17 @@
 .settingsPane .row {
   grid-template-columns: minmax(0, 1fr) auto;
 }
-.settingsPane .row > .mantine-Input-wrapper {
+.settingsPane .row > :is(.mantine-Input-wrapper, .uiSelect) {
   width: clamp(180px, 40cqi, 280px);
 }
-.studyStages {
-  display: grid;
-  justify-items: end;
-  gap: 8px;
-  width: min(100%, 620px);
-}
-.studyStages > .settingsNote {
-  margin: 0;
-  text-align: right;
-}
-.studyStage {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
-  gap: 6px;
-  width: 100%;
-  align-items: center;
-}
-.studyStage .mantine-Input-wrapper {
-  width: 100%;
-}
-.studyStageActions {
+.studyProfileActions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+  padding-top: 12px;
 }
-.studyStages > .studyStageError {
+.studyProfileError {
   color: var(--danger);
 }
 
@@ -380,7 +362,7 @@ button.calendarDay.open {
   .settingsPane .row {
     grid-template-columns: minmax(0, 1fr);
   }
-  .settingsPane .row > .mantine-Input-wrapper {
+  .settingsPane .row > :is(.mantine-Input-wrapper, .uiSelect) {
     width: 100%;
     max-width: 100%;
   }
@@ -388,21 +370,6 @@ button.calendarDay.open {
     flex-wrap: wrap;
     max-width: 100%;
   }
-  .studyStages {
-    justify-items: stretch;
-  }
-  .studyStages > .settingsNote {
-    text-align: left;
-  }
-  .studyStage {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-}
-
-.syncDeliveries {
-  display: grid;
-  gap: 4px;
-  overflow-wrap: anywhere;
 }
 
 /* Campus Wi-Fi: the signed-in button stays green and cannot be clicked. */
@@ -417,3 +384,48 @@ button.calendarDay.open {
   margin-top: 6px;
   max-width: 260px;
 }
+
+/* Subordinate reminder controls keep their own accessible label and grouping. */
+.settingsSuboptions { margin: 0 0 12px 8px; padding-inline-start: 20px; border-inline-start: 1px solid var(--line); }
+.settingsSuboptions .row { border-bottom: 0; padding-block: 8px; }
+.settingsSuboptions .row b { color: var(--muted); font-weight: 450; }
+.settingsPane .row > .assignmentTimes { width: clamp(180px, 40cqi, 280px); }
+.settings .settingsPane {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 35%, transparent) transparent;
+  scrollbar-gutter: stable;
+  padding-inline-end: 12px;
+}
+.settingsPane::-webkit-scrollbar { width: 5px; height: 5px; }
+.settingsPane::-webkit-scrollbar-track { background: transparent; }
+.settingsPane::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--muted) 35%, transparent); }
+.settingsPane::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+@container (max-width: 420px) {
+  .settingsPane .row > .assignmentTimes { width: 100%; }
+}
+
+.diagnosticToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.diagnosticLogs {
+  height: min(60vh, 620px);
+  min-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.diagnosticLogRow {
+  padding: 7px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--line);
+  user-select: text;
+}
+.diagnosticLogMeta { display: block; color: var(--muted); font-size: 11px; }
+.diagnosticLogRow[data-level="ERROR"] > :last-child { color: var(--danger); }

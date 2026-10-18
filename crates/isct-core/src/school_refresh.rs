@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -54,11 +54,45 @@ impl RefreshEvent {
     }
 }
 
+// A missing or failed page stays stale, but must not restart the whole pull
+// on every login/focus notification. Manual refresh bypasses this admission rule.
+const FULL_PULL_COOLDOWN: Duration = Duration::from_secs(5 * 60);
+// A page that keeps failing (closed registration, a changed layout) would
+// otherwise cost a full sign-in and six page loads every cooldown. Each pull
+// that leaves the profile due triples the wait: 5 min, 15 min, 45 min, ~2 h,
+// then at most 6 h until the data is observed fresh again.
+const FULL_PULL_MAX_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
+
+#[derive(Default)]
+struct FullPullActivity {
+    running: usize,
+    finished: Option<Instant>,
+    /// Finished pulls since the profile was last observed fresh.
+    misses: u32,
+}
+
+impl FullPullActivity {
+    fn cooldown(&self) -> Duration {
+        let factor = 3u32.saturating_pow(self.misses.saturating_sub(1));
+        FULL_PULL_COOLDOWN
+            .saturating_mul(factor)
+            .min(FULL_PULL_MAX_COOLDOWN)
+    }
+
+    fn deferred(&self, now: Instant) -> bool {
+        self.running > 0
+            || self
+                .finished
+                .is_some_and(|finished| now.saturating_duration_since(finished) < self.cooldown())
+    }
+}
+
 struct RefreshIntent {
     profiles: HashSet<SchoolAuthProfile>,
+    full_pulls: HashMap<SchoolAuthProfile, FullPullActivity>,
     pending: HashSet<SchoolAuthProfile>,
     details: VecDeque<(u64, Instant)>,
-    seen: HashSet<u64>,
+    seen: HashMap<u64, Instant>,
     network: PullNetwork,
     foreground: bool,
     /// One automatic batch at a time, so its order is the admission order.
@@ -72,9 +106,10 @@ impl SchoolRefresh {
     pub fn new(initial_network: PullNetwork) -> Self {
         Self(Arc::new(Mutex::new(RefreshIntent {
             profiles: HashSet::new(),
+            full_pulls: HashMap::new(),
             pending: HashSet::new(),
             details: VecDeque::new(),
-            seen: HashSet::new(),
+            seen: HashMap::new(),
             network: initial_network,
             foreground: true,
             running: false,
@@ -100,7 +135,13 @@ impl SchoolRefresh {
             RefreshKind::Background => queue.foreground = false,
             RefreshKind::LectureOpened => {
                 if let Some(course_id) = event.course_id.filter(|id| *id > 0) {
-                    if queue.seen.insert(course_id) {
+                    let now = Instant::now();
+                    if queue
+                        .seen
+                        .get(&course_id)
+                        .is_none_or(|last| now.duration_since(*last) >= Duration::from_secs(60))
+                    {
+                        queue.seen.insert(course_id, now);
                         queue
                             .details
                             .push_back((course_id, Instant::now() + Duration::from_secs(2)));
@@ -117,6 +158,19 @@ impl SchoolRefresh {
             profile: Some(profile_for_site(site)),
             course_id: None,
             network: None,
+        })
+    }
+
+    /// One actual coordinated executor owns this lease. All entry points
+    /// (manual, scheduled and automatic) report the same full-pull lifetime.
+    pub(crate) fn begin_full_pull(&self, site: SchoolSite) -> Result<FullPull, SchoolError> {
+        let profile = profile_for_site(site);
+        let mut queue = self.0.lock().map_err(|_| SchoolError::RefreshUnavailable)?;
+        let activity = queue.full_pulls.entry(profile).or_default();
+        activity.running = activity.running.saturating_add(1);
+        Ok(FullPull {
+            refresh: self.clone(),
+            profile,
         })
     }
 
@@ -203,6 +257,16 @@ impl SchoolRefresh {
             let refresh = batch.0.clone();
             let _batch = batch;
             for profile in batch_profiles {
+                // Earlier profiles may have awaited user interaction while a
+                // manual pull completed this profile. Revalidate on dispatch.
+                match refresh.defer_recent_full_pull(profile, Instant::now()) {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(error) => {
+                        crate::diagnostics::report("school-refresh", &error);
+                        continue;
+                    }
+                }
                 let site = site_for_profile(profile);
                 if let Err(error) = service
                     .pull(
@@ -274,10 +338,26 @@ impl SchoolRefresh {
             return Ok(None);
         }
         let pending = std::mem::take(&mut queue.pending);
-        let mut profiles = pending
-            .into_iter()
-            .filter(|profile| due(*profile, runs, now))
-            .collect::<Vec<_>>();
+        let mut profiles = Vec::new();
+        for profile in pending {
+            if !due(profile, runs, now) {
+                if let Some(activity) = queue.full_pulls.get_mut(&profile) {
+                    activity.misses = 0;
+                }
+                continue;
+            }
+            let cooling_down = queue
+                .full_pulls
+                .get(&profile)
+                .is_some_and(|activity| activity.deferred(instant));
+            if cooling_down {
+                // Keep the intent for a later periodic wake. Do not publish a
+                // second queued/running job while the data remains incomplete.
+                queue.pending.insert(profile);
+            } else {
+                profiles.push(profile);
+            }
+        }
         profiles.sort_by_key(|profile| usize::from(*profile != SchoolAuthProfile::Science));
         let details = drain_ready_details(&mut queue, instant);
         if profiles.is_empty() && details.is_empty() {
@@ -285,6 +365,22 @@ impl SchoolRefresh {
         }
         queue.running = true;
         Ok(Some((profiles, details)))
+    }
+
+    fn defer_recent_full_pull(
+        &self,
+        profile: SchoolAuthProfile,
+        now: Instant,
+    ) -> Result<bool, SchoolError> {
+        let mut queue = self.0.lock().map_err(|_| SchoolError::RefreshUnavailable)?;
+        let deferred = queue
+            .full_pulls
+            .get(&profile)
+            .is_some_and(|activity| activity.deferred(now));
+        if deferred {
+            queue.pending.insert(profile);
+        }
+        Ok(deferred)
     }
 
     fn restore_profile(&self, profile: SchoolAuthProfile) -> Result<(), SchoolError> {
@@ -303,6 +399,29 @@ impl SchoolRefresh {
             .seen
             .remove(&course_id);
         Ok(())
+    }
+}
+
+/// Cancellation, errors and unwinding also release the in-flight lease and
+/// start the retry cooldown; only successful page ingests advance data TTLs.
+pub(crate) struct FullPull {
+    refresh: SchoolRefresh,
+    profile: SchoolAuthProfile,
+}
+impl Drop for FullPull {
+    fn drop(&mut self) {
+        let mut queue = match self.refresh.0.lock() {
+            Ok(queue) => queue,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(activity) = queue.full_pulls.get_mut(&self.profile) {
+            activity.running = activity.running.saturating_sub(1);
+            if activity.running == 0 {
+                activity.finished = Some(Instant::now());
+                // Counted as a miss until a later wake finds the data fresh.
+                activity.misses = activity.misses.saturating_add(1);
+            }
+        }
     }
 }
 
@@ -342,17 +461,25 @@ fn stale(last: Option<&str>, ttl: u64, now: DateTime<Utc>) -> bool {
 
 fn due(profile: SchoolAuthProfile, runs: &Value, now: DateTime<Utc>) -> bool {
     match profile {
-        SchoolAuthProfile::Science => stale(runs["lms:full"].as_str(), LMS_STALE_SECONDS, now),
+        SchoolAuthProfile::Science => {
+            runs["lms:all"].is_null()
+                || stale(
+                    [runs["lms:summary"].as_str(), runs["lms:all"].as_str()]
+                        .into_iter()
+                        .flatten()
+                        .max(),
+                    LMS_STALE_SECONDS,
+                    now,
+                )
+        }
         SchoolAuthProfile::TokyoTech => {
-            ["gpa", "registrations", "declared", "grades", "requirements"]
-                .iter()
-                .any(|page| {
-                    stale(
-                        runs[format!("kyomu:{page}")].as_str(),
-                        KYOMU_STALE_SECONDS,
-                        now,
-                    )
-                })
+            crate::school_parser::kyomu::PAGES.iter().any(|(_, page)| {
+                stale(
+                    runs[format!("kyomu:{page}")].as_str(),
+                    KYOMU_STALE_SECONDS,
+                    now,
+                )
+            })
         }
     }
 }

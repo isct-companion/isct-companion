@@ -112,7 +112,7 @@ fn stale_revision_cannot_overwrite_a_newer_settings_change() {
 }
 
 #[test]
-fn settings_replacement_clears_keys_and_core_validates_every_value() {
+fn cached_settings_follow_external_commits_and_core_validates_every_value() {
     let service = service("settings");
     let original = service.snapshot().unwrap();
     let chosen = mutate(
@@ -125,10 +125,19 @@ fn settings_replacement_clears_keys_and_core_validates_every_value() {
         },
     );
     assert_eq!(chosen.workspace["settings"]["departmentId"], "cs");
-    service.store.record_reference_poll().unwrap();
+    // Warm the reader, then commit through a separately initialized handle.
+    // PRAGMA data_version must invalidate the cached projection, even though
+    // this background update deliberately keeps the user-intent revision.
+    let warm = service.snapshot().unwrap();
+    let external = DataStore::initialize(service.store.path().to_path_buf())
+        .unwrap()
+        .0;
+    external.record_reference_poll().unwrap();
     let polled = service.snapshot().unwrap();
     let checked = polled.workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"].clone();
     assert!(checked.is_string());
+    assert_eq!(polled.revision, warm.revision);
+    assert_ne!(polled.content_revision, warm.content_revision);
 
     // A form built from the earlier snapshot clears the department and
     // cannot roll the Core-owned poll clock back.
@@ -664,6 +673,53 @@ fn catalog_course_preserves_localized_fields_credits_rooms_and_long_period_range
     assert_eq!(converted["credits"], 2.0);
     assert_eq!(converted["meetings"][0]["endTime"], "17:05");
     assert_eq!(converted["content"]["summary"]["ja"], "内容");
+    // A language change reprojects every quarter, including a non-current one.
+    let mut offering = service
+        .store
+        .catalog_offering("202600001")
+        .unwrap()
+        .unwrap();
+    offering["id"] = json!("202600002");
+    offering["code"] = json!("CSC.T364");
+    offering["quarters"] = json!(["4Q"]);
+    service
+        .store
+        .catalog_upsert_offerings(&[offering.clone()])
+        .unwrap();
+    mutate(
+        &service,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-4Q".into(),
+            offerings: vec![offering],
+        },
+    );
+    let before_language = service.snapshot().unwrap();
+    let japanese = mutate(
+        &service,
+        WorkspaceIntent::ReplaceSettings {
+            settings: settings_with(&before_language, |settings| {
+                settings["contentLanguage"] = json!("ja")
+            }),
+        },
+    );
+    let rows = japanese.workspace["courses"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert_eq!(row["title"], "演習");
+        assert_eq!(row["meetings"][0]["room"], "西講義棟");
+    }
+    let english = mutate(
+        &service,
+        WorkspaceIntent::ReplaceSettings {
+            settings: settings_with(&japanese, |settings| {
+                settings["contentLanguage"] = json!("en")
+            }),
+        },
+    );
+    for row in english.workspace["courses"].as_array().unwrap() {
+        assert_eq!(row["title"], "Exercise");
+        assert_eq!(row["instructor"], "Teacher One / Teacher Two");
+    }
 }
 
 #[test]
@@ -879,47 +935,6 @@ fn calendar_exception_metadata_and_unique_date_are_core_owned() {
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
     assert_eq!(service.snapshot().unwrap().revision, created.revision);
-}
-
-#[test]
-fn lms_preview_discovers_details_terms_and_slot_conflicts() {
-    let mut workspace = service("lms-preview").snapshot().unwrap().workspace;
-    workspace["currentTerm"] = json!("2026-3Q");
-    workspace["terms"] = json!(["2026-3Q"]);
-    workspace["courses"] = json!([{
-        "id":"local-1","termId":"2026-3Q","code":"CSC.T363","title":"Local",
-        "meetings":[{"days":[2],"periods":[5,6]}]
-    }]);
-    workspace["planItems"] = json!([{"courseId":"local-1","termId":"2026-3Q"}]);
-    let school = json!({"lmsCourses":[{
-        "lmsId":42,"year":2026,"quarters":["3Q"],"shortname":"MAT.A100[2026]",
-        "title":{"en":"Remote"},"offeringId":"offering-1",
-        "timetables":{"2026-3Q":[{"day":2,"periods":[5,6]}]}
-    }]});
-    let preview = lms_merge_preview(&workspace, &school, "all", "2026-3Q", &[]).unwrap();
-    assert_eq!(preview["terms"], json!(["2026-3Q"]));
-    assert_eq!(preview["detailIds"], json!(["offering-1"]));
-    assert_eq!(preview["lmsOnly"][0]["code"], "MAT.A100");
-    assert_eq!(preview["conflicts"]["local:local-1"]["reason"], "slot");
-    assert_eq!(preview["hasDifferences"], true);
-
-    let cached = lms_merge_preview(
-        &workspace,
-        &school,
-        "all",
-        "2026-3Q",
-        &[json!({
-            "id":"offering-1", "year":2026, "quarters":["3Q"],
-            "code":"MAT.A100", "title":{"en":"Remote"}, "instructors":[],
-            "credits":{"lecture":2,"exercise":0,"lab":0},
-            "instructionLanguage":"en", "format":{"kinds":["lecture"]},
-            "schedule":[{"kind":"weekly","day":2,"periods":[5,6]}],
-            "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/offering-1"
-        })],
-    )
-    .unwrap();
-    assert_eq!(cached["detailIds"], json!([]));
-    assert_eq!(cached["lmsOnly"][0]["offering"]["detailed"], true);
 }
 
 fn run(service: &WorkspaceService, intent: WorkspaceIntent) -> Result<Value, WorkspaceError> {
@@ -1194,331 +1209,34 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
         .any(|row| row["id"] == "2026-202630010" && !is_live(row)));
 }
 
-fn insert_school_row(service: &WorkspaceService, table: &str, value: Value) {
-    let connection = rusqlite::Connection::open(service.store.path()).unwrap();
-    connection
-        .execute(
-            &format!(
-                "INSERT INTO {table} (id,value,hash,updated_at,updated_by,rev)
-                     VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','lms',1)"
-            ),
-            rusqlite::params![value["id"].as_str().unwrap(), value.to_string()],
-        )
-        .unwrap();
-}
-
 #[test]
-fn lms_merge_adds_memberships_joins_quarters_retimes_refreshes_and_relinks() {
-    let service = service("lms-apply");
-    service
-        .store
-        .catalog_upsert_offerings(&[json!({
-            "id":"202630001", "year":2026, "quarters":["3Q","4Q"], "code":"MTH.B301",
-            "title":{"en":"Long Course"}, "instructors":[{"en":"Ada"}],
-            "instructionLanguage":"en", "format":{"kinds":["lecture"]}, "media":{},
-            "credits":{"lecture":2.0,"exercise":0.0,"lab":0.0},
-            "schedule":[{"kind":"weekly","day":1,"periods":[1,2],"room":{"en":"W1"}}],
-            "academicUnit":{"en":"Science"}, "intensive":false,
-            "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/1/202630001", "fetchedAt":{}
-        })])
-        .unwrap();
-    let lms = |id: u64, offering: Option<&str>, shortname: &str, title: &str, grid: Value| {
-        json!({
-            "id":format!("lms-course:{id}"), "kind":"lms-course", "lmsId":id,
-            "offeringId":offering, "shortname":shortname, "title":{"en":title},
-            "year":2026, "quarters":["3Q"], "timetables":{"2026-3Q":grid},
-            "rev":1, "updatedAt":"2026-10-01T00:00:00Z", "updatedBy":"lms"
+fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
+    let service = service("reminder-times");
+    let initial = service.snapshot().unwrap();
+    let settings = settings_with(&initial, |settings| {
+        settings["notifications"]["assignmentLeadMinutes"] = json!([180, 30])
+    });
+    let saved = service
+        .mutate(WorkspaceMutation {
+            expected_revision: initial.revision,
+            intent: WorkspaceIntent::ReplaceSettings { settings },
         })
-    };
-    insert_school_row(
-        &service,
-        "lms_courses",
-        lms(
-            501,
-            Some("202630001"),
-            "MTH.B301[2026]",
-            "Long Course",
-            json!([{"day":1,"periods":[1,2]}]),
-        ),
-    );
-    insert_school_row(
-        &service,
-        "lms_courses",
-        lms(
-            502,
-            None,
-            "LAH.T209-01[2026]",
-            "Humanities",
-            json!([{"day":2,"periods":[3,4]}]),
-        ),
-    );
-    insert_school_row(
-        &service,
-        "lms_courses",
-        lms(
-            503,
-            None,
-            "SEM.S100[2026]",
-            "Seminar &amp; Lab",
-            json!([{"day":4,"periods":[1,2]}]),
-        ),
-    );
-    insert_school_row(
-        &service,
-        "lms_courses",
-        lms(
-            504,
-            Some("202630002"),
-            "PHY.P200[2026]",
-            "Physics &amp; More",
-            json!([{"day":3,"periods":[1,2]}]),
-        ),
-    );
-    insert_school_row(
-        &service,
-        "assignments",
-        json!({
-            "id":"lms-assignment:9", "kind":"assignment", "courseId":"2026-lms-502", "lmsCourseId":502,
-            "title":"Essay", "details":"", "dueAt":null, "source":{"provider":"lms"},
-            "rev":1, "updatedAt":"2026-10-01T00:00:00Z", "updatedBy":"lms"
-        }),
-    );
-    let save = |code: &str, day: u64| {
-        run(
-                &service,
-                WorkspaceIntent::SaveCourse {
-                    draft: json!({"title":code,"code":code,"meetings":[{"days":[day],"periods":[5,6],"startTime":"14:20","endTime":"16:00","room":"S-1"}]}),
-                    term_id: "2026-3Q".into(),
-                    existing_id: None,
-                },
-            )
-            .unwrap();
-        let workspace = service.snapshot().unwrap().workspace;
-        let id = rows(&workspace, "courses")
-            .unwrap()
-            .find(|row| row["code"] == code)
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        id
-    };
-    let humanities = save("LAH.T209", 2);
-    let dropped = save("XYZ.A100", 5);
-
-    let snapshot = service.snapshot().unwrap();
-    let preview = lms_merge_preview(
-        &snapshot.workspace,
-        &snapshot.school_records,
-        "term",
-        "2026-3Q",
-        &service.store.catalog_search("").unwrap(),
-    )
-    .unwrap();
-    let titles: Vec<_> = preview["lmsOnly"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|entry| entry["title"].as_str().unwrap().to_string())
-        .collect();
-    assert!(titles.contains(&"Seminar & Lab".to_string()), "{titles:?}");
-
-    let applied = run(
-        &service,
-        WorkspaceIntent::ApplyLmsMerge {
-            terms: vec!["2026-3Q".into()],
-            add: vec!["lms:501:2026-3Q".into(), "lms:504:2026-3Q".into()],
-            keep: vec![],
-            retime: vec![format!("local:{humanities}")],
-        },
-    )
-    .unwrap();
-    // LMS courses join as LMS memberships, also in their quarter outside the review.
-    let membership = rows(&applied, "memberships")
-        .unwrap()
-        .find(|row| row["id"] == "lms-membership:501:2026-4Q")
         .unwrap();
-    assert_eq!(membership["status"], "lms-member");
-    assert_eq!(membership["evidence"]["provider"], "lms");
     assert_eq!(
-        placed_terms(&applied, "2026-202630001"),
-        vec!["2026-3Q", "2026-4Q"]
+        service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
+        json!([180, 30])
     );
-    assert!(rows(&applied, "planItems")
-        .unwrap()
-        .all(|row| row["courseId"] != "2026-202630001"));
-    let course = |workspace: &Value, id: &str| {
-        rows(workspace, "courses")
-            .unwrap()
-            .find(|row| row["id"] == id)
-            .unwrap()
-            .clone()
-    };
-    let long = course(&applied, "2026-202630001");
-    assert_eq!(long["source"]["provider"], "lms");
-    assert_eq!(long["meetings"][0]["room"], "W1");
-    assert_eq!(course(&applied, "2026-202630002")["credits"], 0.0);
+    let invalid = settings_with(&saved, |settings| {
+        settings["notifications"]["assignmentLeadMinutes"] = json!([])
+    });
+    assert!(service
+        .mutate(WorkspaceMutation {
+            expected_revision: saved.revision,
+            intent: WorkspaceIntent::ReplaceSettings { settings: invalid }
+        })
+        .is_err());
     assert_eq!(
-        course(&applied, "2026-202630002")["title"],
-        "Physics & More"
+        service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
+        json!([180, 30])
     );
-    // The matched local course takes the LMS time and keeps its room.
-    let retimed = course(&applied, &humanities);
-    assert_eq!(retimed["meetings"][0]["periods"], json!([3, 4]));
-    assert_eq!(retimed["meetings"][0]["room"], "S-1");
-    // The unchecked local course leaves the timetable.
-    assert!(placed_terms(&applied, &dropped).is_empty());
-    // LMS work follows the course it was matched with.
-    let essay = rows(&applied, "assignments")
-        .unwrap()
-        .find(|row| row["id"] == "lms-assignment:9")
-        .unwrap();
-    assert_eq!(essay["courseId"], humanities.as_str());
-
-    // Once the syllabus gives the details, the LMS course takes them.
-    service
-            .store
-            .catalog_upsert_offerings(&[json!({
-                "id":"202630002", "year":2026, "quarters":["3Q"], "code":"PHY.P200",
-                "title":{"en":"Physics"}, "instructors":[], "instructionLanguage":"en",
-                "format":{"kinds":["lecture"]}, "media":{}, "credits":{"lecture":1.0,"exercise":0.0,"lab":0.0},
-                "schedule":[{"kind":"weekly","day":3,"periods":[1,2]}], "academicUnit":{"en":"Science"},
-                "intensive":false, "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/1/202630002", "fetchedAt":{}
-            })])
-            .unwrap();
-    let refreshed = run(
-        &service,
-        WorkspaceIntent::ApplyLmsMerge {
-            terms: vec!["2026-3Q".into()],
-            add: vec![],
-            keep: vec![],
-            retime: vec![],
-        },
-    )
-    .unwrap();
-    let physics = course(&refreshed, "2026-202630002");
-    assert_eq!(physics["credits"], 1.0);
-    assert_eq!(physics["title"], "Physics");
-    assert_eq!(physics["names"]["title"]["en"], "Physics");
-
-    // Taking an LMS course off the timetable removes it from every quarter.
-    let off = run(
-        &service,
-        WorkspaceIntent::SetCourseOnTimetable {
-            course_id: "2026-202630001".into(),
-            on_timetable: false,
-        },
-    )
-    .unwrap();
-    assert!(placed_terms(&off, "2026-202630001").is_empty());
-}
-
-#[test]
-fn initial_lms_import_builds_every_quarter_and_never_resurrects_reviewed_courses() {
-    let service = service("initial-lms");
-    assert!(service.initial_lms_preview().unwrap().is_none());
-    service.store.put_workspace_setting("academicProfile", json!({"name":"Test","gradePath":[],"studyEnrollments":[],"years":[{
-        "academicYear":2026,"quarterStarts":{"1Q":"2026-04-01","2Q":"2026-06-01","3Q":"2026-09-28","4Q":"2026-12-03"}
-    }]}), "test").unwrap();
-    for (id, quarter, day) in [(41, "3Q", 5), (42, "4Q", 2)] {
-        let term = format!("2026-{quarter}");
-        insert_school_row(
-            &service,
-            "lms_courses",
-            json!({
-                "id":format!("lms-course:{id}"),"lmsId":id,"year":2026,"quarters":[quarter],
-                "shortname":format!("CSC.T{id}[2026]"),"title":{"en":format!("Course {id}")},
-                "timetables":{term:[{"day":day,"periods":[5,6]}]}
-            }),
-        );
-    }
-    let preview = service.initial_lms_preview().unwrap().unwrap();
-    assert_eq!(preview["lmsOnly"].as_array().unwrap().len(), 2);
-    assert!(service.initialize_lms_timetable().unwrap());
-    let snapshot = service.snapshot().unwrap();
-    assert!(snapshot.workspace["importStatus"]["timetableReviewedAt"].is_string());
-    assert_eq!(
-        crate::schedule::scheduled_courses(&snapshot.workspace, "2026-3Q").len(),
-        1
-    );
-    assert_eq!(
-        crate::schedule::planning_week(&snapshot.workspace, "2026-4Q")
-            .unwrap()
-            .days[1]
-            .blocks
-            .len(),
-        1
-    );
-    let calendar =
-        crate::schedule::calendar_between(&snapshot.workspace, "2026-10-16", "2026-10-16").unwrap();
-    assert_eq!(calendar[0].occurrences[0].start_time, "13:30");
-    assert_eq!(calendar[0].occurrences[0].title, "Course 41");
-    // A later automatic full scan may refresh assignments, but removing a
-    // course is a user decision and must survive that scan.
-    run(
-        &service,
-        WorkspaceIntent::SetCourseOnTimetable {
-            course_id: "2026-lms-41".into(),
-            on_timetable: false,
-        },
-    )
-    .unwrap();
-    assert!(service.initial_lms_preview().unwrap().is_none());
-    assert!(!service.initialize_lms_timetable().unwrap());
-    assert!(
-        crate::schedule::scheduled_courses(&service.snapshot().unwrap().workspace, "2026-3Q")
-            .is_empty()
-    );
-}
-
-#[test]
-fn initial_import_fills_missing_times_but_defers_an_existing_plan_to_review() {
-    for occupied in [false, true] {
-        let service = service(if occupied {
-            "initial-planned"
-        } else {
-            "initial-missing-time"
-        });
-        let meetings = if occupied {
-            json!([{"days":[1],"periods":[1,2],"startTime":"08:50","endTime":"10:30","room":""}])
-        } else {
-            json!([])
-        };
-        let before = run(
-            &service,
-            WorkspaceIntent::SaveCourse {
-                term_id: "2026-3Q".into(),
-                existing_id: None,
-                draft: json!({"code":"CSC.T271","title":"Algorithms","meetings":meetings}),
-            },
-        )
-        .unwrap();
-        let course_id = before["courses"][0]["id"].as_str().unwrap().to_owned();
-        insert_school_row(
-            &service,
-            "lms_courses",
-            json!({
-                "id":"lms-course:99","lmsId":99,"year":2026,"quarters":["3Q"],
-                "shortname":"CSC.T271[2026]","title":{"en":"Algorithms"},
-                "timetables":{"2026-3Q":[{"day":5,"periods":[5,6]}]}
-            }),
-        );
-        assert_eq!(service.initial_lms_preview().unwrap().is_none(), occupied);
-        assert_eq!(service.initialize_lms_timetable().unwrap(), !occupied);
-        let after = service.snapshot().unwrap().workspace;
-        let course = after["courses"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["id"] == course_id)
-            .unwrap();
-        if occupied {
-            assert_eq!(course["meetings"], meetings);
-            assert!(after["importStatus"]["timetableReviewedAt"].is_null());
-        } else {
-            assert_eq!(course["meetings"][0]["days"], json!([5]));
-            assert_eq!(course["meetings"][0]["startTime"], "13:30");
-            assert_eq!(after["courses"].as_array().unwrap().len(), 1);
-        }
-    }
 }

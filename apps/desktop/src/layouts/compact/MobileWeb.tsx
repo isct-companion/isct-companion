@@ -28,9 +28,9 @@ export function MobileWebList({
         aria-current={current === site ? "true" : undefined}
         onClick={() => open(site)}
       >
-        <i aria-hidden="true">{official[site].name.slice(0, 1)}</i>
+        <i aria-hidden="true">{t(official[site].name).slice(0, 1)}</i>
         <span>
-          <b>{official[site].name}</b>
+          <b>{t(official[site].name)}</b>
           <small>{new URL(official[site].url).host}</small>
         </span>
         <em aria-hidden="true">›</em>

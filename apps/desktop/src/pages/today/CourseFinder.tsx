@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { UiInput } from "../../components/mantine";
 import { contentLanguage, pickLocalized, type TermId, type Workspace } from "../../lib/model";
+import { t } from "../../i18n";
 
 const termLabel = (term: string) => term.replace("-", " · ");
 
@@ -90,8 +91,8 @@ export function CourseFinder({
       <UiInput
         ref={input}
         type="search"
-        placeholder="Find course"
-        aria-label="Find course"
+        placeholder={t("Find course")}
+        aria-label={t("Find course")}
         value={query}
         onFocus={() => setExpanded(true)}
         onBlur={() => setExpanded(false)}
@@ -145,7 +146,7 @@ export function CourseFinder({
                 })}
               </section>
             ))}
-            {!flat.length && <p>No matching courses</p>}
+            {!flat.length && <p>{t("No matching courses")}</p>}
           </div>,
           document.body,
         )}

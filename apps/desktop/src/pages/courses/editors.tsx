@@ -102,10 +102,10 @@ function DayChips({
       value={value.map(String)}
       onChange={(days) => onChange(days.map(Number).sort((a, b) => a - b))}
     >
-      <Group gap={4} role="group" aria-label="Weekdays">
+      <Group gap={4} role="group" aria-label={t("Weekdays")}>
         {dayNames.map((name, index) => (
           <Chip key={name} value={String(index + 1)} size="xs">
-            {name.slice(0, 3)}
+            {t(name.slice(0, 3))}
           </Chip>
         ))}
       </Group>
@@ -160,7 +160,7 @@ export function CourseEditor({
     for (const row of rows) {
       if (!row.days.length) continue;
       if (row.startTime >= row.endTime)
-        return setError("A meeting must end after it starts.");
+        return setError(t("A meeting must end after it starts."));
       meetings.push({
         days: row.days,
         periods: [...row.periods],
@@ -181,7 +181,7 @@ export function CourseEditor({
       size="min(560px, 100%)"
       title={
         <div>
-          <Text fw={700}>{course ? "Edit course" : "New course"}</Text>
+          <Text fw={700}>{t(course ? "Edit course" : "New course")}</Text>
           <Text c="dimmed" size="xs">
             {term.replace("-", " ")}
           </Text>
@@ -260,18 +260,19 @@ export function CourseEditor({
               <span>{t("Language")}</span>
               <UiSelect
                 value={values.language}
-                onChange={(e) =>
+                onChange={(value) =>
                   setValues({
                     ...values,
-                    language: e.target.value as InstructionLanguage,
+                    language: value as InstructionLanguage,
                   })
                 }
-              >
-                <option value="ja">Japanese</option>
-                <option value="en">English</option>
-                <option value="ja-en">Japanese / English</option>
-                <option value="other">Other</option>
-              </UiSelect>
+                data={[
+                  { value: "ja", label: t("Japanese") },
+                  { value: "en", label: t("English") },
+                  { value: "ja-en", label: t("Japanese / English") },
+                  { value: "other", label: t("Other") },
+                ]}
+              />
             </label>
             <div className="field">
               <span>{t("Color")}</span>
@@ -289,7 +290,7 @@ export function CourseEditor({
                 <UiInput
                   type="color"
                   value={values.color}
-                  aria-label="Custom color"
+                  aria-label={t("Custom color")}
                   onChange={(e) =>
                     setValues({ ...values, color: e.target.value })
                   }
@@ -338,41 +339,41 @@ export function CourseEditor({
                   <UiSelect
                     aria-label={t("Period")}
                     value={row.slot}
-                    onChange={(e) => {
-                      const slot = classSlots.find(
-                        (s) => s.label === e.target.value,
-                      );
+                    onChange={(value) => {
+                      const slot = classSlots.find((s) => s.label === value);
                       setRow(index, {
-                        slot: e.target.value,
+                        slot: value,
                         periods: slot
                           ? [...slot.periods]
-                          : e.target.value === "custom"
+                          : value === "custom"
                             ? []
                             : row.periods,
                         startTime: slot?.start ?? row.startTime,
                         endTime: slot?.end ?? row.endTime,
                       });
                     }}
-                  >
-                    {classSlots.map((slot) => (
-                      <option value={slot.label} key={slot.label}>
-                        {slot.label} · {slot.start}–{slot.end}
-                      </option>
-                    ))}
-                    {row.periods.length > 0 &&
-                      !classSlots.some((slot) => slot.label === row.slot) && (
-                        <option value={row.slot}>
-                          {row.periods[0]}-{row.periods.at(-1)} ·{" "}
-                          {row.startTime}–{row.endTime}
-                        </option>
-                      )}
-                    <option value="custom">Custom time</option>
-                  </UiSelect>
+                    data={[
+                      ...classSlots.map((slot) => ({
+                        value: slot.label,
+                        label: `${slot.label} · ${slot.start}–${slot.end}`,
+                      })),
+                      ...(row.periods.length > 0 &&
+                      !classSlots.some((slot) => slot.label === row.slot)
+                        ? [
+                            {
+                              value: row.slot,
+                              label: `${row.periods[0]}-${row.periods.at(-1)} · ${row.startTime}–${row.endTime}`,
+                            },
+                          ]
+                        : []),
+                      { value: "custom", label: t("Custom time") },
+                    ]}
+                  />
                   {row.slot === "custom" && (
                     <div className="timeRange">
                       <UiInput
                         type="time"
-                        aria-label="Starts"
+                        aria-label={t("Starts")}
                         value={row.startTime}
                         onChange={(e) =>
                           setRow(index, { startTime: e.target.value })
@@ -380,7 +381,7 @@ export function CourseEditor({
                       />
                       <UiInput
                         type="time"
-                        aria-label="Ends"
+                        aria-label={t("Ends")}
                         value={row.endTime}
                         onChange={(e) =>
                           setRow(index, { endTime: e.target.value })
@@ -397,7 +398,7 @@ export function CourseEditor({
                   <UiButton
                     type="button"
                     className="iconButton"
-                    aria-label="Remove meeting"
+                    aria-label={t("Remove meeting")}
                     onClick={() => setRows(rows.filter((_, i) => i !== index))}
                   >
                     ×
@@ -405,7 +406,9 @@ export function CourseEditor({
                 </div>
               ))}
               {!rows.length && (
-                <div className="empty small">No meetings. Add one above.</div>
+                <div className="empty small">
+                  {t("No meetings. Add one above.")}
+                </div>
               )}
             </div>
             {error && (
@@ -424,8 +427,10 @@ export function CourseEditor({
         {course && onDelete && (
           <footer className="sheetDangerZone">
             <div>
-              <b>Delete course</b>
-              <span>Remove this local course and its timetable entry.</span>
+              <b>{t("Delete course")}</b>
+              <span>
+                {t("Remove this local course and its timetable entry.")}
+              </span>
             </div>
             <UiButton
               type="button"
@@ -484,9 +489,9 @@ export function EventEditor({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (draft.startTime >= draft.endTime)
-      return setError("The event must end after it starts.");
+      return setError(t("The event must end after it starts."));
     if (!draft.date && !draft.days?.length)
-      return setError("Pick at least one weekday or a date.");
+      return setError(t("Pick at least one weekday or a date."));
     void submission.run(() =>
       onSave({ ...draft, title: draft.title.trim(), room: draft.room.trim() }),
     );
@@ -501,7 +506,7 @@ export function EventEditor({
       size="min(440px, 100%)"
       title={
         <div>
-          <Text fw={700}>{event ? "Edit event" : "New event"}</Text>
+          <Text fw={700}>{t(event ? "Edit event" : "New event")}</Text>
           <Text c="dimmed" size="xs">
             {term.replace("-", " ")}
           </Text>
@@ -551,12 +556,12 @@ export function EventEditor({
             />
           </label>
           <div className="field wide">
-            <span>Repeats</span>
+            <span>{t("Repeats")}</span>
             <SegmentedControl
               value={draft.date ? "date" : "weekly"}
               data={[
-                { value: "weekly", label: "Weekly" },
-                { value: "date", label: "One date" },
+                { value: "weekly", label: t("Weekly") },
+                { value: "date", label: t("One date") },
               ]}
               onChange={(value) => {
                 if (value === "weekly")
@@ -576,7 +581,7 @@ export function EventEditor({
           </div>
           {draft.date ? (
             <label className="field wide">
-              <span>Date</span>
+              <span>{t("Date")}</span>
               <UiInput
                 type="date"
                 required
@@ -586,7 +591,7 @@ export function EventEditor({
             </label>
           ) : (
             <div className="field wide">
-              <span>Weekdays</span>
+              <span>{t("Weekdays")}</span>
               <DayChips
                 value={draft.days ?? []}
                 onChange={(days) => setDraft({ ...draft, days })}
@@ -594,7 +599,7 @@ export function EventEditor({
             </div>
           )}
           <label className="field">
-            <span>Starts</span>
+            <span>{t("Starts")}</span>
             <UiInput
               type="time"
               required
@@ -605,7 +610,7 @@ export function EventEditor({
             />
           </label>
           <label className="field">
-            <span>Ends</span>
+            <span>{t("Ends")}</span>
             <UiInput
               type="time"
               required
@@ -616,7 +621,7 @@ export function EventEditor({
           <Checkbox
             className="wide"
             checked={draft.blocking}
-            label="Count as a conflict when it overlaps a class"
+            label={t("Count as a conflict when it overlaps a class")}
             onChange={(event) =>
               setDraft({ ...draft, blocking: event.currentTarget.checked })
             }
@@ -635,8 +640,8 @@ export function EventEditor({
         {event && onDelete && (
           <footer className="sheetDangerZone">
             <div>
-              <b>Delete event</b>
-              <span>Remove this event from your timetable.</span>
+              <b>{t("Delete event")}</b>
+              <span>{t("Remove this event from your timetable.")}</span>
             </div>
             <UiButton
               type="button"
@@ -696,29 +701,24 @@ export function TermDialog({
           <UiSelect
             aria-label={t("Academic year")}
             value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-          >
-            {Array.from({ length: 7 }, (_, i) => defaultYear - 3 + i).map(
-              (option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ),
+            onChange={(value) => setYear(Number(value))}
+            data={Array.from({ length: 7 }, (_, i) =>
+              String(defaultYear - 3 + i),
             )}
-          </UiSelect>
+          />
           <SegmentedControl
             value={quarter}
             data={["1Q", "2Q", "3Q", "4Q"]}
             onChange={(value) => setQuarter(value as typeof quarter)}
           />
         </div>
-        <small>{taken ? "This quarter already exists." : " "}</small>
+        <small>{taken ? t("This quarter already exists.") : " "}</small>
         <div className="sheetActions">
           <UiButton type="button" className="button" onClick={onClose}>
             {t("Cancel")}
           </UiButton>
           <UiButton type="submit" className="button primary" disabled={taken}>
-            Add {term.replace("-", " ")}
+            {t("Add {{term}}", { term: term.replace("-", " ") })}
           </UiButton>
         </div>
       </form>

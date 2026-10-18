@@ -90,7 +90,7 @@ fn gray(image: &RgbImage, p: Point) -> f64 {
     );
     p[0] as f64 * 0.299 + p[1] as f64 * 0.587 + p[2] as f64 * 0.114
 }
-fn valid(image: &RgbImage, corners: &[Point; 4]) -> bool {
+pub(super) fn valid(image: &RgbImage, corners: &[Point; 4]) -> bool {
     if corners.iter().any(|p| {
         !p.x.is_finite()
             || !p.y.is_finite()

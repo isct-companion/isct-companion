@@ -17,24 +17,25 @@ export type SectionDefinition = {
 
 const SECTIONS: SectionDefinition[] = [
   { id: "accounts", label: "School accounts", tier: "basic" },
+  { id: "wifi", label: "Campus Wi-Fi", tier: "basic" },
   { id: "study", label: "Study", tier: "basic" },
   { id: "notifications", label: "Notifications", tier: "basic" },
   { id: "appearance", label: "Appearance", tier: "basic" },
   { id: "files", label: "Course files", tier: "basic" },
   { id: "backup", label: "Backup", tier: "basic" },
   { id: "sources", label: "Data updates", tier: "advanced" },
-  { id: "automation", label: "Automation", tier: "advanced" },
-  { id: "wifi", label: "Campus Wi-Fi", tier: "advanced" },
   { id: "agent", label: "AI agent access", tier: "advanced" },
   { id: "developer", label: "Developer options", tier: "advanced" },
   { id: "extensions", label: "Site styles & scripts", tier: "developer" },
-  { id: "diagnostics", label: "Diagnostics", tier: "developer" },
+  { id: "diagnostics", label: "Application logs", tier: "developer" },
   { id: "about", label: "About", tier: "about" },
 ];
 
 /** Pages reached from another page rather than listed in the sidebar. */
 const NESTED: Partial<Record<Section, { label: string; parent: Section }>> = {
   calendar: { label: "Academic calendar", parent: "study" },
+  // Scheduled tasks share the Data updates page: both keep data fresh.
+  automation: { label: "Data updates", parent: "sources" },
 };
 
 export type SectionContext = {
@@ -104,6 +105,18 @@ export type SettingEntry = {
 
 export const SETTING_ENTRIES: SettingEntry[] = [
   {
+    section: "about",
+    id: "updates",
+    title: "App updates",
+    terms: "version update download 更新 版本",
+  },
+  {
+    section: "about",
+    id: "automatic-updates",
+    title: "Automatic updates",
+    terms: "background install 自动更新 自動更新",
+  },
+  {
     section: "accounts",
     id: "science",
     title: "Science Tokyo account",
@@ -130,13 +143,13 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "study",
     id: "admission-year",
-    title: "Study-guide cohort year",
+    title: "Admission year",
     terms: "admission entry cohort guide 入学 年度 学修案内",
   },
   {
     section: "study",
     id: "study-stages",
-    title: "Study stages",
+    title: "Degree programme",
     terms:
       "undergraduate master professional doctoral transfer grade 学士 修士 専門職 博士 編入 年次",
   },
@@ -163,6 +176,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     id: "assignments",
     title: "Assignment reminders",
     terms: "deadline due 課題 締切",
+  },
+  {
+    section: "notifications",
+    id: "assignment-lead",
+    title: "Assignment reminder times",
+    terms: "deadline minutes hours days before 提前 作业 提醒 締切",
   },
   {
     section: "calendar",

@@ -6,7 +6,8 @@
       "en": "Mathematics"
     },
     "unitCode": "311100",
-    "scope": "1/0-901-311100-0-0"
+    "scope": "1/0-901-311100-0-0",
+    "codePrefix": "MTH"
   },
   {
     "id": "physics",
@@ -15,7 +16,8 @@
       "en": "Physics"
     },
     "unitCode": "311200",
-    "scope": "1/0-901-311200-0-0"
+    "scope": "1/0-901-311200-0-0",
+    "codePrefix": "PHY"
   },
   {
     "id": "chemistry",
@@ -24,7 +26,8 @@
       "en": "Chemistry"
     },
     "unitCode": "311300",
-    "scope": "1/0-901-311300-0-0"
+    "scope": "1/0-901-311300-0-0",
+    "codePrefix": "CHM"
   },
   {
     "id": "eps",
@@ -33,7 +36,8 @@
       "en": "Earth and Planetary Sciences"
     },
     "unitCode": "311400",
-    "scope": "1/0-901-311400-0-0"
+    "scope": "1/0-901-311400-0-0",
+    "codePrefix": "EPS"
   },
   {
     "id": "mech",
@@ -42,7 +46,8 @@
       "en": "Mechanical Engineering"
     },
     "unitCode": "321500",
-    "scope": "2/0-902-321500-0-0"
+    "scope": "2/0-902-321500-0-0",
+    "codePrefix": "MEC"
   },
   {
     "id": "sc",
@@ -51,7 +56,8 @@
       "en": "Systems and Control Engineering"
     },
     "unitCode": "321600",
-    "scope": "2/0-902-321600-0-0"
+    "scope": "2/0-902-321600-0-0",
+    "codePrefix": "SCE"
   },
   {
     "id": "ee",
@@ -60,7 +66,8 @@
       "en": "Electrical and Electronic Engineering"
     },
     "unitCode": "321700",
-    "scope": "2/0-902-321700-0-0"
+    "scope": "2/0-902-321700-0-0",
+    "codePrefix": "EEE"
   },
   {
     "id": "ict",
@@ -69,7 +76,8 @@
       "en": "Information and Communications Engineering"
     },
     "unitCode": "321800",
-    "scope": "2/0-902-321800-0-0"
+    "scope": "2/0-902-321800-0-0",
+    "codePrefix": "ICT"
   },
   {
     "id": "ie",
@@ -78,7 +86,8 @@
       "en": "Industrial Engineering and Economics"
     },
     "unitCode": "321900",
-    "scope": "2/0-902-321900-0-0"
+    "scope": "2/0-902-321900-0-0",
+    "codePrefix": "IEE"
   },
   {
     "id": "mat",
@@ -87,7 +96,8 @@
       "en": "Materials Science and Engineering"
     },
     "unitCode": "332000",
-    "scope": "3/0-903-332000-0-0"
+    "scope": "3/0-903-332000-0-0",
+    "codePrefix": "MAT"
   },
   {
     "id": "chem-eng",
@@ -96,7 +106,8 @@
       "en": "Chemical Science and Engineering"
     },
     "unitCode": "332100",
-    "scope": "3/0-903-332100-0-0"
+    "scope": "3/0-903-332100-0-0",
+    "codePrefix": "CAP"
   },
   {
     "id": "mcs",
@@ -105,7 +116,8 @@
       "en": "Mathematical and Computing Science"
     },
     "unitCode": "342200",
-    "scope": "4/0-904-342200-0-0"
+    "scope": "4/0-904-342200-0-0",
+    "codePrefix": "MCS"
   },
   {
     "id": "cs",
@@ -114,7 +126,8 @@
       "en": "Computer Science"
     },
     "unitCode": "342300",
-    "scope": "4/0-904-342300-0-0"
+    "scope": "4/0-904-342300-0-0",
+    "codePrefix": "CSC"
   },
   {
     "id": "life",
@@ -123,7 +136,8 @@
       "en": "Life Science and Technology"
     },
     "unitCode": "352400",
-    "scope": "5/0-905-352400-0-0"
+    "scope": "5/0-905-352400-0-0",
+    "codePrefix": "LST"
   },
   {
     "id": "arch",
@@ -132,7 +146,8 @@
       "en": "Architecture and Building Engineering"
     },
     "unitCode": "362500",
-    "scope": "6/0-906-362500-0-0"
+    "scope": "6/0-906-362500-0-0",
+    "codePrefix": "ARC"
   },
   {
     "id": "civil",
@@ -141,7 +156,8 @@
       "en": "Civil and Environmental Engineering"
     },
     "unitCode": "362600",
-    "scope": "6/0-906-362600-0-0"
+    "scope": "6/0-906-362600-0-0",
+    "codePrefix": "CVE"
   },
   {
     "id": "transdisciplinary",
@@ -150,6 +166,7 @@
       "en": "Transdisciplinary Science and Engineering"
     },
     "unitCode": "362700",
-    "scope": "6/0-906-362700-0-0"
+    "scope": "6/0-906-362700-0-0",
+    "codePrefix": "TSE"
   }
 ]

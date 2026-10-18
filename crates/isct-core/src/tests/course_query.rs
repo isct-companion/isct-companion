@@ -2,7 +2,8 @@ use super::*;
 fn eligibility_offering(id: &str, code: &str) -> Value {
     json!({
         "id":id, "year":2026, "code":code, "quarters":["3Q"],
-        "unitCode":"342300", "title":{"en":code}, "format":{"kinds":[]}
+        "unitCode":"342300", "title":{"en":code}, "format":{"kinds":[]},
+        "kyomu":{"department":"情報工学系","group":"A","mark":"recommended"}
     })
 }
 
@@ -237,4 +238,137 @@ fn matches_original_typescript_finder_traces() {
         };
         assert_eq!(actual, case["expected"], "case {index}: {}", case["input"]);
     }
+}
+
+#[test]
+fn teacher_queries_use_official_search_while_rooms_and_overlap_stay_local() {
+    let context = FinderContext::default();
+    let keys = ["teacher:Tanaka", "room:W9", "3Q", "火3-4"].map(str::to_string);
+    let factors = factors_of(&keys, &context).factors;
+    let course = |id: &str, teacher: &str, room: &str, periods: [u8; 2]| {
+        json!({
+            "id":id,"code":id,"quarters":["3Q"],"title":{"ja":id},
+            "instructors":[{"en":teacher}],
+            "schedule":[{"kind":"weekly","day":2,"periods":periods,"room":{"ja":room}}]
+        })
+    };
+    let courses = [
+        course("match", "TANAKA", "W9-324", [1, 4]),
+        course("wrong-room", "Tanaka", "M-B07", [3, 4]),
+        course("wrong-time", "Tanaka", "W9-324", [5, 6]),
+        course("wrong-teacher", "Suzuki", "W9-324", [3, 4]),
+    ];
+    let rows = run(&courses, &factors, &context, "");
+    assert_eq!(
+        rows.iter()
+            .map(|row| text(&row.course, "id"))
+            .collect::<Vec<_>>(),
+        vec!["match"]
+    );
+    let plan = remote_plan(&factors, &BTreeMap::new());
+    assert_eq!(
+        plan["queries"],
+        json!([{"q":".","teacher":"tanaka","quarters":[3],"days":[2],"periodStarts":[1,2,3,4]}])
+    );
+}
+
+#[test]
+fn official_filters_come_from_the_form_and_never_require_subscription_recommendations() {
+    let mut workspace = json!({"currentTerm":"2026-3Q", "settings":{},"courses":[],"memberships":[],"planItems":[],
+    "recommendedCourses":[{"code":"FAKE.T400","group":"A"}],
+    "kyomuSearchOptions":[
+        {"id":"ctl00_ContentPlaceHolder1_cblKamokuCodeSeries_0","value":"on","label":"400","family":"level"},
+        {"id":"drpKamokuKbnMidashiSenmon","value":"121100","label":"研究関連科目","family":"category"}
+    ]});
+    let request = |keys: Value, input: &str| {
+        serde_json::from_value(json!({
+            "year":2026,"term":"2026-3Q","keys":keys,"input":input,
+            "remoteIds":["fresh"]
+        }))
+        .unwrap()
+    };
+    let courses = vec![eligibility_offering("fresh", "CSC.T401")];
+    let view = finder_view(
+        &workspace,
+        courses.clone(),
+        request(json!(["推荐", "400", "研究関連科目"]), "400"),
+    )
+    .unwrap();
+    assert!(view.context.recommended.is_empty());
+    assert_eq!(view.rows.len(), 1); // official result survives absent local guide marks
+    assert_eq!(view.plan["queries"][0]["recommended"], true);
+    assert_eq!(
+        view.plan["queries"][0]["controls"],
+        json!([
+            {"id":"ctl00_ContentPlaceHolder1_cblKamokuCodeSeries_0","value":"on"},
+            {"id":"drpKamokuKbnMidashiSenmon","value":"121100"}
+        ])
+    );
+    workspace["kyomuSearchOptions"].as_array_mut().unwrap().extend([
+        json!({"id":"graduate_level","value":"live-600","label":"600","family":"level"}),
+        json!({"id":"graduate_period","value":"live-12","label":"12時限","family":"start"}),
+        json!({"id":"graduate_language","value":"live-en","label":"英語","family":"language"}),
+        json!({"id":"future_filter","value":"live-new","label":"新しい授業形式","family":"other"}),
+    ]);
+    let categories = finder_view(&workspace, courses.clone(), request(json!([]), "")).unwrap();
+    assert!(categories.suggestions.iter().any(
+        |suggestion| matches!(suggestion, Suggestion::Category { key, .. } if key == "level:")
+    ));
+    let levels = finder_view(&workspace, courses.clone(), request(json!([]), "level:6")).unwrap();
+    assert!(levels.live.is_empty());
+    assert_eq!(levels.suggestions.len(), 1);
+    assert!(
+        matches!(&levels.suggestions[0], Suggestion::Condition {condition, ..} if condition.label == "600")
+    );
+    assert!(
+        finder_view(&workspace, courses.clone(), request(json!([]), "level:500"))
+            .unwrap()
+            .suggestions
+            .is_empty()
+    );
+    let graduate = finder_view(
+        &workspace,
+        courses.clone(),
+        request(json!(["6xx", "12時限", "英語", "新しい授業形式"]), ""),
+    )
+    .unwrap();
+    assert_eq!(
+        graduate.plan["queries"][0]["controls"],
+        json!([
+            {"id":"graduate_level","value":"live-600"}, {"id":"graduate_period","value":"live-12"},
+            {"id":"graduate_language","value":"live-en"}, {"id":"future_filter","value":"live-new"},
+        ])
+    );
+    assert_eq!(
+        finder_view(&workspace, courses.clone(), request(json!(["600番台"]), ""))
+            .unwrap()
+            .plan["queries"][0]["controls"][0]["value"],
+        "live-600"
+    );
+    // Switching form metadata removes unsupported graduate suggestions, without
+    // hardcoding an undergraduate/graduate range in the product vocabulary.
+    workspace["kyomuSearchOptions"][0]["label"] = json!("100");
+    let view = finder_view(&workspace, courses, request(json!([]), "400")).unwrap();
+    assert!(!view.suggestions.iter().any(
+        |s| matches!(s, Suggestion::Condition{condition,..} if condition.r#type == "official-level")
+    ));
+    assert!(view.context.recommended.is_empty());
+    assert!(finder_view(&workspace, vec![], request(json!(["!100"]), "")).is_err());
+    workspace["kyomuSearchOptions"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id":"drpKamokuKbnMidashiSenmon","value":"120900","label":"専門科目","family":"category"
+        }));
+    let view = finder_view(
+        &workspace,
+        vec![],
+        request(json!(["研究関連科目", "専門科目"]), ""),
+    )
+    .unwrap();
+    let queries = view.plan["queries"].as_array().unwrap();
+    assert_eq!(queries.len(), 2);
+    assert!(queries
+        .iter()
+        .all(|q| q["controls"].as_array().unwrap().len() == 1));
 }

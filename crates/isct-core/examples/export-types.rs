@@ -32,6 +32,14 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
+    for declaration in isct_core::matrix_scan::declarations() {
+        output.push_str("export ");
+        output.push_str(&declaration);
+        output.push_str("\n\n");
+    }
+    output.push_str("export ");
+    output.push_str(&<isct_core::school_auth::OtpImportAccount as ts_rs::TS>::decl());
+    output.push_str("\n\n");
     output.push_str("export const DATA_POLICY: DataPolicy = ");
     output.push_str(
         &serde_json::to_string_pretty(&isct_core::contracts::data_policy())
@@ -47,6 +55,12 @@ fn main() {
     output.push_str(
         &serde_json::to_string(&isct_core::schedule::COURSE_PALETTE)
             .expect("serialize course palette"),
+    );
+    output.push_str(" as const;\n");
+    output.push_str("\nexport const DEFAULT_ASSIGNMENT_LEADS = ");
+    output.push_str(
+        &serde_json::to_string(&isct_core::schedule::DEFAULT_ASSIGNMENT_LEADS)
+            .expect("serialize reminder defaults"),
     );
     output.push_str(" as const;\n");
     output.push_str("\nexport const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = ");

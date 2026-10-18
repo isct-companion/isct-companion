@@ -1,9 +1,11 @@
+import { UiSelect } from "../../components/mantine";
 import { ReaderTools } from "./ReaderPane";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
 import { t } from "../../i18n";
+import { LmsIcon } from "./LmsIcon";
 GlobalWorkerOptions.workerSrc = workerUrl;
 // Canvas budget per page: sharp on Retina without unbounded memory.
 const MAX_DPR = 2;
@@ -230,12 +232,12 @@ export function PdfDocument({ src, title, fileToolbar }: { src: string; title: s
   }
   return <div className="lmsPdfReader">
     <ReaderTools><div className="lmsPdfHeader">
-    {fileToolbar}
-    <div className="lmsPdfControls" role="toolbar" aria-label="PDF tools">
+    <div className="lmsPdfControls" role="toolbar" aria-label={t("PDF tools")}>
       <div className="lmsPdfPagination"><input aria-label={t("Page")} type="number" min="1" max={pdf?.numPages || 1} value={pageInput} onChange={e => setPageInput(e.target.value)} onBlur={goToPage} onKeyDown={e => { if (e.key === "Enter") goToPage(); }} /><span>/ {pdf?.numPages || "—"}</span></div>
-      <div className="lmsPdfZoom"><button aria-label={t("Zoom out")} disabled={zoom <= .5} onClick={() => setZoom(value => Math.max(.5, value - .25))}>−</button><select aria-label={t("Zoom")} value={zoom} onChange={e => setZoom(Number(e.target.value))}>{[...new Set([.5,.75,1,1.25,1.5,2,3,zoom])].sort((a,b)=>a-b).map(value => <option key={value} value={value}>{value === 1 ? t("Fit width") : `${Math.round(value * 100)}%`}</option>)}</select><button aria-label={t("Zoom in")} disabled={zoom >= 3} onClick={() => setZoom(value => Math.min(3, value + .25))}>+</button></div>
-      <button className="lmsPdfFindToggle" aria-label={t("Find in document")} aria-expanded={searchOpen} onClick={() => setSearchOpen(value => !value)}>⌕</button>
+      <div className="lmsPdfZoom"><button aria-label={t("Zoom out")} title={t("Zoom out")} disabled={zoom <= .5} onClick={() => setZoom(value => Math.max(.5, value - .25))}><LmsIcon name="minus" size={14} /></button><UiSelect aria-label={t("Zoom")} value={zoom} onChange={value => setZoom(Number(value))} data={[...new Set([.5,.75,1,1.25,1.5,2,3,zoom])].sort((a,b)=>a-b).map(value => ({value:String(value),label:value === 1 ? t("Fit width") : `${Math.round(value * 100)}%`}))} /><button aria-label={t("Zoom in")} title={t("Zoom in")} disabled={zoom >= 3} onClick={() => setZoom(value => Math.min(3, value + .25))}><LmsIcon name="plus" size={14} /></button></div>
+      <button className="lmsPdfFindToggle" aria-label={t("Find in document")} title={t("Find in document")} aria-expanded={searchOpen} onClick={() => setSearchOpen(value => !value)}><LmsIcon name="search" size={15} /></button>
     </div>
+    {fileToolbar}
     </div>
     </ReaderTools>
     {searchOpen && <form className="lmsPdfSearch" role="search" onSubmit={event => { event.preventDefault(); void findNext(); }}><input aria-label={t("Find in document")} placeholder={t("Find in document")} value={search} onChange={e => { searchTask.current++; setFinding(false); setSearch(e.target.value); setSearchStatus(""); }} /><span role="status">{searchStatus}</span><button disabled={finding || !pdf || !search.trim()}>{t(finding ? "Searching…" : "Find next")}</button><button type="button" aria-label={t("Close search")} onClick={() => setSearchOpen(false)}>×</button></form>}

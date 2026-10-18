@@ -19,6 +19,8 @@ use super::{
     Occurrence, OccurrenceKind, ScheduleError,
 };
 
+pub const DEFAULT_ASSIGNMENT_LEADS: [i64; 2] = [1440, 60];
+
 const REMINDER_GRACE_SECONDS: i64 = 5 * 60;
 /// How long delivery waits for a shell's one-time legacy log import. A shell
 /// that has no legacy log need not call the import at all.
@@ -418,6 +420,34 @@ pub fn glance(
     })
 }
 
+pub(crate) fn assignment_lead_minutes(settings: &Value) -> Result<Vec<i64>, ScheduleError> {
+    let Some(value) = settings
+        .get("assignmentLeadMinutes")
+        .filter(|value| !value.is_null())
+    else {
+        return Ok(DEFAULT_ASSIGNMENT_LEADS.to_vec());
+    };
+    let invalid = || {
+        ScheduleError::InvalidInput("Choose 1 to 8 distinct assignment reminder times, from 1 minute to 7 days before the deadline.".into())
+    };
+    let values = value
+        .as_array()
+        .filter(|values| !values.is_empty() && values.len() <= 8)
+        .ok_or_else(invalid)?;
+    let mut leads = Vec::new();
+    for value in values {
+        let lead = value
+            .as_i64()
+            .filter(|lead| (1..=10080).contains(lead))
+            .ok_or_else(invalid)?;
+        if leads.contains(&lead) {
+            return Err(invalid());
+        }
+        leads.push(lead);
+    }
+    Ok(leads)
+}
+
 pub fn notification_plan(
     workspace: &Value,
     now: DateTime<FixedOffset>,
@@ -447,6 +477,7 @@ pub fn notification_plan(
     let settings = workspace
         .pointer("/settings/notifications")
         .unwrap_or(&Value::Null);
+    let assignment_leads = assignment_lead_minutes(settings)?;
     let mut items = Vec::new();
     if settings
         .get("classes")
@@ -554,21 +585,28 @@ pub fn notification_plan(
                     )
                 })
                 .unwrap_or_default();
-            for lead in [1440_i64, 60] {
+            for &lead in &assignment_leads {
                 let at = due - Duration::minutes(lead);
                 if at < now || at > horizon {
                     continue;
                 }
                 let lead_text = if japanese {
-                    if lead == 1440 {
-                        "締切まで24時間"
+                    if lead % 60 == 0 {
+                        format!("締切まで{}時間", lead / 60)
                     } else {
-                        "締切まで1時間"
+                        format!("締切まで{lead}分")
                     }
-                } else if lead == 1440 {
-                    "Due in 24 hours"
+                } else if lead % 60 == 0 {
+                    let hours = lead / 60;
+                    format!(
+                        "Due in {hours} {}",
+                        if hours == 1 { "hour" } else { "hours" }
+                    )
                 } else {
-                    "Due in 1 hour"
+                    format!(
+                        "Due in {lead} {}",
+                        if lead == 1 { "minute" } else { "minutes" }
+                    )
                 };
                 items.push(NotificationItem {
                     key: format!(
@@ -578,7 +616,7 @@ pub fn notification_plan(
                     at: at.to_rfc3339(),
                     title: text(assignment, "title").unwrap_or_default().into(),
                     body: if course_title.is_empty() {
-                        lead_text.into()
+                        lead_text
                     } else {
                         format!("{lead_text} · {course_title}")
                     },
