@@ -422,6 +422,18 @@ impl Session {
             })
         })
     }
+    /// The light manual refresh: the current quarter's LMS courses, their
+    /// content and the deadlines in one pass, also on a fresh install.
+    pub fn pull_current_term(&self) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let services = services(&i)?;
+            let executor = i.core.school_browser()?;
+            let outcomes = services.school.pull_current_term(executor).await?;
+            Ok(OperationResult::SchoolPull {
+                outcomes: project(outcomes)?,
+            })
+        })
+    }
     pub fn suspend(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, |i, _| async move {
             i.core.runtime.suspend().await;
