@@ -790,12 +790,21 @@ describe("the lecture desk", () => {
         ),
       "the automatically linked exam",
     );
-    // A class the timetable lists in exam week is listed, but not as an exam.
+    // A class the timetable lists in exam week has its own group after the exams.
+    const listed = [
+      ...app.host.querySelectorAll<HTMLElement>(
+        ".lectureList .lectureExamScope small, .lectureRow.exam b",
+      ),
+    ].map((node) => node.textContent);
+    expect(listed).toEqual([
+      "My exams",
+      "Existing linked exam",
+      "Classes in exam week",
+      "Exam-week session",
+    ]);
     expect(
-      [...app.host.querySelectorAll<HTMLElement>(".lectureRow.exam")].find(
-        (row) => row.textContent?.includes("Exam-week session"),
-      )?.textContent,
-    ).toContain("Class in exam week");
+      app.host.querySelector(".lectureRow.examWeekClass")?.textContent,
+    ).toContain("Exam-week session");
     expect(app.host.querySelector(".lectureList")?.textContent).not.toContain(
       "Published exam",
     );

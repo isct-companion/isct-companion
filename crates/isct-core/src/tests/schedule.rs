@@ -1576,51 +1576,93 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
 }
 
 #[test]
-fn exam_week_class_rows_are_class_sessions_not_exams() {
+fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     let mut data = workspace();
+    data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
     let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"});
     data["exams"] = json!([
-        // Monday 1-2 is already the weekly slot; Wednesday 5-6 is not.
-        row("same-slot", "class", "2026-04-13", [1, 2]),
+        // The weekly class meets Mondays 1-2.
+        row("moved", "class", "2026-04-13", [3, 4]),
         row("extra", "class", "2026-04-15", [5, 6]),
         row("final", "exam", "2026-04-16", [3, 4]),
+        row("kept", "class", "2026-04-20", [7, 8]),
+        row("exam-week", "class", "2026-05-28", [1, 2]),
+        row("monday-exam", "exam", "2026-04-27", [5, 6]),
+        row("edited-monday-exam", "exam", "2026-05-11", [5, 6]),
     ]);
-    let agenda = |date| resolve_day_agenda(&data, "2026-1Q", date, Default::default()).unwrap();
-    let wednesday = agenda("2026-04-15");
-    assert_eq!(wednesday.len(), 1);
-    assert_eq!(wednesday[0].kind, OccurrenceKind::Course);
-    assert_eq!(
+    // A hand-edited weekly session outranks the timetable.
+    data["scheduleOverrides"] = json!([
+        {"id":"mine","targetKey":"course-weekly-0-2026-04-20","targetKind":"course","room":"My room","hidden":false},
+        {"id":"mine-too","targetKey":"course-weekly-0-2026-05-11","targetKind":"course","room":"My room","hidden":false}
+    ]);
+    let agenda = |date| {
+        resolve_day_agenda(&data, "2026-1Q", date, Default::default())
+            .unwrap()
+            .into_iter()
+            .map(|block| (block.kind, block.key, block.start_time, block.room))
+            .collect::<Vec<_>>()
+    };
+    let session = |key: &str, start: &str, room: &str| {
         (
-            wednesday[0].key.as_str(),
-            wednesday[0].start_time.as_str(),
-            wednesday[0].room.as_str()
-        ),
-        ("reference:extra", "13:30", "W8E-E207")
+            OccurrenceKind::Course,
+            key.to_string(),
+            start.to_string(),
+            room.to_string(),
+        )
+    };
+    assert_eq!(
+        agenda("2026-04-13"),
+        [session("reference:moved", "10:45", "W8E-E207")]
     );
-    let monday = agenda("2026-04-13");
-    assert_eq!(monday.len(), 1);
-    assert_ne!(monday[0].key, "reference:same-slot");
-    assert_eq!(agenda("2026-04-16")[0].kind, OccurrenceKind::Exam);
+    assert_eq!(
+        agenda("2026-04-15"),
+        [session("reference:extra", "13:30", "W8E-E207")]
+    );
+    assert_eq!(agenda("2026-04-16")[0].0, OccurrenceKind::Exam);
+    assert_eq!(
+        agenda("2026-04-20"),
+        [
+            session("course-weekly-0-2026-04-20", "08:50", "My room"),
+            session("reference:kept", "15:25", "W8E-E207"),
+        ]
+    );
+
+    // An exam replaces the weekly class too, unless the user edited it.
+    let kinds = |date| {
+        agenda(date)
+            .into_iter()
+            .map(|block| block.0)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(kinds("2026-04-27"), [OccurrenceKind::Exam]);
+    assert_eq!(
+        kinds("2026-05-11"),
+        [OccurrenceKind::Course, OccurrenceKind::Exam]
+    );
+
+    // The exam period is not a day without classes when something is on.
+    let days = calendar_between(&data, "2026-05-28", "2026-05-29").unwrap();
+    assert_eq!(
+        days.iter()
+            .map(|day| (day.no_classes, day.calendar_notice.as_deref()))
+            .collect::<Vec<_>>(),
+        [(false, Some("Exam period")), (true, Some("Exam period"))]
+    );
 
     let views = exam_views(&data, "2026-1Q");
-    assert_eq!(
-        views
-            .iter()
-            .map(|view| view.kind.as_str())
-            .collect::<Vec<_>>(),
-        ["class", "class", "exam"]
-    );
+    assert_eq!(views.iter().filter(|view| view.kind == "class").count(), 4);
     let detail = course_detail(&data, "course");
+    assert_eq!(detail.exams.len(), 7);
     assert_eq!(
-        (detail.exams.len(), detail.exam_ids.as_slice()),
-        (3, ["final".to_string()].as_slice())
+        detail.exam_ids,
+        ["final", "monday-exam", "edited-monday-exam"]
     );
     assert_eq!(
         super::exams::upcoming_exams(&data, "2026-04-01")
             .into_iter()
             .map(|view| view.id)
             .collect::<Vec<_>>(),
-        ["final"]
+        ["final", "monday-exam", "edited-monday-exam"]
     );
     assert!(exam_association(&data, "reference:extra", "course")
         .unwrap()

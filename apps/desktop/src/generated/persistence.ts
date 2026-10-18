@@ -785,6 +785,10 @@ export type TeachingRange = { start: string; end: string };
 
 export type QuarterRange = {
   teachingRanges: Array<TeachingRange> | null;
+  /**
+   * The official final-exam and make-up period inside the quarter.
+   */
+  examRanges?: Array<TeachingRange>;
   from: string;
   to: string;
 };

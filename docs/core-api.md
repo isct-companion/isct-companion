@@ -696,9 +696,17 @@ quarters; `examIds` remains available for existing clients.
 
 `ExamView.kind` is `class` for a class row the exam timetable lists in the exam
 period. It is matched, linked and corrected like an exam, but enters agendas and
-reminders as a session of its course (skipped when the weekly pattern already
-places that course at the same start time). It is never an upcoming exam, an
-`examIds` entry or an `examAssociation` conflict.
+reminders as a session of its course. It is never an upcoming exam, an `examIds`
+entry or an `examAssociation` conflict.
+
+On one day the sources rank: a session the user edited by hand, then the exam
+timetable (its exams and class rows), then the weekly pattern. A timetable class
+row replaces that course's weekly sessions for the day, and an exam replaces its
+course's classes, except sessions with a schedule override. In
+`calendarBetween`, a day the weekly pattern skips still has `noClasses: false`
+when an exam or class takes place. Inside the calendar's `examRanges` its notice
+reads "Exam period" (試験期間) rather than "No classes". `QuarterRange` carries
+those `examRanges`.
 
 Core matches an exam within its academic year and quarter, using an explicit
 course link or a unique enrolled course with the full course/class code. A class

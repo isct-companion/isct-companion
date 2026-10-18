@@ -22,12 +22,18 @@ export function ExamCards({
   openExam?: (key: string, term: string) => void;
 }) {
   const [editing, setEditing] = useState<ExamView | null>(null);
+  // Exams first; the timetable's exam-week classes form their own group.
+  const classes = exams.filter((exam) => exam.kind === "class");
+  const ordered = [
+    ...exams.filter((exam) => exam.kind !== "class"),
+    ...classes,
+  ];
   return (
     <div className="examCards">
-      {exams.map((exam) => (
+      {ordered.map((exam) => (
         <article
           key={exam.key}
-          className={`examCard${exam.hidden ? " hidden" : ""}`}
+          className={`examCard${exam.kind === "class" ? " examWeekClass" : ""}${exam.hidden ? " hidden" : ""}`}
           style={{ "--course": exam.color } as React.CSSProperties}
         >
           <div className="examCardHeading">

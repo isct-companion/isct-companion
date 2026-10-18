@@ -12,6 +12,14 @@
   border-radius: 10px;
   min-width: 0;
 }
+/* A class session from the exam timetable, not an exam. */
+.examCard.examWeekClass {
+  border-style: dashed;
+  border-left-style: solid;
+}
+.lectureRow.examWeekClass b {
+  font-weight: 500;
+}
 .examCard.hidden {
   opacity: 0.6;
 }
