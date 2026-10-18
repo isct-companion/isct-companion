@@ -81,6 +81,11 @@ Then decide whether the behaviour belongs in a test at all:
   check names a persona, states why each step exists, says where to observe the
   result, and justifies in `why_manual` why automation cannot reach it. Run
   `yarn verify:manual stale` to see which checks a change invalidated.
+- A person can confirm it at a glance in the real app (a layout, a split cell, a
+  label, which page a click opens): add a short check to
+  `docs/verification/manual-checks.yaml` and tell the user its id, rather than
+  scripting an e2e test that rebuilds the screen over a fake host. Logic behind
+  the screen still gets its test at the layer that owns it, usually Core.
 
 A check whose covered paths are all already exercised by the suites is rejected,
 and so is a step with no reason: "the manual table" must not become the place

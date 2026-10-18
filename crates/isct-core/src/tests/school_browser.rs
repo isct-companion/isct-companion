@@ -910,8 +910,25 @@ async fn late_vault_result_cannot_start_login_after_another_site_preempts_the_he
     assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
 }
 
+// Protect saved Tokyo Tech sign-in on GetAccess pages whose query the
+// sanitizer drops: the hidden session check records sanitized URLs, a visible
+// page records the full one, and both must still inject credentials. A visible
+// 教務Web once stopped on the 情報基盤利用承諾 agreement page this way.
 #[tokio::test]
 async fn tokyo_login_query_is_sanitized_consistently_before_saved_credentials_are_injected() {
+    tokyo_saved_credentials_reach(
+        false,
+        "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login?SAMLRequest=request&RelayState=state",
+    )
+    .await;
+    tokyo_saved_credentials_reach(
+        true,
+        "https://portal.nap.gsic.titech.ac.jp/portal.pl?GASF=CERTIFICATE,IG.GRID,IG.TOKENRO,IG.OTP&GAREASONCODE=-1&GARESOURCEID=kyomuweb2023&GAURI=https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx&Reason=-1&APPID=kyomuweb2023&URI=https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx",
+    )
+    .await;
+}
+
+async fn tokyo_saved_credentials_reach(visible: bool, login_url: &str) {
     let (started_send, _started_receive) = mpsc::channel();
     let (_release_send, release_receive) = mpsc::channel();
     let vault = BlockingVault {
@@ -932,57 +949,71 @@ async fn tokyo_login_query_is_sanitized_consistently_before_saved_credentials_ar
         )
         .unwrap();
     let (engine, browser, _, _) = engine_with_auth(Arc::new(SchoolAuthService::new(vault)));
-    let check = {
+    let check = (!visible).then(|| {
         let engine = engine.clone();
         tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::TokyoTech).await })
+    });
+    // A visible view is created at its start URL; the session check navigates.
+    let id = if visible {
+        engine.open(SchoolSite::Kyomu, None).await.unwrap();
+        *browser.current.lock().unwrap().keys().next().unwrap()
+    } else {
+        browser.navigation(0).await.browser
     };
-    let navigation = browser.navigation(0).await;
-    let raw_login_url = Url::parse(
-        "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login?SAMLRequest=request&RelayState=state",
-    )
-    .unwrap();
-    browser.set_current_url(navigation.browser, raw_login_url.clone());
+    let raw_login_url = Url::parse(login_url).unwrap();
+    browser.set_current_url(id, raw_login_url.clone());
     browser.listener().page_loaded(PageLoaded {
         page: PageId {
-            browser: navigation.browser,
+            browser: id,
             sequence: 1,
         },
         cause: None,
         url: raw_login_url,
     });
-    let mut injected = false;
-    for _ in 0..1_000 {
-        if browser
+    let mut injected = None;
+    for attempt in 0..2_000 {
+        injected =
+            browser
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .find_map(|command| match &command.command {
+                    BrowserAction::Eval(script) if command.browser == id => script
+                        .contains("isct-companion-login")
+                        .then(|| script.clone()),
+                    _ => None,
+                });
+        if injected.is_some() {
+            break;
+        }
+        settle(attempt).await;
+    }
+    let script = injected
+        .unwrap_or_else(|| panic!("Tokyo Tech credentials were not injected (visible: {visible})"));
+    assert_eq!(login_config(&script)["profile"], "tokyo-tech");
+    if !visible {
+        let navigations_before = browser
             .commands
             .lock()
             .unwrap()
             .iter()
-            .any(|command| matches!(command.command, BrowserAction::Eval(_)))
-        {
-            injected = true;
-            break;
-        }
-        tokio::task::yield_now().await;
+            .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+            .count();
+        engine.open(SchoolSite::TokyoPortal, None).await.unwrap();
+        let navigations_after = browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+            .count();
+        assert_eq!(navigations_after, navigations_before);
     }
-    assert!(injected, "Tokyo Tech credentials were not injected");
-    let navigations_before = browser
-        .commands
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
-        .count();
-    engine.open(SchoolSite::TokyoPortal, None).await.unwrap();
-    let navigations_after = browser
-        .commands
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
-        .count();
-    assert_eq!(navigations_after, navigations_before);
     engine.shutdown().await;
-    assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+    if let Some(check) = check {
+        assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+    }
 }
 
 #[tokio::test]

@@ -64,6 +64,29 @@ export type DayColumn = {
   blocks: Block[];
 };
 
+/**
+ * A shared 演習・実験 block as its two courses, exercise on the left, so
+ * each half names and opens its own course. Other blocks stay whole.
+ */
+function blockHalves(block: Block): { block: Block; side?: "left" | "right" }[] {
+  const pair = block.alternation?.pair;
+  if (pair?.length !== 2) return [{ block }];
+  return pair.map((course, index) => ({
+    block: {
+      ...block,
+      key: `${block.key}:${course.courseId}`,
+      id: course.courseId,
+      title: course.title,
+      subtitle: course.code,
+      room: course.room,
+      color: course.color,
+      startTime: course.startTime,
+      endTime: course.endTime,
+    },
+    side: index ? "right" : "left",
+  }));
+}
+
 /** Minutes since midnight in Japan time. */
 export function jstMinutes(now = new Date()): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -234,7 +257,7 @@ export function WeekTimetable({
                 />
               );
             })}
-            {column.blocks.map((block) => {
+            {column.blocks.flatMap(blockHalves).map(({ block, side }) => {
               // A block without readable times is left out rather than breaking the page.
               if (!CLOCK.test(block.startTime) || !CLOCK.test(block.endTime))
                 return null;
@@ -263,6 +286,8 @@ export function WeekTimetable({
                       // A 2px gutter keeps the card off the row rules.
                       top: `calc(${position.topPercent}% + 2px)`,
                       height: `calc(${position.heightPercent}% - 4px)`,
+                      ...(side === "left" && { right: "calc(50% + 1px)" }),
+                      ...(side === "right" && { left: "calc(50% + 1px)" }),
                     } as React.CSSProperties
                   }
                   title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}${block.conflictWith?.length ? ` · ${t("Overlaps {{courses}}", { courses: block.conflictWith.join(", ") })}` : ""}`}

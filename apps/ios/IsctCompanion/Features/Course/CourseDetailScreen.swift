@@ -103,9 +103,6 @@ struct CourseDetailScreen: View {
                     .foregroundStyle(tint)
             }
             Spacer()
-            if let query = roomMapQuery(room: meeting.room) {
-                MapButton(query: query, title: "地図", tint: tint)
-            }
         }
         .padding(18)
         .background(tint.opacity(Theme.tintSoft), in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))

@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 32 checks must be re-run before the next release.**
+**7 of 35 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**23 checks have never been run or could not be run:**
+**26 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -49,9 +49,12 @@ an unverified area becomes an assumed-good one.
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
 - `DESKTOP-REMINDER-TIMES` — never verified
+- `DESKTOP-PHYSICS-PAIR` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
 - `SCHOOL-OTP-QR` — never verified
+- `SCHOOL-SIGNIN-TOKYO-VISIBLE` — never verified
+- `IOS-CREDENTIAL-SOURCE-TILES` — never verified
 
 ## Status
 
@@ -85,10 +88,13 @@ an unverified area becomes an assumed-good one.
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
+| `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
+| `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
+| `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
 
 ## Personas
 
@@ -1641,6 +1647,53 @@ and native notification delivery; tests use a headless notification sink.
 
 **Last recorded** never run
 
+### 物理学演習 and 実験 share one slot instead of clashing (`DESKTOP-PHYSICS-PAIR`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build over a workspace where 物理学演習 I and 物理学実験 I
+(LAS.P105 / LAS.P107) sit in the same 1Q slot and no LMS schedule was
+published for them.
+
+**Steps**
+
+1. Open Timetable on 1Q and look at the shared slot.
+   - *Why:* The cell must split exercise left and lab right, each at its own
+     length. One block hiding the other, or a red conflict badge, means
+     the pair rule did not reach the template.
+2. Click each half.
+   - *Why:* Each half must open its own course; both opening the exercise means
+     the halves lost their course ids.
+3. Open Today → Calendar and step back to a 1Q week.
+   - *Why:* The dated calendar goes through the day agenda, a separate path from
+     the template; it must show the same split without a conflict.
+
+**Where to look**
+
+The Timetable grid cell, the course detail each half opens, and the same
+slot in the Today calendar.
+
+**Expected**
+
+Both views show one split cell with no conflict, and each half opens its
+own course.
+
+**Why this is manual**
+
+The pairing itself is tested in Core; what is left is whether the cell
+reads right, which a person sees at a glance in the real app.
+
+**Covers**
+
+- `apps/desktop/src/components/timetable/timetable.tsx`
+- `crates/isct-core/src/schedule/alternation.rs`
+
+**Last recorded** never run
+
 ### Official course search and enrollment use the authenticated native session (`SCHOOL-OFFICIAL-COURSE-PAGES`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
@@ -1827,5 +1880,118 @@ Requires native camera permissions, optical input and an OS camera indicator in 
 - `apps/desktop/src-tauri/src/commands/school_auth.rs`
 - `apps/desktop/src/components/QrCamera.tsx`
 - `apps/desktop/src/components/CameraPreview.tsx`
+
+**Last recorded** never run
+
+### Visible 教務Web passes the Tokyo Tech Portal agreement page with saved credentials (`SCHOOL-SIGNIN-TOKYO-VISIBLE`)
+
+**Area** school · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A build of the iPhone app and of the desktop app from the same commit, a
+Tokyo Tech Portal account saved in 設定 → 学校アカウント (設定済み) with its
+Matrix code, and no live GetAccess session in either app.
+
+**Steps**
+
+1. On the iPhone, cold-launch the app and open ウェブ → 教務Web before
+   opening メール, TSUBAME or the 東工大ポータル tab.
+   - *Why:* A GetAccess session left by another Tokyo Tech site skips the
+     東京科学大学情報基盤利用承諾 page. Only a visible view that reaches
+     `portal.pl?GASF=...` first exercises the case that used to stop there.
+     If 教務Web opens with no agreement page at all, a session was still
+     alive; note that and do not count the run.
+2. Watch the page without touching it until 教務Web's own menu shows.
+   - *Why:* The agreement page must advance by itself to the account/password
+     page and then Matrix. Staying on the agreement page means the saved
+     login was never armed for the visible view, which is the regression
+     this check exists for; stopping on Matrix with a code saved means the
+     Matrix step regressed instead.
+3. Repeat both steps in the desktop app's Web page with 教務Web.
+   - *Why:* Desktop and iPhone share Core's login script and arming, but each
+     shell reports page loads through its own browser port.
+4. Only if the portal shows a パスワード変更 form after the password step:
+   confirm nothing is typed into it, and on desktop read the Web page's
+   status line. Otherwise write "password change not shown" in the notes.
+   - *Why:* Choosing a new password belongs to the person. The form must be left
+     empty and Core must report that the portal wants a password change,
+     not wait silently until the sign-in times out.
+
+**Where to look**
+
+The ウェブ tab on the iPhone, and the desktop Web page with its status
+line.
+
+**Expected**
+
+On both devices 教務Web opens signed in with no tap on the agreement
+page, the account page or the Matrix page. A password change form, if
+shown, stays empty and desktop names it as the reason sign-in stopped.
+
+**Why this is manual**
+
+Needs a real Tokyo Tech account and Matrix code against the live
+GetAccess portal, on a physical iPhone's WKWebView and the desktop
+webview. The agreement, password and Matrix pages cannot be replayed
+offline with a live session cookie flow.
+
+**Covers**
+
+- `crates/isct-core/src/school_browser/assets/school-login.js`
+- `crates/isct-core/src/school_browser/engine/login.rs`
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/ios/IsctCompanion/Features/Web/**`
+
+**Last recorded** never run
+
+### iPhone second-factor sources are one row of equal tiles (`IOS-CREDENTIAL-SOURCE-TILES`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app on a physical iPhone (camera and Matrix OCR available),
+with 設定 → 一般 → 画面表示と明るさ → テキストサイズ at the largest
+non-accessibility step.
+
+**Steps**
+
+1. Open 設定 → 学校アカウント → Tokyo Tech (旧) and look at the マトリクス表
+   row: 撮影, 写真から, 貼り付け, 入力.
+   - *Why:* Four sources is the widest row. The old bordered buttons sized to
+     their labels, so large text wrapped them vertically and left the
+     paste button a different shape from the rest.
+2. Open Science Tokyo and look at the ワンタイムパスワード row:
+   QR を読み取る, 写真から, 貼り付け.
+   - *Why:* The longest label lives here; it must shrink on one line rather than
+     widen its tile.
+3. Copy any text, tap 貼り付け in either row and answer the system paste
+   prompt.
+   - *Why:* The tile reads the clipboard itself instead of using PasteButton, so
+     iOS asks once per paste unless the app is allowed in Settings.
+
+**Where to look**
+
+The two account pages in the settings sheet.
+
+**Expected**
+
+Every tile in a row has the same width and height, icons sit on one line
+and labels on another, and no label wraps or is cut. Pasting non-matching
+text shows the row's red error message.
+
+**Why this is manual**
+
+A layout read at a glance on a real phone. The simulator has no camera or
+OCR, so it shows only two of the Matrix tiles.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
 
 **Last recorded** never run
