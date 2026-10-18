@@ -519,6 +519,8 @@ describe("the shipped school scripts stay read-only", () => {
       runScripts: "outside-only",
     });
     const requests: string[] = [];
+    const calls: string[] = [];
+    let enrolled: { id: number; shortname: string }[] = [];
     let failQuarter = true;
     // The remote school transport has no headless server; execute the real
     // extractor and DOM parser while scripting only its HTTP responses.
@@ -543,7 +545,8 @@ describe("the shipped school scripts stay read-only", () => {
             text: async () => page(year, quarter),
           };
         }
-        const [{ methodname }] = JSON.parse(String(options.body));
+        const [{ methodname, args }] = JSON.parse(String(options.body ?? "[{}]"));
+        calls.push(args?.courseid ? `${methodname}:${args.courseid}` : String(methodname));
         return {
           ok: true,
           headers: { get: () => "application/json" },
@@ -552,7 +555,7 @@ describe("the shipped school scripts stay read-only", () => {
               data:
                 methodname ===
                 "core_course_get_enrolled_courses_by_timeline_classification"
-                  ? { courses: [] }
+                  ? { courses: enrolled }
                   : { events: [] },
             },
           ],
@@ -590,6 +593,24 @@ describe("the shipped school scripts stay read-only", () => {
     )) as typeof result;
     expect(recovered.timetables).toHaveLength(8);
     expect(recovered.timetableErrors).toEqual([]);
+
+    // The phones' refresh reads only the current grid and the content of
+    // the courses on it: no other quarter, no monthly calendar.
+    Object.assign(dom.window, {
+      __ISCT_COMPANION_LMS_FULL__: false,
+      __ISCT_COMPANION_LMS_CURRENT__: true,
+    });
+    enrolled = [42, 43, 99].map((id) => ({ id, shortname: `C${id} [2026]` }));
+    requests.length = 0;
+    calls.length = 0;
+    const current = (await dom.window.eval(
+      rustConstant("crates/isct-core/src/lms_ingest.rs", "LMS_EXTRACT_SCRIPT"),
+    )) as typeof result & { structures: { courseId: number }[] };
+    expect(requests).toEqual([]);
+    expect(current.timetables).toHaveLength(1);
+    expect(current.structures.map((s) => s.courseId).sort()).toEqual([42, 43]);
+    expect(calls).not.toContain("core_courseformat_get_state:99");
+    expect(calls).not.toContain("core_calendar_get_calendar_monthly_view");
   });
 
   it("bounds stalled LMS requests and bodies without blocking other courses or losing their outlines", async () => {

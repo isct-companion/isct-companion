@@ -320,21 +320,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         refresh()
     }
 
-    /** Pull to refresh: Core's light refresh of the current quarter's LMS
-     * courses. It runs on after the gesture ends; the header ring follows
-     * Core's pull state. */
+    /** Pull to refresh, and the first read after an account is saved: the
+     * current quarter's LMS courses, their content and the deadlines in one
+     * pass (the phone shows nothing else). It runs on after the gesture ends;
+     * the header ring follows Core's pull state. */
     fun refreshFromSchool() {
         scope.launch { pull(listOf { it.pullCurrentTerm() }) }
-    }
-
-    /** 設定 › すべて再取得: every LMS course and quarter, then 教務Web. */
-    suspend fun pullEverything() {
-        pull(
-            listOf(
-                { it.pullSchool(SchoolSite.SCIENCE_LMS, null, true) },
-                { it.pullSchool(SchoolSite.KYOMU, null, true) },
-            ),
-        )
     }
 
     /** Runs pulls in order and stops at the first that needs the person. */
@@ -369,6 +360,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         session.saveCredentials(profile, credentials).value()
         refreshAccounts()
         runCatching { session.ensureSchoolSession(profile) }
+        if (profile == SchoolAuthProfile.SCIENCE) refreshFromSchool()
     }
 
     /** Edits `settings.notifications` and replaces the settings object. */

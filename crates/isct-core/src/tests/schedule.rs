@@ -1059,7 +1059,10 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     assert_eq!(ids(&board.today.later), ["next-week"]);
     assert_eq!(ids(&board.today.past_recent), ["late"]);
     assert!(board.today.undated.is_empty() && board.today.hidden.is_empty());
-    assert_eq!(ids(&board.record.due_this_week), ["tonight", "done", "soon"]);
+    assert_eq!(
+        ids(&board.record.due_this_week),
+        ["tonight", "done", "soon"]
+    );
     assert_eq!(ids(&board.record.undated), ["undated"]);
     assert_eq!(ids(&board.record.past_recent), ["late", "graded"]);
     assert_eq!(ids(&board.record.past_earlier), ["ancient"]);

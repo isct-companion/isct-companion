@@ -306,19 +306,12 @@ final class AppModel {
         await refresh()
     }
 
-    /// Pull to refresh: Core's light refresh of the current quarter's LMS
-    /// courses. It runs on after the gesture ends; the header ring follows
-    /// Core's pull state.
+    /// Pull to refresh, and the first read after an account is saved: the
+    /// current quarter's LMS courses, their content and the deadlines in one
+    /// pass (the phone shows nothing else). It runs on after the gesture ends;
+    /// the header ring follows Core's pull state.
     func refreshFromSchool() {
         Task { await pull([{ try $0.pullCurrentTerm() }]) }
-    }
-
-    /// 設定 › すべて再取得: every LMS course and quarter, then 教務Web.
-    func pullEverything() async {
-        await pull([
-            { try $0.pullSchool(site: .scienceLms, courseId: nil, loginFirst: true) },
-            { try $0.pullSchool(site: .kyomu, courseId: nil, loginFirst: true) },
-        ])
     }
 
     /// Runs pulls in order and stops at the first that needs the person.
@@ -349,6 +342,7 @@ final class AppModel {
         _ = try await session.saveCredentials(profile: profile, credentials: credentials).value()
         await refreshAccounts()
         _ = try? session.ensureSchoolSession(profile: profile)
+        if profile == .science { refreshFromSchool() }
     }
 
     /// Edits `settings.notifications` and replaces the settings object.

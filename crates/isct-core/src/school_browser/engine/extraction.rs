@@ -7,12 +7,23 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(150);
 
 const PAGE_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// How much an LMS dashboard extraction reads when no course is named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LmsScope {
+    /// The current quarter's timetable and the deadlines.
+    Summary,
+    /// The summary plus the content of the current quarter's courses.
+    CurrentQuarter,
+    /// Every quarter's timetable, every course's content and past deadlines.
+    Full,
+}
+
 #[derive(Clone)]
 pub(super) struct Extraction {
     pub(super) browser: BrowserId,
     pub(super) run: String,
     pub(super) course_id: Option<u64>,
-    pub(super) full: bool,
+    pub(super) scope: LmsScope,
     pub(super) baseline: u64,
     pub(super) target: String,
     pub(super) visible: bool,
@@ -115,7 +126,7 @@ impl SchoolBrowserEngine {
                     Some(page.clone()),
                     url,
                     None,
-                    false,
+                    LmsScope::Summary,
                     PAGE_TIMEOUT,
                     context,
                 )
@@ -174,16 +185,23 @@ impl SchoolBrowserEngine {
                     .last_import_runs()
                     .map_err(|e| SchoolBrowserError::Storage(e.to_string()))?["lms:all"]
                     .is_string();
-                let full =
-                    course_id.is_none() && (context.priority() == PullPriority::Manual || !has_all);
+                let scope = if course_id.is_some() {
+                    LmsScope::Summary
+                } else if context.current_quarter() {
+                    LmsScope::CurrentQuarter
+                } else if context.priority() == PullPriority::Manual || !has_all {
+                    LmsScope::Full
+                } else {
+                    LmsScope::Summary
+                };
                 let outcome = self
                     .extract_page(
                         site,
                         "lms",
                         "https://lms.s.isct.ac.jp/2025/my/",
                         course_id,
-                        full,
-                        if full {
+                        scope,
+                        if scope == LmsScope::Full {
                             Duration::from_secs(600)
                         } else {
                             OPEN_TIMEOUT
@@ -216,7 +234,7 @@ impl SchoolBrowserEngine {
                             kind,
                             &format!("https://kyomu0.gakumu.titech.ac.jp{page}"),
                             None,
-                            false,
+                            LmsScope::Summary,
                             PAGE_TIMEOUT,
                             context,
                         )
@@ -379,7 +397,7 @@ impl SchoolBrowserEngine {
         catalog_page: Option<CatalogPage>,
         url: &str,
         course_id: Option<u64>,
-        full: bool,
+        scope: LmsScope,
         timeout: Duration,
         context: &PullContext,
     ) -> Result<HiddenLoad<String>, SchoolBrowserError> {
@@ -403,7 +421,7 @@ impl SchoolBrowserEngine {
                 browser,
                 run: run.clone(),
                 course_id,
-                full,
+                scope,
                 baseline,
                 target: parsed.to_string(),
                 visible: false,
@@ -424,7 +442,7 @@ impl SchoolBrowserEngine {
             run: run.clone(),
         };
         let started = Instant::now();
-        log::info!(target: "isct_core::school_browser", "capture start site={site:?} run={run} full={full} course={course_id:?} path={} timeout_s={}", parsed.path(), timeout.as_secs());
+        log::info!(target: "isct_core::school_browser", "capture start site={site:?} run={run} scope={scope:?} course={course_id:?} path={} timeout_s={}", parsed.path(), timeout.as_secs());
         self.dispatch(browser, BrowserAction::Navigate(parsed))?;
         let mut signing_in = None;
         let raw = tokio::time::timeout(timeout, async {
@@ -503,12 +521,12 @@ impl SchoolBrowserEngine {
         kind: &str,
         url: &str,
         course_id: Option<u64>,
-        full: bool,
+        scope: LmsScope,
         timeout: Duration,
         context: &PullContext,
     ) -> Result<IngestOutcome, SchoolBrowserError> {
         let raw = self
-            .capture_page(site, None, url, course_id, full, timeout, context)
+            .capture_page(site, None, url, course_id, scope, timeout, context)
             .await?;
         let raw = match raw {
             HiddenLoad::Ready(raw) => raw,
