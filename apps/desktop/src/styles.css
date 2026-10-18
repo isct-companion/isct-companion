@@ -3268,122 +3268,25 @@ p {
   font-size: calc(12px * var(--text));
 }
 
-/* LMS pull review */
-.mergeBody {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.mergeGrid {
+.dueGroup {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 12px;
-  height: min(60vh, 560px);
-}
-.mergeSides {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  min-height: 0;
-}
-.mergeColumn {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-.mergeColumn > header {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
-}
-.mergeColumn > header span {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.mergeList {
-  flex: 1;
-  overflow: auto;
-  padding: 6px;
-  display: grid;
-  align-content: start;
-  gap: 4px;
-}
-.mergeEmpty {
-  padding: 10px;
-  color: var(--muted);
-}
-.mergeItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  cursor: pointer;
-}
-.mergeItem.common {
-  cursor: default;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0;
-}
-.mergeItem > span {
-  display: grid;
-  flex: 1;
-  min-width: 0;
-}
-.mergeItem b {
-  font-size: 13px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mergeItem small {
-  color: var(--muted);
-  font-size: 11px;
-}
-.mergeItem.conflict {
-  border-color: var(--conflict);
-  box-shadow: inset 4px 0 0 var(--conflict);
-  background: color-mix(in srgb, var(--conflict) 9%, var(--surface));
-}
-.mergeConflictBadge {
-  background: var(--conflict);
-  flex: none;
-}
-.mergeFoot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.mergeFoot small {
-  flex: 1;
-  color: var(--muted);
-}
-.mergeItem.retime {
-  border-color: var(--warn);
-  background: var(--warn-soft);
-}
-.dueLater {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
-.dueLater > small {
+.dueGroup:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.dueGroup > small {
   display: block;
   color: var(--muted);
   font-size: 12px;
   padding-bottom: 4px;
 }
 
-/* Today: "Today" / "Earlier" switch beside the assignments heading */
+/* Today: assignments heading with its count and link */
 .dueSection > header {
   flex-wrap: wrap;
   gap: 10px;
@@ -3471,13 +3374,6 @@ p {
 .dueRow.touchRow .dueAssignment {
   min-height: 48px;
   touch-action: pan-y;
-}
-.duePinned {
-  display: grid;
-  gap: 4px;
-}
-.duePinned > small {
-  color: var(--muted);
 }
 .moreToggle {
   justify-self: start;

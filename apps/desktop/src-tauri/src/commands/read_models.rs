@@ -29,19 +29,3 @@ pub(crate) async fn finder_query(
     })
     .await
 }
-
-#[tauri::command]
-pub(crate) async fn lms_merge_preview(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    scope: String,
-    term: String,
-) -> Result<serde_json::Value, String> {
-    crate::require_local_main(&webview)?;
-    let core = crate::core_ports::core(&app);
-    crate::run_data_command(move || {
-        core.lms_merge_preview(&scope, &term)
-            .map_err(|error| error.to_string())
-    })
-    .await
-}

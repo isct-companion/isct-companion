@@ -235,7 +235,6 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
       case "catalog_offerings":
       case "catalog_sync_offerings":
       case "catalog_sync_department":
-      case "lms_merge_preview":
         return [];
       case "catalog_query":
         return { items: [], total: 0, returned: 0, truncated: false };

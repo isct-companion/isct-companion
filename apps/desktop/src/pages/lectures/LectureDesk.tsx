@@ -11,7 +11,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { TermId, Workspace } from "../../lib/model";
+import type { Assignment, TermId, Workspace } from "../../lib/model";
+import { submissionLabel } from "../../lib/academic";
+import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
 import { addCivilDays as addDays, civilWeekday } from "../../lib/civil-date";
 import { UiInput, UiSelect } from "../../components/mantine";
 import { jstMinutes } from "../../components/timetable/timetable";
@@ -49,6 +51,7 @@ export function LectureDesk({
   active,
   renderWorkspace,
   restoreAssignment,
+  assignmentsRequest,
   railHovered = false,
 }: {
   railHovered?: boolean;
@@ -65,6 +68,8 @@ export function LectureDesk({
   ) => ReactNode;
   /** Brings a hidden assignment back to Today and this list. */
   restoreAssignment?: (assignmentId: string) => void;
+  /** Changes when Today asks for the current quarter's assignment list. */
+  assignmentsRequest?: number;
 }) {
   // Single-column layouts open the lecture as a dialog over the list.
   const wide = useMediaQuery("(min-width: 769px)");
@@ -102,9 +107,15 @@ export function LectureDesk({
     }
   }, [term]);
   const [query, setQuery] = useState("");
-  // The list shows the quarter's lectures, or its open assignments.
+  // The list shows the quarter's lectures, or all of its assignments.
   const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
-  const [showHidden, setShowHidden] = useState(false);
+  useEffect(() => {
+    if (!assignmentsRequest) return;
+    setMode("assignments");
+    setShownTerm(term);
+    // Only a new request switches; a quarter change keeps the chosen mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignmentsRequest]);
   const nowIso = useClock(active);
   const now = useMemo(() => new Date(nowIso), [nowIso]);
   const today = jstDate(now);
@@ -174,54 +185,75 @@ export function LectureDesk({
           left.rank - right.rank || left.title.localeCompare(right.title),
       );
   }, [courses, now, schedule?.agendas, taskView, today]);
-  // The task view answers for a new quarter before that quarter's courses
-  // load, so work whose course is not on screen yet waits for it.
-  const work = useMemo(() => {
-    const byId = new Map(courses.map((course) => [course.id, course]));
-    return (taskTerm?.lectureOpenIds ?? [])
-      .flatMap((id) => byAssignment.get(id) ?? [])
-      .flatMap((a) => {
-        const course = byId.get(a.courseId);
-        if (!course) return [];
-        const deadline = taskView?.deadlines?.[a.id];
-        return {
-          assignment: a,
-          course,
-          due: deadline
-            ? {
-                label: deadlineText(deadline, data.settings.locale)
-                  .countdownLabel,
-                tone: deadline.countdownTone,
-              }
-            : undefined,
-        };
-      });
-  }, [byAssignment, courses, taskTerm, taskView]);
-  // Hidden assignments stay with their quarter, folded under the open ones.
-  const hiddenWork = useMemo(() => {
-    const byId = new Map(courses.map((course) => [course.id, course]));
-    return (taskTerm?.lectureHiddenIds ?? [])
-      .flatMap((id) => byAssignment.get(id) ?? [])
-      .flatMap((a) => {
-        const course = byId.get(a.courseId);
-        return course ? [{ assignment: a, course }] : [];
-      });
-  }, [byAssignment, courses, taskTerm]);
   const needle = query.trim().toLowerCase();
-  const shownWork = needle
-    ? work.filter(({ assignment, course }) =>
-        `${assignment.title} ${course.title} ${course.code}`
-          .toLowerCase()
-          .includes(needle),
-      )
-    : work;
-  const shownHidden = needle
-    ? hiddenWork.filter(({ assignment, course }) =>
-        `${assignment.title} ${course.title} ${course.code}`
-          .toLowerCase()
-          .includes(needle),
-      )
-    : hiddenWork;
+  const courseById = new Map(data.courses.map((course) => [course.id, course]));
+  const submittedIds = new Set(taskView?.submittedIds);
+  const matchesWork = (assignment: Assignment) => {
+    const course = courseById.get(assignment.courseId);
+    return `${assignment.title} ${course?.title ?? ""} ${course?.code ?? ""}`
+      .toLowerCase()
+      .includes(needle);
+  };
+  const workRow = (assignment: Assignment) => {
+    const course = courseById.get(assignment.courseId);
+    const due = taskView?.deadlines?.[assignment.id];
+    const submitted = submittedIds.has(assignment.id);
+    // The same states as Today: submitted early, missed, or closed.
+    const state = due?.overdue
+      ? submitted
+        ? " closed"
+        : " missed"
+      : submitted
+        ? " done"
+        : "";
+    return (
+      <button
+        type="button"
+        key={assignment.id}
+        className={`lectureRow${state}${entry?.assignmentId === assignment.id ? " selected" : ""}`}
+        aria-current={
+          entry?.assignmentId === assignment.id ? "true" : undefined
+        }
+        style={{ "--course": course?.color } as React.CSSProperties}
+        onClick={() => choose(assignment.courseId, assignment.id)}
+      >
+        <b>{assignment.title}</b>
+        <small>
+          {course?.title ?? "LMS"} · {submissionLabel(assignment, t, submitted)}
+        </small>
+        {due &&
+          (!due.overdue && !submitted ? (
+            <span className={`dueChip ${due.countdownTone}`}>
+              {deadlineText(due, data.settings.locale).countdownLabel}
+            </span>
+          ) : (
+            <span className="dueChip past">
+              {deadlineText(due, data.settings.locale).label}
+            </span>
+          ))}
+      </button>
+    );
+  };
+  const hiddenRow = (assignment: Assignment) => {
+    const course = courseById.get(assignment.courseId);
+    return (
+      <div
+        key={assignment.id}
+        className="lectureRow hidden"
+        style={{ "--course": course?.color } as React.CSSProperties}
+      >
+        <b>{assignment.title}</b>
+        <small>{course?.title ?? "LMS"}</small>
+        <button
+          type="button"
+          className="textButton"
+          onClick={() => restoreAssignment?.(assignment.id)}
+        >
+          {t("Restore")}
+        </button>
+      </div>
+    );
+  };
   const shown = needle
     ? lectures.filter((lecture) =>
         `${lecture.title} ${lecture.code}`.toLowerCase().includes(needle),
@@ -359,68 +391,22 @@ export function LectureDesk({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.key === "Escape" && setQuery("")}
           />
-          {mode === "assignments" &&
-            shownWork.map(({ assignment, course, due }) => (
-              <button
-                type="button"
-                key={assignment.id}
-                className={`lectureRow${entry?.assignmentId === assignment.id ? " selected" : ""}`}
-                aria-current={
-                  entry?.assignmentId === assignment.id ? "true" : undefined
-                }
-                style={{ "--course": course.color } as React.CSSProperties}
-                onClick={() => choose(course.id, assignment.id)}
-              >
-                <b>{assignment.title}</b>
-                <small>{course.title}</small>
-                {due && (
-                  <span className={`dueChip ${due.tone}`}>{due.label}</span>
-                )}
-              </button>
-            ))}
-          {mode === "assignments" && !shownWork.length && (
-            <p className="quietEmpty compact">
-              {t(
-                work.length
+          {mode === "assignments" && (
+            <AssignmentGroupList
+              key={shownTerm}
+              groups={taskTerm?.record}
+              assignments={byAssignment}
+              row={workRow}
+              hiddenRow={restoreAssignment ? hiddenRow : undefined}
+              matches={needle ? matchesWork : undefined}
+              pastLabel={t("Past deadline")}
+              empty={t(
+                needle
                   ? "No matching assignments."
-                  : "No open assignments.",
+                  : "No assignments this quarter.",
               )}
-            </p>
+            />
           )}
-          {mode === "assignments" &&
-            restoreAssignment &&
-            shownHidden.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  className="lectureHiddenToggle"
-                  aria-expanded={showHidden}
-                  onClick={() => setShowHidden((value) => !value)}
-                >
-                  {showHidden ? "▾" : "▸"} {t("Hidden assignments")}
-                </button>
-                {showHidden &&
-                  shownHidden.map(({ assignment, course }) => (
-                    <div
-                      key={assignment.id}
-                      className="lectureRow hidden"
-                      style={
-                        { "--course": course.color } as React.CSSProperties
-                      }
-                    >
-                      <b>{assignment.title}</b>
-                      <small>{course.title}</small>
-                      <button
-                        type="button"
-                        className="textButton"
-                        onClick={() => restoreAssignment(assignment.id)}
-                      >
-                        {t("Restore")}
-                      </button>
-                    </div>
-                  ))}
-              </>
-            )}
           {mode === "lectures" &&
             shown.map((lecture) => (
               <button

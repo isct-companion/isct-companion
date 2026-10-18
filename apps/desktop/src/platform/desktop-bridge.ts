@@ -403,10 +403,6 @@ export interface DesktopBridge {
   ): Promise<{ site: SchoolSite; url: string }>;
   openExternal(url: string): Promise<void>;
   bootstrapReminders(fired: unknown): Promise<boolean>;
-  lmsMergePreview(
-    scope: "all" | "term",
-    term: string,
-  ): Promise<import("../lib/lms-merge").CoreLmsPreview>;
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
   runScheduledTask(id: string): Promise<string>;
@@ -639,8 +635,6 @@ export function createTauriDesktopBridge(
     },
     bootstrapReminders: (fired) =>
       booleanCommand("bootstrap_reminders", { fired }),
-    lmsMergePreview: (scope, term) =>
-      result("lms_merge_preview", { scope, term }),
     notify: (title, body) => booleanCommand("notify", { title, body }),
     requestNotificationPermission: async () => {
       const value = await invokeCommand("request_notification_permission");

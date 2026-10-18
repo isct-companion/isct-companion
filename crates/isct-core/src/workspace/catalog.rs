@@ -193,102 +193,6 @@ pub(super) fn add_catalog_courses(
     Ok(receipt)
 }
 
-/// Applies the person's LMS review choices to the diff Core recomputes from
-/// the same catalog rows the preview used: adds the chosen LMS courses as
-/// LMS memberships, refreshes LMS-sourced courses, retimes the chosen common
-/// courses, drops the unchecked local ones from that quarter and links LMS
-/// assignments and materials to the timetable course they belong to.
-pub(super) fn grid_slots(grid: &Value) -> Value {
-    Value::Array(
-        grid.as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|meeting| {
-                let day = meeting
-                    .get("day")
-                    .and_then(Value::as_u64)
-                    .unwrap_or_default();
-                let bounds = meeting.get("periods").and_then(Value::as_array);
-                let start = bounds
-                    .and_then(|value| value.first())
-                    .and_then(Value::as_u64)
-                    .unwrap_or_default();
-                let end = bounds
-                    .and_then(|value| value.get(1))
-                    .and_then(Value::as_u64)
-                    .unwrap_or(start);
-                (start..=end).map(move |period| Value::String(format!("{day}:{period}")))
-            })
-            .collect(),
-    )
-}
-
-pub(super) fn offering_slots(offering: &Value) -> Value {
-    let schedule = offering
-        .get("schedule")
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    Value::Array(
-        schedule
-            .iter()
-            .filter(|row| row.get("kind").and_then(Value::as_str) == Some("weekly"))
-            .flat_map(|row| {
-                let day = row.get("day").and_then(Value::as_u64).unwrap_or_default();
-                let bounds = row.get("periods").and_then(Value::as_array);
-                let start = bounds
-                    .and_then(|value| value.first())
-                    .and_then(Value::as_u64)
-                    .unwrap_or_default();
-                let end = bounds
-                    .and_then(|value| value.get(1))
-                    .and_then(Value::as_u64)
-                    .unwrap_or(start);
-                (start..=end).map(move |period| Value::String(format!("{day}:{period}")))
-            })
-            .collect(),
-    )
-}
-
-pub(super) fn course_slots(course: &Value) -> HashSet<String> {
-    course
-        .get("meetings")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .flat_map(|meeting| {
-            let days = meeting
-                .get("days")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_u64)
-                .collect::<Vec<_>>();
-            meeting
-                .get("periods")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_u64)
-                .flat_map(move |period| {
-                    days.clone()
-                        .into_iter()
-                        .map(move |day| format!("{day}:{period}"))
-                })
-        })
-        .collect()
-}
-
-pub(super) fn value_string_set(value: &Value) -> HashSet<String> {
-    value
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect()
-}
-
 /// Meetings from the LMS timetable grid, with the syllabus room for the same
 /// weekday when known.
 pub(crate) fn meetings_from_grid(
@@ -540,4 +444,13 @@ pub(super) fn catalog_meetings(
         meetings.push(json!({"days":[day],"periods":periods,"startTime":start_time,"endTime":end_time,"room":room,"roomNames":room_names}));
     }
     Ok(Value::Array(meetings))
+}
+
+/// The course id of a catalog offering: `{year}-{offeringId}`.
+fn offering_course_id(year: i32, offering_id: &str) -> Result<String, DataError> {
+    if offering_id.len() == 9 && offering_id.bytes().all(|byte| byte.is_ascii_digit()) {
+        crate::data::canonical_course_id(year, offering_id)
+    } else {
+        Ok(format!("{year}-{offering_id}"))
+    }
 }
