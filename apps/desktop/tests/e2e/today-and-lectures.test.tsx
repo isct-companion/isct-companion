@@ -383,6 +383,12 @@ describe("Today's assignment scopes", () => {
     expect(rows[2].className).toContain("missed");
     expect(rows[3].className).toContain("closed");
     expect(rows[1].querySelector("small")?.textContent).toContain("submitted");
+    // Submitted work says so on the right instead of repeating its deadline;
+    // only open work counts down and only missed work shows its deadline.
+    expect(
+      rows.map((row) => row.querySelector(".dueChip")?.textContent),
+    ).toEqual(["1d", "Submitted", "1d ago", "Submitted"]);
+    expect(rows[2].querySelector(".dueChip")?.className).toContain("overdue");
 
     const earlier = await required(
       () =>

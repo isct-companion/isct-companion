@@ -1,5 +1,5 @@
 import { ExamCards } from "../../components/exams/ExamCards";
-import { deadlineText } from "../../lib/deadline-text";
+import { DueChip } from "../../components/DueChip";
 import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
@@ -174,20 +174,13 @@ export function Today({
               {submissionLabel(assignment, t, submitted)}
             </small>
           </span>
-          {due &&
-            (!due.overdue && !submitted ? (
-              <time
-                className={`dueChip ${due.countdownTone}`}
-                dateTime={assignment.dueAt!}
-                title={deadlineText(due, data.settings.locale).label}
-              >
-                {deadlineText(due, data.settings.locale).countdownLabel}
-              </time>
-            ) : (
-              <time className={due.overdue ? "overdue" : due.tone}>
-                {deadlineText(due, data.settings.locale).label}
-              </time>
-            ))}
+          {due && (
+            <DueChip
+              due={due}
+              submitted={submitted}
+              locale={data.settings.locale}
+            />
+          )}
         </UiButton>
         {!mobile && (
           <UiButton

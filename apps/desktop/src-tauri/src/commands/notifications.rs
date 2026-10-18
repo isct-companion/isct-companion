@@ -1,6 +1,8 @@
 use crate::require_local_main;
 use isct_core::notification::NotificationContent;
+#[cfg(not(target_os = "macos"))]
 use tauri::plugin::PermissionState;
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt;
 
 pub(crate) struct DesktopNotifications(pub(crate) tauri::AppHandle);
@@ -17,15 +19,23 @@ impl isct_core::schedule::NotificationSink for DesktopNotifications {
         >,
     > {
         Box::pin(async move {
-            NotificationContent::new(item.title, item.body)
+            let content = NotificationContent::new(item.title, item.body)
                 .map_err(|error| error.to_string())
-                .and_then(|content| show(&self.0, &content))
+                .map_err(isct_core::schedule::NotificationSinkError::Delivery)?;
+            show(&self.0, &content)
+                .await
                 .map_err(isct_core::schedule::NotificationSinkError::Delivery)
         })
     }
 }
 
-fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), String> {
+#[cfg(target_os = "macos")]
+async fn show(_app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), String> {
+    crate::notifications_macos::show(content.title(), content.body()).await
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), String> {
     app.notification()
         .builder()
         .title(content.title())
@@ -35,7 +45,7 @@ fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), Str
 }
 
 #[tauri::command]
-pub(crate) fn notify(
+pub(crate) async fn notify(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     title: String,
@@ -43,7 +53,7 @@ pub(crate) fn notify(
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
     let content = NotificationContent::new(title, body).map_err(|error| error.to_string())?;
-    show(&app, &content)?;
+    show(&app, &content).await?;
     Ok(true)
 }
 
@@ -60,6 +70,16 @@ pub(crate) async fn bootstrap_reminders(
         .map_err(|error| error.to_string())
 }
 
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub(crate) async fn request_notification_permission(
+    webview: tauri::Webview,
+) -> Result<&'static str, String> {
+    require_local_main(&webview)?;
+    crate::notifications_macos::request_permission().await
+}
+
+#[cfg(not(target_os = "macos"))]
 #[tauri::command]
 pub(crate) fn request_notification_permission(
     webview: tauri::Webview,

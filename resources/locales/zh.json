@@ -1322,5 +1322,8 @@
   "If something is wrong, right-click the session in Calendar to correct it, or edit it in Lectures. You can also report it on the data repository.": "发现错误时，可以在日历中右键对应课程修正，或在课程页中编辑；也欢迎到数据仓库反馈。",
   "Report a data problem": "反馈数据问题",
   "IsctCompanion is not responsible for any loss caused by errors in this data.": "因数据错误造成的任何损失，IsctCompanion 不承担责任。",
-  "I understand": "我已了解"
+  "I understand": "我已了解",
+  "Test notification": "测试通知",
+  "This is a test notification.": "这是一条测试通知。",
+  "Send": "发送"
 }

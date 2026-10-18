@@ -1,5 +1,6 @@
 import { examKindLabel } from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
+import { DueChip } from "../../components/DueChip";
 import { CloseButton, Input } from "@mantine/core";
 import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
@@ -270,16 +271,13 @@ export function LectureDesk({
         <small>
           {course?.title ?? "LMS"} · {submissionLabel(assignment, t, submitted)}
         </small>
-        {due &&
-          (!due.overdue && !submitted ? (
-            <span className={`dueChip ${due.countdownTone}`}>
-              {deadlineText(due, data.settings.locale).countdownLabel}
-            </span>
-          ) : (
-            <span className="dueChip past">
-              {deadlineText(due, data.settings.locale).label}
-            </span>
-          ))}
+        {due && (
+          <DueChip
+            due={due}
+            submitted={submitted}
+            locale={data.settings.locale}
+          />
+        )}
       </button>
     );
   };

@@ -74,6 +74,9 @@ if-addrs = "0.14"
 ipnet = "2"
 hickory-resolver = { version = "0.25", default-features = false, features = ["tokio"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSResponder", "NSView"] }
+# Notifications (notifications_macos.rs): the plugin's NSUserNotification path
+# reports success without showing anything on current macOS.
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 # School view WebKit hooks (school_webkit.rs). Same versions wry already uses.
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSURL", "NSURLRequest", "NSURLResponse"] }

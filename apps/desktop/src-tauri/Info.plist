@@ -4,5 +4,9 @@
 <dict>
     <key>NSCameraUsageDescription</key>
     <string>Scan your campus card's Matrix to fill its letters on this device.</string>
+    <!-- Class and exam reminders stay on screen until dismissed. macOS uses
+         this only as the first default; System Settings stays the user's. -->
+    <key>NSUserNotificationAlertStyle</key>
+    <string>alert</string>
 </dict>
 </plist>

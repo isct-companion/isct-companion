@@ -46,15 +46,22 @@ export function NotificationSettings({
   const allowed = settings.localPermission === "granted";
   const canAsk = capability.support === "supported";
 
-  const requestPermission = async () => {
+  // Asking again returns the system's real answer (and prompts only the first
+  // time), so the stored permission follows System Settings.
+  const requestPermission = async (body = t("Notifications are on.")) => {
     if (!desktopBridge || !canAsk) return notify(capability.reason);
-    const permission = await desktopBridge.requestNotificationPermission();
-    update((draft) => {
-      draft.settings.notifications.localPermission = permission;
-      return draft;
-    });
-    if (permission === "granted")
-      await desktopBridge.notify("IsctCompanion", t("Notifications are on."));
+    try {
+      const permission = await desktopBridge.requestNotificationPermission();
+      update((draft) => {
+        draft.settings.notifications.localPermission = permission;
+        return draft;
+      });
+      if (permission === "granted")
+        await desktopBridge.notify("IsctCompanion", body);
+      else notify(t("Notifications are blocked in system settings."));
+    } catch (error) {
+      notify(String(error));
+    }
   };
 
   const set = (
@@ -81,7 +88,7 @@ export function NotificationSettings({
             action={
               <UiButton
                 className="button small primary"
-                onClick={requestPermission}
+                onClick={() => void requestPermission()}
               >
                 {t("Allow notifications")}
               </UiButton>
@@ -196,6 +203,18 @@ export function NotificationSettings({
               />
             </Row>
           </div>
+        )}
+        {canAsk && (
+          <Row id="test-notification" title="Test notification">
+            <UiButton
+              className="button small"
+              onClick={() =>
+                void requestPermission(t("This is a test notification."))
+              }
+            >
+              {t("Send")}
+            </UiButton>
+          </Row>
         )}
       </SettingsGroup>
     </>

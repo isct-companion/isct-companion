@@ -4646,6 +4646,14 @@ textarea.codeArea {
   background: var(--danger-soft);
   color: var(--danger);
 }
+.dueChip.done {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.dueChip.overdue {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
 
 .finderLoadMore {
   display: flex;

@@ -24,6 +24,8 @@ use isct_core::kyomu_guide;
 use isct_core::lifecycle;
 #[cfg(desktop)]
 mod lms_downloader;
+#[cfg(target_os = "macos")]
+mod notifications_macos;
 mod lms_files;
 mod lms_protocol;
 use isct_core::pull_coordinator;
@@ -339,6 +341,10 @@ pub fn run() {
             campus_wifi::campus_wifi_status
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            if let Some(main) = objc2::MainThreadMarker::new() {
+                notifications_macos::install(main);
+            }
             let app_data_dir = app.path().app_data_dir()?;
             let (data_store, _) = data::DataStore::initialize(app_data_dir.join("school.db"))
                 .map_err(std::io::Error::other)?;

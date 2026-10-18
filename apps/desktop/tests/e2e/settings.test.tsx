@@ -2055,7 +2055,14 @@ describe("Academic calendar profile", () => {
 
 describe("Notification preferences", () => {
   it("groups lead times under each reminder and persists both choices", async () => {
+    const sent: unknown[] = [];
     app = await mountSettings(paths.settings("notifications"), {
+      capabilities: { notifications: true },
+      handle: (command, args) => {
+        // The system's real answer, which the stored permission must follow.
+        if (command === "request_notification_permission") return "denied";
+        if (command === "notify") return (sent.push(args), true);
+      },
       apply: (intent, core) => {
         if (intent.kind === "replaceSettings")
           core.publish(
@@ -2141,6 +2148,19 @@ describe("Notification preferences", () => {
     expect(
       app.core.workspace.settings.notifications.assignmentLeadMinutes,
     ).toEqual([1440, 60, 180]);
+
+    // A test notification asks the system first; a refusal sends nothing.
+    await click(
+      pane.querySelector<HTMLButtonElement>(
+        '[data-setting="test-notification"] button',
+      )!,
+    );
+    await wait(() =>
+      expect(app!.core.workspace.settings.notifications.localPermission).toBe(
+        "denied",
+      ),
+    );
+    expect(sent).toEqual([]);
   });
 });
 
