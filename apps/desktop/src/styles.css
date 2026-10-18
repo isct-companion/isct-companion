@@ -3268,19 +3268,25 @@ p {
   font-size: calc(12px * var(--text));
 }
 
-.dueLater {
+.dueGroup {
+  display: grid;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
-.dueLater > small {
+.dueGroup:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.dueGroup > small {
   display: block;
   color: var(--muted);
   font-size: 12px;
   padding-bottom: 4px;
 }
 
-/* Today: "Today" / "Earlier" switch beside the assignments heading */
+/* Today: assignments heading with its count and link */
 .dueSection > header {
   flex-wrap: wrap;
   gap: 10px;
@@ -3368,13 +3374,6 @@ p {
 .dueRow.touchRow .dueAssignment {
   min-height: 48px;
   touch-action: pan-y;
-}
-.duePinned {
-  display: grid;
-  gap: 4px;
-}
-.duePinned > small {
-  color: var(--muted);
 }
 .moreToggle {
   justify-self: start;

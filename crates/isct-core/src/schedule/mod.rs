@@ -57,7 +57,7 @@ pub use reminders::{
 };
 pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
 pub(crate) use tasks::assignment_submitted;
-pub use tasks::{task_view, TaskDeadlineView, TaskView, TermTaskView};
+pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
 pub(crate) use timing::{clock_for_periods, validate_period_range};
 pub use timing::{
     default_teaching_periods, teaching_periods, validate_teaching_periods, TeachingPeriod,
@@ -120,9 +120,6 @@ pub enum WorkspaceQuery {
     },
     TaskView {
         now: String,
-        #[serde(default)]
-        #[cfg_attr(feature = "ts", ts(optional))]
-        include_completed: Option<bool>,
     },
     CourseDetail {
         course_id: String,
@@ -364,13 +361,9 @@ pub fn query(
             before_days,
             after_days,
         )?)),
-        WorkspaceQuery::TaskView {
-            now,
-            include_completed,
-        } => Ok(WorkspaceQueryResult::TaskView(task_view(
+        WorkspaceQuery::TaskView { now } => Ok(WorkspaceQueryResult::TaskView(task_view(
             workspace,
             parse_timestamp(&now)?,
-            include_completed.unwrap_or(false),
         )?)),
         WorkspaceQuery::ScheduleView {
             term,
@@ -713,6 +706,7 @@ pub fn declarations() -> Vec<String> {
         CourseDetail::decl(),
         CourseTimeline::decl(),
         TaskDeadlineView::decl(),
+        AssignmentGroups::decl(),
         TermTaskView::decl(),
         TaskView::decl(),
         AcademicYearIndex::decl(),

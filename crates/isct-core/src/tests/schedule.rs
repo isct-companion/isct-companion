@@ -752,6 +752,9 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         {"id":"later","courseId":"course","title":"Later","dueAt":"2026-04-22T10:00:00+09:00","pinned":true},
         {"id":"past","courseId":"course","title":"Past","dueAt":"2026-04-12T10:00:00+09:00","pinned":true},
         {"id":"past-done","courseId":"course","title":"Past done","dueAt":"2026-04-11T10:00:00+09:00","submission":"graded","pinned":true},
+        {"id":"missed","courseId":"course","title":"Missed","dueAt":"2026-04-10T10:00:00+09:00"},
+        {"id":"old","courseId":"course","title":"Old","dueAt":"2026-03-20T10:00:00+09:00","submission":"submitted"},
+        {"id":"orphan","courseId":"gone","title":"Unlinked","dueAt":"2026-04-12T12:00:00+09:00"},
         {"id":"done","courseId":"course","title":"Done","dueAt":"2026-04-14T10:00:00+09:00","submission":"submitted"},
         {"id":"undated-done","courseId":"course","title":"Graded without date","dueAt":null,"submission":"graded"},
         {"id":"hidden","courseId":"course","title":"Hidden","dueAt":null,"hidden":true},
@@ -760,69 +763,52 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         {"id":"lms-done","courseId":"course","title":"LMS done","dueAt":"2026-04-15T10:00:00+09:00","submissionStatus":"submitted"},
         {"id":"graded","courseId":"course","title":"Graded","dueAt":"2026-04-01T10:00:00+09:00","submission":"graded","deletedAt":"2026-04-02T00:00:00Z"}
     ]);
-    let view = task_view(
-        &data,
-        DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap(),
-        false,
-    )
-    .unwrap();
+    let now = DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap();
+    let view = task_view(&data, now).unwrap();
     let term = &view.by_term["2026-1Q"];
     assert_eq!(term.pending_ids, vec!["soon", "later"]);
-    assert_eq!(term.pinned_ids, vec!["later"]);
-    assert_eq!(term.overdue_ids, vec!["past"]);
-    assert_eq!(term.due_this_week_ids, vec!["soon"]);
-    let completed = task_view(
-        &data,
-        DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap(),
-        true,
-    )
-    .unwrap();
+    // Today: open work, pinned work until it is submitted (even overdue),
+    // and the last week's misses, including unlinked work of this quarter.
+    assert_eq!(term.today.pinned_ids, vec!["past", "later"]);
+    assert_eq!(term.today.due_this_week_ids, vec!["soon"]);
+    assert!(term.today.later_ids.is_empty() && term.today.undated_ids.is_empty());
+    assert_eq!(term.today.past_recent_ids, vec!["orphan", "missed"]);
+    assert!(term.today.past_earlier_ids.is_empty() && term.today.hidden_ids.is_empty());
+    // Record: every assignment whatever its state; the current quarter folds
+    // past work older than two weeks.
+    assert_eq!(term.record.pinned_ids, vec!["later"]);
     assert_eq!(
-        completed.by_term["2026-1Q"].due_this_week_ids,
+        term.record.due_this_week_ids,
         vec!["soon", "done", "lms-done"]
     );
     assert_eq!(
-        completed.by_term["2026-1Q"].overdue_ids,
-        vec!["past", "past-done"]
+        term.record.undated_ids,
+        vec!["undated-done", "invalid", "undated"]
     );
     assert_eq!(
-        completed.by_term["2026-1Q"].undated_completed_ids,
-        Some(vec!["undated-done".to_string()])
+        term.record.past_recent_ids,
+        vec!["orphan", "past", "past-done", "missed"]
     );
-    assert!(term.undated_completed_ids.is_none());
-    assert!(!completed.deadlines.contains_key("undated-done"));
+    assert_eq!(term.record.past_earlier_ids, vec!["old"]);
+    assert_eq!(term.record.hidden_ids, vec!["hidden"]);
+    assert!(!view.deadlines.contains_key("undated-done"));
     // One submitted rule for every shell, including the LMS status field.
     assert_eq!(
         view.submitted_ids,
-        vec!["done", "lms-done", "past-done", "undated-done"]
+        vec!["done", "lms-done", "old", "past-done", "undated-done"]
     );
-    assert_eq!(term.lecture_ids, vec!["soon", "later", "undated"]);
-    assert_eq!(term.lecture_hidden_ids, vec!["hidden"]);
-    // Once the quarter has ended, Lecture Desk lists all of its work, newest
-    // deadline first; hidden work stays folded apart.
+    // Another quarter lists all of its past work at once; unlinked work
+    // belongs only to the current quarter.
     let mut ended = data.clone();
     ended["currentTerm"] = json!("2026-2Q");
-    let ended = task_view(
-        &ended,
-        DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap(),
-        false,
-    )
-    .unwrap();
+    let ended = task_view(&ended, now).unwrap();
+    let ended = &ended.by_term["2026-1Q"].record;
     assert_eq!(
-        ended.by_term["2026-1Q"].lecture_ids,
-        vec![
-            "later",
-            "lms-done",
-            "done",
-            "soon",
-            "past",
-            "past-done",
-            "undated-done",
-            "invalid",
-            "undated"
-        ]
+        ended.past_recent_ids,
+        vec!["past", "past-done", "missed", "old"]
     );
-    assert_eq!(ended.by_term["2026-1Q"].lecture_hidden_ids, vec!["hidden"]);
+    assert!(ended.past_earlier_ids.is_empty());
+    assert_eq!(ended.hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");
     assert_eq!(view.deadlines["soon"].countdown_label, "2h");
     assert_eq!(view.deadlines["soon"].countdown_tone, "urgent");
@@ -905,7 +891,7 @@ fn a_three_q_four_q_course_belongs_to_every_quarter_it_is_placed_in() {
     assert!(ics.contains("UID:multi-weekly-0-2026-12-07@isctcompanion.local"));
 
     // Work for the course counts in 4Q, and its class times continue into 4Q.
-    let tasks = task_view(&data, at("2026-12-07T07:00:00+09:00"), false).unwrap();
+    let tasks = task_view(&data, at("2026-12-07T07:00:00+09:00")).unwrap();
     assert_eq!(tasks.by_term["2026-4Q"].pending_ids, vec!["report"]);
     assert_eq!(tasks.by_term["2026-3Q"].pending_ids, vec!["report"]);
     let timeline =
