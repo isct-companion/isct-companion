@@ -15,6 +15,7 @@ import {
   overviewFor,
   planningWeekFor,
   scheduleViewFor,
+  lectureSearchFor,
   typeInto,
   until,
   workspaceFixture,
@@ -416,6 +417,7 @@ async function mountCompactToday(opened: string[]): Promise<Mounted> {
     queries: {
       scheduleView: (_query, fake) => scheduleViewFor(fake.workspace),
       taskView: (_query, fake) => taskViewFor(fake.workspace),
+      lectureSearch: (query, fake) => lectureSearchFor(fake.workspace, query),
     },
     handle: nativeNoise,
   });
@@ -622,6 +624,7 @@ async function mountLectures(workspace: Workspace): Promise<MountedApp> {
         ...homeQueries,
         scheduleView: (_query, core) => lectureSchedule(core.workspace),
         taskView: (_query, core) => lectureTasks(core.workspace),
+        lectureSearch: (query, core) => lectureSearchFor(core.workspace, query),
         courseTimeline: () => ({
           lastStarted: null,
           next: null,
@@ -901,6 +904,86 @@ describe("the lecture desk", () => {
     );
   }, 30_000);
 
+  it("asks once about data accuracy and marks a calendar session from its right-click menu", async () => {
+    const workspace = lectureWorkspace();
+    delete workspace.settings.dataNoticeAcknowledgedAt;
+    app = await mountApp(
+      {
+        workspace,
+        revision: freshRevision(),
+        queries: {
+          ...homeQueries,
+          scheduleView: (_query, core) => lectureSchedule(core.workspace),
+          taskView: (_query, core) => lectureTasks(core.workspace),
+          courseTimeline: () => ({
+            lastStarted: null,
+            next: null,
+            classAt: null,
+          }),
+        },
+        handle: nativeNoise,
+      },
+      { route: paths.home() },
+    );
+    const notice = await required(
+      () => document.querySelector<HTMLElement>('[role="dialog"]'),
+      "the data notice",
+    );
+    expect(notice.textContent).toContain("Before you rely on this data");
+    await click(
+      [...notice.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "I understand",
+      )!,
+    );
+    await until(() =>
+      expect(app!.core.intents).toContainEqual(
+        expect.objectContaining({
+          kind: "replaceSettings",
+          settings: expect.objectContaining({
+            dataNoticeAcknowledgedAt: expect.any(String),
+          }),
+        }),
+      ),
+    );
+
+    const block = await required(
+      () =>
+        app!.host.querySelector<HTMLElement>(
+          ".calendarWorkspace .ttBlock.course",
+        ),
+      "a class on the calendar",
+    );
+    await act(async () => {
+      block.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 40,
+          clientY: 40,
+        }),
+      );
+    });
+    const items = await required(() => {
+      const found = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ];
+      return found.length ? found : null;
+    }, "the session menu");
+    expect(
+      items.map((item) => item.textContent?.replace(/[✓\s]+/, "")),
+    ).toEqual(["Mark as exam", "Mark as cancelled", "Mark as a normal class"]);
+    // The running class is already a normal class.
+    expect(items[2].textContent).toContain("✓");
+    await click(items[1]);
+    await until(() =>
+      expect(app!.core.intents).toContainEqual({
+        kind: "markSession",
+        key: `now-${jstDay(0)}-00:00`,
+        mark: "cancelled",
+      }),
+    );
+  }, 30_000);
+
   it("lists lectures in class order with the Now chip and each lecture's next deadline", async () => {
     const mounted = await mountLectures(lectureWorkspace());
     const rows = await readyLectureRows(mounted.host);
@@ -910,7 +993,8 @@ describe("the lecture desk", () => {
       "Course later",
       "Course friday",
     ]);
-    expect(rows[0].querySelector("small")?.textContent).toBe("Now · R3");
+    // The course code leads the meeting details.
+    expect(rows[0].querySelector("small")?.textContent).toBe("NOW · Now · R3");
     expect(rows[0].className).toContain("now");
     expect(rows[1].querySelector(".dueChip")?.textContent).toBe("1d 12h");
   }, 20_000);
@@ -947,6 +1031,18 @@ describe("the lecture desk", () => {
     await until(() =>
       expect(lectureTitles(mounted.host)).toEqual(["Course later"]),
     );
+
+    await click(
+      await required(
+        () =>
+          mounted.host.querySelector<HTMLButtonElement>(
+            '.lectureFilter button[aria-label="Clear"]',
+          ),
+        "the filter's clear button",
+      ),
+    );
+    expect(filter.value).toBe("");
+    expect(lectureTitles(mounted.host)).toHaveLength(3);
   }, 20_000);
 
   it("switches to the quarter's assignments and opens the chosen one", async () => {

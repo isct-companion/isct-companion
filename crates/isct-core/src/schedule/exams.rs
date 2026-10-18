@@ -44,6 +44,13 @@ pub struct ExamView {
     /// Date, time, room or title differs from the published record.
     pub edited: bool,
     pub hidden: bool,
+    /// The user's mark, which outranks the published kind and status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "ts",
+        ts(optional, type = "\"exam\" | \"cancelled\" | \"class\"")
+    )]
+    pub mark: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -135,6 +142,70 @@ pub(crate) fn corrected_exam_override(
     finish_override(row)
 }
 
+/// The stored correction after the user marks this exam-timetable row as an
+/// exam, a class or cancelled. A kind mark equal to the published kind is
+/// dropped, so the row follows its source again.
+pub(crate) fn marked_exam_override(
+    workspace: &Value,
+    key: &str,
+    mark: &str,
+) -> Result<Option<Value>, ScheduleError> {
+    let (exam, term) = published_exam(workspace, key)?;
+    let source = source_view(workspace, exam, &term);
+    let mut row = override_base(workspace, key);
+    keep_schedule_fields(workspace, key, &mut row);
+    row.remove("mark");
+    if mark == "cancelled" || mark != source.kind || source.status == "cancelled" {
+        row.insert("mark".into(), mark.into());
+    }
+    finish_override(row)
+}
+
+/// The stored override after the user marks one calendar session. Rows of
+/// the exam timetable follow `marked_exam_override`; any other key is a class
+/// session (imported or custom course), whose other corrections are kept.
+pub(crate) fn marked_session_override(
+    workspace: &Value,
+    key: &str,
+    mark: &str,
+) -> Result<Option<Value>, ScheduleError> {
+    if !matches!(mark, "exam" | "cancelled" | "class") {
+        return Err(ScheduleError::InvalidInput(
+            "Mark a session as an exam, cancelled or a normal class.".into(),
+        ));
+    }
+    if published_exam(workspace, key).is_ok() {
+        return marked_exam_override(workspace, key, mark);
+    }
+    if key.trim().is_empty() {
+        return Err(ScheduleError::InvalidInput(
+            "Choose a session to mark.".into(),
+        ));
+    }
+    let mut row = Map::new();
+    if let Some(existing) = existing_override(workspace, key).and_then(Value::as_object) {
+        for field in [
+            "courseId",
+            "date",
+            "periods",
+            "startTime",
+            "endTime",
+            "room",
+            "title",
+            "hidden",
+        ] {
+            if let Some(value) = existing.get(field).filter(|value| !value.is_null()) {
+                row.insert(field.into(), value.clone());
+            }
+        }
+    }
+    row.insert("targetKey".into(), key.into());
+    row.insert("targetKind".into(), "course".into());
+    row.entry("hidden").or_insert(json!(false));
+    row.insert("mark".into(), mark.into());
+    Ok(Some(Value::Object(row)))
+}
+
 /// The stored correction after linking the exam to `course_id`, or to no
 /// course. Choosing the course code matching would pick returns to automatic
 /// matching.
@@ -149,11 +220,7 @@ pub(crate) fn linked_exam_override(
     }
     let automatic = source_view(workspace, exam, &term).course_id;
     let mut row = override_base(workspace, key);
-    for field in ["date", "startTime", "endTime", "periods", "room"] {
-        if let Some(value) = existing_override(workspace, key).and_then(|row| row.get(field)) {
-            row.insert(field.into(), value.clone());
-        }
-    }
+    keep_schedule_fields(workspace, key, &mut row);
     row.remove("courseId");
     if course_id != automatic.as_deref() {
         row.insert("courseId".into(), course_id.unwrap_or_default().into());
@@ -285,6 +352,7 @@ fn source_view_with(
         source,
         edited: false,
         hidden: false,
+        mark: None,
     }
 }
 
@@ -326,6 +394,15 @@ fn apply_override(
         view.title = title.into();
     }
     view.hidden = change["hidden"].as_bool().unwrap_or(false);
+    view.mark = text(change, "mark").map(str::to_owned);
+    match view.mark.as_deref() {
+        Some("cancelled") => view.status = "cancelled".into(),
+        Some(kind @ ("exam" | "class")) => {
+            view.kind = kind.into();
+            view.status = "scheduled".into();
+        }
+        _ => {}
+    }
     view.edited = filled("title").is_some()
         || view.date != view.source.date
         || view.start_time != view.source.start_time
@@ -403,13 +480,21 @@ fn existing_override<'a>(workspace: &'a Value, key: &str) -> Option<&'a Value> {
         .find(|row| visible(row) && text(row, "targetKey") == Some(key))
 }
 
+fn keep_schedule_fields(workspace: &Value, key: &str, row: &mut Map<String, Value>) {
+    for field in ["date", "startTime", "endTime", "periods", "room"] {
+        if let Some(value) = existing_override(workspace, key).and_then(|row| row.get(field)) {
+            row.insert(field.into(), value.clone());
+        }
+    }
+}
+
 /// Identity and the fields the caller does not replace.
 fn override_base(workspace: &Value, key: &str) -> Map<String, Value> {
     let existing = existing_override(workspace, key);
     let mut row = Map::new();
     row.insert("targetKey".into(), key.into());
     row.insert("targetKind".into(), "exam".into());
-    for field in ["courseId", "title", "hidden"] {
+    for field in ["courseId", "title", "hidden", "mark"] {
         if let Some(value) = existing
             .and_then(|row| row.get(field))
             .filter(|v| !v.is_null())
@@ -423,6 +508,7 @@ fn override_base(workspace: &Value, key: &str) -> Map<String, Value> {
 
 fn finish_override(row: Map<String, Value>) -> Result<Option<Value>, ScheduleError> {
     let personal = row.contains_key("courseId")
+        || row.contains_key("mark")
         || row.get("hidden").and_then(Value::as_bool) == Some(true)
         || ["date", "startTime", "endTime", "periods", "room", "title"]
             .iter()

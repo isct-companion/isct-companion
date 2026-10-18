@@ -456,6 +456,9 @@
   "Exam": "試験",
   "Class in exam week": "試験期間中の授業",
   "Classes in exam week": "試験期間中の授業",
+  "Mark as exam": "試験にする",
+  "Mark as cancelled": "休講にする",
+  "Mark as a normal class": "通常授業にする",
   "Exam timetable": "試験時間割",
   "Export changes": "変更を書き出す",
   "Export completed": "書き出しが完了しました",
@@ -1312,5 +1315,12 @@
   "No linked exams this quarter. Search to find a published exam.": "このクォーターに関連する試験はありません。公開試験を検索できます。",
   "Select an exam to edit its schedule or link a course.": "試験を選択すると、予定の編集や授業との関連付けができます。",
   "Exam saved": "試験を保存しました",
-  "Linked": "関連付け済み"
+  "Linked": "関連付け済み",
+  "Before you rely on this data": "ご利用の前に",
+  "IsctCompanion collects calendars, exam timetables and course details from Science Tokyo's official pages and documents, and we work to keep them accurate.": "IsctCompanion は、Science Tokyo の公式ページや公式資料から学年暦・試験時間割・授業情報を集め、正確さの維持に努めています。",
+  "Much of this data is organised automatically, partly with AI, so it can contain mistakes. Please check anything important, especially exam dates, times and rooms, against the official source.": "これらのデータの多くは自動で（一部は AI を用いて）整理しているため、誤りが含まれる可能性があります。重要な情報、特に試験の日時と教室は、必ず大学の公式情報でご確認ください。",
+  "If something is wrong, right-click the session in Calendar to correct it, or edit it in Lectures. You can also report it on the data repository.": "誤りを見つけた場合は、カレンダーで該当する授業を右クリックするか、講義で編集して修正できます。データリポジトリへの報告も歓迎します。",
+  "Report a data problem": "データの問題を報告",
+  "IsctCompanion is not responsible for any loss caused by errors in this data.": "データの誤りによって生じた損害について、IsctCompanion は責任を負いません。",
+  "I understand": "了解しました"
 }

@@ -456,6 +456,9 @@
   "Exam": "考试",
   "Class in exam week": "考试周授课",
   "Classes in exam week": "考试周授课",
+  "Mark as exam": "设为考试",
+  "Mark as cancelled": "设为休讲",
+  "Mark as a normal class": "设为正常上课",
   "Exam timetable": "考试时间表",
   "Export changes": "导出更改",
   "Export completed": "导出完成",
@@ -1312,5 +1315,12 @@
   "No linked exams this quarter. Search to find a published exam.": "本季度没有已关联考试。可搜索已发布考试。",
   "Select an exam to edit its schedule or link a course.": "选择考试后，可编辑安排或关联课程。",
   "Exam saved": "考试已保存",
-  "Linked": "已关联"
+  "Linked": "已关联",
+  "Before you rely on this data": "使用前请注意",
+  "IsctCompanion collects calendars, exam timetables and course details from Science Tokyo's official pages and documents, and we work to keep them accurate.": "IsctCompanion 会从 Science Tokyo 的官方网页和文件中收集校历、考试时间表和课程信息，并尽力保证准确。",
+  "Much of this data is organised automatically, partly with AI, so it can contain mistakes. Please check anything important, especially exam dates, times and rooms, against the official source.": "这些数据大多经过自动整理（部分借助 AI），仍可能出错。重要信息，尤其是考试的日期、时间和教室，请以学校官方发布为准。",
+  "If something is wrong, right-click the session in Calendar to correct it, or edit it in Lectures. You can also report it on the data repository.": "发现错误时，可以在日历中右键对应课程修正，或在课程页中编辑；也欢迎到数据仓库反馈。",
+  "Report a data problem": "反馈数据问题",
+  "IsctCompanion is not responsible for any loss caused by errors in this data.": "因数据错误造成的任何损失，IsctCompanion 不承担责任。",
+  "I understand": "我已了解"
 }

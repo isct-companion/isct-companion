@@ -42,7 +42,9 @@ pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use course_detail::{course_detail, CourseDetail};
 pub use credits::declared_term_credits;
-pub(crate) use exams::{corrected_exam_override, linked_exam_override, ExamCorrection};
+pub(crate) use exams::{
+    corrected_exam_override, linked_exam_override, marked_session_override, ExamCorrection,
+};
 pub use exams::{exam_association, exam_views, ExamAssociation, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
 pub(crate) use occurrence::placement_terms;

@@ -30,6 +30,8 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "locale": settings.get("locale"),
         "contentLanguage": settings.get("contentLanguage"),
         "subscriptionRefresh": settings.get("subscriptionRefresh"),
+        // A per-device acknowledgement; it does not sync.
+        "dataNoticeAcknowledgedAt": settings.get("dataNoticeAcknowledgedAt"),
         "notifications": {"localPermission": settings.pointer("/notifications/localPermission")}
     });
     let cloud = settings.get("cloud").cloned().unwrap_or_else(|| json!({}));

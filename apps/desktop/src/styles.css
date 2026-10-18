@@ -628,13 +628,25 @@ p {
   background: color-mix(in srgb, var(--course) 17%, var(--surface));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--course) 42%, var(--line));
 }
-.ttBlock .ttExamBand {
-  width: fit-content;
-  max-width: 100%;
-  color: var(--course);
+/* An inline tag after the course code, in the course's own colour, inside
+   the card's exam border. It never takes a line of its own. */
+.ttExamTag,
+.ttBlock .ttExamTag {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--course) 34%, var(--surface));
+  color: color-mix(in srgb, var(--course) var(--course-tint-ink), var(--ink));
   font-size: calc(9px * var(--text));
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: 750;
+  line-height: 1.5;
+  opacity: 1;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.ttAgendaRow .ttExamTag {
+  margin: 0 5px 0 0;
 }
 .ttBlock .ttConflict,
 .ttAgendaRow .ttConflict {
@@ -4041,6 +4053,21 @@ p {
 }
 
 /* ---------- settings: lists, configs ---------- */
+/* One-time notice on data accuracy. */
+.dataNotice {
+  display: grid;
+  gap: 10px;
+  font-size: calc(13px * var(--text));
+  line-height: 1.6;
+}
+.dataNotice p {
+  margin: 0;
+}
+.dataNotice button {
+  justify-self: end;
+  margin-top: 6px;
+}
+
 .paneEmpty {
   padding: 28px 0;
   color: var(--muted);

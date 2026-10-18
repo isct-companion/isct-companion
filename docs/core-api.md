@@ -84,7 +84,7 @@ Intent groups (the generated `WorkspaceIntent` is the complete field schema):
 | Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `markTimetableReviewed` |
 | Events / plans         | `saveEvent`, `deleteEvent`, `savePlan`, `deletePlan`                                                                                                              |
 | Calendar / sources     | `saveCalendarException`, `deleteCalendarException`, `saveSubscription`, `setSubscription`, `deleteSubscription`                                                   |
-| Overrides / automation | `saveScheduleOverride`, `deleteScheduleOverride`, `editExam`, `linkExam`, `saveScheduledTask`, `deleteScheduledTask`, `recordScheduledTaskRun`, `saveIntensiveSchedule` |
+| Overrides / automation | `saveScheduleOverride`, `deleteScheduleOverride`, `editExam`, `linkExam`, `markSession`, `saveScheduledTask`, `deleteScheduledTask`, `recordScheduledTaskRun`, `saveIntensiveSchedule` |
 | Assignment / lesson    | `setAssignmentMark`, `recordLesson`                                                                                                                               |
 
 Save intents take a `draft`; optional `existingId` selects update rather than
@@ -698,6 +698,17 @@ quarters; `examIds` remains available for existing clients.
 period. It is matched, linked and corrected like an exam, but enters agendas and
 reminders as a session of its course. It is never an upcoming exam, an `examIds`
 entry or an `examAssociation` conflict.
+
+`markSession { key, mark }` records the user's call on one calendar session
+(`Occurrence.key`): `exam`, `cancelled` (休講) or `class` (it runs). It is the
+`mark` field of that session's schedule override, so it syncs and backs up like
+every other personal correction, and later date, time or room edits keep it. On
+a weekly session (imported or custom course), `exam` turns the block into an
+exam, and `cancelled` shows it greyed in the calendar while agendas and
+reminders drop it. `class` makes a session that a holiday or the exam period
+cancels take place. On an exam-timetable row, a mark that equals the published
+kind is dropped. A row the user cancelled stays greyed in the calendar so the
+mark can be undone.
 
 On one day the sources rank: a session the user edited by hand, then the exam
 timetable (its exams and class rows), then the weekly pattern. A timetable class
