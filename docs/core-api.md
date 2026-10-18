@@ -84,7 +84,7 @@ Intent groups (the generated `WorkspaceIntent` is the complete field schema):
 | Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `markTimetableReviewed` |
 | Events / plans         | `saveEvent`, `deleteEvent`, `savePlan`, `deletePlan`                                                                                                              |
 | Calendar / sources     | `saveCalendarException`, `deleteCalendarException`, `saveSubscription`, `setSubscription`, `deleteSubscription`                                                   |
-| Overrides / automation | `saveScheduleOverride`, `deleteScheduleOverride`, `saveScheduledTask`, `deleteScheduledTask`, `recordScheduledTaskRun`, `saveIntensiveSchedule`                   |
+| Overrides / automation | `saveScheduleOverride`, `deleteScheduleOverride`, `editExam`, `linkExam`, `markSession`, `saveScheduledTask`, `deleteScheduledTask`, `recordScheduledTaskRun`, `saveIntensiveSchedule` |
 | Assignment / lesson    | `setAssignmentMark`, `recordLesson`                                                                                                                               |
 
 Save intents take a `draft`; optional `existingId` selects update rather than
@@ -685,3 +685,66 @@ Regenerate the shared TypeScript contracts with `yarn core:types`. The root
 command runs `cargo run -p isct-core --features ts --example export-types` and
 formats `apps/desktop/src/generated/persistence.ts`. The exporter belongs to Core
 and is not included in desktop application bundles.
+
+## Exam read models
+
+`ScheduleView.exams` contains the selected quarter's visible published subscription
+records, including unlinked and cancelled exams. `ScheduleView.upcomingExams`
+contains scheduled, linked, unhidden exams from the query's start date across
+source quarters. `CourseDetail.exams` contains a course's exams across its placed
+quarters; `examIds` remains available for existing clients.
+
+`ExamView.kind` is `class` for a class row the exam timetable lists in the exam
+period. It is matched, linked and corrected like an exam, but enters agendas and
+reminders as a session of its course. It is never an upcoming exam, an `examIds`
+entry or an `examAssociation` conflict.
+
+`markSession { key, mark }` records the user's call on one calendar session
+(`Occurrence.key`): `exam`, `cancelled` (休講) or `class` (it runs). It is the
+`mark` field of that session's schedule override, so it syncs and backs up like
+every other personal correction, and later date, time or room edits keep it. On
+a weekly session (imported or custom course), `exam` turns the block into an
+exam, and `cancelled` shows it greyed in the calendar while agendas and
+reminders drop it. `class` makes a session that a holiday or the exam period
+cancels take place. On an exam-timetable row, a mark that equals the published
+kind is dropped. A row the user cancelled stays greyed in the calendar so the
+mark can be undone.
+
+On one day the sources rank: a session the user edited by hand, then the exam
+timetable (its exams and class rows), then the weekly pattern. A timetable class
+row replaces that course's weekly sessions for the day, and an exam replaces its
+course's classes, except sessions with a schedule override. In
+`calendarBetween`, a day the weekly pattern skips still has `noClasses: false`
+when an exam or class takes place. Inside the calendar's `examRanges` its notice
+reads "Exam period" (試験期間) rather than "No classes". `QuarterRange` carries
+those `examRanges`.
+
+Core matches an exam within its academic year and quarter, using an explicit
+course link or a unique enrolled course with the full course/class code. A class
+suffix remains part of the identity. Unlinked exams remain browsable in Lectures
+and do not enter personal agendas or reminders. Missing times remain visible on
+cards; timed agenda entries and reminders require a usable start and end time.
+
+Personal exam corrections live in one schedule override per exam, keyed by the
+subscription's stable source key. `editExam { examKey, date?, startTime?, endTime?,
+room?, hidden }` replaces the date, time and room corrections: Core stores only the
+fields that differ from the published record, so a later source correction still
+reaches every field the user left alone. A start time needs an end time.
+`editExam` with no fields resets to the source and keeps the course link.
+`linkExam { examKey, courseId? }` links a course of the exam's quarter, or none
+when `courseId` is absent, without touching the other fields. Choosing the course
+that matching would pick returns the exam to automatic matching. An override with
+nothing personal left is removed. `saveScheduleOverride` rejects exam targets.
+`ExamView.source` carries the published date, time and room; `edited` is set only
+when one of them or the title differs, and `autoLinked` marks a matched course.
+The shared exam projection supplies Today, Lectures, course details and reminders.
+
+`settings.notifications.exams` and `examLeadMinutes` control exam reminders
+independently. New workspaces default to enabled, 60 minutes before the exam.
+Older settings without these fields retain the previous class-reminder preference
+and lead time until changed. These preferences participate in user backups and cloud sync.
+
+`examAssociation { examKey, courseId }` returns the other exams already linked to
+that course; the editor lists them beside the link without blocking it. Lecture
+Desk shows linked exams by default and searches all published exams of its
+selected quarter when Filter contains text.

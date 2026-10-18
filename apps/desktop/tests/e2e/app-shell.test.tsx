@@ -595,18 +595,21 @@ describe("shell navigation", () => {
       () => host.querySelector<HTMLInputElement>('input[aria-label="Filter"]'),
       "the lecture filter",
     );
+    const term = await required(
+      () =>
+        host.querySelector<HTMLInputElement>('.lectureTerm [role="combobox"]'),
+      "the quarter picker",
+    );
+    // A quarter change clears the filter, so the filter is typed after it.
+    await typeInto(filter, "algebra");
+    await chooseOption(term, "2026-2Q");
+    expect(filter.value).toBe("");
     await typeInto(filter, "graph");
     const list = await required(
       () => host.querySelector<HTMLElement>(".lectureList"),
       "the lecture list",
     );
     list.scrollTop = 128;
-    const term = await required(
-      () =>
-        host.querySelector<HTMLInputElement>('.lectureTerm [role="combobox"]'),
-      "the quarter picker",
-    );
-    await chooseOption(term, "2026-2Q");
 
     await app.go(paths.home());
     await app.go(paths.lectures(placedCourse.id));

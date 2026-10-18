@@ -1,8 +1,15 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { UiInput } from "../../components/mantine";
-import { contentLanguage, pickLocalized, type TermId, type Workspace } from "../../lib/model";
+import {
+  contentLanguage,
+  pickLocalized,
+  type TermId,
+  type Workspace,
+} from "../../lib/model";
 import { t } from "../../i18n";
+import { useScheduleQuery } from "../../platform/core-query";
+import type { LectureSearch } from "../../generated/persistence";
 
 const termLabel = (term: string) => term.replace("-", " · ");
 
@@ -17,6 +24,10 @@ export function CourseFinder({
   open: (courseId: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const matches = useScheduleQuery<LectureSearch>(
+    { kind: "lectureSearch", term: null, query },
+    Boolean(query.trim()),
+  ).value;
   const [expanded, setExpanded] = useState(false);
   const [cursor, setCursor] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -56,9 +67,7 @@ export function CourseFinder({
         contentLanguage(data.settings),
         course.title,
       );
-      const haystack =
-        `${title} ${course.title} ${course.code} ${course.instructor}`.toLowerCase();
-      if (needle && !haystack.includes(needle)) continue;
+      if (needle && !matches?.courseIds.includes(course.id)) continue;
       const list = byTerm.get(course.termId) ?? [];
       list.push({
         id: course.id,
@@ -77,7 +86,14 @@ export function CourseFinder({
         label: id === term ? `This term · ${termLabel(id)}` : termLabel(id),
         courses: courses.sort((a, b) => a.title.localeCompare(b.title)),
       }));
-  }, [data.courses, data.settings.locale, data.settings.contentLanguage, query, term]);
+  }, [
+    data.courses,
+    data.settings.locale,
+    data.settings.contentLanguage,
+    matches,
+    query,
+    term,
+  ]);
   const flat = groups.flatMap((group) => group.courses);
   const choose = (id: string) => {
     open(id);

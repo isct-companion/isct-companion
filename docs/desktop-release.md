@@ -9,11 +9,28 @@ release pipelines remain separate and are not part of this workflow.
 CI uses the Yarn version pinned in `package.json`, enabled through Corepack,
 and installs dependencies with `yarn install --immutable`.
 
-The Desktop release workflow runs by manual dispatch. Update the matching versions
+The Desktop release workflow runs on version tag pushes and by manual dispatch. Update the matching versions
 in `package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml`,
 `Cargo.lock` and `apps/desktop/src-tauri/tauri.conf.json`, including its macOS
-`bundleVersion`. Push the verified commit, then dispatch `desktop-release.yml`
-on that ref with `publish=true`. Leave `replace_existing=false` for new versions.
+`bundleVersion`. Add user-facing notes in `docs/releases/<version>.md`. After review,
+commit and push the changes, then push a matching version tag:
+
+```sh
+git tag -a v1.1.2 -m "IsctCompanion 1.1.2"
+git push origin v1.1.2
+```
+
+Any maintainer with permission to push that tag can start a release. Actions uses
+repository secrets for signing and its scoped `GITHUB_TOKEN` for publication;
+maintainers do not need the owner's local credentials. Existing repository tag
+rules still apply. A tag must match the application version. Tests and type checks
+run before the three installer builds; every build must succeed before publication.
+Tags pushed by another workflow's `GITHUB_TOKEN` do not trigger this workflow;
+use a human maintainer's normal Git authentication or a GitHub App token.
+
+Manual dispatch remains available with `publish=true`. Leave
+`replace_existing=false` for new versions. To prepare a review build, dispatch
+with `publish=false` and push the version tag only after approval.
 
 To build without publishing, leave `publish=false`. To publish an existing successful
 Desktop release build without rebuilding, set `source_run_id` to its Actions run ID.
@@ -85,3 +102,6 @@ Windows signing remains unconfigured.
 References: [Apple certificate creation](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/),
 [Tauri macOS signing](https://v2.tauri.app/distribute/sign/macos/),
 [Apple app-specific passwords](https://support.apple.com/en-us/102654).
+
+GitHub references: [tag push events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push),
+[token permissions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication).

@@ -162,6 +162,11 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
             .find(|o| text(o, "id") == text(course, "offeringId"))
         {
             if !user_courses.contains(text(course, "id")) {
+                if text(course, "code").is_empty() {
+                    if let Some(code) = offering["code"].as_str().filter(|code| !code.is_empty()) {
+                        course["code"] = code.into();
+                    }
+                }
                 if let Some(language) = offering["instructionLanguage"]
                     .as_str()
                     .filter(|s| !s.is_empty())
@@ -288,6 +293,20 @@ fn project_lms_timetable(
             }
             if !offering_id.is_empty() {
                 course["offeringId"] = offering_id.into();
+            }
+        }
+        // Syllabus often exposes only a base code plus a letter class label.
+        // The linked LMS shortname retains the school's numeric class suffix.
+        let same_offering = !offering_id.is_empty() && text(&course, "offeringId") == offering_id;
+        let own_lms_record = course["source"]["provider"] == "lms"
+            && text(&course["source"], "externalId") == lms_id.to_string();
+        if !user_courses.contains(&id)
+            && course["source"]["provider"] != "manual"
+            && (same_offering || own_lms_record)
+        {
+            let code = lms_course_code(text(lms, "shortname"));
+            if !code.is_empty() {
+                course["code"] = code.into();
             }
         }
         // A user-owned course retains its personal clocks. Cached school

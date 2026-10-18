@@ -1,6 +1,7 @@
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { formatJst } from "../lib/civil-date";
 import { CalendarView } from "../pages/today/CalendarView";
+import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
@@ -369,19 +370,6 @@ export function WorkspaceApp() {
     url: string;
     request: number;
   } | null>(null);
-  // Timing context and repeated entrances stay in history state, outside the URL.
-  const lectureEntry = useMemo<CourseEntry | null>(
-    () =>
-      params.courseId
-        ? {
-            ...location.state?.lectureContext,
-            courseId: params.courseId,
-            assignmentId: params.aid,
-            request: location.state?.lectureRequest ?? Date.now(),
-          }
-        : null,
-    [params.courseId, params.aid, location.state?.lectureRequest],
-  );
   // Hidden Activities keep their last route props so another page's params
   // cannot replace retained subpages. Visible navigation always reads the URL.
   const renderedRoutes = useRef({
@@ -389,15 +377,50 @@ export function WorkspaceApp() {
     section,
     settingsOpen: Boolean(params.section),
     webSite: schoolSite(params.site),
-    lectureEntry,
+    lectureEntry: null as CourseEntry | null,
+    examEntry: null as { key: string; term: TermId; request: number } | null,
   });
+  // Timing context and repeated entrances stay in history state, outside the URL.
+  // Returning through the page's remembered URL carries no state; it resumes
+  // the retained entrance rather than starting a new one.
+  const lectureEntry = useMemo<CourseEntry | null>(() => {
+    if (!params.courseId) return null;
+    const retained = renderedRoutes.current.lectureEntry;
+    return {
+      ...location.state?.lectureContext,
+      courseId: params.courseId,
+      assignmentId: params.aid,
+      request:
+        location.state?.lectureRequest ??
+        (retained?.courseId === params.courseId &&
+        retained.assignmentId === params.aid
+          ? retained.request
+          : Date.now()),
+    };
+  }, [params.courseId, params.aid, location.state?.lectureRequest]);
+  const examEntry = useMemo(() => {
+    if (!params.examKey || !params.examTerm) return null;
+    const retained = renderedRoutes.current.examEntry;
+    return {
+      key: params.examKey,
+      term: params.examTerm as TermId,
+      request:
+        location.state?.lectureRequest ??
+        (retained?.key === params.examKey && retained.term === params.examTerm
+          ? retained.request
+          : Date.now()),
+    };
+  }, [params.examKey, params.examTerm, location.state?.lectureRequest]);
   if (page === "web") renderedRoutes.current.webSite = schoolSite(params.site);
   if (page === "home") renderedRoutes.current.homeView = homeView;
   if (page === "settings") {
     renderedRoutes.current.section = section;
     renderedRoutes.current.settingsOpen = Boolean(params.section);
   }
-  if (page === "lectures") renderedRoutes.current.lectureEntry = lectureEntry;
+  if (page === "lectures") {
+    renderedRoutes.current.lectureEntry = lectureEntry;
+    renderedRoutes.current.examEntry = examEntry;
+  }
   const retainedLecture = renderedRoutes.current.lectureEntry;
   const blocker = useBlocker(
     ({ nextLocation }) =>
@@ -538,7 +561,13 @@ export function WorkspaceApp() {
     sourceData?.courses
       .filter(
         (course) =>
-          !course.deletedAt && course.offeringId && !course.names?.title?.en,
+          !course.deletedAt &&
+          course.offeringId &&
+          (!course.names?.title?.en ||
+            !sourceData.offerings.some(
+              (offering) =>
+                offering.id === course.offeringId && offering.fetchedAt?.en,
+            )),
       )
       .map((course) => course.offeringId!)
       .sort()
@@ -834,6 +863,11 @@ export function WorkspaceApp() {
       state: { lectureRequest: Date.now(), lectureContext: timing },
     });
   };
+  const openExam = (key: string, term: string) => {
+    void navigate(paths.exam(key, term), {
+      state: { lectureRequest: Date.now() },
+    });
+  };
   /** Refresh LMS course content and all available timetable quarters. */
   const fetchLms = async (
     quiet = false,
@@ -940,6 +974,8 @@ export function WorkspaceApp() {
       railHovered={lectureRailHovered}
       data={data}
       term={todayTerm}
+      examEntry={renderedRoutes.current.examEntry}
+      selectExam={openExam}
       entry={
         retainedLecture &&
         data.courses.some(
@@ -960,13 +996,9 @@ export function WorkspaceApp() {
                 hidden: false,
               })
       }
-      select={(courseId, assignmentId) => {
-        if (
-          lectureEntry?.courseId !== courseId ||
-          lectureEntry?.assignmentId !== assignmentId
-        )
-          openLecture(courseId, { assignmentId });
-      }}
+      select={(courseId, assignmentId, term) =>
+        openLecture(courseId, { assignmentId, term })
+      }
       clear={() =>
         void hideNativeSchoolWeb()
           .then(() => closeTo(paths.lectures()))
@@ -1098,6 +1130,7 @@ export function WorkspaceApp() {
             active={page === "home"}
             data={data}
             term={todayTerm}
+            openExam={openExam}
             open={(courseId, _tab, context) => openLecture(courseId, context)}
             openEvent={(event) =>
               !readOnly && setEventEditor({ event, term: event.termId })
@@ -1142,8 +1175,24 @@ export function WorkspaceApp() {
           </UiButton>
           <CalendarView
             data={data}
+            mark={
+              readOnly
+                ? undefined
+                : (block, as) =>
+                    void workspaceActions
+                      .mutate({ kind: "markSession", key: block.key, mark: as })
+                      .catch(notify.error)
+            }
             open={(block) => {
-              if (block.kind === "course") openLecture(block.id);
+              if (block.kind === "exam" && block.termId)
+                openExam(block.key, block.termId);
+              else if (block.kind === "course")
+                openLecture(block.id, {
+                  term: block.termId,
+                  date: block.date,
+                  startTime: block.startTime,
+                  endTime: block.endTime,
+                });
               else if (block.kind === "plan") {
                 const plan = data.plans.find((row) => row.id === block.id);
                 if (plan && !readOnly) setPlanEditor(plan);
@@ -1435,6 +1484,19 @@ export function WorkspaceApp() {
             desktopBridge?.pullSchool ? () => void fetchLms() : undefined
           }
           progress={lmsProgress}
+        />
+      )}
+      {!readOnly && !data.settings.dataNoticeAcknowledgedAt && (
+        <DataNotice
+          acknowledge={() =>
+            update((draft) => ({
+              ...draft,
+              settings: {
+                ...draft.settings,
+                dataNoticeAcknowledgedAt: new Date().toISOString(),
+              },
+            }))
+          }
         />
       )}
       {/* Editors show a failed submission inline and stay open. */}

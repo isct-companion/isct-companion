@@ -2080,6 +2080,31 @@ describe("Notification preferences", () => {
         30,
       ),
     );
+    const examTime = pane.querySelector<HTMLInputElement>(
+      '[data-setting="exam-lead"] [role="combobox"]',
+    )!;
+    expect(examTime.closest('[role="group"]')!.getAttribute("aria-label")).toBe(
+      "Exam reminders",
+    );
+    await chooseOption(examTime, "1440");
+    await wait(() =>
+      expect(app!.core.workspace.settings.notifications.examLeadMinutes).toBe(
+        1440,
+      ),
+    );
+    const exams = pane.querySelector('[data-setting="exams"] input')!;
+    await click(exams);
+    await wait(() =>
+      expect(pane.querySelector('[data-setting="exam-lead"]')).toBeNull(),
+    );
+    expect(app.core.workspace.settings.notifications.classes).toBe(true);
+    await click(exams);
+    await wait(() =>
+      expect(pane.querySelector('[data-setting="exam-lead"]')).not.toBeNull(),
+    );
+    expect(app.core.workspace.settings.notifications.examLeadMinutes).toBe(
+      1440,
+    );
     const assignmentTime = pane.querySelector<HTMLInputElement>(
       '[aria-label="Assignment reminder times"]',
     )!;

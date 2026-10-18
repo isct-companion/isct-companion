@@ -5,6 +5,8 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "departmentId": settings.get("departmentId"),
         "notifications": {
             "classes": settings.pointer("/notifications/classes"),
+            "exams": settings.pointer("/notifications/exams"),
+            "examLeadMinutes": settings.pointer("/notifications/examLeadMinutes"),
             "assignments": settings.pointer("/notifications/assignments"),
             "classLeadMinutes": settings.pointer("/notifications/classLeadMinutes"),
             "assignmentLeadMinutes": settings.pointer("/notifications/assignmentLeadMinutes")
@@ -28,6 +30,8 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "locale": settings.get("locale"),
         "contentLanguage": settings.get("contentLanguage"),
         "subscriptionRefresh": settings.get("subscriptionRefresh"),
+        // A per-device acknowledgement; it does not sync.
+        "dataNoticeAcknowledgedAt": settings.get("dataNoticeAcknowledgedAt"),
         "notifications": {"localPermission": settings.pointer("/notifications/localPermission")}
     });
     let cloud = settings.get("cloud").cloned().unwrap_or_else(|| json!({}));
@@ -85,6 +89,19 @@ pub(super) fn validate_preference_values(settings: &Value) -> Result<(), DataErr
     crate::schedule::assignment_lead_minutes(settings.get("notifications").unwrap_or(&Value::Null))
         .map_err(|error| DataError::InvalidInput(error.to_string()))?;
 
+    if let Some(lead) = settings
+        .pointer("/notifications/examLeadMinutes")
+        .filter(|value| !value.is_null())
+    {
+        if !lead
+            .as_u64()
+            .is_some_and(|lead| (1..=10080).contains(&lead))
+        {
+            return Err(DataError::InvalidInput(
+                "Exam reminder time must be between 1 minute and 7 days.".into(),
+            ));
+        }
+    }
     validate_choices(settings, PREFERENCE_CHOICES)?;
     settings
         .get("cloud")

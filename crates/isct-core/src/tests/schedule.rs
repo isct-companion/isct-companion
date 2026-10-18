@@ -1153,7 +1153,8 @@ fn assignment_completion_is_shared_by_mcp_tasks_and_reminders() {
 #[test]
 fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     let data = json!({
-        "courses":[{"id":"c","code":" csc.t101 ","offeringId":"o"}],
+        "courses":[{"id":"c","code":" csc.t101 ","offeringId":"o","termId":"2026-3Q"}],
+        "memberships":[{"courseId":"c","termId":"2026-3Q","status":"lms-member","evidence":{"provider":"lms"}}],
         "offerings":[{"id":"o"}],
         "materials":[
             {"id":"later","courseId":"c","session":2},
@@ -1173,8 +1174,8 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
             {"id":"deleted","courseId":"c","deletedAt":"x"}
         ],
         "exams":[
-            {"id":"late","courseCode":"CSC.T101","date":"2026-11-02","status":"scheduled"},
-            {"id":"early","courseCode":"csc.t101 ","date":"2026-11-01","status":"scheduled"},
+            {"id":"late","academicYear":2026,"quarter":"3Q","courseCode":"CSC.T101","date":"2026-11-02","status":"scheduled"},
+            {"id":"early","academicYear":2026,"quarter":"3Q","courseCode":"csc.t101 ","date":"2026-11-01","status":"scheduled"},
             {"id":"missing","courseCode":"CSC.T101","status":"scheduled","missingSince":"x"},
             {"id":"cancelled","courseCode":"CSC.T101","status":"cancelled"}
         ]
@@ -1508,4 +1509,305 @@ fn contained_import_slots_do_not_make_a_course_conflict_with_itself() {
         named(data["courses"][0]["id"].as_str().unwrap()),
         Some(vec!["Other course".to_string()])
     );
+}
+
+#[test]
+fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits() {
+    let mut data = workspace();
+    data["exams"] = json!([
+        {"id":"mine","sourceKey":"reference:mine","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-14","periods":[1,2],"status":"scheduled"},
+        {"id":"other-class","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241-02","date":"2026-04-14","status":"scheduled"},
+        {"id":"old-year","academicYear":2025,"quarter":"1Q","courseCode":"CSC.T241","date":"2025-04-14","status":"scheduled"},
+        {"id":"stale","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-14","status":"scheduled","missingSince":"x"}
+    ]);
+    let views = exam_views(&data, "2026-1Q");
+    assert_eq!(views.len(), 2);
+    let mine = views.iter().find(|row| row.id == "mine").unwrap();
+    assert_eq!(mine.course_id.as_deref(), Some("course"));
+    assert_eq!(mine.start_time.as_deref(), Some("08:50"));
+    let other = views.iter().find(|row| row.id == "other-class").unwrap();
+    assert_eq!(other.course_id, None);
+    assert_eq!(other.start_time, None); // Unannounced times still have a visible card.
+    assert_eq!(exam_views(&data, "2025-1Q")[0].course_id, None);
+    assert_eq!(course_detail(&data, "course").exam_ids, ["mine"]);
+
+    data["scheduleOverrides"] = json!([{"id":"edit","targetKey":"reference:mine","targetKind":"exam","courseId":"course","date":"2026-10-19","startTime":"00:30","endTime":"01:30","room":"My room","hidden":false}]);
+    data["currentTerm"] = json!("2026-3Q");
+    data["settings"]["notifications"] =
+        json!({"classes":false,"exams":true,"examLeadMinutes":1440,"assignments":false});
+    let now = DateTime::parse_from_rfc3339("2026-10-18T00:20:00+09:00").unwrap();
+    let horizon = now + chrono::Duration::minutes(20);
+    let plan = notification_plan(&data, now, horizon, None).unwrap();
+    assert_eq!(plan.items.len(), 1);
+    assert_eq!(plan.items[0].key, "class:reference:mine");
+    assert!(matches!(plan.items[0].priority, NotificationPriority::Exam));
+    assert!(plan.items[0].body.contains("My room"));
+    let rows = resolve_day_agenda(&data, "2026-1Q", "2026-10-19", Default::default()).unwrap();
+    assert_eq!(rows[0].start_time, "00:30");
+    assert_eq!(course_detail(&data, "course").exams[0].room, "My room");
+    data["settings"]["notifications"]["exams"] = json!(false);
+    assert!(notification_plan(&data, now, horizon, None)
+        .unwrap()
+        .items
+        .is_empty());
+    data["settings"]["notifications"]["exams"] = json!(true);
+    data["scheduleOverrides"][0]["hidden"] = json!(true);
+    assert!(notification_plan(&data, now, horizon, None)
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(
+        exam_views(&data, "2026-1Q")
+            .iter()
+            .find(|row| row.id == "mine")
+            .unwrap()
+            .hidden
+    );
+    data["scheduleOverrides"][0]["hidden"] = json!(false);
+    data["scheduleOverrides"][0]["courseId"] = json!("");
+    assert_eq!(
+        exam_views(&data, "2026-1Q")
+            .iter()
+            .find(|exam| exam.id == "mine")
+            .unwrap()
+            .course_id,
+        None
+    );
+}
+
+#[test]
+fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
+    let mut data = workspace();
+    data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"});
+    data["exams"] = json!([
+        // The weekly class meets Mondays 1-2.
+        row("moved", "class", "2026-04-13", [3, 4]),
+        row("extra", "class", "2026-04-15", [5, 6]),
+        row("final", "exam", "2026-04-16", [3, 4]),
+        row("kept", "class", "2026-04-20", [7, 8]),
+        row("exam-week", "class", "2026-05-28", [1, 2]),
+        row("monday-exam", "exam", "2026-04-27", [5, 6]),
+        row("edited-monday-exam", "exam", "2026-05-11", [5, 6]),
+    ]);
+    // A hand-edited weekly session outranks the timetable.
+    data["scheduleOverrides"] = json!([
+        {"id":"mine","targetKey":"course-weekly-0-2026-04-20","targetKind":"course","room":"My room","hidden":false},
+        {"id":"mine-too","targetKey":"course-weekly-0-2026-05-11","targetKind":"course","room":"My room","hidden":false}
+    ]);
+    let agenda = |date| {
+        resolve_day_agenda(&data, "2026-1Q", date, Default::default())
+            .unwrap()
+            .into_iter()
+            .map(|block| (block.kind, block.key, block.start_time, block.room))
+            .collect::<Vec<_>>()
+    };
+    let session = |key: &str, start: &str, room: &str| {
+        (
+            OccurrenceKind::Course,
+            key.to_string(),
+            start.to_string(),
+            room.to_string(),
+        )
+    };
+    assert_eq!(
+        agenda("2026-04-13"),
+        [session("reference:moved", "10:45", "W8E-E207")]
+    );
+    assert_eq!(
+        agenda("2026-04-15"),
+        [session("reference:extra", "13:30", "W8E-E207")]
+    );
+    assert_eq!(agenda("2026-04-16")[0].0, OccurrenceKind::Exam);
+    assert_eq!(
+        agenda("2026-04-20"),
+        [
+            session("course-weekly-0-2026-04-20", "08:50", "My room"),
+            session("reference:kept", "15:25", "W8E-E207"),
+        ]
+    );
+
+    // An exam replaces the weekly class too, unless the user edited it.
+    let kinds = |date| {
+        agenda(date)
+            .into_iter()
+            .map(|block| block.0)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(kinds("2026-04-27"), [OccurrenceKind::Exam]);
+    assert_eq!(
+        kinds("2026-05-11"),
+        [OccurrenceKind::Course, OccurrenceKind::Exam]
+    );
+
+    // The exam period is not a day without classes when something is on.
+    let days = calendar_between(&data, "2026-05-28", "2026-05-29").unwrap();
+    assert_eq!(
+        days.iter()
+            .map(|day| (day.no_classes, day.calendar_notice.as_deref()))
+            .collect::<Vec<_>>(),
+        [(false, Some("Exam period")), (true, Some("Exam period"))]
+    );
+
+    let views = exam_views(&data, "2026-1Q");
+    assert_eq!(views.iter().filter(|view| view.kind == "class").count(), 4);
+    let detail = course_detail(&data, "course");
+    assert_eq!(detail.exams.len(), 7);
+    assert_eq!(
+        detail.exam_ids,
+        ["final", "monday-exam", "edited-monday-exam"]
+    );
+    assert_eq!(
+        super::exams::upcoming_exams(&data, "2026-04-01")
+            .into_iter()
+            .map(|view| view.id)
+            .collect::<Vec<_>>(),
+        ["final", "monday-exam", "edited-monday-exam"]
+    );
+    assert!(exam_association(&data, "reference:extra", "course")
+        .unwrap()
+        .conflicts
+        .iter()
+        .all(|view| view.kind == "exam"));
+}
+
+#[test]
+fn a_user_mark_decides_what_a_session_is() {
+    let mut data = workspace();
+    data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    data["exams"] = json!([{"id":"final","kind":"exam","sourceKey":"reference:final","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-23","periods":[3,4],"room":{"ja":"W8E-E207"},"label":{"ja":"期末"},"status":"scheduled"}]);
+    let mark = |data: &mut Value, key: &str, mark: &str| {
+        let row = super::exams::marked_session_override(data, key, mark).unwrap();
+        let rows = data["scheduleOverrides"].as_array_mut().unwrap();
+        rows.retain(|existing| existing["targetKey"] != key);
+        if let Some(mut row) = row {
+            row["id"] = json!(key);
+            rows.push(row);
+        }
+    };
+    let agenda = |data: &Value, date| {
+        resolve_day_agenda(data, "2026-1Q", date, Default::default())
+            .unwrap()
+            .into_iter()
+            .map(|block| (block.kind, block.cancelled))
+            .collect::<Vec<_>>()
+    };
+    let calendar = |data: &Value, date: &str| {
+        calendar_between(data, date, date).unwrap()[0]
+            .occurrences
+            .iter()
+            .map(|block| (block.kind, block.cancelled))
+            .collect::<Vec<_>>()
+    };
+    // Weekly Monday 1-2: cancelled stays visible greyed in the calendar only.
+    mark(&mut data, "course-weekly-0-2026-04-13", "cancelled");
+    assert!(agenda(&data, "2026-04-13").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-04-13"),
+        [(OccurrenceKind::Course, Some(true))]
+    );
+    // A weekly session marked as an exam is an exam.
+    mark(&mut data, "course-weekly-0-2026-04-20", "exam");
+    assert_eq!(agenda(&data, "2026-04-20"), [(OccurrenceKind::Exam, None)]);
+    // A session the exam period cancels runs when the user says it does.
+    assert!(agenda(&data, "2026-06-01").is_empty());
+    mark(&mut data, "course-weekly-0-2026-06-01", "class");
+    assert_eq!(
+        agenda(&data, "2026-06-01"),
+        [(OccurrenceKind::Course, None)]
+    );
+    let day = calendar_between(&data, "2026-06-01", "2026-06-01").unwrap();
+    assert!(!day[0].no_classes);
+
+    // Exam-timetable rows: cancel, turn into a class, then back to the source.
+    mark(&mut data, "reference:final", "cancelled");
+    assert!(agenda(&data, "2026-04-23").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-04-23"),
+        [(OccurrenceKind::Exam, Some(true))]
+    );
+    assert!(super::exams::upcoming_exams(&data, "2026-04-01").is_empty());
+    mark(&mut data, "reference:final", "class");
+    assert_eq!(
+        agenda(&data, "2026-04-23"),
+        [(OccurrenceKind::Course, None)]
+    );
+    mark(&mut data, "reference:final", "exam");
+    assert!(!data["scheduleOverrides"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["targetKey"] == "reference:final"));
+    assert_eq!(agenda(&data, "2026-04-23"), [(OccurrenceKind::Exam, None)]);
+    assert!(super::exams::marked_session_override(&data, "reference:final", "maybe").is_err());
+}
+
+#[test]
+fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
+    let mut data = workspace();
+    data["academicCalendar"][0]["examRanges"] =
+        json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    data["settings"]["notifications"] = json!({"classes":true,"exams":true,"classLeadMinutes":10,"examLeadMinutes":60,"assignments":false});
+    let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| {
+        json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"})
+    };
+    data["exams"] = json!([
+        row("week-class", "class", "2026-05-28", [5, 6]),
+        row("final", "exam", "2026-05-29", [3, 4]),
+        row("dropped", "exam", "2026-06-02", [3, 4]),
+    ]);
+    for (key, mark) in [
+        ("course-weekly-0-2026-04-13", "cancelled"),
+        ("course-weekly-0-2026-04-20", "exam"),
+        ("course-weekly-0-2026-06-01", "class"),
+        ("reference:dropped", "cancelled"),
+    ] {
+        let mut row = super::exams::marked_session_override(&data, key, mark)
+            .unwrap()
+            .unwrap();
+        row["id"] = json!(key);
+        data["scheduleOverrides"].as_array_mut().unwrap().push(row);
+    }
+    let now = DateTime::parse_from_rfc3339("2026-04-12T00:00:00+09:00").unwrap();
+    let horizon = DateTime::parse_from_rfc3339("2026-06-03T00:00:00+09:00").unwrap();
+    let plan = notification_plan(&data, now, horizon, None).unwrap();
+    let items: Vec<_> = plan
+        .items
+        .iter()
+        .map(|item| {
+            (
+                item.at.as_str(),
+                matches!(item.priority, NotificationPriority::Exam),
+                item.title.starts_with("Exam · "),
+            )
+        })
+        .collect();
+    // Weekly Mondays from 04-27 to 05-25 remind as classes; 04-13 is
+    // cancelled and 04-20 is an exam with the exam lead.
+    assert!(!items.iter().any(|item| item.0.starts_with("2026-04-13")));
+    assert!(items.contains(&("2026-04-20T07:50:00+09:00", true, true)));
+    assert!(items.contains(&("2026-04-27T08:40:00+09:00", false, false)));
+    // The timetable's exam-week class is a class; its final is an exam.
+    assert!(items.contains(&("2026-05-28T13:20:00+09:00", false, false)));
+    assert!(items.contains(&("2026-05-29T09:45:00+09:00", true, true)));
+    // The exam period stops the weekly class, unless the user says it runs;
+    // a timetable exam the user cancelled never reminds.
+    assert!(items.contains(&("2026-06-01T08:40:00+09:00", false, false)));
+    assert!(!items.iter().any(|item| item.0.starts_with("2026-06-02")));
+    assert_eq!(
+        items.iter().filter(|item| item.1).count(),
+        2,
+        "only the marked exam and the timetable final remind as exams"
+    );
+    // Turning exams off keeps the exam-week class, a class reminder.
+    data["settings"]["notifications"]["exams"] = json!(false);
+    let classes_only = notification_plan(&data, now, horizon, None).unwrap();
+    assert!(classes_only
+        .items
+        .iter()
+        .all(|item| matches!(item.priority, NotificationPriority::Class)));
+    assert!(classes_only
+        .items
+        .iter()
+        .any(|item| item.at == "2026-05-28T13:20:00+09:00"));
 }

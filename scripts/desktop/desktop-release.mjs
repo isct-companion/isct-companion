@@ -23,21 +23,29 @@ const targets = {
 function validate() {
   if (!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(version))
     throw new Error("Invalid release version");
-  if (
-    JSON.parse(read("apps/desktop/src-tauri/tauri.conf.json")).version !==
-    version
-  )
+  const tauri = JSON.parse(read("apps/desktop/src-tauri/tauri.conf.json"));
+  if (tauri.version !== version || tauri.bundle.macOS.bundleVersion !== version)
     throw new Error("Tauri/package version mismatch");
   const cargoVersion = /^version = "([^"]+)"/m.exec(
     read("apps/desktop/src-tauri/Cargo.toml"),
   )?.[1];
   if (cargoVersion !== version)
     throw new Error("Cargo/package version mismatch");
+  const lockedVersion = /name = "isct-companion"\r?\nversion = "([^"]+)"/.exec(
+    read("Cargo.lock"),
+  )?.[1];
+  if (lockedVersion !== version)
+    throw new Error("Cargo.lock/package version mismatch");
   if (
     process.env.GITHUB_REF?.startsWith("refs/tags/") &&
     process.env.GITHUB_REF !== `refs/tags/v${version}`
   )
     throw new Error("Release tag must match app version");
+  if (
+    process.env.GITHUB_REF?.startsWith("refs/tags/") &&
+    !existsSync(path.join(root, "docs/releases", `${version}.md`))
+  )
+    throw new Error("Add versioned release notes before pushing a release tag");
   for (const file of ["docs/legal/EULA.md", "docs/legal/EULA.ja.md"])
     if (
       /\[licensor|\[YYYY|\[contact|\[Confirm|［|<!--\s*DRAFT/i.test(read(file))

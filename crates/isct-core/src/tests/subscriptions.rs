@@ -45,45 +45,94 @@ fn frozen_fixture_manifest_hashes_match_every_source() {
 }
 
 #[test]
-fn validates_and_versions_an_exam_scope() {
-    let raw = json!({
-        "schemaVersion": 1,
-        "academicYear": 2026,
-        "timezone": "Asia/Tokyo",
-        "source": source(),
-        "entries": [{
-            "id": "exam-one",
-            "kind": "exam",
+fn exam_and_exam_week_class_feeds_validate_and_store_apart() {
+    let feed_json = |kind: &str, timing: Value| {
+        let mut entry = json!({
+            "id": "row-one",
+            "kind": kind,
             "status": "scheduled",
             "quarter": "2Q",
             "courseCode": "CSC.T241",
             "date": "2026-07-29",
-            "periods": [3, 4],
             "room": {"ja": "W9-101"},
             "label": {"ja": "試験"},
             "sourceIds": ["official"],
             "sourcePages": [1]
-        }]
-    })
-    .to_string();
-    let feed = validate_exam_feed(&raw, 2026, "2q").unwrap();
-    let published = PublishedExamFeed {
+        });
+        entry
+            .as_object_mut()
+            .unwrap()
+            .extend(timing.as_object().unwrap().clone());
+        json!({
+            "schemaVersion": 1,
+            "academicYear": 2026,
+            "timezone": "Asia/Tokyo",
+            "source": source(),
+            "entries": [entry]
+        })
+        .to_string()
+    };
+    let periods = json!({"periods": [3, 4]});
+    let exact = json!({"startTime": "10:45", "endTime": "12:25"});
+    let exams = ExamFeedKind::Exams;
+    let classes = ExamFeedKind::ExamWeekClasses;
+    // Each dataset accepts only its own row kind; a class row needs periods.
+    assert!(validate_exam_feed(&feed_json("class", periods.clone()), 2026, "2q", exams).is_err());
+    assert!(validate_exam_feed(&feed_json("exam", periods.clone()), 2026, "2q", classes).is_err());
+    assert!(validate_exam_feed(&feed_json("class", exact.clone()), 2026, "2q", classes).is_err());
+    assert!(validate_exam_feed(&feed_json("exam", exact), 2026, "2q", exams).is_ok());
+    assert_eq!(
+        exam_scope("exam-week-classes/graduate/2026-2q.json", 2026, classes),
+        Some(("graduate".into(), "2q".into()))
+    );
+    assert_eq!(
+        exam_scope("exam-week-classes/graduate/2026-2q.json", 2026, exams),
+        None
+    );
+    assert_eq!(
+        exam_scope("exam/graduate/2026-2q.json", 2026, classes),
+        None
+    );
+
+    let published = |kind, raw: String| PublishedExamFeed {
+        kind,
         level: "undergraduate".into(),
         quarter: "2q".into(),
-        url: "https://example.com/exams.json".into(),
-        feed,
+        url: "https://example.com/feed.json".into(),
+        feed: validate_exam_feed(&raw, 2026, "2q", kind).unwrap(),
     };
+    let exam = published(exams, feed_json("exam", periods.clone()));
+    let class = published(classes, feed_json("class", periods));
     let mut connection = Connection::open_in_memory().unwrap();
     migrations::migrate(&mut connection).unwrap();
-    assert_eq!(apply_exam_feed(&mut connection, &published).unwrap(), 1);
-    let value: String = connection
-        .query_row("SELECT value FROM exams", [], |row| row.get(0))
-        .unwrap();
-    let value: Value = serde_json::from_str(&value).unwrap();
-    assert_eq!(value["quarter"], "2Q");
+    assert_eq!(apply_exam_feed(&mut connection, &exam).unwrap(), 1);
+    assert_eq!(apply_exam_feed(&mut connection, &class).unwrap(), 1);
+    // Re-applying one dataset must not mark the other's rows missing, even
+    // when both use the same entry id.
+    apply_exam_feed(&mut connection, &exam).unwrap();
+    let rows: Vec<Value> = connection
+        .prepare("SELECT value FROM exams WHERE missing_since IS NULL ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|raw| serde_json::from_str(&raw.unwrap()).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["quarter"], "2Q");
     assert_eq!(
-        value["sourceKey"],
-        "reference:exams:2026:undergraduate:2q:exam-one"
+        rows.iter()
+            .map(|row| (
+                row["kind"].as_str().unwrap(),
+                row["sourceKey"].as_str().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (
+                "class",
+                "reference:exam-week-classes:2026:undergraduate:2q:row-one"
+            ),
+            ("exam", "reference:exams:2026:undergraduate:2q:row-one"),
+        ]
     );
 }
 

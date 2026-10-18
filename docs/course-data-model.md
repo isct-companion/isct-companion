@@ -14,6 +14,34 @@ data and overlays.
 
 ## How each source is read
 
+### Course-code lookup
+
+Course code is the common lookup field for courses, their assignments, and
+published exams. An explicitly linked LMS course keeps its full shortname code
+without the year, including the numeric class suffix; syllabus base codes stay
+search aliases and do not overwrite that suffix. Manual courses stay user-owned.
+An exact association uses
+`(academic year, quarter, normalized full code)` and returns every candidate;
+only a unique enrolled course is linked automatically. An explicit syllabus
+offering ID can resolve the same identity directly. Base-code and fuzzy matches
+are search candidates, never automatic exam links.
+
+The Core `lectureSearch` query serves Lecture Desk and Today's course finder.
+It searches course codes, both title languages, instructors, assignment titles,
+and published exam labels/rooms. It normalizes full-width input and punctuation,
+accepts reordered search words, and tolerates a single typo in longer Latin
+words. Lecture Desk searches its selected quarter; Today's course finder searches
+every stored quarter. The course-selection catalog continues using 教務Web.
+
+Persistent course IDs and personal overrides retain their existing provider
+identities. Code is a lookup key, rather than a replacement storage ID.
+
+LMS owns the weekly timetable grid. Syllabus details supply course metadata and
+rooms for those grid weekdays; an LMS English title alone does not mean the
+details have been fetched. Subscription exams retain their source code, dates,
+times, rooms and notes, including instructions to confirm an individual room in
+LMS when a published room cell lists a shared candidate pool.
+
 Checked against the live sites on 2026-09-28 (read-only calls only).
 
 | Source             | Data                                                                                                               | Access                                                                                 | Notes                                                                                                                                                                                                     |
@@ -27,7 +55,7 @@ Checked against the live sites on 2026-09-28 (read-only calls only).
 | LMS                | All dated events, including submitted work                                                                         | **API** `core_calendar_get_calendar_upcoming_view`, `…_monthly_view`                   | Deadlines of finished work.                                                                                                                                                                               |
 | LMS                | Submission detail, assignment description, folder files                                                            | **HTML** (`mod/assign/view.php`, `mod/folder/view.php`)                                | `mod_assign_*`, `core_course_get_contents` and the other web-service functions return `servicenotavailable`. Only fetched on demand.                                                                      |
 | LMS                | Grades                                                                                                             | **Not available**                                                                      | `grade/report/user` → 無効なユーザです, `grade/report/overview` → 評点を表示できません. Official grades come from 教務Web.                                                                                |
-| LMS                | Dashboard timetable block                                                                                          | HTML, read from the loaded dashboard                                                                     | Read all offered year/quarter grids through the dashboard query form; preserve failed quarters and keep non-weekly membership separate from missing data.                                                                                                                |
+| LMS                | Dashboard timetable block                                                                                          | HTML, read from the loaded dashboard                                                   | Read all offered year/quarter grids through the dashboard query form; preserve failed quarters and keep non-weekly membership separate from missing data.                                                 |
 | 教務Web            | Registration list and state (`PID1_0.aspx`), grades (`PID2_0.aspx`), requirement progress (`PID2_6.aspx`), notices | **HTML only** (`GET`)                                                                  | ASP.NET WebForms with `__doPostBack` and ViewState, no JSON. Its only `$.ajax` is a keep-alive that re-posts the whole form; the app must never call it. Japanese only (English is a server-side toggle). |
 | Portal (GetAccess) | Sign-in and service links                                                                                          | HTML                                                                                   | Sign-in only; no data imported.                                                                                                                                                                           |
 

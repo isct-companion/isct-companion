@@ -24,6 +24,10 @@ pub struct TeachingRange {
 pub struct QuarterRange {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub teaching_ranges: Option<Vec<TeachingRange>>,
+    /// The official final-exam and make-up period inside the quarter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub exam_ranges: Option<Vec<TeachingRange>>,
     pub from: String,
     pub to: String,
 }
@@ -128,23 +132,27 @@ pub(crate) fn quarter_range(
         return Ok(None);
     };
     let canonical_id = format!("calendar:{}:quarter-start:{quarter}", term.year);
-    let teaching_ranges = array(workspace, "academicCalendar")
+    let quarter_start = array(workspace, "academicCalendar")
         .iter()
-        .find(|row| visible(row) && text(row, "id") == Some(canonical_id.as_str()))
-        .and_then(|row| row.get("teachingRanges"))
-        .and_then(Value::as_array)
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| {
-                    Some(TeachingRange {
-                        start: text(row, "start")?.into(),
-                        end: text(row, "end")?.into(),
+        .find(|row| visible(row) && text(row, "id") == Some(canonical_id.as_str()));
+    let ranges = |field: &str| {
+        quarter_start
+            .and_then(|row| row.get(field))
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        Some(TeachingRange {
+                            start: text(row, "start")?.into(),
+                            end: text(row, "end")?.into(),
+                        })
                     })
-                })
-                .collect()
-        });
+                    .collect::<Vec<_>>()
+            })
+    };
     Ok(Some(QuarterRange {
-        teaching_ranges,
+        teaching_ranges: ranges("teachingRanges"),
+        exam_ranges: ranges("examRanges"),
         from: from.into(),
         to,
     }))

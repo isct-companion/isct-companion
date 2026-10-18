@@ -234,6 +234,11 @@ pub async fn catalog_sync_offerings(
         });
         match url {
             Some(url) => targets.push((id, url)),
+            // An LMS offering id is already an official syllabus locator;
+            // a fresh install need not search the catalog before reading it.
+            None if id.len() == 9 && id.bytes().all(|byte| byte.is_ascii_digit()) => {
+                targets.push((id.clone(), id));
+            }
             None => missing.push(format!("{id}: not in the catalog")),
         }
     }

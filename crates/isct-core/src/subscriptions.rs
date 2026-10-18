@@ -250,8 +250,45 @@ pub struct ExamFeed {
     pub entries: Vec<ExamEntry>,
 }
 
+/// The two datasets cut from the central exam timetable: its final-exam rows,
+/// and its class rows (授業, including make-up classes) in the exam period.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExamFeedKind {
+    Exams,
+    ExamWeekClasses,
+}
+
+impl ExamFeedKind {
+    fn directory(self) -> &'static str {
+        match self {
+            Self::Exams => "exam",
+            Self::ExamWeekClasses => "exam-week-classes",
+        }
+    }
+    /// The `kind` every entry of this dataset carries.
+    pub fn entry_kind(self) -> &'static str {
+        match self {
+            Self::Exams => "exam",
+            Self::ExamWeekClasses => "class",
+        }
+    }
+    fn row_prefix(self) -> &'static str {
+        match self {
+            Self::Exams => "exam",
+            Self::ExamWeekClasses => "exam-week-class",
+        }
+    }
+    fn source_key_prefix(self) -> &'static str {
+        match self {
+            Self::Exams => "reference:exams",
+            Self::ExamWeekClasses => "reference:exam-week-classes",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PublishedExamFeed {
+    pub kind: ExamFeedKind,
     pub level: String,
     pub quarter: String,
     pub url: String,
@@ -303,6 +340,8 @@ struct AcademicYearEntry {
     academic_calendar: IndexedSource,
     #[serde(default)]
     exams: Vec<IndexedSource>,
+    #[serde(default)]
+    exam_week_classes: Vec<IndexedSource>,
     #[serde(default)]
     important_dates: Option<IndexedSource>,
     #[serde(default)]
@@ -729,6 +768,7 @@ pub fn validate_exam_feed(
     raw: &str,
     year: i32,
     quarter: &str,
+    kind: ExamFeedKind,
 ) -> Result<ExamFeed, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("exam data exceeds the size limit".into());
@@ -754,7 +794,8 @@ pub fn validate_exam_feed(
         });
         if !ids.insert(entry.id.as_str())
             || entry.id.trim().is_empty()
-            || entry.kind != "exam"
+            || entry.kind != kind.entry_kind()
+            || (kind == ExamFeedKind::ExamWeekClasses && !periods)
             || entry.quarter.to_ascii_lowercase() != quarter
             || entry.course_code.trim().is_empty()
             || entry.label.ja.trim().is_empty()
@@ -774,9 +815,12 @@ pub fn validate_exam_feed(
     Ok(value)
 }
 
-fn exam_scope(path: &str, year: i32) -> Option<(String, String)> {
+fn exam_scope(path: &str, year: i32, kind: ExamFeedKind) -> Option<(String, String)> {
     let parts: Vec<_> = path.split('/').collect();
-    if parts.len() != 3 || parts[0] != "exam" || !matches!(parts[1], "undergraduate" | "graduate") {
+    if parts.len() != 3
+        || parts[0] != kind.directory()
+        || !matches!(parts[1], "undergraduate" | "graduate")
+    {
         return None;
     }
     let stem = parts[2].strip_suffix(".json")?;
@@ -1018,15 +1062,31 @@ impl SubscriptionClient {
         known_hash: Option<&str>,
     ) -> Result<ReferenceFetch<Vec<PublishedExamFeed>>, SubscriptionError> {
         let (base, index, _) = self.fetch_index(index_url, expected_index_hash).await?;
-        let sources = &index
+        let entry = index
             .academic_years
             .get(&year.to_string())
-            .ok_or("academic year is not published in this index")?
-            .exams;
-        for source in sources {
+            .ok_or("academic year is not published in this index")?;
+        // Class rows share the exam subscription; with none published the
+        // combined hash equals the exams-only hash older apps stored.
+        let selected: Vec<_> = entry
+            .exams
+            .iter()
+            .map(|source| (ExamFeedKind::Exams, source))
+            .chain(
+                entry
+                    .exam_week_classes
+                    .iter()
+                    .map(|source| (ExamFeedKind::ExamWeekClasses, source)),
+            )
+            .collect();
+        let sources: Vec<_> = selected
+            .iter()
+            .map(|(_, source)| (*source).clone())
+            .collect();
+        for source in &sources {
             validate_indexed_source(source)?;
         }
-        let remote_hash = exam_manifest_hash(sources)?;
+        let remote_hash = exam_manifest_hash(&sources)?;
         let source_ts = sources
             .iter()
             .map(|source| source.ts.as_str())
@@ -1042,15 +1102,16 @@ impl SubscriptionClient {
             });
         }
         let mut feeds = Vec::new();
-        for source in sources {
-            let (level, quarter) = exam_scope(&source.source, year).ok_or_else(|| {
+        for (kind, source) in selected {
+            let (level, quarter) = exam_scope(&source.source, year, kind).ok_or_else(|| {
                 format!("invalid exam path in subscription index: {}", source.source)
             })?;
             let url = source_url(&base, source)?;
             let raw = self.get(url.clone(), MAX_DATA_BYTES).await?;
             verify_source_hash(&raw, &source.hash)?;
-            let feed = validate_exam_feed(&raw, year, &quarter)?;
+            let feed = validate_exam_feed(&raw, year, &quarter, kind)?;
             feeds.push(PublishedExamFeed {
+                kind,
                 level,
                 quarter,
                 url: url.to_string(),
@@ -1505,8 +1566,12 @@ pub fn apply_exam_feed(
     let mut live = HashSet::new();
     for entry in &published.feed.entries {
         let id = format!(
-            "exam:{}:{}:{}:{}",
-            published.feed.academic_year, published.level, published.quarter, entry.id
+            "{}:{}:{}:{}:{}",
+            published.kind.row_prefix(),
+            published.feed.academic_year,
+            published.level,
+            published.quarter,
+            entry.id
         );
         live.insert(id.clone());
         let mut value = serde_json::to_value(entry).map_err(SubscriptionError::from)?;
@@ -1527,8 +1592,12 @@ pub fn apply_exam_feed(
         object.insert(
             "sourceKey".into(),
             format!(
-                "reference:exams:{}:{}:{}:{}",
-                published.feed.academic_year, published.level, published.quarter, entry.id
+                "{}:{}:{}:{}:{}",
+                published.kind.source_key_prefix(),
+                published.feed.academic_year,
+                published.level,
+                published.quarter,
+                entry.id
             )
             .into(),
         );
@@ -1553,8 +1622,11 @@ pub fn apply_exam_feed(
         )?);
     }
     let prefix = format!(
-        "exam:{}:{}:{}:%",
-        published.feed.academic_year, published.level, published.quarter
+        "{}:{}:{}:{}:%",
+        published.kind.row_prefix(),
+        published.feed.academic_year,
+        published.level,
+        published.quarter
     );
     changed += mark_missing(&tx, "exams", &prefix, &live)?;
     tx.commit().map_err(SubscriptionError::from)?;

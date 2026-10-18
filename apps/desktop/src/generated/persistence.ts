@@ -403,6 +403,10 @@ export type ClassSchedule = {
 };
 
 export type Exam = {
+  /**
+   * `class` marks a class row the exam timetable lists in the exam period.
+   */
+  kind?: "exam" | "class";
   academicYear: number;
   level: "undergraduate" | "graduate";
   quarter: Quarter;
@@ -442,6 +446,11 @@ export type ScheduleOverride = {
   room?: string;
   title?: string;
   hidden: boolean;
+  /**
+   * The user's call on what this session is: an exam, a cancelled class
+   * (休講) or a class that runs. It outranks every published source.
+   */
+  mark?: "exam" | "cancelled" | "class";
   id: string;
   rev: number;
   updatedAt: string;
@@ -516,6 +525,8 @@ export type AgentAccess = { enabled: boolean; lastWrites: Array<AgentWrite> };
 export type Notifications = {
   classes: boolean;
   assignments: boolean;
+  exams?: boolean;
+  examLeadMinutes?: number;
   classLeadMinutes?: number;
   assignmentLeadMinutes?: Array<number>;
   localPermission: NotificationPermission;
@@ -580,6 +591,10 @@ export type Settings = {
   cloud: CloudSettings;
   subscriptionRefresh: SubscriptionRefreshSettings;
   customization?: Customization;
+  /**
+   * When the user acknowledged the one-time notice on data accuracy.
+   */
+  dataNoticeAcknowledgedAt?: string;
 };
 
 export type GradePathEntry = { grade: string; academicYear: number };
@@ -779,6 +794,10 @@ export type TeachingRange = { start: string; end: string };
 
 export type QuarterRange = {
   teachingRanges: Array<TeachingRange> | null;
+  /**
+   * The official final-exam and make-up period inside the quarter.
+   */
+  examRanges?: Array<TeachingRange>;
   from: string;
   to: string;
 };
@@ -871,6 +890,7 @@ export type Occurrence = {
   id: string;
   kind: OccurrenceKind;
   courseId: string | null;
+  termId?: string | null;
   date: string;
   title: string;
   subtitle: string | null;
@@ -993,12 +1013,72 @@ export type CourseDetail = {
   sections: Array<number>;
   assignmentIds: Array<string>;
   examIds: Array<string>;
+  exams: Array<ExamView>;
   offeringId: string | null;
   /**
    * The course's T2SCHOLA page, from the course itself or its LMS record.
    */
   lmsUrl: string | null;
   syllabusUrl: string | null;
+};
+
+export type ExamView = {
+  id: string;
+  key: string;
+  /**
+   * `exam`, or `class` for a class the exam timetable lists in the exam
+   * period. A class enters agendas as a class, not as an exam.
+   */
+  kind: "exam" | "class";
+  term: string;
+  courseId: string | null;
+  /**
+   * The course came from code matching, not from a personal link.
+   */
+  autoLinked: boolean;
+  code: string;
+  title: string;
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  periods: [number, number] | null;
+  room: string;
+  notes?: string;
+  color: string;
+  status: string;
+  /**
+   * Published facts before personal corrections.
+   */
+  source: ExamSchedule;
+  /**
+   * Date, time, room or title differs from the published record.
+   */
+  edited: boolean;
+  hidden: boolean;
+  /**
+   * The user's mark, which outranks the published kind and status.
+   */
+  mark?: "exam" | "cancelled" | "class";
+};
+
+export type ExamSchedule = {
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  room: string;
+};
+
+export type ExamAssociation = {
+  /**
+   * Other exams (not exam-week classes) already linked to the course.
+   */
+  conflicts: Array<ExamView>;
+};
+
+export type LectureSearch = {
+  courseIds: Array<string>;
+  assignmentIds: Array<string>;
+  examKeys: Array<string>;
 };
 
 export type CourseTimeline = {
@@ -1092,6 +1172,8 @@ export type ScheduleView = {
   range: QuarterRange | null;
   courses: unknown[];
   agendas: Array<DatedAgenda>;
+  exams: Array<ExamView>;
+  upcomingExams: Array<ExamView>;
   declaredCredits: number | null;
   colors: { [key in string]?: string };
   enrolledCourseIds: Array<string>;
@@ -1121,6 +1203,8 @@ export type WorkspaceQuery =
     }
   | { kind: "taskView"; now: string }
   | { kind: "courseDetail"; courseId: string }
+  | { kind: "examAssociation"; examKey: string; courseId: string }
+  | { kind: "lectureSearch"; term: string | null; query: string }
   | {
       kind: "scheduleView";
       /**
@@ -1177,6 +1261,8 @@ export type WorkspaceQueryResult =
   | { kind: "courseTimeline"; value: CourseTimeline }
   | { kind: "taskView"; value: TaskView }
   | { kind: "courseDetail"; value: CourseDetail }
+  | { kind: "examAssociation"; value: ExamAssociation }
+  | { kind: "lectureSearch"; value: LectureSearch }
   | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }
   | { kind: "calendarState"; value: unknown | null }
@@ -1257,6 +1343,17 @@ export type WorkspaceIntent =
     }
   | { kind: "deleteSubscription"; subscriptionId: string }
   | { kind: "saveScheduleOverride"; draft: unknown; existingId?: string }
+  | {
+      kind: "editExam";
+      examKey: string;
+      date?: string;
+      startTime?: string;
+      endTime?: string;
+      room?: string;
+      hidden: boolean;
+    }
+  | { kind: "markSession"; key: string; mark: "exam" | "cancelled" | "class" }
+  | { kind: "linkExam"; examKey: string; courseId?: string }
   | { kind: "deleteScheduleOverride"; overrideId: string }
   | { kind: "saveScheduledTask"; draft: unknown; existingId?: string }
   | { kind: "deleteScheduledTask"; taskId: string }
@@ -1664,6 +1761,8 @@ export const EMPTY_WORKSPACE: Workspace = {
     notifications: {
       assignments: true,
       classes: true,
+      examLeadMinutes: 60,
+      exams: true,
       localPermission: "default",
     },
     restoreSchoolPage: false,

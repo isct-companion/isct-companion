@@ -134,6 +134,8 @@ fn initial_workspace_value(date: chrono::NaiveDate, device_id: &str, updated_at:
             "locale": "en",
             "notifications": {
                 "classes": true,
+                "exams": true,
+                "examLeadMinutes": 60,
                 "assignments": true,
                 "localPermission": "default"
             },

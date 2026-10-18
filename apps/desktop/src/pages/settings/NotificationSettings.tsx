@@ -119,6 +119,49 @@ export function NotificationSettings({
             </Row>
           </div>
         )}
+        <Row id="exams" title="Exam reminders">
+          <Toggle
+            checked={settings.exams ?? settings.classes}
+            onChange={(value) => set((n) => (n.exams = value))}
+          />
+        </Row>
+        {(settings.exams ?? settings.classes) && (
+          <div
+            className="settingsSuboptions"
+            role="group"
+            aria-label={t("Exam reminders")}
+          >
+            <Row id="exam-lead" title="Remind me">
+              <UiSelect
+                value={
+                  settings.examLeadMinutes ??
+                  settings.classLeadMinutes ??
+                  DEFAULT_CLASS_LEAD
+                }
+                onChange={(value) =>
+                  set((n) => (n.examLeadMinutes = Number(value)))
+                }
+                data={[
+                  ...new Set([
+                    10,
+                    30,
+                    60,
+                    1440,
+                    2880,
+                    settings.examLeadMinutes ??
+                      settings.classLeadMinutes ??
+                      DEFAULT_CLASS_LEAD,
+                  ]),
+                ]
+                  .sort((a, b) => a - b)
+                  .map((minutes) => ({
+                    value: String(minutes),
+                    label: leadLabel(minutes),
+                  }))}
+              />
+            </Row>
+          </div>
+        )}
         <Row id="assignments" title="Assignment reminders">
           <Toggle
             checked={settings.assignments}
