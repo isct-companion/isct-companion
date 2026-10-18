@@ -1610,3 +1610,101 @@ checks:
       - apps/desktop/src/components/QrCamera.tsx
       - apps/desktop/src/components/CameraPreview.tsx
     verified: null
+
+  - id: SCHOOL-SIGNIN-TOKYO-VISIBLE
+    area: school
+    title: Visible 教務Web passes the Tokyo Tech Portal agreement page with saved credentials
+    persona: undergraduate-first-term
+    preconditions: |
+      A build of the iPhone app and of the desktop app from the same commit, a
+      Tokyo Tech Portal account saved in 設定 → 学校アカウント (設定済み) with its
+      Matrix code, and no live GetAccess session in either app.
+    steps:
+      - action: |
+          On the iPhone, cold-launch the app and open ウェブ → 教務Web before
+          opening メール, TSUBAME or the 東工大ポータル tab.
+        reason: |
+          A GetAccess session left by another Tokyo Tech site skips the
+          東京科学大学情報基盤利用承諾 page. Only a visible view that reaches
+          `portal.pl?GASF=...` first exercises the case that used to stop there.
+          If 教務Web opens with no agreement page at all, a session was still
+          alive; note that and do not count the run.
+      - action: |
+          Watch the page without touching it until 教務Web's own menu shows.
+        reason: |
+          The agreement page must advance by itself to the account/password
+          page and then Matrix. Staying on the agreement page means the saved
+          login was never armed for the visible view, which is the regression
+          this check exists for; stopping on Matrix with a code saved means the
+          Matrix step regressed instead.
+      - action: |
+          Repeat both steps in the desktop app's Web page with 教務Web.
+        reason: |
+          Desktop and iPhone share Core's login script and arming, but each
+          shell reports page loads through its own browser port.
+      - action: |
+          Only if the portal shows a パスワード変更 form after the password step:
+          confirm nothing is typed into it, and on desktop read the Web page's
+          status line. Otherwise write "password change not shown" in the notes.
+        reason: |
+          Choosing a new password belongs to the person. The form must be left
+          empty and Core must report that the portal wants a password change,
+          not wait silently until the sign-in times out.
+    observe: |
+      The ウェブ tab on the iPhone, and the desktop Web page with its status
+      line.
+    expected: |
+      On both devices 教務Web opens signed in with no tap on the agreement
+      page, the account page or the Matrix page. A password change form, if
+      shown, stays empty and desktop names it as the reason sign-in stopped.
+    why_manual: |
+      Needs a real Tokyo Tech account and Matrix code against the live
+      GetAccess portal, on a physical iPhone's WKWebView and the desktop
+      webview. The agreement, password and Matrix pages cannot be replayed
+      offline with a live session cookie flow.
+    covers:
+      - crates/isct-core/src/school_browser/assets/school-login.js
+      - crates/isct-core/src/school_browser/engine/login.rs
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+      - apps/ios/IsctCompanion/Features/Web/**
+    verified: null
+
+  - id: IOS-CREDENTIAL-SOURCE-TILES
+    area: native
+    title: iPhone second-factor sources are one row of equal tiles
+    persona: undergraduate-first-term
+    preconditions: |
+      The iPhone app on a physical iPhone (camera and Matrix OCR available),
+      with 設定 → 一般 → 画面表示と明るさ → テキストサイズ at the largest
+      non-accessibility step.
+    steps:
+      - action: |
+          Open 設定 → 学校アカウント → Tokyo Tech (旧) and look at the マトリクス表
+          row: 撮影, 写真から, 貼り付け, 入力.
+        reason: |
+          Four sources is the widest row. The old bordered buttons sized to
+          their labels, so large text wrapped them vertically and left the
+          paste button a different shape from the rest.
+      - action: |
+          Open Science Tokyo and look at the ワンタイムパスワード row:
+          QR を読み取る, 写真から, 貼り付け.
+        reason: |
+          The longest label lives here; it must shrink on one line rather than
+          widen its tile.
+      - action: |
+          Copy any text, tap 貼り付け in either row and answer the system paste
+          prompt.
+        reason: |
+          The tile reads the clipboard itself instead of using PasteButton, so
+          iOS asks once per paste unless the app is allowed in Settings.
+    observe: The two account pages in the settings sheet.
+    expected: |
+      Every tile in a row has the same width and height, icons sit on one line
+      and labels on another, and no label wraps or is cut. Pasting non-matching
+      text shows the row's red error message.
+    why_manual: |
+      A layout read at a glance on a real phone. The simulator has no camera or
+      OCR, so it shows only two of the Matrix tiles.
+    covers:
+      - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+    verified: null
