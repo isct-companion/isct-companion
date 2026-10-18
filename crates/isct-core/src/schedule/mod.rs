@@ -13,6 +13,7 @@ mod reminders;
 pub(crate) use reminders::assignment_lead_minutes;
 mod requests;
 mod tasks;
+mod today;
 
 #[cfg(test)]
 #[path = "../tests/schedule.rs"]
@@ -61,6 +62,10 @@ pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTas
 pub(crate) use timing::{clock_for_periods, validate_period_range};
 pub use timing::{
     default_teaching_periods, teaching_periods, validate_teaching_periods, TeachingPeriod,
+};
+pub use today::{
+    assignment_board, room_map_query, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem,
+    MaterialItem, RecentItem, TodayClass, TodayPhase, TodayView,
 };
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -119,6 +124,14 @@ pub enum WorkspaceQuery {
         after_days: u16,
     },
     TaskView {
+        now: String,
+    },
+    /// Phone Today: phase, hero and sections for this moment.
+    Today {
+        now: String,
+    },
+    /// Phone assignment lists: the current quarter's timeline as rows.
+    AssignmentBoard {
         now: String,
     },
     CourseDetail {
@@ -258,6 +271,9 @@ pub struct AcademicYearIndex {
     pub years: Vec<i32>,
 }
 
+// A result is built once and moved to the caller; boxing a variant would also
+// change the records the native SDK generates from this enum.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
@@ -270,6 +286,8 @@ pub enum WorkspaceQueryResult {
     PlanCivilStart(PlanCivilStart),
     CourseTimeline(CourseTimeline),
     TaskView(TaskView),
+    Today(TodayView),
+    AssignmentBoard(AssignmentBoard),
     CourseDetail(CourseDetail),
     ScheduleView(ScheduleView),
     DayAgenda(Vec<Occurrence>),
@@ -343,6 +361,13 @@ pub fn query(
                 years,
             }))
         }
+        WorkspaceQuery::Today { now } => Ok(WorkspaceQueryResult::Today(today_view(
+            workspace,
+            parse_timestamp(&now)?,
+        )?)),
+        WorkspaceQuery::AssignmentBoard { now } => Ok(WorkspaceQueryResult::AssignmentBoard(
+            assignment_board(workspace, parse_timestamp(&now)?)?,
+        )),
         WorkspaceQuery::CourseDetail { course_id } => Ok(WorkspaceQueryResult::CourseDetail(
             course_detail(workspace, &course_id),
         )),
@@ -709,6 +734,14 @@ pub fn declarations() -> Vec<String> {
         AssignmentGroups::decl(),
         TermTaskView::decl(),
         TaskView::decl(),
+        TodayPhase::decl(),
+        TodayClass::decl(),
+        DeadlineItem::decl(),
+        MaterialItem::decl(),
+        RecentItem::decl(),
+        TodayView::decl(),
+        DeadlineGroups::decl(),
+        AssignmentBoard::decl(),
         AcademicYearIndex::decl(),
         WorkspaceOverview::decl(),
         ScheduleView::decl(),

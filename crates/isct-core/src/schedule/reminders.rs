@@ -639,7 +639,7 @@ pub fn notification_plan(
 
 /// The term whose timetable Today shows: the current quarter once any course
 /// belongs to it (including a 3Q–4Q course added in 3Q), else the selected one.
-fn reminder_term(workspace: &Value) -> String {
+pub(super) fn reminder_term(workspace: &Value) -> String {
     let current = text(workspace, "currentTerm").unwrap_or_default();
     if !super::term_courses(workspace, current).is_empty() {
         current.into()

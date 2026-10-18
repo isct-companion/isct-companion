@@ -1142,6 +1142,15 @@ checks:
         reason: |
           The native shells render independently of the desktop frontend, so
           desktop acceptance says nothing about them.
+      - action: |
+          On Android, sign in from 設定, pull to refresh on 今日, open the
+          ウェブ tab and a course's T2SCHOLA link, swipe an assignment to hide
+          it, then turn on reminders and wait for one to arrive.
+        reason: |
+          Pulls run through the WebView browser port and Core's injected
+          scripts, which only a real identity provider and OTP exercise;
+          reminders depend on the notification permission and alarm delivery
+          of a real device.
     observe: |
       Each device's screens, its authorization prompts, and the notifications
       it delivers.
@@ -1149,9 +1158,10 @@ checks:
       The flows work with the platform's own UI, authorization prompts and
       notification delivery.
     why_manual: |
-      The SwiftUI and Compose shells are not implemented yet, and physical
-      device acceptance requires signing, provisioning and real hardware.
+      Needs a real student id and OTP, signing and provisioning, and physical
+      hardware. The SwiftUI shell is not on main yet.
     covers:
+      - apps/android/**
       - bindings/**
       - crates/isct-ffi/**
     verified:

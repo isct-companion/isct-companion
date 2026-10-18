@@ -79,7 +79,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/usePullState.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
-| `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | bindings/**<br>crates/isct-ffi/** |
+| `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
@@ -1311,6 +1311,13 @@ A signed build, provisioning, and physical iOS and Android devices.
 2. Walk sign-in, workspace, LMS, files and reminders.
    - *Why:* The native shells render independently of the desktop frontend, so
      desktop acceptance says nothing about them.
+3. On Android, sign in from 設定, pull to refresh on 今日, open the
+   ウェブ tab and a course's T2SCHOLA link, swipe an assignment to hide
+   it, then turn on reminders and wait for one to arrive.
+   - *Why:* Pulls run through the WebView browser port and Core's injected
+     scripts, which only a real identity provider and OTP exercise;
+     reminders depend on the notification permission and alarm delivery
+     of a real device.
 
 **Where to look**
 
@@ -1324,11 +1331,12 @@ notification delivery.
 
 **Why this is manual**
 
-The SwiftUI and Compose shells are not implemented yet, and physical
-device acceptance requires signing, provisioning and real hardware.
+Needs a real student id and OTP, signing and provisioning, and physical
+hardware. The SwiftUI shell is not on main yet.
 
 **Covers**
 
+- `apps/android/**`
 - `bindings/**`
 - `crates/isct-ffi/**`
 

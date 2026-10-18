@@ -54,6 +54,8 @@ scripts/research/syllabus-sample-output/
 apps/ios/build/
 apps/android/.gradle/
 apps/android/**/build/
+apps/android/.kotlin/
+apps/android/local.properties
 bindings/**/build/
 
 # Generated native bindings and binary SDK packages
