@@ -86,7 +86,7 @@ before work is admitted. `awaitResult()` returns a typed `OperationResult`;
 
 | Surface               | Main methods                                                                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace/read models | `snapshot`, `mutate`, `scheduleQuery`, `finderQuery`, `lmsMergePreview`                                                                 |
+| Workspace/read models | `snapshot`, `mutate`, `scheduleQuery`, `finderQuery`                                                                 |
 | Accounts              | `credentialStatus`, `saveCredentials`, `deleteCredentials`                                                                              |
 | School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `ensureSchoolSession`, `schoolBrowsing`, navigation/back/forward/reload, `pullSchool` |
 | References/pulls      | `refreshReferences`, `pullState`, `cancelPull`                                                                                          |

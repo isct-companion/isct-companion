@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import type { TermId, Workspace } from "../../lib/model";
+import { submissionLabel } from "../../lib/academic";
 import { addCivilDays as addDays, civilWeekday } from "../../lib/civil-date";
 import { UiInput, UiSelect } from "../../components/mantine";
 import { jstMinutes } from "../../components/timetable/timetable";
@@ -102,7 +103,8 @@ export function LectureDesk({
     }
   }, [term]);
   const [query, setQuery] = useState("");
-  // The list shows the quarter's lectures, or its open assignments.
+  // The list shows the quarter's lectures, or its assignments: open work,
+  // or everything once the quarter has ended.
   const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
   const [showHidden, setShowHidden] = useState(false);
   const nowIso = useClock(active);
@@ -178,7 +180,8 @@ export function LectureDesk({
   // load, so work whose course is not on screen yet waits for it.
   const work = useMemo(() => {
     const byId = new Map(courses.map((course) => [course.id, course]));
-    return (taskTerm?.lectureOpenIds ?? [])
+    const submitted = new Set(taskView?.submittedIds);
+    return (taskTerm?.lectureIds ?? [])
       .flatMap((id) => byAssignment.get(id) ?? [])
       .flatMap((a) => {
         const course = byId.get(a.courseId);
@@ -187,6 +190,7 @@ export function LectureDesk({
         return {
           assignment: a,
           course,
+          status: submissionLabel(a, t, submitted.has(a.id)),
           due: deadline
             ? {
                 label: deadlineText(deadline, data.settings.locale)
@@ -360,7 +364,7 @@ export function LectureDesk({
             onKeyDown={(event) => event.key === "Escape" && setQuery("")}
           />
           {mode === "assignments" &&
-            shownWork.map(({ assignment, course, due }) => (
+            shownWork.map(({ assignment, course, status, due }) => (
               <button
                 type="button"
                 key={assignment.id}
@@ -372,7 +376,9 @@ export function LectureDesk({
                 onClick={() => choose(course.id, assignment.id)}
               >
                 <b>{assignment.title}</b>
-                <small>{course.title}</small>
+                <small>
+                  {course.title} · {status}
+                </small>
                 {due && (
                   <span className={`dueChip ${due.tone}`}>{due.label}</span>
                 )}

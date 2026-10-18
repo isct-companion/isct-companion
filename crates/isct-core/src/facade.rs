@@ -272,25 +272,6 @@ impl Core {
         )?)
     }
 
-    pub fn lms_merge_preview(
-        &self,
-        scope: &str,
-        term: &str,
-    ) -> Result<serde_json::Value, ReadModelError> {
-        let snapshot = self.workspace.snapshot()?;
-        let offerings = self
-            .store
-            .catalog_search("")
-            .map_err(crate::catalog::CatalogError::from)?;
-        Ok(crate::workspace::lms_merge_preview(
-            &snapshot.workspace,
-            &snapshot.school_records,
-            scope,
-            term,
-            &offerings,
-        )?)
-    }
-
     pub async fn reminder_tick(
         &self,
         sink: Arc<dyn crate::schedule::NotificationSink>,

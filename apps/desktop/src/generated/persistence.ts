@@ -1024,7 +1024,11 @@ export type TermTaskView = {
   undatedCompletedIds?: Array<string>;
   dueThisWeekIds: Array<string>;
   laterIds: Array<string>;
-  lectureOpenIds: Array<string>;
+  /**
+   * Lecture Desk's assignment list: open work, or for a quarter that has
+   * ended every assignment whatever its state, newest deadline first.
+   */
+  lectureIds: Array<string>;
   lectureHiddenIds: Array<string>;
 };
 
@@ -1218,13 +1222,6 @@ export type WorkspaceIntent =
   | { kind: "setCourseOnTimetable"; courseId: string; onTimetable: boolean }
   | { kind: "addCatalogCourses"; termId: string; offerings: unknown[] }
   | { kind: "undoCatalogCourses"; termId: string; offeringIds: Array<string> }
-  | {
-      kind: "applyLmsMerge";
-      terms: Array<string>;
-      add: Array<string>;
-      keep: Array<string>;
-      retime: Array<string>;
-    }
   | { kind: "saveEvent"; draft: unknown; termId: string; existingId?: string }
   | { kind: "deleteEvent"; eventId: string }
   | { kind: "savePlan"; draft: unknown; existingId?: string }

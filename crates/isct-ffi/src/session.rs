@@ -323,17 +323,6 @@ impl Session {
         })
     }
 
-    pub fn lms_merge_preview(
-        &self,
-        scope: String,
-        term: String,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            Ok(OperationResult::Document {
-                value: JsonValue(i.core.lms_merge_preview(&scope, &term)?),
-            })
-        })
-    }
     pub fn credential_status(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(|i| {
             Ok(OperationResult::Credentials {

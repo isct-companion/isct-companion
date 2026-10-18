@@ -602,40 +602,6 @@ impl WorkspaceWrite<'_, '_> {
         save_setting(self.transaction, key, value, &actor).map(|_| ())
     }
 
-    /// The catalog rows `Core::lms_merge_preview` compares with, read inside
-    /// this transaction so an applied merge sees the reviewed offerings.
-    pub(crate) fn catalog_rows(&self) -> Result<Vec<Value>, DataError> {
-        catalog_list(self.transaction)
-    }
-
-    /// Points the LMS assignments and materials of one LMS course at the
-    /// timetable course it was matched with. The content hash is left alone:
-    /// it tracks what the LMS sent, so an unchanged pull keeps the link and a
-    /// changed one is relinked by the next merge.
-    pub(crate) fn relink_lms_records(
-        &self,
-        lms_course_id: u64,
-        course_id: &str,
-    ) -> Result<usize, DataError> {
-        let timestamp = now();
-        let mut changed = 0;
-        for table in ["assignments", "lms_items"] {
-            changed += self
-                .transaction
-                .execute(
-                    &format!(
-                        "UPDATE {table} SET rev=rev+1, updated_at=?3,
-                           value=json_set(value,'$.courseId',?2,'$.rev',rev+1,'$.updatedAt',?3)
-                         WHERE json_extract(value,'$.lmsCourseId')=?1
-                           AND COALESCE(json_extract(value,'$.courseId'),'')<>?2"
-                    ),
-                    params![lms_course_id as i64, course_id, timestamp],
-                )
-                .map_err(DataError::from)?;
-        }
-        Ok(changed)
-    }
-
     pub(crate) fn save_settings(&self, settings: &Value) -> Result<(), DataError> {
         validate_settings(settings)?;
         let (user, device, cloud) = settings_parts(settings);

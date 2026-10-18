@@ -219,7 +219,7 @@ function taskViewFor(
           ? pick("upcoming", "handed-in")
           : pick("upcoming"),
         laterIds: [],
-        lectureOpenIds: pick("a1"),
+        lectureIds: pick("a1"),
         lectureHiddenIds: pick("a2"),
       },
     },
@@ -719,7 +719,9 @@ describe("the lecture desk", () => {
     expect(work.map((row) => row.querySelector("b")?.textContent)).toEqual([
       "Report",
     ]);
-    expect(work[0].querySelector("small")?.textContent).toBe("Course later");
+    expect(work[0].querySelector("small")?.textContent).toBe(
+      "Course later · open",
+    );
     expect(work[0].querySelector(".dueChip")?.textContent).toBe("1d 12h");
 
     await click(work[0]);

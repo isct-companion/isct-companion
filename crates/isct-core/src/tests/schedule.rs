@@ -796,8 +796,33 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         view.submitted_ids,
         vec!["done", "lms-done", "past-done", "undated-done"]
     );
-    assert_eq!(term.lecture_open_ids, vec!["soon", "later", "undated"]);
+    assert_eq!(term.lecture_ids, vec!["soon", "later", "undated"]);
     assert_eq!(term.lecture_hidden_ids, vec!["hidden"]);
+    // Once the quarter has ended, Lecture Desk lists all of its work, newest
+    // deadline first; hidden work stays folded apart.
+    let mut ended = data.clone();
+    ended["currentTerm"] = json!("2026-2Q");
+    let ended = task_view(
+        &ended,
+        DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        ended.by_term["2026-1Q"].lecture_ids,
+        vec![
+            "later",
+            "lms-done",
+            "done",
+            "soon",
+            "past",
+            "past-done",
+            "undated-done",
+            "invalid",
+            "undated"
+        ]
+    );
+    assert_eq!(ended.by_term["2026-1Q"].lecture_hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");
     assert_eq!(view.deadlines["soon"].countdown_label, "2h");
     assert_eq!(view.deadlines["soon"].countdown_tone, "urgent");

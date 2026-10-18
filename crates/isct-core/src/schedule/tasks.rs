@@ -37,7 +37,9 @@ pub struct TermTaskView {
     pub undated_completed_ids: Option<Vec<String>>,
     pub due_this_week_ids: Vec<String>,
     pub later_ids: Vec<String>,
-    pub lecture_open_ids: Vec<String>,
+    /// Lecture Desk's assignment list: open work, or for a quarter that has
+    /// ended every assignment whatever its state, newest deadline first.
+    pub lecture_ids: Vec<String>,
     pub lecture_hidden_ids: Vec<String>,
 }
 
@@ -131,8 +133,13 @@ pub fn task_view(
             Some((text(row, "id")?, course_terms))
         })
         .collect();
+    let current = text(workspace, "currentTerm").and_then(|term| super::Term::parse(term).ok());
     let mut by_term = BTreeMap::new();
     for term in terms {
+        let ended = super::Term::parse(&term).is_ok_and(|term| {
+            current
+                .is_some_and(|current| (term.year, term.quarter) < (current.year, current.quarter))
+        });
         let course_ids: HashSet<String> = scheduled_courses(workspace, &term)
             .iter()
             .filter_map(|row| text(row, "id").map(str::to_owned))
@@ -149,11 +156,12 @@ pub fn task_view(
             if in_course {
                 if hidden {
                     view.lecture_hidden_ids.push(id.into());
-                } else if !assignment_submitted(row)
-                    && text(row, "dueAt")
-                        .is_none_or(|_| parsed.get(id).is_some_and(|due| *due >= now))
+                } else if ended
+                    || !assignment_submitted(row)
+                        && text(row, "dueAt")
+                            .is_none_or(|_| parsed.get(id).is_some_and(|due| *due >= now))
                 {
-                    view.lecture_open_ids.push(id.into());
+                    view.lecture_ids.push(id.into());
                 }
             }
             let Some(due) = parsed.get(id) else {
@@ -199,7 +207,17 @@ pub fn task_view(
         let sort_due = |ids: &mut Vec<String>| {
             ids.sort_by_key(|id| (!parsed.contains_key(id), parsed.get(id).copied()))
         };
-        sort_due(&mut view.lecture_open_ids);
+        sort_due(&mut view.lecture_ids);
+        if ended {
+            // A finished quarter reads back from its last deadline; undated
+            // work stays at the end.
+            view.lecture_ids.sort_by_key(|id| {
+                (
+                    !parsed.contains_key(id),
+                    std::cmp::Reverse(parsed.get(id).copied()),
+                )
+            });
+        }
         sort_due(&mut view.lecture_hidden_ids);
         by_term.insert(term, view);
     }
