@@ -307,7 +307,7 @@ async fn queued_manual_join_promotes_executor_context_priority() {
 }
 
 #[tokio::test]
-async fn running_join_upgrades_login_first_and_priority_for_the_executor() {
+async fn running_join_upgrades_login_first_priority_and_scope_for_the_executor() {
     let coordinator = PullCoordinator::default();
     let started = Arc::new(tokio::sync::Notify::new());
     let finish = Arc::new(tokio::sync::Notify::new());
@@ -319,23 +319,31 @@ async fn running_join_upgrades_login_first_and_priority_for_the_executor() {
         let saved = saved.clone();
         tokio::spawn(async move {
             coordinator
-                .run(lms(None), PullOptions::automatic(), move |context| {
-                    let started = started.clone();
-                    let finish = finish.clone();
-                    let saved = saved.clone();
-                    async move {
-                        *saved.lock().await = Some(context.clone());
-                        started.notify_one();
-                        finish.notified().await;
-                        Ok(json!({ "loginFirst": context.login_first() }))
-                    }
-                })
+                .run(
+                    lms(None),
+                    PullOptions {
+                        current_quarter: true,
+                        ..PullOptions::automatic()
+                    },
+                    move |context| {
+                        let started = started.clone();
+                        let finish = finish.clone();
+                        let saved = saved.clone();
+                        async move {
+                            *saved.lock().await = Some(context.clone());
+                            started.notify_one();
+                            finish.notified().await;
+                            Ok(json!({ "loginFirst": context.login_first() }))
+                        }
+                    },
+                )
                 .await
         })
     };
     started.notified().await;
     let context = saved.lock().await.clone().unwrap();
     assert!(!context.login_first());
+    assert!(context.current_quarter());
     assert_eq!(context.priority(), PullPriority::Automatic);
     let forced = {
         let coordinator = coordinator.clone();
@@ -356,6 +364,8 @@ async fn running_join_upgrades_login_first_and_priority_for_the_executor() {
         tokio::task::yield_now().await;
     }
     assert_eq!(context.priority(), PullPriority::Manual);
+    // A caller that wants every quarter widens a current-quarter job.
+    assert!(!context.current_quarter());
     finish.notify_one();
     assert_eq!(
         automatic.await.unwrap().unwrap(),

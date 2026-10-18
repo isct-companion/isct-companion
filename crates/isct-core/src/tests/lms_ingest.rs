@@ -49,7 +49,9 @@ fn extractor_routes_work_by_loaded_page_and_explicit_scope() {
         .contains("const requestedCourseId = explicitCourseId || (!fullScan ? pageCourseId : 0)"));
     assert!(LMS_EXTRACT_SCRIPT.contains("'core_calendar_get_action_events_by_course'"));
     assert!(LMS_EXTRACT_SCRIPT
-        .contains("return requestedCourseId ? Number(course.id) === requestedCourseId : fullScan"));
+        .contains("if (requestedCourseId) return Number(course.id) === requestedCourseId;"));
+    assert!(LMS_EXTRACT_SCRIPT
+        .contains("return fullScan || (currentScan && currentIds.has(Number(course.id)));"));
 }
 
 #[test]

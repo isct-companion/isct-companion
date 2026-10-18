@@ -29,8 +29,8 @@ Tokens use the [W3C Design Tokens (DTCG) format](https://www.designtokens.org/tr
 | `apps/desktop/src/generated/design/tokens.dark.css` | Dark theme: chosen (`data-appearance="dark"`) or following the system |
 | `apps/desktop/src/generated/design/tokens.json` | Mantine theme (`app/theme.ts`): tonal scale, font |
 | `crates/isct-core/src/schedule/course_palette.rs` | `display_color` in core, included by `colors.rs` |
-| `design/dist/ios/IsctTokens*.swift` | SwiftUI shell (light constants + dark colours) |
-| `design/dist/android/IsctTokens*.kt` | Compose shell (light constants + dark colours) |
+| `apps/ios/IsctCompanion/Design/Generated/IsctTokens*.swift` | SwiftUI shell (light constants + dark colours) |
+| `apps/android/app/src/main/java/app/isct/design/IsctTokens*.kt` | Compose shell (light constants + dark colours) |
 
 Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
 `yarn test` fails when one is stale (`design/build.test.mjs`).

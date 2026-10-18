@@ -17,10 +17,10 @@ export const outputs = {
   desktopDarkCss: "apps/desktop/src/generated/design/tokens.dark.css",
   desktopJson: "apps/desktop/src/generated/design/tokens.json",
   corePalette: "crates/isct-core/src/schedule/course_palette.rs",
-  swiftLight: "design/dist/ios/IsctTokens.swift",
-  swiftDark: "design/dist/ios/IsctTokensDark.swift",
-  composeLight: "design/dist/android/IsctTokens.kt",
-  composeDark: "design/dist/android/IsctTokensDark.kt",
+  swiftLight: "apps/ios/IsctCompanion/Design/Generated/IsctTokens.swift",
+  swiftDark: "apps/ios/IsctCompanion/Design/Generated/IsctTokensDark.swift",
+  composeLight: "apps/android/app/src/main/java/app/isct/design/IsctTokens.kt",
+  composeDark: "apps/android/app/src/main/java/app/isct/design/IsctTokensDark.kt",
 };
 
 const group =

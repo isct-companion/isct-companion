@@ -177,7 +177,7 @@ pub(crate) async fn pull_school(
             if site == SchoolSite::ScienceLms && current_only == Some(true) {
                 return services
                     .school
-                    .pull_current_term(&services.store, services.executor)
+                    .pull_current_term(services.executor)
                     .await;
             }
             services

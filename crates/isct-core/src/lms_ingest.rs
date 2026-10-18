@@ -72,6 +72,9 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
   const sourceUrl = location.href;
   const explicitCourseId = Number(globalThis.__ISCT_COMPANION_LMS_COURSE_ID__) || 0;
   const fullScan = globalThis.__ISCT_COMPANION_LMS_FULL__ === true;
+  // The phones' refresh: the summary plus the content of the courses on the
+  // current quarter's timetable, in one pass.
+  const currentScan = !fullScan && globalThis.__ISCT_COMPANION_LMS_CURRENT__ === true;
   const reportProgress = value => {
     try { globalThis.__ISCT_COMPANION_LMS_PROGRESS__?.(value); } catch {}
   };
@@ -233,8 +236,11 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       const quarter = Number(course.coursecategory);
       return {year, quarter, term:Number.isInteger(year) && quarter >= 1 && quarter <= 4 ? year + '-' + quarter + 'Q' : ''};
     };
+    const currentGrid = timetables[0];
+    const currentIds = new Set(currentGrid ? [...currentGrid.slots.map(slot => slot.courseId), ...currentGrid.unscheduled] : []);
     const selectedCourses = courses.filter(course => {
-      return requestedCourseId ? Number(course.id) === requestedCourseId : fullScan;
+      if (requestedCourseId) return Number(course.id) === requestedCourseId;
+      return fullScan || (currentScan && currentIds.has(Number(course.id)));
     });
     let structuresDone = 0;
     const loadStructure = async course => {
@@ -318,7 +324,7 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
     // Details are written onto the returned state's own module objects. Each
     // course gets its own share, newest modules first, so a large or
     // fast-loading course cannot starve the rest; cached details fill gaps.
-    const detailModules = requestedCourseId || fullScan
+    const detailModules = requestedCourseId || fullScan || currentScan
       ? ['resource','folder','url','page','forum','assign']
       : ['assign'];
     const detailCms = structures.flatMap(item => (item.state?.cm || [])

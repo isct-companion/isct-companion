@@ -910,6 +910,167 @@ fn a_three_q_four_q_course_belongs_to_every_quarter_it_is_placed_in() {
     assert_eq!(today.term, "2026-3Q");
 }
 
+/// A Monday with two classes, recent materials and assignments in every group.
+fn phone_workspace() -> Value {
+    let mut data = workspace();
+    data["courses"].as_array_mut().unwrap().push(json!({"id":"afternoon","termId":"2026-1Q","title":"Afternoon","code":"CSC.T300","color":"#526e91","meetings":[{"days":[1],"startTime":"13:30","endTime":"15:10","room":"W9-325"}]}));
+    data["memberships"].as_array_mut().unwrap().push(json!({"id":"member-2","termId":"2026-1Q","courseId":"afternoon","status":"registered","evidence":{"provider":"school"}}));
+    data["materials"] = json!([
+        {"id":"slides-1","courseId":"course","title":"Slides 1","type":"pdf","sectionNumber":1,"updatedAt":"2026-04-06T08:00:00+09:00"},
+        {"id":"slides-2","courseId":"course","title":"Slides 2","type":"pdf","sectionNumber":2,"updatedAt":"2026-04-13T08:00:00+09:00"},
+        {"id":"quiz","courseId":"course","title":"Quiz","type":"link","module":"quiz","sectionNumber":3,"updatedAt":"2026-04-13T08:00:00+09:00"}
+    ]);
+    data["assignments"] = json!([
+        {"id":"late","courseId":"course","title":"Late","dueAt":"2026-04-11T23:59:00+09:00"},
+        {"id":"ancient","courseId":"course","title":"Ancient","dueAt":"2026-03-01T23:59:00+09:00"},
+        {"id":"tonight","courseId":"afternoon","title":"Tonight","dueAt":"2026-04-13T23:59:00+09:00"},
+        {"id":"soon","courseId":"course","title":"Soon","dueAt":"2026-04-16T12:00:00+09:00"},
+        {"id":"next-week","courseId":"afternoon","title":"Next week","dueAt":"2026-04-22T23:59:00+09:00"},
+        {"id":"undated","courseId":"course","title":"Undated","dueAt":null},
+        {"id":"pin","courseId":"course","title":"Pinned","dueAt":"2026-04-25T23:59:00+09:00","pinned":true},
+        {"id":"done","courseId":"course","title":"Done","dueAt":"2026-04-14T23:59:00+09:00","submission":"submitted"},
+        {"id":"graded","courseId":"afternoon","title":"Graded","dueAt":"2026-04-10T23:59:00+09:00","submission":"graded","grade":"8/10","updatedAt":"2026-04-12T09:00:00+09:00"},
+        {"id":"gone","courseId":"course","title":"Gone","dueAt":"2026-04-15T23:59:00+09:00","hidden":true}
+    ]);
+    data
+}
+
+#[test]
+fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
+    let data = phone_workspace();
+    let today = |raw: &str| {
+        let WorkspaceQueryResult::Today(view) = query(
+            &data,
+            serde_json::from_value(json!({"kind":"today","now":raw})).unwrap(),
+        )
+        .unwrap() else {
+            panic!("today expected")
+        };
+        view
+    };
+    let ids = |rows: &[DeadlineItem]| -> Vec<String> {
+        rows.iter().map(|row| row.assignment_id.clone()).collect()
+    };
+
+    // Before the first class: the next class leads, its period comes from the table.
+    let morning = today("2026-04-13T08:00:00+09:00");
+    assert_eq!(morning.phase, TodayPhase::BeforeClasses);
+    assert_eq!(morning.teaching_week, Some(2));
+    let hero = morning.hero.as_ref().unwrap();
+    assert_eq!(hero.occurrence.course_id.as_deref(), Some("course"));
+    assert_eq!(hero.periods, Some([1, 2]));
+    assert_eq!(hero.map_query.as_deref(), Some("東京科学大学 M"));
+    assert_eq!(
+        morning.later[0].map_query.as_deref(),
+        Some("東京科学大学 W9")
+    );
+    assert_eq!(room_map_query("オンライン"), None);
+    assert_eq!(
+        room_map_query("南6号館219演習室").as_deref(),
+        Some("東京科学大学 南6号館")
+    );
+    assert_eq!(
+        morning.next_boundary.as_deref(),
+        Some("2026-04-13T08:50:00+09:00")
+    );
+    assert_eq!(
+        morning.later[0].occurrence.course_id.as_deref(),
+        Some("afternoon")
+    );
+    // Overdue for a week at most, hidden and submitted work never.
+    assert_eq!(ids(&morning.deadlines), ["late", "tonight", "soon"]);
+    assert_eq!(morning.deadlines[0].tone, "past");
+    assert_eq!(morning.deadlines[1].tone, "urgent");
+
+    // In class: newest material and this course's open work, then today's other deadlines.
+    let class = today("2026-04-13T09:00:00+09:00");
+    assert_eq!(class.phase, TodayPhase::InClass);
+    assert_eq!(class.class_materials[0].material_id, "slides-2");
+    assert!(class.class_materials[0].added_today);
+    assert!(class
+        .class_materials
+        .iter()
+        .all(|m| m.material_id != "quiz"));
+    assert_eq!(ids(&class.class_assignments), ["soon"]);
+    assert_eq!(ids(&class.deadlines), ["tonight"]);
+    assert_eq!(
+        class.next_boundary.as_deref(),
+        Some("2026-04-13T10:30:00+09:00")
+    );
+
+    let between = today("2026-04-13T11:00:00+09:00");
+    assert_eq!(between.phase, TodayPhase::BetweenClasses);
+    assert_eq!(
+        between.hero.unwrap().occurrence.course_id.as_deref(),
+        Some("afternoon")
+    );
+
+    // After classes: tonight's deadline leads, then the next class day.
+    let evening = today("2026-04-13T21:10:00+09:00");
+    assert_eq!(evening.phase, TodayPhase::AfterClasses);
+    assert_eq!(evening.deadline_hero.unwrap().assignment_id, "tonight");
+    assert_eq!(ids(&evening.deadlines), ["late", "soon", "next-week"]);
+    assert_eq!(evening.next_class.unwrap().occurrence.date, "2026-04-20");
+
+    // A day without classes shows deadlines, recent changes and the next class.
+    let mut off = data.clone();
+    off["exceptions"] = json!([{"id":"off","date":"2026-04-13","type":"no-class","label":"Trip"}]);
+    let WorkspaceQueryResult::Today(holiday) = query(
+        &off,
+        WorkspaceQuery::Today {
+            now: "2026-04-13T12:00:00+09:00".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("today expected")
+    };
+    assert_eq!(holiday.phase, TodayPhase::NoClasses);
+    assert!(holiday.no_classes);
+    assert_eq!(holiday.calendar_notice.as_deref(), Some("Trip"));
+    assert!(holiday.hero.is_none());
+    // The FFI crosses as JSON, so the variant tag must survive a round trip.
+    let crossed: TodayView =
+        serde_json::from_value(serde_json::to_value(&holiday).unwrap()).unwrap();
+    let recent: Vec<_> = crossed
+        .recent
+        .iter()
+        .map(|item| match item {
+            RecentItem::Grade(row) => row.assignment_id.clone(),
+            RecentItem::Material(row) => row.material_id.clone(),
+        })
+        .collect();
+    assert_eq!(recent, ["slides-2", "graded"]);
+    assert_eq!(holiday.next_class.unwrap().occurrence.date, "2026-04-20");
+
+    // The board resolves the quarter's one task timeline: what is left to do,
+    // then every assignment whatever its state.
+    let WorkspaceQueryResult::AssignmentBoard(board) = query(
+        &data,
+        WorkspaceQuery::AssignmentBoard {
+            now: "2026-04-13T12:00:00+09:00".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("board expected")
+    };
+    assert_eq!(board.term, "2026-1Q");
+    assert_eq!(ids(&board.today.pinned), ["pin"]);
+    assert_eq!(ids(&board.today.due_this_week), ["tonight", "soon"]);
+    assert_eq!(ids(&board.today.later), ["next-week"]);
+    assert_eq!(ids(&board.today.past_recent), ["late"]);
+    assert!(board.today.undated.is_empty() && board.today.hidden.is_empty());
+    assert_eq!(
+        ids(&board.record.due_this_week),
+        ["tonight", "done", "soon"]
+    );
+    assert_eq!(ids(&board.record.undated), ["undated"]);
+    assert_eq!(ids(&board.record.past_recent), ["late", "graded"]);
+    assert_eq!(ids(&board.record.past_earlier), ["ancient"]);
+    assert_eq!(ids(&board.record.hidden), ["gone"]);
+    assert_eq!(board.record.past_recent[1].grade.as_deref(), Some("8/10"));
+    assert!(board.record.past_recent[1].submitted);
+}
+
 #[test]
 fn ics_folds_utf8_and_rolls_overnight() {
     let mut data = workspace();

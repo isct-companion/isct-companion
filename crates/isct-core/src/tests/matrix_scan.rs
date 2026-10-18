@@ -270,3 +270,14 @@ fn sessions_reject_stale_plans_and_invalid_frames_without_polluting_votes() {
     scanner.stop(&id);
     assert!(scanner.plan(&id).is_err());
 }
+
+#[test]
+fn review_levels_split_at_the_shared_thresholds() {
+    assert_eq!(matrix_confidence("A", 0.9), MatrixConfidence::High);
+    assert_eq!(matrix_confidence("A", 0.89), MatrixConfidence::Medium);
+    assert_eq!(matrix_confidence("A", 0.75), MatrixConfidence::Medium);
+    assert_eq!(matrix_confidence("A", 0.74), MatrixConfidence::Low);
+    // An empty or non-finite reading is never trusted, whatever the score.
+    assert_eq!(matrix_confidence("", 1.0), MatrixConfidence::Low);
+    assert_eq!(matrix_confidence("A", f64::NAN), MatrixConfidence::Low);
+}

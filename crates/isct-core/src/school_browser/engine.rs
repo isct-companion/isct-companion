@@ -636,7 +636,7 @@ impl Inner {
                     browser: event.page.browser,
                     run: new_id(),
                     course_id: None,
-                    full: false,
+                    scope: extraction::LmsScope::Summary,
                     baseline: event.page.sequence.saturating_sub(1),
                     target: event.url.to_string(),
                     visible: true,
@@ -786,7 +786,7 @@ impl Inner {
                     "{course}globalThis.__ISCT_COMPANION_KYOMU_HIDDEN__={};",
                     !extraction.visible
                 );
-                let setup = format!("{course}globalThis.__ISCT_COMPANION_LMS_FULL__={};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>{{if(v&&typeof v==='object')v._isctExtractionRun={quoted_run};document.title='{progress_relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}};", extraction.full);
+                let setup = format!("{course}globalThis.__ISCT_COMPANION_LMS_FULL__={};globalThis.__ISCT_COMPANION_LMS_CURRENT__={};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>{{if(v&&typeof v==='object')v._isctExtractionRun={quoted_run};document.title='{progress_relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}};", extraction.scope == extraction::LmsScope::Full, extraction.scope == extraction::LmsScope::CurrentQuarter);
                 let relay = self.state.with(|state| {
                     state
                         .views

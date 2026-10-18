@@ -412,6 +412,95 @@ impl isct_core::cloud_sync::CloudTransport for Cloud {
     }
 }
 
+/// Keychain location of a `NativeVault` account, shared with the desktop app.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct VaultItem {
+    pub service: String,
+    pub key: String,
+    /// Store as an iCloud Keychain / backed-up item rather than device-only.
+    pub synchronized: bool,
+}
+
+#[uniffi::export]
+pub fn vault_item(account: String) -> Result<VaultItem, SdkError> {
+    let item = core::vault_item(&account).map_err(|e| SdkError::InvalidInput {
+        detail: e.to_string(),
+    })?;
+    Ok(VaultItem {
+        service: item.service.into(),
+        key: item.key,
+        synchronized: item.synchronized,
+    })
+}
+
+/// One authenticator account read from a setup link or a transfer QR code.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OtpImportAccount {
+    pub label: String,
+    pub issuer: String,
+    /// Sensitive: pass only the chosen account's value to `saveCredentials`.
+    pub setup: String,
+}
+
+#[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
+pub enum OtpImportError {
+    #[error("This is not a supported authenticator QR code.")]
+    Invalid,
+    /// A multi-page Google Authenticator export; export the school account alone.
+    #[error("Export only your school account, then scan its QR code again.")]
+    MultiplePages,
+    #[error("This account uses an unsupported verification code format.")]
+    Unsupported,
+}
+
+/// Reads a decoded QR payload or pasted text: an `otpauth://totp` link or a
+/// Google Authenticator transfer (`otpauth-migration://`). QR pixels and the
+/// camera stay in the shell.
+#[uniffi::export]
+pub fn import_otp(payload: String) -> Result<Vec<OtpImportAccount>, OtpImportError> {
+    use isct_core::school_auth::OtpImportError as E;
+    isct_core::school_auth::import_otp(&payload)
+        .map(|accounts| {
+            accounts
+                .into_iter()
+                .map(|a| OtpImportAccount {
+                    label: a.label,
+                    issuer: a.issuer,
+                    setup: a.setup,
+                })
+                .collect()
+        })
+        .map_err(|e| match e {
+            E::Invalid => OtpImportError::Invalid,
+            E::MultiplePages => OtpImportError::MultiplePages,
+            E::Unsupported => OtpImportError::Unsupported,
+        })
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum MatrixConfidence {
+    High,
+    Medium,
+    Low,
+}
+
+/// How a scanned Matrix cell is shown for review, the same on every shell.
+#[uniffi::export]
+pub fn matrix_confidence(text: String, confidence: f64) -> MatrixConfidence {
+    use isct_core::matrix_scan::MatrixConfidence as C;
+    match isct_core::matrix_scan::matrix_confidence(&text, confidence) {
+        C::High => MatrixConfidence::High,
+        C::Medium => MatrixConfidence::Medium,
+        C::Low => MatrixConfidence::Low,
+    }
+}
+
+/// Map search text for a room's building, as on Today's class cards.
+#[uniffi::export]
+pub fn room_map_query(room: String) -> Option<String> {
+    isct_core::schedule::room_map_query(&room)
+}
+
 /// Install these shared scripts at document start before navigating a school view.
 #[uniffi::export]
 pub fn school_browser_initialization() -> Result<Vec<String>, SdkError> {

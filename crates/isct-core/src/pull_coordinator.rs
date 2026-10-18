@@ -182,6 +182,10 @@ pub struct PullOptions {
     /// School pulls sign in with saved credentials before extracting. A
     /// joining caller that asks for this upgrades the live job.
     pub login_first: bool,
+    /// LMS without a course: read the current quarter's courses and deadlines
+    /// in one pass instead of every quarter. A caller that joins without it
+    /// widens the live job to the full read.
+    pub current_quarter: bool,
 }
 
 impl PullOptions {
@@ -191,6 +195,15 @@ impl PullOptions {
             delay: Duration::ZERO,
             retry_limit: 0,
             login_first: false,
+            current_quarter: false,
+        }
+    }
+
+    /// A manual LMS refresh of the current quarter only.
+    pub fn current_quarter() -> Self {
+        Self {
+            current_quarter: true,
+            ..Self::manual()
         }
     }
 
@@ -200,6 +213,7 @@ impl PullOptions {
             delay: Duration::ZERO,
             retry_limit: 0,
             login_first: false,
+            current_quarter: false,
         }
     }
 }
@@ -412,6 +426,7 @@ pub struct PullContext {
     cancelled: Arc<AtomicBool>,
     priority: Arc<AtomicU8>,
     login_first: Arc<AtomicBool>,
+    current_quarter: Arc<AtomicBool>,
 }
 
 impl PullContext {
@@ -429,6 +444,11 @@ impl PullContext {
     /// priority, a join can set this after the job started.
     pub fn login_first(&self) -> bool {
         self.login_first.load(Ordering::Acquire)
+    }
+
+    /// Whether every caller of this job asked only for the current quarter.
+    pub fn current_quarter(&self) -> bool {
+        self.current_quarter.load(Ordering::Acquire)
     }
 
     pub async fn phase(&self, phase: impl Into<String>) -> bool {
@@ -472,6 +492,7 @@ struct PullJob {
     priority: PullPriority,
     priority_cell: Arc<AtomicU8>,
     login_first: Arc<AtomicBool>,
+    current_quarter: Arc<AtomicBool>,
     state: PullState,
     phase: Option<String>,
     blocked_by: Option<String>,
@@ -662,6 +683,9 @@ impl PullCoordinator {
                         .ok_or_else(|| PullError::Invariant("live pull key".into()))?;
                     job.waiters.push(sender);
                     promote(job, &options);
+                    if !options.current_quarter {
+                        job.current_quarter.store(false, Ordering::Release);
+                    }
                     if options.priority == PullPriority::Manual
                         && job.state == PullState::RetryWaiting
                     {
@@ -701,6 +725,7 @@ impl PullCoordinator {
                         priority: options.priority,
                         priority_cell: Arc::new(AtomicU8::new(options.priority.encoded())),
                         login_first: Arc::new(AtomicBool::new(options.login_first)),
+                        current_quarter: Arc::new(AtomicBool::new(options.current_quarter)),
                         state: PullState::Queued,
                         phase: None,
                         blocked_by: None,
@@ -857,6 +882,7 @@ impl PullCoordinator {
                         cancelled: job.cancel.clone(),
                         priority: job.priority_cell.clone(),
                         login_first: job.login_first.clone(),
+                        current_quarter: job.current_quarter.clone(),
                     };
                     (lane, work, context)
                 };

@@ -96,7 +96,9 @@ pub fn import_otp(raw: &str) -> Result<Vec<OtpImportAccount>, OtpImportError> {
             if payload.batch_size > 1 || payload.batch_index != 0 {
                 return Err(OtpImportError::MultiplePages);
             }
-            if payload.version != 1
+            // Google Authenticator writes version 1, and version 2 since 2024
+            // with the same account fields.
+            if !(1..=2).contains(&payload.version)
                 || payload.batch_size != 1
                 || payload.accounts.is_empty()
                 || payload.accounts.len() > 50
