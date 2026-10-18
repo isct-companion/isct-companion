@@ -264,6 +264,8 @@ export function WorkspaceApp() {
       }
     : undefined;
   const [lectureRailHovered, setLectureRailHovered] = useState(false);
+  // Today's "All assignments" asks Lecture Desk for the quarter's list.
+  const [assignmentsRequest, setAssignmentsRequest] = useState<number>();
   const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -947,6 +949,7 @@ export function WorkspaceApp() {
           : null
       }
       active={page === "lectures"}
+      assignmentsRequest={assignmentsRequest}
       restoreAssignment={
         readOnly
           ? undefined
@@ -1123,6 +1126,10 @@ export function WorkspaceApp() {
                 hidden: true,
               })
             }
+            openAssignments={() => {
+              setAssignmentsRequest(Date.now());
+              void navigate(paths.lectures());
+            }}
             openSchedule={() => void navigate(paths.home("week"))}
           />
         </div>

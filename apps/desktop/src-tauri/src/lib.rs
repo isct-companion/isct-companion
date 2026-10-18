@@ -298,7 +298,6 @@ pub fn run() {
             commands::school_auth::school_session_lifecycle,
             commands::notifications::request_notification_permission,
             commands::notifications::bootstrap_reminders,
-            commands::read_models::lms_merge_preview,
             commands::notifications::notify,
             commands::school::school_refresh_event,
             commands::cloud::cloud_lifecycle,

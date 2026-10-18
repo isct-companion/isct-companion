@@ -53,7 +53,6 @@ without an additional `{data:...}` wrapper.
 | `mutate_workspace`   | `{mutation: WorkspaceMutation}` | Committed `WorkspaceSnapshot`                | `Core.workspace.mutate(mutation)`     |
 | `schedule_query`     | `{queries: WorkspaceQuery[]}`   | `{revision, values: WorkspaceQueryResult[]}` | `Core.schedule_query(queries)`        |
 | `finder_query`       | `{request: FinderRequest}`      | `FinderView`                                 | `Core.finder_query(request)`          |
-| `lms_merge_preview`  | `{scope, term}`                 | Review groups and missing detail IDs         | `Core.lms_merge_preview(scope, term)` |
 
 `WorkspaceSnapshot` fields are `revision`, `contentRevision`, `workspace` and `schoolRecords`.
 `WorkspaceMutation` fields are `expectedRevision` and `intent`. A mutation returns
@@ -82,7 +81,7 @@ Intent groups (the generated `WorkspaceIntent` is the complete field schema):
 | Group                  | `kind` values                                                                                                                                                     |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Preferences / terms    | `replaceSettings`, `setAdmissionYear`, `setStudyProfile`, `editAcademicCalendar`, `selectTerm`, `addTerm`, `removeTerm`                                           |
-| Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `applyLmsMerge`, `markTimetableReviewed` |
+| Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `markTimetableReviewed` |
 | Events / plans         | `saveEvent`, `deleteEvent`, `savePlan`, `deletePlan`                                                                                                              |
 | Calendar / sources     | `saveCalendarException`, `deleteCalendarException`, `saveSubscription`, `setSubscription`, `deleteSubscription`                                                   |
 | Overrides / automation | `saveScheduleOverride`, `deleteScheduleOverride`, `saveScheduledTask`, `deleteScheduledTask`, `recordScheduledTaskRun`, `saveIntensiveSchedule`                   |
@@ -208,7 +207,7 @@ a snapshot command the UI reads after subscribing.
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
 | Workspace                   | `Core::workspace.snapshot/mutate`                                                                                                          | Render snapshots; forward typed intents with expected revision |
 | Schedule / calendar         | `Core::schedule_query`, `schedule::{glance,notification_plan}`                                                                             | Supply explicit dates/times; render views and export bytes     |
-| Course finder / LMS review  | `Core::finder_query`, `Core::lms_merge_preview`                                                                                            | Input, selection, progress and review confirmation             |
+| Course finder               | `Core::finder_query`                                                                                                                       | Input, selection and progress                                  |
 | Reminders                   | `Core::reminder_tick`, `Core::import_legacy_reminders`                                                                                     | Wakeups, migration bytes and `NotificationSink`                |
 | School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::school_records`                                                             | Native views, presentation, callbacks and downloads            |
 | Pull state                  | `CoreRuntime::{pull_snapshots,subscribe_pulls,cancel_pull,refresh_event}`                                                                  | Forward intents and publish snapshots                          |
@@ -433,16 +432,6 @@ Already synchronized school courses are preserved; the gate controls only new
 local planning. Existing courses, recognized credits and later-year planning
 are preserved. External English-test credit recognition is distinct from
 enrollment and does not waive this gate.
-
-`Core::lms_merge_preview(scope, term)` returns review rows, conflict groups and
-missing syllabus detail IDs. The shell fetches those details, requests the final
-preview, then forwards the person's choices as `ApplyLmsMerge`. Core recomputes
-the same diff from the same catalog rows and applies the chosen changes in its
-transaction: chosen LMS courses join as `lms-member` memberships (also in their
-quarters outside the reviewed scope), LMS-sourced courses take syllabus names,
-URL and credits, chosen common courses take the LMS times with the syllabus
-room, unchecked local courses leave that quarter, and LMS assignments and
-materials are linked to the matched course.
 
 A course belongs to every quarter it is placed in: its own `termId` plus each
 quarter with a live membership or plan item, so a 3Q–4Q course is one course

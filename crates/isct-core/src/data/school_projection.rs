@@ -236,16 +236,9 @@ fn project_lms_timetable(
             .iter()
             .find(|o| !offering_id.is_empty() && text(o, "id") == offering_id)
             .cloned();
-        // Category metadata bootstraps old caches. A captured grid then owns
-        // this quarter: arrays mean present (including non-weekly), null absent.
-        let mut terms = crate::workspace::lms_terms_with_offering(lms, None);
-        terms.retain(|term| {
-            term.starts_with(&format!("{year}-"))
-                && crate::schedule::Term::parse(term).is_ok()
-                && !lms["timetables"].get(term).is_some_and(Value::is_null)
-        });
+        let mut terms = lms_terms(lms);
+        terms.retain(|term| term.starts_with(&format!("{year}-")));
         terms.sort();
-        terms.dedup();
         let Some(first_term) = terms.first() else {
             continue;
         };
@@ -369,4 +362,33 @@ fn project_lms_timetable(
         links.insert(lms_id, id);
     }
     Ok(())
+}
+
+/// Quarters an LMS course is on. Category metadata bootstraps old caches; a
+/// captured grid then owns its quarter: an array means present (including
+/// non-weekly), null means confirmed absent.
+fn lms_terms(lms: &Value) -> Vec<String> {
+    let timetables = &lms["timetables"];
+    let captured = timetables
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, grid)| grid.is_array())
+        .map(|(term, _)| term.clone());
+    let category = lms["year"].as_i64().into_iter().flat_map(|year| {
+        array(lms, "quarters")
+            .iter()
+            .filter_map(Value::as_str)
+            .map(move |quarter| format!("{year}-{quarter}"))
+    });
+    let mut terms: Vec<String> = captured
+        .chain(category)
+        .filter(|term| {
+            crate::schedule::Term::parse(term).is_ok()
+                && !timetables.get(term.as_str()).is_some_and(Value::is_null)
+        })
+        .collect();
+    terms.sort();
+    terms.dedup();
+    terms
 }

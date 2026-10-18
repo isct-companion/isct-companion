@@ -1017,15 +1017,38 @@ export type TaskDeadlineView = {
   overdue: boolean;
 };
 
-export type TermTaskView = {
-  pendingIds: Array<string>;
+export type AssignmentGroups = {
   pinnedIds: Array<string>;
-  overdueIds: Array<string>;
-  undatedCompletedIds?: Array<string>;
   dueThisWeekIds: Array<string>;
   laterIds: Array<string>;
-  lectureOpenIds: Array<string>;
-  lectureHiddenIds: Array<string>;
+  undatedIds: Array<string>;
+  /**
+   * Past deadlines shown at once: the recent window of the current
+   * quarter, or every past deadline of any other quarter.
+   */
+  pastRecentIds: Array<string>;
+  /**
+   * Older past deadlines of the current quarter, back to its start; a list
+   * folds these until asked.
+   */
+  pastEarlierIds: Array<string>;
+  hiddenIds: Array<string>;
+};
+
+export type TermTaskView = {
+  /**
+   * Unsubmitted work with a future deadline.
+   */
+  pendingIds: Array<string>;
+  /**
+   * What is left to do: unsubmitted upcoming or pinned work, and work
+   * missed during the last week.
+   */
+  today: AssignmentGroups;
+  /**
+   * Every assignment of the quarter, whatever its submission state.
+   */
+  record: AssignmentGroups;
 };
 
 export type TaskView = {
@@ -1096,7 +1119,7 @@ export type WorkspaceQuery =
       beforeDays: number;
       afterDays: number;
     }
-  | { kind: "taskView"; now: string; includeCompleted?: boolean }
+  | { kind: "taskView"; now: string }
   | { kind: "courseDetail"; courseId: string }
   | {
       kind: "scheduleView";
@@ -1218,13 +1241,6 @@ export type WorkspaceIntent =
   | { kind: "setCourseOnTimetable"; courseId: string; onTimetable: boolean }
   | { kind: "addCatalogCourses"; termId: string; offerings: unknown[] }
   | { kind: "undoCatalogCourses"; termId: string; offeringIds: Array<string> }
-  | {
-      kind: "applyLmsMerge";
-      terms: Array<string>;
-      add: Array<string>;
-      keep: Array<string>;
-      retime: Array<string>;
-    }
   | { kind: "saveEvent"; draft: unknown; termId: string; existingId?: string }
   | { kind: "deleteEvent"; eventId: string }
   | { kind: "savePlan"; draft: unknown; existingId?: string }

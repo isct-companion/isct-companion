@@ -27,9 +27,11 @@
 .lectureRow small { grid-column: 1; overflow: hidden; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .lectureRow.now small { color: var(--accent); font-weight: 560; }
 .lectureRow .dueChip { grid-column: 2; grid-row: 1 / span 2; }
-.lectureHiddenToggle { margin: 12px 0 2px; padding: 6px 8px; border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; cursor: pointer; }
-.lectureHiddenToggle:hover { color: var(--ink); }
 .lectureRow.hidden { cursor: default; }
+.lectureRow.done { background: color-mix(in srgb, var(--ok-soft) 70%, transparent); }
+.lectureRow.missed { background: color-mix(in srgb, var(--danger-soft) 70%, transparent); }
+.lectureRow.closed b { color: var(--muted); }
+.lectureRow.closed::before { opacity: .25; }
 .lectureRow.hidden:hover { background: none; }
 .lectureRow.hidden b { color: var(--muted); }
 .lectureRow.hidden .textButton { grid-column: 2; grid-row: 1 / span 2; }

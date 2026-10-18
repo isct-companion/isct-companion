@@ -277,6 +277,37 @@ pub const LMS_EXTRACT_SCRIPT: &str = concat!(
       }));
     };
     await readWithWorkers(selectedCourses, loadStructure);
+    // The upcoming view and open-work events forget finished work, so a full
+    // pull reads each month of the enrolled academic years up to now; past
+    // due/close events still carry the deadline of submitted and graded work.
+    if (fullScan && !requestedCourseId) {
+      const today = new Date();
+      const months = [];
+      for (const year of new Set(courses.map(course => courseContext(course).year).filter(Number.isInteger))) {
+        for (let index = 0; index < 12 && months.length < 48; index += 1) {
+          const month = new Date(year, 3 + index, 1);
+          if (month <= today) months.push({year:month.getFullYear(), month:month.getMonth() + 1});
+        }
+      }
+      await readWithWorkers(months, async ({year, month}) => {
+        try {
+          const view = await call('core_calendar_get_calendar_monthly_view',
+            {year, month, courseid:1, categoryid:0, day:1});
+          for (const week of Array.isArray(view?.weeks) ? view.weeks : []) {
+            for (const day of Array.isArray(week?.days) ? week.days : []) {
+              for (const event of Array.isArray(day?.events) ? day.events : []) {
+                if (!['assign','quiz'].includes(event.modulename) || !['due','close'].includes(event.eventtype)) continue;
+                if (datedEvents.length >= 5000) return;
+                datedEvents.push({...pick(event, ['id','instance','modulename','name','eventtype','url']),
+                  timesort:event.timesort ?? event.timestart, course:{id:event.course?.id}});
+              }
+            }
+          }
+        } catch {
+          // A month that cannot be read leaves the deadlines already stored.
+        }
+      });
+    }
     // Bounded read-only module details, using the same signed-in session.
     const courseById = new Map(courses.map(course => [Number(course.id), course]));
     // Two layers. A pull across courses reads only what Today needs: the

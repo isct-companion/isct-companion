@@ -1,4 +1,3 @@
-import { Checkbox } from "@mantine/core";
 import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
@@ -19,6 +18,7 @@ import {
 import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
 import { CourseFinder } from "./CourseFinder";
+import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
 import { addCivilDays as addDays, civilWeekday } from "../../lib/civil-date";
 import {
   useScheduleQuery,
@@ -39,6 +39,7 @@ export function Today({
   openEvent,
   openPlan,
   openTask,
+  openAssignments,
   hideAssignment,
   pinAssignment,
   openSchedule,
@@ -57,6 +58,8 @@ export function Today({
   openEvent: (event: PersonalEvent) => void;
   openPlan: (plan: Plan) => void;
   openTask: (assignmentId: string) => void;
+  /** Lecture Desk's full list of the quarter's assignments. */
+  openAssignments?: () => void;
   hideAssignment: (assignmentId: string) => void;
   pinAssignment?: (assignmentId: string) => void;
   openSchedule: () => void;
@@ -74,9 +77,6 @@ export function Today({
         ?.scrollIntoView?.({ block: "start" });
   }, [focusSection]);
   const [allClasses, setAllClasses] = useState(false);
-  const [allDue, setAllDue] = useState(false);
-  const [showCompleted, setShowCompleted] = useState(false);
-  const [dueScope, setDueScope] = useState<"today" | "earlier">("today");
   const nowIso = useClock(active);
   const now = new Date(nowIso);
   const todayIso = jstDate(now);
@@ -131,20 +131,11 @@ export function Today({
   const taskView = useScheduleQuery<TaskView>({
     kind: "taskView",
     now: nowIso,
-    includeCompleted: showCompleted,
   }).value;
   const taskTerm = taskView?.byTerm[term];
   const submittedIds = new Set(taskView?.submittedIds);
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
-  const rows = (ids: string[] | undefined) =>
-    (ids ?? []).flatMap((id) => byAssignment.get(id) ?? []);
-  const pending = rows(taskTerm?.pendingIds);
-  const pinned = dueScope === "today" ? rows(taskTerm?.pinnedIds) : [];
-  const soon = dueScope === "today" ? rows(taskTerm?.dueThisWeekIds) : [];
-  const later = dueScope === "today" ? rows(taskTerm?.laterIds) : [];
-  const past = dueScope === "earlier" ? rows(taskTerm?.overdueIds) : [];
-  const undatedCompleted =
-    dueScope === "earlier" ? rows(taskTerm?.undatedCompletedIds) : [];
+  const pendingCount = taskTerm?.pendingIds.length ?? 0;
   const row = (assignment: Assignment) => {
     const course = data.courses.find(
       (item) => item.id === assignment.courseId && !item.deletedAt,
@@ -504,82 +495,26 @@ export function Today({
         >
           <header>
             <h2>{t("Assignments")}</h2>
-            <div
-              className="dueScope"
-              role="group"
-              aria-label={t("Assignments shown")}
-            >
-              {(["today", "earlier"] as const).map((scope) => (
-                <UiButton
-                  key={scope}
-                  aria-pressed={dueScope === scope}
-                  onClick={() => setDueScope(scope)}
-                >
-                  {t(scope === "today" ? "Today" : "Earlier")}
-                </UiButton>
-              ))}
-            </div>
-            <Checkbox
-              size="xs"
-              label={t("Show completed")}
-              checked={showCompleted}
-              onChange={(event) =>
-                setShowCompleted(event.currentTarget.checked)
-              }
-            />
             <span>
-              {pending.length
-                ? t("{{count}} active", { count: pending.length })
+              {pendingCount
+                ? t("{{count}} active", { count: pendingCount })
                 : t("All clear")}
             </span>
+            {openAssignments && (
+              <UiButton className="textButton" onClick={openAssignments}>
+                {t("All assignments")} →
+              </UiButton>
+            )}
           </header>
           <div className="dueList">
-            {pinned.length > 0 && (
-              <div className="duePinned">
-                <small>{t("Pinned")}</small>
-                {pinned.map(row)}
-              </div>
-            )}
-            {(allDue ? soon : soon.slice(0, DUE_ROWS)).map(row)}
-            {soon.length > DUE_ROWS &&
-              more(allDue ? 0 : soon.length - DUE_ROWS, allDue, () =>
-                setAllDue((value) => !value),
-              )}
-            {!soon.length &&
-              !pinned.length &&
-              !later.length &&
-              !past.length &&
-              !undatedCompleted.length && (
-                <p className="quietEmpty compact">
-                  {t(
-                    dueScope === "earlier"
-                      ? "No earlier assignments"
-                      : "Nothing due this week",
-                  )}
-                </p>
-              )}
-            {undatedCompleted.length > 0 && (
-              <div className="dueCompleted">
-                <small>{t("Completed")}</small>
-                {undatedCompleted.map(row)}
-              </div>
-            )}
-            {later.length > 0 && (
-              <div className="dueLater">
-                <small>
-                  {t("Later")} · {later.length}
-                </small>
-                {later.map(row)}
-              </div>
-            )}
-            {past.length > 0 && (
-              <div className="dueLater duePast">
-                <small>
-                  {t("Past deadline")} · {past.length}
-                </small>
-                {past.map(row)}
-              </div>
-            )}
+            <AssignmentGroupList
+              groups={taskTerm?.today}
+              assignments={byAssignment}
+              row={row}
+              thisWeekLimit={DUE_ROWS}
+              pastLabel={t("Missed")}
+              empty={t("Nothing due this week")}
+            />
           </div>
         </section>
       </div>

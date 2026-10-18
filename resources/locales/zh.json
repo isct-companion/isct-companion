@@ -632,7 +632,6 @@
   "Filter…": "筛选…",
   "Show": "显示",
   "No matching assignments.": "没有匹配的作业。",
-  "No open assignments.": "暂无未完成作业。",
   "Today's {{time}} class is recorded as {{lesson}}.": "今天 {{time}} 的课程已记录为{{lesson}}。",
   "Your next class, {{date}}, is set to {{lesson}}.": "下一次 {{date}} 的课程已设置为{{lesson}}。",
   "Lesson {{number}}": "第 {{number}} 节课",
@@ -759,7 +758,6 @@
   "Waiting to sync": "等待同步",
   "Saved on this device": "已保存到本机",
   "Waiting to retry": "等待重试",
-  "Completed": "已完成",
   "Attempts": "尝试次数",
   "Local version": "本地版本",
   "Every saved change queues an update. Interrupted tasks resume automatically.": "每次保存改动都会加入同步队列，中断的任务会自动继续。",
@@ -1241,11 +1239,8 @@
   "+{{count}} more": "还有 {{count}} 项",
   "Week": "本周",
   "Important date": "重要日期",
-  "Assignments shown": "显示的作业",
   "{{count}} active": "{{count}} 项待完成",
   "All clear": "全部完成",
-  "Show completed": "显示已完成",
-  "No earlier assignments": "没有更早的作业",
   "Nothing due this week": "本周没有到期的作业",
   "Past deadline": "已过截止时间",
   "Downloading {{name}}…": "正在下载 {{name}}…",
@@ -1292,5 +1287,9 @@
   "Backups older than 30 days are removed only when at least four newer backups exist.": "备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
   "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "云端改动或恢复操作替换本地内容前保存。备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
   "Choose an admission year.": "请选择入学年份。",
-  "Only changed content is uploaded, at most once per hour.": "仅在内容有变化时自动上传，两次上传至少间隔 1 小时。"
+  "Only changed content is uploaded, at most once per hour.": "仅在内容有变化时自动上传，两次上传至少间隔 1 小时。",
+  "All assignments": "全部作业",
+  "Missed": "漏交",
+  "{{count}} earlier, back to the quarter start": "更早的 {{count}} 项（到本学季开始）",
+  "No assignments this quarter.": "本学季没有作业。"
 }
