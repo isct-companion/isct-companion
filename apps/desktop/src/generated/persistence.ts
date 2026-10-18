@@ -446,6 +446,11 @@ export type ScheduleOverride = {
   room?: string;
   title?: string;
   hidden: boolean;
+  /**
+   * The user's call on what this session is: an exam, a cancelled class
+   * (休講) or a class that runs. It outranks every published source.
+   */
+  mark?: "exam" | "cancelled" | "class";
   id: string;
   rev: number;
   updatedAt: string;
@@ -586,6 +591,10 @@ export type Settings = {
   cloud: CloudSettings;
   subscriptionRefresh: SubscriptionRefreshSettings;
   customization?: Customization;
+  /**
+   * When the user acknowledged the one-time notice on data accuracy.
+   */
+  dataNoticeAcknowledgedAt?: string;
 };
 
 export type GradePathEntry = { grade: string; academicYear: number };
@@ -1046,6 +1055,10 @@ export type ExamView = {
    */
   edited: boolean;
   hidden: boolean;
+  /**
+   * The user's mark, which outranks the published kind and status.
+   */
+  mark?: "exam" | "cancelled" | "class";
 };
 
 export type ExamSchedule = {
@@ -1339,6 +1352,7 @@ export type WorkspaceIntent =
       room?: string;
       hidden: boolean;
     }
+  | { kind: "markSession"; key: string; mark: "exam" | "cancelled" | "class" }
   | { kind: "linkExam"; examKey: string; courseId?: string }
   | { kind: "deleteScheduleOverride"; overrideId: string }
   | { kind: "saveScheduledTask"; draft: unknown; existingId?: string }

@@ -1670,3 +1670,74 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
         .iter()
         .all(|view| view.kind == "exam"));
 }
+
+#[test]
+fn a_user_mark_decides_what_a_session_is() {
+    let mut data = workspace();
+    data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    data["exams"] = json!([{"id":"final","kind":"exam","sourceKey":"reference:final","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-23","periods":[3,4],"room":{"ja":"W8E-E207"},"label":{"ja":"期末"},"status":"scheduled"}]);
+    let mark = |data: &mut Value, key: &str, mark: &str| {
+        let row = super::exams::marked_session_override(data, key, mark).unwrap();
+        let rows = data["scheduleOverrides"].as_array_mut().unwrap();
+        rows.retain(|existing| existing["targetKey"] != key);
+        if let Some(mut row) = row {
+            row["id"] = json!(key);
+            rows.push(row);
+        }
+    };
+    let agenda = |data: &Value, date| {
+        resolve_day_agenda(data, "2026-1Q", date, Default::default())
+            .unwrap()
+            .into_iter()
+            .map(|block| (block.kind, block.cancelled))
+            .collect::<Vec<_>>()
+    };
+    let calendar = |data: &Value, date: &str| {
+        calendar_between(data, date, date).unwrap()[0]
+            .occurrences
+            .iter()
+            .map(|block| (block.kind, block.cancelled))
+            .collect::<Vec<_>>()
+    };
+    // Weekly Monday 1-2: cancelled stays visible greyed in the calendar only.
+    mark(&mut data, "course-weekly-0-2026-04-13", "cancelled");
+    assert!(agenda(&data, "2026-04-13").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-04-13"),
+        [(OccurrenceKind::Course, Some(true))]
+    );
+    // A weekly session marked as an exam is an exam.
+    mark(&mut data, "course-weekly-0-2026-04-20", "exam");
+    assert_eq!(agenda(&data, "2026-04-20"), [(OccurrenceKind::Exam, None)]);
+    // A session the exam period cancels runs when the user says it does.
+    assert!(agenda(&data, "2026-06-01").is_empty());
+    mark(&mut data, "course-weekly-0-2026-06-01", "class");
+    assert_eq!(
+        agenda(&data, "2026-06-01"),
+        [(OccurrenceKind::Course, None)]
+    );
+    let day = calendar_between(&data, "2026-06-01", "2026-06-01").unwrap();
+    assert!(!day[0].no_classes);
+
+    // Exam-timetable rows: cancel, turn into a class, then back to the source.
+    mark(&mut data, "reference:final", "cancelled");
+    assert!(agenda(&data, "2026-04-23").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-04-23"),
+        [(OccurrenceKind::Exam, Some(true))]
+    );
+    assert!(super::exams::upcoming_exams(&data, "2026-04-01").is_empty());
+    mark(&mut data, "reference:final", "class");
+    assert_eq!(
+        agenda(&data, "2026-04-23"),
+        [(OccurrenceKind::Course, None)]
+    );
+    mark(&mut data, "reference:final", "exam");
+    assert!(!data["scheduleOverrides"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["targetKey"] == "reference:final"));
+    assert_eq!(agenda(&data, "2026-04-23"), [(OccurrenceKind::Exam, None)]);
+    assert!(super::exams::marked_session_override(&data, "reference:final", "maybe").is_err());
+}

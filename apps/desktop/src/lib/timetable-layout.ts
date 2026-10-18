@@ -84,6 +84,42 @@ export function timetablePosition(
   };
 }
 
+/** Grid cells run from one row rule to the next, so a class ending at its
+ * period's end leaves the short break below it inside its own cell. A block
+ * edge within that break snaps to the cell edge; exact times further from a
+ * rule (an exam at 09:30–10:20) keep their place. */
+const CELL_SNAP_MINUTES = 15;
+
+export function blockPosition(
+  start: string,
+  end: string,
+  rows: readonly { start: string; end: string }[],
+  bounds: TimetableBounds,
+) {
+  const edges = [
+    ...rows.map((row) => clockMinutes(row.start)),
+    ...rows.slice(-1).map((row) => clockMinutes(row.end)),
+    bounds.end,
+  ];
+  const from = clockMinutes(start);
+  const to = clockMinutes(end);
+  const top = Math.max(
+    ...edges.filter((edge) => edge <= from && from - edge <= CELL_SNAP_MINUTES),
+    -Infinity,
+  );
+  const bottom = Math.min(
+    ...edges.filter((edge) => edge >= to && edge - to <= CELL_SNAP_MINUTES),
+    Infinity,
+  );
+  const clock = (minutes: number) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  return timetablePosition(
+    Number.isFinite(top) ? clock(top) : start,
+    Number.isFinite(bottom) && bottom > from ? clock(bottom) : end,
+    bounds,
+  );
+}
+
 /** Percent offset of a clock time inside the rendered day. */
 export function timetableOffset(
   minutes: number,

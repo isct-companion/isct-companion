@@ -121,10 +121,20 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
             settings: settings_with(&original, |s| {
                 s["departmentId"] = json!("cs");
                 s["textSize"] = json!("large");
+                s["dataNoticeAcknowledgedAt"] = json!("2026-10-18T10:00:00Z");
             }),
         },
     );
     assert_eq!(chosen.workspace["settings"]["departmentId"], "cs");
+    // Storage splits settings by an allowlist; a key missing from it is lost.
+    assert_eq!(
+        chosen.workspace["settings"]["dataNoticeAcknowledgedAt"],
+        "2026-10-18T10:00:00Z"
+    );
+    // It is a device preference: cloud sync never carries it.
+    let mut synced = json!({"key":"userPreferences","value":{"dataNoticeAcknowledgedAt":"x"}});
+    crate::data::cloud_merge::sanitize_setting(&mut synced);
+    assert_eq!(synced["value"], json!({}));
     // Warm the reader, then commit through a separately initialized handle.
     // PRAGMA data_version must invalidate the cached projection, even though
     // this background update deliberately keeps the user-intent revision.
@@ -641,6 +651,49 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     // Unlinking an exam nothing matches is its automatic state: the row goes.
     assert_eq!(stored(&cleared).len(), 1);
     assert_eq!(view(&cleared, second).course_id, None);
+
+    // A right-click mark is one more field of the same override, so a later
+    // schedule edit keeps it and marking the source kind removes it again.
+    let marked = mutate(
+        &service,
+        WorkspaceIntent::MarkSession {
+            key: second.into(),
+            mark: "cancelled".into(),
+        },
+    );
+    assert_eq!(view(&marked, second).status, "cancelled");
+    let edited = mutate(
+        &service,
+        WorkspaceIntent::EditExam {
+            exam_key: second.into(),
+            date: None,
+            start_time: None,
+            end_time: None,
+            room: Some("Mark room".into()),
+            hidden: false,
+        },
+    );
+    assert_eq!(view(&edited, second).mark.as_deref(), Some("cancelled"));
+    mutate(
+        &service,
+        WorkspaceIntent::EditExam {
+            exam_key: second.into(),
+            date: None,
+            start_time: None,
+            end_time: None,
+            room: None,
+            hidden: false,
+        },
+    );
+    let restored = mutate(
+        &service,
+        WorkspaceIntent::MarkSession {
+            key: second.into(),
+            mark: "exam".into(),
+        },
+    );
+    assert_eq!(stored(&restored).len(), 1); // only the first exam's unlink
+    assert_eq!(view(&restored, second).status, "scheduled");
 }
 
 #[test]

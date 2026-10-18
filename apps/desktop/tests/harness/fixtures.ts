@@ -116,6 +116,8 @@ export function workspaceFixture(
   workspace.selectedTerm = TERM;
   workspace.currentTerm = TERM;
   workspace.terms = [TERM];
+  // Suites test their own screens; the first-run notice has its own case.
+  workspace.settings.dataNoticeAcknowledgedAt = UPDATED_AT;
   for (const task of workspace.scheduledTasks) {
     task.updatedAt = UPDATED_AT;
     task.updatedBy = DEVICE;

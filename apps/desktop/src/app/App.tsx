@@ -1,6 +1,7 @@
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { formatJst } from "../lib/civil-date";
 import { CalendarView } from "../pages/today/CalendarView";
+import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
@@ -1167,6 +1168,14 @@ export function WorkspaceApp() {
           </UiButton>
           <CalendarView
             data={data}
+            mark={
+              readOnly
+                ? undefined
+                : (block, as) =>
+                    void workspaceActions
+                      .mutate({ kind: "markSession", key: block.key, mark: as })
+                      .catch(notify.error)
+            }
             open={(block) => {
               if (block.kind === "exam" && block.termId)
                 openExam(block.key, block.termId);
@@ -1468,6 +1477,19 @@ export function WorkspaceApp() {
             desktopBridge?.pullSchool ? () => void fetchLms() : undefined
           }
           progress={lmsProgress}
+        />
+      )}
+      {!readOnly && !data.settings.dataNoticeAcknowledgedAt && (
+        <DataNotice
+          acknowledge={() =>
+            update((draft) => ({
+              ...draft,
+              settings: {
+                ...draft.settings,
+                dataNoticeAcknowledgedAt: new Date().toISOString(),
+              },
+            }))
+          }
         />
       )}
       {/* Editors show a failed submission inline and stay open. */}

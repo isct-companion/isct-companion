@@ -13,6 +13,8 @@ import { seedWorkspace } from "@app/lib/model";
 import {
   classSlots,
   timetableBounds,
+  blockPosition,
+  teachingRows,
   timetablePosition,
 } from "@app/lib/timetable-layout";
 import { formatDay } from "@app/pages/settings/subscription-status";
@@ -210,6 +212,29 @@ describe("timetable bounds and position", () => {
       topPercent: 0,
       heightPercent: 100,
     });
+  });
+
+  it("fills a class's grid cell through the short break but keeps exact times off the rules", () => {
+    const bounds = timetableBounds(DEFAULT_TEACHING_PERIODS);
+    const rows = teachingRows(DEFAULT_TEACHING_PERIODS);
+    const cell = (start: string, end: string) =>
+      blockPosition(start, end, rows, bounds);
+    // 1-2 ends 10:30; its cell runs to the 3-4 rule at 10:45.
+    expect(cell("08:50", "10:30")).toEqual(
+      timetablePosition("08:50", "10:45", bounds),
+    );
+    // 3-4 ends where the lunch-break row begins.
+    expect(cell("10:45", "12:25")).toEqual(
+      timetablePosition("10:45", "12:25", bounds),
+    );
+    // The last period ends at the bottom of the day.
+    expect(cell("19:05", "20:45")).toEqual(
+      timetablePosition("19:05", "20:45", bounds),
+    );
+    // An announced exam time 25 minutes from a rule stays exact.
+    expect(cell("09:30", "10:20")).toEqual(
+      timetablePosition("09:30", "10:20", bounds),
+    );
   });
 });
 

@@ -199,6 +199,13 @@ pub enum WorkspaceIntent {
         #[serde(default)]
         hidden: bool,
     },
+    /// Marks one calendar session (`Occurrence.key`) as an exam, cancelled
+    /// (休講) or a normal class. The mark outranks every published source.
+    MarkSession {
+        key: String,
+        #[cfg_attr(feature = "ts", ts(type = "\"exam\" | \"cancelled\" | \"class\""))]
+        mark: String,
+    },
     /// Links an exam to a course of its quarter, or to none. Choosing the
     /// course matching would pick returns the exam to automatic matching.
     LinkExam {
@@ -633,6 +640,11 @@ fn apply_intent(
             .map_err(|error| DataError::InvalidInput(error.to_string()))?;
             save_exam_override(write, current, &exam_key, row)
         }
+        WorkspaceIntent::MarkSession { key, mark } => {
+            let row = crate::schedule::marked_session_override(current, &key, &mark)
+                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            save_exam_override(write, current, &key, row)
+        }
         WorkspaceIntent::LinkExam {
             exam_key,
             course_id,
@@ -762,8 +774,8 @@ fn normalize_language(value: Option<&str>) -> &'static str {
     }
 }
 
-/// One override per exam: write the new content, or remove the row once
-/// nothing personal remains.
+/// One override per session key: write the new content, or remove the row
+/// once nothing personal remains.
 fn save_exam_override(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
@@ -777,15 +789,18 @@ fn save_exam_override(
         })
         .and_then(|row| object_string(row, "id"));
     match (row, existing) {
-        (Some(row), existing) => save_simple_record(
+        (Some(row), Some(id)) => save_simple_record(
             write,
             current,
             "scheduleOverrides",
             "schedule_overrides",
             row,
-            existing,
+            Some(id),
             |_| Ok(()),
         ),
+        // Without an id the store reuses the key's deleted row, if any:
+        // target keys are unique, tombstones included.
+        (Some(row), None) => write.put("schedule_overrides", row, None).map(|_| ()),
         (None, Some(id)) => delete_visible(
             write,
             current,

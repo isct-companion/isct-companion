@@ -2,7 +2,9 @@ import { t } from "../../i18n";
 import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
 import { useState } from "react";
+import { Menu } from "@mantine/core";
 import {
+  blockPosition,
   teachingRows,
   timetableBounds,
   timetableOffset,
@@ -45,6 +47,14 @@ export type Block = {
   alternation?: Alternation;
 };
 
+/** One entry of a block's right-click menu. */
+export type BlockAction = {
+  label: string;
+  /** The block already is what this action sets. */
+  current?: boolean;
+  run: () => void;
+};
+
 export type DayColumn = {
   label: string;
   date?: string;
@@ -78,6 +88,7 @@ export function WeekTimetable({
   onSlot,
   activeSlots,
   teachingPeriods,
+  actionsFor,
 }: {
   days: DayColumn[];
   onSelect?: (block: Block) => void;
@@ -90,7 +101,20 @@ export function WeekTimetable({
   /** Slots to highlight, as `${day}:${from}-${to}`. */
   activeSlots?: ReadonlySet<string>;
   teachingPeriods: readonly TeachingPeriod[];
+  /** Right-click entries for a block; none leaves the native menu alone. */
+  actionsFor?: (block: Block) => BlockAction[];
 }) {
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    actions: BlockAction[];
+  } | null>(null);
+  const openMenu = (event: React.MouseEvent, block: Block) => {
+    const actions = actionsFor?.(block) ?? [];
+    if (!actions.length) return;
+    event.preventDefault();
+    setMenu({ x: event.clientX, y: event.clientY, actions });
+  };
   const [day, setDay] = useState(
     Math.min(Math.max(initialDay, 1), Math.max(days.length, 1)),
   );
@@ -214,9 +238,10 @@ export function WeekTimetable({
               // A block without readable times is left out rather than breaking the page.
               if (!CLOCK.test(block.startTime) || !CLOCK.test(block.endTime))
                 return null;
-              const position = timetablePosition(
+              const position = blockPosition(
                 block.startTime,
                 block.endTime,
+                rows,
                 bounds,
               );
               return (
@@ -235,28 +260,39 @@ export function WeekTimetable({
                   style={
                     {
                       "--course": block.color,
-                      top: `${position.topPercent}%`,
-                      height: `${position.heightPercent}%`,
+                      // A 2px gutter keeps the card off the row rules.
+                      top: `calc(${position.topPercent}% + 2px)`,
+                      height: `calc(${position.heightPercent}% - 4px)`,
                     } as React.CSSProperties
                   }
                   title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}${block.conflictWith?.length ? ` · ${t("Overlaps {{courses}}", { courses: block.conflictWith.join(", ") })}` : ""}`}
                   key={block.key}
                   onClick={() => onSelect?.(block)}
+                  onContextMenu={(event) => openMenu(event, block)}
                 >
-                  {block.kind === "exam" && (
-                    <span className="ttExamBand">{t("Exam")} · {block.timeLabel}</span>
-                  )}
                   <b>{block.title}</b>
+                  {/* An exam keeps its code and tag right under the title,
+                      so a short exam block still says what it is. */}
+                  {block.kind === "exam" && (
+                    <span className="ttCode">
+                      {block.subtitle}
+                      <span className="ttExamTag">{t("Exam")}</span>
+                    </span>
+                  )}
                   {block.room && <small className="ttRoom">{block.room}</small>}
                   {block.alternation && (
                     <small className="ttAlternation">
                       {alternationLabel(block.alternation)}
                     </small>
                   )}
-                  {block.subtitle && <span className="ttCode">{block.subtitle}</span>}
+                  {block.subtitle && block.kind !== "exam" && (
+                    <span className="ttCode">{block.subtitle}</span>
+                  )}
                   {block.conflictWith?.length ? (
                     <small className="ttConflict">
-                      {t("Overlaps {{courses}}", { courses: block.conflictWith.join(", ") })}
+                      {t("Overlaps {{courses}}", {
+                        courses: block.conflictWith.join(", "),
+                      })}
                     </small>
                   ) : null}
                 </UiButton>
@@ -298,6 +334,7 @@ export function WeekTimetable({
                 style={{ "--course": block.color } as React.CSSProperties}
                 key={block.key}
                 onClick={() => onSelect?.(block)}
+                onContextMenu={(event) => openMenu(event, block)}
               >
                 <time>
                   {block.startTime}
@@ -306,8 +343,11 @@ export function WeekTimetable({
                 <span>
                   <b>{block.title}</b>
                   <small>
+                    {block.kind === "exam" && (
+                      <span className="ttExamTag">{t("Exam")}</span>
+                    )}
                     {[
-                      block.kind === "exam" ? `${t("Exam")} · ${block.timeLabel}` : block.subtitle,
+                      block.subtitle,
                       block.alternation && alternationLabel(block.alternation),
                       block.room,
                     ]
@@ -316,7 +356,9 @@ export function WeekTimetable({
                   </small>
                   {block.conflictWith?.length ? (
                     <small className="ttConflict">
-                      {t("Overlaps {{courses}}", { courses: block.conflictWith.join(", ") })}
+                      {t("Overlaps {{courses}}", {
+                        courses: block.conflictWith.join(", "),
+                      })}
                     </small>
                   ) : null}
                 </span>
@@ -327,6 +369,42 @@ export function WeekTimetable({
           )}
         </div>
       </div>
+      {/* A zero-size anchor at the pointer places the menu where the user
+          right-clicked. */}
+      <Menu
+        opened={Boolean(menu)}
+        onChange={(opened) => !opened && setMenu(null)}
+        position="bottom-start"
+        offset={2}
+        withinPortal
+      >
+        <Menu.Target>
+          <span
+            aria-hidden
+            style={{
+              position: "fixed",
+              left: menu?.x ?? 0,
+              top: menu?.y ?? 0,
+              width: 0,
+              height: 0,
+            }}
+          />
+        </Menu.Target>
+        <Menu.Dropdown>
+          {menu?.actions.map((action) => (
+            <Menu.Item
+              key={action.label}
+              leftSection={action.current ? "✓" : " "}
+              onClick={() => {
+                setMenu(null);
+                action.run();
+              }}
+            >
+              {action.label}
+            </Menu.Item>
+          ))}
+        </Menu.Dropdown>
+      </Menu>
     </div>
   );
 }

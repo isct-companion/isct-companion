@@ -372,10 +372,22 @@ contract!(ScheduleOverride {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub room: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub title: Option<String>,
     pub hidden: bool,
+    /// The user's call on what this session is: an exam, a cancelled class
+    /// (休講) or a class that runs. It outranks every published source.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"exam\" | \"cancelled\" | \"class\""))] pub mark: Option<String>,
 });
 impl ScheduleOverride {
     /// Corrections must remain usable by agendas and notification planning.
     pub fn validate(&self) -> Result<(), crate::schedule::ScheduleError> {
+        if self
+            .mark
+            .as_deref()
+            .is_some_and(|mark| !matches!(mark, "exam" | "cancelled" | "class"))
+        {
+            return Err(crate::schedule::ScheduleError::InvalidInput(
+                "Mark a session as an exam, cancelled or a normal class.".into(),
+            ));
+        }
         self.periods
             .map(|(first, last)| crate::schedule::validate_period_range([first, last]))
             .transpose()?;
@@ -489,6 +501,8 @@ contract!(Settings {
     pub notifications: Notifications, pub cloud: CloudSettings,
     pub subscription_refresh: SubscriptionRefreshSettings,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub customization: Option<Customization>,
+    /// When the user acknowledged the one-time notice on data accuracy.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub data_notice_acknowledged_at: Option<String>,
 });
 contract!(GradePathEntry { pub grade: String, pub academic_year: i32, });
 contract!(QuarterStarts {

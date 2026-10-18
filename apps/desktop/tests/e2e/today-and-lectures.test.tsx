@@ -901,6 +901,86 @@ describe("the lecture desk", () => {
     );
   }, 30_000);
 
+  it("asks once about data accuracy and marks a calendar session from its right-click menu", async () => {
+    const workspace = lectureWorkspace();
+    delete workspace.settings.dataNoticeAcknowledgedAt;
+    app = await mountApp(
+      {
+        workspace,
+        revision: freshRevision(),
+        queries: {
+          ...homeQueries,
+          scheduleView: (_query, core) => lectureSchedule(core.workspace),
+          taskView: (_query, core) => lectureTasks(core.workspace),
+          courseTimeline: () => ({
+            lastStarted: null,
+            next: null,
+            classAt: null,
+          }),
+        },
+        handle: nativeNoise,
+      },
+      { route: paths.home() },
+    );
+    const notice = await required(
+      () => document.querySelector<HTMLElement>('[role="dialog"]'),
+      "the data notice",
+    );
+    expect(notice.textContent).toContain("Before you rely on this data");
+    await click(
+      [...notice.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "I understand",
+      )!,
+    );
+    await until(() =>
+      expect(app!.core.intents).toContainEqual(
+        expect.objectContaining({
+          kind: "replaceSettings",
+          settings: expect.objectContaining({
+            dataNoticeAcknowledgedAt: expect.any(String),
+          }),
+        }),
+      ),
+    );
+
+    const block = await required(
+      () =>
+        app!.host.querySelector<HTMLElement>(
+          ".calendarWorkspace .ttBlock.course",
+        ),
+      "a class on the calendar",
+    );
+    await act(async () => {
+      block.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 40,
+          clientY: 40,
+        }),
+      );
+    });
+    const items = await required(() => {
+      const found = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ];
+      return found.length ? found : null;
+    }, "the session menu");
+    expect(
+      items.map((item) => item.textContent?.replace(/[✓\s]+/, "")),
+    ).toEqual(["Mark as exam", "Mark as cancelled", "Mark as a normal class"]);
+    // The running class is already a normal class.
+    expect(items[2].textContent).toContain("✓");
+    await click(items[1]);
+    await until(() =>
+      expect(app!.core.intents).toContainEqual({
+        kind: "markSession",
+        key: `now-${jstDay(0)}-00:00`,
+        mark: "cancelled",
+      }),
+    );
+  }, 30_000);
+
   it("lists lectures in class order with the Now chip and each lecture's next deadline", async () => {
     const mounted = await mountLectures(lectureWorkspace());
     const rows = await readyLectureRows(mounted.host);
