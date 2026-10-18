@@ -98,6 +98,8 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     /// Text scale for school pages, in percent; starts above 100 for readability.
     @MainActor private(set) var textScale = 115
 
+    private static let noScriptedFocus = "HTMLElement.prototype.focus = function () {};"
+
     private static func textScaleScript(_ percent: Int) -> String {
         "document.documentElement.style.webkitTextSizeAdjust = '\(percent)%';"
     }
@@ -123,6 +125,11 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         }
+        // A script the app evaluates counts as a user action on iOS, so the
+        // login script focusing the field it fills raised the keyboard, even
+        // for a hidden pull. Programmatic focus is dropped; a tap still focuses.
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: Self.noScriptedFocus, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         // Larger text without zooming the layout, so fixed-width pages still fit.
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.textScaleScript(textScale), injectionTime: .atDocumentEnd, forMainFrameOnly: false))

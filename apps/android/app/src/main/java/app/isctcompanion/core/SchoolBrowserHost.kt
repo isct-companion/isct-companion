@@ -112,6 +112,9 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         val host = parking ?: FrameLayout(context).apply {
             alpha = 0.01f
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            // Core's login script focuses fields it fills; a hidden page must
+            // not take focus and raise the soft keyboard.
+            descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
         }
         (host.parent as? ViewGroup)?.removeView(host)
         root.addView(host, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -123,6 +126,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     fun park(webView: WebView) {
         val host = parking ?: return
         if (webView.parent === host) return
+        webView.clearFocus()
         (webView.parent as? ViewGroup)?.removeView(webView)
         host.addView(webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
