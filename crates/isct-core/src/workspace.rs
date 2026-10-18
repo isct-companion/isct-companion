@@ -179,6 +179,10 @@ pub enum WorkspaceIntent {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         existing_id: Option<String>,
+        /// Other exam bindings the user saw and explicitly accepted.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        confirmed_exam_keys: Option<Vec<String>>,
     },
     DeleteScheduleOverride {
         override_id: String,
@@ -568,15 +572,37 @@ fn apply_intent(
             "subscriptions",
             &subscription_id,
         ),
-        WorkspaceIntent::SaveScheduleOverride { draft, existing_id } => save_simple_record(
-            write,
-            current,
-            "scheduleOverrides",
-            "schedule_overrides",
+        WorkspaceIntent::SaveScheduleOverride {
             draft,
             existing_id,
-            |_| Ok(()),
-        ),
+            confirmed_exam_keys,
+        } => {
+            if draft["targetKind"] == "exam" {
+                if let Some(course_id) = draft["courseId"].as_str().filter(|id| !id.is_empty()) {
+                    let key = string(&draft, "targetKey")?;
+                    let preview = crate::schedule::exam_association(current, key, course_id)
+                        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+                    if preview.requires_confirmation
+                        && preview.conflicts.iter().any(|exam| {
+                            !confirmed_exam_keys
+                                .as_ref()
+                                .is_some_and(|keys| keys.contains(&exam.key))
+                        })
+                    {
+                        return Err(DataError::InvalidInput("Confirm the course's existing exam bindings before linking another exam.".into()));
+                    }
+                }
+            }
+            save_simple_record(
+                write,
+                current,
+                "scheduleOverrides",
+                "schedule_overrides",
+                draft,
+                existing_id,
+                |_| Ok(()),
+            )
+        }
         WorkspaceIntent::DeleteScheduleOverride { override_id } => delete_visible(
             write,
             current,

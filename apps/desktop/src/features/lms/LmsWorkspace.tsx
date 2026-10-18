@@ -1,3 +1,4 @@
+import { ExamCards } from "../../components/exams/ExamCards";
 import { deadlineText } from "../../lib/deadline-text";
 import { Menu } from "@mantine/core";
 import { formatJst } from "../../lib/civil-date";
@@ -308,10 +309,11 @@ export function LmsWorkspace({
       ),
     [data.materials, course.id],
   );
-  const syllabus = useScheduleQuery<CourseDetail>({
+  const courseDetail = useScheduleQuery<CourseDetail>({
     kind: "courseDetail",
     courseId: course.id,
-  }).value?.syllabusUrl;
+  }).value;
+  const syllabus = courseDetail?.syllabusUrl;
   const announcementCards = useMemo(
     () =>
       materials
@@ -1468,6 +1470,18 @@ export function LmsWorkspace({
                       {t("Undo")}
                     </button>
                   </div>
+                )}
+                {(courseDetail?.exams?.length ?? 0) > 0 && (
+                  <section className="lmsCourseExams" aria-label={t("Exams")}>
+                    <h2>{t("Exams")}</h2>
+                    <ExamCards
+                      exams={courseDetail?.exams ?? []}
+                      data={data}
+                      courses={data.courses.filter(
+                        (row) => row.id === course.id,
+                      )}
+                    />
+                  </section>
                 )}
                 {!paged && <h2>{t("Course content")}</h2>}
                 {sections.map((section) => sectionView(section))}

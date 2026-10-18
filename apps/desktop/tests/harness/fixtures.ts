@@ -195,5 +195,12 @@ export function scheduleViewFor(
   workspace: Workspace,
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  return { ...overviewFor(workspace), agendas: [], problems: [], ...overrides };
+  return {
+    ...overviewFor(workspace),
+    agendas: [],
+    exams: [],
+    upcomingExams: [],
+    problems: [],
+    ...overrides,
+  };
 }

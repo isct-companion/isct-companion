@@ -1,0 +1,106 @@
+.examCards {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.examCard {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--course);
+  border-radius: 10px;
+  min-width: 0;
+}
+.examCard.hidden {
+  opacity: 0.6;
+}
+.examCardHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.examCard b,
+.examCourseLink {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.examCard small {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.examCard time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.examCourseLink {
+  padding: 0;
+  border: 0;
+  text-align: left;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+.examCourseLink:hover {
+  color: var(--accent);
+}
+.examEditor {
+  display: grid;
+  gap: 14px;
+}
+.examEditor p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.examEditorTimes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.examEditorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.lectureExamScope {
+  margin-bottom: 12px;
+}
+.lectureExamScope p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.lectureCourseContent {
+  height: 100%;
+}
+.lectureExamDetails {
+  height: 100%;
+  overflow: auto;
+  padding: 18px 24px;
+}
+.lectureExamDetails > header {
+  margin: 20px 0 24px;
+}
+.lectureExamDetails h1 {
+  margin: 0;
+  font-size: 22px;
+}
+.lectureExamDetails > header p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.lectureExamDetails .examEditor {
+  max-width: 560px;
+}
+.lectureRow.exam {
+  grid-template-columns: minmax(0, 1fr);
+}
+.lectureExamScope > small {
+  color: var(--muted);
+  font-size: 11px;
+}

@@ -1,3 +1,4 @@
+import { ExamCards } from "../../components/exams/ExamCards";
 import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
@@ -352,6 +353,33 @@ export function Today({
               </span>
             ))}
           </aside>
+        )}
+        {(schedule?.upcomingExams ?? []).some(
+          (exam) =>
+            exam.courseId &&
+            !exam.hidden &&
+            exam.status === "scheduled" &&
+            exam.date >= viewIso,
+        ) && (
+          <section className="todaySection" aria-label={t("Upcoming exams")}>
+            <header>
+              <h2>{t("Upcoming exams")}</h2>
+            </header>
+            <ExamCards
+              exams={(schedule?.upcomingExams ?? [])
+                .filter(
+                  (exam) =>
+                    exam.courseId &&
+                    !exam.hidden &&
+                    exam.status === "scheduled" &&
+                    exam.date >= viewIso,
+                )
+                .slice(0, 3)}
+              data={data}
+              courses={schedule?.courses ?? []}
+              open={(id) => open(id)}
+            />
+          </section>
         )}
         <section className="todaySection" data-today-section="classes">
           <header>

@@ -516,6 +516,8 @@ export type AgentAccess = { enabled: boolean; lastWrites: Array<AgentWrite> };
 export type Notifications = {
   classes: boolean;
   assignments: boolean;
+  exams?: boolean;
+  examLeadMinutes?: number;
   classLeadMinutes?: number;
   assignmentLeadMinutes?: Array<number>;
   localPermission: NotificationPermission;
@@ -993,12 +995,36 @@ export type CourseDetail = {
   sections: Array<number>;
   assignmentIds: Array<string>;
   examIds: Array<string>;
+  exams: Array<ExamView>;
   offeringId: string | null;
   /**
    * The course's T2SCHOLA page, from the course itself or its LMS record.
    */
   lmsUrl: string | null;
   syllabusUrl: string | null;
+};
+
+export type ExamView = {
+  id: string;
+  key: string;
+  term: string;
+  courseId: string | null;
+  code: string;
+  title: string;
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  periods: [number, number] | null;
+  room: string;
+  color: string;
+  status: string;
+  edited: boolean;
+  hidden: boolean;
+};
+
+export type ExamAssociation = {
+  requiresConfirmation: boolean;
+  conflicts: Array<ExamView>;
 };
 
 export type CourseTimeline = {
@@ -1092,6 +1118,8 @@ export type ScheduleView = {
   range: QuarterRange | null;
   courses: unknown[];
   agendas: Array<DatedAgenda>;
+  exams: Array<ExamView>;
+  upcomingExams: Array<ExamView>;
   declaredCredits: number | null;
   colors: { [key in string]?: string };
   enrolledCourseIds: Array<string>;
@@ -1121,6 +1149,7 @@ export type WorkspaceQuery =
     }
   | { kind: "taskView"; now: string }
   | { kind: "courseDetail"; courseId: string }
+  | { kind: "examAssociation"; examKey: string; courseId: string }
   | {
       kind: "scheduleView";
       /**
@@ -1177,6 +1206,7 @@ export type WorkspaceQueryResult =
   | { kind: "courseTimeline"; value: CourseTimeline }
   | { kind: "taskView"; value: TaskView }
   | { kind: "courseDetail"; value: CourseDetail }
+  | { kind: "examAssociation"; value: ExamAssociation }
   | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }
   | { kind: "calendarState"; value: unknown | null }
@@ -1256,7 +1286,15 @@ export type WorkspaceIntent =
       resetRemote: boolean;
     }
   | { kind: "deleteSubscription"; subscriptionId: string }
-  | { kind: "saveScheduleOverride"; draft: unknown; existingId?: string }
+  | {
+      kind: "saveScheduleOverride";
+      draft: unknown;
+      existingId?: string;
+      /**
+       * Other exam bindings the user saw and explicitly accepted.
+       */
+      confirmedExamKeys?: Array<string>;
+    }
   | { kind: "deleteScheduleOverride"; overrideId: string }
   | { kind: "saveScheduledTask"; draft: unknown; existingId?: string }
   | { kind: "deleteScheduledTask"; taskId: string }
@@ -1664,6 +1702,8 @@ export const EMPTY_WORKSPACE: Workspace = {
     notifications: {
       assignments: true,
       classes: true,
+      examLeadMinutes: 60,
+      exams: true,
       localPermission: "default",
     },
     restoreSchoolPage: false,

@@ -1,3 +1,4 @@
+import { ExamEditor } from "../../components/exams/ExamEditor";
 import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
@@ -107,8 +108,11 @@ export function LectureDesk({
     }
   }, [term]);
   const [query, setQuery] = useState("");
+  const [examKey, setExamKey] = useState<string | null>(null);
   // The list shows the quarter's lectures, or all of its assignments.
-  const [mode, setMode] = useState<"lectures" | "assignments">("lectures");
+  const [mode, setMode] = useState<"lectures" | "assignments" | "exams">(
+    "lectures",
+  );
   useEffect(() => {
     if (!assignmentsRequest) return;
     setMode("assignments");
@@ -133,6 +137,10 @@ export function LectureDesk({
   const taskView = snapshot?.[1];
   const terms = schedule?.allTerms.length ? schedule.allTerms : [term];
   const courses = schedule?.courses ?? [];
+  const selectedExam =
+    mode === "exams"
+      ? schedule?.exams?.find((exam) => exam.key === examKey)
+      : undefined;
   const taskTerm = taskView?.byTerm?.[shownTerm];
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
 
@@ -309,7 +317,7 @@ export function LectureDesk({
 
   return (
     <div
-      className={`page lectureDesk${entry ? " open" : ""}`}
+      className={`page lectureDesk${(mode === "exams" ? selectedExam : entry) ? " open" : ""}`}
       data-sidebar-collapsed={wide && collapsed}
       data-sidebar-floating={wide && collapsed && floating}
       onKeyDown={(event) => {
@@ -326,7 +334,7 @@ export function LectureDesk({
         firstCollapsible
         firstPanelRef={sidebar}
         onFirstCollapse={setCollapsed}
-        firstMin={170}
+        firstMin={210}
         firstMax="45%"
         secondMin="45%"
       >
@@ -371,14 +379,20 @@ export function LectureDesk({
             role="group"
             aria-label={t("Show")}
           >
-            {(["lectures", "assignments"] as const).map((item) => (
+            {(["lectures", "assignments", "exams"] as const).map((item) => (
               <button
                 type="button"
                 key={item}
                 aria-pressed={mode === item}
                 onClick={() => setMode(item)}
               >
-                {t(item === "lectures" ? "Lectures" : "Assignments")}
+                {t(
+                  item === "lectures"
+                    ? "Lectures"
+                    : item === "exams"
+                      ? "Exams"
+                      : "Assignments",
+                )}
               </button>
             ))}
           </div>
@@ -391,6 +405,61 @@ export function LectureDesk({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.key === "Escape" && setQuery("")}
           />
+          {mode === "exams" &&
+            (() => {
+              const exams = schedule?.exams ?? [];
+              const needle = query.trim().toLowerCase();
+              const shown = exams.filter((exam) =>
+                needle
+                  ? `${exam.title} ${exam.code} ${exam.room}`
+                      .toLowerCase()
+                      .includes(needle)
+                  : Boolean(exam.courseId),
+              );
+              return (
+                <>
+                  <div className="lectureExamScope">
+                    <small>
+                      {needle ? t("Search published exams") : t("My exams")}
+                    </small>
+                    {!shown.length && (
+                      <p>
+                        {t(
+                          needle
+                            ? "No matching exams."
+                            : "No linked exams this quarter. Search to find a published exam.",
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  {shown.map((exam) => (
+                    <button
+                      type="button"
+                      key={exam.key}
+                      className={`lectureRow exam${examKey === exam.key ? " selected" : ""}`}
+                      aria-current={examKey === exam.key ? "true" : undefined}
+                      style={{ "--course": exam.color } as React.CSSProperties}
+                      onClick={() => {
+                        setExamKey(exam.key);
+                        setFloating(false);
+                      }}
+                    >
+                      <b>{exam.title || exam.code}</b>
+                      <small>
+                        {exam.code} · {exam.date}
+                      </small>
+                      <small>
+                        {exam.courseId ? t("Linked") : t("Not linked")}
+                        {exam.status === "cancelled"
+                          ? ` · ${t("Cancelled")}`
+                          : ""}
+                        {exam.hidden ? ` · ${t("Hidden")}` : ""}
+                      </small>
+                    </button>
+                  ))}
+                </>
+              );
+            })()}
           {mode === "assignments" && (
             <AssignmentGroupList
               key={shownTerm}
@@ -443,38 +512,87 @@ export function LectureDesk({
         </nav>
         <div
           className="lectureContent"
-          role={stacked && entry ? "dialog" : undefined}
-          aria-modal={stacked && entry ? true : undefined}
+          role={
+            stacked && (mode === "exams" ? selectedExam : entry)
+              ? "dialog"
+              : undefined
+          }
+          aria-modal={
+            stacked && (mode === "exams" ? selectedExam : entry)
+              ? true
+              : undefined
+          }
         >
-          {!entry && wide && (
-            <header className="lectureEmptyHeader">{sidebarToggle}</header>
-          )}
-          {entry && (
-            <button type="button" className="lectureBack" onClick={clear}>
-              ‹ {t("Lectures")}
-            </button>
-          )}
-          {retained.map((item) => (
-            <div
-              className="lectureSlot"
-              key={item.courseId}
-              hidden={entry?.courseId !== item.courseId}
-            >
-              <Activity
-                mode={
-                  active && entry?.courseId === item.courseId
-                    ? "visible"
-                    : "hidden"
-                }
+          {mode === "exams" && (
+            <div className="lectureExamDetails">
+              {sidebarToggle}
+              <button
+                type="button"
+                className="lectureBack"
+                onClick={() => setExamKey(null)}
               >
-                {renderWorkspace(
-                  item,
-                  active && entry?.courseId === item.courseId,
-                  entry?.courseId === item.courseId ? sidebarToggle : undefined,
-                )}
-              </Activity>
+                ‹ {t("Exams")}
+              </button>
+              {selectedExam ? (
+                <>
+                  <header>
+                    <h1>{selectedExam.title || selectedExam.code}</h1>
+                    <p>
+                      {selectedExam.code} ·{" "}
+                      {selectedExam.term.replace("-", " ")} · {t("Exam")}
+                    </p>
+                  </header>
+                  <ExamEditor
+                    key={`${selectedExam.key}:${data.scheduleOverrides.find((row) => !row.deletedAt && row.targetKey === selectedExam.key)?.rev ?? 0}`}
+                    exam={selectedExam}
+                    data={data}
+                    courses={courses}
+                  />
+                </>
+              ) : (
+                <p className="emptyHint">
+                  {t("Select an exam to edit its schedule or link a course.")}
+                </p>
+              )}
             </div>
-          ))}
+          )}
+          <div className="lectureCourseContent" hidden={mode === "exams"}>
+            {!entry && wide && (
+              <header className="lectureEmptyHeader">{sidebarToggle}</header>
+            )}
+            {entry && (
+              <button type="button" className="lectureBack" onClick={clear}>
+                ‹ {t("Lectures")}
+              </button>
+            )}
+            {retained.map((item) => (
+              <div
+                className="lectureSlot"
+                key={item.courseId}
+                hidden={entry?.courseId !== item.courseId}
+              >
+                <Activity
+                  mode={
+                    active &&
+                    mode !== "exams" &&
+                    entry?.courseId === item.courseId
+                      ? "visible"
+                      : "hidden"
+                  }
+                >
+                  {renderWorkspace(
+                    item,
+                    active &&
+                      mode !== "exams" &&
+                      entry?.courseId === item.courseId,
+                    entry?.courseId === item.courseId
+                      ? sidebarToggle
+                      : undefined,
+                  )}
+                </Activity>
+              </div>
+            ))}
+          </div>
         </div>
       </ResizableWorkspace>
     </div>

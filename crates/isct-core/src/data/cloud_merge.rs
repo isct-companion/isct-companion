@@ -115,7 +115,15 @@ pub fn sanitize_setting(row: &mut Value) {
                 .and_then(Value::as_object_mut)
             {
                 notifications.retain(|key, _| {
-                    matches!(key.as_str(), "classes" | "assignments" | "classLeadMinutes")
+                    matches!(
+                        key.as_str(),
+                        "classes"
+                            | "exams"
+                            | "assignments"
+                            | "classLeadMinutes"
+                            | "examLeadMinutes"
+                            | "assignmentLeadMinutes"
+                    )
                 });
             }
         }

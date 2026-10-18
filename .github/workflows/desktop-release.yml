@@ -1,6 +1,8 @@
 name: Desktop release
 
 on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
   workflow_dispatch:
     inputs:
       publish:
@@ -25,12 +27,38 @@ permissions:
   actions: read
 
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Verify release source
+    if: github.event_name == 'push' || inputs.source_run_id == ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - run: yarn install --immutable
+      - run: node scripts/desktop/desktop-release.mjs validate
+      - run: yarn test
+      - run: yarn test:types
+      - run: cargo test -p isct-core --locked
+
   build:
     name: Build (${{ matrix.target }})
+    needs: [verify]
     if: inputs.source_run_id == '' || github.event_name != 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -162,7 +190,7 @@ jobs:
       always() && !cancelled() &&
       ((needs.build.result == 'success') ||
        (needs.build.result == 'skipped' && inputs.source_run_id != '')) &&
-      inputs.publish == true
+      (github.event_name == 'push' || inputs.publish == true)
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -189,6 +217,9 @@ jobs:
           gh api "repos/$PRIVATE_REPO/actions/runs/$SOURCE_RUN_ID" > source-run.json
           jq -e '.name == "Desktop release" and .status == "completed" and .conclusion == "success"' source-run.json > /dev/null
           echo "SOURCE_SHA=$(jq -r .head_sha source-run.json)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SOURCE_SHA }}
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
@@ -237,6 +268,9 @@ jobs:
           pathlib.Path('release-assets/latest.json').write_text(json.dumps(manifest, indent=2) + '\n')
           PYUPDATE
           fi
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF" = "refs/tags/v$version" || { echo 'Release tag must match artifact version'; exit 1; }
+          fi
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
       - name: Verify release destination and source tag
         shell: bash
@@ -254,19 +288,13 @@ jobs:
         run: |
           set -euo pipefail
           printf 'IsctCompanion %s desktop release for macOS 14+ (Apple Silicon / Intel) and Windows 10/11 x64.\n\n' "${RELEASE_TAG#v}" > release-notes.md
-          cat >> release-notes.md <<'NOTES'
-          - Timetables now use LMS grids consistently for every quarter, including historical and non-weekly courses.
-          - Home shows submitted and graded assignments, including completed work without a deadline.
-          - School refreshes keep cached data and personal edits, bound slow requests, and show the running task while another refresh is queued.
-          - Lecture Desk aligns its quarter selector, mode switch and search field across sidebar widths.
-          - Saved physics class-group choices load correctly after restarting the app.
-
-          This release includes desktop installers only. Mobile will be published separately when ready.
-
-          Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.
-
-          Read the license documents bundled with the app before installing. Third-party notices are included in the app.
-          NOTES
+          notes="docs/releases/${RELEASE_TAG#v}.md"
+          if [[ -f "$notes" ]]; then
+            cat "$notes" >> release-notes.md
+          fi
+          printf '\nThis release includes desktop installers only. Mobile will be published separately when ready.\n\n' >> release-notes.md
+          echo 'Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.' >> release-notes.md
+          echo 'Read the license documents bundled with the app before installing. Third-party notices are included in the app.' >> release-notes.md
           echo "Source build: https://github.com/$BUILD_REPO/commit/$SOURCE_SHA" >> release-notes.md
           if [[ "$MACOS_SIGNING_STATUS" == signed-notarized ]]; then
             echo 'Mac installers are signed with Developer ID and notarized by Apple. The Windows installer is unsigned.' >> release-notes.md

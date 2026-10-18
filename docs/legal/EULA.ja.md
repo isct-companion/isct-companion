@@ -9,7 +9,7 @@
 同意したものとみなされます。同意いただけない場合は、本ソフトウェアをインストール
 または使用しないでください。
 
-公式ダウンロード：https://github.com/isct-companion/Isct-Companion-App/releases
+公式ダウンロード：https://github.com/isct-companion/isct-companion/releases
 
 ## 1. 使用許諾
 

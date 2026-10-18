@@ -8,7 +8,7 @@ IsctCompanion app, its updates and documentation (the "Software"). By
 installing or using the Software you accept this agreement. If you do not
 accept it, do not install or use the Software.
 
-Official downloads: https://github.com/isct-companion/Isct-Companion-App/releases
+Official downloads: https://github.com/isct-companion/isct-companion/releases
 
 ## 1. License
 

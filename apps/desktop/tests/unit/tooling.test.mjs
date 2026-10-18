@@ -280,6 +280,11 @@ describe("desktop release publication", () => {
       ).run;
       const dir = mkdtempSync(path.join(os.tmpdir(), "isct-release-"));
       try {
+        mkdirSync(path.join(dir, "docs/releases"), { recursive: true });
+        writeFileSync(
+          path.join(dir, "docs/releases", `${tag.slice(1)}.md`),
+          "Reviewed release notes for this version.\n",
+        );
         // GitHub has no offline publication mode. Keep the shipped shell script
         // real, replacing only the external CLI so this test never publishes.
         writeFileSync(
@@ -329,8 +334,11 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
         );
         expect(upload).toBeLessThan(calls.indexOf(edit));
         const notes = readFileSync(path.join(dir, "release-notes.md"), "utf8");
-        expect(notes).toContain(`IsctCompanion ${tag.slice(1)} desktop release`);
+        expect(notes).toContain(
+          `IsctCompanion ${tag.slice(1)} desktop release`,
+        );
         expect(notes).toContain("desktop installers only");
+        expect(notes).toContain("Reviewed release notes for this version.");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -352,6 +360,7 @@ describe("desktop update distribution", () => {
         "apps/desktop/package.json",
         "apps/desktop/src-tauri/tauri.conf.json",
         "apps/desktop/src-tauri/Cargo.toml",
+        "Cargo.lock",
         "docs/legal/EULA.md",
         "docs/legal/EULA.ja.md",
         "docs/distribution/README.md",
@@ -363,6 +372,20 @@ describe("desktop update distribution", () => {
       }
       put("apps/desktop/dist/THIRD-PARTY-NOTICES.txt", "Test notices");
       const version = JSON.parse(readRepoFile("package.json")).version;
+      put(`docs/releases/${version}.md`, "Reviewed release notes\n");
+      const validateTag = (tag) =>
+        spawnSync(
+          process.execPath,
+          [path.join(root, "scripts/desktop/desktop-release.mjs"), "validate"],
+          {
+            encoding: "utf8",
+            env: { ...process.env, GITHUB_REF: `refs/tags/${tag}` },
+          },
+        );
+      expect(validateTag(`v${version}`).status).toBe(0);
+      const wrongTag = validateTag("v0.0.0");
+      expect(wrongTag.status).not.toBe(0);
+      expect(wrongTag.stderr).toContain("Release tag must match app version");
       // The collector packages existing bundles. Native compilation and cryptographic
       // verification belong to Tauri; these bytes are explicitly inert fixtures.
       for (const [target, format, extension, updateFormat, updateExtension] of [

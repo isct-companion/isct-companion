@@ -1,4 +1,5 @@
 import { submissionLabel } from "../../lib/academic";
+import { ExamCards } from "../../components/exams/ExamCards";
 import { Badge, Button, ScrollArea, Tabs } from "@mantine/core";
 import { useState } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
@@ -121,7 +122,7 @@ export function CourseDetails({
   const offering = data.offerings.find(
     (item) => item.id === detail?.offeringId,
   );
-  const exams = rows(data.exams, detail?.examIds);
+  const exams = detail?.exams ?? [];
   const count = (value: number) =>
     value > 0 ? <Badge size="xs">{value}</Badge> : null;
   const refresh = fetchLms && (
@@ -220,25 +221,7 @@ export function CourseDetails({
                 <>
                   <dt>{t("Exams")}</dt>
                   <dd className="courseExamList">
-                    {exams.map((exam) => {
-                      const override = data.scheduleOverrides.find(
-                        (item) =>
-                          !item.deletedAt &&
-                          item.targetKey === (exam.sourceKey ?? exam.id),
-                      );
-                      const periods = override?.periods ?? exam.periods;
-                      return (
-                        <div key={exam.id}>
-                          <b>{override?.date ?? exam.date}</b>
-                          {periods ? ` · ${periods[0]}–${periods[1]}限` : ""}
-                          {(override?.room ??
-                          pickLocalized(exam.room ?? undefined, language))
-                            ? ` · ${override?.room ?? pickLocalized(exam.room ?? undefined, language)}`
-                            : ""}
-                          {override && <small> · {t("Edited")}</small>}
-                        </div>
-                      );
-                    })}
+                    <ExamCards exams={exams} data={data} courses={[course]} />
                   </dd>
                 </>
               )}

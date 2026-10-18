@@ -685,3 +685,35 @@ Regenerate the shared TypeScript contracts with `yarn core:types`. The root
 command runs `cargo run -p isct-core --features ts --example export-types` and
 formats `apps/desktop/src/generated/persistence.ts`. The exporter belongs to Core
 and is not included in desktop application bundles.
+
+## Exam read models
+
+`ScheduleView.exams` contains the selected quarter's visible published subscription
+records, including unlinked and cancelled exams. `ScheduleView.upcomingExams`
+contains scheduled, linked, unhidden exams from the query's start date across
+source quarters. `CourseDetail.exams` contains a course's exams across its placed
+quarters; `examIds` remains available for existing clients.
+
+Core matches an exam within its academic year and quarter, using an explicit
+course link or a unique enrolled course with the full course/class code. A class
+suffix remains part of the identity. Unlinked exams remain browsable in Lectures
+and do not enter personal agendas or reminders. Missing times remain visible on
+cards; timed agenda entries and reminders require a usable start and end time.
+
+`saveScheduleOverride` stores personal date, time, room, visibility and course-link
+corrections by the subscription's stable source key. Refreshes update the source
+record independently. `deleteScheduleOverride` restores the current source facts.
+The shared exam projection supplies Today, Lectures, course details and reminders.
+
+`settings.notifications.exams` and `examLeadMinutes` control exam reminders
+independently. New workspaces default to enabled, 60 minutes before the exam.
+Older settings without these fields retain the previous class-reminder preference
+and lead time until changed. These preferences participate in user backups and cloud sync.
+
+`examAssociation { examKey, courseId }` returns existing bindings and
+`requiresConfirmation` for the proposed link. `saveScheduleOverride` accepts
+`confirmedExamKeys`; a newly linked course with other exams requires all current
+conflict keys, rechecked inside the write transaction. Confirmation adds the new
+link and preserves existing exams. Editing an already linked exam needs no
+repeat confirmation. Lecture Desk shows linked exams by default and searches all
+published exams of its selected quarter when Filter contains text.

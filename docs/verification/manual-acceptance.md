@@ -1564,7 +1564,7 @@ uploader, site restrictions or the signed native browser.
 
 **Last recorded** never run
 
-### Deliver class and assignment reminders at the selected times (`DESKTOP-REMINDER-TIMES`)
+### Deliver class, exam and assignment reminders at the selected times (`DESKTOP-REMINDER-TIMES`)
 
 **Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
 
@@ -1576,12 +1576,13 @@ An updated native desktop build and OS notification permission available.
 
 **Steps**
 
-1. Grant notification permission, enable both reminder types, and choose
-   a class lead time plus a non-default assignment lead time.
+1. Grant notification permission, enable class, exam and assignment reminders,
+   and choose a separate non-default lead time for each type.
    - *Why:* Real OS consent and notification delivery are unavailable to the
      headless settings and reminder-plan tests.
-2. Arrange the class start and assignment deadline so their selected
-   reminder times occur shortly, then leave the app in the background.
+2. In a disposable local workspace, arrange a class, a linked subscription
+   exam and an assignment so their reminder times occur shortly. Turn class
+   reminders off while leaving exam reminders on, then background the app.
    - *Why:* Verifies that native lifecycle wakeups deliver the selected times
      even when the settings page and the application window are inactive.
 
@@ -1593,7 +1594,8 @@ in Settings > Notifications after reopening the page.
 **Expected**
 
 Each native notification arrives at the configured time with the correct
-class or assignment title, and selected times remain saved.
+exam or assignment title; the disabled class reminder stays silent, and
+selected times remain saved.
 
 **Why this is manual**
 
