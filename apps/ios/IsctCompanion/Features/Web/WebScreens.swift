@@ -45,8 +45,9 @@ struct WebTabScreen: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // Ends at the tab bar: before iOS 26 the bar turns transparent over a
+            // web page and the page's text would run under the tab labels.
             ResidentWebView(site: web.tabSite, host: web.browser, revision: web.attachRevision)
-                .ignoresSafeArea(edges: .bottom)
                 .padding(.top, 60)
             if web.loading == web.tabSite && web.browser.webView(for: web.tabSite) == nil {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

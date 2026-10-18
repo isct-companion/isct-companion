@@ -54,6 +54,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
@@ -229,10 +232,13 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     Page {
         OutlinedTextField(
             username, { username = it }, label = { Text("学籍番号") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
-            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
+            ),
+            // Compose fields join system Autofill only when they say what they hold.
+            modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
         )
-        Secret(password, { password = it }, if (saved) "パスワード（変更する場合のみ）" else "パスワード")
+        Secret(password, { password = it }, if (saved) "パスワード（変更する場合のみ）" else "パスワード", login = true)
         Footer("パスワードはこの端末のキーストアで暗号化して保存され、学校のサイトにだけ送られます。")
         if (profile == SchoolAuthProfile.SCIENCE) {
             SectionLabel("ワンタイムパスワード")
@@ -284,12 +290,20 @@ private fun Secret(
     onChange: (String) -> Unit,
     label: String,
     capitalization: KeyboardCapitalization = KeyboardCapitalization.None,
+    login: Boolean = false,
 ) {
+    // Only the login password is offered to password managers; the TOTP secret
+    // and matrix are pasted keys and stay out of Autofill.
     OutlinedTextField(
         value, onChange, label = { Text(label) }, singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(capitalization = capitalization, autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
-        modifier = Modifier.fillMaxWidth(),
+        keyboardOptions = KeyboardOptions(
+            capitalization = capitalization, autoCorrectEnabled = false,
+            keyboardType = if (login) KeyboardType.Password else KeyboardType.Ascii,
+        ),
+        modifier = Modifier.fillMaxWidth().then(
+            if (login) Modifier.semantics { contentType = ContentType.Password } else Modifier,
+        ),
     )
 }
 

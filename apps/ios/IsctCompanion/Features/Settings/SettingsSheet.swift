@@ -109,6 +109,7 @@ private struct AccountScreen: View {
             Section {
                 TextField("学籍番号", text: $username)
                     .textContentType(.username)
+                    .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 SecureField(summary?.saved == true ? "パスワード（変更する場合のみ）" : "パスワード", text: $password)
@@ -116,17 +117,26 @@ private struct AccountScreen: View {
             } footer: {
                 Text("パスワードはこの端末のキーチェーンに保存され、iCloud キーチェーンでデスクトップ版と共有されます。")
             }
+            // Pasted keys, not passwords: a second secure field makes AutoFill
+            // read the form as a sign-up and offer new credentials instead of
+            // the saved login. They stay out of screenshots and the app switcher.
             if profile == .science {
                 Section("ワンタイムパスワード") {
-                    SecureField(summary?.hasOtp == true ? "設定済み（変更する場合のみ）" : "TOTP シークレット", text: $otpSecret)
+                    TextField(summary?.hasOtp == true ? "設定済み（変更する場合のみ）" : "TOTP シークレット", text: $otpSecret)
+                        .textContentType(nil)
+                        .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .privacySensitive()
                 }
             } else {
                 Section("マトリクス表") {
-                    SecureField(summary?.hasMatrix == true ? "設定済み（変更する場合のみ）" : "70 文字", text: $matrix)
+                    TextField(summary?.hasMatrix == true ? "設定済み（変更する場合のみ）" : "70 文字", text: $matrix)
+                        .textContentType(nil)
+                        .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
+                        .privacySensitive()
                 }
             }
             if let error {
