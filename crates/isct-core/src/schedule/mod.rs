@@ -64,8 +64,8 @@ pub use timing::{
     default_teaching_periods, teaching_periods, validate_teaching_periods, TeachingPeriod,
 };
 pub use today::{
-    assignment_board, room_map_query, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem,
-    MaterialItem, RecentItem, TodayClass, TodayPhase, TodayView,
+    assignment_board, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem, MaterialItem,
+    RecentItem, TodayClass, TodayPhase, TodayView,
 };
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]

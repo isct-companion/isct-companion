@@ -52,24 +52,6 @@ pub struct TodayClass {
     pub periods: Option<[u8; 2]>,
     pub starts_at: String,
     pub ends_at: String,
-    /// Map search for the room's building; shells open it in their maps app.
-    pub map_query: Option<String>,
-}
-
-/// Map search text for a room such as `W9-202`, `S2 203` or `南6号館219演習室`:
-/// the university and the building. A building table with coordinates
-/// replaces this later.
-pub fn room_map_query(room: &str) -> Option<String> {
-    if let Some(end) = room.find("号館") {
-        let building = room[..end + "号館".len()].trim();
-        return (!building.is_empty()).then(|| format!("東京科学大学 {building}"));
-    }
-    let building = room
-        .trim()
-        .split(['-', ' ', '　'])
-        .next()
-        .filter(|code| !code.is_empty() && code.chars().all(|c| c.is_ascii_alphanumeric()))?;
-    Some(format!("東京科学大学 {building}"))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -205,7 +187,6 @@ fn class(block: Occurrence, periods: &[TeachingPeriod]) -> Result<TodayClass, Sc
         periods: first.zip(last).map(|(a, b)| [a, b]),
         starts_at: starts_at.to_rfc3339(),
         ends_at: ends_at.to_rfc3339(),
-        map_query: room_map_query(&block.room),
         occurrence: block,
     })
 }

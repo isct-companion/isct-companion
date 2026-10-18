@@ -959,16 +959,6 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     let hero = morning.hero.as_ref().unwrap();
     assert_eq!(hero.occurrence.course_id.as_deref(), Some("course"));
     assert_eq!(hero.periods, Some([1, 2]));
-    assert_eq!(hero.map_query.as_deref(), Some("東京科学大学 M"));
-    assert_eq!(
-        morning.later[0].map_query.as_deref(),
-        Some("東京科学大学 W9")
-    );
-    assert_eq!(room_map_query("オンライン"), None);
-    assert_eq!(
-        room_map_query("南6号館219演習室").as_deref(),
-        Some("東京科学大学 南6号館")
-    );
     assert_eq!(
         morning.next_boundary.as_deref(),
         Some("2026-04-13T08:50:00+09:00")

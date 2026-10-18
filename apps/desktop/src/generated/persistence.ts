@@ -1074,10 +1074,6 @@ export type TodayClass = {
   periods: [number, number] | null;
   startsAt: string;
   endsAt: string;
-  /**
-   * Map search for the room's building; shells open it in their maps app.
-   */
-  mapQuery: string | null;
 };
 
 export type DeadlineItem = {
