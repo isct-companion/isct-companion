@@ -84,8 +84,8 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
     for lms in &lms_courses {
         let lms_id = lms["lmsId"].as_u64().unwrap_or_default();
         let year = lms["year"].as_i64().unwrap_or_default();
-        let offering = text(&lms, "offeringId");
-        let code = lms_course_code(text(&lms, "shortname"));
+        let offering = text(lms, "offeringId");
+        let code = lms_course_code(text(lms, "shortname"));
         let candidates: Vec<_> = array(workspace, "courses")
             .iter()
             .filter(|course| {
@@ -95,7 +95,7 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
                 !code.is_empty()
                     && text(course, "code").eq_ignore_ascii_case(&code)
                     && text(course, "termId").starts_with(&format!("{year}-"))
-                    && array(&lms, "quarters").iter().any(|quarter| {
+                    && array(lms, "quarters").iter().any(|quarter| {
                         text(course, "termId")
                             == format!("{year}-{}", quarter.as_str().unwrap_or(""))
                             || array(workspace, "memberships").iter().any(|m| {
