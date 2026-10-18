@@ -83,11 +83,21 @@ fun IsctTheme(content: @Composable () -> Unit) {
         darkColorScheme(
             primary = palette.accent, background = palette.bg, surface = palette.surface,
             onBackground = palette.ink, onSurface = palette.ink, error = palette.danger,
+            // Navigation bar, chips and switches take the campus tint, not Material's purple.
+            secondaryContainer = palette.accentSoft, onSecondaryContainer = palette.accent,
+            surfaceContainer = palette.surface, surfaceContainerLow = palette.surface,
+            surfaceContainerHigh = palette.surface2, surfaceContainerHighest = palette.surface2,
+            onSurfaceVariant = palette.muted, outline = palette.line, outlineVariant = palette.line,
         )
     } else {
         lightColorScheme(
             primary = palette.accent, background = palette.bg, surface = palette.surface,
             onBackground = palette.ink, onSurface = palette.ink, error = palette.danger,
+            // Navigation bar, chips and switches take the campus tint, not Material's purple.
+            secondaryContainer = palette.accentSoft, onSecondaryContainer = palette.accent,
+            surfaceContainer = palette.surface, surfaceContainerLow = palette.surface,
+            surfaceContainerHigh = palette.surface2, surfaceContainerHighest = palette.surface2,
+            onSurfaceVariant = palette.muted, outline = palette.line, outlineVariant = palette.line,
         )
     }
     CompositionLocalProvider(LocalPalette provides palette) {

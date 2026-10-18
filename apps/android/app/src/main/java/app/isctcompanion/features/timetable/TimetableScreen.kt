@@ -30,7 +30,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -140,7 +139,10 @@ private fun subtitle(monday: LocalDate, term: String?, teachingWeek: UInt?): Str
 
 @Composable
 private fun WeekButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(40.dp).clip(CircleShape).background(Theme.colors.accentSoft)) {
+    Box(
+        Modifier.size(40.dp).clip(CircleShape).background(Theme.colors.accentSoft).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
         Icon(icon, label, tint = Theme.colors.accent)
     }
 }

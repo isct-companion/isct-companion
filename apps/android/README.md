@@ -43,12 +43,25 @@ Core changes: UniFFI checks signatures when the library loads.
   (`AssignmentBoard.record`) with submitted work and hidden rows to restore.
 - Logins stay on the device (Keystore); there is no iCloud Keychain to share
   them with the desktop app.
-- Reminders are inexact alarms, so they can arrive a few minutes late.
+- Reminders are exact alarms once the person allows exact alarms in system
+  settings; otherwise Android may deliver them up to 10 minutes late.
+
+## Verified
+
+On an API 35 x86_64 emulator against a copy of a real desktop `school.db`:
+first launch shows the connect card; 今日 (no-class day), 時間割 with week
+swipe, 課題 with swipe hide, undo, pin and restore from the record, course
+detail, the pushed T2SCHOLA page and the ウェブ tab (SSO login page in the
+resident WebView), the settings sheet, the notification permission prompt and
+the alarms scheduled from Core's plan, light and dark. Not exercised: sign-in
+past the login page, pulls, and a reminder actually firing.
+
+The dev-profile SDK takes about 30 s to open the session on that emulator;
+build the SDK with the release profile for real use.
 
 ## Not yet
 
-Verified only by compiling: the emulator could not run on the machine this was
-built on. Matrix-card OCR import, cloud backup (`NativeCloud`), downloads
+Matrix-card OCR import, cloud backup (`NativeCloud`), downloads
 (`NativeDownloadSession`), widgets (Glance), the intensive-course row in
 時間割, and `strings.xml` generated from `resources/locales` (UI strings are
 inline Japanese, as on iOS).

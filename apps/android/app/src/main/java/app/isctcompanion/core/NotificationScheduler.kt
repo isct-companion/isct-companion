@@ -16,12 +16,14 @@ import java.time.Instant
 
 /** Registers Core's notification plan with the system. Core decides what is
  * due and when (class lead time, deadlines, settings); the shell schedules
- * alarms for it, at most `LIMIT` pending as on iOS. */
+ * alarms for it, at most `LIMIT` pending as on iOS. Alarms are exact when the
+ * person allowed exact alarms in system settings. */
 object NotificationScheduler {
     private const val LIMIT = 64
     private const val HORIZON_DAYS = 7L
     private const val CHANNEL = "reminders"
     private const val SCHEDULED = "scheduled"
+    private const val WINDOW_MS = 10 * 60 * 1000L
 
     fun allowed(context: Context): Boolean =
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -43,9 +45,14 @@ object NotificationScheduler {
         for (item in plan.items.take(LIMIT)) {
             val at = Format.date(item.at) ?: continue
             if (!at.isAfter(now)) continue
-            // Inexact delivery needs no exact-alarm permission; minutes of drift
-            // are acceptable for a class or deadline reminder.
-            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), pending(context, item.key, item))
+            val intent = pending(context, item.key, item)
+            if (alarms.canScheduleExactAlarms()) {
+                alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), intent)
+            } else {
+                // Without the exact-alarm grant, the shortest window Android
+                // honours: a class reminder may arrive up to that much late.
+                alarms.setWindow(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), WINDOW_MS, intent)
+            }
             scheduled.add(item.key)
         }
         store.edit().putStringSet(SCHEDULED, scheduled).apply()

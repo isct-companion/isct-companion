@@ -279,8 +279,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     // Intents
 
     suspend fun setHidden(item: DeadlineItem, hidden: Boolean) {
-        mark(item.assignmentId, hidden = hidden, pinned = null)
+        // Offered at once: the re-read that follows can take a moment.
         undo = if (hidden) UndoAction(item.title, item.assignmentId) else null
+        mark(item.assignmentId, hidden = hidden, pinned = null)
     }
 
     suspend fun setPinned(item: DeadlineItem, pinned: Boolean) {
