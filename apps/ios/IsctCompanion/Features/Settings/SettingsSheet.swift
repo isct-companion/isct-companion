@@ -122,22 +122,10 @@ private struct AccountScreen: View {
             // the saved login. They stay out of screenshots and the app switcher.
             if profile == .science {
                 Section("ワンタイムパスワード") {
-                    TextField(summary?.hasOtp == true ? "設定済み（変更する場合のみ）" : "TOTP シークレット", text: $otpSecret)
-                        .textContentType(nil)
-                        .keyboardType(.asciiCapable)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .privacySensitive()
+                    OtpImportField(saved: summary?.hasOtp == true, setup: $otpSecret)
                 }
             } else {
-                Section("マトリクス表") {
-                    TextField(summary?.hasMatrix == true ? "設定済み（変更する場合のみ）" : "70 文字", text: $matrix)
-                        .textContentType(nil)
-                        .keyboardType(.asciiCapable)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .privacySensitive()
-                }
+                MatrixImportSection(saved: summary?.hasMatrix == true, matrix: $matrix)
             }
             if let error {
                 Section { Text(error).foregroundStyle(Theme.danger) }

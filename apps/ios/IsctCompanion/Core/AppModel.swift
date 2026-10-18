@@ -31,6 +31,8 @@ final class AppModel {
     private(set) var undo: UndoAction?
     /// One "needs you" banner (sync feedback level 3).
     private(set) var problem: String?
+    /// Cells read so far by a running Matrix scan, from Core's `ocr-progress`.
+    private(set) var ocrProgress = 0
     /// Bumped whenever Core reports new content, so open screens re-query.
     private(set) var contentRevision = ""
 
@@ -143,7 +145,13 @@ final class AppModel {
                         await refreshAccounts()
                     case "school-web-open":
                         web.handleOpenEvent(event.payload)
-                    case "school-web-url", "school-download", "ocr-progress":
+                    case "ocr-progress":
+                        if let row = try? JSONSerialization.jsonObject(with: Data(event.payload.utf8)) as? [String: Any],
+                            let completed = (row["completed"] as? NSNumber)?.intValue
+                        {
+                            ocrProgress = completed
+                        }
+                    case "school-web-url", "school-download":
                         break
                     default:
                         scheduleRefresh()
@@ -346,6 +354,19 @@ final class AppModel {
         }
         await refresh()
         await NotificationScheduler.sync(session)
+    }
+
+    /// Whether this build can read a Matrix card (arm64 devices; not the Intel simulator).
+    var canScanMatrix: Bool {
+        (try? session?.capabilities().ocr) ?? false
+    }
+
+    /// Reads the 70 Matrix cells from one photo, in row order (A1…J1, A2…).
+    func scanMatrix(_ image: Data) async throws -> [Recognition] {
+        guard let session else { return [] }
+        ocrProgress = 0
+        guard case let .recognitions(cells) = try await session.scanMatrix(image: image).value() else { return [] }
+        return cells
     }
 
     func deleteCredentials(_ profile: SchoolAuthProfile) async {

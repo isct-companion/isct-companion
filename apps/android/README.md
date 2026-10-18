@@ -20,8 +20,9 @@ ISCT_SDK_PROFILE=dev ANDROID_HOME=~/Library/Android/sdk NDK_HOME=~/Library/Andro
 cd apps/android && ./gradlew :app:installDebug
 ```
 
-Drop `--no-ocr` for the arm64 OCR runtime (unused by the shell so far). The
-x86_64 emulator slice always reports OCR unavailable. Rebuild the AAR whenever
+Drop `--no-ocr` for the arm64 OCR runtime that reads the Matrix card. The
+x86_64 emulator slice always reports OCR unavailable, so the Matrix page there
+offers only paste and manual entry. Rebuild the AAR whenever
 Core changes: UniFFI checks signatures when the library loads.
 
 ## Layout
@@ -61,7 +62,7 @@ build the SDK with the release profile for real use.
 
 ## Not yet
 
-Matrix-card OCR import, cloud backup (`NativeCloud`), downloads
+Recognition of a real Matrix card on an arm64 device, cloud backup (`NativeCloud`), downloads
 (`NativeDownloadSession`), widgets (Glance), the intensive-course row in
 時間割, and `strings.xml` generated from `resources/locales` (UI strings are
 inline Japanese, as on iOS).

@@ -58,5 +58,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-process:2.9.1")
     implementation("androidx.navigation:navigation-compose:2.9.0")
+    // OTP QR codes: Google's scanner UI for the camera, ML Kit for screenshots.
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

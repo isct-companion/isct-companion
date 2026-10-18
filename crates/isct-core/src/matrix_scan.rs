@@ -32,6 +32,29 @@ fn valid_reading(reading: &MatrixReading) -> bool {
         && (reading.text.is_empty()
             || (reading.text.len() == 1 && reading.text.as_bytes()[0].is_ascii_uppercase()))
 }
+/// How far a recognized cell can be trusted when a person reviews the grid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum MatrixConfidence {
+    High,
+    /// Read, but worth checking against the card.
+    Medium,
+    /// Unreadable or likely wrong.
+    Low,
+}
+
+/// The review level of one recognized cell; every shell colours by this.
+pub fn matrix_confidence(text: &str, confidence: f64) -> MatrixConfidence {
+    if text.is_empty() || !confidence.is_finite() || confidence < 0.75 {
+        MatrixConfidence::Low
+    } else if confidence >= 0.9 {
+        MatrixConfidence::High
+    } else {
+        MatrixConfidence::Medium
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MatrixVote {
@@ -479,6 +502,7 @@ pub fn declarations() -> Vec<String> {
         MatrixPoint::decl(),
         MatrixReading::decl(),
         MatrixVote::decl(),
+        MatrixConfidence::decl(),
         MatrixScanPhase::decl(),
         MatrixScanTiming::decl(),
         MatrixScanSnapshot::decl(),

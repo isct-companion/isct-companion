@@ -242,13 +242,10 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
         Footer("パスワードはこの端末のキーストアで暗号化して保存され、学校のサイトにだけ送られます。")
         if (profile == SchoolAuthProfile.SCIENCE) {
             SectionLabel("ワンタイムパスワード")
-            Secret(otpSecret, { otpSecret = it }, if (summary?.hasOtp == true) "設定済み（変更する場合のみ）" else "TOTP シークレット")
+            OtpImportField(summary?.hasOtp == true, otpSecret) { otpSecret = it }
         } else {
             SectionLabel("マトリクス表")
-            Secret(
-                matrix, { matrix = it }, if (summary?.hasMatrix == true) "設定済み（変更する場合のみ）" else "70 文字",
-                KeyboardCapitalization.Characters,
-            )
+            MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
         }
         error?.let { Footer(it, Theme.colors.danger) }
         Button(

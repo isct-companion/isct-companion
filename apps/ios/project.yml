@@ -36,8 +36,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSCameraUsageDescription: マトリクス表を撮影して読み込むためにカメラを使います。
-        NSPhotoLibraryUsageDescription: マトリクス表の写真を読み込むために使います。
+        NSCameraUsageDescription: 認証アプリの QR コードやマトリクス表を読み取るためにカメラを使います。
+        NSPhotoLibraryUsageDescription: QR コードやマトリクス表の写真を読み込むために使います。
     entitlements:
       path: IsctCompanion/IsctCompanion.entitlements
       properties:

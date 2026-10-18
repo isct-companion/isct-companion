@@ -28,21 +28,14 @@ Verified in the iPhone 17 simulator (iOS 26) against a copy of a real desktop
 
 ## Blocked here: needs another machine, a device or an account
 
-### 1. Matrix-card OCR import (needs Apple silicon or a device)
+### 1. Matrix-card OCR import (needs a real card)
 
-The pinned ONNX Runtime has no x86_64 iOS-simulator binary, so `isct-ocr` builds
-its "unavailable" backend there (see `crates/isct-ocr/Cargo.toml`). On an arm64
-simulator or a device it is real.
+Built on 2026-10-18. 設定 › Tokyo Tech offers 撮影, 写真から, 貼り付け and 入力. A
+photo goes to Core's `scanMatrix`, which reports progress as `ocr-progress`. The
+7×10 review grid is tinted by Core's `matrixConfidence`. The OTP field reads
+QR codes the same way, through Core's `importOtp`. The Intel simulator builds
+the "unavailable" OCR backend, so only a device exercises recognition.
 
-- Build the SDK with OCR: `ISCT_SDK_PROFILE=dev node scripts/bindings/build-ios.mjs`
-  (drop `--simulator-only` for a device; OCR is on unless you pass `--no-ocr`).
-- The FFI already exposes `scanMatrix(image: Data) -> Operation` and the
-  warm-up call (`crates/isct-ffi/src/services.rs`). Progress arrives as
-  `OcrProgress` events on `subscribe()`.
-- The shell still needs the UI: camera or `PhotosPicker` → `scanMatrix` → a
-  progress view → a review grid → save. Copy the flow from the desktop
-  (`apps/desktop/src/platform/desktop-bridge.ts`, `hasMatrix` / `matrixOcr`),
-  not its code. `Info.plist` already has the camera and photo-library strings.
 - Done when a photo of a real matrix card fills the grid, saving it works, and
   the next SSO login answers the matrix challenge on its own.
 

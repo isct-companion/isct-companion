@@ -56,6 +56,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** One "needs you" banner (sync feedback level 3). */
     var problem: String? by mutableStateOf(null)
         private set
+    /** Cells read so far by a running Matrix scan, from Core's `ocr-progress`. */
+    var ocrProgress: Int by mutableStateOf(0)
+        private set
     /** Bumped whenever Core reports new content, so open screens re-query. */
     var contentRevision: String by mutableStateOf("")
         private set
@@ -173,7 +176,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     "pull-state-changed", "school-pull-progress" -> refreshPulls()
                     "school-session", "school-login-status" -> refreshAccounts()
                     "school-web-open" -> web.handleOpenEvent(update.event.payload)
-                    "school-web-url", "school-download", "ocr-progress" -> Unit
+                    "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
+                        .onSuccess { ocrProgress = it }
+                    "school-web-url", "school-download" -> Unit
                     else -> scheduleRefresh()
                 }
                 is StreamUpdate.SnapshotRequired -> {
@@ -364,6 +369,17 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
         refresh()
         NotificationScheduler.sync(context, session)
+    }
+
+    /** Whether this build can read a Matrix card (arm64; not the x86_64 emulator). */
+    val canScanMatrix: Boolean
+        get() = runCatching { session?.capabilities()?.ocr }.getOrNull() == true
+
+    /** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
+    suspend fun scanMatrix(image: ByteArray): List<Recognition> {
+        val session = session ?: return emptyList()
+        ocrProgress = 0
+        return (session.scanMatrix(image).value() as? OperationResult.Recognitions)?.cells.orEmpty()
     }
 
     suspend fun deleteCredentials(profile: SchoolAuthProfile) {

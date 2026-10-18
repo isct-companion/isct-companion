@@ -1553,6 +1553,8 @@ export type MatrixReading = { text: string; confidence: number };
 
 export type MatrixVote = { text: string; confidence: number; stable: boolean };
 
+export type MatrixConfidence = "high" | "medium" | "low";
+
 export type MatrixScanPhase = "initial" | "refine" | "verify" | "complete";
 
 export type MatrixScanTiming = {
