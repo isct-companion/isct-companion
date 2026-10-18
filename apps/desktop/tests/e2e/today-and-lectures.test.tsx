@@ -15,6 +15,7 @@ import {
   overviewFor,
   planningWeekFor,
   scheduleViewFor,
+  lectureSearchFor,
   typeInto,
   until,
   workspaceFixture,
@@ -416,6 +417,7 @@ async function mountCompactToday(opened: string[]): Promise<Mounted> {
     queries: {
       scheduleView: (_query, fake) => scheduleViewFor(fake.workspace),
       taskView: (_query, fake) => taskViewFor(fake.workspace),
+      lectureSearch: (query, fake) => lectureSearchFor(fake.workspace, query),
     },
     handle: nativeNoise,
   });
@@ -622,6 +624,7 @@ async function mountLectures(workspace: Workspace): Promise<MountedApp> {
         ...homeQueries,
         scheduleView: (_query, core) => lectureSchedule(core.workspace),
         taskView: (_query, core) => lectureTasks(core.workspace),
+        lectureSearch: (query, core) => lectureSearchFor(core.workspace, query),
         courseTimeline: () => ({
           lastStarted: null,
           next: null,
@@ -990,7 +993,8 @@ describe("the lecture desk", () => {
       "Course later",
       "Course friday",
     ]);
-    expect(rows[0].querySelector("small")?.textContent).toBe("Now · R3");
+    // The course code leads the meeting details.
+    expect(rows[0].querySelector("small")?.textContent).toBe("NOW · Now · R3");
     expect(rows[0].className).toContain("now");
     expect(rows[1].querySelector(".dueChip")?.textContent).toBe("1d 12h");
   }, 20_000);
@@ -1027,6 +1031,18 @@ describe("the lecture desk", () => {
     await until(() =>
       expect(lectureTitles(mounted.host)).toEqual(["Course later"]),
     );
+
+    await click(
+      await required(
+        () =>
+          mounted.host.querySelector<HTMLButtonElement>(
+            '.lectureFilter button[aria-label="Clear"]',
+          ),
+        "the filter's clear button",
+      ),
+    );
+    expect(filter.value).toBe("");
+    expect(lectureTitles(mounted.host)).toHaveLength(3);
   }, 20_000);
 
   it("switches to the quarter's assignments and opens the chosen one", async () => {
