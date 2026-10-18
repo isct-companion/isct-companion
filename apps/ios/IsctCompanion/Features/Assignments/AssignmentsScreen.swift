@@ -40,9 +40,7 @@ struct AssignmentsScreen: View {
                         .listRowBackground(Color.clear)
                     }
                     Section {
-                        NavigationLink {
-                            RecordScreen()
-                        } label: {
+                        NavigationLink(value: AssignmentRecordRoute()) {
                             Text("提出済・非表示を含むすべて").foregroundStyle(Theme.ink)
                         }
                     }
@@ -97,7 +95,7 @@ extension DeadlineGroups {
 
 /// Every assignment of the quarter whatever its state (`AssignmentBoard.record`);
 /// older past work stays folded, hidden work comes back from here.
-private struct RecordScreen: View {
+struct RecordScreen: View {
     @Environment(AppModel.self) private var model
     @State private var unfolded = false
 

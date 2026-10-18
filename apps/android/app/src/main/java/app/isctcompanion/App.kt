@@ -28,6 +28,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -149,8 +150,13 @@ private fun Tabs() {
     val navigator = remember(controller) { Navigator(controller) }
     val entry by controller.currentBackStackEntryAsState()
     val destination = entry?.destination
-    // Courses and pages are pushed above a tab's graph, so the selection is kept here.
-    var current by rememberSaveable { mutableStateOf(AppTab.Today) }
+    // Courses and pages are pushed above a tab's graph, so the selected tab is
+    // the nearest tab graph down the back stack. Deriving it (rather than
+    // remembering the last tap) keeps it right after a system back.
+    val stack by controller.currentBackStack.collectAsState()
+    val current = stack.asReversed().firstNotNullOfOrNull { e ->
+        AppTab.entries.firstOrNull { it.route == e.destination.parent?.route }
+    } ?: AppTab.Today
     // A pushed school page fills the screen, like a browser tab.
     val showsBar = destination?.route?.startsWith("page/") != true
     val snackbar = remember { SnackbarHostState() }
@@ -181,7 +187,6 @@ private fun Tabs() {
                                         // Tapping the current tab returns it to its root.
                                         controller.popBackStack(tab.start, inclusive = false)
                                     } else {
-                                        current = tab
                                         controller.navigate(tab.route) {
                                             popUpTo(controller.graph.findStartDestination().id) { saveState = true }
                                             launchSingleTop = true

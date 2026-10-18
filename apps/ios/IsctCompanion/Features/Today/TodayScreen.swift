@@ -351,6 +351,7 @@ struct DeadlineLink<Content: View>: View {
     let item: DeadlineItem
     @ViewBuilder var label: Content
     @Environment(AppModel.self) private var model
+    @Environment(Navigator.self) private var navigator
 
     var body: some View {
         NavigationLink(value: WebRouter.PushedPage(site: .scienceLms, target: item.sourceUrl, title: item.title)) {
@@ -358,8 +359,9 @@ struct DeadlineLink<Content: View>: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            // A NavigationLink inside a menu does not push reliably.
             if let course = item.courseId {
-                NavigationLink(value: CourseRoute(id: course)) { Label("授業を開く", systemImage: "book") }
+                Button("授業を開く", systemImage: "book") { navigator.push(CourseRoute(id: course)) }
             }
             Button {
                 Task { await model.setPinned(item, !item.pinned) }

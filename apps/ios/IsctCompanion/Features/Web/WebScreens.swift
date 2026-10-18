@@ -4,39 +4,65 @@ import WebKit
 
 /// Hosts a site's resident WKWebView while on screen and parks it afterwards,
 /// so its page, scroll position and session survive tab and route changes.
+/// The ウェブ tab and pushed pages share one view per site: whichever
+/// container is in the window holds it, and a container that leaves the
+/// window (a covered tab, a popped page) hands it back to the parking window,
+/// where WebKit keeps it running for hidden pulls.
 private struct ResidentWebView: UIViewRepresentable {
     let site: SchoolSite
     let host: SchoolBrowserHost
     /// Changes when Core created a view, so the container attaches it.
     let revision: Int
 
-    func makeUIView(context: Context) -> UIView {
-        let container = UIView()
+    func makeUIView(context: Context) -> Container {
+        let container = Container(host: host)
         container.backgroundColor = .systemBackground
         return container
     }
 
-    func updateUIView(_ container: UIView, context: Context) {
-        guard let webView = host.webView(for: site) else { return }
-        if webView.superview !== container {
-            container.subviews.forEach { $0.removeFromSuperview() }
-            webView.frame = container.bounds
+    func updateUIView(_ container: Container, context: Context) {
+        container.site = site
+        container.claim()
+    }
+
+    static func dismantleUIView(_ container: Container, coordinator: ()) {
+        container.release()
+    }
+
+    final class Container: UIView {
+        let host: SchoolBrowserHost
+        var site: SchoolSite?
+
+        init(host: SchoolBrowserHost) {
+            self.host = host
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { nil }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil { release() } else { claim() }
+        }
+
+        /// Shows this container's site, parking any other site it held.
+        func claim() {
+            guard window != nil, let site else { return }
+            for case let held as WKWebView in subviews where held !== host.webView(for: site) {
+                host.park(held)
+            }
+            guard let webView = host.webView(for: site), webView.superview !== self else { return }
+            webView.frame = bounds
             webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            container.addSubview(webView)
+            addSubview(webView)
+        }
+
+        /// Returns whatever view it holds to the parking window.
+        func release() {
+            for case let held as WKWebView in subviews { host.park(held) }
         }
     }
-
-    static func dismantleUIView(_ container: UIView, coordinator: ()) {
-        container.subviews.compactMap { $0 as? WKWebView }.forEach { webView in
-            Task { @MainActor in AppParking.park?(webView) }
-        }
-    }
-}
-
-/// Lets a dismantled container return its view to the browser host.
-@MainActor
-enum AppParking {
-    static var park: ((WKWebView) -> Void)?
 }
 
 /// ウェブ tab: one resident view per site, a site switcher on top.
@@ -59,7 +85,6 @@ struct WebTabScreen: View {
         }
         .background(Theme.bg)
         .onAppear {
-            AppParking.park = { [browser = web.browser] in browser.park($0) }
             web.showTab(web.tabSite)
             web.setVisible(web.tabSite)
         }
@@ -134,7 +159,6 @@ struct WebPageScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
-            AppParking.park = { [browser = web.browser] in browser.park($0) }
             web.open(page.site, target: page.target)
             web.setVisible(page.site)
         }

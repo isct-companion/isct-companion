@@ -26,10 +26,29 @@ struct CourseRoute: Hashable {
     let id: String
 }
 
+/// Every assignment of the quarter, pushed from 課題.
+struct AssignmentRecordRoute: Hashable {}
+
+/// The one owner of what each tab has pushed. Every push goes through a
+/// tab's path: a view pushed outside it (a destination-closure
+/// NavigationLink) is dropped the moment a value is appended, which popped
+/// the screen the person was on.
+@MainActor
+@Observable
+final class Navigator {
+    var tab: AppTab = .today
+    var paths: [AppTab: NavigationPath] = [:]
+
+    /// Pushes onto the current tab, for actions that cannot be a
+    /// NavigationLink (menu items, buttons).
+    func push<Route: Hashable>(_ route: Route) {
+        paths[tab, default: NavigationPath()].append(route)
+    }
+}
+
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    @State private var tab: AppTab = .today
-    @State private var paths: [AppTab: NavigationPath] = [:]
+    @State private var navigator = Navigator()
 
     var body: some View {
         switch model.status {
@@ -57,23 +76,27 @@ struct RootView: View {
                 .tabItem { Label("ウェブ", systemImage: "globe") }
                 .tag(AppTab.web)
         }
+        .environment(navigator)
     }
 
     /// Tapping the current tab returns it to its root.
     private var selection: Binding<AppTab> {
         Binding(
-            get: { tab },
+            get: { navigator.tab },
             set: { next in
-                if next == tab { paths[next] = NavigationPath() }
-                tab = next
+                if next == navigator.tab { navigator.paths[next] = NavigationPath() }
+                navigator.tab = next
             })
     }
 
     private func stack<Content: View>(_ tab: AppTab, @ViewBuilder content: () -> Content) -> some View {
-        NavigationStack(path: Binding(get: { paths[tab] ?? NavigationPath() }, set: { paths[tab] = $0 })) {
+        NavigationStack(path: Binding(
+            get: { navigator.paths[tab] ?? NavigationPath() }, set: { navigator.paths[tab] = $0 }
+        )) {
             content()
                 .navigationDestination(for: CourseRoute.self) { CourseDetailScreen(courseId: $0.id) }
                 .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
+                .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
         }
     }
 }
