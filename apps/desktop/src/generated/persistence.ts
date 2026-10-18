@@ -403,6 +403,10 @@ export type ClassSchedule = {
 };
 
 export type Exam = {
+  /**
+   * `class` marks a class row the exam timetable lists in the exam period.
+   */
+  kind?: "exam" | "class";
   academicYear: number;
   level: "undergraduate" | "graduate";
   quarter: Quarter;
@@ -1008,6 +1012,11 @@ export type CourseDetail = {
 export type ExamView = {
   id: string;
   key: string;
+  /**
+   * `exam`, or `class` for a class the exam timetable lists in the exam
+   * period. A class enters agendas as a class, not as an exam.
+   */
+  kind: "exam" | "class";
   term: string;
   courseId: string | null;
   /**
@@ -1044,7 +1053,7 @@ export type ExamSchedule = {
 
 export type ExamAssociation = {
   /**
-   * Other exams already linked to the course.
+   * Other exams (not exam-week classes) already linked to the course.
    */
   conflicts: Array<ExamView>;
 };

@@ -19,6 +19,10 @@ use ts_rs::TS;
 pub struct ExamView {
     pub id: String,
     pub key: String,
+    /// `exam`, or `class` for a class the exam timetable lists in the exam
+    /// period. A class enters agendas as a class, not as an exam.
+    #[cfg_attr(feature = "ts", ts(type = "\"exam\" | \"class\""))]
+    pub kind: String,
     pub term: String,
     pub course_id: Option<String>,
     /// The course came from code matching, not from a personal link.
@@ -56,7 +60,7 @@ pub struct ExamSchedule {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ExamAssociation {
-    /// Other exams already linked to the course.
+    /// Other exams (not exam-week classes) already linked to the course.
     pub conflicts: Vec<ExamView>,
 }
 
@@ -81,7 +85,11 @@ pub fn exam_association(
     let conflicts = exam_terms(workspace)
         .into_iter()
         .flat_map(|term| exam_views(workspace, &term))
-        .filter(|other| other.key != key && other.course_id.as_deref() == Some(course_id))
+        .filter(|other| {
+            other.key != key
+                && other.kind == "exam"
+                && other.course_id.as_deref() == Some(course_id)
+        })
         .collect();
     Ok(ExamAssociation { conflicts })
 }
@@ -166,7 +174,8 @@ pub(super) fn upcoming_exams(workspace: &Value, from: &str) -> Vec<ExamView> {
         .into_iter()
         .flat_map(|term| exam_views(workspace, &term))
         .filter(|exam| {
-            exam.course_id.is_some()
+            exam.kind == "exam"
+                && exam.course_id.is_some()
                 && !exam.hidden
                 && exam.status == "scheduled"
                 && exam.date.as_str() >= from
@@ -242,6 +251,12 @@ fn source_view_with(
     ExamView {
         id: id.into(),
         key: exam_key(exam).into(),
+        kind: if text(exam, "kind") == Some("class") {
+            "class"
+        } else {
+            "exam"
+        }
+        .into(),
         term: term.into(),
         course_id: course.and_then(|row| text(row, "id")).map(str::to_owned),
         auto_linked: course.is_some(),

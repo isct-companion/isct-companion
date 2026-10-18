@@ -1,3 +1,4 @@
+import { examKindLabel } from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
 import { CloseButton, Input } from "@mantine/core";
 import { deadlineText } from "../../lib/deadline-text";
@@ -488,6 +489,9 @@ export function LectureDesk({
                       <b>{exam.title || exam.code}</b>
                       <small>
                         {exam.code} · {exam.date}
+                        {exam.kind === "class"
+                          ? ` · ${examKindLabel(exam)}`
+                          : ""}
                       </small>
                       <small>
                         {exam.courseId ? t("Linked") : t("Not linked")}
@@ -584,7 +588,8 @@ export function LectureDesk({
                     <h1>{selectedExam.title || selectedExam.code}</h1>
                     <p>
                       {selectedExam.code} ·{" "}
-                      {selectedExam.term.replace("-", " ")} · {t("Exam")}
+                      {selectedExam.term.replace("-", " ")} ·{" "}
+                      {examKindLabel(selectedExam)}
                     </p>
                   </header>
                   <ExamEditor

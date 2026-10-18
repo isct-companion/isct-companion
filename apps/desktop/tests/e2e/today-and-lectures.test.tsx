@@ -667,6 +667,7 @@ describe("the lecture desk", () => {
     const exam: ExamView = {
       id: "published-exam",
       key: "reference:exam:2q",
+      kind: "exam",
       term: "2026-2Q",
       courseId: null,
       code: "CSC.T241-02",
@@ -702,6 +703,14 @@ describe("the lecture desk", () => {
       room: "My room",
       edited: true,
     };
+    const weekClass: ExamView = {
+      ...bound,
+      id: "week-class",
+      key: "reference:week-class",
+      kind: "class",
+      title: "Exam-week session",
+      edited: false,
+    };
     const upcoming = {
       ...exam,
       id: "upcoming",
@@ -726,7 +735,7 @@ describe("the lecture desk", () => {
                 : lectureSchedule(core.workspace).courses,
             exams:
               (query as { term: string }).term === "2026-2Q"
-                ? [exam, bound]
+                ? [exam, bound, weekClass]
                 : [],
             upcomingExams: [upcoming],
           }),
@@ -781,6 +790,12 @@ describe("the lecture desk", () => {
         ),
       "the automatically linked exam",
     );
+    // A class the timetable lists in exam week is listed, but not as an exam.
+    expect(
+      [...app.host.querySelectorAll<HTMLElement>(".lectureRow.exam")].find(
+        (row) => row.textContent?.includes("Exam-week session"),
+      )?.textContent,
+    ).toContain("Class in exam week");
     expect(app.host.querySelector(".lectureList")?.textContent).not.toContain(
       "Published exam",
     );

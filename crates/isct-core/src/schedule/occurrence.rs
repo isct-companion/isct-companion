@@ -965,10 +965,26 @@ pub fn resolve_day_agenda(
         else {
             continue;
         };
+        // An exam-week class row is one more session of the course; the
+        // weekly pattern may already place it in the same slot.
+        let class = exam.kind == "class";
+        if class
+            && blocks.iter().any(|block| {
+                block.kind == OccurrenceKind::Course
+                    && block.course_id.as_deref() == Some(id.as_str())
+                    && block.start_time == start
+            })
+        {
+            continue;
+        }
         exams.push(Occurrence {
             key: exam.key,
             id: id.clone(),
-            kind: OccurrenceKind::Exam,
+            kind: if class {
+                OccurrenceKind::Course
+            } else {
+                OccurrenceKind::Exam
+            },
             term_id: None,
             course_id: Some(id),
             date: exam.date,

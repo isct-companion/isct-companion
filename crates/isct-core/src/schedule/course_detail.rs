@@ -117,7 +117,7 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
         assignment_ids: ids(assignments),
         exam_ids: exams
             .iter()
-            .filter(|exam| !exam.hidden && exam.status == "scheduled")
+            .filter(|exam| exam.kind == "exam" && !exam.hidden && exam.status == "scheduled")
             .map(|exam| exam.id.clone())
             .collect(),
         exams,

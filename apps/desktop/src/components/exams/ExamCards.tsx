@@ -6,6 +6,10 @@ import { ExamEditor } from "./ExamEditor";
 import { t } from "../../i18n";
 import "./exams.css";
 
+/** A class the exam timetable lists in the exam period is not an exam. */
+export const examKindLabel = (exam: Pick<ExamView, "kind">) =>
+  t(exam.kind === "class" ? "Class in exam week" : "Exam");
+
 export function ExamCards({
   exams,
   courses,
@@ -28,7 +32,7 @@ export function ExamCards({
         >
           <div className="examCardHeading">
             <span>
-              {t("Exam")}
+              {examKindLabel(exam)}
               {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
             </span>
             <button

@@ -463,7 +463,9 @@ fn schedule_override_periods_must_name_a_class_slot() {
 
 #[test]
 fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() {
-    use crate::subscriptions::{apply_exam_feed, validate_exam_feed, PublishedExamFeed};
+    use crate::subscriptions::{
+        apply_exam_feed, validate_exam_feed, ExamFeedKind, PublishedExamFeed,
+    };
     let service = service("exam-association");
     let added = mutate(
         &service,
@@ -483,10 +485,11 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         {"id":"second","kind":"exam","status":"scheduled","quarter":"2Q","courseCode":"CSC.T241-02","date":"2026-08-04","periods":[3,4],"label":{"ja":"試験2","en":"Second exam"},"room":{"ja":"教室","en":"Source room"},"sourceIds":["official"]}
     ]});
     let mut published = PublishedExamFeed {
+        kind: ExamFeedKind::Exams,
         level: "undergraduate".into(),
         quarter: "2q".into(),
         url: "https://example.com/exams.json".into(),
-        feed: validate_exam_feed(&raw.to_string(), 2026, "2q").unwrap(),
+        feed: validate_exam_feed(&raw.to_string(), 2026, "2q", ExamFeedKind::Exams).unwrap(),
     };
     let mut connection = rusqlite::Connection::open(service.store.path()).unwrap();
     apply_exam_feed(&mut connection, &published).unwrap();

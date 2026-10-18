@@ -694,6 +694,12 @@ contains scheduled, linked, unhidden exams from the query's start date across
 source quarters. `CourseDetail.exams` contains a course's exams across its placed
 quarters; `examIds` remains available for existing clients.
 
+`ExamView.kind` is `class` for a class row the exam timetable lists in the exam
+period. It is matched, linked and corrected like an exam, but enters agendas and
+reminders as a session of its course (skipped when the weekly pattern already
+places that course at the same start time). It is never an upcoming exam, an
+`examIds` entry or an `examAssociation` conflict.
+
 Core matches an exam within its academic year and quarter, using an explicit
 course link or a unique enrolled course with the full course/class code. A class
 suffix remains part of the identity. Unlinked exams remain browsable in Lectures
