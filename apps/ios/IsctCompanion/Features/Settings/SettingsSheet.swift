@@ -1,6 +1,12 @@
 import IsctCore
 import SwiftUI
 
+/// Pages inside the settings sheet; its stack, like each tab's, pushes by value.
+private enum SettingsRoute: Hashable {
+    case account(SchoolAuthProfile)
+    case notifications
+}
+
 /// 設定 (sheet from Today's gear): school accounts and reminders. Planning,
 /// calendars, folders and developer settings stay on desktop.
 struct SettingsSheet: View {
@@ -11,21 +17,15 @@ struct SettingsSheet: View {
         NavigationStack {
             List {
                 Section("学校アカウント") {
-                    NavigationLink {
-                        AccountScreen(profile: .science, name: "Science Tokyo")
-                    } label: {
+                    NavigationLink(value: SettingsRoute.account(.science)) {
                         accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science)
                     }
-                    NavigationLink {
-                        AccountScreen(profile: .tokyoTech, name: "Tokyo Tech（旧）")
-                    } label: {
+                    NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
                         accountRow("Tokyo Tech（旧）", model.credentials?.tokyoTech, model.sessions?.tokyoTech)
                     }
                 }
                 Section {
-                    NavigationLink {
-                        NotificationsScreen()
-                    } label: {
+                    NavigationLink(value: SettingsRoute.notifications) {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("通知")
@@ -44,6 +44,14 @@ struct SettingsSheet: View {
             }
             .navigationTitle("設定")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: SettingsRoute.self) { route in
+                switch route {
+                case let .account(profile):
+                    AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : "Tokyo Tech（旧）")
+                case .notifications:
+                    NotificationsScreen()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }
