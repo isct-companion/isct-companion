@@ -833,6 +833,25 @@ export type Alternation = {
    * The published session number, such as "3Q-1".
    */
   number?: string;
+  /**
+   * The 演習 and 実験 this block stands for, exercise first, when both meet
+   * in its slot. The block's title, code and room join the two; a shell
+   * may split the block between them.
+   */
+  pair?: Array<PairedCourse>;
+};
+
+export type PairedCourse = {
+  courseId: string;
+  title: string;
+  code?: string;
+  room: string;
+  color: string;
+  /**
+   * This course's own meeting, which may be shorter than the shared block.
+   */
+  startTime: string;
+  endTime: string;
 };
 
 export type ClassGroupCourse = {

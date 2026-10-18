@@ -438,9 +438,11 @@ pub fn today_view(
             let hero = current.ok_or_else(|| {
                 ScheduleError::Compatibility("in-class phase without a class".into())
             })?;
-            let course_id = hero.occurrence.course_id.clone();
+            let course_ids: Vec<String> = hero.occurrence.course_ids().map(str::to_owned).collect();
             let mut class_materials: Vec<_> = materials(workspace)
-                .filter(|row| text(row, "courseId") == course_id.as_deref())
+                .filter(|row| {
+                    text(row, "courseId").is_some_and(|id| course_ids.iter().any(|own| own == id))
+                })
                 .filter_map(|row| material_item(workspace, row, &date))
                 .collect();
             // Newest section first, then the most recently changed row.
@@ -452,7 +454,12 @@ pub fn today_view(
             view.class_materials = class_materials.into_iter().take(CLASS_ITEMS).collect();
             view.class_assignments = open
                 .iter()
-                .filter(|item| item.course_id == course_id && !item.overdue)
+                .filter(|item| {
+                    item.course_id
+                        .as_ref()
+                        .is_some_and(|id| course_ids.contains(id))
+                        && !item.overdue
+                })
                 .take(CLASS_ITEMS)
                 .cloned()
                 .collect();

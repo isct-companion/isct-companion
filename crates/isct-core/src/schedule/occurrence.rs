@@ -61,6 +61,22 @@ pub struct Occurrence {
     pub alternation: Option<Alternation>,
 }
 
+impl Occurrence {
+    /// Its course, or both courses of a shared 演習・実験 block.
+    pub fn course_ids(&self) -> impl Iterator<Item = &str> {
+        let pair = self
+            .alternation
+            .as_ref()
+            .and_then(|row| row.pair.as_deref())
+            .unwrap_or_default();
+        self.course_id
+            .as_deref()
+            .into_iter()
+            .filter(move |_| pair.is_empty())
+            .chain(pair.iter().map(|course| course.course_id.as_str()))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
@@ -206,6 +222,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 blocks.push(block);
             }
         }
+        alternation::pair_blocks(&mut blocks)?;
         for event in &events {
             if !event
                 .get("days")
@@ -330,7 +347,7 @@ pub fn course_timeline(
                 },
             )?
             .into_iter()
-            .filter(|row| row.course_id.as_deref() == Some(course_id))
+            .filter(|row| row.course_ids().any(|id| id == course_id))
             {
                 starts.push(format!("{}T{}", row.date, row.start_time));
             }
@@ -847,7 +864,10 @@ fn course_occurrence(
 fn mark_conflicts(blocks: &mut [Occurrence]) -> Result<(), ScheduleError> {
     for i in 0..blocks.len() {
         for j in i + 1..blocks.len() {
-            if blocks[i].cancelled == Some(true) || blocks[j].cancelled == Some(true) {
+            if blocks[i].cancelled == Some(true)
+                || blocks[j].cancelled == Some(true)
+                || alternation::alternate(&blocks[i], &blocks[j])
+            {
                 continue;
             }
             if overlap(&blocks[i], &blocks[j])? {
@@ -868,7 +888,7 @@ fn mark_conflicts(blocks: &mut [Occurrence]) -> Result<(), ScheduleError> {
     }
     Ok(())
 }
-fn overlap(a: &Occurrence, b: &Occurrence) -> Result<bool, ScheduleError> {
+pub(crate) fn overlap(a: &Occurrence, b: &Occurrence) -> Result<bool, ScheduleError> {
     let end_a = format!(
         "{}T{}",
         a.end_date.clone().unwrap_or(if a.end_time <= a.start_time {
@@ -1093,6 +1113,7 @@ pub(crate) fn finalize_agenda(
         block.conflict = None;
         block.conflict_with = None;
     }
+    alternation::pair_blocks(&mut blocks)?;
     mark_conflicts(&mut blocks)?;
     for i in 0..blocks.len() {
         if blocks[i].kind != OccurrenceKind::Exam {

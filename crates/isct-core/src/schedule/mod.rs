@@ -30,7 +30,7 @@ use ts_rs::TS;
 
 pub use alternation::{
     class_group_choices, validate_class_groups, validate_semester, Alternation, ClassGroup,
-    ClassGroupChoice, ClassGroupCourse, ClassGroupSession, Turn,
+    ClassGroupChoice, ClassGroupCourse, ClassGroupSession, PairedCourse, Turn,
 };
 pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
@@ -707,6 +707,7 @@ pub fn declarations() -> Vec<String> {
         ClassGroup::decl(),
         Turn::decl(),
         Alternation::decl(),
+        PairedCourse::decl(),
         ClassGroupCourse::decl(),
         ClassGroupSession::decl(),
         ClassGroupChoice::decl(),

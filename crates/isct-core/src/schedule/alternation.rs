@@ -6,6 +6,11 @@
 //! publishes it per syllabus offering, copied from the course's LMS schedule.
 //! A class without a published schedule keeps its weekly blocks, marked as
 //! alternating, rather than showing a guessed rotation.
+//!
+//! 演習 and 実験 of the same class share their slot by design: while one
+//! group has the exercise the other has the lab. Wherever both land on one
+//! slot they become one block for both courses rather than a clash, which
+//! needs no published schedule.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,14 +18,31 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::civil::Term;
+use super::occurrence::{overlap, Occurrence, OccurrenceKind};
 use super::{array, course_terms, text, visible, ScheduleError};
 
+#[derive(PartialEq)]
+enum Half {
+    Exercise,
+    Lab,
+}
+
+/// Which half of which 演習・実験 pair a course code belongs to: 演習第一
+/// (P105) pairs with 実験第一 (P107), 第二 (P106) with P108.
+fn half(code: &str) -> Option<(Half, u8)> {
+    [
+        ("LAS.P105", Half::Exercise, 1),
+        ("LAS.P106", Half::Exercise, 2),
+        ("LAS.P107", Half::Lab, 1),
+        ("LAS.P108", Half::Lab, 2),
+    ]
+    .into_iter()
+    .find(|(prefix, _, _)| code.starts_with(prefix))
+    .map(|(_, half, number)| (half, number))
+}
+
 fn alternating(course: &Value) -> bool {
-    text(course, "code").is_some_and(|code| {
-        ["LAS.P105", "LAS.P106", "LAS.P107", "LAS.P108"]
-            .iter()
-            .any(|prefix| code.starts_with(prefix))
-    })
+    text(course, "code").and_then(half).is_some()
 }
 
 /// The two halves of a 物理学演習・実験 class, which meet in turns.
@@ -43,7 +65,7 @@ pub enum Turn {
 }
 
 /// The alternating-class facts of one course block.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Alternation {
@@ -71,6 +93,29 @@ pub struct Alternation {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub number: Option<String>,
+    /// The 演習 and 実験 this block stands for, exercise first, when both meet
+    /// in its slot. The block's title, code and room join the two; a shell
+    /// may split the block between them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub pair: Option<Vec<PairedCourse>>,
+}
+
+/// One course of a shared 演習・実験 block.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct PairedCourse {
+    pub course_id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub code: Option<String>,
+    pub room: String,
+    pub color: String,
+    /// This course's own meeting, which may be shorter than the shared block.
+    pub start_time: String,
+    pub end_time: String,
 }
 
 /// How a weekly meeting of a course shows on one date.
@@ -196,6 +241,7 @@ pub(crate) fn resolve(
             group,
             session: None,
             number: None,
+            pair: None,
         }));
     };
     let Some(session) = sessions(schedule).find(|row| text(row, "date") == Some(date)) else {
@@ -207,6 +253,7 @@ pub(crate) fn resolve(
         group,
         session: text(session, "kind").map(str::to_owned),
         number: text(session, "number").map(str::to_owned),
+        pair: None,
     };
     match turn_of(session) {
         Some(turn) if includes(turn, group) => Resolution::Show {
@@ -235,7 +282,104 @@ pub(crate) fn template(workspace: &Value, course: &Value, term: &str) -> Option<
         group: chosen_group(workspace, &semester),
         session: None,
         number: None,
+        pair: None,
     })
+}
+
+/// Whether `a` and `b` are 演習 and 実験 of one class, and if so whether `a`
+/// is the exercise.
+fn exercise_first(a: &Occurrence, b: &Occurrence) -> Option<bool> {
+    let class = |block: &Occurrence| {
+        (block.kind == OccurrenceKind::Course
+            && block.cancelled != Some(true)
+            && block
+                .alternation
+                .as_ref()
+                .is_some_and(|row| row.pair.is_none()))
+        .then(|| block.subtitle.as_deref().and_then(half))
+        .flatten()
+    };
+    match (class(a)?, class(b)?) {
+        ((Half::Exercise, x), (Half::Lab, y)) if x == y => Some(true),
+        ((Half::Lab, x), (Half::Exercise, y)) if x == y => Some(false),
+        _ => None,
+    }
+}
+
+/// 演習 and 実験 of one class that meet in turns: they never clash.
+pub(crate) fn alternate(a: &Occurrence, b: &Occurrence) -> bool {
+    exercise_first(a, b).is_some()
+}
+
+fn paired_course(block: &Occurrence) -> PairedCourse {
+    PairedCourse {
+        course_id: block.course_id.clone().unwrap_or_default(),
+        title: block.title.clone(),
+        code: block.subtitle.clone(),
+        room: block.room.clone(),
+        color: block.color.clone(),
+        start_time: block.start_time.clone(),
+        end_time: block.end_time.clone(),
+    }
+}
+
+/// Folds every 演習 block and the overlapping 実験 block of the same class
+/// into one block for both, keyed by the exercise.
+pub(crate) fn pair_blocks(blocks: &mut Vec<Occurrence>) -> Result<(), ScheduleError> {
+    let mut i = 0;
+    while i < blocks.len() {
+        let mut partner = None;
+        for j in i + 1..blocks.len() {
+            if alternate(&blocks[i], &blocks[j]) && overlap(&blocks[i], &blocks[j])? {
+                partner = Some(j);
+                break;
+            }
+        }
+        if let Some(j) = partner {
+            let other = blocks.remove(j);
+            let block = &mut blocks[i];
+            let (exercise, lab) = if exercise_first(block, &other) == Some(true) {
+                (block.clone(), other)
+            } else {
+                (other, block.clone())
+            };
+            let join = |a: &str, b: &str| match (a, b) {
+                ("", b) => b.to_owned(),
+                (a, "") => a.to_owned(),
+                (a, b) if a == b => a.to_owned(),
+                (a, b) => format!("{a} / {b}"),
+            };
+            let (own, theirs) = (
+                exercise.alternation.clone().unwrap_or_default(),
+                lab.alternation.clone().unwrap_or_default(),
+            );
+            let same_turn = own.turn == theirs.turn;
+            *block = Occurrence {
+                title: join(&exercise.title, &lab.title),
+                subtitle: Some(join(
+                    exercise.subtitle.as_deref().unwrap_or_default(),
+                    lab.subtitle.as_deref().unwrap_or_default(),
+                )),
+                room: join(&exercise.room, &lab.room),
+                start_time: exercise.start_time.clone().min(lab.start_time.clone()),
+                end_time: exercise.end_time.clone().max(lab.end_time.clone()),
+                alternation: Some(Alternation {
+                    scheduled: own.scheduled && theirs.scheduled,
+                    turn: own.turn.filter(|_| same_turn),
+                    number: own.number.clone().filter(|_| same_turn),
+                    session: own
+                        .session
+                        .clone()
+                        .filter(|_| own.session == theirs.session),
+                    pair: Some(vec![paired_course(&exercise), paired_course(&lab)]),
+                    ..own
+                }),
+                ..exercise
+            };
+        }
+        i += 1;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

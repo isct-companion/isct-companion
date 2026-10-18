@@ -23,7 +23,10 @@
 #    result nobody can point at is not evidence.
 # 3. Every check justifies itself in `why_manual`. If the flow could be driven
 #    from `tests/`, it belongs there instead: a check whose `covers` paths are
-#    all already exercised by automated suites is rejected.
+#    all already exercised by automated suites is rejected. The exception is a
+#    result a person sees at a glance in the real app (a layout, a label, where
+#    a click lands): a short check here beats an e2e script that rebuilds the
+#    screen over a fake host, and its `why_manual` says so.
 # 4. `result` is `pass`, `fail` or `unreached`. `unreached` is for a flow that
 #    could not be attempted at all (no account, no device); it is recorded with
 #    `blocked_by` rather than left blank, because a silently missing row is how
@@ -1417,6 +1420,45 @@ checks:
       - apps/desktop/src/pages/settings/NotificationSettings.tsx
       - apps/desktop/src-tauri/src/commands/notifications.rs
       - crates/isct-core/src/schedule/reminders.rs
+    verified: null
+
+  - id: DESKTOP-PHYSICS-PAIR
+    area: desktop
+    title: 物理学演習 and 実験 share one slot instead of clashing
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build over a workspace where 物理学演習 I and 物理学実験 I
+      (LAS.P105 / LAS.P107) sit in the same 1Q slot and no LMS schedule was
+      published for them.
+    steps:
+      - action: |
+          Open Timetable on 1Q and look at the shared slot.
+        reason: |
+          The cell must split exercise left and lab right, each at its own
+          length. One block hiding the other, or a red conflict badge, means
+          the pair rule did not reach the template.
+      - action: |
+          Click each half.
+        reason: |
+          Each half must open its own course; both opening the exercise means
+          the halves lost their course ids.
+      - action: |
+          Open Today → Calendar and step back to a 1Q week.
+        reason: |
+          The dated calendar goes through the day agenda, a separate path from
+          the template; it must show the same split without a conflict.
+    observe: |
+      The Timetable grid cell, the course detail each half opens, and the same
+      slot in the Today calendar.
+    expected: |
+      Both views show one split cell with no conflict, and each half opens its
+      own course.
+    why_manual: |
+      The pairing itself is tested in Core; what is left is whether the cell
+      reads right, which a person sees at a glance in the real app.
+    covers:
+      - apps/desktop/src/components/timetable/timetable.tsx
+      - crates/isct-core/src/schedule/alternation.rs
     verified: null
 
   - id: SCHOOL-OFFICIAL-COURSE-PAGES
