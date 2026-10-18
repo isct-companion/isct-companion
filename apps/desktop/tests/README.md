@@ -183,6 +183,11 @@ end-to-end script that fakes its way to a flow like that — a script that mocks
 the credential prompt is just a slower component test, and the real risk stays
 uncovered.
 
+The same goes for a result a person sees at a glance in the real app — a
+layout, a split cell, a label, which page a click opens. Add a short check there
+and name it to the user instead of scripting the screen here; test the logic
+behind it at the layer that owns it.
+
 ```sh
 yarn verify:manual stale           # what a pending change invalidated
 yarn verify:manual sheet <ID>      # a run sheet to follow, by hand or by agent
