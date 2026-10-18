@@ -369,30 +369,6 @@ export function WorkspaceApp() {
     url: string;
     request: number;
   } | null>(null);
-  // Timing context and repeated entrances stay in history state, outside the URL.
-  const lectureEntry = useMemo<CourseEntry | null>(
-    () =>
-      params.courseId
-        ? {
-            ...location.state?.lectureContext,
-            courseId: params.courseId,
-            assignmentId: params.aid,
-            request: location.state?.lectureRequest ?? Date.now(),
-          }
-        : null,
-    [params.courseId, params.aid, location.state?.lectureRequest],
-  );
-  const examEntry = useMemo(
-    () =>
-      params.examKey && params.examTerm
-        ? {
-            key: params.examKey,
-            term: params.examTerm as TermId,
-            request: location.state?.lectureRequest ?? Date.now(),
-          }
-        : null,
-    [params.examKey, params.examTerm, location.state?.lectureRequest],
-  );
   // Hidden Activities keep their last route props so another page's params
   // cannot replace retained subpages. Visible navigation always reads the URL.
   const renderedRoutes = useRef({
@@ -400,9 +376,40 @@ export function WorkspaceApp() {
     section,
     settingsOpen: Boolean(params.section),
     webSite: schoolSite(params.site),
-    lectureEntry,
-    examEntry,
+    lectureEntry: null as CourseEntry | null,
+    examEntry: null as { key: string; term: TermId; request: number } | null,
   });
+  // Timing context and repeated entrances stay in history state, outside the URL.
+  // Returning through the page's remembered URL carries no state; it resumes
+  // the retained entrance rather than starting a new one.
+  const lectureEntry = useMemo<CourseEntry | null>(() => {
+    if (!params.courseId) return null;
+    const retained = renderedRoutes.current.lectureEntry;
+    return {
+      ...location.state?.lectureContext,
+      courseId: params.courseId,
+      assignmentId: params.aid,
+      request:
+        location.state?.lectureRequest ??
+        (retained?.courseId === params.courseId &&
+        retained.assignmentId === params.aid
+          ? retained.request
+          : Date.now()),
+    };
+  }, [params.courseId, params.aid, location.state?.lectureRequest]);
+  const examEntry = useMemo(() => {
+    if (!params.examKey || !params.examTerm) return null;
+    const retained = renderedRoutes.current.examEntry;
+    return {
+      key: params.examKey,
+      term: params.examTerm as TermId,
+      request:
+        location.state?.lectureRequest ??
+        (retained?.key === params.examKey && retained.term === params.examTerm
+          ? retained.request
+          : Date.now()),
+    };
+  }, [params.examKey, params.examTerm, location.state?.lectureRequest]);
   if (page === "web") renderedRoutes.current.webSite = schoolSite(params.site);
   if (page === "home") renderedRoutes.current.homeView = homeView;
   if (page === "settings") {

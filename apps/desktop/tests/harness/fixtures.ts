@@ -1,6 +1,6 @@
 import { seedWorkspace } from "@app/lib/model";
 import type { Course, PlanItem, Workspace } from "@app/lib/model";
-import type { FinderCourse } from "@app/generated/persistence";
+import type { FinderCourse, LectureSearch } from "@app/generated/persistence";
 import type { SchoolRecords } from "@app/platform/desktop-bridge";
 
 /**
@@ -202,5 +202,42 @@ export function scheduleViewFor(
     upcomingExams: [],
     problems: [],
     ...overrides,
+  };
+}
+
+/**
+ * Answers `lectureSearch` from the workspace's course titles and codes, scoped
+ * to the request's quarter when it names one. Core owns the real lookup policy
+ * (code aliases, typos, exams); this covers the plain substring filters the
+ * shell suites type.
+ */
+export function lectureSearchFor(
+  workspace: Workspace,
+  request: unknown,
+): LectureSearch {
+  const { term, query } = request as { term: string | null; query: string };
+  const parts = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (...fields: string[]) =>
+    parts.every((part) =>
+      fields.some((field) => field.toLowerCase().includes(part)),
+    );
+  const courses = workspace.courses.filter(
+    (row) => !row.deletedAt && (!term || row.termId === term),
+  );
+  return {
+    courseIds: courses
+      .filter((row) => matches(row.title, row.code))
+      .map((row) => row.id),
+    assignmentIds: workspace.assignments
+      .filter((row) => {
+        const course = courses.find((item) => item.id === row.courseId);
+        return (
+          !row.deletedAt &&
+          course &&
+          matches(course.title, course.code, row.title)
+        );
+      })
+      .map((row) => row.id),
+    examKeys: [],
   };
 }

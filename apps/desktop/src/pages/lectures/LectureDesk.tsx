@@ -45,6 +45,21 @@ type Lecture = {
 };
 
 /** This quarter's lectures, in class order, and the open lecture's workspace. */
+/**
+ * Applies each entrance once. Revealing the retained Activity re-runs effects,
+ * which must resume the page as it was rather than replay the entrance.
+ */
+function useEntrance(request: number | undefined, apply: () => void) {
+  const applied = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (request === undefined || applied.current === request) return;
+    applied.current = request;
+    apply();
+    // Only a new request applies; the callback reads that render's props.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request]);
+}
+
 export function LectureDesk({
   data,
   term,
@@ -120,31 +135,28 @@ export function LectureDesk({
   const [mode, setMode] = useState<"lectures" | "assignments" | "exams">(
     "lectures",
   );
-  useEffect(() => {
-    if (!assignmentsRequest) return;
+  // Only a new request switches; a quarter change keeps the chosen mode.
+  useEntrance(assignmentsRequest || undefined, () => {
     setMode("assignments");
     setQuery("");
     setShownTerm(term);
-    // Only a new request switches; a quarter change keeps the chosen mode.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assignmentsRequest]);
-  useEffect(() => {
+  });
+  // Only a new navigation selects its mode and quarter.
+  useEntrance(entry?.request, () => {
     if (!entry) return;
     setMode(entry.assignmentId ? "assignments" : "lectures");
     setQuery("");
     const course = data.courses.find((course) => course.id === entry.courseId);
     const target = entry.term ?? course?.termId;
     if (target) setShownTerm(target as TermId);
-    // Only a new navigation selects its mode and quarter.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry?.request]);
-  useEffect(() => {
+  });
+  useEntrance(examEntry?.request, () => {
     if (!examEntry) return;
     setMode("exams");
     setQuery("");
     setExamKey(examEntry.key);
     setShownTerm(examEntry.term);
-  }, [examEntry?.request]);
+  });
   const nowIso = useClock(active);
   const now = useMemo(() => new Date(nowIso), [nowIso]);
   const today = jstDate(now);

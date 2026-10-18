@@ -283,6 +283,7 @@
         "key": "course-weekly-0-2026-04-20",
         "id": "course",
         "courseId": "course",
+        "termId": "2026-1Q",
         "kind": "course",
         "date": "2026-04-20",
         "title": "授業, A; B",
