@@ -1,20 +1,18 @@
 import { Modal } from "@mantine/core";
 import { useState } from "react";
 import type { ExamView } from "../../generated/persistence";
-import type { Course, Workspace } from "../../lib/model";
+import type { Course } from "../../lib/model";
 import { ExamEditor } from "./ExamEditor";
 import { t } from "../../i18n";
 import "./exams.css";
 
 export function ExamCards({
   exams,
-  data,
   courses,
   open,
   openExam,
 }: {
   exams: ExamView[];
-  data: Workspace;
   courses: Course[];
   open?: (courseId: string) => void;
   openExam?: (key: string, term: string) => void;
@@ -83,7 +81,6 @@ export function ExamCards({
           <ExamEditor
             key={editing.key}
             exam={editing}
-            data={data}
             courses={courses}
             onSaved={() => setEditing(null)}
           />

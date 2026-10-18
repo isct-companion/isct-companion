@@ -377,7 +377,6 @@ export function Today({
                     exam.date >= viewIso,
                 )
                 .slice(0, 3)}
-              data={data}
               courses={schedule?.courses ?? []}
               open={(id) => open(id)}
               openExam={openExam}

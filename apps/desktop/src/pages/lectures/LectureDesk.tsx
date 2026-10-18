@@ -588,9 +588,8 @@ export function LectureDesk({
                     </p>
                   </header>
                   <ExamEditor
-                    key={`${selectedExam.key}:${data.scheduleOverrides.find((row) => !row.deletedAt && row.targetKey === selectedExam.key)?.rev ?? 0}`}
+                    key={selectedExam.key}
                     exam={selectedExam}
-                    data={data}
                     courses={courses}
                   />
                 </>

@@ -469,7 +469,6 @@ export function Courses({
               <ExamEditor
                 key={previewExam.key}
                 exam={previewExam}
-                data={data}
                 courses={overview.courses}
                 onSaved={() => setPreview(null)}
               />

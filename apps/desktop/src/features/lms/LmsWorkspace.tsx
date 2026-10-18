@@ -1477,7 +1477,6 @@ export function LmsWorkspace({
                     <h2>{t("Exams")}</h2>
                     <ExamCards
                       exams={courseDetail?.exams ?? []}
-                      data={data}
                       courses={data.courses.filter(
                         (row) => row.id === course.id,
                       )}

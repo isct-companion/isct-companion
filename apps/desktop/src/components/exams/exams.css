@@ -49,9 +49,14 @@
 .examCourseLink:hover {
   color: var(--accent);
 }
-.examEditor {
+.examEditor,
+.examEditor form {
   display: grid;
   gap: 14px;
+}
+.examEditor .examEditorNote {
+  margin-top: -8px;
+  font-size: 12px;
 }
 .examEditor p {
   margin: 0;
