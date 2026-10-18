@@ -1,3 +1,4 @@
+import { examKindLabel } from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
 import { CloseButton, Input } from "@mantine/core";
 import { deadlineText } from "../../lib/deadline-text";
@@ -456,6 +457,35 @@ export function LectureDesk({
                   ? Boolean(search?.examKeys.includes(exam.key))
                   : Boolean(exam.courseId) || exam.key === examKey,
               );
+              // Classes the timetable lists in exam week are not exams.
+              const classes = shown.filter((exam) => exam.kind === "class");
+              const row = (exam: (typeof shown)[number]) => (
+                <button
+                  type="button"
+                  key={exam.key}
+                  className={`lectureRow exam${exam.kind === "class" ? " examWeekClass" : ""}${examKey === exam.key ? " selected" : ""}`}
+                  aria-current={examKey === exam.key ? "true" : undefined}
+                  style={{ "--course": exam.color } as React.CSSProperties}
+                  onClick={() => {
+                    setQuery("");
+                    setFloating(false);
+                    selectExam(exam.key, exam.term);
+                  }}
+                >
+                  <b>{exam.title || exam.code}</b>
+                  <small>
+                    {exam.code} · {exam.date}
+                    {exam.startTime && exam.endTime
+                      ? ` · ${exam.startTime}–${exam.endTime}`
+                      : ""}
+                  </small>
+                  <small>
+                    {exam.courseId ? t("Linked") : t("Not linked")}
+                    {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
+                    {exam.hidden ? ` · ${t("Hidden")}` : ""}
+                  </small>
+                </button>
+              );
               return (
                 <>
                   <div className="lectureExamScope">
@@ -472,32 +502,13 @@ export function LectureDesk({
                       </p>
                     )}
                   </div>
-                  {shown.map((exam) => (
-                    <button
-                      type="button"
-                      key={exam.key}
-                      className={`lectureRow exam${examKey === exam.key ? " selected" : ""}`}
-                      aria-current={examKey === exam.key ? "true" : undefined}
-                      style={{ "--course": exam.color } as React.CSSProperties}
-                      onClick={() => {
-                        setQuery("");
-                        setFloating(false);
-                        selectExam(exam.key, exam.term);
-                      }}
-                    >
-                      <b>{exam.title || exam.code}</b>
-                      <small>
-                        {exam.code} · {exam.date}
-                      </small>
-                      <small>
-                        {exam.courseId ? t("Linked") : t("Not linked")}
-                        {exam.status === "cancelled"
-                          ? ` · ${t("Cancelled")}`
-                          : ""}
-                        {exam.hidden ? ` · ${t("Hidden")}` : ""}
-                      </small>
-                    </button>
-                  ))}
+                  {shown.filter((exam) => exam.kind !== "class").map(row)}
+                  {classes.length > 0 && (
+                    <div className="lectureExamScope">
+                      <small>{t("Classes in exam week")}</small>
+                    </div>
+                  )}
+                  {classes.map(row)}
                 </>
               );
             })()}
@@ -584,13 +595,13 @@ export function LectureDesk({
                     <h1>{selectedExam.title || selectedExam.code}</h1>
                     <p>
                       {selectedExam.code} ·{" "}
-                      {selectedExam.term.replace("-", " ")} · {t("Exam")}
+                      {selectedExam.term.replace("-", " ")} ·{" "}
+                      {examKindLabel(selectedExam)}
                     </p>
                   </header>
                   <ExamEditor
-                    key={`${selectedExam.key}:${data.scheduleOverrides.find((row) => !row.deletedAt && row.targetKey === selectedExam.key)?.rev ?? 0}`}
+                    key={selectedExam.key}
                     exam={selectedExam}
-                    data={data}
                     courses={courses}
                   />
                 </>

@@ -221,7 +221,7 @@ export function CourseDetails({
                 <>
                   <dt>{t("Exams")}</dt>
                   <dd className="courseExamList">
-                    <ExamCards exams={exams} data={data} courses={[course]} />
+                    <ExamCards exams={exams} courses={[course]} />
                   </dd>
                 </>
               )}

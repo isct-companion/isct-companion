@@ -341,6 +341,8 @@ contract!(ClassSchedule {
 });
 contract!(Exam {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
+    /// `class` marks a class row the exam timetable lists in the exam period.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"exam\" | \"class\""))] pub kind: Option<String>,
     pub academic_year: i32,
     #[cfg_attr(feature = "ts", ts(type = "\"undergraduate\" | \"graduate\""))] pub level: String,
     pub quarter: Quarter, pub course_code: String, pub date: String, pub label: Localized,

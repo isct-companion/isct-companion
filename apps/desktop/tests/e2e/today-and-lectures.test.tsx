@@ -662,11 +662,12 @@ async function assignmentModeButton(
 }
 
 describe("the lecture desk", () => {
-  it("shows upcoming exams and lets a historical published exam be linked and edited", async () => {
+  it("shows upcoming exams, links a historical published exam at once and saves or resets its corrections", async () => {
     const workspace = lectureWorkspace();
     const exam: ExamView = {
       id: "published-exam",
       key: "reference:exam:2q",
+      kind: "exam",
       term: "2026-2Q",
       courseId: null,
       code: "CSC.T241-02",
@@ -678,6 +679,13 @@ describe("the lecture desk", () => {
       room: "Published room",
       color: "#c98245",
       status: "scheduled",
+      autoLinked: false,
+      source: {
+        date: "2026-08-04",
+        startTime: "10:45",
+        endTime: "12:25",
+        room: "Published room",
+      },
       edited: false,
       hidden: false,
     };
@@ -692,6 +700,16 @@ describe("the lecture desk", () => {
       key: "reference:existing",
       courseId: historical.id,
       title: "Existing linked exam",
+      room: "My room",
+      edited: true,
+    };
+    const weekClass: ExamView = {
+      ...bound,
+      id: "week-class",
+      key: "reference:week-class",
+      kind: "class",
+      title: "Exam-week session",
+      edited: false,
     };
     const upcoming = {
       ...exam,
@@ -717,13 +735,22 @@ describe("the lecture desk", () => {
                 : lectureSchedule(core.workspace).courses,
             exams:
               (query as { term: string }).term === "2026-2Q"
-                ? [exam, bound]
+                ? [exam, bound, weekClass]
                 : [],
             upcomingExams: [upcoming],
           }),
-          examAssociation: () => ({
-            requiresConfirmation: true,
-            conflicts: [bound],
+          examAssociation: () => ({ conflicts: [exam] }),
+          // Core owns search; this script matches the exam titles above.
+          lectureSearch: (query) => ({
+            courseIds: [],
+            assignmentIds: [],
+            examKeys: [exam, bound]
+              .filter((row) =>
+                row.title
+                  .toLowerCase()
+                  .includes((query as { query: string }).query.toLowerCase()),
+              )
+              .map((row) => row.key),
           }),
           taskView: (_query, core) => lectureTasks(core.workspace),
           courseTimeline: () => ({
@@ -763,6 +790,21 @@ describe("the lecture desk", () => {
         ),
       "the automatically linked exam",
     );
+    // A class the timetable lists in exam week has its own group after the exams.
+    const listed = [
+      ...app.host.querySelectorAll<HTMLElement>(
+        ".lectureList .lectureExamScope small, .lectureRow.exam b",
+      ),
+    ].map((node) => node.textContent);
+    expect(listed).toEqual([
+      "My exams",
+      "Existing linked exam",
+      "Classes in exam week",
+      "Exam-week session",
+    ]);
+    expect(
+      app.host.querySelector(".lectureRow.examWeekClass")?.textContent,
+    ).toContain("Exam-week session");
     expect(app.host.querySelector(".lectureList")?.textContent).not.toContain(
       "Published exam",
     );
@@ -787,51 +829,75 @@ describe("the lecture desk", () => {
       editor.querySelector<HTMLInputElement>('[role="combobox"]')!,
       "history",
     );
+    // The link applies on its own; it carries no schedule fields.
+    await until(() =>
+      expect(app!.core.intents).toContainEqual({
+        kind: "linkExam",
+        examKey: "reference:exam:2q",
+        courseId: "history",
+      }),
+    );
     await typeInto(
       editor.querySelector<HTMLInputElement>('input[name="room"]')!,
       "Personal room",
     );
-    const save = [...editor.querySelectorAll<HTMLButtonElement>("button")].find(
-      (row) => row.textContent === "Save",
-    )!;
-    await until(() => expect(save.disabled).toBe(false));
-    await click(save);
-    let dialog = await required(
-      () => document.querySelector<HTMLElement>('[role="dialog"]'),
-      "the existing exam confirmation",
-    );
-    expect(dialog.textContent).toContain("Existing linked exam");
-    expect(app.core.intents).toEqual([]);
     await click(
-      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
-        (row) => row.textContent === "Cancel",
-      )!,
-    );
-    expect(app.core.intents).toEqual([]);
-    await click(save);
-    dialog = await required(
-      () => document.querySelector<HTMLElement>('[role="dialog"]'),
-      "the repeated confirmation",
-    );
-    await click(
-      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
-        (row) => row.textContent === "Link exam",
+      [...editor.querySelectorAll<HTMLButtonElement>("button")].find(
+        (row) => row.textContent === "Save",
       )!,
     );
     await until(() =>
       expect(app!.core.intents).toContainEqual(
         expect.objectContaining({
-          kind: "saveScheduleOverride",
-          confirmedExamKeys: ["reference:existing"],
-          draft: expect.objectContaining({
-            targetKey: "reference:exam:2q",
-            targetKind: "exam",
-            courseId: "history",
-            date: "2026-08-04",
-            room: "Personal room",
-          }),
+          kind: "editExam",
+          examKey: "reference:exam:2q",
+          date: "2026-08-04",
+          room: "Personal room",
+          hidden: false,
         }),
       ),
+    );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    await typeInto(
+      app.host.querySelector<HTMLInputElement>(
+        ".lectureFilter input, input.lectureFilter",
+      )!,
+      "Existing linked exam",
+    );
+    await click(
+      await required(
+        () =>
+          [
+            ...app!.host.querySelectorAll<HTMLButtonElement>(
+              ".lectureRow.exam",
+            ),
+          ].find((row) => row.textContent?.includes("Existing linked exam")),
+        "the edited exam",
+      ),
+    );
+    const edited = await required(
+      () =>
+        app!.host.querySelector<HTMLElement>(".lectureExamDetails .examEditor"),
+      "the edited exam's editor",
+    );
+    await until(() => {
+      expect(edited.textContent).toContain("Source: Published room");
+      expect(edited.textContent).toContain(
+        "This course also has: Published exam · 2026-08-04",
+      );
+    });
+    await click(
+      [...edited.querySelectorAll<HTMLButtonElement>("button")].find(
+        (row) => row.textContent === "Reset to source",
+      )!,
+    );
+    await until(() =>
+      expect(app!.core.intents).toContainEqual({
+        kind: "editExam",
+        examKey: "reference:existing",
+        hidden: false,
+      }),
     );
   }, 30_000);
 

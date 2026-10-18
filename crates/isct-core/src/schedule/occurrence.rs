@@ -965,10 +965,24 @@ pub fn resolve_day_agenda(
         else {
             continue;
         };
+        // The exam timetable's own class row replaces the weekly pattern for
+        // that course and day; a session the user changed by hand stays.
+        let class = exam.kind == "class";
+        if class {
+            blocks.retain(|block| {
+                block.kind != OccurrenceKind::Course
+                    || block.course_id.as_deref() != Some(id.as_str())
+                    || block.overridden == Some(true)
+            });
+        }
         exams.push(Occurrence {
             key: exam.key,
             id: id.clone(),
-            kind: OccurrenceKind::Exam,
+            kind: if class {
+                OccurrenceKind::Course
+            } else {
+                OccurrenceKind::Exam
+            },
             term_id: None,
             course_id: Some(id),
             date: exam.date,
@@ -1008,8 +1022,11 @@ pub(crate) fn finalize_agenda(
         .filter(|block| block.kind == OccurrenceKind::Exam)
         .filter_map(|e| e.course_id.clone())
         .collect();
+    // An exam replaces its course's classes that day, except a session the
+    // user changed by hand.
     blocks.retain(|b| {
         b.kind != OccurrenceKind::Course
+            || b.overridden == Some(true)
             || !b
                 .course_id
                 .as_deref()

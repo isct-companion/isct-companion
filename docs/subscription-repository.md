@@ -10,6 +10,7 @@ The repository has one stable client entry point: `index.json`.
 - Do not configure or derive a separate hash URL. Dataset locations, hashes and publication timestamps come only from the validated index.
 - Every dataset reference in `index.json` is an object with `source`, `hash`, and `ts`. `hash` is the lowercase SHA-256 of canonical JSON; `ts` is an RFC 3339 publication timestamp. The client compares the selected dataset hash before downloading its source and verifies the downloaded JSON against the declared hash.
 - Exam subscriptions combine the selected exam-file `source + hash` pairs into one deterministic subscription hash. A timestamp change alone does not download unchanged data.
+- `examWeekClasses` lists the timetable's class rows (授業, including make-up classes, in the exam period) as `exam-week-classes/LEVEL/YEAR-quarter.json`. Entries keep the exam-feed shape with `kind: "class"` and required `periods`. They belong to the exam subscription and join its hash after the exam files, so an index without them keeps the exams-only hash. Apps that predate the key ignore it.
 
 Example:
 

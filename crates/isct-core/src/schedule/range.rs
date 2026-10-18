@@ -11,7 +11,7 @@ use super::calendar::{
 use super::occurrence::{finalize_agenda, personal_occurrences};
 use super::{
     array, parse_civil_date, placement_terms, resolve_day_agenda, text, visible, AgendaOptions,
-    DatedAgenda, ScheduleError, Term,
+    DatedAgenda, OccurrenceKind, ScheduleError, Term,
 };
 
 /// Inclusive civil-date range. Cancelled classes remain in the content so each
@@ -75,7 +75,14 @@ pub fn calendar_between(
                         .any(|range| date >= range.start && date <= range.end)
                 })
             });
-        let no_classes =
+        let exam_period = active_ranges.iter().any(|range| {
+            range.exam_ranges.as_ref().is_some_and(|ranges| {
+                ranges
+                    .iter()
+                    .any(|range| date >= range.start && date <= range.end)
+            })
+        });
+        let weekly_classes_stop =
             outside_teaching || matches!(state_kind, Some("holiday" | "no-class" | "break"));
         let mut blocks = Vec::new();
         for (term, _) in &ranges {
@@ -132,18 +139,27 @@ pub fn calendar_between(
             let label = localized(row.get("label"), locale, "");
             (!label.is_empty()).then_some(label)
         }));
-        if notices.is_empty() && no_classes {
+        let occurrences = finalize_agenda(blocks)?;
+        // Exams and timetable classes still happen when the weekly pattern
+        // stops; such a day must not read as a day without classes.
+        let no_classes = weekly_classes_stop
+            && !occurrences.iter().any(|block| {
+                block.cancelled != Some(true)
+                    && matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
+            });
+        if notices.is_empty() && weekly_classes_stop {
             notices.push(
-                if locale == "ja" {
-                    "授業なし"
-                } else {
-                    "No classes"
+                match (exam_period, locale == "ja") {
+                    (true, true) => "試験期間",
+                    (true, false) => "Exam period",
+                    (false, true) => "授業なし",
+                    (false, false) => "No classes",
                 }
                 .into(),
             );
         }
         agendas.push(DatedAgenda {
-            occurrences: finalize_agenda(blocks)?,
+            occurrences,
             date,
             calendar_state: state,
             important_dates,

@@ -84,7 +84,7 @@ Intent groups (the generated `WorkspaceIntent` is the complete field schema):
 | Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `markTimetableReviewed` |
 | Events / plans         | `saveEvent`, `deleteEvent`, `savePlan`, `deletePlan`                                                                                                              |
 | Calendar / sources     | `saveCalendarException`, `deleteCalendarException`, `saveSubscription`, `setSubscription`, `deleteSubscription`                                                   |
-| Overrides / automation | `saveScheduleOverride`, `deleteScheduleOverride`, `saveScheduledTask`, `deleteScheduledTask`, `recordScheduledTaskRun`, `saveIntensiveSchedule`                   |
+| Overrides / automation | `saveScheduleOverride`, `deleteScheduleOverride`, `editExam`, `linkExam`, `saveScheduledTask`, `deleteScheduledTask`, `recordScheduledTaskRun`, `saveIntensiveSchedule` |
 | Assignment / lesson    | `setAssignmentMark`, `recordLesson`                                                                                                                               |
 
 Save intents take a `draft`; optional `existingId` selects update rather than
@@ -694,15 +694,38 @@ contains scheduled, linked, unhidden exams from the query's start date across
 source quarters. `CourseDetail.exams` contains a course's exams across its placed
 quarters; `examIds` remains available for existing clients.
 
+`ExamView.kind` is `class` for a class row the exam timetable lists in the exam
+period. It is matched, linked and corrected like an exam, but enters agendas and
+reminders as a session of its course. It is never an upcoming exam, an `examIds`
+entry or an `examAssociation` conflict.
+
+On one day the sources rank: a session the user edited by hand, then the exam
+timetable (its exams and class rows), then the weekly pattern. A timetable class
+row replaces that course's weekly sessions for the day, and an exam replaces its
+course's classes, except sessions with a schedule override. In
+`calendarBetween`, a day the weekly pattern skips still has `noClasses: false`
+when an exam or class takes place. Inside the calendar's `examRanges` its notice
+reads "Exam period" (試験期間) rather than "No classes". `QuarterRange` carries
+those `examRanges`.
+
 Core matches an exam within its academic year and quarter, using an explicit
 course link or a unique enrolled course with the full course/class code. A class
 suffix remains part of the identity. Unlinked exams remain browsable in Lectures
 and do not enter personal agendas or reminders. Missing times remain visible on
 cards; timed agenda entries and reminders require a usable start and end time.
 
-`saveScheduleOverride` stores personal date, time, room, visibility and course-link
-corrections by the subscription's stable source key. Refreshes update the source
-record independently. `deleteScheduleOverride` restores the current source facts.
+Personal exam corrections live in one schedule override per exam, keyed by the
+subscription's stable source key. `editExam { examKey, date?, startTime?, endTime?,
+room?, hidden }` replaces the date, time and room corrections: Core stores only the
+fields that differ from the published record, so a later source correction still
+reaches every field the user left alone. A start time needs an end time.
+`editExam` with no fields resets to the source and keeps the course link.
+`linkExam { examKey, courseId? }` links a course of the exam's quarter, or none
+when `courseId` is absent, without touching the other fields. Choosing the course
+that matching would pick returns the exam to automatic matching. An override with
+nothing personal left is removed. `saveScheduleOverride` rejects exam targets.
+`ExamView.source` carries the published date, time and room; `edited` is set only
+when one of them or the title differs, and `autoLinked` marks a matched course.
 The shared exam projection supplies Today, Lectures, course details and reminders.
 
 `settings.notifications.exams` and `examLeadMinutes` control exam reminders
@@ -710,10 +733,7 @@ independently. New workspaces default to enabled, 60 minutes before the exam.
 Older settings without these fields retain the previous class-reminder preference
 and lead time until changed. These preferences participate in user backups and cloud sync.
 
-`examAssociation { examKey, courseId }` returns existing bindings and
-`requiresConfirmation` for the proposed link. `saveScheduleOverride` accepts
-`confirmedExamKeys`; a newly linked course with other exams requires all current
-conflict keys, rechecked inside the write transaction. Confirmation adds the new
-link and preserves existing exams. Editing an already linked exam needs no
-repeat confirmation. Lecture Desk shows linked exams by default and searches all
-published exams of its selected quarter when Filter contains text.
+`examAssociation { examKey, courseId }` returns the other exams already linked to
+that course; the editor lists them beside the link without blocking it. Lecture
+Desk shows linked exams by default and searches all published exams of its
+selected quarter when Filter contains text.

@@ -1,36 +1,44 @@
 import { Modal } from "@mantine/core";
 import { useState } from "react";
 import type { ExamView } from "../../generated/persistence";
-import type { Course, Workspace } from "../../lib/model";
+import type { Course } from "../../lib/model";
 import { ExamEditor } from "./ExamEditor";
 import { t } from "../../i18n";
 import "./exams.css";
 
+/** A class the exam timetable lists in the exam period is not an exam. */
+export const examKindLabel = (exam: Pick<ExamView, "kind">) =>
+  t(exam.kind === "class" ? "Class in exam week" : "Exam");
+
 export function ExamCards({
   exams,
-  data,
   courses,
   open,
   openExam,
 }: {
   exams: ExamView[];
-  data: Workspace;
   courses: Course[];
   open?: (courseId: string) => void;
   openExam?: (key: string, term: string) => void;
 }) {
   const [editing, setEditing] = useState<ExamView | null>(null);
+  // Exams first; the timetable's exam-week classes form their own group.
+  const classes = exams.filter((exam) => exam.kind === "class");
+  const ordered = [
+    ...exams.filter((exam) => exam.kind !== "class"),
+    ...classes,
+  ];
   return (
     <div className="examCards">
-      {exams.map((exam) => (
+      {ordered.map((exam) => (
         <article
           key={exam.key}
-          className={`examCard${exam.hidden ? " hidden" : ""}`}
+          className={`examCard${exam.kind === "class" ? " examWeekClass" : ""}${exam.hidden ? " hidden" : ""}`}
           style={{ "--course": exam.color } as React.CSSProperties}
         >
           <div className="examCardHeading">
             <span>
-              {t("Exam")}
+              {examKindLabel(exam)}
               {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
             </span>
             <button
@@ -83,7 +91,6 @@ export function ExamCards({
           <ExamEditor
             key={editing.key}
             exam={editing}
-            data={data}
             courses={courses}
             onSaved={() => setEditing(null)}
           />

@@ -179,10 +179,33 @@ pub enum WorkspaceIntent {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         existing_id: Option<String>,
-        /// Other exam bindings the user saw and explicitly accepted.
+    },
+    /// Replaces an exam's personal date, time, room and visibility. A field
+    /// that is empty or equals the published value follows the source.
+    EditExam {
+        exam_key: String,
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
-        confirmed_exam_keys: Option<Vec<String>>,
+        date: Option<String>,
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        start_time: Option<String>,
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        end_time: Option<String>,
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        room: Option<String>,
+        #[serde(default)]
+        hidden: bool,
+    },
+    /// Links an exam to a course of its quarter, or to none. Choosing the
+    /// course matching would pick returns the exam to automatic matching.
+    LinkExam {
+        exam_key: String,
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        course_id: Option<String>,
     },
     DeleteScheduleOverride {
         override_id: String,
@@ -572,26 +595,11 @@ fn apply_intent(
             "subscriptions",
             &subscription_id,
         ),
-        WorkspaceIntent::SaveScheduleOverride {
-            draft,
-            existing_id,
-            confirmed_exam_keys,
-        } => {
+        WorkspaceIntent::SaveScheduleOverride { draft, existing_id } => {
             if draft["targetKind"] == "exam" {
-                if let Some(course_id) = draft["courseId"].as_str().filter(|id| !id.is_empty()) {
-                    let key = string(&draft, "targetKey")?;
-                    let preview = crate::schedule::exam_association(current, key, course_id)
-                        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
-                    if preview.requires_confirmation
-                        && preview.conflicts.iter().any(|exam| {
-                            !confirmed_exam_keys
-                                .as_ref()
-                                .is_some_and(|keys| keys.contains(&exam.key))
-                        })
-                    {
-                        return Err(DataError::InvalidInput("Confirm the course's existing exam bindings before linking another exam.".into()));
-                    }
-                }
+                return Err(DataError::InvalidInput(
+                    "Use editExam or linkExam to change an exam.".into(),
+                ));
             }
             save_simple_record(
                 write,
@@ -602,6 +610,40 @@ fn apply_intent(
                 existing_id,
                 |_| Ok(()),
             )
+        }
+        WorkspaceIntent::EditExam {
+            exam_key,
+            date,
+            start_time,
+            end_time,
+            room,
+            hidden,
+        } => {
+            let row = crate::schedule::corrected_exam_override(
+                current,
+                &exam_key,
+                crate::schedule::ExamCorrection {
+                    date,
+                    start_time,
+                    end_time,
+                    room,
+                    hidden,
+                },
+            )
+            .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            save_exam_override(write, current, &exam_key, row)
+        }
+        WorkspaceIntent::LinkExam {
+            exam_key,
+            course_id,
+        } => {
+            let row = crate::schedule::linked_exam_override(
+                current,
+                &exam_key,
+                course_id.as_deref().filter(|id| !id.is_empty()),
+            )
+            .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            save_exam_override(write, current, &exam_key, row)
         }
         WorkspaceIntent::DeleteScheduleOverride { override_id } => delete_visible(
             write,
@@ -717,6 +759,41 @@ fn normalize_language(value: Option<&str>) -> &'static str {
         "en" | "english" | "英語" => "en",
         "ja-en" => "ja-en",
         _ => "other",
+    }
+}
+
+/// One override per exam: write the new content, or remove the row once
+/// nothing personal remains.
+fn save_exam_override(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    key: &str,
+    row: Option<Value>,
+) -> Result<(), DataError> {
+    let existing = rows(current, "scheduleOverrides")?
+        .find(|row| {
+            row.get("deletedAt").is_none_or(Value::is_null)
+                && row.get("targetKey").and_then(Value::as_str) == Some(key)
+        })
+        .and_then(|row| object_string(row, "id"));
+    match (row, existing) {
+        (Some(row), existing) => save_simple_record(
+            write,
+            current,
+            "scheduleOverrides",
+            "schedule_overrides",
+            row,
+            existing,
+            |_| Ok(()),
+        ),
+        (None, Some(id)) => delete_visible(
+            write,
+            current,
+            "scheduleOverrides",
+            "schedule_overrides",
+            &id,
+        ),
+        (None, None) => Ok(()),
     }
 }
 

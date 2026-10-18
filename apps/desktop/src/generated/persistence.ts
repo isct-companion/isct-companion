@@ -403,6 +403,10 @@ export type ClassSchedule = {
 };
 
 export type Exam = {
+  /**
+   * `class` marks a class row the exam timetable lists in the exam period.
+   */
+  kind?: "exam" | "class";
   academicYear: number;
   level: "undergraduate" | "graduate";
   quarter: Quarter;
@@ -781,6 +785,10 @@ export type TeachingRange = { start: string; end: string };
 
 export type QuarterRange = {
   teachingRanges: Array<TeachingRange> | null;
+  /**
+   * The official final-exam and make-up period inside the quarter.
+   */
+  examRanges?: Array<TeachingRange>;
   from: string;
   to: string;
 };
@@ -1008,8 +1016,17 @@ export type CourseDetail = {
 export type ExamView = {
   id: string;
   key: string;
+  /**
+   * `exam`, or `class` for a class the exam timetable lists in the exam
+   * period. A class enters agendas as a class, not as an exam.
+   */
+  kind: "exam" | "class";
   term: string;
   courseId: string | null;
+  /**
+   * The course came from code matching, not from a personal link.
+   */
+  autoLinked: boolean;
   code: string;
   title: string;
   date: string;
@@ -1020,12 +1037,28 @@ export type ExamView = {
   notes?: string;
   color: string;
   status: string;
+  /**
+   * Published facts before personal corrections.
+   */
+  source: ExamSchedule;
+  /**
+   * Date, time, room or title differs from the published record.
+   */
   edited: boolean;
   hidden: boolean;
 };
 
+export type ExamSchedule = {
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  room: string;
+};
+
 export type ExamAssociation = {
-  requiresConfirmation: boolean;
+  /**
+   * Other exams (not exam-week classes) already linked to the course.
+   */
   conflicts: Array<ExamView>;
 };
 
@@ -1296,15 +1329,17 @@ export type WorkspaceIntent =
       resetRemote: boolean;
     }
   | { kind: "deleteSubscription"; subscriptionId: string }
+  | { kind: "saveScheduleOverride"; draft: unknown; existingId?: string }
   | {
-      kind: "saveScheduleOverride";
-      draft: unknown;
-      existingId?: string;
-      /**
-       * Other exam bindings the user saw and explicitly accepted.
-       */
-      confirmedExamKeys?: Array<string>;
+      kind: "editExam";
+      examKey: string;
+      date?: string;
+      startTime?: string;
+      endTime?: string;
+      room?: string;
+      hidden: boolean;
     }
+  | { kind: "linkExam"; examKey: string; courseId?: string }
   | { kind: "deleteScheduleOverride"; overrideId: string }
   | { kind: "saveScheduledTask"; draft: unknown; existingId?: string }
   | { kind: "deleteScheduledTask"; taskId: string }
