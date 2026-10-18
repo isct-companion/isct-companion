@@ -133,12 +133,10 @@ impl SchoolBrowserEngine {
                 .await;
             drop(lane);
             match result {
-                Err(error) => return Err(error),
-                Ok(HiddenLoad::SignInRequired) => {
-                    return Err(SchoolBrowserError::Auth(
-                        "Sign in to 教務Web in Settings to search courses.".into(),
-                    ))
-                }
+                Err(error) => Err(error),
+                Ok(HiddenLoad::SignInRequired) => Err(SchoolBrowserError::Auth(
+                    "Sign in to 教務Web in Settings to search courses.".into(),
+                )),
                 Ok(HiddenLoad::Ready(raw)) => {
                     let (stage, payload) = parse_kyomu_payload(&raw)
                         .map_err(|e| SchoolBrowserError::InvalidInput(e.to_string()))?;
@@ -152,14 +150,14 @@ impl SchoolBrowserEngine {
                             "Reconnect 教務Web to search courses.".into(),
                         ));
                     }
-                    return payload
+                    payload
                         .filter(|p| p.kind == "catalog")
                         .map(|p| p.data)
                         .ok_or_else(|| {
                             SchoolBrowserError::InvalidInput(
                                 "The official course result is incomplete.".into(),
                             )
-                        });
+                        })
                 }
             }
         })

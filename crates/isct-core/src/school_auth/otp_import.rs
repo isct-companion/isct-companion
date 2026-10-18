@@ -1,5 +1,8 @@
 //! Device-local OTP import. QR pixels and camera handles stay in the shell.
-#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
 use base64::{engine::general_purpose, Engine};
 use prost::Message;
 use serde::Serialize;

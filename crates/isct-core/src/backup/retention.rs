@@ -14,7 +14,7 @@ pub(crate) fn expired<'a>(
             (date <= now).then_some((index, date))
         })
         .collect::<Vec<_>>();
-    dated.sort_by(|a, b| b.1.cmp(&a.1));
+    dated.sort_by_key(|&(_, date)| std::cmp::Reverse(date));
     let cutoff = now - Duration::days(30);
     let mut group_start = 0;
     let mut expired = Vec::new();
