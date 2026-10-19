@@ -989,6 +989,14 @@ checks:
           Confirms rendering and search hold across the whole document rather
           than only the first page.
       - action: |
+          In an installed Windows build, open a handout whose Japanese fonts
+          are not embedded (the 線形代数学第二 講義概要 PDF), then search for a
+          Japanese word in it.
+        reason: |
+          Such text needs PDF.js CMaps fetched from the packaged bundle; when
+          they are missing the page keeps only digits and Latin text, and the
+          dev server cannot show whether the installer carries them.
+      - action: |
           Use the viewer's own save toolbar.
         reason: |
           The toolbar was excluded from the last checkpoint's live coverage
@@ -997,13 +1005,16 @@ checks:
       The rendered pages, the search results, and the file the save toolbar
       writes.
     expected: |
-      The document renders, paging and search work throughout, and the save
-      toolbar writes the file.
+      The document renders, Japanese text in non-embedded fonts shows and is
+      found by search, paging and search work throughout, and the save toolbar
+      writes the file.
     why_manual: |
       The viewer's separate save toolbar depends on the platform save dialog
-      and was never covered by a live run.
+      and was never covered by a live run, and only an installed bundle shows
+      whether the PDF.js data files ship with it.
     covers:
       - apps/desktop/src/features/lms/PdfDocument.tsx
+      - apps/desktop/vite.config.ts
       - apps/desktop/src-tauri/src/school_downloads.rs
     verified: null
 
@@ -1723,4 +1734,44 @@ checks:
       OCR, so it shows only two of the Matrix tiles.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+    verified: null
+
+  - id: DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS
+    area: native
+    title: Hidden school pages never take the keyboard from the app
+    persona: narrow-window-keyboard
+    preconditions: |
+      macOS desktop app with Science Tokyo and Tokyo Tech accounts Signed in,
+      on the Timetable page with the course finder visible.
+    steps:
+      - action: |
+          Click the course finder once, then keep typing a course name
+          (e.g. ウェルネス, then more words) for about a minute without
+          touching the mouse, so several 教務Web searches run in between.
+        reason: |
+          Every search loads 教務Web pages in a hidden view, and those pages
+          focus a field on load. Before the fix the hidden view became the
+          window's first responder and typing stopped until a click.
+      - action: |
+          Switch to another app and back with ⌘Tab, wait for the session
+          check that follows focus, and type again.
+        reason: |
+          The focus session check signs in through hidden GetAccess and LMS
+          login pages, which also focus their username field.
+      - action: |
+          Open the Web tab, click a field in a school page and type into it.
+        reason: |
+          A shown school view must still accept the keyboard; only hidden
+          views refuse it.
+    observe: The course finder input and the visible school page field.
+    expected: |
+      Every keystroke lands in the course finder while searches and session
+      checks run, and the visible school page still accepts typing.
+    why_manual: |
+      First-responder ownership lives in AppKit inside the native shell, and
+      the focusing pages are the real 教務Web and GetAccess pages behind a
+      signed-in account. Neither the jsdom e2e host nor the Rust engine tests
+      have a window or WebKit.
+    covers:
+      - apps/desktop/src-tauri/src/school_webkit.rs
     verified: null

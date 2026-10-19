@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 35 checks must be re-run before the next release.**
+**7 of 36 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**26 checks have never been run or could not be run:**
+**27 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -55,6 +55,7 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-OTP-QR` — never verified
 - `SCHOOL-SIGNIN-TOKYO-VISIBLE` — never verified
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
+- `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
 
 ## Status
 
@@ -78,7 +79,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
-| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/usePullState.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
@@ -95,6 +96,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
+| `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 
 ## Personas
 
@@ -1130,7 +1132,13 @@ A course with a large cached PDF material.
 1. Open the PDF, scroll to the end and search for a term.
    - *Why:* Confirms rendering and search hold across the whole document rather
      than only the first page.
-2. Use the viewer's own save toolbar.
+2. In an installed Windows build, open a handout whose Japanese fonts
+   are not embedded (the 線形代数学第二 講義概要 PDF), then search for a
+   Japanese word in it.
+   - *Why:* Such text needs PDF.js CMaps fetched from the packaged bundle; when
+     they are missing the page keeps only digits and Latin text, and the
+     dev server cannot show whether the installer carries them.
+3. Use the viewer's own save toolbar.
    - *Why:* The toolbar was excluded from the last checkpoint's live coverage
      and depends on the platform save dialog.
 
@@ -1141,17 +1149,20 @@ writes.
 
 **Expected**
 
-The document renders, paging and search work throughout, and the save
-toolbar writes the file.
+The document renders, Japanese text in non-embedded fonts shows and is
+found by search, paging and search work throughout, and the save toolbar
+writes the file.
 
 **Why this is manual**
 
 The viewer's separate save toolbar depends on the platform save dialog
-and was never covered by a live run.
+and was never covered by a live run, and only an installed bundle shows
+whether the PDF.js data files ship with it.
 
 **Covers**
 
 - `apps/desktop/src/features/lms/PdfDocument.tsx`
+- `apps/desktop/vite.config.ts`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
 
 **Last recorded** never run
@@ -1993,5 +2004,54 @@ OCR, so it shows only two of the Matrix tiles.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+
+**Last recorded** never run
+
+### Hidden school pages never take the keyboard from the app (`DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS`)
+
+**Area** native · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop app with Science Tokyo and Tokyo Tech accounts Signed in,
+on the Timetable page with the course finder visible.
+
+**Steps**
+
+1. Click the course finder once, then keep typing a course name
+   (e.g. ウェルネス, then more words) for about a minute without
+   touching the mouse, so several 教務Web searches run in between.
+   - *Why:* Every search loads 教務Web pages in a hidden view, and those pages
+     focus a field on load. Before the fix the hidden view became the
+     window's first responder and typing stopped until a click.
+2. Switch to another app and back with ⌘Tab, wait for the session
+   check that follows focus, and type again.
+   - *Why:* The focus session check signs in through hidden GetAccess and LMS
+     login pages, which also focus their username field.
+3. Open the Web tab, click a field in a school page and type into it.
+   - *Why:* A shown school view must still accept the keyboard; only hidden
+     views refuse it.
+
+**Where to look**
+
+The course finder input and the visible school page field.
+
+**Expected**
+
+Every keystroke lands in the course finder while searches and session
+checks run, and the visible school page still accepts typing.
+
+**Why this is manual**
+
+First-responder ownership lives in AppKit inside the native shell, and
+the focusing pages are the real 教務Web and GetAccess pages behind a
+signed-in account. Neither the jsdom e2e host nor the Rust engine tests
+have a window or WebKit.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_webkit.rs`
 
 **Last recorded** never run

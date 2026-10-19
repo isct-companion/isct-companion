@@ -22,7 +22,9 @@
 
 use block2::DynBlock;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, AnyProtocol, NSObject, NSObjectProtocol, ProtocolObject, Sel};
+use objc2::runtime::{
+    AnyObject, AnyProtocol, Bool, NSObject, NSObjectProtocol, ProtocolObject, Sel,
+};
 use objc2::{
     define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message,
 };
@@ -358,6 +360,7 @@ pub unsafe fn install(
 ) -> Option<DelegateHandle> {
     let mtm = MainThreadMarker::new()?;
     let web_view = unsafe { (web_view as *const WKWebView).as_ref() }?;
+    refuse_first_responder_while_hidden(web_view);
     let ui = unsafe { web_view.UIDelegate() }.map(|original| {
         let shim = mtm
             .alloc::<SchoolUiDelegate>()
@@ -395,4 +398,67 @@ pub unsafe fn install(
         _ui: ui,
         _navigation: navigation,
     })
+}
+
+static WEBKIT_ACCEPTS_FIRST_RESPONDER: std::sync::OnceLock<objc2::runtime::Imp> =
+    std::sync::OnceLock::new();
+
+unsafe extern "C-unwind" fn accepts_first_responder(this: &AnyObject, selector: Sel) -> Bool {
+    let hidden: bool = unsafe { msg_send![this, isHiddenOrHasHiddenAncestor] };
+    if hidden {
+        return Bool::NO;
+    }
+    let Some(original) = WEBKIT_ACCEPTS_FIRST_RESPONDER.get() else {
+        return Bool::YES;
+    };
+    // SAFETY: the stored IMP is WKWebView's own `acceptsFirstResponder`.
+    let original: unsafe extern "C-unwind" fn(&AnyObject, Sel) -> Bool =
+        unsafe { std::mem::transmute(*original) };
+    unsafe { original(this, selector) }
+}
+
+/// Hidden school views load pages whose scripts focus a field on load
+/// (ASP.NET `WebForm_AutoFocus`, sign-in forms). WebKit then makes that view
+/// the window's first responder, and the visible app stops receiving keys
+/// until it is clicked. wry's view class therefore refuses first-responder
+/// status while a view is hidden; a shown view keeps WebKit's answer. It is
+/// installed once on the class, so the hidden LMS downloader view is covered
+/// too.
+fn refuse_first_responder_while_hidden(web_view: &WKWebView) {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        // wry registers its class under a versioned module path, and the
+        // title observer adds a KVO subclass on top; walk to the real class.
+        let mut class = web_view.class();
+        while class.name().to_bytes().starts_with(b"NSKVONotifying_") {
+            let Some(superclass) = class.superclass() else {
+                return;
+            };
+            class = superclass;
+        }
+        let selector = sel!(acceptsFirstResponder);
+        let Some(method) = <WKWebView as objc2::ClassType>::class().instance_method(selector) else {
+            return;
+        };
+        let _ = WEBKIT_ACCEPTS_FIRST_RESPONDER.set(method.implementation());
+        // SAFETY: the replacement has the `BOOL (id, SEL)` signature of the
+        // method whose type encoding it is registered with.
+        let added = unsafe {
+            objc2::ffi::class_addMethod(
+                class as *const _ as *mut _,
+                selector,
+                std::mem::transmute::<
+                    unsafe extern "C-unwind" fn(&AnyObject, Sel) -> Bool,
+                    objc2::runtime::Imp,
+                >(accepts_first_responder),
+                objc2::ffi::method_getTypeEncoding(method),
+            )
+        };
+        if !added.as_bool() {
+            log::error!(
+                "[school-web] {} already defines acceptsFirstResponder; hidden views keep focus",
+                class.name().to_string_lossy()
+            );
+        }
+    });
 }
