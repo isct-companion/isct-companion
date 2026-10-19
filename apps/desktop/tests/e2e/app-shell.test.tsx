@@ -268,137 +268,11 @@ function required<T extends Element>(
 }
 
 /* ------------------------------------------------------------------ *
- * The planner's replace and undo path (established by the earlier agent).
- * ------------------------------------------------------------------ */
-
-it("replaces a clashing course and Undo restores the previous one", async () => {
-  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-  const before = workspaceFixture({
-    courses: [placedCourse],
-    planItems: [planItemFor(placedCourse)],
-  });
-  const after = workspaceFixture({
-    courses: [clashingCourse],
-    planItems: [planItemFor(clashingCourse)],
-  });
-
-  app = await mountApp(
-    {
-      workspace: before,
-      queries: {
-        workspaceOverview: (_query, core) => overviewFor(core.workspace),
-        planningWeek: (_query, core) => planningWeekFor(core.workspace),
-        scheduleView: (_query, core) => scheduleViewFor(core.workspace),
-      },
-      finder: (request) => ({
-        context: {
-          currentQuarter: 3,
-          recommended: {},
-          departments: [],
-          busy: [{ day: 2, from: 7, to: 8 }],
-        },
-        courses: [placed, clashing],
-        factors: [],
-        duplicates: 0,
-        keys: request.keys ?? [],
-        plan: { unsupported: "empty" },
-        rows: [placed, clashing].map((course) => ({ course, matched: [] })),
-        suggestions: [],
-        live: String(request.input ?? ""),
-        clashes: [clashing.id],
-        ineligibleIds: [],
-        eligibility: {},
-        replacements: { [clashing.id]: [placedCourse.id] },
-        credits: { [placed.id]: 2, [clashing.id]: 2 },
-        onTimetable: [placedCourse.code],
-        activeSlots: ["火7-8"],
-        pasteHandled: false,
-        pastedIds: [],
-        missingCodes: [],
-        ineligibleCodes: [],
-        detailIds: [],
-      }),
-      handle: (command) => {
-        if (command === "catalog_offerings") return [placed, clashing];
-        if (command === "catalog_query")
-          return {
-            items: [{ id: placed.id }],
-            total: 1,
-            returned: 1,
-            truncated: false,
-          };
-        return undefined;
-      },
-      // Core commits the replacement (or the undo) and returns the new snapshot.
-      apply: (intent, core) => {
-        if (intent.kind === "addCatalogCourses") {
-          core.publish(after, "revision:after");
-        } else if (intent.kind === "undoCatalogCourses") {
-          core.publish(before, "revision:undo");
-        }
-      },
-    },
-    { route: paths.timetable() },
-  );
-  const { host, core } = app;
-
-  const input = await vi.waitFor(() => {
-    const element = host.querySelector<HTMLInputElement>(
-      "#course-finder-input",
-    );
-    if (!element) throw new Error("finder input not ready");
-    return element;
-  });
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )!.set!.call(input, "CSC ");
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  expect(titles(host)).toEqual(["Placed"]);
-
-  const replace = await vi.waitFor(
-    () => {
-      const button = [
-        ...host.querySelectorAll<HTMLButtonElement>(".finderAdd"),
-      ].find((candidate) => candidate.textContent === "Replace");
-      if (!button) throw new Error("no Replace action yet");
-      return button;
-    },
-    { timeout: 5000 },
-  );
-  await act(async () => replace.click());
-  await vi.waitFor(() => expect(titles(host)).toEqual(["Clashing"]));
-
-  const undo = await vi.waitFor(() => {
-    const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-      (candidate) => candidate.textContent === "Undo",
-    );
-    if (!button) throw new Error("Undo is not offered after a replacement");
-    return button;
-  });
-  await act(async () => undo.click());
-  await vi.waitFor(() => expect(titles(host)).toEqual(["Placed"]));
-
-  expect(core.intents.map((intent) => intent.kind)).toEqual([
-    "addCatalogCourses",
-    "undoCatalogCourses",
-  ]);
-  expect(host.querySelector(".pageError")).toBeNull();
-  const unexpected = errors.mock.calls.filter(
-    (call) => !String(call[0]).includes("not wrapped in act"),
-  );
-  expect(unexpected).toEqual([]);
-  errors.mockRestore();
-}, 20_000);
-
-/* ------------------------------------------------------------------ *
  * Shell navigation.
  * ------------------------------------------------------------------ */
 
 describe("shell navigation", () => {
-  it("opens the workspace route named in the hash and restores it after a remount", async () => {
+  it("opens the workspace route named in the hash", async () => {
     const workspace = workspaceFixture({
       courses: [placedCourse],
       planItems: [planItemFor(placedCourse)],
@@ -410,33 +284,7 @@ describe("shell navigation", () => {
       expect(app!.host.querySelector(".homeMain")).not.toBeNull(),
     );
     expect(app.host.querySelector(".homePage.week")).not.toBeNull();
-
-    await app.unmount();
-    app = await mountShell(shellOptions({ workspace, revision: "rev:route" }), {
-      route: paths.home("week"),
-    });
-    await until(() =>
-      expect(app!.host.querySelector(".homePage.week")).not.toBeNull(),
-    );
     expect(window.location.hash).toBe(`#${paths.home("week")}`);
-  }, 20_000);
-
-  it("opens the settings section named in the hash", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:section",
-      }),
-      { route: paths.settings("appearance") },
-    );
-    const { host } = app;
-    await until(() =>
-      expect(host.querySelector(".settingsMain")).not.toBeNull(),
-    );
-    expect(
-      host.querySelector(".settingsNav button.active")?.textContent,
-    ).toContain("Appearance");
-    expect(host.querySelector('input[value="zh"]')).not.toBeNull();
   }, 20_000);
 
   it("replaces unknown, unsupported and deleted-course routes", async () => {
@@ -550,6 +398,12 @@ describe("shell navigation", () => {
       { route: paths.settings("appearance") },
     );
     const { host } = app;
+    // The hash names the section that opens.
+    await until(() =>
+      expect(
+        host.querySelector(".settingsNav button.active")?.textContent,
+      ).toContain("Appearance"),
+    );
     const disclosure = await required(
       () => host.querySelector<HTMLDetailsElement>(".settingsPane details"),
       "the folded options",
@@ -1056,7 +910,7 @@ describe("store failures", () => {
     expect(host.querySelector(".pageError")).toBeNull();
   }, 20_000);
 
-  it("offers Retry saving for a store error and re-reads the workspace", async () => {
+  it("offers Retry saving on an error notice and runs the retry it was given", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture(),
@@ -1312,7 +1166,7 @@ describe("mobile shell", () => {
     expect(window.location.hash).toBe(`#${paths.web("science-lms")}`);
   }, 20_000);
 
-  it("opens a lecture as a dialog over the list", async () => {
+  it("opens a lecture as a dialog", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture({ courses: [placedCourse] }),

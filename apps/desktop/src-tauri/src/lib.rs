@@ -298,8 +298,6 @@ pub fn run() {
             commands::backup::export_data,
             commands::backup::save_file,
             commands::backup::import_data,
-            commands::catalog::catalog_upsert_offerings,
-            commands::catalog::catalog_offering,
             commands::catalog::catalog_offerings,
             commands::catalog::syllabus_course,
             commands::catalog::catalog_sync_department,

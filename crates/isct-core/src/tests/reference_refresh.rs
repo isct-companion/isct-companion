@@ -670,14 +670,14 @@ fn restored_metadata_never_replaces_local_materialization_evidence() {
         changed[field] = json!([{"id":"new-entry","cohortYear":2026,"academicYear":2026}]);
         assert!(!cache_present(&source, &changed, &request).unwrap());
     }
-    let backup: Value = serde_json::from_str(&source.export_data(json!([])).unwrap()).unwrap();
+    let backup = source.export_document(json!([])).unwrap();
     assert!(backup["tables"]["settings"]
         .as_array()
         .unwrap()
         .iter()
         .all(|row| !row["key"].as_str().unwrap().starts_with("referenceCache:")));
     let restored = store("restored-import");
-    restored.import_data(&backup).unwrap();
+    restored.merge_cloud_data(&backup).unwrap();
     assert!(restored
         .reference_cache_marker("exams", 2026)
         .unwrap()

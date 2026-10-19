@@ -1237,7 +1237,3 @@ fn new_id() -> String {
 fn truncate(value: String, max: usize) -> String {
     value.chars().take(max).collect()
 }
-
-#[cfg(test)]
-#[path = "../tests/school_browser__engine__error_tests.rs"]
-mod error_tests;

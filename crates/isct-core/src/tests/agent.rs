@@ -370,7 +370,7 @@ fn plan_add_uses_the_shared_first_year_gate_before_writing() {
 }
 
 #[test]
-fn date_and_term_validation_messages_remain_stable() {
+fn schedule_and_courses_reject_reversed_ranges_and_unknown_quarters() {
     let fixture = Fixture::new();
     let service = fixture.service();
     let error = service

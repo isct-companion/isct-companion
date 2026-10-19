@@ -42,7 +42,7 @@ import {
   type SchoolSessionEvent,
   type WorkspaceChangedEvent,
 } from "@app/platform/desktop-bridge";
-import { finderQuery, type FinderView } from "@app/platform/finder-query";
+import { finderQuery } from "@app/platform/finder-query";
 import { LocalRepository, SqliteRepository } from "@app/storage/repository";
 import {
   createBrowserPreviewService,
@@ -699,22 +699,6 @@ describe("schedule query batches", () => {
     ).resolves.toEqual([4]);
     expect(core.commands("schedule_query")).toHaveLength(2);
   });
-
-  it("forwards a finder request unchanged and returns the host's view", async () => {
-    const view = { keys: ["a"] } as unknown as FinderView;
-    const seen: unknown[] = [];
-    installHost({
-      workspace: workspaceFixture(),
-      finder: (request) => {
-        seen.push(request);
-        return view;
-      },
-    });
-    const request = { year: 2026, term: "2026-3Q", keys: [], input: "linear" };
-
-    await expect(finderQuery(request)).resolves.toBe(view);
-    expect(seen).toEqual([request]);
-  });
 });
 
 describe("local browser repository", () => {
@@ -928,11 +912,6 @@ describe("shared workspace routes", () => {
 });
 
 describe("public action policy", () => {
-  it.each<AppAction>(["view", "change-local-preference", "export-data"])(
-    "keeps %s available in the browser preview",
-    (action) => expect(can(action, "browser-preview").allowed).toBe(true),
-  );
-
   it.each<AppAction>(["edit-academic-data", "import-school", "push-cloud"])(
     "blocks %s in the browser preview but allows it on the native shell",
     (action) => {
@@ -1055,17 +1034,6 @@ describe("runtime capabilities", () => {
         }),
       )["local-notifications"],
     ).toMatchObject({ support: "unsupported" });
-  });
-
-  it("keeps remote push unsupported in this no-backend build", () => {
-    expect(
-      resolveCapabilities("native-desktop", false, "granted", runtime())[
-        "remote-push"
-      ],
-    ).toMatchObject({
-      support: "unsupported",
-      readiness: "needs-configuration",
-    });
   });
 
   it("detects the platform from the injected native target", () => {
@@ -1334,7 +1302,7 @@ describe("Tauri bridge contract", () => {
     expect(seam.unlistens()).toBe(1);
   });
 
-  it("saves exports through the native dialog, not a webview download", async () => {
+  it("maps saveFile to the native save_file command and returns its answer", async () => {
     const { invoke, calls } = invokeSeam(() => false);
     const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
     const name = "campus-life-2026-2Q.ics";

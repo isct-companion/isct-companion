@@ -1284,7 +1284,7 @@ async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges(
 }
 
 #[tokio::test]
-async fn reminder_service_owns_shutdown_and_permission_gate() {
+async fn reminder_ticks_after_shutdown_are_rejected_as_stopped() {
     let root = std::env::temp_dir().join(format!("isct-reminder-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let store = crate::data::DataStore::initialize(root.join("workspace.db"))

@@ -61,18 +61,6 @@ pub enum FetchError {
     Cancelled,
 }
 
-impl FetchError {
-    pub const fn reason(self) -> &'static str {
-        match self {
-            Self::Login => "login",
-            Self::Invalid => "invalid",
-            Self::Network => "network",
-            Self::Timeout => "timeout",
-            Self::Cancelled => "cancelled",
-        }
-    }
-}
-
 type FetchFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, FetchError>> + Send + 'a>>;
 
 trait DownloadTransport: Send + Sync {

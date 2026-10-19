@@ -33,10 +33,6 @@ impl DataStore {
         self.load_workspace()
     }
 
-    pub fn export_data(&self, notes: Value) -> Result<String, DataError> {
-        serde_json::to_string_pretty(&self.export_document(notes)?).map_err(DataError::from)
-    }
-
     /// Read every backup table from one SQLite snapshot.
     pub fn export_document(&self, notes: Value) -> Result<Value, DataError> {
         let mut database = self.open()?;
@@ -128,57 +124,5 @@ impl DataStore {
                 params![remote["sync"].to_string(), now(), content_hash(&remote["sync"])?]).map_err(DataError::from)?;
         }
         transaction.commit().map_err(DataError::from)
-    }
-
-    /// Restores a document that passed [`parse_import`].
-    pub fn import_data(&self, parsed: &Value) -> Result<Value, DataError> {
-        let tables = parsed
-            .get("tables")
-            .and_then(Value::as_object)
-            .ok_or_else(|| DataError::compatibility("import tables must be an object"))?;
-        let mut connection = self.open()?;
-        let transaction = connection.transaction().map_err(DataError::from)?;
-        let allowed: HashSet<_> = USER_BACKUP_TABLES.iter().copied().collect();
-        // A local backup restore is an explicit replacement, not sync/merge.
-        for table in USER_BACKUP_TABLES {
-            transaction
-                .execute(&format!("DELETE FROM {table}"), [])
-                .map_err(DataError::from)?;
-        }
-        for (table, rows) in tables {
-            if table == "settings" {
-                continue;
-            }
-            if !allowed.contains(table.as_str()) {
-                return Err(DataError::compatibility(format!(
-                    "import contains unsupported table {table}"
-                )));
-            }
-            let incoming_rows = rows.as_array().ok_or_else(|| {
-                DataError::compatibility(format!("import table {table} must be an array"))
-            })?;
-            for incoming in incoming_rows {
-                validate_user_record(table, incoming)?;
-                upsert_row(&transaction, table, incoming, true)?;
-            }
-        }
-        if let Some(settings) = tables.get("settings").and_then(Value::as_array) {
-            for key in USER_BACKUP_SETTINGS {
-                transaction
-                    .execute("DELETE FROM settings WHERE key=?1", [key])
-                    .map_err(DataError::from)?;
-            }
-            for row in settings {
-                let key = string_field(row, "key")?;
-                if !USER_BACKUP_SETTINGS.contains(&key) {
-                    return Err(DataError::compatibility(format!(
-                        "import contains device or secret setting {key}"
-                    )));
-                }
-                import_setting(&transaction, row)?;
-            }
-        }
-        transaction.commit().map_err(DataError::from)?;
-        self.load_workspace()
     }
 }

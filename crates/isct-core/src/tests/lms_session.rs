@@ -14,6 +14,9 @@ struct FakePort {
     ready_polls: AtomicUsize,
     navigations: AtomicUsize,
     cookies: StdMutex<String>,
+    /// Callers between opening the view and reading its cookies.
+    in_flight: AtomicUsize,
+    max_in_flight: AtomicUsize,
 }
 
 impl FakePort {
@@ -28,6 +31,8 @@ impl FakePort {
             ready_polls: AtomicUsize::new(0),
             navigations: AtomicUsize::new(0),
             cookies: StdMutex::new(cookies.into()),
+            in_flight: AtomicUsize::new(0),
+            max_in_flight: AtomicUsize::new(0),
         }
     }
 }
@@ -47,6 +52,8 @@ impl LmsSessionPort for FakePort {
 
     fn ensure_lms_view(&self) -> Result<(), FetchError> {
         self.ensure_calls.fetch_add(1, Ordering::Relaxed);
+        let in_flight = self.in_flight.fetch_add(1, Ordering::AcqRel) + 1;
+        self.max_in_flight.fetch_max(in_flight, Ordering::AcqRel);
         if !self.view_exists.swap(true, Ordering::AcqRel) {
             self.view_creations.fetch_add(1, Ordering::Relaxed);
         }
@@ -64,6 +71,7 @@ impl LmsSessionPort for FakePort {
     }
 
     fn cookies(&self, _url: &Url) -> Result<String, FetchError> {
+        self.in_flight.fetch_sub(1, Ordering::AcqRel);
         self.cookies
             .lock()
             .map(|cookies| cookies.clone())
@@ -133,8 +141,10 @@ async fn pending_school_session_times_out_after_180_seconds() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn concurrent_readiness_never_creates_parallel_views() {
+async fn concurrent_readiness_waits_are_serialized() {
     let session = LmsSession::default();
+    // The first caller is not ready on its first poll, so it sleeps while
+    // holding the view; an ungated second caller would drive it meanwhile.
     let port = FakePort::new(SessionState::Active, 1, "MoodleSession=ready");
     let url = lms_url();
     let (first, second) = tokio::join!(
@@ -143,7 +153,8 @@ async fn concurrent_readiness_never_creates_parallel_views() {
     );
     assert!(first.is_ok());
     assert!(second.is_ok());
-    assert_eq!(port.view_creations.load(Ordering::Relaxed), 1);
+    assert_eq!(port.ensure_calls.load(Ordering::Relaxed), 2);
+    assert_eq!(port.max_in_flight.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test]

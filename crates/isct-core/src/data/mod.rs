@@ -852,8 +852,9 @@ impl DataStore {
         )
     }
 
-    /// User-owned records are changed one row at a time. The database owns
-    /// IDs and revisions; callers cannot accidentally roll them backwards.
+    /// Test shorthand for an unchecked write; production writers pass the
+    /// revision they read to `put_user_record_checked`.
+    #[cfg(test)]
     pub fn put_user_record(
         &self,
         table: &str,
@@ -863,6 +864,8 @@ impl DataStore {
         self.put_user_record_checked(table, value, actor, None)
     }
 
+    /// User-owned records are changed one row at a time. The database owns
+    /// IDs and revisions; callers cannot accidentally roll them backwards.
     pub fn put_user_record_checked(
         &self,
         table: &str,
@@ -880,6 +883,7 @@ impl DataStore {
         Ok(value)
     }
 
+    #[cfg(test)]
     pub fn delete_user_record(
         &self,
         table: &str,
@@ -994,16 +998,6 @@ impl DataStore {
             .ok_or("subscription refresh must be an object")?
             .insert("lastCheckedAt".into(), json!(now()));
         save_setting(&transaction, key, &settings, "pull-coordinator")?;
-        transaction.commit().map_err(DataError::from)
-    }
-
-    #[cfg(test)]
-    pub fn record_agent_write(&self, tool: &str) -> Result<(), DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)?;
-        record_agent_write_in(&transaction, tool)?;
         transaction.commit().map_err(DataError::from)
     }
 

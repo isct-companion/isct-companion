@@ -276,15 +276,6 @@ export const workspaceActions = {
       exceptions: next.exceptions,
     });
   },
-  /** The study-guide cohort is a basic choice on every platform; the rest of
-   * the academic profile stays behind the advanced calendar editor. */
-  setAdmissionYear(year: number | undefined) {
-    requireAction("change-local-preference", detectPlatform());
-    return internalWorkspaceStore.mutate({
-      kind: "setAdmissionYear",
-      admissionYear: year ?? null,
-    });
-  },
   setStudyProfile(
     admissionYear: number | undefined,
     studyEnrollments: Workspace["academicProfile"]["studyEnrollments"],

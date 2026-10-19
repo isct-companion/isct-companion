@@ -31,7 +31,3 @@ pub(crate) fn project_input<T: Serialize, U: serde::de::DeserializeOwned>(
         detail: e.to_string(),
     })
 }
-
-#[cfg(test)]
-#[path = "tests/json.rs"]
-mod tests;

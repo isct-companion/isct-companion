@@ -85,7 +85,7 @@ fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
             "test",
         )
         .unwrap();
-    let old: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+    let old: Value = store.export_document(json!([])).unwrap();
     let mut restored = old.clone();
     restored["tables"]["plans"] = json!([]);
     restored["sync"] =
@@ -93,7 +93,7 @@ fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
     store.merge_cloud_data(&restored).unwrap();
     store.merge_cloud_data(&old).unwrap();
     assert!(store.user_rows("plans").unwrap().is_empty());
-    let current: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+    let current: Value = store.export_document(json!([])).unwrap();
     assert_eq!(current["sync"], restored["sync"]);
     assert!(store.load_workspace().unwrap()["deviceId"].is_string());
 }
@@ -122,13 +122,13 @@ fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes(
         "desktop",
     )
     .unwrap();
-    let exported_a: Value = serde_json::from_str(&a.export_data(json!([])).unwrap()).unwrap();
-    let exported_b: Value = serde_json::from_str(&b.export_data(json!([])).unwrap()).unwrap();
+    let exported_a: Value = a.export_document(json!([])).unwrap();
+    let exported_b: Value = b.export_document(json!([])).unwrap();
     a.delete_user_record("plans", row_a["id"].as_str().unwrap(), "desktop")
         .unwrap();
     a.merge_cloud_data(&cloud_merge::merge(&exported_a, &exported_b))
         .unwrap();
-    let latest: Value = serde_json::from_str(&a.export_data(json!([])).unwrap()).unwrap();
+    let latest: Value = a.export_document(json!([])).unwrap();
     b.merge_cloud_data(&latest).unwrap();
     assert_eq!(
         a.user_rows("plans")
@@ -271,38 +271,19 @@ fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
 }
 
 #[test]
-fn record_mutations_never_delete_absent_rows() {
-    let store = store("record-mutations");
-    let first = store
-        .put_user_record(
-            "plans",
-            json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
-            "test",
-        )
-        .unwrap();
-    let second = store
-        .put_user_record(
-            "plans",
-            json!({"title":"Two","start":"2026-10-07T10:00:00+09:00","duration":60,"exdates":[]}),
-            "test",
-        )
-        .unwrap();
-    let mut changed = first.clone();
-    changed["title"] = json!("Updated");
-    store.put_user_record("plans", changed, "test").unwrap();
-    let rows = store.user_rows("plans").unwrap();
-    assert_eq!(rows.len(), 2);
-    assert!(rows.iter().any(|row| row["id"] == second["id"]));
-    let _ = fs::remove_file(store.path());
-}
-
-#[test]
 fn checked_record_mutations_reject_stale_writers() {
     let store = store("record-conflict");
     let row = store
         .put_user_record(
             "plans",
             json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+            "test",
+        )
+        .unwrap();
+    let untouched = store
+        .put_user_record(
+            "plans",
+            json!({"title":"Two","start":"2026-10-07T10:00:00+09:00","duration":60,"exdates":[]}),
             "test",
         )
         .unwrap();
@@ -317,10 +298,13 @@ fn checked_record_mutations_reject_stale_writers() {
         .put_user_record_checked("plans", stale, "stale", Some(1))
         .unwrap_err();
     assert!(error.to_string().contains("revision conflict"));
-    assert_eq!(
-        store.user_rows("plans").unwrap()[0]["title"],
-        "First writer"
-    );
+    // Rows are written one at a time: a write never deletes the rows it omits.
+    let rows = store.user_rows("plans").unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows
+        .iter()
+        .any(|row| row["id"] == untouched["id"] && row["title"] == "Two"));
+    assert!(rows.iter().any(|row| row["title"] == "First writer"));
     let _ = fs::remove_file(store.path());
 }
 
@@ -423,6 +407,25 @@ fn catalog_list_includes_search_rows_until_details_replace_them() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["id"], "202602427");
     assert_eq!(rows[0]["detailed"], Value::Null);
+
+    let now = chrono::Utc::now().to_rfc3339();
+    store
+        .catalog_upsert_offerings(&[json!({
+            "id":"202602427", "year":2026, "quarters":["3Q"], "code":"CSC.T263",
+            "title":{"en":"Assembly Language"}, "instructors":[], "instructionLanguage":"en",
+            "format":{"kinds":[]}, "media":{}, "credits":{"lecture":2,"exercise":0,"lab":0},
+            "schedule":[], "academicUnit":{}, "intensive":false,
+            "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/CSC.T263/202602427",
+            "fetchedAt":{"ja":now,"en":now}
+        })])
+        .unwrap();
+    let rows = store.catalog_search("").unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "the detailed offering replaces its search row"
+    );
+    assert_eq!(rows[0]["instructionLanguage"], "en");
     let _ = fs::remove_file(store.path());
 }
 
@@ -441,7 +444,7 @@ fn assignment_pin_round_trips_as_a_syncable_overlay() {
         store.load_workspace().unwrap()["assignments"][0]["pinned"],
         true
     );
-    let exported: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+    let exported: Value = store.export_document(json!([])).unwrap();
     assert_eq!(exported["tables"]["assignment_marks"][0]["pinned"], true);
     store
         .put_user_record(
@@ -521,15 +524,12 @@ fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
             "test",
         )
         .unwrap();
-    let document: Value = serde_json::from_str(
-        &store
-            .export_data(json!([{
-                "id":"018f0000-0000-7000-8000-000000000001", "term":"2026-3Q",
-                "course":"TEST", "section":"section-1", "text":"# local", "deleted":false
-            }]))
-            .unwrap(),
-    )
-    .unwrap();
+    let document = store
+        .export_document(json!([{
+            "id":"018f0000-0000-7000-8000-000000000001", "term":"2026-3Q",
+            "course":"TEST", "section":"section-1", "text":"# local", "deleted":false
+        }]))
+        .unwrap();
     assert_eq!(document["schemaVersion"], 6);
     assert_eq!(document["localNotes"][0]["text"], "# local");
     assert!(document.pointer("/tables/assignments").is_none());
@@ -546,8 +546,8 @@ fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
 }
 
 #[test]
-fn invalid_study_history_rolls_back_local_restore() {
-    let store = store("restore-study-history");
+fn invalid_study_history_rolls_back_restore_and_cloud_replacement() {
+    let store = store("cloud-study-history");
     store
         .put_user_record(
             "plans",
@@ -559,7 +559,10 @@ fn invalid_study_history_rolls_back_local_restore() {
         )
         .unwrap();
     let before = store.load_workspace().unwrap();
-    let backup: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+    let mut backup = store.export_document(json!([])).unwrap();
+    backup["sync"] = json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"remote"}});
+    // Restoring a local backup and replacing from the cloud both apply through
+    // `merge_cloud_data`, so each invalid history must leave the store as it was.
     for invalid in [
         Value::Null,
         json!({"admittedTerm":"2026-1Q"}),
@@ -574,56 +577,22 @@ fn invalid_study_history_rolls_back_local_restore() {
              "admittedTerm":"2026-1Q"}
         ]),
     ] {
-        let mut document = backup.clone();
-        let profile = document["tables"]["settings"]
+        let mut remote = backup.clone();
+        let profile = remote["tables"]["settings"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
             .find(|row| row["key"] == "academicProfile")
             .unwrap();
         profile["value"]["studyEnrollments"] = invalid;
-        let parsed = parse_import(&document.to_string()).unwrap();
         assert!(matches!(
-            store.import_data(&parsed),
+            store.merge_cloud_data(&remote),
             Err(DataError::InvalidInput(_))
         ));
         let after = store.load_workspace().unwrap();
         assert_eq!(after["academicProfile"], before["academicProfile"]);
         assert_eq!(after["plans"], before["plans"]);
     }
-    let _ = fs::remove_file(store.path());
-}
-
-#[test]
-fn invalid_study_history_rolls_back_cloud_replacement() {
-    let store = store("cloud-study-history");
-    store
-        .put_user_record(
-            "plans",
-            json!({
-                "title":"Keep me", "start":"2026-10-06T10:00:00+09:00",
-                "duration":60, "exdates":[]
-            }),
-            "test",
-        )
-        .unwrap();
-    let before = store.load_workspace().unwrap();
-    let mut remote: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
-    remote["sync"] = json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"remote"}});
-    let profile = remote["tables"]["settings"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .find(|row| row["key"] == "academicProfile")
-        .unwrap();
-    profile["value"]["studyEnrollments"] = Value::Null;
-    assert!(matches!(
-        store.merge_cloud_data(&remote),
-        Err(DataError::InvalidInput(_))
-    ));
-    let after = store.load_workspace().unwrap();
-    assert_eq!(after["academicProfile"], before["academicProfile"]);
-    assert_eq!(after["plans"], before["plans"]);
     let _ = fs::remove_file(store.path());
 }
 
@@ -637,9 +606,13 @@ fn legacy_backup_without_study_history_still_restores() {
             "test",
         )
         .unwrap();
-    let document = parse_import(&source.export_data(json!([])).unwrap()).unwrap();
+    let mut document =
+        parse_import(&source.export_document(json!([])).unwrap().to_string()).unwrap();
+    document["sync"] =
+        json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"restore"}});
     let target = store("legacy-study-target");
-    let restored = target.import_data(&document).unwrap();
+    target.merge_cloud_data(&document).unwrap();
+    let restored = target.load_workspace().unwrap();
     assert_eq!(restored["academicProfile"]["name"], "Legacy");
     assert!(restored["academicProfile"]
         .get("studyEnrollments")
@@ -651,7 +624,7 @@ fn legacy_backup_without_study_history_still_restores() {
 #[test]
 fn backup_from_another_schema_is_rejected_by_its_version() {
     let store = store("backup-schema");
-    let mut document: Value = serde_json::from_str(&store.export_data(json!([])).unwrap()).unwrap();
+    let mut document: Value = store.export_document(json!([])).unwrap();
     document["schemaVersion"] = json!(5);
     // Older backups also carried localNotes in a different shape.
     document["localNotes"] = json!({ "notes": [] });

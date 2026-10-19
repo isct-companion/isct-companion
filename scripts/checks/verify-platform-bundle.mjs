@@ -1,20 +1,22 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { readOAuthClients } from "../lib/oauth-config.mjs";
+import { googleDriveClientId, readOAuthClients } from "../lib/oauth-config.mjs";
 
+const TARGETS = ["desktop", "ios", "android"];
 const [target, artifact] = process.argv.slice(2);
-if (!new Set(["desktop", "ios", "android"]).has(target) || !artifact) {
+if (!TARGETS.includes(target) || !artifact) {
   throw new Error(
     "Usage: node scripts/checks/verify-platform-bundle.mjs <desktop|ios|android> <artifact>",
   );
 }
 
-const clients = readOAuthClients()["google-drive"] ?? {};
-const expected = clients[target]?.clientId;
-const forbidden = Object.entries(clients)
-  .filter(([name]) => name !== target)
-  .map(([, value]) => value?.clientId)
+// Each platform's client ID is a plain string under google-drive; only the
+// other platforms' IDs are foreign (desktop-secret belongs to desktop).
+const clients = readOAuthClients();
+const expected = googleDriveClientId(target, clients);
+const forbidden = TARGETS.filter((name) => name !== target)
+  .map((name) => googleDriveClientId(name, clients))
   .filter(Boolean);
 if (target !== "desktop") forbidden.push("GOCSPX-");
 
