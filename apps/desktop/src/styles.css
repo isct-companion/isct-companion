@@ -3428,6 +3428,12 @@ p {
   flex: 1;
   min-height: 0;
 }
+.courseTabCount {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .courseDetailsBody dl {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
