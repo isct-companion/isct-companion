@@ -15,6 +15,11 @@ ISCT_SDK_PROFILE=dev node scripts/bindings/build-ios.mjs --simulator-only
 xcodegen generate --spec apps/ios/project.yml
 ```
 
+Set `CARGO_TARGET_DIR` to a directory shared between worktrees (for example
+`~/.cache/isct-target`) and the SDK build reuses the compiled dependency
+graph instead of rebuilding it per checkout; the XCFramework and generated
+Swift still land under that directory's `native-sdk/`.
+
 Then open `apps/ios/IsctCompanion.xcodeproj` (generated, not committed) and run
 the `IsctCompanion` scheme. `--simulator-only` builds the slice for the host's
 simulator (x86_64 on Intel Macs, arm64 on Apple silicon); drop it for a device

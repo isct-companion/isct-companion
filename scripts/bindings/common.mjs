@@ -10,7 +10,12 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-export const target = join(root, "target");
+// Cargo's target directory. An external CARGO_TARGET_DIR wins, so several
+// worktrees can share one and skip recompiling the dependency graph; the
+// checkout's own target/ is the fallback. Every SDK path below derives from it.
+export const target = process.env.CARGO_TARGET_DIR
+  ? resolve(process.env.CARGO_TARGET_DIR)
+  : join(root, "target");
 export const output = join(target, "native-sdk");
 export const generated = join(output, "generated");
 export const iosDeploymentTarget = "17.0";
