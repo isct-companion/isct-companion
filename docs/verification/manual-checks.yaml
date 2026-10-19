@@ -1724,3 +1724,43 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
     verified: null
+
+  - id: DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS
+    area: native
+    title: Hidden school pages never take the keyboard from the app
+    persona: narrow-window-keyboard
+    preconditions: |
+      macOS desktop app with Science Tokyo and Tokyo Tech accounts Signed in,
+      on the Timetable page with the course finder visible.
+    steps:
+      - action: |
+          Click the course finder once, then keep typing a course name
+          (e.g. ウェルネス, then more words) for about a minute without
+          touching the mouse, so several 教務Web searches run in between.
+        reason: |
+          Every search loads 教務Web pages in a hidden view, and those pages
+          focus a field on load. Before the fix the hidden view became the
+          window's first responder and typing stopped until a click.
+      - action: |
+          Switch to another app and back with ⌘Tab, wait for the session
+          check that follows focus, and type again.
+        reason: |
+          The focus session check signs in through hidden GetAccess and LMS
+          login pages, which also focus their username field.
+      - action: |
+          Open the Web tab, click a field in a school page and type into it.
+        reason: |
+          A shown school view must still accept the keyboard; only hidden
+          views refuse it.
+    observe: The course finder input and the visible school page field.
+    expected: |
+      Every keystroke lands in the course finder while searches and session
+      checks run, and the visible school page still accepts typing.
+    why_manual: |
+      First-responder ownership lives in AppKit inside the native shell, and
+      the focusing pages are the real 教務Web and GetAccess pages behind a
+      signed-in account. Neither the jsdom e2e host nor the Rust engine tests
+      have a window or WebKit.
+    covers:
+      - apps/desktop/src-tauri/src/school_webkit.rs
+    verified: null
