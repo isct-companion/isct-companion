@@ -43,6 +43,7 @@ final class AppModel {
     private var boundaryTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var settingsWrite: Task<Void, Never>?
+    private var wakeTask: Task<Void, Never>?
     private let network = NWPathMonitor()
     private var networkState: PullNetwork = .unknown
     private var foreground = true
@@ -79,7 +80,7 @@ final class AppModel {
                 cloudProviders: [], authorizedCloudProviders: [])
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: nil,
-                notifications: nil, downloads: nil)
+                notifications: nil, downloads: WebCookieSession())
             self.session = session
             web.session = session
             let stream = try session.subscribe()
@@ -91,6 +92,7 @@ final class AppModel {
             watchNetwork()
             report(foreground: true)
             reportSchool(.launch)
+            startWaking()
         } catch {
             status = .failed(Self.describe(error))
         }
@@ -104,9 +106,12 @@ final class AppModel {
             _ = try? session.resume()
             report(foreground: true)
             reportSchool(.focus)
+            startWaking()
             Task { await refresh() }
         case .background:
             foreground = false
+            wakeTask?.cancel()
+            wakeTask = nil
             report(foreground: false)
             reportSchool(.focus)
             _ = try? session.suspend()
@@ -119,6 +124,20 @@ final class AppModel {
         guard let session else { return }
         _ = try? session.lifecycle(
             foreground: foreground, network: networkState, schoolVisible: web.isVisible)
+    }
+
+    /// The periodic wakeup desktop gives Core every second (`core_ports.rs`):
+    /// Core decides what is due — automatic school pulls, reference data such
+    /// as the academic calendar, scheduled tasks. Only while in front.
+    private func startWaking() {
+        guard wakeTask == nil else { return }
+        wakeTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let session = self.session else { return }
+                _ = try? await session.wake(schoolVisible: self.web.isVisible).value()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
     }
 
     /// School sign-in hears what desktop sends (`school-session.ts`): `launch`
@@ -222,6 +241,9 @@ final class AppModel {
             contentRevision = snapshot.contentRevision
             scheduleBoundary()
             if changed { await NotificationScheduler.sync(session) }
+        } catch is CancellationError {
+            // A newer change hint replaced this read; it is not a failure.
+        } catch SdkError.Cancelled {
         } catch {
             problem = Self.describe(error)
         }
@@ -265,6 +287,47 @@ final class AppModel {
             case let .scheduleView(view)? = result.values.first
         else { return nil }
         return view
+    }
+
+    /// The quarter's courses as Core lists them for the course list.
+    func overview(_ term: String) async -> WorkspaceOverview? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .workspaceOverview(term: term)
+            ]).value(),
+            case let .workspaceOverview(view)? = result.values.first
+        else { return nil }
+        return view
+    }
+
+    /// The academic year (April–March) a date belongs to.
+    func academicYear(of date: Date) async -> Int32? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .academicYears(date: Self.civil(date), selectedYear: 0)
+            ]).value(),
+            case let .academicYears(index)? = result.values.first
+        else { return nil }
+        return index.currentYear
+    }
+
+    /// Every week of an academic year with its quarter, for the timetable picker.
+    func timetableYear(_ year: Int32) async -> TimetableYear? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [.timetableYear(year: year)]).value(),
+            case let .timetableYear(view)? = result.values.first
+        else { return nil }
+        return view
+    }
+
+    /// Downloads (or reuses) a course file through the signed-in LMS session.
+    func openMaterial(_ files: CourseKey, source: String) async -> IsctCore.Material? {
+        guard let session,
+            case let .material(material)? = try? await session.openMaterial(
+                context: files, source: source, download: true, readText: false, limit: nil
+            ).value()
+        else { return nil }
+        return material
     }
 
     func courseDetail(_ id: String) async -> CourseDetail? {
@@ -316,33 +379,40 @@ final class AppModel {
         await refresh()
     }
 
-    /// Pull to refresh, and the first read after an account is saved: the
-    /// current quarter's LMS courses, their content and the deadlines in one
-    /// pass (the phone shows nothing else). It runs on after the gesture ends;
-    /// the header ring follows Core's pull state.
+    /// Pull to refresh, and the first read after an account is saved: 教務Web
+    /// first (registrations are what puts courses on the timetable), then the
+    /// current quarter's LMS courses, content and deadlines — the order of the
+    /// desktop's "Refresh now". It runs on after the gesture ends; the header
+    /// ring follows Core's school status.
     func refreshFromSchool() {
-        Task { await pull([{ try $0.pullCurrentTerm() }]) }
+        var steps: [(Session) throws -> IsctCore.Operation] = []
+        if [.available, .savedLocked].contains(credentials?.tokyoTech.availability) {
+            steps.append { try $0.pullSchool(site: .kyomu, courseId: nil, loginFirst: false) }
+        }
+        steps.append { try $0.pullCurrentTerm() }
+        Task { await pull(steps) }
     }
 
-    /// Runs pulls in order and stops at the first that needs the person.
+    /// Runs every pull in order. The accounts are separate, so one that needs
+    /// the person does not hold back the other; the first problem is shown.
     private func pull(_ steps: [(Session) throws -> IsctCore.Operation]) async {
         guard let session else { return }
         problem = nil
+        var first: String?
         for step in steps {
             do {
                 if case let .schoolPull(outcomes) = try await step(session).value(),
                     let failed = outcomes.first(where: { $0.state == .reconnectRequired || $0.state == .error })
                 {
-                    problem = failed.state == .reconnectRequired
+                    first = first ?? (failed.state == .reconnectRequired
                         ? Self.describe(SdkError.Authentication(detail: ""))
-                        : failed.message
-                    break
+                        : failed.message)
                 }
             } catch {
-                problem = Self.describe(error)
-                break
+                first = first ?? Self.describe(error)
             }
         }
+        problem = first
         await refresh()
     }
 

@@ -5,7 +5,6 @@ import SwiftUI
 /// sections. The shell renders `TodayView` in order and never sorts or filters.
 struct TodayScreen: View {
     @Environment(AppModel.self) private var model
-    @State private var showsSettings = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -17,7 +16,7 @@ struct TodayScreen: View {
                     } else if case let .problem(site, problem)? = model.schoolStatus?.headline {
                         SchoolProblemBanner(site: site, problem: problem)
                     }
-                    if model.needsAccount { ConnectCard(showsSettings: $showsSettings) }
+                    if model.needsAccount { ConnectCard() }
                     if let status = model.schoolStatus, status.headline.ringProgress(status) != nil,
                         model.records.courses.isEmpty, model.records.assignments.isEmpty
                     {
@@ -35,7 +34,6 @@ struct TodayScreen: View {
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) { UndoToast() }
-        .sheet(isPresented: $showsSettings) { SettingsSheet() }
     }
 
     private var header: some View {
@@ -50,9 +48,7 @@ struct TodayScreen: View {
             }
             Spacer()
             SyncRingButton()
-            Button {
-                showsSettings = true
-            } label: {
+            NavigationLink(value: SettingsRoute.root) {
                 Image(systemName: "gearshape")
                     .font(.title3)
                     .foregroundStyle(Theme.ink)
@@ -137,7 +133,9 @@ private struct NextClassHero: View {
                     .foregroundStyle(tint)
                 Spacer()
                 if let starts = Format.date(item.startsAt) {
-                    TagChip(text: "あと \(max(Format.minutes(until: starts, now: now), 0)) 分", ink: tint, fill: Theme.surface)
+                    let minutes = max(Format.minutes(until: starts, now: now), 0)
+                    TagChip(text: "あと \(minutes) 分", ink: tint, fill: Theme.surface)
+                        .countingFigure(minutes)
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -149,11 +147,10 @@ private struct NextClassHero: View {
             .foregroundStyle(Theme.ink)
             .minimumScaleFactor(0.6)
             .lineLimit(1)
-            CourseLink(id: item.occurrence.courseId, title: item.occurrence.title)
+            CourseLink(id: item.occurrence.courseId, title: item.occurrence.title, zoom: "hero")
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(Theme.tintSoft), in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
+        .heroCard(tint: tint)
+        .courseZoomSource("hero")
     }
 }
 
@@ -180,18 +177,20 @@ private struct CurrentClassHero: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("あと").font(.title3.weight(.semibold))
-                Text("\(max(Format.minutes(until: ends, now: now), 0))")
+                let minutes = max(Format.minutes(until: ends, now: now), 0)
+                Text("\(minutes)")
                     .font(.system(size: 48, weight: .bold).monospacedDigit())
+                    .countingFigure(minutes)
                 Text("分").font(.title3.weight(.semibold))
             }
             .foregroundStyle(Theme.ink)
             ProgressView(value: progress)
                 .tint(tint)
-            CourseLink(id: item.occurrence.courseId, title: item.occurrence.title)
+                .animation(.smooth(duration: 0.8), value: progress)
+            CourseLink(id: item.occurrence.courseId, title: item.occurrence.title, zoom: "hero")
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(Theme.tintSoft), in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
+        .heroCard(tint: tint)
+        .courseZoomSource("hero")
     }
 }
 
@@ -239,16 +238,17 @@ private struct TonightHero: View {
 private struct CourseLink: View {
     let id: String?
     let title: String
+    var zoom: String? = nil
     var body: some View {
         if let id {
-            NavigationLink(value: CourseRoute(id: id)) { label }
+            NavigationLink(value: CourseRoute(id: id, zoom: zoom)) { label }
         } else {
             label
         }
     }
     private var label: some View {
         HStack(spacing: 4) {
-            Text(title).font(.title3.weight(.semibold)).lineLimit(2)
+            Text(title).font(.title3.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
             if id != nil { Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted) }
         }
         .foregroundStyle(Theme.ink)
@@ -538,7 +538,6 @@ struct ProblemBanner: View {
 
 /// First launch: the real empty Today with one sign-in card.
 private struct ConnectCard: View {
-    @Binding var showsSettings: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -546,9 +545,7 @@ private struct ConnectCard: View {
             Text("時間割・課題・資料を学校のサイトから読み込みます。パスワードはキーチェーンに保存され、学校のサイトにだけ送られます。")
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
-            Button {
-                showsSettings = true
-            } label: {
+            NavigationLink(value: SettingsRoute.account(.science)) {
                 Text("Science Tokyo で接続")
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)

@@ -920,6 +920,43 @@ export type AcademicYearCalendar = {
   published: boolean;
 };
 
+export type TimetableWeek = {
+  /**
+   * The Monday that names the week.
+   */
+  monday: string;
+  /**
+   * The quarter this week belongs to (`2026-3Q`); absent between quarters.
+   */
+  term: string | null;
+  /**
+   * The quarter's calendar week, counted as Today counts it.
+   */
+  week: number | null;
+  /**
+   * A weekday of this week falls in the quarter's exam period.
+   */
+  exams: boolean;
+};
+
+export type TimetableQuarter = {
+  term: string;
+  /**
+   * The Monday of the first teaching week: where jumping to the quarter
+   * lands, to show someone that quarter's courses.
+   */
+  firstWeek: string;
+};
+
+export type TimetableYear = {
+  year: number;
+  /**
+   * Quarters whose dates are known, in order.
+   */
+  quarters: Array<TimetableQuarter>;
+  weeks: Array<TimetableWeek>;
+};
+
 export type CalendarExportScope = "courses" | "courses-and-plans";
 
 export type ClassGroup = "red" | "white";
@@ -1132,7 +1169,13 @@ export type CourseDetail = {
    */
   lmsUrl: string | null;
   syllabusUrl: string | null;
+  /**
+   * Where the course's downloaded files live, for opening its materials.
+   */
+  files: CourseKey | null;
 };
+
+export type CourseKey = { term: string; course: string };
 
 export type ExamView = {
   id: string;
@@ -1449,6 +1492,7 @@ export type WorkspaceQuery =
   | { kind: "quarterRange"; term: string }
   | { kind: "scheduledCourses"; term: string }
   | { kind: "academicYear"; year: number }
+  | { kind: "timetableYear"; year: number }
   | {
       kind: "quarterIcs";
       term: string;
@@ -1495,6 +1539,7 @@ export type WorkspaceQueryResult =
   | { kind: "quarterRange"; value: QuarterRange | null }
   | { kind: "scheduledCourses"; value: unknown[] }
   | { kind: "academicYear"; value: AcademicYearCalendar }
+  | { kind: "timetableYear"; value: TimetableYear }
   | { kind: "quarterIcs"; value: string }
   | { kind: "declaredCredits"; value: number | null }
   | { kind: "displayColor"; value: string }

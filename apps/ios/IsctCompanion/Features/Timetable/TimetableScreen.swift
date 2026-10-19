@@ -1,32 +1,60 @@
 import IsctCore
 import SwiftUI
 
-/// 時間割: the week grid, read-only. Blocks come from Core's `ScheduleView`
-/// for Monday–Friday; adding and planning courses stay on desktop.
+/// 時間割: a dated week, read-only. Blocks come from Core's `ScheduleView`
+/// for Monday–Friday, whatever quarter the week is in; the title opens a
+/// picker that names each week's quarter (`TimetableYear`). Adding and
+/// planning courses stay on desktop.
 struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @State private var monday = TimetableScreen.monday(of: Date())
     @State private var week: ScheduleView?
+    @State private var year: TimetableYear?
+    @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
 
-    private static let rowHeight: CGFloat = 64
+    /// Period rows share the height the screen leaves, so the week fits
+    /// without scrolling (with a floor for very short windows).
+    @State private var rowHeight: CGFloat = 52
+    private static let minimumRow: CGFloat = 34
+    /// Weekday letters and date circles above the columns, plus their gap.
+    private static let dayHeaderHeight: CGFloat = 54
     private static let periodCount = 10
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                header
-                grid
-                    .offset(x: dragOffset)
-                    .gesture(swipe)
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 24)
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            grid
+                .frame(maxHeight: .infinity, alignment: .top)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    let rows = (height - Self.dayHeaderHeight) / CGFloat(Self.periodCount)
+                    rowHeight = max(Self.minimumRow, rows.rounded(.down))
+                }
+                .offset(x: dragOffset)
+                .gesture(swipe)
         }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .task(id: "\(monday.timeIntervalSince1970)-\(model.contentRevision)") {
-            week = await model.week(starting: monday)
+            // A newer revision cancels this read: its empty answer must not
+            // replace what is shown.
+            let loaded = await model.week(starting: monday)
+            guard !Task.isCancelled else { return }
+            week = loaded
+            guard let number = await model.academicYear(of: monday),
+                year?.year != number || year?.quarters.isEmpty == true
+            else { return }
+            let calendar = await model.timetableYear(number)
+            if !Task.isCancelled, let calendar { year = calendar }
+        }
+        .sheet(isPresented: $showsPicker) {
+            WeekPicker(year: year, monday: monday) { picked in
+                withAnimation(.snappy) { monday = picked }
+                showsPicker = false
+            }
+            .presentationDetents([.medium, .large])
         }
     }
 
@@ -34,10 +62,23 @@ struct TimetableScreen: View {
 
     private var header: some View {
         HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(subtitle).font(.subheadline).foregroundStyle(Theme.muted)
-                Text("時間割").font(.largeTitle.bold()).foregroundStyle(Theme.ink)
+            Button {
+                showsPicker = true
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(subtitle).font(.subheadline).foregroundStyle(Theme.muted)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(range).font(.largeTitle.bold().monospacedDigit()).foregroundStyle(Theme.ink)
+                            .countingFigure(monday, down: false)
+                        Image(systemName: "chevron.down.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Theme.accent)
+                            .symbolEffect(.bounce, value: showsPicker)
+                    }
+                }
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("週を選ぶ")
             Spacer()
             HStack(spacing: 8) {
                 weekButton("chevron.left", label: "前の週", by: -1)
@@ -48,23 +89,21 @@ struct TimetableScreen: View {
         .padding(.horizontal, 4)
     }
 
-    private var subtitle: String {
+    private var range: String {
         let friday = Calendar.tokyo.date(byAdding: .day, value: 4, to: monday) ?? monday
-        let range = "\(short(monday)) – \(short(friday))"
-        guard let term = model.today?.term else { return range }
-        if isThisWeek, let week = model.today?.teachingWeek {
-            return "\(Format.quarter(term)) 第\(week)週 · \(range)"
-        }
-        return "\(Format.quarter(term)) · \(range)"
+        return "\(short(monday)) – \(short(friday))"
+    }
+
+    /// "2026 · 3Q 第 2 週", from Core's week list; between quarters, 休み.
+    private var subtitle: String {
+        guard let year else { return "時間割" }
+        let label = year.weeks.first { $0.monday == AppModel.civil(monday) }.flatMap { WeekPicker.label($0, in: year) }
+        return [String(year.year) + " 年度", label].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func short(_ date: Date) -> String {
         let parts = Calendar.tokyo.dateComponents([.month, .day], from: date)
         return "\(parts.month ?? 0)/\(parts.day ?? 0)"
-    }
-
-    private var isThisWeek: Bool {
-        Calendar.tokyo.isDate(monday, inSameDayAs: Self.monday(of: Date()))
     }
 
     private func weekButton(_ symbol: String, label: String, by weeks: Int) -> some View {
@@ -107,7 +146,7 @@ struct TimetableScreen: View {
     }
 
     private var grid: some View {
-        let height = Self.rowHeight * CGFloat(Self.periodCount)
+        let height = rowHeight * CGFloat(Self.periodCount)
         return VStack(spacing: 6) {
             HStack(spacing: 4) {
                 Color.clear.frame(width: 30, height: 1)
@@ -146,7 +185,7 @@ struct TimetableScreen: View {
                         Text(start).font(.system(size: 9).monospacedDigit()).foregroundStyle(Theme.muted)
                     }
                 }
-                .frame(height: Self.rowHeight, alignment: .top)
+                .frame(height: rowHeight, alignment: .top)
             }
         }
     }
@@ -163,7 +202,7 @@ struct TimetableScreen: View {
         return ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Theme.surface)
-            PeriodLines(periods: model.periods, count: Self.periodCount, rowHeight: Self.rowHeight)
+            PeriodLines(periods: model.periods, count: Self.periodCount, rowHeight: rowHeight)
             if agenda?.noClasses == true {
                 Hatch().clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
@@ -178,8 +217,8 @@ struct TimetableScreen: View {
     }
 
     private func blockView(_ block: Occurrence, holiday: Bool) -> some View {
-        let top = slot(block.startTime) * Self.rowHeight
-        let bottom = slot(block.endTime) * Self.rowHeight
+        let top = slot(block.startTime) * rowHeight
+        let bottom = slot(block.endTime) * rowHeight
         let planned = block.courseId.map { !(week?.enrolledCourseIds.contains($0) ?? true) } ?? false
         let faded = holiday || block.cancelled == true
         let current = isCurrent(block)
@@ -209,7 +248,9 @@ struct TimetableScreen: View {
         .offset(y: top + 2)
         return Group {
             if let id = block.courseId {
-                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(.plain)
+                NavigationLink(value: CourseRoute(id: id, zoom: block.key)) { content }
+                    .buttonStyle(.plain)
+                    .courseZoomSource(block.key)
             } else {
                 content
             }

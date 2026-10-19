@@ -49,6 +49,7 @@ struct AssignmentsScreen: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .sensoryFeedback(.impact(weight: .medium), trigger: model.undo?.assignmentId)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .refreshable { model.refreshFromSchool() }
@@ -82,6 +83,7 @@ struct AssignmentsScreen: View {
                         }
                         .tint(Theme.muted)
                     }
+                    .sensoryFeedback(.impact(weight: .light), trigger: item.pinned)
                 }
             }
         }

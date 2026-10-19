@@ -1342,6 +1342,17 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     assert_eq!(view.exam_ids, ["early", "late"]);
     assert_eq!(view.offering_id.as_deref(), Some("o"));
     assert!(course_detail(&data, "unknown").material_ids.is_empty());
+    // Files go where desktop already put them: `folderComponent` replaces
+    // every other UTF-16 unit, so an emoji takes two underscores.
+    let files = view.files.unwrap();
+    assert_eq!(
+        (files.term.as_str(), files.course.as_str()),
+        ("2026-3Q", "_csc.t101_")
+    );
+    assert!(course_detail(&data, "unknown").files.is_none());
+    assert_eq!(crate::storage::folder_name("線形代数🙂"), "______");
+    assert_eq!(crate::storage::folder_name(".."), "course");
+    assert_eq!(crate::storage::folder_name(&"a".repeat(130)).len(), 120);
 
     // Links: the LMS record matched by offering, then the syllabus by offering id.
     assert_eq!(view.lms_url, None);
@@ -1896,12 +1907,9 @@ fn a_user_mark_decides_what_a_session_is() {
 #[test]
 fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
     let mut data = workspace();
-    data["academicCalendar"][0]["examRanges"] =
-        json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
     data["settings"]["notifications"] = json!({"classes":true,"exams":true,"classLeadMinutes":10,"examLeadMinutes":60,"assignments":false});
-    let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| {
-        json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"})
-    };
+    let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"});
     data["exams"] = json!([
         row("week-class", "class", "2026-05-28", [5, 6]),
         row("final", "exam", "2026-05-29", [3, 4]),
@@ -1961,4 +1969,47 @@ fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
         .items
         .iter()
         .any(|item| item.at == "2026-05-28T13:20:00+09:00"));
+}
+
+#[test]
+fn timetable_year_labels_every_week_with_its_quarter() {
+    let mut data = workspace();
+    let calendar = data["academicCalendar"].as_array_mut().unwrap();
+    calendar[0]["examRanges"] = json!([{"start":"2026-06-03","end":"2026-06-09"}]);
+    calendar.push(json!({"id":"calendar:2026:quarter-start:2Q","academicYear":2026,"quarter":"2Q","date":"2026-06-10","type":"quarter-start","label":{"en":"start"}}));
+    calendar.push(json!({"id":"calendar:2026:quarter-end:2Q","academicYear":2026,"quarter":"2Q","date":"2026-08-05","type":"quarter-end","label":{"en":"end"}}));
+
+    let year = calendar::timetable_year(&data, 2026).unwrap();
+    let week = |monday: &str| {
+        year.weeks
+            .iter()
+            .find(|week| week.monday == monday)
+            .map(|week| (week.term.as_deref(), week.week, week.exams))
+            .unwrap()
+    };
+    // April 1 is a Wednesday: the year starts on its Monday and ends with
+    // the week holding March 31.
+    assert_eq!(year.weeks.first().unwrap().monday, "2026-03-30");
+    assert_eq!(year.weeks.last().unwrap().monday, "2027-03-29");
+    assert_eq!(week("2026-03-30"), (None, None, false));
+    // Counted as Today counts: the week of the quarter's first day is week 1.
+    assert_eq!(week("2026-04-06"), (Some("2026-1Q"), Some(1), false));
+    assert_eq!(week("2026-04-13"), (Some("2026-1Q"), Some(2), false));
+    assert_eq!(week("2026-06-01"), (Some("2026-1Q"), Some(9), true));
+    // A week shared by two quarters belongs to the earlier one.
+    assert_eq!(week("2026-06-08"), (Some("2026-1Q"), Some(10), true));
+    assert_eq!(week("2026-06-15"), (Some("2026-2Q"), Some(2), false));
+    assert_eq!(week("2026-08-10"), (None, None, false));
+    // Jumping to a quarter lands on its first teaching week; quarters without
+    // known dates are left out rather than guessed.
+    let quarters: Vec<_> = year
+        .quarters
+        .iter()
+        .map(|quarter| (quarter.term.as_str(), quarter.first_week.as_str()))
+        .collect();
+    assert_eq!(
+        quarters,
+        [("2026-1Q", "2026-04-06"), ("2026-2Q", "2026-06-08")]
+    );
+    assert!(calendar::timetable_year(&data, 9999).is_err());
 }

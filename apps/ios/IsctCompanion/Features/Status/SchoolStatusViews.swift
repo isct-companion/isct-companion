@@ -1,4 +1,5 @@
 import IsctCore
+import Pow
 import SwiftUI
 
 /// Words for Core's school status (`school_status.rs`). Core decides what is
@@ -111,22 +112,45 @@ struct SyncRing: View {
     }
 }
 
-/// The ring as a button that opens the connection sheet.
+/// The ring as a button that opens the connection sheet. When a pull the
+/// person started finishes cleanly, a check pops in its place for a moment.
 struct SyncRingButton: View {
     @Environment(AppModel.self) private var model
     @State private var showsSheet = false
+    @State private var finished = 0
+    @State private var showsDone = false
 
     var body: some View {
-        if let status = model.schoolStatus, let progress = status.headline.ringProgress(status) {
-            Button {
-                showsSheet = true
-            } label: {
-                SyncRing(progress: progress, emphasized: status.headline.isBusy)
+        ZStack {
+            if let status = model.schoolStatus, let progress = status.headline.ringProgress(status) {
+                Button {
+                    showsSheet = true
+                } label: {
+                    SyncRing(progress: progress, emphasized: status.headline.isBusy)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(status.headline.line)
+            } else if showsDone {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Theme.ok)
                     .frame(width: 40, height: 40)
-                    .contentShape(Rectangle())
+                    .transition(.movingParts.pop(Theme.ok))
+                    .accessibilityLabel("更新しました")
             }
-            .accessibilityLabel(status.headline.line)
-            .sheet(isPresented: $showsSheet) { SchoolStatusSheet() }
+        }
+        .animation(.snappy, value: showsDone)
+        .sensoryFeedback(.success, trigger: finished)
+        .sheet(isPresented: $showsSheet) { SchoolStatusSheet() }
+        .onChange(of: model.schoolStatus?.headline) { old, new in
+            guard old?.isBusy == true, case .idle? = new else { return }
+            finished += 1
+            showsDone = true
+            Task {
+                try? await Task.sleep(for: .seconds(1.6))
+                showsDone = false
+            }
         }
     }
 }

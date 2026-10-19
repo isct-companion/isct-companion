@@ -1,64 +1,64 @@
 import IsctCore
 import SwiftUI
 
-/// Pages inside the settings sheet; its stack, like each tab's, pushes by value.
-private enum SettingsRoute: Hashable {
+/// Settings pages, pushed onto whichever page's stack opened them, as the
+/// desktop's settings sections are pages of their own.
+enum SettingsRoute: Hashable {
+    case root
     case account(SchoolAuthProfile)
     case notifications
 }
 
-/// 設定 (sheet from Today's gear): school accounts and reminders. Planning,
-/// calendars, folders and developer settings stay on desktop.
-struct SettingsSheet: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
+struct SettingsDestination: View {
+    let route: SettingsRoute
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section("学校アカウント") {
-                    NavigationLink(value: SettingsRoute.account(.science)) {
-                        accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.source(.scienceLms)?.lastUpdated)
-                    }
-                    NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
-                        accountRow("Tokyo Tech（旧）", model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.source(.kyomu)?.lastUpdated)
-                    }
+        switch route {
+        case .root:
+            SettingsScreen()
+        case let .account(profile):
+            AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : "Tokyo Tech（旧）")
+        case .notifications:
+            NotificationsScreen()
+        }
+    }
+}
+
+/// 設定: the desktop settings sections that apply on a phone — school
+/// accounts and reminders. Planning, calendars, folders and developer
+/// settings stay on desktop.
+struct SettingsScreen: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        List {
+            Section("学校アカウント") {
+                NavigationLink(value: SettingsRoute.account(.science)) {
+                    accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.source(.scienceLms)?.lastUpdated)
                 }
-                Section {
-                    NavigationLink(value: SettingsRoute.notifications) {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("通知")
-                                Text(notificationSummary).font(.subheadline).foregroundStyle(Theme.muted)
-                            }
-                        } icon: {
-                            Image(systemName: "bell")
+                NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
+                    accountRow("Tokyo Tech（旧）", model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.source(.kyomu)?.lastUpdated)
+                }
+            }
+            Section {
+                NavigationLink(value: SettingsRoute.notifications) {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("通知")
+                            Text(notificationSummary).font(.subheadline).foregroundStyle(Theme.muted)
                         }
+                    } icon: {
+                        Image(systemName: "bell")
                     }
-                } footer: {
-                    Text("学年暦の編集、コースフォルダ、開発者向け設定はデスクトップ版にあります。")
                 }
-                Section {
-                    LabeledContent("IsctCompanion", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
-                }
+            } footer: {
+                Text("学年暦の編集、コースフォルダ、開発者向け設定はデスクトップ版にあります。")
             }
-            .navigationTitle("設定")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: SettingsRoute.self) { route in
-                switch route {
-                case let .account(profile):
-                    AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : "Tokyo Tech（旧）")
-                case .notifications:
-                    NotificationsScreen()
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("閉じる")
-                }
+            Section {
+                LabeledContent("IsctCompanion", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
             }
         }
+        .navigationTitle("設定")
     }
 
     private var notificationSummary: String {

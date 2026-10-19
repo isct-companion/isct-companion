@@ -1,4 +1,5 @@
 use super::{array, text, ExamView};
+use crate::course_materials::CourseKey;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -18,6 +19,8 @@ pub struct CourseDetail {
     /// The course's T2SCHOLA page, from the course itself or its LMS record.
     pub lms_url: Option<String>,
     pub syllabus_url: Option<String>,
+    /// Where the course's downloaded files live, for opening its materials.
+    pub files: Option<CourseKey>,
 }
 
 const LMS_HOST: &str = "lms.s.isct.ac.jp";
@@ -128,6 +131,15 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
             .map(str::to_owned),
         lms_url,
         syllabus_url,
+        files: text(course, "termId").map(|term| CourseKey {
+            term: crate::storage::folder_name(term),
+            course: crate::storage::folder_name(
+                text(course, "code")
+                    .filter(|code| !code.is_empty())
+                    .or_else(|| text(course, "id"))
+                    .unwrap_or_default(),
+            ),
+        }),
     }
 }
 

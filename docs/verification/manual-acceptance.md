@@ -1351,7 +1351,21 @@ A signed build, provisioning, and physical iOS and Android devices.
      (`school_status.rs`), the same read model as the desktop footer. A
      ring that never fills, or a sheet whose LMS and 教務Web rows disagree
      with the desktop footer, means the shell stopped following Core.
-6. On each device, after a pull, turn two reminder switches on in quick
+6. On iOS, open a course from a timetable block, switch to 資料 and open
+   a PDF; then tap the timetable title, pick another quarter's chip and
+   a week in the list.
+   - *Why:* Files download with the resident web view's sign-in (the cookie
+     port) into the folder desktop uses; a Safari hand-off or a login
+     prompt means the port or the folder name drifted. The picker labels
+     come from Core's `TimetableYear`; a quarter chip that lands on a
+     week outside that quarter means the jump target is wrong.
+7. On an iPad, hold it upright, then turn it to landscape, open 授業 and
+   pick two courses.
+   - *Why:* Upright keeps the tab bar with 授業 added; landscape switches to the
+     sidebar and the course list beside the course page, by the desktop's
+     width rule. A course page that does not change, or a back stack that
+     survives choosing another course, means the split lost its owner.
+8. On each device, after a pull, turn two reminder switches on in quick
    succession, force-quit the app, reopen it and open 設定.
    - *Why:* Each account row's 更新 time comes from Core's school status; a time
      that disappears after the restart means the shell went back to its

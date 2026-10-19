@@ -36,7 +36,8 @@ pub use alternation::{
 };
 pub use calendar::{
     academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
-    CalendarDayView, QuarterRange, QuarterView, TeachingRange,
+    CalendarDayView, QuarterRange, QuarterView, TeachingRange, TimetableQuarter, TimetableWeek,
+    TimetableYear,
 };
 pub(crate) use calendar::{content_language, localized};
 pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
@@ -178,6 +179,11 @@ pub enum WorkspaceQuery {
     AcademicYear {
         year: i32,
     },
+    /// Every week of an academic year with its quarter, for the timetable's
+    /// time picker.
+    TimetableYear {
+        year: i32,
+    },
     QuarterIcs {
         term: String,
         #[serde(default)]
@@ -314,6 +320,7 @@ pub enum WorkspaceQueryResult {
     QuarterRange(Option<QuarterRange>),
     ScheduledCourses(#[cfg_attr(feature = "ts", ts(type = "unknown[]"))] Vec<Value>),
     AcademicYear(AcademicYearCalendar),
+    TimetableYear(TimetableYear),
     QuarterIcs(String),
     DeclaredCredits(Option<f64>),
     DisplayColor(String),
@@ -499,6 +506,9 @@ pub fn query(
         }
         WorkspaceQuery::AcademicYear { year } => Ok(WorkspaceQueryResult::AcademicYear(
             academic_year_calendar(workspace, year)?,
+        )),
+        WorkspaceQuery::TimetableYear { year } => Ok(WorkspaceQueryResult::TimetableYear(
+            calendar::timetable_year(workspace, year)?,
         )),
         WorkspaceQuery::QuarterIcs {
             term,
@@ -741,6 +751,9 @@ pub fn declarations() -> Vec<String> {
         CalendarDayView::decl(),
         QuarterView::decl(),
         AcademicYearCalendar::decl(),
+        TimetableWeek::decl(),
+        TimetableQuarter::decl(),
+        TimetableYear::decl(),
         CalendarExportScope::decl(),
         ClassGroup::decl(),
         Turn::decl(),
@@ -768,6 +781,7 @@ pub fn declarations() -> Vec<String> {
         ColorCourse::decl(),
         ColorOverrides::decl(),
         CourseDetail::decl(),
+        <crate::course_materials::CourseKey as TS>::decl(),
         ExamView::decl(),
         ExamSchedule::decl(),
         ExamAssociation::decl(),
