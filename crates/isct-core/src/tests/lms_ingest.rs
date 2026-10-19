@@ -71,7 +71,7 @@ fn ingest_error_distinguishes_payload_rejection_from_storage_failure() {
     ));
 }
 #[test]
-fn graded_assignment_and_grade_survive_missing_page_then_accept_reopened_state() {
+fn page_state_survives_missing_page_then_accepts_reopened_state() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrations::migrate(&mut connection).unwrap();
     let mut raw = json!({
@@ -81,14 +81,14 @@ fn graded_assignment_and_grade_survive_missing_page_then_accept_reopened_state()
             "section":[], "cm":[{"id":7,"sectionid":1,"module":"assign","name":"Essay",
             "url":"https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=7"}]
         }}],
-        "assignStatus":[{"cmid":7,"submission":"graded","grade":" 85.00 / 100.00 "}]
+        "assignStatus":[{"cmid":7,"submission":"graded","grade":" 85.00 / 100.00 ","acceptsSubmission":false}]
     });
     for stage in 0..3 {
         if stage == 1 {
             raw["assignStatus"] = json!([]);
         }
         if stage == 2 {
-            raw["assignStatus"] = json!([{"cmid":7,"submission":"open"}]);
+            raw["assignStatus"] = json!([{"cmid":7,"submission":"open","acceptsSubmission":true}]);
         }
         let (_, payload) = crate::school_parser::lms::parse_payload(&raw.to_string()).unwrap();
         apply_lms_payload(&mut connection, &payload.unwrap()).unwrap();
@@ -103,9 +103,11 @@ fn graded_assignment_and_grade_survive_missing_page_then_accept_reopened_state()
         if stage < 2 {
             assert_eq!(value["submission"], "graded");
             assert_eq!(value["grade"], "85.00 / 100.00");
+            assert_eq!(value["acceptsSubmission"], false);
         } else {
             assert_eq!(value["submission"], "open");
             assert!(value.get("grade").is_none());
+            assert_eq!(value["acceptsSubmission"], true);
         }
     }
 }

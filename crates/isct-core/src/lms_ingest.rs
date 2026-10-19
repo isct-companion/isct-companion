@@ -559,6 +559,14 @@ struct AssignmentSource<'a> {
     url: &'a str,
 }
 
+/// What the stored row already says, for a pull that could not read the page.
+struct PriorAssignment {
+    submission: String,
+    due_at: Option<String>,
+    grade: Option<String>,
+    accepts_submission: Option<bool>,
+}
+
 /// One assignment row. `open` while Moodle lists it as work to do; a
 /// previously open one that left that list before its deadline is submitted.
 fn write_assignment(
@@ -569,18 +577,25 @@ fn write_assignment(
     page_state: Option<&AssignState>,
 ) -> Result<bool, IngestError> {
     let cmid = source.cmid;
-    let prior: Option<(String, Option<String>, Option<String>)> = tx
+    let prior = tx
         .query_row(
-            "SELECT submission, due_at, json_extract(value,'$.grade') FROM assignments WHERE lms_cmid=?1 AND missing_since IS NULL",
+            "SELECT submission, due_at, json_extract(value,'$.grade'), json_extract(value,'$.acceptsSubmission') FROM assignments WHERE lms_cmid=?1 AND missing_since IS NULL",
             [cmid],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| {
+                Ok(PriorAssignment {
+                    submission: r.get(0)?,
+                    due_at: r.get(1)?,
+                    grade: r.get(2)?,
+                    accepts_submission: r.get(3)?,
+                })
+            },
         )
         .optional()
         .map_err(IngestError::from)?;
     let effective_due = due.or_else(|| {
         prior
             .as_ref()
-            .and_then(|value| value.1.as_deref())
+            .and_then(|value| value.due_at.as_deref())
             .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
             .map(|value| value.timestamp())
     });
@@ -590,7 +605,7 @@ fn write_assignment(
         state.submission.as_str()
     } else if listed_open {
         "open"
-    } else if prior.as_ref().map(|value| value.0.as_str()) == Some("open")
+    } else if prior.as_ref().map(|value| value.submission.as_str()) == Some("open")
         && effective_due.is_some_and(|d| d > Utc::now().timestamp())
     {
         "submitted"
@@ -598,21 +613,21 @@ fn write_assignment(
         // A pull that could not read the page keeps finished work finished.
         prior
             .as_ref()
-            .map(|value| value.0.as_str())
+            .map(|value| value.submission.as_str())
             .filter(|p| matches!(*p, "submitted" | "graded"))
             .unwrap_or("unknown")
     };
     let due_at = due
         .and_then(|d| chrono::DateTime::from_timestamp(d, 0))
         .map(|d| d.to_rfc3339())
-        .or_else(|| prior.as_ref().and_then(|value| value.1.clone()));
+        .or_else(|| prior.as_ref().and_then(|value| value.due_at.clone()));
     // The page's grade when it was read; otherwise the last one seen, while
     // the work still counts as graded.
     let grade = match page_state {
         Some(state) => state.grade.clone(),
         None => prior
             .as_ref()
-            .and_then(|value| value.2.clone())
+            .and_then(|value| value.grade.clone())
             .filter(|_| submission == "graded"),
     };
     let mut assignment = json!({"id":format!("lms-assignment:{cmid}"),"sourceKey":format!("lms:default:assignment:{cmid}"),"kind":"assignment","courseId":source.course,
@@ -620,6 +635,14 @@ fn write_assignment(
         "dueAt":due_at,"submission":submission});
     if let Some(grade) = grade {
         assignment["grade"] = grade.into();
+    }
+    // Whether LMS still takes work past the deadline; the last page read wins.
+    let accepts = match page_state {
+        Some(state) => state.accepts_submission,
+        None => prior.as_ref().and_then(|value| value.accepts_submission),
+    };
+    if let Some(accepts) = accepts {
+        assignment["acceptsSubmission"] = accepts.into();
     }
     upsert_versioned(
         tx,

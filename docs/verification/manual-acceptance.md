@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 36 checks must be re-run before the next release.**
+**7 of 37 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**27 checks have never been run or could not be run:**
+**28 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -48,6 +48,7 @@ an unverified area becomes an assumed-good one.
 - `RELEASE-INSTALL` — never verified
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
+- `SCHOOL-ASSIGNMENT-LMS-EXIT` — never verified
 - `DESKTOP-REMINDER-TIMES` — never verified
 - `DESKTOP-PHYSICS-PAIR` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
@@ -88,6 +89,7 @@ an unverified area becomes an assumed-good one.
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
+| `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/lms_submission_status.js<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
@@ -1608,6 +1610,70 @@ uploader, site restrictions or the signed native browser.
 - `crates/isct-core/src/school_browser/submission.rs`
 - `crates/isct-core/src/school_browser/assets/assignment-upload.js`
 - `apps/desktop/src-tauri/src/workspaces.rs`
+- `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
+
+**Last recorded** never run
+
+### Assignment footer always reaches LMS, whatever happened to the workspace (`SCHOOL-ASSIGNMENT-LMS-EXIT`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Desktop app from the current commit after a full LMS refresh, with an
+open assignment that has a workspace and files in submit/, a submitted or
+graded assignment with a workspace, and, if the term has them, one
+assignment past its deadline whose LMS page still shows 提出物をアップロード・入力する /
+Add submission and one past its cut-off date.
+
+**Steps**
+
+1. Open the open assignment. Check the footer shows Prepare in LMS and a
+   View in LMS link, then click View in LMS.
+   - *Why:* View in LMS is the exit that must never read local files. If it
+     uploads, the draft file manager on the LMS page gains files.
+2. Delete that workspace's folder in Finder, then switch back to the app
+   without clicking anything.
+   - *Why:* Returning to the window looks the folder up again. A card that stays
+     means the focus refresh is broken, and the next click falls back to
+     the typed error path instead.
+3. Open the submitted or graded assignment, then delete its workspace
+   folder in Finder and switch back.
+   - *Why:* Closed work goes straight to LMS: no draft hint, and losing its
+     folder is normal, so no notice either.
+4. Open the assignment past its deadline that LMS still takes, then the
+   one past its cut-off date.
+   - *Why:* Core decides "still takes late work" from Moodle's add/edit
+     submission button on the real assign page, which has no captured copy
+     in the repository. A late-allowed one without Prepare in LMS means the
+     selector missed the button.
+
+**Where to look**
+
+The assignment card footer in the course workspace and the right-hand official LMS pane.
+
+**Expected**
+
+The open assignment keeps its draft hint and both buttons; View in LMS
+opens the plain LMS page without adding draft files. After the Finder
+delete the card is replaced by "The workspace folder “…” is gone…", the
+main button reads View in LMS and Create workspace is offered, and no
+"os error" text shows anywhere. Closed work shows only View in LMS and
+no notice. The late-allowed assignment shows Prepare in LMS; the one past
+cut-off shows only View in LMS.
+
+**Why this is manual**
+
+A footer read at a glance in the real app, plus Moodle's live assign page
+(late and cut-off settings) and a folder deleted in Finder while the
+window is in the background. The typed missing-folder path itself is
+covered by the workspace Core tests and the lms-workspace e2e suite.
+
+**Covers**
+
+- `crates/isct-core/src/lms_submission_status.js`
 - `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
 
 **Last recorded** never run

@@ -1158,6 +1158,12 @@ export type TaskView = {
    * instead of applying their own rule.
    */
   submittedIds: Array<string>;
+  /**
+   * Visible assignments that no longer take a hand-in: submitted, or past
+   * the deadline unless the LMS page last showed it still accepting late
+   * work. Shells open the LMS page for these instead of preparing a draft.
+   */
+  closedIds: Array<string>;
   nearestByCourse: { [key in string]?: string };
   byTerm: { [key in string]?: TermTaskView };
 };
