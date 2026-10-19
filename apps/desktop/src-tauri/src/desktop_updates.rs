@@ -1,19 +1,24 @@
 //! Native updater port. Tauri verifies signatures and installs native bundles;
 //! Core decides version ordering, check cadence and the automatic preference.
 use crate::core_ports;
+use isct_core::app_updates::{InstallPhase, InstallRecord, LastInstall};
 use serde::Serialize;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 const REPOSITORY: &str = "isct-companion/isct-companion";
 const RELEASES: &str = "https://github.com/isct-companion/isct-companion/releases/latest";
+const INSTALL_RECORD: &str = "updater-install-result.json";
+// A whole-request timeout would cut off a large installer on a slow link, so
+// the download only fails once no bytes have arrived for this long.
+const DOWNLOAD_STALL: Duration = Duration::from_secs(60);
 
 struct UpdateSource {
     release_api: String,
@@ -96,6 +101,14 @@ pub struct UpdateStatus {
     message: Option<String>,
     release_url: &'static str,
     signed_updates: bool,
+    progress: Option<DownloadProgress>,
+    last_install: Option<LastInstall>,
+}
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadProgress {
+    downloaded: u64,
+    total: Option<u64>,
 }
 impl Default for UpdateStatus {
     fn default() -> Self {
@@ -105,6 +118,8 @@ impl Default for UpdateStatus {
             message: None,
             release_url: RELEASES,
             signed_updates: false,
+            progress: None,
+            last_install: None,
         }
     }
 }
@@ -153,7 +168,46 @@ fn phase(
     state.status.phase = phase;
     state.status.version = version;
     state.status.message = message;
+    state.status.progress = None;
     Ok(state.status.clone())
+}
+
+async fn download_verified(app: &AppHandle, update: &mut Update) -> Result<Vec<u8>, String> {
+    update.timeout = None;
+    let started = Instant::now();
+    let last_chunk = Arc::new(Mutex::new(started));
+    let progress_app = app.clone();
+    let progress_chunk = last_chunk.clone();
+    let mut downloaded = 0u64;
+    let transfer = update.download(
+        move |chunk, total| {
+            downloaded = downloaded.saturating_add(chunk as u64);
+            if let Ok(mut last) = progress_chunk.lock() {
+                *last = Instant::now();
+            }
+            if let Ok(mut state) = progress_app.state::<DesktopUpdates>().state.lock() {
+                state.status.progress = Some(DownloadProgress { downloaded, total });
+            }
+        },
+        || {},
+    );
+    let mut transfer = std::pin::pin!(transfer);
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), &mut transfer).await {
+            Ok(result) => return result.map_err(|e| e.to_string()),
+            Err(_) => {
+                let idle = last_chunk
+                    .lock()
+                    .map_or(started.elapsed(), |last| last.elapsed());
+                if idle >= DOWNLOAD_STALL {
+                    return Err(format!(
+                        "The update download stopped receiving data for {} seconds.",
+                        DOWNLOAD_STALL.as_secs()
+                    ));
+                }
+            }
+        }
+    }
 }
 
 pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<UpdateStatus, String> {
@@ -232,7 +286,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
         let Some(public_key) = public_key(&app) else {
             return snapshot(&app);
         };
-        let update = app
+        let mut update = app
             .updater_builder()
             .pubkey(public_key)
             .endpoints(vec![source
@@ -252,10 +306,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
         }
         if isct_core::app_updates::automatic_updates(&workspace) || download {
             phase(&app, "downloading", Some(version.clone()), None)?;
-            let bytes = update
-                .download(|_, _| {}, || {})
-                .await
-                .map_err(|e| e.to_string())?;
+            let bytes = download_verified(&app, &mut update).await?;
             updates
                 .state
                 .lock()
@@ -307,25 +358,69 @@ pub fn install_on_exit(app: &AppHandle) {
         }
     });
     if let Some((update, bytes)) = pending {
-        record_install(app, "installing", &update.version, None);
+        record_install(app, InstallPhase::Installing, &update.version, None);
         match update.install(bytes) {
-            Ok(()) => record_install(app, "installed", &update.version, None),
+            Ok(()) => record_install(app, InstallPhase::Installed, &update.version, None),
             Err(error) => {
-                record_install(app, "error", &update.version, Some(error.to_string()));
+                record_install(
+                    app,
+                    InstallPhase::Error,
+                    &update.version,
+                    Some(error.to_string()),
+                );
                 log::error!("[updater] installation failed: {error}");
             }
         }
     }
 }
 
-fn record_install(app: &AppHandle, phase: &str, version: &str, message: Option<String>) {
-    if let Ok(directory) = app.path().app_data_dir() {
-        let result = serde_json::json!({"phase":phase,"version":version,"message":message,"at":chrono::Utc::now().to_rfc3339()});
-        if let Err(error) = std::fs::write(
-            directory.join("updater-install-result.json"),
-            result.to_string(),
-        ) {
-            log::error!("[updater] could not record installation result: {error}");
+fn record_install(app: &AppHandle, phase: InstallPhase, version: &str, message: Option<String>) {
+    let record = InstallRecord {
+        phase,
+        version: version.into(),
+        message,
+        at: chrono::Utc::now().to_rfc3339(),
+    };
+    let written = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())
+        .and_then(|directory| {
+            let json = serde_json::to_string(&record).map_err(|e| e.to_string())?;
+            std::fs::write(directory.join(INSTALL_RECORD), json).map_err(|e| e.to_string())
+        });
+    if let Err(error) = written {
+        log::error!("[updater] could not record installation result: {error}");
+    }
+}
+
+/// Reads the record the previous run left before exiting into its installer,
+/// so this launch can say whether that install took effect. It is shown once.
+pub fn load_last_install(app: &AppHandle) {
+    let Ok(path) = app.path().app_data_dir().map(|d| d.join(INSTALL_RECORD)) else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    if let Err(error) = std::fs::remove_file(&path) {
+        log::error!("[updater] could not clear installation result: {error}");
+    }
+    let running = app.package_info().version.to_string();
+    let last = serde_json::from_str::<InstallRecord>(&raw)
+        .map_err(|e| e.to_string())
+        .and_then(|record| {
+            isct_core::app_updates::last_install(&record, &running).map_err(|e| e.to_string())
+        });
+    match last {
+        Ok(last) => {
+            if !matches!(last, LastInstall::Installed { .. }) {
+                log::error!("[updater] previous installation did not take effect: {last:?}");
+            }
+            if let Ok(mut state) = app.state::<DesktopUpdates>().state.lock() {
+                state.status.last_install = Some(last);
+            }
         }
+        Err(error) => log::error!("[updater] unreadable installation result: {error}"),
     }
 }

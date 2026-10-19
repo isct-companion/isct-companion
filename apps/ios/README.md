@@ -39,7 +39,7 @@ build. OCR is unavailable on the Intel simulator.
 
 ## Not yet
 
-See [HANDOFF.md](HANDOFF.md). Matrix-card OCR import, iCloud backup (`NativeCloud`), Quick Look for
+See [HANDOFF.md](HANDOFF.md). Matrix-card OCR import, Quick Look for
 downloaded files and widgets.
 
 UI strings are keyed by their English text and translated at runtime from the

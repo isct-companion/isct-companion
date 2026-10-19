@@ -68,15 +68,9 @@ these items only work in a signed build:
 - **Notifications on a device.** `Core/NotificationScheduler.swift` registers
   Core's `notificationPlan`, up to 64 pending. Check permission, delivery
   times and re-planning after a pull.
-- **iCloud backup (`NativeCloud`).** `AppModel` currently passes `cloud: nil`.
-  - Implement the port from `crates/isct-ffi/src/ports.rs`: `readWorkspace`,
-    `mergeAndPush`, `versions`, `versionDocument` and `disconnect`.
-  - Use the same CloudKit layout as the desktop (`apps/desktop/src-tauri/src/icloud.rs`):
-    container `iCloud.app.isctcompanion`, private database, record type
-    `IsctCompanionBackup`, asset key `payload`.
-  - It needs the iCloud/CloudKit entitlement.
-  - Before writing any merge logic in Swift, check whether Core already owns it
-    (AGENTS.md §4). The shell should only move bytes.
+- **iCloud backup.** Built; see below and `docs/mobile-backup-handoff.md`. The App ID needs the iCloud
+  capability with the `iCloud.app.isctcompanion` container, which the Mac app
+  already uses, so a signed build with the team can read the Mac's record.
 - **Widgets.** These need a widget extension target and an App Group shared
   with the app. The read model should be Core's `today` query, not a second copy.
 
@@ -90,6 +84,13 @@ these items only work in a signed build:
 - Settings: notifications (classes, exams, assignment lead times), study
   profile, data updates (cellular switch, last read per site, 今すぐ更新) and
   the ウェブ tab's text size and first site, on the desktop's settings keys.
+- バックアップ (`Features/Settings/BackupScreen.swift`, `Core/CloudKitStore.swift`):
+  iCloud on/off, automatic or by-hand Upload/Pull, earlier versions, local
+  recovery files, and a backup file export/import. `CloudKitStore` only moves
+  the record's bytes and change tag; Core names the record (`cloudkitRecord`),
+  parses, merges and keeps history, the same code the Mac app runs. The
+  entitlements pin the Production CloudKit environment so a development
+  build sees what the released Mac app wrote. Check `IOS-ICLOUD-BACKUP`.
 
 ## Not blocked, still open
 

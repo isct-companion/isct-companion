@@ -1,5 +1,8 @@
 use super::*;
-use crate::{ports::NativeVault, types::*};
+use crate::{
+    ports::{CloudObject, NativeCloud, NativeVault},
+    types::*,
+};
 use serde_json::json;
 use std::{
     collections::HashMap,
@@ -30,6 +33,14 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_cloud(None).await
+    }
+    async fn with_cloud(cloud: Option<Arc<dyn crate::ports::NativeCloud>>) -> Self {
+        let providers = if cloud.is_some() {
+            vec![CloudProvider::Icloud]
+        } else {
+            vec![]
+        };
         let root = std::env::temp_dir().join(format!(
             "isct-sdk-test-{}-{}",
             std::process::id(),
@@ -40,12 +51,12 @@ impl Fixture {
                 data_directory: root.join("data").to_string_lossy().into(),
                 files_directory: root.join("files").to_string_lossy().into(),
                 initial_network: PullNetwork::Offline,
-                cloud_providers: vec![],
-                authorized_cloud_providers: vec![],
+                cloud_providers: providers.clone(),
+                authorized_cloud_providers: providers,
             },
             Arc::new(Vault::default()),
             None,
-            None,
+            cloud,
             None,
             None,
         )
@@ -533,7 +544,7 @@ fn school_outcomes_project_into_the_generated_ffi_types() {
 }
 
 #[tokio::test]
-async fn local_backup_application_emits_its_own_source_and_keeps_the_session_usable() {
+async fn backup_import_restores_through_the_journal_without_a_cloud_store() {
     let f = Fixture::new().await;
     let OperationResult::Text { value } = f
         .session
@@ -569,16 +580,22 @@ async fn local_backup_application_emits_its_own_source_and_keeps_the_session_usa
         .await_result()
         .await
         .unwrap();
-    let StreamUpdate::Event { event } =
-        tokio::time::timeout(std::time::Duration::from_secs(2), events.next())
-            .await
-            .expect("restore event within two seconds")
-            .unwrap()
-    else {
-        panic!("missing restore event")
+    // The journal publishes its own state around the restore; the import
+    // itself is the workspace change.
+    let event = loop {
+        let StreamUpdate::Event { event } =
+            tokio::time::timeout(std::time::Duration::from_secs(2), events.next())
+                .await
+                .expect("restore event within two seconds")
+                .unwrap()
+        else {
+            panic!("missing restore event")
+        };
+        if event.name == "workspace-changed" {
+            break event;
+        }
     };
-    assert_eq!(event.name, "workspace-changed");
-    assert_eq!(event.payload.0, json!({"source":"local-restore"}));
+    assert_eq!(event.payload.0, json!({"source":"cloud-restore"}));
     let snapshot = f.snapshot().await;
     assert!(snapshot.workspace.0["plans"]
         .as_array()
@@ -784,4 +801,173 @@ async fn ocr_progress_correlates_to_the_operation_and_bad_images_leave_core_usab
     assert_eq!(event.payload.0["operationId"], operation.id());
     let _ = f.snapshot().await;
     f.finish().await;
+}
+
+/// One CloudKit-like record shared by two sessions: each accepted write gets
+/// a new tag, and a write against another tag is a conflict.
+#[derive(Default)]
+struct SharedRecord {
+    object: Mutex<Option<CloudObject>>,
+    writes: AtomicU64,
+    /// Another device replaces the record just before the next write lands.
+    race_next_write: std::sync::atomic::AtomicBool,
+}
+#[async_trait::async_trait]
+impl NativeCloud for SharedRecord {
+    fn device_name(&self) -> Option<String> {
+        Some("Test device".into())
+    }
+    fn disconnect(&self, _: CloudProvider) -> Result<(), SdkError> {
+        Ok(())
+    }
+    async fn read(&self, _: CloudProvider) -> Result<Option<CloudObject>, SdkError> {
+        Ok(self.object.lock().unwrap().clone())
+    }
+    async fn write(
+        &self,
+        _: CloudProvider,
+        bytes: Vec<u8>,
+        expected: Option<String>,
+    ) -> Result<(), SdkError> {
+        let attempt = self.writes.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut object = self.object.lock().unwrap();
+        if self.race_next_write.swap(false, Ordering::SeqCst) {
+            if let Some(object) = object.as_mut() {
+                object.tag = format!("raced-{attempt}");
+            }
+        }
+        if object.as_ref().map(|o| o.tag.clone()) != expected {
+            return Err(SdkError::Conflict {
+                detail: "record changed".into(),
+            });
+        }
+        *object = Some(CloudObject {
+            bytes,
+            tag: format!("tag-{attempt}"),
+        });
+        Ok(())
+    }
+}
+
+async fn cloud_op(operation: Arc<Operation>) -> SyncState {
+    match operation.await_result().await.unwrap() {
+        OperationResult::Cloud { state } => state,
+        _ => panic!("wrong cloud result"),
+    }
+}
+
+/// The desktop and phone stand-ins share one record through the byte port:
+/// what one uploads the other pulls, and a record replaced mid-write is
+/// re-read and merged instead of overwritten.
+#[tokio::test]
+async fn sessions_sharing_one_cloud_record_load_each_others_data() {
+    let record = Arc::new(SharedRecord::default());
+    let mac = Fixture::with_cloud(Some(record.clone())).await;
+    let phone = Fixture::with_cloud(Some(record.clone())).await;
+
+    let OperationResult::Text { value } = mac
+        .session
+        .export_backup()
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong backup result")
+    };
+    let mut document: serde_json::Value = serde_json::from_str(&value).unwrap();
+    document["tables"]["plans"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id": "mac-plan",
+            "rev": 1,
+            "updatedAt": "2026-10-13T01:00:00Z",
+            "updatedBy": "mac",
+            "source": {"provider": "manual"},
+            "title": "From the Mac",
+            "start": "2026-10-13T10:00:00+09:00",
+            "duration": 60,
+            "exdates": []
+        }));
+    mac.session
+        .apply_backup(JsonValue(document))
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap();
+    for session in [&mac.session, &phone.session] {
+        cloud_op(
+            session
+                .set_cloud_enabled(CloudProvider::Icloud, true)
+                .unwrap(),
+        )
+        .await;
+    }
+    cloud_op(mac.session.sync_cloud(Direction::Upload).unwrap()).await;
+    let state = cloud_op(phone.session.sync_cloud(Direction::Pull).unwrap()).await;
+    assert!(
+        state.providers.iter().all(|p| p.error.is_none()),
+        "{state:?}"
+    );
+    assert!(phone.snapshot().await.workspace.0["plans"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|plan| plan["id"] == "mac-plan"));
+
+    let before = record.writes.load(Ordering::SeqCst);
+    record.race_next_write.store(true, Ordering::SeqCst);
+    let mut document: serde_json::Value = {
+        let OperationResult::Text { value } = phone
+            .session
+            .export_backup()
+            .unwrap()
+            .await_result()
+            .await
+            .unwrap()
+        else {
+            panic!("wrong backup result")
+        };
+        serde_json::from_str(&value).unwrap()
+    };
+    document["tables"]["plans"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id": "phone-plan",
+            "rev": 1,
+            "updatedAt": "2026-10-13T02:00:00Z",
+            "updatedBy": "phone",
+            "source": {"provider": "manual"},
+            "title": "From the phone",
+            "start": "2026-10-14T10:00:00+09:00",
+            "duration": 60,
+            "exdates": []
+        }));
+    phone
+        .session
+        .apply_backup(JsonValue(document))
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap();
+    let state = cloud_op(phone.session.sync_cloud(Direction::Upload).unwrap()).await;
+    assert!(
+        state.providers.iter().all(|p| p.error.is_none()),
+        "{state:?}"
+    );
+    // The raced write was refused as a conflict and retried after a re-read.
+    assert!(!record.race_next_write.load(Ordering::SeqCst));
+    assert!(record.writes.load(Ordering::SeqCst) >= before + 2);
+    cloud_op(mac.session.sync_cloud(Direction::Pull).unwrap()).await;
+    let plans = mac.snapshot().await.workspace.0["plans"].clone();
+    assert!(plans
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|plan| plan["id"] == "phone-plan"));
+
+    mac.finish().await;
+    phone.finish().await;
 }

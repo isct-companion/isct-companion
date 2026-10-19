@@ -401,6 +401,7 @@ pub fn run() {
             // After the main window exists: the initial focus fact and event
             // delivery both refer to it.
             core_ports::DesktopRuntime::start(app.handle());
+            desktop_updates::load_last_install(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

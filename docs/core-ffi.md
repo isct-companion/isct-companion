@@ -134,8 +134,9 @@ Call `subscribe()` before reading initial snapshots, then consume queued
 with a per-session sequence. Every school.db commit that changes a row emits
 `workspace-changed` with its source (`user-intent` for mutations), published by
 Core's commit path after the commit in every shell. Delivery failure does not turn that committed mutation into an operation
-failure. Local `applyBackup` emits source `local-restore`; cloud recovery retains
-`cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
+failure. `applyBackup` imports through the cloud journal like the desktop
+(recovery point, new restore generation, replayable apply), so it and cloud
+recovery both emit `cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
 Snapshots are authoritative; events are hints.
 
 The bounded queue holds 128 events. A slow consumer receives `SnapshotRequired`

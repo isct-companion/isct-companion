@@ -1688,6 +1688,49 @@ checks:
         settings and both logins retained.
       evidence: docs/verification/desktop-updater.md
 
+  - id: DESKTOP-WINDOWS-UPDATES
+    area: desktop
+    title: Windows updates download on a slow link and report the install result
+    persona: undergraduate-senior
+    preconditions: |
+      An installed Windows release built from this source with the updater key,
+      a newer signed release published, and a Windows PC whose Smart App
+      Control can be switched between Off and On (or a second PC with it On).
+    steps:
+      - action: Throttle the connection to about 2 Mbps (e.g. a metered hotspot or
+          a router limit), open Settings > About and press Download update.
+        reason: The installer is over 30 MB; only a real slow link shows whether the
+          download outlives the old 30-second whole-request timeout and whether
+          the byte counter moves while the command is still running.
+      - action: Disconnect the network mid-download and wait about a minute.
+        reason: A stalled transfer must end in an error that names the stall, not
+          leave the panel on "Downloading" forever.
+      - action: With Smart App Control Off, press Install and quit, let the NSIS
+          installer finish and reopen the app.
+        reason: On Windows the process exits before the installer runs, so the
+          success notice depends on the next launch comparing versions.
+      - action: Repeat the install with Smart App Control On.
+        reason: Smart App Control blocks the unsigned installer after the app has
+          exited; only a real policy shows what the next launch reports.
+    observe: Settings > About status line, the notice at launch, and the version
+      shown in About.
+    expected: |
+      The About line shows "Downloading update… · x / y MB" with x increasing,
+      and the download completes on the slow link. A disconnect ends in
+      "Update check failed · The update download stopped receiving data…".
+      After a successful install the app reopens on the new version with
+      "Updated to <version>." After a blocked install the old version opens
+      with a red notice saying the update did not install, and About repeats it.
+    why_manual: Needs a signed release on GitHub, a Windows PC, a real slow or
+      broken network, and the Smart App Control policy, none of which a
+      headless test can provide.
+    covers:
+      - apps/desktop/src-tauri/src/desktop_updates.rs
+      - apps/desktop/src/app/useDesktopUpdates.ts
+      - apps/desktop/src/pages/settings/AboutSettings.tsx
+      - crates/isct-core/src/app_updates.rs
+    verified: null
+
   - id: DESKTOP-WINDOWS-LAUNCH
     area: desktop
     title: Windows release launches without a companion terminal
@@ -2427,4 +2470,57 @@ checks:
     why_manual: A label read at a glance; the data is Core's CourseDetail.exams.
     covers:
       - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
+    verified: null
+
+  - id: IOS-ICLOUD-BACKUP
+    area: cloud
+    title: iPhone and Mac load each other's data through one iCloud record
+    persona: careless-multidevice
+    preconditions: |
+      The released (Developer ID) Mac app and the iPhone app, both signed with
+      the team that owns `iCloud.app.isctcompanion`, on one Apple Account. The
+      iPhone build carries the Production container environment, so both read
+      the same CloudKit database.
+    steps:
+      - action: |
+          On the Mac, Settings → Backup: turn on iCloud and Upload. On the
+          iPhone, 設定 › バックアップ: turn on iCloud and Pull.
+        reason: |
+          The phone must load the Mac's plans, notes and hidden assignments.
+          Nothing arriving usually means the two builds use different CloudKit
+          environments or containers, not a merge bug.
+      - action: |
+          On the iPhone hide an assignment and Upload; on the Mac Pull.
+        reason: |
+          The reverse direction goes through the phone's CloudKitStore write;
+          a refused or partial write shows as an iCloud error on the phone.
+      - action: |
+          Without pulling first, edit a different record on each device, then
+          Upload on both.
+        reason: |
+          The second upload must lose CloudKit's conditional save, re-read and
+          merge. Losing either edit means a write replaced a record it had not
+          read.
+      - action: |
+          On the iPhone, open 以前のバージョン and restore one; then export a
+          backup file on the Mac and import it on the phone with 読み込む….
+        reason: |
+          Restore and import both start a new generation on every device and
+          leave a local recovery file; the Mac must follow on its next Pull.
+    observe: |
+      The Backup pages on both devices (provider line, versions, recovery
+      files) and the records themselves on each.
+    expected: |
+      Each device shows the other's changes after a Pull, both concurrent edits
+      survive, the version list names both devices, and a restore or import on
+      the phone reaches the Mac with a recovery file kept on each.
+    why_manual: |
+      CloudKit needs a signed build, an iCloud account and a device; the
+      merge, tag-conditional write and journal behind it are covered by
+      `sessions_sharing_one_cloud_record_load_each_others_data` and
+      `tagged_writes_carry_the_tag_read_with_the_expected_revision`.
+    covers:
+      - apps/ios/IsctCompanion/Core/CloudKitStore.swift
+      - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
+      - apps/desktop/src-tauri/src/icloud.rs
     verified: null

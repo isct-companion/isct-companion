@@ -11,6 +11,7 @@ enum SettingsRoute: Hashable {
     case assignmentLeads
     case studyProfile
     case dataUpdates
+    case backup
 }
 
 struct SettingsDestination: View {
@@ -30,6 +31,8 @@ struct SettingsDestination: View {
             StudyProfileScreen()
         case .dataUpdates:
             DataUpdatesScreen()
+        case .backup:
+            BackupScreen()
         }
     }
 }
@@ -62,6 +65,9 @@ struct SettingsScreen: View {
                 }
                 NavigationLink(value: SettingsRoute.dataUpdates) {
                     row(t("Data updates"), dataSummary, icon: "arrow.triangle.2.circlepath")
+                }
+                NavigationLink(value: SettingsRoute.backup) {
+                    row(t("Backup"), backupSummary, icon: "icloud")
                 }
             }
             LanguageSection()
@@ -111,6 +117,12 @@ struct SettingsScreen: View {
             parts.append(t("Assignments ×{{count}}", ["count": leads.count]))
         }
         return parts.isEmpty ? t("Off") : parts.joined(separator: " · ")
+    }
+
+    private var backupSummary: String {
+        let icloud = model.cloud?.providers.first { $0.provider == .icloud }
+        guard icloud?.enabled == true else { return t("Off") }
+        return icloud?.lastSyncedAt.map { t("Synced {{date}}", ["date": Format.due($0)]) } ?? "iCloud"
     }
 
     private var dataSummary: String {

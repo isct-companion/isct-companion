@@ -16,6 +16,8 @@ and formats.
 | `cloud_sync::CloudSync` | `provider_result`, `set_enabled`, `set_automatic` | Provider settings and queue policy |
 | `cloud_sync::CloudSync` | `restore`, `restore_document`, `recovery_document`, `prepare_reset` | Recovery checkpoints and generation changes |
 | `cloud_sync::document` | `parse_cloud_workspace`, `versions`, `merge_and_push` | Cloud envelope, age/minimum-copy history retention and conditional-write conflict retries |
+| `cloud_sync::document::DocumentCloud` | `new(transport, device_name)` | The queue's `CloudTransport` over any `WorkspaceTransport`; every shell shares its parse, history and merge loop |
+| `cloud_sync::document::TaggedWorkspace` | `new(store)` | `WorkspaceTransport` over an `ObjectStore` that only reads and writes bytes with a change tag (CloudKit on macOS and iOS) |
 | `runtime::CoreRuntime` | `attach_cloud`, `shutdown` | Bootstrap attachment, stop admission and drain owned work |
 
 The native shell supplies paths, OS dialogs, HTTP/CloudKit/OAuth/credential
@@ -23,7 +25,14 @@ storage, and events. `CloudServices` supplies a backup service, `CloudTransport`
 and the shell's `EventSink` for each operation; state changes arrive as
 `CoreEvent::CloudSyncState` and applied documents as `WorkspaceChanged`
 (`cloud-sync` / `cloud-restore`). `WorkspaceTransport` is the lower-level
-conditional document read/write port. A shell should construct fresh services
+conditional document read/write port; shells wrap it in `DocumentCloud`
+rather than implement `CloudTransport`. A provider that stores one object
+with a change tag implements only `ObjectStore` (read bytes and tag, write
+bytes if the tag still matches) and goes through `TaggedWorkspace`, which
+pairs each envelope revision with the tag it was read with. The FFI's
+`NativeCloud` is that byte port, so Swift and Kotlin never parse or merge.
+The CloudKit record (container, record type, name, asset key) is named once
+in Core and exported as `cloudkitRecord`. A shell should construct fresh services
 after changing the notes folder. Core retains no Tauri handles.
 
 The native one-second wake supplies an opportunity to work. Core admits a

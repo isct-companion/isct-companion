@@ -14,7 +14,6 @@ pub enum WorkspaceChangeSource {
     Mcp,
     CloudSync,
     CloudRestore,
-    LocalRestore,
 }
 
 impl WorkspaceChangeSource {
@@ -27,7 +26,6 @@ impl WorkspaceChangeSource {
             Self::Scheduler => "scheduler",
             Self::Mcp => "mcp",
             Self::CloudSync | Self::CloudRestore => "sync",
-            Self::LocalRestore => "restore",
         }
     }
 }
