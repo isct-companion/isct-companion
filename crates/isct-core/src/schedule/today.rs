@@ -20,7 +20,8 @@ use super::{
     TeachingPeriod,
 };
 
-const TODAY_DEADLINES: usize = 3;
+/// Classes the Today stack previews: the next one and two after it.
+const UPCOMING_CLASSES: usize = 3;
 const RECENT_DAYS: i64 = 3;
 const RECENT_ITEMS: usize = 3;
 /// In class: the newest material and the nearest open assignment.
@@ -111,20 +112,18 @@ pub struct TodayView {
     pub no_classes: bool,
     pub calendar_notice: Option<String>,
     pub phase: TodayPhase,
-    /// The current class while in class, otherwise the next one today.
+    /// The class in progress.
     pub hero: Option<TodayClass>,
-    /// Today's classes after the hero.
-    pub later: Vec<TodayClass>,
+    /// The next classes after now and after the hero, today first and then
+    /// the following class days, at most `UPCOMING_CLASSES`.
+    pub upcoming: Vec<TodayClass>,
     /// In class: the current course's newest materials and open work.
     pub class_materials: Vec<MaterialItem>,
     pub class_assignments: Vec<DeadlineItem>,
     /// After classes: the nearest open deadline before midnight.
     pub deadline_hero: Option<DeadlineItem>,
-    pub deadlines: Vec<DeadlineItem>,
     /// No classes: grades and materials that changed recently.
     pub recent: Vec<RecentItem>,
-    /// After classes or on a day without classes: the first class of the next class day.
-    pub next_class: Option<TodayClass>,
     /// When the phase or hero changes next; shells re-query then.
     pub next_boundary: Option<String>,
 }
@@ -383,13 +382,17 @@ pub fn today_view(
     } else {
         TodayPhase::BeforeClasses
     };
-    let next_class = || -> Result<Option<TodayClass>, ScheduleError> {
-        days.iter()
-            .skip(1)
-            .find_map(|day| classes_on(&day.occurrences).into_iter().next())
-            .map(|block| class(block, &periods))
-            .transpose()
-    };
+    // The stack runs on past today: the following class days fill it.
+    for day in days.iter().skip(1) {
+        if upcoming.len() >= UPCOMING_CLASSES {
+            break;
+        }
+        for block in classes_on(&day.occurrences) {
+            upcoming.push(class(block, &periods)?);
+        }
+    }
+    upcoming.truncate(UPCOMING_CLASSES);
+    let next_start = upcoming.first().map(|item| item.starts_at.clone());
 
     let midnight = start_of_next_day(&date)?;
     let open = open_deadlines(workspace, &term, now)?;
@@ -408,22 +411,16 @@ pub fn today_view(
         calendar_notice,
         phase,
         hero: None,
-        later: Vec::new(),
+        upcoming,
         class_materials: Vec::new(),
         class_assignments: Vec::new(),
         deadline_hero: None,
-        deadlines: Vec::new(),
         recent: Vec::new(),
-        next_class: None,
         next_boundary: None,
     };
     match phase {
         TodayPhase::BeforeClasses | TodayPhase::BetweenClasses => {
-            let mut rest = upcoming.into_iter();
-            view.hero = rest.next();
-            view.later = rest.collect();
-            view.next_boundary = view.hero.as_ref().map(|hero| hero.starts_at.clone());
-            view.deadlines = open.into_iter().take(TODAY_DEADLINES).collect();
+            view.next_boundary = next_start;
         }
         TodayPhase::InClass => {
             let hero = current.ok_or_else(|| {
@@ -444,7 +441,7 @@ pub fn today_view(
             });
             view.class_materials = class_materials.into_iter().take(CLASS_ITEMS).collect();
             view.class_assignments = open
-                .iter()
+                .into_iter()
                 .filter(|item| {
                     item.course_id
                         .as_ref()
@@ -452,48 +449,18 @@ pub fn today_view(
                         && !item.overdue
                 })
                 .take(CLASS_ITEMS)
-                .cloned()
-                .collect();
-            let shown: Vec<_> = view
-                .class_assignments
-                .iter()
-                .map(|item| item.assignment_id.clone())
-                .collect();
-            view.deadlines = open
-                .into_iter()
-                .filter(|item| {
-                    !item.overdue
-                        && due_before(item, midnight)
-                        && !shown.contains(&item.assignment_id)
-                })
-                .take(TODAY_DEADLINES)
                 .collect();
             view.next_boundary = Some(hero.ends_at.clone());
-            view.later = upcoming;
             view.hero = Some(hero);
         }
         TodayPhase::AfterClasses => {
-            let tonight = open
-                .iter()
-                .find(|item| !item.overdue && due_before(item, midnight))
-                .cloned();
-            view.deadlines = open
+            view.deadline_hero = open
                 .into_iter()
-                .filter(|item| {
-                    tonight
-                        .as_ref()
-                        .is_none_or(|hero| hero.assignment_id != item.assignment_id)
-                })
-                .take(TODAY_DEADLINES)
-                .collect();
-            view.deadline_hero = tonight;
-            view.next_class = next_class()?;
+                .find(|item| !item.overdue && due_before(item, midnight));
             view.next_boundary = Some(midnight.to_rfc3339());
         }
         TodayPhase::NoClasses => {
-            view.deadlines = open.into_iter().take(TODAY_DEADLINES).collect();
             view.recent = recent(workspace, now, &date);
-            view.next_class = next_class()?;
             view.next_boundary = Some(midnight.to_rfc3339());
         }
     }
