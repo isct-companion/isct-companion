@@ -18,8 +18,8 @@ use std::net::TcpListener;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
-const MAX_BODY_BYTES: usize = 25 * 1024 * 1024;
-const CLOUD_FILE_NAME: &str = "IsctCompanion.json";
+use document::CLOUD_FILE_NAME;
+const MAX_BODY_BYTES: usize = document::MAX_DOCUMENT_BYTES;
 
 #[derive(Debug, Deserialize)]
 struct GoogleDriveFile {
@@ -192,6 +192,8 @@ fn bounded_expiry(value: Option<u64>) -> u64 {
 pub struct DesktopCloudService<V: SecretVault> {
     client: reqwest::Client,
     vault: V,
+    #[cfg(target_os = "macos")]
+    icloud: document::TaggedWorkspace<crate::icloud::Store>,
 }
 
 impl<V: SecretVault> DesktopCloudService<V> {
@@ -201,7 +203,12 @@ impl<V: SecretVault> DesktopCloudService<V> {
             .timeout(Duration::from_secs(45))
             .build()
             .map_err(|_| "Cloud HTTP client initialization failed.".to_string())?;
-        Ok(Self { client, vault })
+        Ok(Self {
+            client,
+            vault,
+            #[cfg(target_os = "macos")]
+            icloud: document::TaggedWorkspace::new(crate::icloud::Store),
+        })
     }
 
     /// The PKCE authorization request for a redirect; returns the URL to open
@@ -715,6 +722,11 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 }
             }
             Ok(current)
+        } else if provider == CloudProvider::Icloud {
+            #[cfg(target_os = "macos")]
+            return self.icloud.read(provider).await.map_err(|e| e.to_string());
+            #[cfg(not(target_os = "macos"))]
+            return Err("iCloud sync is only available on Apple devices.".into());
         } else {
             self.read_file(provider, CLOUD_FILE_NAME)
                 .await?
@@ -725,56 +737,16 @@ impl<V: SecretVault> DesktopCloudService<V> {
         }
     }
 
-    pub(crate) async fn versions(
-        &self,
-        provider: CloudProvider,
-    ) -> Result<Vec<crate::cloud_sync::CloudVersion>, String> {
-        Ok(self
-            .read_workspace(provider)
-            .await?
-            .map(|file| document::versions(provider, &file))
-            .unwrap_or_default())
-    }
-
-    pub(crate) async fn version_document(
-        &self,
-        provider: CloudProvider,
-        revision: u64,
-    ) -> Result<Value, String> {
-        self.read_workspace(provider)
-            .await?
-            .and_then(|file| file.version_document(revision).cloned())
-            .ok_or_else(|| DocumentError::VersionMissing.to_string())
-    }
-
-    /// Re-read before committing: another device may have written since the
-    /// multi-provider pull phase. Conditional writes retain that guarantee.
-    pub(crate) async fn merge_and_push(
-        &self,
-        provider: CloudProvider,
-        document: &Value,
-        device: &str,
-    ) -> Result<Value, String> {
-        let device_name = std::env::var("COMPUTERNAME")
-            .or_else(|_| std::env::var("HOSTNAME"))
-            .unwrap_or_else(|_| {
-                format!(
-                    "{} · {}",
-                    std::env::consts::OS,
-                    device.chars().take(8).collect::<String>()
-                )
-            });
-        document::merge_and_push(self, provider, document, device, Some(&device_name))
-            .await
-            .map_err(|error| error.to_string())
-    }
-
     async fn write_workspace_file(
         &self,
         provider: CloudProvider,
         file: &CloudWorkspaceFile,
         expected: Option<u64>,
     ) -> Result<(), DocumentError> {
+        #[cfg(target_os = "macos")]
+        if provider == CloudProvider::Icloud {
+            return self.icloud.write(provider, file, expected).await;
+        }
         let transport = DocumentError::Transport;
         let bytes = serde_json::to_vec(file).map_err(|e| transport(e.to_string()))?;
         if bytes.len() > MAX_BODY_BYTES {
@@ -872,10 +844,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 } else {
                     Err(DocumentError::Conflict)
                 }
-            }
-            #[cfg(target_vendor = "apple")]
-            CloudProvider::Icloud => {
-                crate::icloud::write_checked(CLOUD_FILE_NAME, bytes, expected).await
             }
             _ => self
                 .write_file(provider, CLOUD_FILE_NAME, bytes)
@@ -976,6 +944,14 @@ impl<V: SecretVault> WorkspaceTransport for DesktopCloudService<V> {
             self.write_workspace_file(provider, file, expected_revision)
                 .await
         })
+    }
+
+    fn disconnect(&self, provider: CloudProvider) -> Result<(), DocumentError> {
+        #[cfg(target_os = "macos")]
+        if provider == CloudProvider::Icloud {
+            self.icloud.disconnect(provider)?;
+        }
+        DesktopCloudService::disconnect(self, provider).map_err(DocumentError::Transport)
     }
 }
 

@@ -3,7 +3,8 @@
 //! be shared with Drive and OneDrive without exposing it in iCloud Drive.
 
 use block2::RcBlock;
-use isct_core::cloud_sync::document::DocumentError;
+use isct_core::cloud_sync::document::{BoxFuture, DocumentError, ObjectStore, StoredObject};
+use isct_core::cloud_sync::CloudProvider;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::AnyThread;
@@ -15,9 +16,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
-const CONTAINER_ID: &str = "iCloud.app.isctcompanion";
-const RECORD_TYPE: &str = "IsctCompanionBackup";
-const ASSET_KEY: &str = "payload";
+use isct_core::cloud_sync::document::{
+    CLOUDKIT_ASSET_KEY as ASSET_KEY, CLOUDKIT_CONTAINER as CONTAINER_ID,
+    CLOUDKIT_RECORD_TYPE as RECORD_TYPE,
+};
 
 fn cloud_database() -> Retained<CKDatabase> {
     unsafe {
@@ -84,7 +86,15 @@ pub async fn account_available() -> Result<(), String> {
         .map_err(|_| "iCloud account check did not complete.".to_string())?
 }
 
-fn read_request(name: &str) -> oneshot::Receiver<Result<Option<Vec<u8>>, String>> {
+type ReadResult = Result<Option<(Vec<u8>, String)>, String>;
+
+fn change_tag(record: &CKRecord) -> String {
+    unsafe { record.recordChangeTag() }
+        .map(|tag| tag.to_string())
+        .unwrap_or_default()
+}
+
+fn read_request(name: &str) -> oneshot::Receiver<ReadResult> {
     let database = cloud_database();
     let id = record_id(name);
     let (tx, rx) = oneshot::channel();
@@ -98,13 +108,15 @@ fn read_request(name: &str) -> oneshot::Receiver<Result<Option<Vec<u8>>, String>
             }
         } else {
             let key = NSString::from_str(ASSET_KEY);
-            let asset = unsafe { record.as_ref() }
+            let record = unsafe { record.as_ref() };
+            let tag = record.map(change_tag).unwrap_or_default();
+            let asset = record
                 .and_then(|record| unsafe { record.objectForKey(&key) })
                 .and_then(|value| value.downcast::<CKAsset>().ok());
             match asset.and_then(|asset| unsafe { asset.fileURL() }) {
                 Some(url) => match url.path() {
                     Some(path) => std::fs::read(path.to_string())
-                        .map(Some)
+                        .map(|bytes| Some((bytes, tag)))
                         .map_err(|_| "iCloud returned an unreadable backup asset.".to_string()),
                     None => Err("iCloud returned an invalid backup asset.".to_string()),
                 },
@@ -122,17 +134,21 @@ fn read_request(name: &str) -> oneshot::Receiver<Result<Option<Vec<u8>>, String>
     rx
 }
 
-pub async fn read(name: &str) -> Result<Option<Vec<u8>>, String> {
+async fn read_tagged(name: &str) -> ReadResult {
     account_available().await?;
     read_request(name)
         .await
         .map_err(|_| "iCloud backup read did not complete.".to_string())?
 }
 
+pub async fn read(name: &str) -> Result<Option<Vec<u8>>, String> {
+    Ok(read_tagged(name).await?.map(|(bytes, _)| bytes))
+}
+
 fn write_request(
     name: String,
     temp_path: PathBuf,
-    expected: Option<Option<u64>>,
+    expected: Option<Option<String>>,
 ) -> oneshot::Receiver<Result<(), DocumentError>> {
     let database = cloud_database();
     let id = record_id(&name);
@@ -142,6 +158,7 @@ fn write_request(
     let temp_for_fetch = temp_path.clone();
     let record_name = name;
     let callback = RcBlock::new(move |record: *mut CKRecord, error: *mut NSError| {
+        let current = unsafe { record.as_ref() }.map(change_tag);
         let record = if record.is_null() {
             if unsafe { !is_missing(error) } {
                 if let Some(sender) = sender.lock().ok().and_then(|mut sender| sender.take()) {
@@ -162,15 +179,10 @@ fn write_request(
         } else {
             unsafe { Retained::retain(record).expect("CloudKit returned a live record") }
         };
-        if let Some(expected) = expected {
-            let current = unsafe { record.objectForKey(&NSString::from_str(ASSET_KEY)) }
-                .and_then(|value| value.downcast::<CKAsset>().ok())
-                .and_then(|asset| unsafe { asset.fileURL() })
-                .and_then(|url| url.path())
-                .and_then(|path| std::fs::read(path.to_string()).ok())
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                .and_then(|value| value["revision"].as_u64());
-            if current != expected {
+        // The save below keeps CloudKit's default if-unchanged policy, so a
+        // writer that slips in after this fetch still fails with code 14.
+        if let Some(expected) = &expected {
+            if current.as_ref() != expected.as_ref() {
                 if let Some(sender) = sender.lock().ok().and_then(|mut s| s.take()) {
                     let _ = sender.send(Err(DocumentError::Conflict));
                 }
@@ -229,17 +241,44 @@ fn temp_asset_path() -> PathBuf {
     std::env::temp_dir().join(format!("isct-companion-{}.json", uuid::Uuid::new_v4()))
 }
 
-pub async fn write_checked(
-    name: &str,
-    bytes: Vec<u8>,
-    expected: Option<u64>,
-) -> Result<(), DocumentError> {
-    account_available()
-        .await
-        .map_err(DocumentError::Transport)?;
-    let temp = temp_asset_path();
-    std::fs::write(&temp, bytes).map_err(|e| DocumentError::Transport(e.to_string()))?;
-    write_request(name.to_string(), temp, Some(expected))
-        .await
-        .map_err(|_| DocumentError::Transport("iCloud write did not complete".into()))?
+/// The workspace record, as the byte store behind Core's `TaggedWorkspace`.
+pub struct Store;
+
+impl ObjectStore for Store {
+    fn read<'a>(&'a self, _provider: CloudProvider) -> BoxFuture<'a, Option<StoredObject>> {
+        Box::pin(async move {
+            Ok(
+                read_tagged(isct_core::cloud_sync::document::CLOUD_FILE_NAME)
+                    .await
+                    .map_err(DocumentError::Transport)?
+                    .map(|(bytes, tag)| StoredObject { bytes, tag }),
+            )
+        })
+    }
+
+    fn write<'a>(
+        &'a self,
+        _provider: CloudProvider,
+        bytes: Vec<u8>,
+        expected: Option<String>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            account_available()
+                .await
+                .map_err(DocumentError::Transport)?;
+            let temp = temp_asset_path();
+            std::fs::write(&temp, bytes).map_err(|e| DocumentError::Transport(e.to_string()))?;
+            write_request(
+                isct_core::cloud_sync::document::CLOUD_FILE_NAME.to_string(),
+                temp,
+                Some(expected),
+            )
+            .await
+            .map_err(|_| DocumentError::Transport("iCloud write did not complete".into()))?
+        })
+    }
+
+    fn disconnect(&self, _provider: CloudProvider) -> Result<(), DocumentError> {
+        Ok(())
+    }
 }

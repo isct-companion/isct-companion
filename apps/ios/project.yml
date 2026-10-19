@@ -55,6 +55,14 @@ targets:
       properties:
         keychain-access-groups:
           - $(AppIdentifierPrefix)app.isctcompanion
+        # The Mac app's CloudKit container (Core's `cloudkitRecord`).
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.app.isctcompanion
+        com.apple.developer.icloud-services:
+          - CloudKit
+        # Development-signed builds would otherwise use CloudKit's separate
+        # Development database and never see what the released Mac app wrote.
+        com.apple.developer.icloud-container-environment: Production
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion

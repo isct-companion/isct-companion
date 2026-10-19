@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 51 checks must be re-run before the next release.**
+**7 of 52 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**42 checks have never been run or could not be run:**
+**43 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -71,6 +71,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-COURSE-LESSON-PAGING` — never verified
 - `IOS-COURSE-LESSON-MARK` — never verified
 - `IOS-COURSE-EXAM-LINE` — never verified
+- `IOS-ICLOUD-BACKUP` — never verified
 
 ## Status
 
@@ -127,6 +128,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
+| `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs |
 
 ## Personas
 
@@ -2899,5 +2901,64 @@ A label read at a glance; the data is Core's CourseDetail.exams.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+
+**Last recorded** never run
+
+### iPhone and Mac load each other's data through one iCloud record (`IOS-ICLOUD-BACKUP`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The released (Developer ID) Mac app and the iPhone app, both signed with
+the team that owns `iCloud.app.isctcompanion`, on one Apple Account. The
+iPhone build carries the Production container environment, so both read
+the same CloudKit database.
+
+**Steps**
+
+1. On the Mac, Settings → Backup: turn on iCloud and Upload. On the
+   iPhone, 設定 › バックアップ: turn on iCloud and Pull.
+   - *Why:* The phone must load the Mac's plans, notes and hidden assignments.
+     Nothing arriving usually means the two builds use different CloudKit
+     environments or containers, not a merge bug.
+2. On the iPhone hide an assignment and Upload; on the Mac Pull.
+   - *Why:* The reverse direction goes through the phone's CloudKitStore write;
+     a refused or partial write shows as an iCloud error on the phone.
+3. Without pulling first, edit a different record on each device, then
+   Upload on both.
+   - *Why:* The second upload must lose CloudKit's conditional save, re-read and
+     merge. Losing either edit means a write replaced a record it had not
+     read.
+4. On the iPhone, open 以前のバージョン and restore one; then export a
+   backup file on the Mac and import it on the phone with 読み込む….
+   - *Why:* Restore and import both start a new generation on every device and
+     leave a local recovery file; the Mac must follow on its next Pull.
+
+**Where to look**
+
+The Backup pages on both devices (provider line, versions, recovery
+files) and the records themselves on each.
+
+**Expected**
+
+Each device shows the other's changes after a Pull, both concurrent edits
+survive, the version list names both devices, and a restore or import on
+the phone reaches the Mac with a recovery file kept on each.
+
+**Why this is manual**
+
+CloudKit needs a signed build, an iCloud account and a device; the
+merge, tag-conditional write and journal behind it are covered by
+`sessions_sharing_one_cloud_record_load_each_others_data` and
+`tagged_writes_carry_the_tag_read_with_the_expected_revision`.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/CloudKitStore.swift`
+- `apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift`
+- `apps/desktop/src-tauri/src/icloud.rs`
 
 **Last recorded** never run

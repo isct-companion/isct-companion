@@ -2471,3 +2471,56 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
     verified: null
+
+  - id: IOS-ICLOUD-BACKUP
+    area: cloud
+    title: iPhone and Mac load each other's data through one iCloud record
+    persona: careless-multidevice
+    preconditions: |
+      The released (Developer ID) Mac app and the iPhone app, both signed with
+      the team that owns `iCloud.app.isctcompanion`, on one Apple Account. The
+      iPhone build carries the Production container environment, so both read
+      the same CloudKit database.
+    steps:
+      - action: |
+          On the Mac, Settings → Backup: turn on iCloud and Upload. On the
+          iPhone, 設定 › バックアップ: turn on iCloud and Pull.
+        reason: |
+          The phone must load the Mac's plans, notes and hidden assignments.
+          Nothing arriving usually means the two builds use different CloudKit
+          environments or containers, not a merge bug.
+      - action: |
+          On the iPhone hide an assignment and Upload; on the Mac Pull.
+        reason: |
+          The reverse direction goes through the phone's CloudKitStore write;
+          a refused or partial write shows as an iCloud error on the phone.
+      - action: |
+          Without pulling first, edit a different record on each device, then
+          Upload on both.
+        reason: |
+          The second upload must lose CloudKit's conditional save, re-read and
+          merge. Losing either edit means a write replaced a record it had not
+          read.
+      - action: |
+          On the iPhone, open 以前のバージョン and restore one; then export a
+          backup file on the Mac and import it on the phone with 読み込む….
+        reason: |
+          Restore and import both start a new generation on every device and
+          leave a local recovery file; the Mac must follow on its next Pull.
+    observe: |
+      The Backup pages on both devices (provider line, versions, recovery
+      files) and the records themselves on each.
+    expected: |
+      Each device shows the other's changes after a Pull, both concurrent edits
+      survive, the version list names both devices, and a restore or import on
+      the phone reaches the Mac with a recovery file kept on each.
+    why_manual: |
+      CloudKit needs a signed build, an iCloud account and a device; the
+      merge, tag-conditional write and journal behind it are covered by
+      `sessions_sharing_one_cloud_record_load_each_others_data` and
+      `tagged_writes_carry_the_tag_read_with_the_expected_revision`.
+    covers:
+      - apps/ios/IsctCompanion/Core/CloudKitStore.swift
+      - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
+      - apps/desktop/src-tauri/src/icloud.rs
+    verified: null
