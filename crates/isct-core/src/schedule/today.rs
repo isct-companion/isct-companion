@@ -5,13 +5,13 @@
 //! countdowns from the timestamps.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Datelike, Duration, FixedOffset};
+use chrono::{DateTime, Duration, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
-use super::calendar::quarter_range;
+use super::calendar::{quarter_range, teaching_week};
 use super::reminders::reminder_term;
 use super::tasks::{countdown_tone, task_view, AssignmentGroups};
 use super::{
@@ -352,16 +352,7 @@ pub fn today_view(
     let teaching_week = quarter_range(workspace, &term)
         .ok()
         .flatten()
-        .and_then(|range| {
-            let from = parse_civil_date(&range.from).ok()?;
-            let to = parse_civil_date(&range.to).ok()?;
-            let today = parse_civil_date(&date).ok()?;
-            // Calendar weeks: the week holding the quarter's first day is week 1.
-            let monday = from - Duration::days(i64::from(from.weekday().num_days_from_monday()));
-            (from..=to)
-                .contains(&today)
-                .then(|| ((today - monday).num_days() / 7 + 1) as u32)
-        });
+        .and_then(|range| teaching_week(&range, parse_civil_date(&date).ok()?));
 
     let mut current = None;
     let mut upcoming = Vec::new();

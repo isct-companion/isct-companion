@@ -2,8 +2,13 @@
 
 Design direction for the native phone shells (SwiftUI on iOS, Jetpack Compose
 on Android). Logic lives in `isct-core` (see `docs/core-consolidation.md`);
-this document covers what the shells show and how. iPad and landscape keep the
-desktop workstation.
+this document covers what the shells show and how.
+
+The shells follow the desktop's pages and actions (`routes.ts`: Home,
+Timetable, Lectures, Web, Settings) adapted to touch, not a separate feature
+set. iPhone and iPad differ slightly on purpose: the iPhone is for quick,
+accurate looks; the iPad is half a workstation (see [Devices and
+layouts](#devices-and-layouts)).
 
 Design canvas (iOS, 12 screens):
 <https://claude.ai/artifact/Gz5MakpmtDvnHJWZADsyEP>
@@ -60,6 +65,14 @@ that repaints system chrome reads as a web page pretending to be an app.
   (ok / warn / danger with soft backgrounds) are the desktop ones.
 - **No left-border cards, no count badges, no explanatory footnotes.** Urgency
   shows through ordering, grouping and one chip per row.
+- **Polish the content components, with the platform's own tools.** The pieces
+  above are built once under `Design/` and carry the app's finish: numeric
+  text transitions on countdowns, sensory feedback on swipe actions, symbol
+  effects on the sync ring, zoom transitions from a block or card into its
+  course, mesh-gradient course tints on the hero card, Liquid Glass on our own
+  floating controls (iOS 26, a material below). Pow supplies the few
+  celebratory effects the platform lacks. Everything respects Reduce Motion.
+  iOS 18 is the minimum.
 
 ## Surfaces outside the app
 
@@ -103,23 +116,40 @@ local "mark done": submission state comes from the LMS.
 - Live Activities / Dynamic Island countdown: starting one while the app is in
   the background needs a push server. Revisit if one exists.
 
+## Devices and layouts
+
+One page set, two containers. The layout follows the desktop rule in
+`apps/desktop/src/app/form-factor.ts`: stacked (single column) up to 600 pt
+wide or in portrait up to 1100 pt, otherwise split. Telling iPhone from iPad is
+the one allowed runtime platform check (AGENTS.md rule 3).
+
+| | iPhone | iPad, stacked | iPad, split |
+|---|---|---|---|
+| Container | Tab bar + stack | Tab bar + stack | Sidebar + content (`NavigationSplitView`) |
+| Pages | 今日 · 時間割 · 課題 · ウェブ | 今日 · 時間割 · **授業** · 課題 · ウェブ | Sidebar: the same five, then 設定 |
+| Courses | Pushed from any block, card or row | 授業 tab: course list → course page | 授業: course list column + course page |
+| Settings | Pushed pages from the gear | Pushed pages from the gear | Sidebar item |
+| Workstation | — | — | File tray bottom right (phase 3) |
+
+The same page views fill every container; only the container changes.
+
 ## App structure
 
-Four tabs, matching the desktop rail (Home, Lectures, Web) where it makes
-sense. Everything else is pushed or presented from them.
+Everything not in the table above is pushed or presented from a page.
 
-| Tab | Content |
+| Page | Content |
 |---|---|
 | **今日 Today** | One hero card chosen by the time of day, then at most two short sections (see below). |
-| **時間割 Timetable** | Week grid, read-only. Tap a block → course detail. |
+| **時間割 Timetable** | A dated week grid with a quarter picker (see below). Tap a block → course page. |
+| **授業 Lectures** (iPad) | Courses of the shown quarter; the course page on the right in split. |
 | **課題 Assignments** | Open assignments grouped by deadline: overdue, today, this week, later. Submitted and hidden ones sit behind one row at the bottom. |
-| **ウェブ Web** | School sites in one resident web view, a site switcher on top (see [School web](#school-web)). |
+| **ウェブ Web** | School sites in one resident web view; the site picker sits behind a long press on the tab (see [School web](#school-web)). |
 
 | Pushed / presented | From | Content |
 |---|---|---|
-| Course detail (push) | Any class or assignment row, timetable block | Room card, open assignments, latest materials, T2SCHOLA and syllabus links |
-| School web (push, full screen) | Course detail, assignment, notification | The page fills the screen; back returns to where it was opened from |
-| Settings (sheet) | Gear button on the Today title | School accounts, notifications, study profile, matrix card import, iCloud sync |
+| Course page (push, zoom) | Any class or assignment row, timetable block, 授業 | Header (room, LMS and syllabus links, the course's exams), then the LMS content one lesson at a time (see [Course page](#course-page)) |
+| School web (push, full screen) | Course page, assignment, notification | The page fills the screen; back returns to where it was opened from |
+| Settings (pushed pages) | Gear on the Today title; sidebar in split | The desktop settings sections that apply on a phone, under the desktop's keys so cloud sync keeps both ends equal: school accounts (with matrix card import), notifications (class, exam and assignment reminders), 学習プロフィール, データ更新 (cellular, last pull per site, pull now), ウェブ (text size, first site; device-local), 情報. iCloud backup waits for the entitlement. |
 
 Navigation follows the platform: stack pushes with edge-swipe back (Android
 back), sheets for settings-like content, pull to refresh as a fallback only.
@@ -145,50 +175,96 @@ First launch has no onboarding screen: Today opens empty with one sign-in card.
 
 ### Timetable
 
-- Large title with the quarter and week range; previous / next week buttons,
-  horizontal swipe between weeks.
-- Monday to Friday × periods 1–10. A block shows course name and room on the
-  course tint. Today's column is outlined, the current block has a 2 pt border
-  in the course colour, a holiday column is hatched and its blocks fade.
+- A dated week, not a quarter: the title is the date range with
+  "2026 年度 · 3Q 第 2 週" above it as an accent capsule, the cue that the
+  title block opens the picker; horizontal swipe between weeks. Core's
+  `ScheduleView` covers any range and every term in it. Nothing sits to the
+  right of the range figures, so they can roll without pushing a control.
+- Week stepping is one segmented capsule on the right: ‹ · 今日 · ›. 今日 is
+  dimmed on the current week, which doubles as "you are here".
+- Tapping the title opens the time picker: 1Q–4Q chips for the academic year
+  (a chip jumps to that quarter's first teaching week, which is how a student
+  shows someone their courses), and a month calendar whose weeks are labelled
+  with their quarter and week number, breaks and exam periods marked
+  (`QuarterRange`, `AcademicTermForDate`). "今日に戻る" returns.
+- Monday to Friday × periods 1–10, on Core's `timetable_axis` (every period
+  one row). A block shows course name and room on the course tint; the title
+  takes as many lines as the block's height allows and the room line shows the
+  first room only. Today's column is outlined and carries the now line, the
+  current block has a 2 pt border in the course colour, a holiday column is
+  hatched and its blocks fade.
+- An exam block has a warn-coloured border and 試験 before its room; a
+  cancelled block fades, strikes its title and says 休講.
+- Long press on a class or exam block marks it (`MarkSession`): 試験にする,
+  休講にする, 通常の授業に戻す, the current state ticked. Plan blocks and
+  personal events have no marks.
 - Registration states match desktop (`product-definition.md`): registered and
   declared are filled, planned courses are an outline only.
 - Intensive courses sit in one row under the grid.
-- Read-only. Adding, removing and planning courses stays on desktop.
+- Otherwise read-only. Adding, removing and planning courses stays on desktop.
+
+### Course page
+
+- Header: title, "code · day periods · room", the LMS and シラバス chips, and
+  one warn-coloured line per exam of the course from `CourseDetail.exams`
+  ("試験 · 11/27 5–6限 · W9-202"; a cancelled exam struck through).
+- The LMS content one lesson at a time, as the desktop Lecture Desk lays it
+  out: lesson chips (一般, 1, 2, …) and the lesson's text, files, pages,
+  labels, announcements and assignments from Core's `CourseContent`.
+- Lessons turn by horizontal swipe through the shared `HorizontalPager`: the
+  content follows the finger for a third of the width, then rubber-bands; a
+  pull past a third or a flick commits; the page moves as one piece toward the
+  side the finger went. Drags that start within 24 pt of the leading edge are
+  left to the system back gesture. LMS text is rendered before a lesson is
+  shown, so a page arrives at its final height.
+- The chip with a dot under it is Core's current lesson (`currentSection`,
+  which honours the desktop's double-click mark in `lessonLog`). Long press on
+  a chip offers "この回を M/D の授業にする" for the class at `classAt`; it sends
+  `RecordLesson`, the same intent as the desktop.
 
 ### Assignments
 
-- Rows: course colour square, title, course and deadline, one countdown chip.
-- Swipe right: **Pin**; swipe left: **Hide** (the same pair as the desktop
-  touch rows). Tap opens the submission page. Long press offers pin, hide and
-  open course. Hidden assignments come back from the bottom row.
+- Rows: course colour square, title, course and deadline, one countdown chip;
+  no disclosure chevron, the row itself is the button.
+- Swipe right: **Pin** (a full swipe pins); swipe left: **Hide**, which needs
+  a tap on the revealed button so a long pull cannot hide by accident. Tap
+  opens the assignment page; long press offers open course, LMS で提出, pin and
+  hide. Hidden assignments come back from the bottom row.
 - Only open assignments by default; submitted and graded ones are one tap away.
 
 ### School web
 
-- Two entries, one web view: the **ウェブ** tab (site switcher for Portal,
-  T2SCHOLA, Kyomu, Mail, Library; each site's last page restored), and pushes
-  from context (course → its T2SCHOLA page, assignment → its submission page),
-  which return to the opener.
-- The page fills the whole screen, under the status bar and toolbars. Controls
-  float over it in glass: back to the opener, page title, text size; back,
-  forward, share, open in browser. WKWebView back/forward swipe gestures on.
+- Two entries, one web view: the **ウェブ** tab (Portal, LMS, Kyomu, Mail,
+  Library; each site's last page restored), and pushes from context (course →
+  its LMS page, assignment → its submission page), which return to the opener.
+- The tab draws nothing over the page. Its site picker is a long press on the
+  ウェブ tab item (`TabBarLongPress`): a glass panel rises above the tab bar
+  with the five sites, 再読み込み and ブラウザで開く; the finger can slide to a
+  row and lift to choose it, or lift first and tap. Tapping the tab again
+  returns the shown site to its start page; WKWebView's own edge swipes go back
+  and forward; text size lives in Settings. The iPad sidebar row offers the
+  same rows as a context menu.
+- A pushed page keeps its glass controls: back to the opener, page title, text
+  size; back, forward, share, open in browser.
 - Sign-in is driven by core through `SchoolBrowser`; the web view and
   background pulls share one session. Each site's page stays resident;
   returning restores it without reloading. Authentication callbacks are never
   restored.
 - Downloads open in Quick Look or go to Files through the share sheet.
-- Default text zoom above 100% (start at 115%), adjustable per site with the
-  existing school web zoom setting.
+- Default text zoom above 100% (start at 115%), set in Settings › ウェブ
+  (100 / 115 / 130 %), kept on the device.
 - Pages that need a desktop show one inline "better on a computer · open in
   browser" notice, never a dialog.
 
 ### Not on the phone
 
-Stays on desktop: course planner and adding courses, assignment workspaces,
-the full lecture desk (chapter trees, file tabs), note editor, custom CSS/JS,
-advanced catalog search, academic calendar editing, developer settings. The
-phone is read-mostly with a few quick actions: open, hide, sign in, import
-matrix card.
+Stays on desktop: course planner and adding courses, note editor, custom
+CSS/JS, advanced catalog search, academic calendar editing, developer
+settings. LMS course content is readable on every device. Assignment
+workspaces come to the iPad in phase 3: files shared in (for example from
+GoodNotes) land in a tray, are dragged onto an assignment and uploaded one by
+one or as a ZIP through Core's `workspaces` and `prepare_submission`; the
+iPhone picks the assignment in a sheet instead of dragging.
 
 ## Gestures
 
@@ -198,9 +274,12 @@ used.
 | Gesture | Meaning |
 |---|---|
 | Tap | Open |
-| Long press | Quick actions (at most 4): open course, pin, hide |
-| Horizontal swipe on content | Change week (timetable) |
-| Row swipe | Row actions (assignment: right pin, left hide) |
+| Long press on a row | Quick actions (at most 4): open course, pin, hide |
+| Long press on a timetable block | Mark: exam, cancelled, normal class |
+| Long press on a lesson chip | Mark this lesson as the class's lesson |
+| Long press on the ウェブ tab | Site picker; slide to a row and lift |
+| Horizontal swipe on content | Change week (timetable), change lesson (course page); drags from the leading 24 pt are the system back gesture |
+| Row swipe | Row actions (assignment: right pin, left hide; hide needs a tap) |
 | Pull down | Manual pull |
 | Swipe down on a sheet | Dismiss |
 
@@ -213,8 +292,9 @@ same intent to core, and undo comes from the mutation result core returns.
 
 ## Sync feedback
 
-The pull state machine (`PullState`, 11 states) is mapped to three levels; the
-UI keeps no busy flags of its own.
+The pull state machine (`PullState`, 11 states) is mapped to three levels by
+Core's school status (`crates/isct-core/src/school_status.rs`), the read model
+the desktop footer also renders; the UI keeps no busy flags of its own.
 
 | Level | States | Display |
 |---|---|---|

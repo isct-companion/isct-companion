@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 38 checks must be re-run before the next release.**
+**7 of 47 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**29 checks have never been run or could not be run:**
+**38 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -58,6 +58,15 @@ an unverified area becomes an assumed-good one.
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
 - `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
+- `IOS-TIMETABLE-WEEK-AND-MARKS` — never verified
+- `IOS-TODAY-EXAMS` — never verified
+- `IOS-ASSIGNMENT-ROWS` — never verified
+- `IOS-WEB-TAB-PICKER` — never verified
+- `IOS-SETTINGS-PAGES` — never verified
+- `DESKTOP-CALENDAR-NOW-LINE` — never verified
+- `IOS-COURSE-LESSON-PAGING` — never verified
+- `IOS-COURSE-LESSON-MARK` — never verified
+- `IOS-COURSE-EXAM-LINE` — never verified
 
 ## Status
 
@@ -101,6 +110,15 @@ an unverified area becomes an assumed-good one.
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/extraction.rs |
+| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift |
+| `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
+| `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentsScreen.swift |
+| `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
+| `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
+| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx |
+| `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
+| `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
+| `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 
 ## Personas
 
@@ -1348,18 +1366,45 @@ A signed build, provisioning, and physical iOS and Android devices.
      (`vault_item`). Showing 未接続 here means the iOS item identity or
      access group drifted from the desktop's.
 3. Walk sign-in, pull to refresh on 今日, the ウェブ tab, a course's
-   T2SCHOLA link, hiding an assignment, and turning on reminders.
+   LMS link, hiding an assignment, and turning on reminders.
    - *Why:* The native shells render independently of the desktop frontend, so
      desktop acceptance says nothing about them. Pulls run through the
      WKWebView browser port, which only a real identity provider and OTP
      exercise.
 4. On Android, sign in from 設定, pull to refresh on 今日, open the
-   ウェブ tab and a course's T2SCHOLA link, swipe an assignment to hide
+   ウェブ tab and a course's LMS link, swipe an assignment to hide
    it, then turn on reminders and wait for one to arrive.
    - *Why:* Pulls run through the WebView browser port and Core's injected
      scripts, which only a real identity provider and OTP exercise;
      reminders depend on the notification permission and alarm delivery
      of a real device.
+5. On iOS, pull down on 今日 and watch the ring beside the settings
+   button, then tap it.
+   - *Why:* The ring and the sheet render Core's school status
+     (`school_status.rs`), the same read model as the desktop footer. A
+     ring that never fills, or a sheet whose LMS and 教務Web rows disagree
+     with the desktop footer, means the shell stopped following Core.
+6. On iOS, open a course from a timetable block, switch to 資料 and open
+   a PDF; then tap the timetable title, pick another quarter's chip and
+   a week in the list.
+   - *Why:* Files download with the resident web view's sign-in (the cookie
+     port) into the folder desktop uses; a Safari hand-off or a login
+     prompt means the port or the folder name drifted. The picker labels
+     come from Core's `TimetableYear`; a quarter chip that lands on a
+     week outside that quarter means the jump target is wrong.
+7. On an iPad, hold it upright, then turn it to landscape, open 授業 and
+   pick two courses.
+   - *Why:* Upright keeps the tab bar with 授業 added; landscape switches to the
+     sidebar and the course list beside the course page, by the desktop's
+     width rule. A course page that does not change, or a back stack that
+     survives choosing another course, means the split lost its owner.
+8. On each device, after a pull, turn two reminder switches on in quick
+   succession, force-quit the app, reopen it and open 設定.
+   - *Why:* Each account row's 更新 time comes from Core's school status; a time
+     that disappears after the restart means the shell went back to its
+     own clock. Both switches staying on shows settings edits are applied
+     one after another, as on desktop, instead of the second copying
+     stale settings.
 
 **Where to look**
 
@@ -2190,5 +2235,453 @@ shell, which no longer does either, still gets there.
 - `crates/isct-core/src/runtime.rs`
 - `crates/isct-core/src/notes.rs`
 - `crates/isct-core/src/school_browser/engine/extraction.rs`
+
+**Last recorded** never run
+
+### iPhone timetable header, fitted blocks, session marks and the now line (`IOS-TIMETABLE-WEEK-AND-MARKS`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app with the current quarter pulled, opened on a weekday
+between the first period's start and the last period's end (Tokyo time).
+
+**Steps**
+
+1. Open 時間割 and read the title block: the quarter and week label is
+   an accent capsule with a calendar symbol, the date range has no icon
+   after it, and tapping either opens the week picker.
+   - *Why:* The capsule is the only cue that the title opens the picker; the
+     chevron that used to follow the range jumped sideways whenever the
+     range changed digit count.
+2. Step forward twice with › and back with 今日.
+   - *Why:* The range figures must roll in place without moving anything beside
+     them; 今日 is dimmed on the current week and active elsewhere, so a
+     dimmed 今日 on another week or an active one on this week is wrong.
+3. Find a two-period class with a long English title and one whose
+   room field lists several rooms.
+   - *Why:* The title fills the block's height instead of stopping at three
+     lines over empty space, and only the first room shows; a cut title
+     over blank space or a room list ending in … is the old layout.
+4. Long press a class and choose 試験にする, then 休講にする, then
+   通常の授業に戻す, reopening the menu each time.
+   - *Why:* Each mark is Core's MarkSession and must redraw at once: a warn
+     border with 試験 before the room, then a faded struck-through title
+     with 休講, then the plain block; the tick must follow the state.
+     Plan blocks must offer no menu.
+5. Look at today's column during a teaching hour.
+   - *Why:* The red now line with its dot sits at the current time and moves
+     every half minute; outside the axis, and on weekends when the grid
+     shows the coming week, there is no line by design.
+
+**Where to look**
+
+The 時間割 tab on the device.
+
+**Expected**
+
+The header reads and steps as described, blocks use their height, marks
+redraw immediately with the right styling and tick, and the now line
+tracks the clock in today's column.
+
+**Why this is manual**
+
+Layout, the capsule cue, the context menu and the moving line are read
+at a glance on a phone; the axis maths is covered by Core's timing tests
+and the desktop `nowPercent` unit tests.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift`
+- `apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift`
+- `apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift`
+
+**Last recorded** never run
+
+### iPhone Today names exams and lists the next two weeks of them (`IOS-TODAY-EXAMS`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app with the exam timetable pulled and at least one exam
+linked to a course within the next 14 days, or a class marked 試験にする
+from 時間割 for tomorrow.
+
+**Steps**
+
+1. After today's classes, open 今日 and read the label above the next
+   class card.
+   - *Why:* A class marked as an exam must read 明日の試験 / 次の試験, and 試験中
+     while it runs, with a warn-coloured countdown chip; 次の授業 on an
+     exam means the kind is ignored.
+2. Read the 試験 card above 期限.
+   - *Why:* It lists Core's upcomingExams within 14 days (date · periods or
+     time · room, course square) and is absent when there are none;
+     tapping a row with a course opens that course page.
+
+**Where to look**
+
+The 今日 tab on the device.
+
+**Expected**
+
+Exam labels and chip colour follow the occurrence kind, and the 試験
+card appears only with upcoming exams and opens the course.
+
+**Why this is manual**
+
+Which label and card appear is read at a glance; the phase and exam
+selection are Core's today and exams read models, covered by their
+tests.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Today/TodayScreen.swift`
+
+**Last recorded** never run
+
+### iPhone assignment rows without chevrons, hide needs a tap (`IOS-ASSIGNMENT-ROWS`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app with open assignments in 課題.
+
+**Steps**
+
+1. Read the rows in 課題 and すべての課題.
+   - *Why:* No disclosure chevron at the trailing end; the countdown chip is the
+     last thing on the row. A chevron means the row went back to a
+     NavigationLink.
+2. Swipe a row fully to the right, then another fully to the left.
+   - *Why:* A full right swipe pins at once; a full left swipe only reveals 非表示
+     and hides nothing until the button is tapped, so a careless pull
+     cannot hide work. Each action gives one light haptic.
+3. Tap a row and long press another.
+   - *Why:* Tap opens the assignment page; long press offers open course,
+     LMS で提出, pin and hide, as before.
+
+**Where to look**
+
+The 課題 tab and the すべての課題 page.
+
+**Expected**
+
+Rows have no chevrons, pin is a full swipe, hide needs a tap, and the
+haptic fires once per action.
+
+**Why this is manual**
+
+Swipe feel and haptics need a phone; the hide and pin intents are
+covered by Core's assignment board tests.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Assignments/AssignmentsScreen.swift`
+
+**Last recorded** never run
+
+### iPhone ウェブ tab picks its site by a long press on the tab (`IOS-WEB-TAB-PICKER`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app signed in to Science Tokyo, on iOS 26 (and once on an
+iOS 18 device if one is at hand).
+
+**Steps**
+
+1. Open ウェブ and look for a floating button over the page.
+   - *Why:* There is none; the page is clear. A floating button means the old
+     switcher came back.
+2. Long press the ウェブ tab item, keep the finger down, slide up to
+   教務Web and lift.
+   - *Why:* A haptic marks recognition, the glass panel rises above the tab bar
+     over that item, the row under the finger highlights, and lifting
+     switches the site. On the iOS 26 glass bar the press must not also
+     switch tabs or drag the bar.
+3. Long press again, lift without choosing, then tap a row; and once
+   lift outside the panel.
+   - *Why:* Tap-after-lift selects; lifting outside dismisses. Both paths must
+     work or the picker only suits one habit.
+4. Tap the ウェブ tab while a site is open, and swipe from the page's
+   edges.
+   - *Why:* Tapping the tab returns the site to its start page; WKWebView's own
+     edge swipes go back and forward, replacing the old button's arrows.
+5. On an iPad in split, long press ウェブ in the sidebar.
+   - *Why:* The same rows appear as a context menu.
+
+**Where to look**
+
+The ウェブ tab and the tab bar on the device.
+
+**Expected**
+
+No floating button; the long-press panel opens over the tab, slide and
+tap both choose a site, and the page's own gestures cover back and
+forward.
+
+**Why this is manual**
+
+The tab-bar recognizer and Liquid Glass hit-testing exist only on a
+device; nothing in the harness reaches UIKit's tab bar.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+
+**Last recorded** never run
+
+### iPhone settings pages keep their values and share the desktop's keys (`IOS-SETTINGS-PAGES`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app and the desktop app signed in to the same workspace with
+cloud sync on.
+
+**Steps**
+
+1. In 設定 › 通知 turn on 試験の前 with a lead, and pick two assignment
+   reminder times; reopen the page and relaunch the app.
+   - *Why:* Values must survive reopening and relaunch; the keys are the
+     desktop's (exams, examLeadMinutes, the assignment lead list), so the
+     desktop's Notifications page must show the same choices after sync.
+2. Set 学習プロフィール (department, admission year, degree) and check
+   the desktop's Study profile.
+   - *Why:* The same intent as the desktop; a mismatch means the phone wrote a
+     different shape.
+3. In データ更新 toggle モバイル通信でも更新, read the per-site last update
+   times, and tap 今すぐ更新.
+   - *Why:* The toggle is settings.subscriptionRefresh.allowCellular, which
+     Core already reads for pulls; the times are Core's source status;
+     the button runs the normal pull.
+4. In ウェブ set 文字サイズ to 130 % and the first site to 教務Web; open
+   ウェブ.
+   - *Why:* The page text is larger and the tab opens on 教務Web after relaunch;
+     both are device-local settings.
+
+**Where to look**
+
+設定 and its pushed pages on the device, and the desktop settings.
+
+**Expected**
+
+Every page reloads what was saved, synced settings match the desktop,
+and the web settings take effect in the ウェブ tab.
+
+**Why this is manual**
+
+Needs a device, a second signed-in app and cloud sync; the settings
+object itself is covered by Core's workspace tests.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift`
+- `apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift`
+- `apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift`
+
+**Last recorded** never run
+
+### Desktop calendar tints today and draws the moving now line (`DESKTOP-CALENDAR-NOW-LINE`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app during a teaching hour on a weekday.
+
+**Steps**
+
+1. Open 今日 › Calendar and look at today's column.
+   - *Why:* Today's column has the accent tint and the red now line at the
+     current time; the planner's current quarter shows the same. Both
+     come from one isToday flag in agendaColumns, which commit 06e0a36
+     had dropped.
+2. Wait a minute.
+   - *Why:* The line moves; a line that never moves was computed once.
+
+**Where to look**
+
+The Calendar view and the planner's current quarter.
+
+**Expected**
+
+Today is tinted and the now line tracks the clock on both.
+
+**Why this is manual**
+
+A line position read at a glance; agendaColumns' isToday is covered by
+the schedule-and-dates unit test.
+
+**Covers**
+
+- `apps/desktop/src/components/timetable/workspace.ts`
+- `apps/desktop/src/pages/today/CalendarView.tsx`
+
+**Last recorded** never run
+
+### iPhone course page turns lessons by swipe, as one piece, both ways (`IOS-COURSE-LESSON-PAGING`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app with LMS content pulled for a course whose LMS numbers at
+least three lessons (第1回, 第2回, …), at least one with 授業計画 text.
+
+**Steps**
+
+1. Open the course from 時間割 and swipe left across the lesson card,
+   then right.
+   - *Why:* The pager must turn to the next lesson on a left swipe and back on a
+     right one; the old page leaves toward the side the finger moved and
+     the new one comes from the other. A transition fixed to one edge
+     made "previous" look like "next".
+2. Watch the card with the 授業計画 text as it moves in.
+   - *Why:* The text used to arrive after the card (a progress placeholder, then
+     the rendered HTML), so the card grew and its text slid separately.
+     It must arrive at full height and move with its background.
+3. Drag slowly a little under a third of the width and let go; then
+   flick quickly a short distance.
+   - *Why:* A slow short drag springs back; a flick over 300 pt/s turns the
+     page. Either rule breaking makes paging feel random.
+4. On the first lesson drag right; on the last drag left.
+   - *Why:* At an end there is only a damped pull, never a turn.
+5. Start a swipe at the very left edge of the screen.
+   - *Why:* Edge drags belong to the navigation back gesture; the page must pop
+     back to the timetable rather than turn a lesson.
+6. Scroll the page vertically with a slightly diagonal drag, and tap a
+   file row.
+   - *Why:* The pager runs alongside scrolling and taps; a drag that starts
+     vertical stays a scroll for its whole length.
+
+**Where to look**
+
+The course page pushed from 時間割.
+
+**Expected**
+
+Lessons turn in the direction of the swipe, each page moves as one piece
+with its text already laid out, ends only rubber-band, the edge swipe
+pops, and scrolling and taps work as before.
+
+**Why this is manual**
+
+Gesture feel and animation are judged by eye on a phone; an e2e test over
+a fake host would rebuild the screen rather than test it.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Design/HorizontalPager.swift`
+- `apps/ios/IsctCompanion/Design/HTMLText.swift`
+- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+
+**Last recorded** never run
+
+### iPhone lesson chip long press marks the lesson for the class (`IOS-COURSE-LESSON-MARK`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app with a course that has class meetings on the timetable
+and numbered LMS lessons, and the desktop app signed in to the same
+workspace.
+
+**Steps**
+
+1. Open the course page and note which chip has the small dot under it.
+   - *Why:* The dot is Core's current lesson; it must be distinct from the filled
+     chip of the lesson being read.
+2. Long press another lesson chip and choose "この回を M/D の授業にする".
+   - *Why:* M/D must be the class the mark attaches to (today's class if it has
+     begun, else the next one, in Tokyo time); a wrong date means the mark
+     lands on the wrong occurrence.
+3. Open the same course on the desktop Lecture Desk.
+   - *Why:* The mark is the desktop's double-click mark (lessonLog); both shells
+     must agree on the current lesson.
+4. Long press a chip on a course with no class meetings.
+   - *Why:* Without a class to attach to there is nothing to mark; the menu item
+     must not appear.
+
+**Where to look**
+
+The lesson chip row on the course page, and the desktop lesson rail.
+
+**Expected**
+
+A success haptic, the dot moves to the marked chip, the desktop rail shows
+the same lesson as current, and the menu is absent without class times.
+
+**Why this is manual**
+
+The context menu, haptic and dot are read at a glance on a phone, and the
+cross-device agreement needs the real desktop; Core's rule is covered by
+`course_content_follows_the_desktop_lecture_desk`.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+
+**Last recorded** never run
+
+### iPhone course page shows its exams under the subtitle (`IOS-COURSE-EXAM-LINE`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app with the exam timetable pulled and a course that has an
+exam, and another whose exam was marked cancelled on the desktop.
+
+**Steps**
+
+1. Open each course page and read the lines under the subtitle.
+   - *Why:* One orange line per visible exam, "試験 · 11/27 5–6限 · W9-202" (times
+     when periods are unknown); a cancelled exam struck through; a hidden
+     exam absent.
+
+**Where to look**
+
+The course page header.
+
+**Expected**
+
+The exam line matches the desktop exam list for that course.
+
+**Why this is manual**
+
+A label read at a glance; the data is Core's CourseDetail.exams.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
 
 **Last recorded** never run

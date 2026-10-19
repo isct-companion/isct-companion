@@ -10,6 +10,7 @@ use crate::{
     scheduler::{ScheduledExporter, SchedulerServices},
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     school_service::{SchoolExecutor, SchoolService},
+    school_status::{SchoolStatus, SchoolStatusTracker},
     workspace::{WorkspaceError, WorkspaceService},
 };
 use std::sync::{Arc, Mutex};
@@ -23,9 +24,43 @@ pub struct Core {
     pub reminders: crate::schedule::ReminderService,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
+    school_status: Arc<SchoolStatusHub>,
 }
 
-struct CoreEvents(Mutex<Option<Arc<dyn EventSink>>>);
+struct CoreEvents {
+    sink: Mutex<Option<Arc<dyn EventSink>>>,
+    school_status: Arc<SchoolStatusHub>,
+}
+
+/// Every pull, progress, ingest and sign-in event passes the relay below, so
+/// the school status is folded there once for all shells.
+struct SchoolStatusHub {
+    tracker: Mutex<SchoolStatusTracker>,
+    store: DataStore,
+}
+
+impl SchoolStatusHub {
+    /// The new status when `event` changed it. Import runs are re-read only
+    /// when a school pull or extractor finished, a few times per pull.
+    fn observe(&self, event: &crate::events::CoreEvent) -> Option<SchoolStatus> {
+        use crate::events::CoreEvent::*;
+        if !matches!(
+            event,
+            PullStateChanged(_) | SchoolPullProgress(_) | SchoolIngest(_) | SchoolLogin(_)
+        ) {
+            return None;
+        }
+        let mut tracker = self.tracker.lock().ok()?;
+        let before = tracker.status();
+        if tracker.observe(event) {
+            if let Ok(runs) = self.store.last_import_runs() {
+                tracker.set_runs(runs);
+            }
+        }
+        let after = tracker.status();
+        (after != before).then_some(after)
+    }
+}
 
 struct NoopEvents;
 
@@ -37,16 +72,21 @@ impl EventSink for NoopEvents {
 
 impl EventSink for CoreEvents {
     fn emit(&self, event: crate::events::CoreEvent) -> Result<(), crate::ports::EventError> {
+        let status = self.school_status.observe(&event);
         let sink = self
-            .0
+            .sink
             .lock()
             .map_err(|_| crate::ports::EventError::Delivery("Event bridge is unavailable.".into()))?
             .clone();
-        match sink {
-            Some(sink) => sink.emit(event),
-            None => Err(crate::ports::EventError::Delivery(
+        let Some(sink) = sink else {
+            return Err(crate::ports::EventError::Delivery(
                 "Event bridge has stopped.".into(),
-            )),
+            ));
+        };
+        sink.emit(event)?;
+        match status {
+            Some(status) => sink.emit(crate::events::CoreEvent::SchoolStatusChanged(status)),
+            None => Ok(()),
         }
     }
 }
@@ -71,7 +111,7 @@ impl CommitObserver for StoreChanges {
 
 impl CoreEvents {
     fn clear(&self) {
-        if let Ok(mut sink) = self.0.lock() {
+        if let Ok(mut sink) = self.sink.lock() {
             *sink = None;
         }
     }
@@ -97,7 +137,16 @@ impl Core {
         network: PullNetwork,
         events: Option<Arc<dyn EventSink>>,
     ) -> Self {
-        let events = events.map(|events| Arc::new(CoreEvents(Mutex::new(Some(events)))));
+        let school_status = Arc::new(SchoolStatusHub {
+            tracker: Mutex::new(SchoolStatusTracker::default()),
+            store: store.clone(),
+        });
+        let events = events.map(|events| {
+            Arc::new(CoreEvents {
+                sink: Mutex::new(Some(events)),
+                school_status: school_status.clone(),
+            })
+        });
         let runtime = Arc::new(CoreRuntime::new(network));
         store.observe(Arc::new(StoreChanges {
             events: events.clone(),
@@ -112,7 +161,26 @@ impl Core {
             auth,
             runtime,
             events,
+            school_status,
         }
+    }
+
+    /// What the school connection is doing now. The same value is sent as
+    /// `school-status` whenever it changes; shells read this on start and
+    /// after a missed event.
+    pub async fn school_status(&self) -> Result<SchoolStatus, crate::data::DataError> {
+        let pulls = self.runtime.pull_snapshots().await;
+        let store = self.store.clone();
+        let runs = tokio::task::spawn_blocking(move || store.last_import_runs())
+            .await
+            .map_err(|error| crate::data::DataError::Storage(error.to_string()))??;
+        let mut tracker =
+            self.school_status.tracker.lock().map_err(|_| {
+                crate::data::DataError::Storage("School status is unavailable.".into())
+            })?;
+        tracker.observe(&crate::events::CoreEvent::PullStateChanged(pulls));
+        tracker.set_runs(runs);
+        Ok(tracker.status())
     }
 
     /// Start Core-owned event bridges on the shell's runtime. Cores built

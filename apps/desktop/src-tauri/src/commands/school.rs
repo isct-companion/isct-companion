@@ -175,10 +175,7 @@ pub(crate) async fn pull_school(
     core_ports::runtime(&app)
         .run(async move {
             if site == SchoolSite::ScienceLms && current_only == Some(true) {
-                return services
-                    .school
-                    .pull_current_term(services.executor)
-                    .await;
+                return services.school.pull_current_term(services.executor).await;
             }
             services
                 .school
@@ -203,6 +200,20 @@ pub(crate) async fn pull_state(
 ) -> Result<Vec<pull_coordinator::PullSnapshot>, String> {
     require_local_main(&webview)?;
     Ok(core_ports::runtime(&app).pull_snapshots().await)
+}
+
+/// What the school connection is doing; the footer re-reads it on
+/// `school-status` and on start.
+#[tauri::command]
+pub(crate) async fn school_status(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<isct_core::school_status::SchoolStatus, String> {
+    require_local_main(&webview)?;
+    core_ports::core(&app)
+        .school_status()
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

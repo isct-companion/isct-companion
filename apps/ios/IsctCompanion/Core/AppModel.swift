@@ -25,8 +25,8 @@ final class AppModel {
     private(set) var records = WorkspaceRecords()
     private(set) var credentials: SchoolCredentialStatus?
     private(set) var sessions: SchoolSessionStates?
-    private(set) var pulls: [PullSnapshot] = []
-    private(set) var lastPull: Date?
+    /// What the school connection is doing, decided by Core (`school_status.rs`).
+    private(set) var schoolStatus: SchoolStatus?
     /// Undo for the last hide, built from the intent Core committed.
     private(set) var undo: UndoAction?
     /// One "needs you" banner (sync feedback level 3).
@@ -42,6 +42,8 @@ final class AppModel {
     private var revision = ""
     private var boundaryTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var settingsWrite: Task<Void, Never>?
+    private var wakeTask: Task<Void, Never>?
     private let network = NWPathMonitor()
     private var networkState: PullNetwork = .unknown
     private var foreground = true
@@ -57,8 +59,8 @@ final class AppModel {
             && credentials.tokyoTech.availability == .notConfigured
     }
 
-    var isPulling: Bool {
-        pulls.contains { [.running, .applying, .yielding, .checking].contains($0.state) }
+    func source(_ site: SchoolSite) -> SchoolSourceStatus? {
+        schoolStatus?.sources.first { $0.site == site }
     }
 
     // MARK: Lifecycle
@@ -78,16 +80,19 @@ final class AppModel {
                 cloudProviders: [], authorizedCloudProviders: [])
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: nil,
-                notifications: nil, downloads: nil)
+                notifications: nil, downloads: WebCookieSession())
             self.session = session
             web.session = session
             let stream = try session.subscribe()
             Task { await self.listen(stream) }
             await refresh()
             await refreshAccounts()
+            await refreshSchoolStatus()
             status = .ready
             watchNetwork()
             report(foreground: true)
+            reportSchool(.launch)
+            startWaking()
         } catch {
             status = .failed(Self.describe(error))
         }
@@ -100,10 +105,15 @@ final class AppModel {
             foreground = true
             _ = try? session.resume()
             report(foreground: true)
+            reportSchool(.focus)
+            startWaking()
             Task { await refresh() }
         case .background:
             foreground = false
+            wakeTask?.cancel()
+            wakeTask = nil
             report(foreground: false)
+            reportSchool(.focus)
             _ = try? session.suspend()
         default:
             break
@@ -114,8 +124,27 @@ final class AppModel {
         guard let session else { return }
         _ = try? session.lifecycle(
             foreground: foreground, network: networkState, schoolVisible: web.isVisible)
-        _ = try? session.schoolLifecycle(
-            event: SchoolSessionLifecycle(kind: foreground ? .focus : .launch, visible: foreground))
+    }
+
+    /// The periodic wakeup desktop gives Core every second (`core_ports.rs`):
+    /// Core decides what is due — automatic school pulls, reference data such
+    /// as the academic calendar, scheduled tasks. Only while in front.
+    private func startWaking() {
+        guard wakeTask == nil else { return }
+        wakeTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let session = self.session else { return }
+                _ = try? await session.wake(schoolVisible: self.web.isVisible).value()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    /// School sign-in hears what desktop sends (`school-session.ts`): `launch`
+    /// once when the session opens, then `focus` as the app enters or leaves the
+    /// front. Core only acts on a visible focus.
+    private func reportSchool(_ kind: SchoolSessionLifecycleKind) {
+        _ = try? session?.schoolLifecycle(event: SchoolSessionLifecycle(kind: kind, visible: foreground))
     }
 
     private func watchNetwork() {
@@ -139,8 +168,11 @@ final class AppModel {
                 switch try await stream.next() {
                 case let .event(event):
                     switch event.name {
+                    case "school-status":
+                        await refreshSchoolStatus()
                     case "pull-state-changed", "school-pull-progress":
-                        await refreshPulls()
+                        // Folded into `school-status` by Core.
+                        break
                     case "school-session", "school-login-status":
                         await refreshAccounts()
                     case "school-web-open":
@@ -159,6 +191,7 @@ final class AppModel {
                 case .snapshotRequired:
                     scheduleRefresh()
                     await refreshAccounts()
+                    await refreshSchoolStatus()
                 }
             } catch {
                 return
@@ -207,7 +240,14 @@ final class AppModel {
             let changed = contentRevision != snapshot.contentRevision
             contentRevision = snapshot.contentRevision
             scheduleBoundary()
+            if changed || weeks.isEmpty {
+                weeks = [:]
+                Task { await prefetchTimetable() }
+            }
             if changed { await NotificationScheduler.sync(session) }
+        } catch is CancellationError {
+            // A newer change hint replaced this read; it is not a failure.
+        } catch SdkError.Cancelled {
         } catch {
             problem = Self.describe(error)
         }
@@ -235,14 +275,10 @@ final class AppModel {
         }
     }
 
-    private func refreshPulls() async {
+    private func refreshSchoolStatus() async {
         guard let session else { return }
-        if case let .pulls(snapshots)? = try? await session.pullState().value() {
-            pulls = snapshots
-            if snapshots.contains(where: { $0.state == .succeeded }) { lastPull = Date() }
-            if let failed = snapshots.first(where: { [.failed, .blocked].contains($0.state) }) {
-                problem = failed.lastError
-            }
+        if case let .schoolStatus(status)? = try? await session.schoolStatus().value() {
+            schoolStatus = status
         }
     }
 
@@ -254,7 +290,100 @@ final class AppModel {
         guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
             case let .scheduleView(view)? = result.values.first
         else { return nil }
+        weeks[from] = view
         return view
+    }
+
+    /// Weeks already read this revision, by Monday, so the timetable draws
+    /// them at once; a new revision re-reads them.
+    private(set) var weeks: [String: ScheduleView] = [:]
+
+    /// Reads this week and its axis ahead of the timetable being opened.
+    private func prefetchTimetable() async {
+        guard let view = await week(starting: TimetableScreen.monday(of: Date())) else { return }
+        let blocks = view.agendas.flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
+        let earliest = blocks.map(\.startTime).min { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
+        let latest = blocks.map(\.endTime).max { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
+        _ = await timetableAxis(earliest: earliest, latest: latest)
+    }
+
+    /// The quarter's courses as Core lists them for the course list.
+    func overview(_ term: String) async -> WorkspaceOverview? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .workspaceOverview(term: term)
+            ]).value(),
+            case let .workspaceOverview(view)? = result.values.first
+        else { return nil }
+        return view
+    }
+
+    /// Core's equal-row timetable axis, widened to the week's earliest start
+    /// and latest end when those leave the teaching day.
+    func timetableAxis(earliest: String?, latest: String?) async -> TimetableAxis? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .timetableAxis(earliest: earliest, latest: latest)
+            ]).value(),
+            case let .timetableAxis(axis)? = result.values.first
+        else { return nil }
+        lastTimetableAxis = axis
+        return axis
+    }
+
+    /// The last axis Core gave, so a timetable draws its rows at once.
+    private(set) var lastTimetableAxis: TimetableAxis?
+
+    /// A course's LMS content lesson by lesson.
+    func courseContent(_ id: String) async -> CourseContent? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .courseContent(courseId: id, now: Self.timestamp(Date()))
+            ]).value(),
+            case let .courseContent(content)? = result.values.first
+        else { return nil }
+        return content
+    }
+
+    /// One assignment with its LMS text and files, for the in-app page.
+    func assignmentDetail(_ id: String) async -> AssignmentDetail? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .assignmentDetail(assignmentId: id)
+            ]).value(),
+            case let .assignmentDetail(detail)? = result.values.first
+        else { return nil }
+        return detail
+    }
+
+    /// The academic year (April–March) a date belongs to.
+    func academicYear(of date: Date) async -> Int32? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .academicYears(date: Self.civil(date), selectedYear: 0)
+            ]).value(),
+            case let .academicYears(index)? = result.values.first
+        else { return nil }
+        return index.currentYear
+    }
+
+    /// Every week of an academic year with its quarter, for the timetable picker.
+    func timetableYear(_ year: Int32) async -> TimetableYear? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [.timetableYear(year: year)]).value(),
+            case let .timetableYear(view)? = result.values.first
+        else { return nil }
+        return view
+    }
+
+    /// Downloads (or reuses) a course file through the signed-in LMS session.
+    func openMaterial(_ files: CourseKey, source: String) async -> IsctCore.Material? {
+        guard let session,
+            case let .material(material)? = try? await session.openMaterial(
+                context: files, source: source, download: true, readText: false, limit: nil
+            ).value()
+        else { return nil }
+        return material
     }
 
     func courseDetail(_ id: String) async -> CourseDetail? {
@@ -306,34 +435,40 @@ final class AppModel {
         await refresh()
     }
 
-    /// Pull to refresh, and the first read after an account is saved: the
-    /// current quarter's LMS courses, their content and the deadlines in one
-    /// pass (the phone shows nothing else). It runs on after the gesture ends;
-    /// the header ring follows Core's pull state.
+    /// Pull to refresh, and the first read after an account is saved: 教務Web
+    /// first (registrations are what puts courses on the timetable), then the
+    /// current quarter's LMS courses, content and deadlines — the order of the
+    /// desktop's "Refresh now". It runs on after the gesture ends; the header
+    /// ring follows Core's school status.
     func refreshFromSchool() {
-        Task { await pull([{ try $0.pullCurrentTerm() }]) }
+        var steps: [(Session) throws -> IsctCore.Operation] = []
+        if [.available, .savedLocked].contains(credentials?.tokyoTech.availability) {
+            steps.append { try $0.pullSchool(site: .kyomu, courseId: nil, loginFirst: false) }
+        }
+        steps.append { try $0.pullCurrentTerm() }
+        Task { await pull(steps) }
     }
 
-    /// Runs pulls in order and stops at the first that needs the person.
+    /// Runs every pull in order. The accounts are separate, so one that needs
+    /// the person does not hold back the other; the first problem is shown.
     private func pull(_ steps: [(Session) throws -> IsctCore.Operation]) async {
         guard let session else { return }
         problem = nil
+        var first: String?
         for step in steps {
             do {
                 if case let .schoolPull(outcomes) = try await step(session).value(),
                     let failed = outcomes.first(where: { $0.state == .reconnectRequired || $0.state == .error })
                 {
-                    problem = failed.state == .reconnectRequired
+                    first = first ?? (failed.state == .reconnectRequired
                         ? Self.describe(SdkError.Authentication(detail: ""))
-                        : failed.message
-                    break
+                        : failed.message)
                 }
             } catch {
-                problem = Self.describe(error)
-                break
+                first = first ?? Self.describe(error)
             }
         }
-        lastPull = Date()
+        problem = first
         await refresh()
     }
 
@@ -346,18 +481,41 @@ final class AppModel {
     }
 
     /// Edits `settings.notifications` and replaces the settings object.
-    func setNotifications(_ edit: (inout [String: Any]) -> Void) async {
+    func setNotifications(_ edit: @escaping @MainActor (inout [String: Any]) -> Void) async {
+        await updateSettings { settings in
+            var notifications = settings["notifications"] as? [String: Any] ?? [:]
+            edit(&notifications)
+            settings["notifications"] = notifications
+        }
+    }
+
+    /// Edits the settings object and replaces it, as the desktop store's
+    /// `updateSettings` does: edits run one at a time, each on the settings
+    /// the previous one committed, so two quick toggles cannot both copy the
+    /// same old object.
+    func updateSettings(_ edit: @escaping @MainActor (inout [String: Any]) -> Void) async {
+        let previous = settingsWrite
+        let write = Task {
+            await previous?.value
+            await replaceSettings(edit)
+        }
+        settingsWrite = write
+        await write.value
+    }
+
+    private func replaceSettings(_ edit: (inout [String: Any]) -> Void) async {
         guard let session else { return }
         var settings = records.settings
-        var notifications = settings["notifications"] as? [String: Any] ?? [:]
-        edit(&notifications)
-        settings["notifications"] = notifications
+        edit(&settings)
         guard let data = try? JSONSerialization.data(withJSONObject: settings),
             let json = String(data: data, encoding: .utf8)
         else { return }
         let mutation = WorkspaceMutation(expectedRevision: revision, intent: .replaceSettings(settings: json))
         do {
-            _ = try await session.mutate(mutation: mutation).value()
+            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
+                revision = snapshot.revision
+                records = WorkspaceRecords(json: snapshot.workspace)
+            }
         } catch {
             problem = Self.describe(error)
         }
@@ -405,8 +563,13 @@ final class AppModel {
         return formatter.string(from: date)
     }
 
+    /// Core writes both `…T10:00:00+09:00` and, for stored runs, `…T01:00:00.123456789+00:00`;
+    /// one formatter reads only one of the two.
     nonisolated static func date(_ raw: String) -> Date? {
-        ISO8601DateFormatter().date(from: raw)
+        if let date = ISO8601DateFormatter().date(from: raw) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: raw)
     }
 
     nonisolated static func civil(_ date: Date) -> String {
@@ -433,4 +596,133 @@ extension Calendar {
         calendar.firstWeekday = 2
         return calendar
     }()
+}
+
+// MARK: - Timetable session marks and upcoming exams
+
+extension AppModel {
+    /// Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
+    /// Core republishes the schedule; the new content revision re-reads the week.
+    func markSession(_ key: String, _ mark: String) async {
+        guard let session else { return }
+        let mutation = WorkspaceMutation(expectedRevision: revision, intent: .markSession(key: key, mark: mark))
+        do {
+            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
+                revision = snapshot.revision
+            }
+        } catch SdkError.Conflict {
+            // Another device changed the workspace: re-read and let the person retry.
+            await refresh()
+        } catch {
+            problem = Self.describe(error)
+        }
+        await refresh()
+    }
+
+    /// Exams Core lists as upcoming (linked, scheduled, not hidden) from today
+    /// through `days` days ahead, for 今日.
+    func upcomingExams(days: Int = 14) async -> [ExamView] {
+        guard let session, let term = today?.term else { return [] }
+        let now = Date()
+        let from = Self.civil(now)
+        let last = Self.civil(Calendar.tokyo.date(byAdding: .day, value: days, to: now) ?? now)
+        let query = WorkspaceQuery.scheduleView(term: term, from: from, to: from, includePersonal: false)
+        guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
+            case let .scheduleView(view)? = result.values.first
+        else { return [] }
+        return view.upcomingExams.filter { $0.date <= last }
+    }
+}
+
+// MARK: Course page: lesson marks
+
+extension AppModel {
+    /// Records `sectionId` as the lesson of the class at `occurrence` (Core's
+    /// `CourseContent.classAt`), as a double click on the desktop rail does.
+    /// `false` when Core did not take it.
+    func recordLesson(courseId: String, occurrence: String, sectionId: UInt64) async -> Bool {
+        guard let session else { return false }
+        let mutation = WorkspaceMutation(
+            expectedRevision: revision,
+            intent: .recordLesson(courseId: courseId, occurrence: occurrence, sectionId: sectionId))
+        var recorded = false
+        do {
+            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
+                revision = snapshot.revision
+            }
+            recorded = true
+        } catch SdkError.Conflict {
+            // Another device changed the workspace: the re-read lets the person retry.
+        } catch {
+            problem = Self.describe(error)
+        }
+        await refresh()
+        return recorded
+    }
+}
+
+// MARK: Settings pages (学習プロフィール, データ更新)
+
+extension AppModel {
+    /// The study profile as the workspace stores it (`academicProfile`).
+    struct StudyProfile: Equatable {
+        var admissionYear: Int32?
+        var enrollments: [StudyEnrollment]
+    }
+
+    func studyProfile() async -> StudyProfile? {
+        guard let session,
+            case let .workspace(snapshot)? = try? await session.snapshot().value(),
+            let root = (try? JSONSerialization.jsonObject(with: Data(snapshot.workspace.utf8))) as? [String: Any]
+        else { return nil }
+        let profile = root["academicProfile"] as? [String: Any] ?? [:]
+        let rows = profile["studyEnrollments"] as? [[String: Any]] ?? []
+        return StudyProfile(
+            admissionYear: (profile["admissionYear"] as? NSNumber)?.int32Value,
+            enrollments: rows.map { row in
+                StudyEnrollment(
+                    stage: Self.stage(row["stage"] as? String),
+                    entryKind: Self.entryKind(row["entryKind"] as? String),
+                    entryGrade: (row["entryGrade"] as? NSNumber)?.uint8Value,
+                    admittedTerm: row["admittedTerm"] as? String ?? "")
+            })
+    }
+
+    /// Saves the cohort and degree history through the desktop's intent.
+    func setStudyProfile(_ profile: StudyProfile) async throws {
+        guard let session else { return }
+        let mutation = WorkspaceMutation(
+            expectedRevision: revision,
+            intent: .setStudyProfile(admissionYear: profile.admissionYear, studyEnrollments: profile.enrollments))
+        _ = try await session.mutate(mutation: mutation).value()
+        await refresh()
+    }
+
+    /// The syllabus departments, as the desktop's course finder lists them.
+    func departments() async -> [FinderDepartment] {
+        guard let session, let term = today?.term, let year = UInt16(term.prefix(4)),
+            case let .finder(view)? = try? await session.finderQuery(request: FinderRequest(
+                year: year, term: term, includeIneligible: false, keys: [], input: "", remoteIds: nil, action: nil
+            )).value()
+        else { return [] }
+        return view.context.departments
+    }
+
+    private static func stage(_ raw: String?) -> StudyStage {
+        switch raw {
+        case "undergraduate": .undergraduate
+        case "master": .master
+        case "professional": .professional
+        case "doctoral": .doctoral
+        default: .unknown
+        }
+    }
+
+    private static func entryKind(_ raw: String?) -> StudyEntryKind {
+        switch raw {
+        case "regular": .regular
+        case "transfer": .transfer
+        default: .unknown
+        }
+    }
 }
