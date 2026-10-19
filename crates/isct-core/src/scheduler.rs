@@ -1,10 +1,8 @@
 //! Scheduled domain work. Shells provide wakeups; Core decides what is due.
 
 use crate::{
-    data::{DataError, DataStore},
-    events::{CoreEvent, WorkspaceChangeSource},
+    data::{DataError, DataStore, WorkspaceChangeSource},
     lifecycle::SchoolSite,
-    ports::EventSink,
     pull_coordinator::PullOptions,
     reference_refresh::{ReferenceError, ReferenceService},
     school_refresh::SchoolRefresh,
@@ -34,7 +32,6 @@ pub struct SchedulerServices {
     pub refresh: SchoolRefresh,
     pub executor: Arc<dyn SchoolExecutor>,
     pub exporter: Arc<dyn ScheduledExporter>,
-    pub events: Arc<dyn EventSink>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -188,15 +185,6 @@ fn task_result_problem(outcomes: &[IngestOutcome]) -> Result<(), SchedulerError>
     Ok(())
 }
 
-fn emit(services: &SchedulerServices, source: WorkspaceChangeSource) {
-    // Events are hints with snapshot recovery. A failed delivery must not leave
-    // a claimed task permanently displaying `Running`.
-    let _ = services.events.emit(CoreEvent::WorkspaceChanged {
-        source,
-        revision: None,
-    });
-}
-
 async fn pull_site(
     services: &SchedulerServices,
     site: SchoolSite,
@@ -317,14 +305,13 @@ impl Scheduler {
         if let Err(error) = services.store.put_user_record_checked(
             "scheduled_tasks",
             task,
-            "scheduler",
+            WorkspaceChangeSource::Scheduler,
             Some(expected),
         ) {
             invalid.remove(&key);
             return Err(error.into());
         }
         drop(invalid);
-        emit(services, WorkspaceChangeSource::Scheduler);
         Ok(())
     }
 
@@ -384,10 +371,9 @@ impl Scheduler {
         let mut task = services.store.put_user_record_checked(
             "scheduled_tasks",
             task,
-            "scheduler",
+            WorkspaceChangeSource::Scheduler,
             Some(expected),
         )?;
-        emit(services, WorkspaceChangeSource::Scheduler);
 
         let message = execute(services, ScheduledAction::of(&task), force)
             .await
@@ -398,10 +384,9 @@ impl Scheduler {
         services.store.put_user_record_checked(
             "scheduled_tasks",
             task,
-            "scheduler",
+            WorkspaceChangeSource::Scheduler,
             Some(expected),
         )?;
-        emit(services, WorkspaceChangeSource::Scheduler);
         Ok(message)
     }
 }

@@ -522,14 +522,12 @@ impl Session {
     }
     pub fn apply_backup(&self, document: JsonValue) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            i.backup.apply(&document.0).map_err(backup_error)?;
-            let _ = isct_core::ports::EventSink::emit(
-                &*i.events,
-                isct_core::events::CoreEvent::WorkspaceChanged {
-                    source: isct_core::events::WorkspaceChangeSource::LocalRestore,
-                    revision: None,
-                },
-            );
+            i.backup
+                .apply(
+                    &document.0,
+                    isct_core::data::WorkspaceChangeSource::LocalRestore,
+                )
+                .map_err(backup_error)?;
             Ok(OperationResult::Done)
         })
     }
@@ -619,7 +617,6 @@ fn services(i: &Arc<Inner>) -> Result<isct_core::scheduler::SchedulerServices, S
         Err(_) => Arc::new(NoBrowser),
     };
     Ok(i.core.services(
-        i.events.clone(),
         executor,
         Arc::new(Exporter(i.backup.clone(), i.backup_directory.clone())),
     ))

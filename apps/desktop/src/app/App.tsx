@@ -104,7 +104,6 @@ import { PageErrorBoundary } from "./PageErrorBoundary";
 import { traceRouter } from "./interaction-trace";
 import { useFormFactor } from "./form-factor";
 import { MobileShell } from "../layouts/compact/MobileShell";
-import { openExternalUrl } from "../components/ExternalLink";
 import { DAYS as FINDER_DAYS, type FinderCourse } from "../lib/course-query";
 import { isSyllabusCourse } from "../lib/syllabus";
 
@@ -168,7 +167,7 @@ async function refreshReferenceSubscriptions(force = false): Promise<string> {
     return "Paused: desktop app required";
   const current = workspaceStore.getState().workspace;
   if (!current) throw new Error("Workspace is not ready.");
-  const network = subscriptionNetwork(detectPlatform());
+  const network = subscriptionNetwork();
   if (network === "offline") return "Paused: offline";
   if (
     network === "cellular" &&
@@ -831,14 +830,6 @@ export function WorkspaceApp() {
   const deletePlan = (plan: Plan) =>
     academicIntentOrThrow({ kind: "deletePlan", planId: plan.id });
   const openWeb = (url: string, from: "home" | "lectures" = "home") => {
-    // Without an embedded school view the system browser takes over.
-    if (
-      platform === "native-mobile" &&
-      nativeCapabilities?.schoolWeb !== true
-    ) {
-      void openExternalUrl(url).catch(notify.error);
-      return;
-    }
     setWebContext({
       page: from,
       label: navigation[from],

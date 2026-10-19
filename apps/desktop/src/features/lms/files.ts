@@ -46,12 +46,10 @@ export function lmsFileUrl(
 ) {
   const native = options.native ?? Boolean(desktopBridge);
   if (!native) return source;
-  // WebView2 and Android WebView only serve custom schemes over http://<scheme>.localhost.
+  // WebView2 only serves custom schemes over http://<scheme>.localhost.
   const os = options.os ?? nativeOs();
   const origin =
-    os === "windows" || os === "android"
-      ? "http://lmsfile.localhost"
-      : "lmsfile://localhost";
+    os === "windows" ? "http://lmsfile.localhost" : "lmsfile://localhost";
   const query = new URLSearchParams({
     u: source,
     term: context.term,

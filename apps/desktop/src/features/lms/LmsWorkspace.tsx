@@ -404,6 +404,7 @@ export function LmsWorkspace({
     () => new Set(taskView?.submittedIds),
     [taskView],
   );
+  const closedIds = useMemo(() => new Set(taskView?.closedIds), [taskView]);
   // This course's class meetings around now: the latest one that has begun,
   // and the one a mark is recorded against (the class in progress or held
   // earlier today, else the next one).
@@ -922,7 +923,7 @@ export function LmsWorkspace({
             context={folder}
             assignment={a}
             attachments={detail?.attachments ?? []}
-            done={done}
+            closed={closedIds.has(a.id)}
             brief={(attachments) =>
               assignmentBrief({
                 title: a.title,

@@ -54,7 +54,6 @@ pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
 // service state. Completed coordinator jobs release their work closures too.
 pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
     core(app).services(
-        Arc::new(DesktopEvents(app.clone())),
         app.state::<SchoolWebController>().engine.clone(),
         Arc::new(DesktopExport(app.clone())),
     )
@@ -136,7 +135,6 @@ impl DesktopRuntime {
                         _ = wake_tasks.closed() => break,
                         _ = interval.tick() => {}
                     }
-                    #[cfg(desktop)]
                     crate::agent_server::AgentAccess::tick(&wake_app);
                     let visible = wake_app.state::<SchoolWebController>().is_visible();
                     let cloud = match crate::cloud_sync::services(&wake_app) {

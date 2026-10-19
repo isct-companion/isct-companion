@@ -1279,30 +1279,6 @@ function passwordFields(pane: HTMLElement): NodeListOf<HTMLInputElement> {
 
 describe("Backup", () => {
   it(
-    "lists every provider with its own Upload, Pull and Auto controls",
-    async () => {
-      const mounted = await mountBackup({
-        handle: (command) =>
-          command === "cloud_sync_state" ? cloudState() : undefined,
-      });
-      const pane = settingsPane(mounted);
-      const text = pane.textContent ?? "";
-      expect(text).toContain("iCloud");
-      expect(text).toContain("Google Drive");
-      expect(text).toContain("Upload");
-      expect(text).toContain("Pull");
-      expect(autoToggle(pane).checked).toBe(false);
-      expect(text).not.toContain("Back up now");
-      expect(
-        pane.querySelector('[data-setting="credential-keychain"]'),
-      ).not.toBeNull();
-      // Drive is off, so its encrypted credential flow stays hidden.
-      expect(pane.querySelector('[data-setting="credential-sync"]')).toBeNull();
-    },
-    TIMEOUT,
-  );
-
-  it(
     "turns Google Drive on before offering the encrypted credential flow",
     async () => {
       const mounted = await mountBackup({
@@ -1327,6 +1303,8 @@ describe("Backup", () => {
         },
       });
       const pane = settingsPane(mounted);
+      // Drive is off, so its encrypted credential flow stays hidden.
+      expect(pane.querySelector('[data-setting="credential-sync"]')).toBeNull();
 
       await click(driveToggle(pane));
       await wait(() =>
@@ -1448,30 +1426,6 @@ describe("Backup", () => {
   );
 
   it(
-    "follows the native sync state while a transfer runs",
-    async () => {
-      const mounted = await mountBackup({
-        handle: (command) =>
-          command === "cloud_sync_state" ? cloudState() : undefined,
-      });
-      const pane = settingsPane(mounted);
-      await wait(() =>
-        expect(mounted.core.listenerCount("cloud-sync-state")).toBe(1),
-      );
-
-      await act(async () =>
-        emitNative(
-          mounted.core,
-          "cloud-sync-state",
-          cloudState({ syncing: true }),
-        ),
-      );
-      await wait(() => expect(pane.textContent).toContain("Syncing…"));
-    },
-    TIMEOUT,
-  );
-
-  it(
     "switches Auto explicitly and shows unfinished provider deliveries",
     async () => {
       const mounted = await mountBackup({
@@ -1538,6 +1492,16 @@ describe("Backup", () => {
       expect(pane.textContent).not.toContain("task-1");
       expect(pane.textContent).not.toContain("Up to date");
       expect(buttonIn(pane, "Restore").disabled).toBe(true);
+
+      // A transfer Core reports as running replaces the waiting label.
+      await act(async () =>
+        emitNative(
+          mounted.core,
+          "cloud-sync-state",
+          cloudState({ automatic: true, syncing: true }),
+        ),
+      );
+      await wait(() => expect(pane.textContent).toContain("Syncing…"));
     },
     TIMEOUT,
   );

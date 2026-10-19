@@ -267,13 +267,12 @@ fn agent_write_result<T>(result: Result<T, AgentWriteError>) -> Result<T, AgentE
     }
 }
 
-/// A personal plan that has not been deleted.
-fn live_plan(store: &DataStore, id: &str) -> Result<Value, AgentError> {
-    store
-        .user_rows("plans")?
+/// A personal plan that has not been deleted, in the write's own snapshot.
+fn live_plan(workspace: &Value, id: &str) -> Result<Value, DataError> {
+    visible_rows(workspace, "plans")
         .into_iter()
-        .find(|row| text(row, "id") == Some(id) && row.get("deletedAt").is_none())
-        .ok_or_else(|| AgentError::InvalidInput("plan was not found".into()))
+        .find(|row| text(row, "id") == Some(id))
+        .ok_or_else(|| DataError::InvalidInput("plan was not found".into()))
 }
 
 fn canonicalize_plan(plan: &mut Value) -> Result<(), AgentError> {
@@ -466,7 +465,7 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                 }
                 .into());
             };
-            let details = agent_write_result(store.agent_write(name, |write| {
+            let details = agent_write_result(store.agent_write(name, |write, latest_workspace| {
                 let offering = write.catalog_offering(offering_id)?.ok_or_else(|| {
                     DataError::InvalidInput(
                         "offering is no longer available in the local catalog".into(),
@@ -501,10 +500,9 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                         .map(|quarter| format!("{year}-{quarter}"))
                         .collect::<Vec<_>>()
                 };
-                let latest_workspace = write.workspace()?;
                 for plan_term in &terms {
                     let eligibility = crate::study_profile::catalog_course_eligibility(
-                        &latest_workspace,
+                        latest_workspace,
                         plan_term,
                         &offering,
                     );
@@ -518,7 +516,7 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                 // in. Use the transaction snapshot so a concurrent school
                 // ingest or local write cannot make this decision stale.
                 let canonical = format!("{year}-{offering_id}");
-                let existing = visible_rows(&latest_workspace, "courses")
+                let existing = visible_rows(latest_workspace, "courses")
                     .into_iter()
                     .find(|row| {
                         text(row, "id") == Some(canonical.as_str())
@@ -531,8 +529,8 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                     &offering,
                     &canonical,
                     term,
-                    crate::workspace::workspace_content_locale(&latest_workspace),
-                    &crate::schedule::teaching_periods(&latest_workspace)
+                    crate::workspace::workspace_content_locale(latest_workspace),
+                    &crate::schedule::teaching_periods(latest_workspace)
                         .map_err(|error| {
                             crate::data::DataError::InvalidInput(error.to_string())
                         })?,
@@ -597,7 +595,7 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
             parse_term(term)?;
-            let removed = agent_write_result(store.agent_write(name, |write| {
+            let removed = agent_write_result(store.agent_write(name, |write, _| {
                 let mut removed = 0;
                 for row in write.rows("plan_items")? {
                     if text(&row, "offeringId") == Some(offering_id)
@@ -636,63 +634,44 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
             "room": args.get("room").cloned().unwrap_or(Value::Null),
             "exdates": [], "source": {"provider":"mcp"}
             });
+            // MCP wording for malformed input; the shared rule below applies
+            // the same canonicalization again.
             canonicalize_plan(&mut value)?;
-            let plan = agent_write_result(
-                store.agent_write(name, |write| write.put("plans", value, None)),
-            )?;
-            Ok(write_result(json!({"id": plan.get("id")})))
+            let id = agent_write_result(store.agent_write(name, |write, current| {
+                crate::workspace::save_plan(write, current, value, None)
+            }))?;
+            Ok(write_result(json!({ "id": id })))
         }
         "plan_event_update" => {
             let id = required(args, "id")?;
-            let mut row = live_plan(store, id)?;
-            for key in ["title", "start", "duration", "rrule", "room"] {
-                if let Some(value) = args.get(key) {
-                    row[key] = value.clone();
+            agent_write_result(store.agent_write(name, |write, current| {
+                let mut row = live_plan(current, id)?;
+                for key in ["title", "start", "duration", "rrule", "room"] {
+                    if let Some(value) = args.get(key) {
+                        row[key] = value.clone();
+                    }
                 }
-            }
-            canonicalize_plan(&mut row)?;
-            let expected = row.get("rev").and_then(Value::as_u64);
-            agent_write_result(
-                store.agent_write(name, |write| write.put("plans", row, expected).map(|_| ())),
-            )?;
-            Ok(write_result(json!({"id": id})))
+                canonicalize_plan(&mut row)
+                    .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+                crate::workspace::save_plan(write, current, row, Some(id.into()))
+            }))?;
+            Ok(write_result(json!({ "id": id })))
         }
         "plan_event_delete" => {
             let id = required(args, "id")?;
-            let expected = live_plan(store, id)?.get("rev").and_then(Value::as_u64);
-            if !agent_write_result(
-                store.agent_write(name, |write| write.delete("plans", id, expected)),
-            )? {
-                return Err("plan was not found".into());
-            }
-            Ok(write_result(json!({"id": id})))
+            agent_write_result(store.agent_write(name, |write, current| {
+                live_plan(current, id)?;
+                crate::workspace::delete_plan(write, current, id)
+            }))?;
+            Ok(write_result(json!({ "id": id })))
         }
         "hide_assignment" | "restore_assignment" => {
             let id = required(args, "id")?;
-            let assignment = workspace["assignments"]
-                .as_array()
-                .and_then(|rows| {
-                    rows.iter()
-                        .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                })
-                .ok_or_else(|| "assignment was not found".to_string())?;
-            let source_key = assignment
-                .get("sourceKey")
-                .and_then(Value::as_str)
-                .unwrap_or(id);
-            let mut mark = store
-                .user_rows("assignment_marks")?
-                .into_iter()
-                .find(|row| row.get("sourceKey").and_then(Value::as_str) == Some(source_key))
-                .unwrap_or_else(|| json!({"sourceKey":source_key,"assignmentId":id}));
-            let expected = mark.get("rev").and_then(Value::as_u64).unwrap_or(0);
-            mark["hidden"] = Value::Bool(name == "hide_assignment");
-            agent_write_result(store.agent_write(name, |write| {
-                write
-                    .put("assignment_marks", mark, Some(expected))
-                    .map(|_| ())
+            let hidden = name == "hide_assignment";
+            agent_write_result(store.agent_write(name, |write, current| {
+                crate::workspace::set_assignment_mark(write, current, id, Some(hidden), None, None)
             }))?;
-            Ok(write_result(json!({"id": id})))
+            Ok(write_result(json!({ "id": id })))
         }
         _ => Err(AgentError::UnknownTool),
     }

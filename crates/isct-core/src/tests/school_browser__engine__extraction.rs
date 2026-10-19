@@ -1,10 +1,26 @@
 use super::*;
+use std::sync::Mutex;
 use uuid::Uuid;
+
+/// The sources the store reported, in commit order.
+#[derive(Default)]
+struct Commits(Mutex<Vec<WorkspaceChangeSource>>);
+
+impl crate::data::CommitObserver for Commits {
+    fn committed(&self, source: WorkspaceChangeSource, _revision: Option<String>) {
+        self.0.lock().unwrap().push(source);
+    }
+}
 
 #[test]
 fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
     let path = std::env::temp_dir().join(format!("isct-kyomu-preserve-{}.db", Uuid::new_v4()));
     let store = DataStore::initialize(path).unwrap().0;
+    // A visible page and a hidden pull both apply through here, so both are
+    // published like any other workspace write.
+    let commits = Arc::new(Commits::default());
+    store.observe(commits.clone());
+    let published = || commits.0.lock().unwrap().len();
     let source = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_0.aspx";
     let ready = serde_json::json!({
         "status":"ok","sourceUrl":source,"kind":"grades",
@@ -18,6 +34,10 @@ fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
     let outcome = apply_raw(&store, SchoolSite::Kyomu, &ready.to_string()).unwrap();
     assert_eq!(outcome.state, IngestState::Ok);
     assert_eq!(store.table_rows("grades").unwrap().len(), 1);
+    assert_eq!(
+        *commits.0.lock().unwrap(),
+        [WorkspaceChangeSource::SchoolPull]
+    );
 
     let unavailable = serde_json::json!({
         "status":"unavailable","sourceUrl":source,"kind":"grades",
@@ -32,6 +52,8 @@ fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
         "unavailable"
     );
     assert!(records["lastRuns"]["kyomu:grades"].is_string());
+    // The availability observation changes what the workspace shows.
+    assert_eq!(published(), 2);
 
     let maintenance = serde_json::json!({
         "status":"maintenance","sourceUrl":"https://kyomu0.gakumu.titech.ac.jp/Maintenance.aspx","kind":"unknown",
@@ -63,6 +85,9 @@ fn kyomu_unavailable_and_invalid_payloads_preserve_existing_page_rows() {
     assert_eq!(outcome.state, IngestState::Error);
     assert_eq!(outcome.kind, "grades");
     assert_eq!(store.table_rows("grades").unwrap().len(), 1);
+    // Maintenance writes nothing and a rejected page rolls back: neither is
+    // published.
+    assert_eq!(published(), 2);
 
     // A page the extractor rejects is reported against that page with the
     // selector's reason, and stays stale. Before, every such failure read

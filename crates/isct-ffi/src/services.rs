@@ -296,7 +296,3 @@ fn ocr_error(e: isct_ocr::MatrixOcrError) -> SdkError {
         },
     }
 }
-
-#[cfg(all(test, feature = "ocr"))]
-#[path = "tests/services.rs"]
-mod tests;

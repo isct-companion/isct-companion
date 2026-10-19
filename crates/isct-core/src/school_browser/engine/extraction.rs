@@ -120,17 +120,22 @@ impl SchoolBrowserEngine {
                 return Err(SchoolBrowserError::Preempted);
             }
             let lane = self.acquire_pull_lane(context).await?;
-            let result = self
-                .capture_page(
-                    SchoolSite::Kyomu,
-                    Some(page.clone()),
-                    url,
-                    None,
-                    LmsScope::Summary,
-                    PAGE_TIMEOUT,
-                    context,
-                )
-                .await;
+            let result = match self.enter_kyomu(context).await {
+                Ok(HiddenLoad::Ready(_)) => {
+                    self.capture_page(
+                        SchoolSite::Kyomu,
+                        Some(page.clone()),
+                        url,
+                        None,
+                        LmsScope::Summary,
+                        PAGE_TIMEOUT,
+                        context,
+                    )
+                    .await
+                }
+                Ok(HiddenLoad::SignInRequired) => Ok(HiddenLoad::SignInRequired),
+                Err(error) => Err(error),
+            };
             drop(lane);
             match result {
                 Err(error) => Err(error),
@@ -210,16 +215,7 @@ impl SchoolBrowserEngine {
                 Ok(vec![outcome])
             }
             SchoolSite::Kyomu => {
-                let landing = self
-                    .navigate_and_wait(
-                        site,
-                        &format!("{KYOMU_ROOT}Default.aspx"),
-                        Some(&format!("{KYOMU_ROOT}Student/")),
-                        OPEN_TIMEOUT,
-                        context,
-                    )
-                    .await?;
-                if let HiddenLoad::SignInRequired = landing {
+                if let HiddenLoad::SignInRequired = self.enter_kyomu(context).await? {
                     let outcome = sign_in_required(site, "session");
                     let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
                     return Ok(vec![outcome]);
@@ -281,6 +277,22 @@ impl SchoolBrowserEngine {
                 "Only LMS and 教務Web can be pulled.".into(),
             )),
         }
+    }
+
+    /// 教務Web starts its ASP.NET session only from its entry page. A student
+    /// page opened directly without one lands on the GetAccess resource list.
+    pub(super) async fn enter_kyomu(
+        &self,
+        context: &PullContext,
+    ) -> Result<HiddenLoad<PageLoaded>, SchoolBrowserError> {
+        self.navigate_and_wait(
+            SchoolSite::Kyomu,
+            &format!("{KYOMU_ROOT}Default.aspx"),
+            Some(&format!("{KYOMU_ROOT}Student/")),
+            OPEN_TIMEOUT,
+            context,
+        )
+        .await
     }
 
     pub(super) async fn navigate_and_wait(
@@ -441,7 +453,7 @@ impl SchoolBrowserEngine {
         };
         let started = Instant::now();
         log::info!(target: "isct_core::school_browser", "capture start site={site:?} run={run} scope={scope:?} course={course_id:?} path={} timeout_s={}", parsed.path(), timeout.as_secs());
-        self.dispatch(browser, BrowserAction::Navigate(parsed))?;
+        self.dispatch(browser, BrowserAction::Navigate(parsed.clone()))?;
         let mut signing_in = None;
         let raw = tokio::time::timeout(timeout, async {
             loop {
@@ -461,6 +473,7 @@ impl SchoolBrowserEngine {
                         return Ok(HiddenLoad::Ready(raw))
                     }
                     Ok(Trace::Loaded(event)) if event.page.browser == browser => {
+                        log::info!(target: "isct_core::school_browser", "capture loaded run={run} path={} target={}", event.url.path(), event.url == parsed);
                         if self.sign_in_landing(&event.url, &mut signing_in) {
                             return Ok(HiddenLoad::SignInRequired);
                         }
@@ -671,6 +684,8 @@ pub(super) fn ingestion_script(raw: &str) -> Option<&'static str> {
     .then_some(KYOMU_EXTRACT_SCRIPT)
 }
 
+/// Applies one extracted page through the store's commit path, so a visible
+/// page and a hidden pull publish the same workspace change.
 pub(super) fn apply_raw(
     store: &DataStore,
     site: SchoolSite,
@@ -695,13 +710,15 @@ pub(super) fn apply_raw(
             }
         }
     }
-    let mut connection = rusqlite::Connection::open(store.path())
-        .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
+    let source = Some(WorkspaceChangeSource::SchoolPull);
     let mut incomplete_lms = None;
     let mut timetable_error = None;
     let applied = if site == SchoolSite::ScienceLms {
         match parse_lms_payload(raw) {
-            Ok((LmsStage::Ready, Some(payload))) => apply_lms_payload(&mut connection, &payload)
+            Ok((LmsStage::Ready, Some(payload))) => store
+                .write(source, |transaction| {
+                    apply_lms_payload(transaction, &payload)
+                })
                 .map(|changed| {
                     timetable_error = payload.timetable_errors.first().cloned();
                     let failed = payload.timetable_errors.len()
@@ -733,7 +750,10 @@ pub(super) fn apply_raw(
         match parse_kyomu_payload(raw) {
             Ok((KyomuStage::Ready, Some(payload))) => {
                 let kind = payload.kind.clone();
-                apply_kyomu_payload(&mut connection, &payload)
+                store
+                    .write(source, |transaction| {
+                        apply_kyomu_payload(transaction, &payload)
+                    })
                     .map(|changed| (kind.clone(), changed))
                     .map_err(|error| (kind, Some(error.to_string())))
             }
@@ -749,22 +769,26 @@ pub(super) fn apply_raw(
             Ok((KyomuStage::Unavailable, Some(payload))) => {
                 let kind = payload.kind.clone();
                 let message = payload.message.clone();
-                return Ok(match record_kyomu_unavailable(&connection, &payload) {
-                    Ok(()) => IngestOutcome {
-                        site,
-                        kind,
-                        state: IngestState::Unavailable,
-                        changed: 0,
-                        message,
+                return Ok(
+                    match store.write(source, |transaction| {
+                        record_kyomu_unavailable(transaction, &payload)
+                    }) {
+                        Ok(()) => IngestOutcome {
+                            site,
+                            kind,
+                            state: IngestState::Unavailable,
+                            changed: 0,
+                            message,
+                        },
+                        Err(error) => IngestOutcome {
+                            site,
+                            kind,
+                            state: IngestState::Error,
+                            changed: 0,
+                            message: error.to_string(),
+                        },
                     },
-                    Err(error) => IngestOutcome {
-                        site,
-                        kind,
-                        state: IngestState::Error,
-                        changed: 0,
-                        message: error.to_string(),
-                    },
-                });
+                );
             }
             Ok((_, payload)) => Err((
                 payload

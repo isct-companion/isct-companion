@@ -748,9 +748,9 @@ checks:
       - action: |
           Open the matrix OCR flow and supply a photo of a real card.
         reason: |
-          Synthetic tensors and the private parity image already cover the
-          pipeline; a real card is what exposes lighting, angle and printing
-          variation that no fixture reproduces.
+          Synthetic tensors and the frozen filter fixture cover the pipeline
+          stage by stage; a real card is what exposes lighting, angle and
+          printing variation that no fixture reproduces.
       - action: |
           Open Scan with camera in a packaged desktop app, allow camera access,
           and bring the real card toward the camera. Check that one red outline
@@ -989,6 +989,14 @@ checks:
           Confirms rendering and search hold across the whole document rather
           than only the first page.
       - action: |
+          In an installed Windows build, open a handout whose Japanese fonts
+          are not embedded (the 線形代数学第二 講義概要 PDF), then search for a
+          Japanese word in it.
+        reason: |
+          Such text needs PDF.js CMaps fetched from the packaged bundle; when
+          they are missing the page keeps only digits and Latin text, and the
+          dev server cannot show whether the installer carries them.
+      - action: |
           Use the viewer's own save toolbar.
         reason: |
           The toolbar was excluded from the last checkpoint's live coverage
@@ -997,13 +1005,16 @@ checks:
       The rendered pages, the search results, and the file the save toolbar
       writes.
     expected: |
-      The document renders, paging and search work throughout, and the save
-      toolbar writes the file.
+      The document renders, Japanese text in non-embedded fonts shows and is
+      found by search, paging and search work throughout, and the save toolbar
+      writes the file.
     why_manual: |
       The viewer's separate save toolbar depends on the platform save dialog
-      and was never covered by a live run.
+      and was never covered by a live run, and only an installed bundle shows
+      whether the PDF.js data files ship with it.
     covers:
       - apps/desktop/src/features/lms/PdfDocument.tsx
+      - apps/desktop/vite.config.ts
       - apps/desktop/src-tauri/src/school_downloads.rs
     verified: null
 
@@ -1437,6 +1448,63 @@ checks:
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
     verified: null
 
+  - id: SCHOOL-ASSIGNMENT-LMS-EXIT
+    area: school
+    title: Assignment footer always reaches LMS, whatever happened to the workspace
+    persona: undergraduate-senior
+    preconditions: |
+      Desktop app from the current commit after a full LMS refresh, with an
+      open assignment that has a workspace and files in submit/, a submitted or
+      graded assignment with a workspace, and, if the term has them, one
+      assignment past its deadline whose LMS page still shows 提出物をアップロード・入力する /
+      Add submission and one past its cut-off date.
+    steps:
+      - action: |
+          Open the open assignment. Check the footer shows Prepare in LMS and a
+          View in LMS link, then click View in LMS.
+        reason: |
+          View in LMS is the exit that must never read local files. If it
+          uploads, the draft file manager on the LMS page gains files.
+      - action: |
+          Delete that workspace's folder in Finder, then switch back to the app
+          without clicking anything.
+        reason: |
+          Returning to the window looks the folder up again. A card that stays
+          means the focus refresh is broken, and the next click falls back to
+          the typed error path instead.
+      - action: |
+          Open the submitted or graded assignment, then delete its workspace
+          folder in Finder and switch back.
+        reason: |
+          Closed work goes straight to LMS: no draft hint, and losing its
+          folder is normal, so no notice either.
+      - action: |
+          Open the assignment past its deadline that LMS still takes, then the
+          one past its cut-off date.
+        reason: |
+          Core decides "still takes late work" from Moodle's add/edit
+          submission button on the real assign page, which has no captured copy
+          in the repository. A late-allowed one without Prepare in LMS means the
+          selector missed the button.
+    observe: The assignment card footer in the course workspace and the right-hand official LMS pane.
+    expected: |
+      The open assignment keeps its draft hint and both buttons; View in LMS
+      opens the plain LMS page without adding draft files. After the Finder
+      delete the card is replaced by "The workspace folder “…” is gone…", the
+      main button reads View in LMS and Create workspace is offered, and no
+      "os error" text shows anywhere. Closed work shows only View in LMS and
+      no notice. The late-allowed assignment shows Prepare in LMS; the one past
+      cut-off shows only View in LMS.
+    why_manual: |
+      A footer read at a glance in the real app, plus Moodle's live assign page
+      (late and cut-off settings) and a folder deleted in Finder while the
+      window is in the background. The typed missing-folder path itself is
+      covered by the workspace Core tests and the lms-workspace e2e suite.
+    covers:
+      - crates/isct-core/src/lms_submission_status.js
+      - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
+    verified: null
+
   - id: DESKTOP-REMINDER-TIMES
     area: desktop
     title: Deliver class, exam and assignment reminders at the selected times
@@ -1758,4 +1826,107 @@ checks:
       OCR, so it shows only two of the Matrix tiles.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+    verified: null
+
+  - id: DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS
+    area: native
+    title: Hidden school pages never take the keyboard from the app
+    persona: narrow-window-keyboard
+    preconditions: |
+      macOS desktop app with Science Tokyo and Tokyo Tech accounts Signed in,
+      on the Timetable page with the course finder visible.
+    steps:
+      - action: |
+          Click the course finder once, then keep typing a course name
+          (e.g. ウェルネス, then more words) for about a minute without
+          touching the mouse, so several 教務Web searches run in between.
+        reason: |
+          Every search loads 教務Web pages in a hidden view, and those pages
+          focus a field on load. Before the fix the hidden view became the
+          window's first responder and typing stopped until a click.
+      - action: |
+          Switch to another app and back with ⌘Tab, wait for the session
+          check that follows focus, and type again.
+        reason: |
+          The focus session check signs in through hidden GetAccess and LMS
+          login pages, which also focus their username field.
+      - action: |
+          Open the Web tab, click a field in a school page and type into it.
+        reason: |
+          A shown school view must still accept the keyboard; only hidden
+          views refuse it.
+    observe: The course finder input and the visible school page field.
+    expected: |
+      Every keystroke lands in the course finder while searches and session
+      checks run, and the visible school page still accepts typing.
+    why_manual: |
+      First-responder ownership lives in AppKit inside the native shell, and
+      the focusing pages are the real 教務Web and GetAccess pages behind a
+      signed-in account. Neither the jsdom e2e host nor the Rust engine tests
+      have a window or WebKit.
+    covers:
+      - apps/desktop/src-tauri/src/school_webkit.rs
+    verified: null
+
+  - id: DESKTOP-WRITES-PUBLISH-THEMSELVES
+    area: desktop
+    title: Every school.db write reaches the window and the cloud on its own
+    persona: careless-multidevice
+    preconditions: |
+      macOS desktop app signed in to Science Tokyo, Google Drive backup
+      enabled with automatic sync on, AI agent access enabled with a real MCP
+      client connected, and a second device signed in to the same Drive.
+    steps:
+      - action: |
+          Open the Web tab, browse to an LMS course page with an assignment
+          that is not yet in the app, then switch to the Assignments page
+          without pressing refresh.
+        reason: |
+          A page opened by the person is ingested by Core, not by a pull. That
+          ingest used to commit without publishing, so the window kept the old
+          list until something else reloaded it.
+      - action: |
+          From the MCP client, create a plan event for tomorrow, then look at
+          the Calendar in the app window.
+        reason: |
+          The desktop agent server no longer emits the change itself; Core's
+          commit path must publish it with source mcp.
+      - action: |
+          Edit a plan in the app, save a course note, then watch the cloud
+          sync status and open the other device about ten seconds later.
+        reason: |
+          The shell no longer captures right after a mutation or note save.
+          Core brings the next capture forward and the one-second wake runs
+          it; a missing request would leave the edit unsynced for the whole
+          interval or until the next foreground.
+      - action: |
+          Import a local backup from Settings, then reset the workspace and
+          import it again.
+        reason: |
+          Restore and reset replace many rows in one commit and used to rely
+          on the shell's capture; the window must show the result and the
+          cloud must receive it without a manual sync.
+    observe: |
+      The Assignments list, the Calendar, the Settings cloud sync status and
+      the second device's copy of the edited plan and note.
+    expected: |
+      The new assignment and the MCP event appear without a refresh, the
+      edited plan and the note reach the second device within a few seconds,
+      and both the import and the reset show in the window and upload without
+      pressing Sync.
+    why_manual: |
+      The visible-page ingest needs a signed-in LMS page in the real WebView,
+      the MCP step needs a real client, and the capture timing needs a real
+      cloud provider and a second device. Core tests prove that each commit is
+      published and brings capture forward; only the built app shows that the
+      shell, which no longer does either, still gets there.
+    covers:
+      - apps/desktop/src-tauri/src/commands/workspace.rs
+      - apps/desktop/src-tauri/src/lms_files.rs
+      - apps/desktop/src-tauri/src/agent_server.rs
+      - crates/isct-core/src/data/mod.rs
+      - crates/isct-core/src/facade.rs
+      - crates/isct-core/src/runtime.rs
+      - crates/isct-core/src/notes.rs
+      - crates/isct-core/src/school_browser/engine/extraction.rs
     verified: null

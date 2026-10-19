@@ -70,14 +70,13 @@ pub(crate) fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCap
         school_import: true,
         school_web: true,
         notifications: true,
-        background_schedule: cfg!(not(mobile)),
+        background_schedule: true,
         cloud_sync: true,
         syllabus_search: true,
         matrix_ocr: cfg!(matrix_ocr),
     })
 }
 
-#[cfg(desktop)]
 #[tauri::command]
 pub(crate) async fn check_app_update(
     webview: tauri::Webview,
@@ -91,7 +90,6 @@ pub(crate) async fn check_app_update(
         .await
         .map_err(|e| e.to_string())?
 }
-#[cfg(desktop)]
 #[tauri::command]
 pub(crate) fn app_update_state(
     webview: tauri::Webview,
@@ -100,7 +98,6 @@ pub(crate) fn app_update_state(
     crate::require_local_main(&webview)?;
     crate::desktop_updates::snapshot(&app)
 }
-#[cfg(desktop)]
 #[tauri::command]
 pub(crate) fn install_app_update(
     webview: tauri::Webview,

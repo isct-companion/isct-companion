@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 35 checks must be re-run before the next release.**
+**7 of 38 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**26 checks have never been run or could not be run:**
+**29 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -48,6 +48,7 @@ an unverified area becomes an assumed-good one.
 - `RELEASE-INSTALL` — never verified
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
+- `SCHOOL-ASSIGNMENT-LMS-EXIT` — never verified
 - `DESKTOP-REMINDER-TIMES` — never verified
 - `DESKTOP-PHYSICS-PAIR` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
@@ -55,6 +56,8 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-OTP-QR` — never verified
 - `SCHOOL-SIGNIN-TOKYO-VISIBLE` — never verified
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
+- `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
+- `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
 
 ## Status
 
@@ -78,7 +81,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
-| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/usePullState.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
@@ -87,6 +90,7 @@ an unverified area becomes an assumed-good one.
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
+| `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/lms_submission_status.js<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
@@ -95,6 +99,8 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
+| `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
+| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/extraction.rs |
 
 ## Personas
 
@@ -862,9 +868,9 @@ camera or a photo of the card.
 **Steps**
 
 1. Open the matrix OCR flow and supply a photo of a real card.
-   - *Why:* Synthetic tensors and the private parity image already cover the
-     pipeline; a real card is what exposes lighting, angle and printing
-     variation that no fixture reproduces.
+   - *Why:* Synthetic tensors and the frozen filter fixture cover the pipeline
+     stage by stage; a real card is what exposes lighting, angle and
+     printing variation that no fixture reproduces.
 2. Open Scan with camera in a packaged desktop app, allow camera access,
    and bring the real card toward the camera. Check that one red outline
    follows the Matrix, with no cell boxes or letter overlays. Move the
@@ -1130,7 +1136,13 @@ A course with a large cached PDF material.
 1. Open the PDF, scroll to the end and search for a term.
    - *Why:* Confirms rendering and search hold across the whole document rather
      than only the first page.
-2. Use the viewer's own save toolbar.
+2. In an installed Windows build, open a handout whose Japanese fonts
+   are not embedded (the 線形代数学第二 講義概要 PDF), then search for a
+   Japanese word in it.
+   - *Why:* Such text needs PDF.js CMaps fetched from the packaged bundle; when
+     they are missing the page keeps only digits and Latin text, and the
+     dev server cannot show whether the installer carries them.
+3. Use the viewer's own save toolbar.
    - *Why:* The toolbar was excluded from the last checkpoint's live coverage
      and depends on the platform save dialog.
 
@@ -1141,17 +1153,20 @@ writes.
 
 **Expected**
 
-The document renders, paging and search work throughout, and the save
-toolbar writes the file.
+The document renders, Japanese text in non-embedded fonts shows and is
+found by search, paging and search work throughout, and the save toolbar
+writes the file.
 
 **Why this is manual**
 
 The viewer's separate save toolbar depends on the platform save dialog
-and was never covered by a live run.
+and was never covered by a live run, and only an installed bundle shows
+whether the PDF.js data files ship with it.
 
 **Covers**
 
 - `apps/desktop/src/features/lms/PdfDocument.tsx`
+- `apps/desktop/vite.config.ts`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
 
 **Last recorded** never run
@@ -1628,6 +1643,70 @@ uploader, site restrictions or the signed native browser.
 
 **Last recorded** never run
 
+### Assignment footer always reaches LMS, whatever happened to the workspace (`SCHOOL-ASSIGNMENT-LMS-EXIT`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Desktop app from the current commit after a full LMS refresh, with an
+open assignment that has a workspace and files in submit/, a submitted or
+graded assignment with a workspace, and, if the term has them, one
+assignment past its deadline whose LMS page still shows 提出物をアップロード・入力する /
+Add submission and one past its cut-off date.
+
+**Steps**
+
+1. Open the open assignment. Check the footer shows Prepare in LMS and a
+   View in LMS link, then click View in LMS.
+   - *Why:* View in LMS is the exit that must never read local files. If it
+     uploads, the draft file manager on the LMS page gains files.
+2. Delete that workspace's folder in Finder, then switch back to the app
+   without clicking anything.
+   - *Why:* Returning to the window looks the folder up again. A card that stays
+     means the focus refresh is broken, and the next click falls back to
+     the typed error path instead.
+3. Open the submitted or graded assignment, then delete its workspace
+   folder in Finder and switch back.
+   - *Why:* Closed work goes straight to LMS: no draft hint, and losing its
+     folder is normal, so no notice either.
+4. Open the assignment past its deadline that LMS still takes, then the
+   one past its cut-off date.
+   - *Why:* Core decides "still takes late work" from Moodle's add/edit
+     submission button on the real assign page, which has no captured copy
+     in the repository. A late-allowed one without Prepare in LMS means the
+     selector missed the button.
+
+**Where to look**
+
+The assignment card footer in the course workspace and the right-hand official LMS pane.
+
+**Expected**
+
+The open assignment keeps its draft hint and both buttons; View in LMS
+opens the plain LMS page without adding draft files. After the Finder
+delete the card is replaced by "The workspace folder “…” is gone…", the
+main button reads View in LMS and Create workspace is offered, and no
+"os error" text shows anywhere. Closed work shows only View in LMS and
+no notice. The late-allowed assignment shows Prepare in LMS; the one past
+cut-off shows only View in LMS.
+
+**Why this is manual**
+
+A footer read at a glance in the real app, plus Moodle's live assign page
+(late and cut-off settings) and a folder deleted in Finder while the
+window is in the background. The typed missing-folder path itself is
+covered by the workspace Core tests and the lms-workspace e2e suite.
+
+**Covers**
+
+- `crates/isct-core/src/lms_submission_status.js`
+- `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
+
+**Last recorded** never run
+
 ### Deliver class, exam and assignment reminders at the selected times (`DESKTOP-REMINDER-TIMES`)
 
 **Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
@@ -2020,5 +2099,123 @@ OCR, so it shows only two of the Matrix tiles.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+
+**Last recorded** never run
+
+### Hidden school pages never take the keyboard from the app (`DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS`)
+
+**Area** native · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop app with Science Tokyo and Tokyo Tech accounts Signed in,
+on the Timetable page with the course finder visible.
+
+**Steps**
+
+1. Click the course finder once, then keep typing a course name
+   (e.g. ウェルネス, then more words) for about a minute without
+   touching the mouse, so several 教務Web searches run in between.
+   - *Why:* Every search loads 教務Web pages in a hidden view, and those pages
+     focus a field on load. Before the fix the hidden view became the
+     window's first responder and typing stopped until a click.
+2. Switch to another app and back with ⌘Tab, wait for the session
+   check that follows focus, and type again.
+   - *Why:* The focus session check signs in through hidden GetAccess and LMS
+     login pages, which also focus their username field.
+3. Open the Web tab, click a field in a school page and type into it.
+   - *Why:* A shown school view must still accept the keyboard; only hidden
+     views refuse it.
+
+**Where to look**
+
+The course finder input and the visible school page field.
+
+**Expected**
+
+Every keystroke lands in the course finder while searches and session
+checks run, and the visible school page still accepts typing.
+
+**Why this is manual**
+
+First-responder ownership lives in AppKit inside the native shell, and
+the focusing pages are the real 教務Web and GetAccess pages behind a
+signed-in account. Neither the jsdom e2e host nor the Rust engine tests
+have a window or WebKit.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+
+**Last recorded** never run
+
+### Every school.db write reaches the window and the cloud on its own (`DESKTOP-WRITES-PUBLISH-THEMSELVES`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop app signed in to Science Tokyo, Google Drive backup
+enabled with automatic sync on, AI agent access enabled with a real MCP
+client connected, and a second device signed in to the same Drive.
+
+**Steps**
+
+1. Open the Web tab, browse to an LMS course page with an assignment
+   that is not yet in the app, then switch to the Assignments page
+   without pressing refresh.
+   - *Why:* A page opened by the person is ingested by Core, not by a pull. That
+     ingest used to commit without publishing, so the window kept the old
+     list until something else reloaded it.
+2. From the MCP client, create a plan event for tomorrow, then look at
+   the Calendar in the app window.
+   - *Why:* The desktop agent server no longer emits the change itself; Core's
+     commit path must publish it with source mcp.
+3. Edit a plan in the app, save a course note, then watch the cloud
+   sync status and open the other device about ten seconds later.
+   - *Why:* The shell no longer captures right after a mutation or note save.
+     Core brings the next capture forward and the one-second wake runs
+     it; a missing request would leave the edit unsynced for the whole
+     interval or until the next foreground.
+4. Import a local backup from Settings, then reset the workspace and
+   import it again.
+   - *Why:* Restore and reset replace many rows in one commit and used to rely
+     on the shell's capture; the window must show the result and the
+     cloud must receive it without a manual sync.
+
+**Where to look**
+
+The Assignments list, the Calendar, the Settings cloud sync status and
+the second device's copy of the edited plan and note.
+
+**Expected**
+
+The new assignment and the MCP event appear without a refresh, the
+edited plan and the note reach the second device within a few seconds,
+and both the import and the reset show in the window and upload without
+pressing Sync.
+
+**Why this is manual**
+
+The visible-page ingest needs a signed-in LMS page in the real WebView,
+the MCP step needs a real client, and the capture timing needs a real
+cloud provider and a second device. Core tests prove that each commit is
+published and brings capture forward; only the built app shows that the
+shell, which no longer does either, still gets there.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/commands/workspace.rs`
+- `apps/desktop/src-tauri/src/lms_files.rs`
+- `apps/desktop/src-tauri/src/agent_server.rs`
+- `crates/isct-core/src/data/mod.rs`
+- `crates/isct-core/src/facade.rs`
+- `crates/isct-core/src/runtime.rs`
+- `crates/isct-core/src/notes.rs`
+- `crates/isct-core/src/school_browser/engine/extraction.rs`
 
 **Last recorded** never run

@@ -292,7 +292,11 @@ async function openWorkspace(
     close: () => {},
     markLesson: options.markLesson,
   };
-  const view = await mount(<MantineProvider><real.LmsWorkspace {...props} /></MantineProvider>);
+  const view = await mount(
+    <MantineProvider>
+      <real.LmsWorkspace {...props} />
+    </MantineProvider>,
+  );
   views.push(view);
   await waitFor(() =>
     expect(view.host.querySelector(".lmsWorkspace")).not.toBeNull(),
@@ -304,7 +308,11 @@ async function openWorkspace(
     host: view.host,
     render: async (overrides: Partial<typeof props> = {}) => {
       await act(async () =>
-        view.root.render(<MantineProvider><real.LmsWorkspace {...props} {...overrides} /></MantineProvider>),
+        view.root.render(
+          <MantineProvider>
+            <real.LmsWorkspace {...props} {...overrides} />
+          </MantineProvider>,
+        ),
       );
     },
   };
@@ -808,7 +816,7 @@ describe("the LMS reading workspace", () => {
     expect(card.querySelector(".dueChip")).toBeNull();
   }, 30_000);
 
-  it("opens exact assignment requirements first, and the official LMS only after Submit", async () => {
+  it("opens exact assignment requirements first, and the official LMS only after View in LMS", async () => {
     const f = lectureFixture();
     const { host } = await openWorkspace(f, {
       entry: { request: 2, assignmentId: "a1" },
@@ -820,7 +828,8 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
     expect(host.querySelector(".lmsOfficialHost")).toBeNull();
 
-    await click(buttonByText(host, "Prepare in LMS"));
+    // Without a workspace there is no draft to prepare.
+    await click(buttonByText(host, "View in LMS"));
     await waitFor(() =>
       expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
         "Official LMS",
@@ -835,9 +844,9 @@ describe("the LMS reading workspace", () => {
     );
   }, 30_000);
 
-  it.each([false, true])(
+  it.each(["ready", "failed", "missing"] as const)(
     "prepares workspace files in the right LMS pane, and stops if preparation fails (%s)",
-    async (fail) => {
+    async (outcome) => {
       const f = lectureFixture();
       f.workspace.assignments = [assignment()];
       const workspace = {
@@ -847,17 +856,26 @@ describe("the LMS reading workspace", () => {
         zip: false,
         zipName: "Report.zip",
       };
+      let present = true;
       const url =
         "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission";
       const { host, core } = await openWorkspace(f, {
         handle: (command) => {
-          if (command === "assignment_workspace") return workspace;
+          if (command === "assignment_workspace")
+            return present
+              ? { workspace, handIn: "prepareDraft" }
+              : { workspace: null, handIn: "openLms" };
           if (command === "prepare_workspace_submission") {
-            if (fail)
+            if (outcome === "failed")
               return Promise.reject({
                 kind: "invalidInput",
                 message: "The submit folder is empty",
               });
+            if (outcome === "missing") {
+              // Deleted in Finder after the card was shown.
+              present = false;
+              return Promise.reject({ kind: "workspaceMissing" });
+            }
             return { workspace, url };
           }
           return undefined;
@@ -874,9 +892,24 @@ describe("the LMS reading workspace", () => {
         assignment: "a1",
         url: f.workspace.assignments[0].sourceUrl,
       });
-      if (fail) {
+      if (outcome === "failed") {
         expect(host.textContent).toContain("The submit folder is empty");
         expect(host.querySelector(".lmsViewer")).toBeNull();
+      } else if (outcome === "missing") {
+        // The card gives way to a notice; the page still opens.
+        await waitFor(() =>
+          expect(host.querySelector(".lmsWorkspaceCard")).toBeNull(),
+        );
+        expect(host.textContent).toContain(
+          "The workspace folder “Report” is gone.",
+        );
+        expect(host.querySelector(".lmsWorkspaceError")).toBeNull();
+        await click(buttonByText(host, "View in LMS"));
+        await waitFor(() =>
+          expect(
+            host.querySelector(".lmsOfficialHost a")?.getAttribute("href"),
+          ).toBe(f.workspace.assignments[0].sourceUrl),
+        );
       } else {
         await waitFor(() =>
           expect(
@@ -1695,7 +1728,9 @@ describe("the PDF viewer", () => {
       () => import("@app/features/lms/PdfDocument"),
     );
     const view = await mount(
-      <MantineProvider><real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" /></MantineProvider>,
+      <MantineProvider>
+        <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
+      </MantineProvider>,
     );
     views.push(view);
     return { view, host: view.host };
@@ -1812,7 +1847,9 @@ describe("the PDF viewer", () => {
     expect(scroll).toHaveBeenCalled();
     expect(host.querySelectorAll("canvas")).toHaveLength(1);
 
-    const zoom = host.querySelector<HTMLInputElement>('[role="combobox"][aria-label="Zoom"]')!;
+    const zoom = host.querySelector<HTMLInputElement>(
+      '[role="combobox"][aria-label="Zoom"]',
+    )!;
     await chooseOption(zoom, "1.5");
     expect(
       (host.querySelector(".lmsPdfPages") as HTMLElement).style.width,

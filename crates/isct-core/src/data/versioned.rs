@@ -2,22 +2,6 @@ use super::DataError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldChange {
-    pub path: String,
-    pub current: Option<Value>,
-    pub incoming: Option<Value>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MergeMethod {
-    UseLatest,
-    UseCurrent,
-    ResolveManually,
-}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,13 +15,6 @@ pub struct VersionedValue {
     pub source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deleted_at: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct MergeResult {
-    pub result: VersionedValue,
-    pub changed: bool,
-    pub conflict: Vec<FieldChange>,
 }
 
 fn canonical_number(number: &Number) -> Value {
@@ -54,7 +31,7 @@ fn canonical_number(number: &Number) -> Value {
     Number::from_f64(value).map_or(Value::Null, Value::Number)
 }
 
-pub fn canonicalize(value: &Value) -> Value {
+fn canonicalize(value: &Value) -> Value {
     match value {
         Value::Object(object) => {
             let mut keys: Vec<_> = object.keys().collect();
@@ -71,7 +48,7 @@ pub fn canonicalize(value: &Value) -> Value {
     }
 }
 
-pub fn canonical_json(value: &Value) -> Result<String, DataError> {
+fn canonical_json(value: &Value) -> Result<String, DataError> {
     serde_json::to_string(&canonicalize(value))
         .map_err(|_| DataError::storage("value cannot be serialized as canonical JSON"))
 }
@@ -79,88 +56,6 @@ pub fn canonical_json(value: &Value) -> Result<String, DataError> {
 pub fn content_hash(value: &Value) -> Result<String, DataError> {
     let bytes = canonical_json(value)?;
     Ok(format!("{:x}", Sha256::digest(bytes.as_bytes())))
-}
-
-fn join_path(parent: &str, child: &str) -> String {
-    if parent.is_empty() {
-        child.to_string()
-    } else {
-        format!("{parent}.{child}")
-    }
-}
-
-fn collect_diff(
-    current: Option<&Value>,
-    incoming: Option<&Value>,
-    path: &str,
-    out: &mut Vec<FieldChange>,
-) {
-    match (current, incoming) {
-        (Some(Value::Object(a)), Some(Value::Object(b))) => {
-            let keys: BTreeSet<_> = a.keys().chain(b.keys()).collect();
-            for key in keys {
-                collect_diff(a.get(key), b.get(key), &join_path(path, key), out);
-            }
-        }
-        (Some(Value::Array(a)), Some(Value::Array(b))) => {
-            let length = a.len().max(b.len());
-            for index in 0..length {
-                collect_diff(
-                    a.get(index),
-                    b.get(index),
-                    &join_path(path, &index.to_string()),
-                    out,
-                );
-            }
-        }
-        (a, b) if a == b => {}
-        (a, b) => out.push(FieldChange {
-            path: path.to_string(),
-            current: a.cloned(),
-            incoming: b.cloned(),
-        }),
-    }
-}
-
-pub fn diff(current: &Value, incoming: &Value) -> Vec<FieldChange> {
-    let mut changes = Vec::new();
-    collect_diff(Some(current), Some(incoming), "", &mut changes);
-    changes
-}
-
-pub fn update(
-    current: &VersionedValue,
-    incoming: &VersionedValue,
-    method: MergeMethod,
-) -> MergeResult {
-    if current.hash == incoming.hash && current.deleted_at == incoming.deleted_at {
-        return MergeResult {
-            result: current.clone(),
-            changed: false,
-            conflict: Vec::new(),
-        };
-    }
-    let conflict = diff(&current.value, &incoming.value);
-    let use_incoming = match method {
-        MergeMethod::UseCurrent | MergeMethod::ResolveManually => false,
-        MergeMethod::UseLatest => {
-            incoming.updated_at > current.updated_at
-                || (incoming.updated_at == current.updated_at && incoming.rev > current.rev)
-        }
-    };
-    MergeResult {
-        result: if use_incoming {
-            incoming.clone()
-        } else {
-            current.clone()
-        },
-        changed: use_incoming,
-        conflict: if method == MergeMethod::ResolveManually {
-            conflict
-        } else {
-            Vec::new()
-        },
-    }
 }
 
 #[cfg(test)]

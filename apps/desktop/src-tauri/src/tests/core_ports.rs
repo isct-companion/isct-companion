@@ -1,7 +1,8 @@
 use super::*;
 use isct_core::{
     cloud_sync::SyncState,
-    events::{SchoolDownloadEvent, SchoolDownloadState, WorkspaceChangeSource},
+    data::WorkspaceChangeSource,
+    events::{SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
     pull_coordinator::{PullPriority, PullSnapshot, PullState, PullTarget},
     school_auth::SchoolAuthProfile,

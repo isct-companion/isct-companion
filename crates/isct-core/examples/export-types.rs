@@ -45,12 +45,7 @@ fn main() {
     output.push_str("export ");
     output.push_str(&<isct_core::school_auth::OtpImportAccount as ts_rs::TS>::decl());
     output.push_str("\n\n");
-    output.push_str("export const DATA_POLICY: DataPolicy = ");
-    output.push_str(
-        &serde_json::to_string_pretty(&isct_core::contracts::data_policy())
-            .expect("serialize data policy"),
-    );
-    output.push_str(";\n\nexport const COURSE_FILE_POLICY: CourseFilePolicy = ");
+    output.push_str("export const COURSE_FILE_POLICY: CourseFilePolicy = ");
     output.push_str(
         &serde_json::to_string_pretty(&isct_core::contracts::course_file_policy())
             .expect("serialize course file policy"),

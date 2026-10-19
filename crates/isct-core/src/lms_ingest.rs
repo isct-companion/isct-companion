@@ -1,7 +1,7 @@
 use crate::data::{resolve_course_id, versioned::content_hash, DataError};
 use crate::school_parser::lms::{id_of, lms_url, AssignState, LmsPayload};
 use chrono::{Datelike, Utc};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -559,6 +559,14 @@ struct AssignmentSource<'a> {
     url: &'a str,
 }
 
+/// What the stored row already says, for a pull that could not read the page.
+struct PriorAssignment {
+    submission: String,
+    due_at: Option<String>,
+    grade: Option<String>,
+    accepts_submission: Option<bool>,
+}
+
 /// One assignment row. `open` while Moodle lists it as work to do; a
 /// previously open one that left that list before its deadline is submitted.
 fn write_assignment(
@@ -569,18 +577,25 @@ fn write_assignment(
     page_state: Option<&AssignState>,
 ) -> Result<bool, IngestError> {
     let cmid = source.cmid;
-    let prior: Option<(String, Option<String>, Option<String>)> = tx
+    let prior = tx
         .query_row(
-            "SELECT submission, due_at, json_extract(value,'$.grade') FROM assignments WHERE lms_cmid=?1 AND missing_since IS NULL",
+            "SELECT submission, due_at, json_extract(value,'$.grade'), json_extract(value,'$.acceptsSubmission') FROM assignments WHERE lms_cmid=?1 AND missing_since IS NULL",
             [cmid],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| {
+                Ok(PriorAssignment {
+                    submission: r.get(0)?,
+                    due_at: r.get(1)?,
+                    grade: r.get(2)?,
+                    accepts_submission: r.get(3)?,
+                })
+            },
         )
         .optional()
         .map_err(IngestError::from)?;
     let effective_due = due.or_else(|| {
         prior
             .as_ref()
-            .and_then(|value| value.1.as_deref())
+            .and_then(|value| value.due_at.as_deref())
             .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
             .map(|value| value.timestamp())
     });
@@ -590,7 +605,7 @@ fn write_assignment(
         state.submission.as_str()
     } else if listed_open {
         "open"
-    } else if prior.as_ref().map(|value| value.0.as_str()) == Some("open")
+    } else if prior.as_ref().map(|value| value.submission.as_str()) == Some("open")
         && effective_due.is_some_and(|d| d > Utc::now().timestamp())
     {
         "submitted"
@@ -598,21 +613,21 @@ fn write_assignment(
         // A pull that could not read the page keeps finished work finished.
         prior
             .as_ref()
-            .map(|value| value.0.as_str())
+            .map(|value| value.submission.as_str())
             .filter(|p| matches!(*p, "submitted" | "graded"))
             .unwrap_or("unknown")
     };
     let due_at = due
         .and_then(|d| chrono::DateTime::from_timestamp(d, 0))
         .map(|d| d.to_rfc3339())
-        .or_else(|| prior.as_ref().and_then(|value| value.1.clone()));
+        .or_else(|| prior.as_ref().and_then(|value| value.due_at.clone()));
     // The page's grade when it was read; otherwise the last one seen, while
     // the work still counts as graded.
     let grade = match page_state {
         Some(state) => state.grade.clone(),
         None => prior
             .as_ref()
-            .and_then(|value| value.2.clone())
+            .and_then(|value| value.grade.clone())
             .filter(|_| submission == "graded"),
     };
     let mut assignment = json!({"id":format!("lms-assignment:{cmid}"),"sourceKey":format!("lms:default:assignment:{cmid}"),"kind":"assignment","courseId":source.course,
@@ -620,6 +635,14 @@ fn write_assignment(
         "dueAt":due_at,"submission":submission});
     if let Some(grade) = grade {
         assignment["grade"] = grade.into();
+    }
+    // Whether LMS still takes work past the deadline; the last page read wins.
+    let accepts = match page_state {
+        Some(state) => state.accepts_submission,
+        None => prior.as_ref().and_then(|value| value.accepts_submission),
+    };
+    if let Some(accepts) = accepts {
+        assignment["acceptsSubmission"] = accepts.into();
     }
     upsert_versioned(
         tx,
@@ -642,13 +665,9 @@ fn write_assignment(
     )
 }
 
-pub fn apply_lms_payload(
-    connection: &mut Connection,
-    payload: &LmsPayload,
-) -> Result<usize, IngestError> {
-    let tx = connection
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(IngestError::from)?;
+/// Projects one LMS payload inside the caller's transaction; the run
+/// commits or rolls back as a whole.
+pub fn apply_lms_payload(tx: &Transaction<'_>, payload: &LmsPayload) -> Result<usize, IngestError> {
     let mut changed = 0;
     let run_id = Uuid::new_v4().to_string();
     let started = Utc::now().to_rfc3339();
@@ -768,7 +787,7 @@ pub fn apply_lms_payload(
             "quarters":quarter_of(year,course.coursecategory),"url":course.viewurl,"hidden":course.hidden,
             "timetables":timetables,"sections":sections});
         changed += usize::from(upsert_versioned(
-            &tx,
+            tx,
             "lms_courses",
             &lms_course_id,
             &value,
@@ -777,10 +796,10 @@ pub fn apply_lms_payload(
         let offering_id = value.get("offeringId").and_then(Value::as_str);
         let lms_id = course.id.to_string();
         let academic_year = year.unwrap_or_else(|| Utc::now().year() as u32) as i32;
-        let course_id = resolve_course_id(&tx, "lms", &lms_id, academic_year, offering_id)?;
+        let course_id = resolve_course_id(tx, "lms", &lms_id, academic_year, offering_id)?;
         if let Some(offering_id) = offering_id {
             resolve_course_id(
-                &tx,
+                tx,
                 "syllabus",
                 offering_id,
                 academic_year,
@@ -874,7 +893,7 @@ pub fn apply_lms_payload(
                 "sectionId":id_of(cm.get("sectionid")),"bodyHtml":body,"resourceUrl":resource_url,"folderFiles":folder_files,"sectionTitle":section.0,"module":module,"name":cm.get("name").and_then(Value::as_str).unwrap_or(""),
                 "session":section.1,"title":name,"type":"link","url":url,"visible":cm.get("visible").and_then(Value::as_bool).unwrap_or(false) && cm.get("uservisible").and_then(Value::as_bool).unwrap_or(false)});
             changed += usize::from(upsert_versioned(
-                &tx,
+                tx,
                 "lms_items",
                 &item_id,
                 &item,
@@ -883,7 +902,7 @@ pub fn apply_lms_payload(
             if matches!(module, "assign" | "quiz") {
                 let title = cm.get("name").and_then(Value::as_str).unwrap_or("");
                 changed += usize::from(write_assignment(
-                    &tx,
+                    tx,
                     &AssignmentSource {
                         cmid,
                         lms_course: structure.course_id,
@@ -953,7 +972,7 @@ pub fn apply_lms_payload(
             .and_then(Value::as_str)
             .unwrap_or("");
         changed += usize::from(write_assignment(
-            &tx,
+            tx,
             &AssignmentSource {
                 cmid,
                 lms_course,
@@ -976,7 +995,6 @@ pub fn apply_lms_payload(
         ],
     )
     .map_err(IngestError::from)?;
-    tx.commit().map_err(IngestError::from)?;
     Ok(changed)
 }
 

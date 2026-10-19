@@ -1,21 +1,5 @@
 use crate::{core_ports, data, require_local_main, run_data_command, syllabus};
 
-#[tauri::command]
-pub(crate) async fn catalog_upsert_offerings(
-    webview: tauri::Webview,
-    store: tauri::State<'_, data::DataStore>,
-    offerings: Vec<serde_json::Value>,
-) -> Result<usize, String> {
-    require_local_main(&webview)?;
-    let store = store.inner().clone();
-    run_data_command(move || {
-        store
-            .catalog_upsert_offerings(&offerings)
-            .map_err(|error| error.to_string())
-    })
-    .await
-}
-
 /// Every stored offering of one academic year, with schedule, credits, language and
 /// format, so the course finder can filter and suggest locally without a round trip.
 #[tauri::command]
@@ -28,22 +12,6 @@ pub(crate) async fn catalog_offerings(
     let store = store.inner().clone();
     run_data_command(move || {
         isct_core::catalog::finder_offerings(&store, year).map_err(|e| e.to_string())
-    })
-    .await
-}
-
-#[tauri::command]
-pub(crate) async fn catalog_offering(
-    webview: tauri::Webview,
-    store: tauri::State<'_, data::DataStore>,
-    id: String,
-) -> Result<Option<serde_json::Value>, String> {
-    require_local_main(&webview)?;
-    let store = store.inner().clone();
-    run_data_command(move || {
-        store
-            .catalog_offering(&id)
-            .map_err(|error| error.to_string())
     })
     .await
 }

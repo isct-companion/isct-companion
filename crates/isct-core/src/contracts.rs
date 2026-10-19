@@ -564,60 +564,12 @@ contract!(CatalogSearchItem {
     pub instructors: Vec<Localized>, pub quarters: Vec<Quarter>, pub syllabus_url: String,
 });
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum LifetimePolicy {
-    Session,
-    UntilDisabled,
-    ExpiresAt {
-        #[serde(rename = "expiresAt")]
-        #[cfg_attr(feature = "ts", ts(rename = "expiresAt"))]
-        expires_at: String,
-    },
-}
-contract!(RefreshPolicy { #[cfg_attr(feature = "ts", ts(type = "number"))] pub stale_after_seconds: u64, pub refresh_mode: String, });
-contract!(EvictionPolicy {
-    #[cfg_attr(feature = "ts", ts(type = "number"))] pub evict_after_unused_seconds: u64,
-    #[cfg_attr(feature = "ts", ts(type = "number | null"))] pub max_bytes: Option<u64>,
-});
-contract!(DataPolicy {
-    pub lms: RefreshPolicy, pub timetable: RefreshPolicy, pub kyomu: RefreshPolicy,
-    pub syllabus: RefreshPolicy, pub course_materials: EvictionPolicy,
-});
 contract!(IntegerPolicy { pub default: u32, pub min: u32, pub max: u32, });
 contract!(CourseFilePolicy { pub auto_download_limit_mb: IntegerPolicy, pub retention_days: IntegerPolicy, });
 
 pub const LMS_STALE_SECONDS: u64 = 12 * 60 * 60;
-pub const TIMETABLE_STALE_SECONDS: u64 = 30 * 24 * 60 * 60;
 pub const KYOMU_STALE_SECONDS: u64 = 7 * 24 * 60 * 60;
 pub const SYLLABUS_STALE_SECONDS: u64 = 7 * 24 * 60 * 60;
-pub const COURSE_MATERIAL_UNUSED_SECONDS: u64 = 30 * 24 * 60 * 60;
-
-pub fn data_policy() -> DataPolicy {
-    DataPolicy {
-        lms: RefreshPolicy {
-            stale_after_seconds: LMS_STALE_SECONDS,
-            refresh_mode: "on-access".into(),
-        },
-        timetable: RefreshPolicy {
-            stale_after_seconds: TIMETABLE_STALE_SECONDS,
-            refresh_mode: "manual-review".into(),
-        },
-        kyomu: RefreshPolicy {
-            stale_after_seconds: KYOMU_STALE_SECONDS,
-            refresh_mode: "on-access".into(),
-        },
-        syllabus: RefreshPolicy {
-            stale_after_seconds: SYLLABUS_STALE_SECONDS,
-            refresh_mode: "on-access".into(),
-        },
-        course_materials: EvictionPolicy {
-            evict_after_unused_seconds: COURSE_MATERIAL_UNUSED_SECONDS,
-            max_bytes: None,
-        },
-    }
-}
 
 pub fn course_file_policy() -> CourseFilePolicy {
     CourseFilePolicy {
@@ -632,6 +584,25 @@ pub fn course_file_policy() -> CourseFilePolicy {
             max: 3650,
         },
     }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "kebab-case")]
+pub enum SchoolPageAvailabilityState {
+    Available,
+    Unavailable,
+}
+
+/// Latest authoritative capability observation for one school page, as the
+/// store reads it from import runs.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolPageAvailability {
+    pub state: SchoolPageAvailabilityState,
+    pub checked_at: String,
+    pub message: String,
 }
 
 #[cfg(feature = "ts")]
@@ -696,10 +667,6 @@ pub fn declarations() -> Vec<String> {
         WorkspaceLog::decl(),
         Workspace::decl(),
         CatalogSearchItem::decl(),
-        LifetimePolicy::decl(),
-        RefreshPolicy::decl(),
-        EvictionPolicy::decl(),
-        DataPolicy::decl(),
         IntegerPolicy::decl(),
         CourseFilePolicy::decl(),
     ]

@@ -696,26 +696,6 @@ export type CatalogSearchItem = {
   syllabusUrl: string;
 };
 
-export type LifetimePolicy =
-  | { kind: "session" }
-  | { kind: "until-disabled" }
-  | { kind: "expires-at"; expiresAt: string };
-
-export type RefreshPolicy = { staleAfterSeconds: number; refreshMode: string };
-
-export type EvictionPolicy = {
-  evictAfterUnusedSeconds: number;
-  maxBytes: number | null;
-};
-
-export type DataPolicy = {
-  lms: RefreshPolicy;
-  timetable: RefreshPolicy;
-  kyomu: RefreshPolicy;
-  syllabus: RefreshPolicy;
-  courseMaterials: EvictionPolicy;
-};
-
 export type IntegerPolicy = { default: number; min: number; max: number };
 
 export type CourseFilePolicy = {
@@ -1208,17 +1188,6 @@ export type CourseDetail = {
    * Where the course's downloaded files live, for opening its materials.
    */
   files: CourseKey | null;
-  /**
-   * Every section that holds something, in section order, as a lesson
-   * rail lists them.
-   */
-  lessons: Array<CourseLesson>;
-  /**
-   * The section to open first: the last numbered lesson with material
-   * (teachers post around class, so a cancelled class does not advance
-   * it); in a course without numbered lessons, the last section with any.
-   */
-  currentSection: number | null;
 };
 
 export type AssignmentDetail = {
@@ -1251,7 +1220,21 @@ export type AssignmentDetail = {
   files: CourseKey | null;
 };
 
-export type CourseLesson = {
+export type CourseContent = {
+  courseId: string;
+  /**
+   * Sections with anything in them, in section order.
+   */
+  lessons: Array<LessonContent>;
+  /**
+   * The section to open first: the last numbered lesson with material
+   * (teachers post around class, so a cancelled class does not advance
+   * it); in a course without numbered lessons, the last section with any.
+   */
+  currentSection: number | null;
+};
+
+export type LessonContent = {
   /**
    * The LMS section number (0 is the course's general section).
    */
@@ -1263,10 +1246,32 @@ export type CourseLesson = {
    */
   number: number | null;
   /**
+   * The section's own text (授業計画 and the like), made safe to render.
+   */
+  summaryHtml: string;
+  items: Array<LessonItem>;
+  /**
    * Whether the section has material besides assignments.
    */
   posted: boolean;
 };
+
+export type LessonItem = {
+  materialId: string;
+  kind: LessonItemKind;
+  title: string;
+  /**
+   * The text shown in place, for pages, labels and announcements.
+   */
+  bodyHtml: string | null;
+  /**
+   * The LMS page or file Core resolves and downloads.
+   */
+  source: string | null;
+};
+
+export type LessonItemKind =
+  "file" | "link" | "folder" | "page" | "label" | "forum" | "other";
 
 export type AssignmentAttachment = { name: string; url: string };
 
@@ -1389,6 +1394,12 @@ export type TaskView = {
    * instead of applying their own rule.
    */
   submittedIds: Array<string>;
+  /**
+   * Visible assignments that no longer take a hand-in: submitted, or past
+   * the deadline unless the LMS page last showed it still accepting late
+   * work. Shells open the LMS page for these instead of preparing a draft.
+   */
+  closedIds: Array<string>;
   nearestByCourse: { [key in string]?: string };
   byTerm: { [key in string]?: TermTaskView };
 };
@@ -1566,6 +1577,7 @@ export type WorkspaceQuery =
   | { kind: "today"; now: string }
   | { kind: "assignmentBoard"; now: string }
   | { kind: "courseDetail"; courseId: string }
+  | { kind: "courseContent"; courseId: string }
   | { kind: "assignmentDetail"; assignmentId: string }
   | { kind: "examAssociation"; examKey: string; courseId: string }
   | { kind: "lectureSearch"; term: string | null; query: string }
@@ -1630,6 +1642,7 @@ export type WorkspaceQueryResult =
   | { kind: "assignmentBoard"; value: AssignmentBoard }
   | { kind: "courseDetail"; value: CourseDetail }
   | { kind: "assignmentDetail"; value: AssignmentDetail | null }
+  | { kind: "courseContent"; value: CourseContent | null }
   | { kind: "examAssociation"; value: ExamAssociation }
   | { kind: "lectureSearch"; value: LectureSearch }
   | { kind: "scheduleView"; value: ScheduleView }
@@ -1958,29 +1971,6 @@ export type OtpImportAccount = {
    * Sensitive: only the selected value enters the unsaved credential draft.
    */
   setup: string;
-};
-
-export const DATA_POLICY: DataPolicy = {
-  lms: {
-    staleAfterSeconds: 43200,
-    refreshMode: "on-access",
-  },
-  timetable: {
-    staleAfterSeconds: 2592000,
-    refreshMode: "manual-review",
-  },
-  kyomu: {
-    staleAfterSeconds: 604800,
-    refreshMode: "on-access",
-  },
-  syllabus: {
-    staleAfterSeconds: 604800,
-    refreshMode: "on-access",
-  },
-  courseMaterials: {
-    evictAfterUnusedSeconds: 2592000,
-    maxBytes: null,
-  },
 };
 
 export const COURSE_FILE_POLICY: CourseFilePolicy = {

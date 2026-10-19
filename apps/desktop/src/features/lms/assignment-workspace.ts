@@ -60,11 +60,26 @@ export function assignmentBrief(a: {
   );
 }
 
-export const findWorkspace = (context: CourseFolder, assignment: string) =>
-  invoke<AssignmentWorkspace | null>("assignment_workspace", {
-    context,
-    assignment,
-  });
+/** Core's main action for an assignment: open its LMS page, or upload `submit/` as the draft first. */
+export type HandInView = {
+  workspace: AssignmentWorkspace | null;
+  handIn: "openLms" | "prepareDraft";
+};
+
+/** `closed`: the assignment is in `TaskView.closedIds`. */
+export const findWorkspace = (
+  context: CourseFolder,
+  assignment: string,
+  closed: boolean,
+) =>
+  invoke<HandInView>("assignment_workspace", { context, assignment, closed });
+
+/** The workspace folder was deleted outside the app. */
+export const workspaceMissing = (error: unknown) =>
+  typeof error === "object" &&
+  error !== null &&
+  "kind" in error &&
+  (error.kind === "missing" || error.kind === "workspaceMissing");
 
 /** Download the attachments into the course folder, then build the workspace from them. */
 export async function createWorkspace(

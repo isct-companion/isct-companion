@@ -207,20 +207,17 @@ describe("LMS file addresses", () => {
     );
   });
 
-  it("uses the http form the Windows and Android webviews require", () => {
-    for (const os of ["windows", "android"] as const) {
-      expect(
-        files.lmsFileUrl(source, context, { native: true, os }),
-        os,
-      ).toMatch(/^http:\/\/lmsfile\.localhost\/get\?/);
-    }
+  it("uses the http form the Windows webview requires", () => {
+    expect(
+      files.lmsFileUrl(source, context, { native: true, os: "windows" }),
+    ).toMatch(/^http:\/\/lmsfile\.localhost\/get\?/);
   });
 
   it("carries the download and foreground flags when the caller asks for them", () => {
     expect(
       files.lmsFileUrl(source, context, {
         native: true,
-        os: "android",
+        os: "windows",
         download: true,
       }),
     ).toContain("download=1");

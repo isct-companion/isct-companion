@@ -7,27 +7,24 @@ use school_auth::SchoolAuthService;
 use school_web::SchoolWebController;
 use secrets::OsSecretVault;
 
-#[cfg(desktop)]
 mod agent_server;
 #[cfg(target_os = "macos")]
 mod campus_wifi;
 mod cloud;
 mod cloud_sync;
 mod commands;
-#[cfg(desktop)]
 mod desktop_updates;
 pub use isct_core::contracts;
 pub use isct_core::data;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "macos")]
 mod icloud;
 use isct_core::kyomu_guide;
 use isct_core::lifecycle;
-#[cfg(desktop)]
 mod lms_downloader;
-#[cfg(target_os = "macos")]
-mod notifications_macos;
 mod lms_files;
 mod lms_protocol;
+#[cfg(target_os = "macos")]
+mod notifications_macos;
 use isct_core::pull_coordinator;
 #[cfg(matrix_ocr)]
 use isct_ocr as matrix_ocr;
@@ -36,25 +33,16 @@ pub(crate) use isct_core::school_auth;
 use isct_core::school_refresh;
 mod school_browser_native;
 mod school_downloads;
-#[cfg(not(mobile))]
-mod school_web;
-#[cfg(mobile)]
-#[path = "../../../../deprecated/tauri-mobile/rust/school_web_mobile.rs"]
 mod school_web;
 mod secrets;
 pub(crate) use isct_core::syllabus;
-#[cfg(desktop)]
 mod workspaces;
 
 /// The frontend's build-time identity: shell kind and operating system, both
 /// fixed when this binary is compiled, so the UI never sniffs user agents.
 fn native_bootstrap() -> String {
-    #[cfg(desktop)]
-    const TARGET: &str = "native-desktop";
-    #[cfg(mobile)]
-    const TARGET: &str = "native-mobile";
     format!(
-        "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{{value:'{TARGET}',writable:false,configurable:false}});\
+        "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{{value:'native-desktop',writable:false,configurable:false}});\
          Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_OS__',{{value:'{}',writable:false,configurable:false}});",
         std::env::consts::OS
     )
@@ -168,7 +156,6 @@ fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
     Ok(menu)
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = isct_core::diagnostics::initialize();
     let builder = tauri::Builder::default()
@@ -210,7 +197,10 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::CameraScanner::default())
-        .manage(isct_ocr::MatrixAlphabetService::default());
+        .manage(isct_ocr::MatrixAlphabetService::default())
+        .manage(lms_downloader::SessionView::default())
+        .manage(desktop_updates::DesktopUpdates::default())
+        .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(target_os = "macos")]
     let builder = builder
         .manage(campus_wifi::CampusWifi::default())
@@ -220,24 +210,12 @@ pub fn run() {
                 app.exit(0);
             }
         });
-    #[cfg(desktop)]
-    let builder = builder
-        .manage(lms_downloader::SessionView::default())
-        .manage(desktop_updates::DesktopUpdates::default())
-        .plugin(tauri_plugin_updater::Builder::new().build());
-    #[cfg(target_os = "android")]
-    let builder = builder.plugin(tauri_plugin_school_web::init());
-    #[cfg(mobile)]
-    let builder = builder.plugin(tauri_plugin_google_drive_auth::init());
     #[cfg(matrix_ocr)]
     let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
     builder
         .invoke_handler(tauri::generate_handler![
-            #[cfg(desktop)]
             commands::platform::check_app_update,
-            #[cfg(desktop)]
             commands::platform::app_update_state,
-            #[cfg(desktop)]
             commands::platform::install_app_update,
             commands::platform::runtime_capabilities,
             commands::platform::application_logs,
@@ -251,19 +229,12 @@ pub fn run() {
             lms_files::open_course_material,
             lms_files::open_course_file,
             lms_files::clean_course_materials,
-            #[cfg(desktop)]
             workspaces::assignment_workspace,
-            #[cfg(desktop)]
             workspaces::create_assignment_workspace,
-            #[cfg(desktop)]
             workspaces::open_workspace,
-            #[cfg(desktop)]
             workspaces::set_workspace_submission,
-            #[cfg(desktop)]
             workspaces::prepare_workspace_submission,
-            #[cfg(desktop)]
             workspaces::delete_workspace,
-            #[cfg(desktop)]
             workspaces::clean_workspaces,
             commands::platform::recognize_matrix_image,
             commands::matrix_camera::begin_matrix_camera,
@@ -328,8 +299,6 @@ pub fn run() {
             commands::backup::export_data,
             commands::backup::save_file,
             commands::backup::import_data,
-            commands::catalog::catalog_upsert_offerings,
-            commands::catalog::catalog_offering,
             commands::catalog::catalog_offerings,
             commands::catalog::syllabus_course,
             commands::catalog::catalog_sync_department,
@@ -351,10 +320,7 @@ pub fn run() {
                 .map_err(std::io::Error::other)?;
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
-            app.manage(
-                DesktopCloudService::new(vault.clone())
-                    .expect("failed to initialize the cloud transport"),
-            );
+            app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
                 vault,
                 app.path()
@@ -366,11 +332,7 @@ pub fn run() {
                 app.state::<std::sync::Arc<SchoolAuthService>>()
                     .inner()
                     .clone(),
-                if cfg!(mobile) {
-                    pull_coordinator::PullNetwork::Cellular
-                } else {
-                    pull_coordinator::PullNetwork::Wifi
-                },
+                pull_coordinator::PullNetwork::Wifi,
                 std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
             )));
             let school_controller = tauri::async_runtime::block_on(async {
@@ -395,12 +357,10 @@ pub fn run() {
                 .map_err(std::io::Error::other)?;
             // The MCP listener exists only while Allow local agents is on;
             // the wake loop starts, stops and retries it.
-            #[cfg(desktop)]
             app.manage(
                 agent_server::AgentAccess::new(app.handle().clone())
                     .map_err(std::io::Error::other)?,
             );
-            #[cfg(desktop)]
             {
                 #[cfg(dev)]
                 let main_url = WebviewUrl::External(
@@ -438,11 +398,6 @@ pub fn run() {
                     })
                     .build()?;
             }
-
-            #[cfg(mobile)]
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .initialization_script(native_bootstrap())
-                .build()?;
             // After the main window exists: the initial focus fact and event
             // delivery both refer to it.
             core_ports::DesktopRuntime::start(app.handle());
@@ -461,7 +416,6 @@ pub fn run() {
                         tauri::async_runtime::spawn(async move {
                             let drained = tokio::time::timeout(core_ports::EXIT_TIMEOUT, async {
                                 cloud_sync::CloudSync::changed(&app).await;
-                                #[cfg(desktop)]
                                 if let Some(access) = app.try_state::<agent_server::AgentAccess>() {
                                     access.shutdown().await;
                                 }
@@ -478,25 +432,10 @@ pub fn run() {
                             }
                             let runtime = app.state::<core_ports::DesktopRuntime>();
                             runtime.mark_stopped();
-                            #[cfg(desktop)]
                             desktop_updates::install_on_exit(&app);
                             app.exit(code);
                         });
                     }
-                }
-            }
-            // OS suspension differs from losing keyboard focus. Only real
-            // suspension pauses admission in every lane; focus remains a fact.
-            #[cfg(mobile)]
-            if let tauri::RunEvent::WindowEvent { event, .. } = &event {
-                match event {
-                    tauri::WindowEvent::Suspended => {
-                        tauri::async_runtime::block_on(core_ports::runtime(app).suspend())
-                    }
-                    tauri::WindowEvent::Resumed => {
-                        tauri::async_runtime::block_on(core_ports::runtime(app).resume())
-                    }
-                    _ => (),
                 }
             }
             if matches!(&event, tauri::RunEvent::Resumed) {
@@ -510,16 +449,6 @@ pub fn run() {
                     event: tauri::WindowEvent::Focused(focused),
                     ..
                 } if label == "main" => Some(*focused),
-                #[cfg(mobile)]
-                tauri::RunEvent::WindowEvent {
-                    event: tauri::WindowEvent::Suspended,
-                    ..
-                } => Some(false),
-                #[cfg(mobile)]
-                tauri::RunEvent::WindowEvent {
-                    event: tauri::WindowEvent::Resumed,
-                    ..
-                } => Some(true),
                 _ => None,
             };
             if let Some(foreground) = foreground {
@@ -535,17 +464,5 @@ pub fn run() {
                     let _ = app.state::<cloud_sync::CloudSync>().resume(&app).await;
                 });
             }
-            #[cfg(target_os = "ios")]
-            if let tauri::RunEvent::Opened { urls } = event {
-                for url in urls {
-                    if let Err(error) =
-                        tauri_plugin_google_drive_auth::handle_url(app, url.as_str())
-                    {
-                        log::error!("Google OAuth callback could not be handled: {error}");
-                    }
-                }
-            }
-            #[cfg(not(target_os = "ios"))]
-            let _ = (app, event);
         });
 }

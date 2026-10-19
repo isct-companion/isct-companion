@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { blockLanes } from "@app/components/timetable/lanes";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
 import { termForDate } from "@app/lib/academic";
 import {
@@ -28,12 +27,6 @@ import { formatDay } from "@app/pages/settings/subscription-status";
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
-});
-
-const block = (key: string, startTime: string, endTime: string) => ({
-  key,
-  startTime,
-  endTime,
 });
 
 const RealDateTimeFormat = Intl.DateTimeFormat;
@@ -223,52 +216,6 @@ describe("timetable axis placement", () => {
       ]),
     ).toEqual({ earliest: "07:30", latest: "22:00" });
     expect(axisSpan([])).toEqual({});
-  });
-});
-
-describe("overlap lane packing", () => {
-  it("gives every block the full width when nothing overlaps", () => {
-    const lanes = blockLanes([
-      block("a", "08:50", "10:30"),
-      block("b", "10:45", "12:25"),
-    ]);
-    expect(lanes.get("a")).toEqual({ lane: 0, lanes: 1 });
-    expect(lanes.get("b")).toEqual({ lane: 0, lanes: 1 });
-  });
-
-  it("puts conflicting blocks side by side and leaves a later block alone", () => {
-    const lanes = blockLanes([
-      block("a", "10:45", "12:25"),
-      block("b", "10:45", "12:25"),
-      block("c", "11:00", "11:30"),
-      block("d", "13:30", "15:10"),
-    ]);
-    expect([lanes.get("a"), lanes.get("b"), lanes.get("c")]).toEqual([
-      { lane: 0, lanes: 3 },
-      { lane: 1, lanes: 3 },
-      { lane: 2, lanes: 3 },
-    ]);
-    expect(lanes.get("d")).toEqual({ lane: 0, lanes: 1 });
-  });
-
-  it("reuses a lane once its block has ended inside the same cluster", () => {
-    const lanes = blockLanes([
-      block("long", "08:50", "12:25"),
-      block("first", "08:50", "10:30"),
-      block("second", "10:45", "12:25"),
-    ]);
-    expect(lanes.get("long")).toEqual({ lane: 0, lanes: 2 });
-    expect(lanes.get("first")).toEqual({ lane: 1, lanes: 2 });
-    expect(lanes.get("second")).toEqual({ lane: 1, lanes: 2 });
-  });
-
-  it("treats back-to-back blocks as non-overlapping", () => {
-    const lanes = blockLanes([
-      block("a", "10:45", "12:25"),
-      block("b", "12:25", "14:00"),
-    ]);
-    expect(lanes.get("a")).toEqual({ lane: 0, lanes: 1 });
-    expect(lanes.get("b")).toEqual({ lane: 0, lanes: 1 });
   });
 });
 

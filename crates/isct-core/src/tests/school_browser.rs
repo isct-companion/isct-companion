@@ -7,7 +7,7 @@ use crate::{
     pull_coordinator::{PullCoordinator, PullNetwork, PullOptions, PullState, PullTarget},
     school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     school_refresh::SchoolRefresh,
-    school_service::{IngestOutcome, IngestState},
+    school_service::{IngestOutcome, IngestState, SchoolService},
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::{
@@ -1199,36 +1199,21 @@ async fn full_lms_pull_rejects_the_preempted_relay_and_resumes_the_same_caller()
 async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails() {
     let (engine, browser, _, store) = engine();
     let coordinator = PullCoordinator::default();
+    let service = SchoolService::new(
+        coordinator.clone(),
+        Arc::new(SchoolAuthService::new(EmptyVault)),
+        SchoolRefresh::new(PullNetwork::Unknown),
+    );
     let request = {
         let engine = engine.clone();
-        let coordinator = coordinator.clone();
         tokio::spawn(async move {
-            coordinator
-                .run(
-                    PullTarget::School {
-                        site: SchoolSite::Kyomu,
-                        course_id: None,
-                    },
+            service
+                .pull(
+                    engine,
+                    SchoolSite::Kyomu,
+                    None,
                     PullOptions::manual(),
-                    move |context| {
-                        let engine = engine.clone();
-                        async move {
-                            let outcomes = engine
-                                .pull(SchoolSite::Kyomu, None, None, context.clone())
-                                .await
-                                .map_err(|error| {
-                                    crate::pull_coordinator::PullError::Execution(error.to_string())
-                                })?;
-                            if let Some(problem) =
-                                outcomes.iter().find(|row| row.state.is_problem())
-                            {
-                                context.outcome_error(problem.message.clone()).await;
-                            }
-                            serde_json::to_value(outcomes).map_err(|error| {
-                                crate::pull_coordinator::PullError::Execution(error.to_string())
-                            })
-                        }
-                    },
+                    false,
                 )
                 .await
         })
@@ -1299,8 +1284,7 @@ async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails(
         message: "registrations unavailable".into(),
     });
 
-    let value = request.await.unwrap().unwrap();
-    let outcomes: Vec<IngestOutcome> = serde_json::from_value(value).unwrap();
+    let outcomes = request.await.unwrap().unwrap();
     assert_eq!(outcomes.len(), 2);
     assert_eq!(
         (outcomes[0].kind.as_str(), outcomes[0].state),
@@ -2130,11 +2114,25 @@ async fn hidden_catalogue_search_preserves_the_foreground_web_location() {
                 .await
         })
     };
-    browser.navigation(0).await;
+    // A direct search URL without a 教務Web session lands on the GetAccess
+    // resource list, so the search enters through the entry page first.
+    let entry = browser.navigation(0).await;
+    assert!(matches!(&entry.command, BrowserAction::Navigate(url)
+        if url.as_str() == "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx"));
     browser.listener().page_loaded(PageLoaded {
         page: PageId {
             browser: id,
             sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/").unwrap(),
+    });
+    let opened = browser.navigation(1).await;
+    assert!(matches!(&opened.command, BrowserAction::Navigate(url) if url.as_str() == search));
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 3,
         },
         cause: None,
         url: Url::parse(&search).unwrap(),
@@ -2149,7 +2147,7 @@ async fn hidden_catalogue_search_preserves_the_foreground_web_location() {
     browser.listener().decide_navigation(
         PageId {
             browser: id,
-            sequence: 2,
+            sequence: 3,
         },
         relay,
         true,

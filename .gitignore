@@ -5,8 +5,6 @@ dist/
 target/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
-deprecated/tauri-mobile/gen/
-deprecated/tauri-mobile/Info.ios.plist
 *.tsbuildinfo
 coverage/
 

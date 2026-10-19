@@ -14,7 +14,7 @@ export type CapabilityId =
   | "cloud-sync"
   | "background-sync"
   | "site-customization";
-export type Platform = "native-desktop" | "native-mobile" | "browser-preview";
+export type Platform = "native-desktop" | "browser-preview";
 export type CapabilityRuntime = {
   native?: {
     schoolImport: boolean;
@@ -38,8 +38,7 @@ export function detectPlatform(): Platform {
   //   localStorage.setItem("isct-companion-dev-platform", "native-desktop")
   if (import.meta.env?.DEV) {
     const forced = localStorage.getItem("isct-companion-dev-platform");
-    if (forced === "native-desktop" || forced === "native-mobile")
-      return forced;
+    if (forced === "native-desktop") return forced;
   }
   return "browser-preview";
 }

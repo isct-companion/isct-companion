@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ports::{EventError, SecretError, SecretVault},
+    ports::{SecretError, SecretVault},
     pull_coordinator::{PullPriority, PullState},
 };
 use std::sync::Mutex;
@@ -24,16 +24,6 @@ impl SecretVault for MemoryVault {
 
     fn delete(&self, _account: &str) -> Result<(), SecretError> {
         *self.0.lock().unwrap() = None;
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct RecordingEvents(Mutex<Vec<CoreEvent>>);
-
-impl EventSink for RecordingEvents {
-    fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
-        self.0.lock().unwrap().push(event);
         Ok(())
     }
 }
@@ -140,7 +130,6 @@ fn service(coordinator: PullCoordinator, auth: Arc<SchoolAuthService>) -> School
     SchoolService::new(
         coordinator,
         auth,
-        Arc::new(RecordingEvents::default()),
         crate::school_refresh::SchoolRefresh::new(crate::pull_coordinator::PullNetwork::Wifi),
     )
 }
@@ -207,76 +196,61 @@ async fn login_first_loads_the_correct_profile_once() {
 }
 
 #[tokio::test]
-async fn executor_errors_and_panics_release_the_school_lane() {
-    for behavior in [Behavior::Error("adapter failed".into()), Behavior::Panic] {
-        let coordinator = PullCoordinator::default();
-        let service = service(
-            coordinator,
-            Arc::new(SchoolAuthService::new(MemoryVault::default())),
-        );
-        assert!(service
-            .pull(
-                Arc::new(FakeExecutor::new(behavior)),
-                SchoolSite::Kyomu,
-                None,
-                PullOptions::manual(),
-                false,
-            )
-            .await
-            .is_err());
-        let rows = service
-            .pull(
-                Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome(
-                    IngestState::Ok,
-                )]))),
-                SchoolSite::Kyomu,
-                None,
-                PullOptions::manual(),
-                false,
-            )
-            .await
-            .unwrap();
-        assert_eq!(rows, [outcome(IngestState::Ok)]);
-    }
-}
-
-#[tokio::test]
-async fn typed_executor_errors_keep_their_category_and_release_the_lane() {
+async fn executor_failures_keep_their_category_and_release_the_school_lane() {
     let cases = [
         (
-            SchoolExecutorError::Maintenance("Official outage notice".into()),
+            Behavior::Typed(SchoolExecutorError::Maintenance(
+                "Official outage notice".into(),
+            )),
             SchoolError::Maintenance("Official outage notice".into()),
         ),
         (
-            SchoolExecutorError::Authentication("Sign-in expired.".into()),
+            Behavior::Error("adapter failed".into()),
+            SchoolError::Executor("adapter failed".into()),
+        ),
+        (
+            Behavior::Panic,
+            SchoolError::Coordination(PullError::ExecutorPanicked),
+        ),
+        (
+            Behavior::Typed(SchoolExecutorError::Authentication(
+                "Sign-in expired.".into(),
+            )),
             SchoolError::Authentication("Sign-in expired.".into()),
         ),
         (
-            SchoolExecutorError::Storage("School database unavailable.".into()),
+            Behavior::Typed(SchoolExecutorError::Storage(
+                "School database unavailable.".into(),
+            )),
             SchoolError::Storage("School database unavailable.".into()),
         ),
         (
-            SchoolExecutorError::Timeout("School page timed out.".into()),
+            Behavior::Typed(SchoolExecutorError::Timeout(
+                "School page timed out.".into(),
+            )),
             SchoolError::Timeout("School page timed out.".into()),
         ),
         (
-            SchoolExecutorError::Stopped("The school browser has stopped.".into()),
+            Behavior::Typed(SchoolExecutorError::Stopped(
+                "The school browser has stopped.".into(),
+            )),
             SchoolError::Stopped("The school browser has stopped.".into()),
         ),
         (
-            SchoolExecutorError::SiteChanged("School page changed.".into()),
+            Behavior::Typed(SchoolExecutorError::SiteChanged(
+                "School page changed.".into(),
+            )),
             SchoolError::SiteChanged("School page changed.".into()),
         ),
     ];
-    for (executor_error, expected) in cases {
-        let coordinator = PullCoordinator::default();
+    for (behavior, expected) in cases {
         let service = service(
-            coordinator,
+            PullCoordinator::default(),
             Arc::new(SchoolAuthService::new(MemoryVault::default())),
         );
         let error = service
             .pull(
-                Arc::new(FakeExecutor::new(Behavior::Typed(executor_error))),
+                Arc::new(FakeExecutor::new(behavior)),
                 SchoolSite::Kyomu,
                 None,
                 PullOptions::manual(),
@@ -298,45 +272,8 @@ async fn typed_executor_errors_keep_their_category_and_release_the_lane() {
             )
             .await
             .unwrap();
-        assert_eq!(rows, vec![outcome(IngestState::Ok)]);
+        assert_eq!(rows, [outcome(IngestState::Ok)]);
     }
-}
-
-#[tokio::test]
-async fn executor_panic_keeps_its_typed_source_and_the_next_pull_runs() {
-    let coordinator = PullCoordinator::default();
-    let service = service(
-        coordinator,
-        Arc::new(SchoolAuthService::new(MemoryVault::default())),
-    );
-    let error = service
-        .pull(
-            Arc::new(FakeExecutor::new(Behavior::Panic)),
-            SchoolSite::Kyomu,
-            None,
-            PullOptions::manual(),
-            false,
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(
-        error,
-        SchoolError::Coordination(PullError::ExecutorPanicked)
-    );
-
-    let rows = service
-        .pull(
-            Arc::new(FakeExecutor::new(Behavior::Outcomes(vec![outcome(
-                IngestState::Ok,
-            )]))),
-            SchoolSite::Kyomu,
-            None,
-            PullOptions::manual(),
-            false,
-        )
-        .await
-        .unwrap();
-    assert_eq!(rows, vec![outcome(IngestState::Ok)]);
 }
 
 #[tokio::test]
