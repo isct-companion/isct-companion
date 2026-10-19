@@ -590,3 +590,39 @@ extension Calendar {
         return calendar
     }()
 }
+
+// MARK: - Timetable session marks and upcoming exams
+
+extension AppModel {
+    /// Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
+    /// Core republishes the schedule; the new content revision re-reads the week.
+    func markSession(_ key: String, _ mark: String) async {
+        guard let session else { return }
+        let mutation = WorkspaceMutation(expectedRevision: revision, intent: .markSession(key: key, mark: mark))
+        do {
+            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
+                revision = snapshot.revision
+            }
+        } catch SdkError.Conflict {
+            // Another device changed the workspace: re-read and let the person retry.
+            await refresh()
+        } catch {
+            problem = Self.describe(error)
+        }
+        await refresh()
+    }
+
+    /// Exams Core lists as upcoming (linked, scheduled, not hidden) from today
+    /// through `days` days ahead, for 今日.
+    func upcomingExams(days: Int = 14) async -> [ExamView] {
+        guard let session, let term = today?.term else { return [] }
+        let now = Date()
+        let from = Self.civil(now)
+        let last = Self.civil(Calendar.tokyo.date(byAdding: .day, value: days, to: now) ?? now)
+        let query = WorkspaceQuery.scheduleView(term: term, from: from, to: from, includePersonal: false)
+        guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
+            case let .scheduleView(view)? = result.values.first
+        else { return [] }
+        return view.upcomingExams.filter { $0.date <= last }
+    }
+}

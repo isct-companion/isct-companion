@@ -1,10 +1,11 @@
 import IsctCore
 import SwiftUI
 
-/// 時間割: a dated week, read-only. Blocks come from Core's `ScheduleView`
-/// for Monday–Friday, whatever quarter the week is in; the title opens a
-/// picker that names each week's quarter (`TimetableYear`). Adding and
-/// planning courses stay on desktop.
+/// 時間割: a dated week. Blocks come from Core's `ScheduleView` for
+/// Monday–Friday, whatever quarter the week is in; the title opens a picker
+/// that names each week's quarter (`TimetableYear`). A long press marks one
+/// session as an exam, 休講 or a normal class; adding and planning courses
+/// stay on desktop.
 struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @State private var monday = TimetableScreen.monday(of: Date())
@@ -78,25 +79,26 @@ struct TimetableScreen: View {
             Button {
                 showsPicker = true
             } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(subtitle).font(.subheadline).foregroundStyle(Theme.muted)
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(range).font(.largeTitle.bold().monospacedDigit()).foregroundStyle(Theme.ink)
-                            .countingFigure(monday, down: false)
-                        Image(systemName: "chevron.down.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(Theme.accent)
-                            .symbolEffect(.bounce, value: showsPicker)
-                    }
+                VStack(alignment: .leading, spacing: 6) {
+                    // A chip, so the line reads as the way into the week picker.
+                    Label(subtitle, systemImage: "calendar")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Theme.accentSoft, in: Capsule())
+                    Text(range)
+                        .font(.largeTitle.bold().monospacedDigit())
+                        .foregroundStyle(Theme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .countingFigure(monday, down: false)
                 }
             }
             .buttonStyle(.plain)
             .accessibilityHint("週を選ぶ")
-            Spacer()
-            HStack(spacing: 8) {
-                weekButton("chevron.left", label: "前の週", by: -1)
-                weekButton("chevron.right", label: "次の週", by: 1)
-            }
+            Spacer(minLength: 8)
+            weekStepper
         }
         .padding(.top, 12)
         .padding(.horizontal, 4)
@@ -119,16 +121,39 @@ struct TimetableScreen: View {
         return "\(parts.month ?? 0)/\(parts.day ?? 0)"
     }
 
-    private func weekButton(_ symbol: String, label: String, by weeks: Int) -> some View {
-        Button {
-            shift(weeks)
-        } label: {
-            Image(systemName: symbol)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 40, height: 40)
-                .background(Theme.accentSoft, in: Circle())
+    /// ‹ · 今日 · › in one capsule; 今日 rests while this week is shown.
+    private var weekStepper: some View {
+        let thisWeek = TimetableScreen.monday(of: Date())
+        let atThisWeek = monday == thisWeek
+        return HStack(spacing: 0) {
+            stepperSegment(label: "前の週") { shift(-1) } content: {
+                Image(systemName: "chevron.left").font(.body.weight(.semibold)).frame(width: 40)
+            }
+            stepperSegment(label: "今週に戻る") {
+                withAnimation(.snappy) { monday = thisWeek }
+            } content: {
+                Text("今日").font(.subheadline.weight(.semibold)).padding(.horizontal, 6)
+            }
+            .disabled(atThisWeek)
+            .opacity(atThisWeek ? 0.35 : 1)
+            stepperSegment(label: "次の週") { shift(1) } content: {
+                Image(systemName: "chevron.right").font(.body.weight(.semibold)).frame(width: 40)
+            }
         }
+        .foregroundStyle(Theme.accent)
+        .frame(height: 44)
+        .background(Theme.accentSoft, in: Capsule())
+    }
+
+    private func stepperSegment<Content: View>(
+        label: String, action: @escaping () -> Void, @ViewBuilder content: () -> Content
+    ) -> some View {
+        Button(action: action) {
+            content()
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
 
@@ -158,15 +183,18 @@ struct TimetableScreen: View {
         (0..<5).compactMap { Calendar.tokyo.date(byAdding: .day, value: $0, to: monday) }
     }
 
+    private static let columnSpacing: CGFloat = 3
+    private static let periodWidth: CGFloat = 26
+
     private var grid: some View {
         let height = rowHeight * CGFloat(axis?.length ?? 12.5)
         return VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                Color.clear.frame(width: 30, height: 1)
+            HStack(spacing: Self.columnSpacing) {
+                Color.clear.frame(width: Self.periodWidth, height: 1)
                 ForEach(days, id: \.self) { day in dayHeader(day).frame(maxWidth: .infinity) }
             }
-            HStack(alignment: .top, spacing: 4) {
-                periodColumn.frame(width: 30, height: height, alignment: .top)
+            HStack(alignment: .top, spacing: Self.columnSpacing) {
+                periodColumn.frame(width: Self.periodWidth, height: height, alignment: .top)
                 ForEach(days, id: \.self) { day in
                     dayColumn(day).frame(maxWidth: .infinity).frame(height: height)
                 }
@@ -194,22 +222,29 @@ struct TimetableScreen: View {
         ZStack(alignment: .top) {
             ForEach(axis?.rows ?? [], id: \.top) { row in
                 if let periods = row.periods, periods.count == 2 {
-                    ForEach(Int(periods[0])...Int(max(periods[0], periods[1])), id: \.self) { period in
-                        VStack(spacing: 0) {
-                            Text("\(period)").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
-                            if period == Int(periods[0]) {
-                                Text(row.startTime.replacingOccurrences(of: "^0", with: "", options: .regularExpression))
-                                    .font(.system(size: 9).monospacedDigit())
-                                    .foregroundStyle(Theme.muted)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, (row.top + Double(period - Int(periods[0]))) * rowHeight)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                    let first = Int(periods[0])
+                    ForEach(first...max(first, Int(periods[1])), id: \.self) { period in
+                        periodLabel(period, row: row, first: period == first)
+                            .padding(.top, (row.top + Double(period - first)) * rowHeight)
+                            .frame(maxHeight: .infinity, alignment: .top)
                     }
                 }
             }
         }
+    }
+
+    private func periodLabel(_ period: Int, row: AxisRow, first: Bool) -> some View {
+        VStack(spacing: 0) {
+            Text("\(period)").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
+            if first {
+                Text(row.startTime.replacingOccurrences(of: "^0", with: "", options: .regularExpression))
+                    .font(.system(size: 9).monospacedDigit())
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func agenda(_ day: Date) -> DatedAgenda? {
@@ -248,31 +283,41 @@ struct TimetableScreen: View {
 
     private func blockView(_ block: Occurrence, height: CGFloat, holiday: Bool) -> some View {
         let planned = block.courseId.map { !(week?.enrolledCourseIds.contains($0) ?? true) } ?? false
-        let faded = holiday || block.cancelled == true
+        let cancelled = block.cancelled == true
+        let exam = block.kind == .exam && !cancelled
+        let faded = holiday || cancelled
         let current = isCurrent(block)
         let tint = Color(hex: block.color)
-        let content = VStack(alignment: .leading, spacing: 2) {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let content = VStack(alignment: .leading, spacing: BlockText.spacing) {
             Text(block.title)
-                .font(.caption.weight(.semibold))
-                .lineLimit(3)
+                .strikethrough(cancelled)
+                .font(BlockText.titleFont)
+                .lineLimit(BlockText.titleLines(height: height))
             Spacer(minLength: 0)
-            Text(planned ? "計画" : block.room)
-                .font(.caption2.weight(.semibold))
+            bottomLine(block, planned: planned, exam: exam, cancelled: cancelled)
+                .font(BlockText.roomFont)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .foregroundStyle(faded ? Theme.muted : Theme.ink)
-        .padding(5)
+        .padding(BlockText.padding)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: height)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(planned ? Theme.surface : tint.opacity(faded ? 0.08 : Theme.tintFill))
+            shape.fill(planned ? Theme.surface : tint.opacity(faded ? 0.08 : Theme.tintFill))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(current ? tint : planned ? Theme.line : .clear, lineWidth: current ? 2 : 1)
+            // The class in progress outranks the exam border.
+            if current {
+                shape.stroke(tint, lineWidth: 2)
+            } else if exam {
+                shape.stroke(Theme.warn, lineWidth: 1.5)
+            } else if planned {
+                shape.stroke(Theme.line, lineWidth: 1)
+            }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(shape)
         .padding(.horizontal, 2)
         return Group {
             if let id = block.courseId {
@@ -282,6 +327,24 @@ struct TimetableScreen: View {
             } else {
                 content
             }
+        }
+        // Planned courses have no sessions of their own to mark.
+        .sessionMarks(block, enabled: !planned)
+    }
+
+    /// 計画, 休講, or the first room (an exam says 試験 before it); every room
+    /// stays on the course page.
+    @ViewBuilder
+    private func bottomLine(_ block: Occurrence, planned: Bool, exam: Bool, cancelled: Bool) -> some View {
+        let room = BlockText.firstRoom(block.room)
+        if planned {
+            Text("計画")
+        } else if cancelled {
+            Text("休講")
+        } else if exam {
+            Text("\(Text("試験").foregroundStyle(Theme.warn)) \(room)")
+        } else {
+            Text(room)
         }
     }
 

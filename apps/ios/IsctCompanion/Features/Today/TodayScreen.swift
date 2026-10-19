@@ -5,6 +5,8 @@ import SwiftUI
 /// sections. The shell renders `TodayView` in order and never sorts or filters.
 struct TodayScreen: View {
     @Environment(AppModel.self) private var model
+    /// Core's upcoming exams for the next two weeks.
+    @State private var exams: [ExamView] = []
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -23,7 +25,7 @@ struct TodayScreen: View {
                         FirstLoadCard(status: status)
                     }
                     if let today = model.today {
-                        TodayContent(today: today, now: context.date)
+                        TodayContent(today: today, now: context.date, exams: exams)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -34,6 +36,10 @@ struct TodayScreen: View {
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) { UndoToast() }
+        .task(id: "\(model.contentRevision)-\(model.today?.date ?? "")") {
+            let loaded = await model.upcomingExams()
+            if !Task.isCancelled { exams = loaded }
+        }
     }
 
     private var header: some View {
@@ -75,6 +81,7 @@ struct TodayScreen: View {
 private struct TodayContent: View {
     let today: TodayView
     let now: Date
+    let exams: [ExamView]
 
     var body: some View {
         switch today.phase {
@@ -84,6 +91,7 @@ private struct TodayContent: View {
                 SectionLabel("このあと")
                 ClassList(items: today.later)
             }
+            UpcomingExams(exams: exams)
             DeadlineSection(title: "期限", items: today.deadlines, now: now)
         case .inClass:
             if let hero = today.hero { CurrentClassHero(item: hero, now: now) }
@@ -99,18 +107,22 @@ private struct TodayContent: View {
         case .afterClasses:
             if let hero = today.deadlineHero { TonightHero(item: hero, now: now) }
             if let next = today.nextClass {
-                SectionLabel(Format.civilDate(next.occurrence.date).map { Calendar.tokyo.isDateInTomorrow($0) } == true ? "明日の授業" : "次の授業")
+                let tomorrow = Format.civilDate(next.occurrence.date).map { Calendar.tokyo.isDateInTomorrow($0) } == true
+                let exam = next.occurrence.kind == .exam
+                SectionLabel(LocalizedStringKey((tomorrow ? "明日の" : "次の") + (exam ? "試験" : "授業")))
                 NextDayCard(item: next)
             }
+            UpcomingExams(exams: exams)
             DeadlineSection(title: "期限", items: today.deadlines, now: now)
         case .noClasses:
+            UpcomingExams(exams: exams)
             DeadlineSection(title: "期限", items: today.deadlines, now: now)
             if !today.recent.isEmpty {
                 SectionLabel("新着")
                 RecentCard(items: today.recent)
             }
             if let next = today.nextClass {
-                SectionLabel("次の授業")
+                SectionLabel(next.occurrence.kind == .exam ? "次の試験" : "次の授業")
                 NextDayCard(item: next)
             }
         }
@@ -126,15 +138,16 @@ private struct NextClassHero: View {
 
     var body: some View {
         let tint = Color(hex: item.occurrence.color)
+        let exam = item.occurrence.kind == .exam
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(["次の授業", Format.periods(item.periods)].compactMap { $0 }.joined(separator: " · "))
+                Text([exam ? "次の試験" : "次の授業", Format.periods(item.periods)].compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tint)
                 Spacer()
                 if let starts = Format.date(item.startsAt) {
                     let minutes = max(Format.minutes(until: starts, now: now), 0)
-                    TagChip(text: "あと \(minutes) 分", ink: tint, fill: Theme.surface)
+                    TagChip(text: "あと \(minutes) 分", ink: exam ? Theme.warn : tint, fill: Theme.surface)
                         .countingFigure(minutes)
                 }
             }
@@ -171,7 +184,7 @@ private struct CurrentClassHero: View {
         let progress = min(max(now.timeIntervalSince(starts) / total, 0), 1)
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text((["授業中", Format.periods(item.periods), item.occurrence.room] as [String?]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                Text(([item.occurrence.kind == .exam ? "試験中" : "授業中", Format.periods(item.periods), item.occurrence.room] as [String?]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tint)
                 Spacer()
@@ -287,8 +300,14 @@ private struct ClassList: View {
             CourseSquare(color: item.occurrence.color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.occurrence.title).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
-                if let detail = detail(item) {
-                    Text(detail).font(.subheadline).foregroundStyle(Theme.muted)
+                if item.occurrence.kind == .exam || detail(item) != nil {
+                    HStack(spacing: 6) {
+                        if item.occurrence.kind == .exam {
+                            Text("試験").fontWeight(.semibold).foregroundStyle(Theme.warn)
+                        }
+                        if let detail = detail(item) { Text(detail).foregroundStyle(Theme.muted) }
+                    }
+                    .font(.subheadline)
                 }
             }
             Spacer(minLength: 8)
@@ -480,6 +499,52 @@ private struct NextDayCard: View {
                 content
             }
         }
+    }
+}
+
+/// Exams in the next two weeks, as Core lists them; a row opens its course.
+private struct UpcomingExams: View {
+    let exams: [ExamView]
+
+    var body: some View {
+        if !exams.isEmpty {
+            SectionLabel("試験")
+            Card {
+                ForEach(Array(exams.enumerated()), id: \.element.key) { index, exam in
+                    if index > 0 { RowDivider() }
+                    row(exam)
+                }
+            }
+        }
+    }
+
+    private func row(_ exam: ExamView) -> some View {
+        let content = HStack(spacing: 12) {
+            CourseSquare(color: exam.color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(exam.title.isEmpty ? exam.code : exam.title).foregroundStyle(Theme.ink).lineLimit(1)
+                Text(detail(exam)).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        return Group {
+            if let id = exam.courseId {
+                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(PressableStyle())
+            } else {
+                content
+            }
+        }
+    }
+
+    /// `10月26日（月） · 3–4限 · W531`, or the time when no period is given.
+    private func detail(_ exam: ExamView) -> String {
+        let time = Format.periods(exam.periods)
+            ?? exam.startTime.map { start in [start, exam.endTime].compactMap { $0 }.joined(separator: "–") }
+        return [Format.dayTitle(exam.date), time, exam.room].compactMap { $0 }.filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 }
 
