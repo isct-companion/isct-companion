@@ -15,7 +15,7 @@ export type Section =
   | "extensions"
   | "diagnostics"
   | "about";
-export type Platform = "native-desktop" | "native-mobile" | "browser-preview";
+export type { Platform } from "../platform/capabilities";
 
 export { tokyoDate as jstDate } from "../lib/civil-date";
 export const stamp = () => new Date().toISOString();

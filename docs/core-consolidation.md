@@ -10,7 +10,7 @@ call through one interface. Read `AGENTS.md` first; every rule there applies.
 crates/isct-core   domain logic and state: parsing, acquisition, sync, scheduling, storage
 crates/isct-ocr    optional matrix recognition, independent of core and platform frameworks
 crates/isct-ffi    UniFFI facade over isct-core for Swift and Kotlin
-backend/           Tauri app (desktop today, Tauri mobile until native shells ship)
+apps/desktop/      Tauri desktop app; apps/ios and apps/android are the native mobile shells
 src/               React UI: renders state from core, sends user intents to core
 ```
 
@@ -418,9 +418,8 @@ live under `apps/desktop/tests/`; see
 [apps/desktop/tests/README.md](../apps/desktop/tests/README.md).
 
 Cross-target checks validate core/FFI portability to `aarch64-apple-ios`,
-`aarch64-apple-ios-sim` and `aarch64-linux-android`. Existing CI already checks
-Tauri iOS device and Android; extend the relevant checks rather than duplicating
-them. The old mobile UI is not a behavioural acceptance gate.
+`aarch64-apple-ios-sim` and `aarch64-linux-android`; extend the existing
+platform checks rather than duplicating them.
 
 Replay the same input/event traces against the baseline contract and migrated
 service. Compare executed requests, write effects, emitted snapshots and caller
@@ -503,8 +502,8 @@ Largest and riskiest phase; design review before coding.
 - Write fake-browser traces for the identity/preemption/cancellation contracts
   first. Move the executor into Core and remove the temporary adapter; do not
   leave parallel queues or session decisions in the shell.
-- Tauri implements `SchoolBrowser` for desktop, iOS (`school_web_ios.rs`) and
-  Android (`plugins/school-web`).
+- The desktop shell implements `SchoolBrowser` in `school_browser_native.rs`;
+  the native iOS and Android shells implement it through `isct-ffi`.
 - Login scripts and `lms_*.js` stay as shared assets in core
   (`include_str!`), so every shell injects the same scripts.
 

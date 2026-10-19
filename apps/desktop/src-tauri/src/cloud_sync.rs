@@ -17,12 +17,6 @@ impl CloudTransport for NativeCloud {
     fn read_workspace<'a>(&'a self, provider: CloudProvider) -> CloudFuture<'a, Option<Value>> {
         Box::pin(async move {
             let transport = self.0.state::<DesktopCloudService<OsSecretVault>>();
-            #[cfg(target_os = "android")]
-            if provider == CloudProvider::GoogleDrive {
-                transport
-                    .refresh_android(&self.0)
-                    .map_err(CloudSyncError::Transport)?;
-            }
             transport
                 .read_workspace(provider)
                 .await

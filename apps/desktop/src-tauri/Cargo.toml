@@ -16,9 +16,9 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 log = "0.4"
-isct-core = { path = "../../../crates/isct-core", features = ["ts"] }
+isct-core = { path = "../../../crates/isct-core", features = ["ts", "desktop-workspaces"] }
 isct-ocr = { path = "../../../crates/isct-ocr" }
-tokio = { version = "1", features = ["time", "sync", "fs", "io-util"] }
+tokio = { version = "1", features = ["time", "sync", "fs", "io-util", "net"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.12", features = ["unstable", "protocol-asset"] }
@@ -39,30 +39,13 @@ scraper = "0.24"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"
 
-# Desktop workspace archives and the embedded MCP HTTP transport.
-[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
-isct-core = { path = "../../../crates/isct-core", features = ["desktop-workspaces"] }
+# The embedded MCP HTTP transport.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 rmcp = { version = "=3.4.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 subtle = "2"
 tokio-util = { version = "0.7", features = ["rt"] }
-tokio = { version = "1", features = ["net"] }
 # Native v2 EXE and macOS tar.gz updates; legacy v1 ZIP installers are unused.
 tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
-
-[target.'cfg(target_os = "ios")'.dependencies]
-wry = "0.57"
-security-framework = "3.7"
-objc2 = "0.6.4"
-block2 = "0.6"
-objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSError", "NSString", "NSURL"] }
-objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "UIView", "UIWindow", "UIScreen"] }
-tauri-plugin-google-drive-auth = { path = "../../../deprecated/tauri-mobile/plugins/google-drive-auth" }
-
-[target.'cfg(target_os = "android")'.dependencies]
-tauri-plugin-google-drive-auth = { path = "../../../deprecated/tauri-mobile/plugins/google-drive-auth" }
-tauri-plugin-school-web = { path = "../../../deprecated/tauri-mobile/plugins/school-web" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { version = "3.7", features = ["OSX_10_15"] }

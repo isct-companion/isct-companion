@@ -59,7 +59,7 @@ export function DataUpdatesSettings({
   const subscriptions = useSubscriptionViews();
   const locale = data.settings.locale;
   const editable = platform === "native-desktop";
-  const network = subscriptionNetwork(platform);
+  const network = subscriptionNetwork();
   const lastChecked = data.settings.subscriptionRefresh.lastCheckedAt;
   const checkNow = async () => {
     if (!refreshReferences) return;

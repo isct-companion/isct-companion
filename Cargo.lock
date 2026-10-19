@@ -2448,7 +2448,6 @@ dependencies = [
  "objc2-cloud-kit",
  "objc2-core-wlan",
  "objc2-foundation",
- "objc2-ui-kit",
  "objc2-user-notifications",
  "objc2-web-kit",
  "percent-encoding",
@@ -2466,17 +2465,14 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
- "tauri-plugin-google-drive-auth",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
- "tauri-plugin-school-web",
  "tauri-plugin-secure-storage",
  "tauri-plugin-updater",
  "tokio",
  "tokio-util",
  "url",
  "uuid",
- "wry",
 ]
 
 [[package]]
@@ -5543,15 +5539,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-google-drive-auth"
-version = "0.1.0"
-dependencies = [
- "serde",
- "tauri",
- "tauri-plugin",
-]
-
-[[package]]
 name = "tauri-plugin-notification"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5590,16 +5577,6 @@ dependencies = [
  "url",
  "windows 0.61.3",
  "zbus",
-]
-
-[[package]]
-name = "tauri-plugin-school-web"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
 ]
 
 [[package]]

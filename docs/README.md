@@ -27,7 +27,6 @@ the suites, the shared harness and where a new test belongs.
 ## Release and providers
 
 - [Desktop release](desktop-release.md) and [distribution](distribution/README.md).
-- [Retired Tauri mobile implementation](../deprecated/tauri-mobile/README.md): archived adapters and release notes; native mobile apps remain planned.
 - [Cloud provider setup](cloud-provider-setup.md) and [subscription repository](subscription-repository.md).
 
 See the root [repository map](development.md#repository-map) for current paths.
