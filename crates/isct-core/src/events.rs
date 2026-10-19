@@ -9,6 +9,7 @@ use crate::{
     pull_coordinator::PullSnapshot,
     school_browser::{SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent},
     school_service::IngestOutcome,
+    school_status::SchoolStatus,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -62,6 +63,9 @@ pub enum CoreEvent {
     SchoolIngest(IngestOutcome),
     SchoolDownload(SchoolDownloadEvent),
     PullStateChanged(Vec<PullSnapshot>),
+    /// Sent after any of the events above changed it; read `school_status`
+    /// for the current value.
+    SchoolStatusChanged(SchoolStatus),
     CloudSyncState(SyncState),
 }
 
@@ -79,6 +83,7 @@ impl CoreEvent {
             Self::SchoolIngest(_) => "school-ingest",
             Self::SchoolDownload(_) => "school-download",
             Self::PullStateChanged(_) => "pull-state-changed",
+            Self::SchoolStatusChanged(_) => "school-status",
             Self::CloudSyncState(_) => "cloud-sync-state",
         }
     }
@@ -111,6 +116,7 @@ impl CoreEvent {
             Self::SchoolIngest(outcome) => json!(outcome),
             Self::SchoolDownload(event) => json!(event),
             Self::PullStateChanged(snapshots) => json!(snapshots),
+            Self::SchoolStatusChanged(status) => json!(status),
             Self::CloudSyncState(state) => json!(state),
         }
     }

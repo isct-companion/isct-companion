@@ -17,20 +17,64 @@ struct IsctCompanionApp: App {
     }
 }
 
-enum AppTab: Hashable {
-    case today, timetable, assignments, web
+/// The desktop's pages (`routes.ts`), as tabs, sidebar rows or both.
+enum AppTab: Hashable, CaseIterable {
+    case today, timetable, lectures, assignments, web, settings
+
+    var title: String {
+        switch self {
+        case .today: "今日"
+        case .timetable: "時間割"
+        case .lectures: "授業"
+        case .assignments: "課題"
+        case .web: "ウェブ"
+        case .settings: "設定"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .today: "calendar"
+        case .timetable: "square.grid.3x3"
+        case .lectures: "books.vertical"
+        case .assignments: "checklist"
+        case .web: "globe"
+        case .settings: "gearshape"
+        }
+    }
 }
 
-/// A course pushed from any row or block.
+/// Which container the pages sit in (docs/ux/mobile.md, Devices and layouts).
+enum Layout {
+    /// The desktop rule (`form-factor.ts`): one column up to 600 pt wide or in
+    /// portrait up to 1100 pt, two columns otherwise.
+    static func isStacked(_ size: CGSize) -> Bool {
+        size.width <= 600 || (size.height > size.width && size.width <= 1100)
+    }
+
+    /// iPhone and iPad differ on purpose: the iPad adds 授業. This is the one
+    /// runtime device check AGENTS.md allows (one iOS binary, two idioms).
+    static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
+    static var tabs: [AppTab] {
+        isPad ? [.today, .timetable, .lectures, .assignments, .web] : [.today, .timetable, .assignments, .web]
+    }
+
+    static let sidebar: [AppTab] = [.today, .timetable, .lectures, .assignments, .web, .settings]
+}
+
+/// A course pushed from any row, block or card. `zoom` names the view it
+/// grows out of, when there is one.
 struct CourseRoute: Hashable {
     let id: String
+    var zoom: String? = nil
 }
 
 /// Every assignment of the quarter, pushed from 課題.
 struct AssignmentRecordRoute: Hashable {}
 
-/// The one owner of what each tab has pushed. Every push goes through a
-/// tab's path: a view pushed outside it (a destination-closure
+/// The one owner of what each page has pushed. Every push goes through a
+/// page's path: a view pushed outside it (a destination-closure
 /// NavigationLink) is dropped the moment a value is appended, which popped
 /// the screen the person was on.
 @MainActor
@@ -38,8 +82,10 @@ struct AssignmentRecordRoute: Hashable {}
 final class Navigator {
     var tab: AppTab = .today
     var paths: [AppTab: NavigationPath] = [:]
+    /// The course open beside the list in the split 授業.
+    var lecture: String?
 
-    /// Pushes onto the current tab, for actions that cannot be a
+    /// Pushes onto the current page, for actions that cannot be a
     /// NavigationLink (menu items, buttons).
     func push<Route: Hashable>(_ route: Route) {
         paths[tab, default: NavigationPath()].append(route)
@@ -48,7 +94,10 @@ final class Navigator {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(WebRouter.self) private var web
     @State private var navigator = Navigator()
+    @State private var sitePress = SitePickerPress()
+    @Namespace private var zoom
 
     var body: some View {
         switch model.status {
@@ -57,34 +106,106 @@ struct RootView: View {
         case let .failed(message):
             ContentUnavailableView("起動できませんでした", systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
-            tabs
+            GeometryReader { proxy in
+                Group {
+                    if Layout.isPad, !Layout.isStacked(proxy.size) {
+                        split
+                    } else {
+                        tabs
+                    }
+                }
+                .environment(navigator)
+                .environment(\.courseZoom, zoom)
+            }
         }
     }
 
     private var tabs: some View {
-        TabView(selection: selection) {
-            stack(.today) { TodayScreen() }
-                .tabItem { Label("今日", systemImage: "calendar") }
-                .tag(AppTab.today)
-            stack(.timetable) { TimetableScreen() }
-                .tabItem { Label("時間割", systemImage: "square.grid.3x3") }
-                .tag(AppTab.timetable)
-            stack(.assignments) { AssignmentsScreen() }
-                .tabItem { Label("課題", systemImage: "checklist") }
-                .tag(AppTab.assignments)
-            WebTabScreen()
-                .tabItem { Label("ウェブ", systemImage: "globe") }
-                .tag(AppTab.web)
+        ZStack {
+            TabView(selection: selection) {
+                ForEach(Layout.tabs, id: \.self) { tab in
+                    page(tab)
+                        .tabItem { Label(tab.title, systemImage: tab.symbol) }
+                        .tag(tab)
+                }
+            }
+            // Long-pressing the ウェブ item raises the site picker over it. The
+            // probe sits beside the TabView, so it works before ウェブ is opened.
+            .background {
+                TabBarLongPress(index: Layout.tabs.firstIndex(of: .web) ?? 0) { event in
+                    if let choice = sitePress.handle(event) { pickSite(choice) }
+                }
+                .frame(width: 0, height: 0)
+            }
+            SitePickerPanel(press: sitePress) { pickSite($0) }
         }
-        .environment(navigator)
+        // Turning an iPad upright from 設定 in the sidebar lands on a page the
+        // tab bar has.
+        .onAppear { if !Layout.tabs.contains(navigator.tab) { navigator.tab = .today } }
     }
 
-    /// Tapping the current tab returns it to its root.
+    /// A site picked from the ウェブ tab's panel or the sidebar row's menu
+    /// shows on the ウェブ page; the site already shown there stays on its
+    /// page instead of going home.
+    private func pickSite(_ choice: SitePick) {
+        if case let .site(site) = choice, navigator.tab != .web {
+            navigator.tab = .web
+            if site == web.tabSite { return }
+        }
+        web.perform(choice)
+    }
+
+    /// iPad, wide: the desktop's sidebar and one page beside it.
+    private var split: some View {
+        NavigationSplitView {
+            List(Layout.sidebar, id: \.self, selection: Binding(get: { navigator.tab }, set: { if let tab = $0 { navigator.tab = tab } })) { tab in
+                if tab == .web {
+                    Label(tab.title, systemImage: tab.symbol)
+                        .contextMenu { SitePickerRows { pickSite($0) } }
+                } else {
+                    Label(tab.title, systemImage: tab.symbol)
+                }
+            }
+            .navigationTitle("IsctCompanion")
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    SyncRingButton()
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+            }
+        } detail: {
+            if navigator.tab == .lectures {
+                LecturesSplit()
+            } else {
+                page(navigator.tab)
+            }
+        }
+    }
+
+    /// A page in its own stack; the same views fill tabs and the sidebar.
+    @ViewBuilder
+    private func page(_ tab: AppTab) -> some View {
+        switch tab {
+        case .today: stack(.today) { TodayScreen() }
+        case .timetable: stack(.timetable) { TimetableScreen() }
+        case .lectures: stack(.lectures) { LecturesScreen() }
+        case .assignments: stack(.assignments) { AssignmentsScreen() }
+        case .web: WebTabScreen()
+        case .settings: stack(.settings) { SettingsScreen() }
+        }
+    }
+
+    /// Tapping the current tab returns it to its root; for ウェブ, to the
+    /// shown site's start page.
     private var selection: Binding<AppTab> {
         Binding(
             get: { navigator.tab },
             set: { next in
-                if next == navigator.tab { navigator.paths[next] = NavigationPath() }
+                if next == navigator.tab {
+                    navigator.paths[next] = NavigationPath()
+                    if next == .web { web.goHome(web.tabSite) }
+                }
                 navigator.tab = next
             })
     }
@@ -93,10 +214,20 @@ struct RootView: View {
         NavigationStack(path: Binding(
             get: { navigator.paths[tab] ?? NavigationPath() }, set: { navigator.paths[tab] = $0 }
         )) {
-            content()
-                .navigationDestination(for: CourseRoute.self) { CourseDetailScreen(courseId: $0.id) }
-                .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
-                .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
+            content().appDestinations()
         }
+    }
+}
+
+extension View {
+    /// Everything a page can push, registered once per stack.
+    func appDestinations() -> some View {
+        navigationDestination(for: CourseRoute.self) { route in
+            CourseDetailScreen(courseId: route.id).courseZoomDestination(route.zoom)
+        }
+        .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
+        .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
+        .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }
+        .navigationDestination(for: SettingsRoute.self) { SettingsDestination(route: $0) }
     }
 }

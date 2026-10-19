@@ -5,12 +5,17 @@ name: IsctCompanion
 options:
   bundleIdPrefix: app.isctcompanion
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "18.0"
   developmentLanguage: ja
   createIntermediateGroups: true
 packages:
   IsctCore:
     path: ../../bindings/swift
+  # Celebratory effects the platform lacks; everything else uses SwiftUI's own
+  # animation APIs (docs/ux/mobile.md, Look).
+  Pow:
+    url: https://github.com/EmergeTools/Pow
+    exactVersion: 1.0.6
 targets:
   IsctCompanion:
     type: application
@@ -19,6 +24,7 @@ targets:
       - path: IsctCompanion
     dependencies:
       - package: IsctCore
+      - package: Pow
     info:
       path: IsctCompanion/Info.plist
       properties:

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Paper, Input } from "@mantine/core";
 import { UiButton } from "../../components/mantine";
 import {
@@ -14,7 +14,6 @@ import {
   formatCivilDate,
   tokyoDate,
 } from "../../lib/civil-date";
-import { resolvedTeachingPeriods } from "../../lib/timetable-layout";
 import type { Workspace } from "../../lib/model";
 import { t } from "../../i18n";
 
@@ -53,7 +52,13 @@ export function CalendarView({
       },
     ];
   };
-  const today = tokyoDate(new Date());
+  // Re-render each minute so the now line moves and today follows midnight.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const today = tokyoDate(now);
   const [anchor, setAnchor] = useState<string>();
   const date = anchor ?? today;
   const from = addCivilDays(date, 1 - civilWeekday(date));
@@ -112,10 +117,7 @@ export function CalendarView({
           </div>
         </header>
         <WeekTimetable
-          days={agendaColumns(view.value?.agendas ?? [])}
-          teachingPeriods={resolvedTeachingPeriods(
-            data.academicProfile.teachingPeriods,
-          )}
+          days={agendaColumns(view.value?.agendas ?? [], today)}
           onSelect={open}
           actionsFor={actionsFor}
           showNow

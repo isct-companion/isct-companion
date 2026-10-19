@@ -1356,6 +1356,17 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     assert_eq!(view.exam_ids, ["early", "late"]);
     assert_eq!(view.offering_id.as_deref(), Some("o"));
     assert!(course_detail(&data, "unknown").material_ids.is_empty());
+    // Files go where desktop already put them: `folderComponent` replaces
+    // every other UTF-16 unit, so an emoji takes two underscores.
+    let files = view.files.unwrap();
+    assert_eq!(
+        (files.term.as_str(), files.course.as_str()),
+        ("2026-3Q", "_csc.t101_")
+    );
+    assert!(course_detail(&data, "unknown").files.is_none());
+    assert_eq!(crate::storage::folder_name("線形代数🙂"), "______");
+    assert_eq!(crate::storage::folder_name(".."), "course");
+    assert_eq!(crate::storage::folder_name(&"a".repeat(130)).len(), 120);
 
     // Links: the LMS record matched by offering, then the syllabus by offering id.
     assert_eq!(view.lms_url, None);
@@ -1910,12 +1921,9 @@ fn a_user_mark_decides_what_a_session_is() {
 #[test]
 fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
     let mut data = workspace();
-    data["academicCalendar"][0]["examRanges"] =
-        json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
     data["settings"]["notifications"] = json!({"classes":true,"exams":true,"classLeadMinutes":10,"examLeadMinutes":60,"assignments":false});
-    let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| {
-        json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"})
-    };
+    let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"});
     data["exams"] = json!([
         row("week-class", "class", "2026-05-28", [5, 6]),
         row("final", "exam", "2026-05-29", [3, 4]),
@@ -1975,4 +1983,315 @@ fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
         .items
         .iter()
         .any(|item| item.at == "2026-05-28T13:20:00+09:00"));
+}
+
+#[test]
+fn timetable_year_labels_every_week_with_its_quarter() {
+    let mut data = workspace();
+    let calendar = data["academicCalendar"].as_array_mut().unwrap();
+    calendar[0]["examRanges"] = json!([{"start":"2026-06-03","end":"2026-06-09"}]);
+    calendar.push(json!({"id":"calendar:2026:quarter-start:2Q","academicYear":2026,"quarter":"2Q","date":"2026-06-10","type":"quarter-start","label":{"en":"start"}}));
+    calendar.push(json!({"id":"calendar:2026:quarter-end:2Q","academicYear":2026,"quarter":"2Q","date":"2026-08-05","type":"quarter-end","label":{"en":"end"}}));
+
+    let year = calendar::timetable_year(&data, 2026).unwrap();
+    let week = |monday: &str| {
+        year.weeks
+            .iter()
+            .find(|week| week.monday == monday)
+            .map(|week| (week.term.as_deref(), week.week, week.exams))
+            .unwrap()
+    };
+    // April 1 is a Wednesday: the year starts on its Monday and ends with
+    // the week holding March 31.
+    assert_eq!(year.weeks.first().unwrap().monday, "2026-03-30");
+    assert_eq!(year.weeks.last().unwrap().monday, "2027-03-29");
+    assert_eq!(week("2026-03-30"), (None, None, false));
+    // Counted as Today counts: the week of the quarter's first day is week 1.
+    assert_eq!(week("2026-04-06"), (Some("2026-1Q"), Some(1), false));
+    assert_eq!(week("2026-04-13"), (Some("2026-1Q"), Some(2), false));
+    assert_eq!(week("2026-06-01"), (Some("2026-1Q"), Some(9), true));
+    // A week shared by two quarters belongs to the earlier one.
+    assert_eq!(week("2026-06-08"), (Some("2026-1Q"), Some(10), true));
+    assert_eq!(week("2026-06-15"), (Some("2026-2Q"), Some(2), false));
+    assert_eq!(week("2026-08-10"), (None, None, false));
+    // Jumping to a quarter lands on its first teaching week; quarters without
+    // known dates are left out rather than guessed.
+    let quarters: Vec<_> = year
+        .quarters
+        .iter()
+        .map(|quarter| (quarter.term.as_str(), quarter.first_week.as_str()))
+        .collect();
+    assert_eq!(
+        quarters,
+        [("2026-1Q", "2026-04-06"), ("2026-2Q", "2026-06-08")]
+    );
+    assert!(calendar::timetable_year(&data, 9999).is_err());
+}
+
+#[test]
+fn timetable_axis_gives_every_period_one_row_and_lunch_half_a_row() {
+    let axis = timetable_axis(&default_teaching_periods(), None, None).unwrap();
+    let rows: Vec<_> = axis
+        .rows
+        .iter()
+        .map(|row| (row.periods, row.top, row.bottom))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (Some([1, 2]), 0.0, 2.0),
+            (Some([3, 4]), 2.0, 4.0),
+            (None, 4.0, 4.5),
+            (Some([5, 6]), 4.5, 6.5),
+            (Some([7, 8]), 6.5, 8.5),
+            (Some([9, 10]), 8.5, 10.5),
+            (Some([11, 12]), 10.5, 12.5),
+        ]
+    );
+    assert_eq!(axis.length, 12.5);
+    let at = |clock: &str| {
+        let (hour, minute) = clock.split_once(':').unwrap();
+        axis.offset(hour.parse::<u32>().unwrap() * 60 + minute.parse::<u32>().unwrap())
+    };
+    // A class that ends at its block's end fills the cell: the 15-minute
+    // break after it folds into the rule.
+    assert_eq!(
+        (at("08:50"), at("10:30"), at("10:40"), at("10:45")),
+        (0.0, 2.0, 2.0, 2.0)
+    );
+    // Times inside a block, such as an exam, keep their proportion.
+    assert_eq!(at("09:40"), 1.0);
+    // Lunch maps into its band; the day's edges clamp.
+    assert!((4.0..4.5).contains(&at("12:55")));
+    assert_eq!((at("07:30"), at("22:00")), (0.0, 12.5));
+
+    let broken = [TeachingPeriod {
+        periods: [1, 2],
+        start_time: "10:00".into(),
+        end_time: "09:00".into(),
+    }];
+    assert!(timetable_axis(&broken, None, None).is_err());
+    // A custom class outside the teaching day widens the axis at the edge
+    // blocks' pace (50 minutes a row) instead of being cut off.
+    let wide = timetable_axis(&default_teaching_periods(), Some("07:30"), Some("22:00")).unwrap();
+    assert_eq!(wide.offset(7 * 60 + 30), 0.0);
+    assert_eq!(wide.offset(8 * 60 + 50), 1.6);
+    assert_eq!(wide.rows[0].top, 1.6);
+    assert_eq!(wide.length, 1.6 + 12.5 + 1.5);
+    assert_eq!(wide.offset(22 * 60), wide.length);
+    // Times inside the teaching day leave it as it is.
+    assert_eq!(
+        timetable_axis(&default_teaching_periods(), Some("09:00"), Some("20:00")).unwrap(),
+        axis
+    );
+    let request: WorkspaceQuery = serde_json::from_value(json!({"kind":"timetableAxis"})).unwrap();
+    assert!(matches!(
+        query(&workspace(), request).unwrap(),
+        WorkspaceQueryResult::TimetableAxis(view) if view.length == 12.5
+    ));
+}
+
+#[test]
+fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
+    let body = concat!(
+        r#"<div data-region="activity-dates"><strong>Opened:</strong> 1 Oct</div>"#,
+        r#"<p>Write a parser &amp; test it.</p><br>"#,
+        r#"<a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf">Sheet</a>"#,
+        r#"<a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf">again</a>"#,
+        r#"<a href="https://example.com/pluginfile.php/2/x.pdf">elsewhere</a>"#,
+        r#"<div data-region="activity-information">Done: view</div>"#,
+    );
+    let data = json!({
+        "courses":[{"id":"c","code":"CSC.T273","termId":"2026-3Q"}],
+        "materials":[{"id":"m","courseId":"c","cmid":5,"module":"assign","bodyHtml":body,"sectionNumber":6,"sectionTitle":"第6回"}],
+        "assignments":[
+            {"id":"a","courseId":"c","title":"Report","details":"","dueAt":"2026-10-22T04:30:00Z","lmsCmid":5,"submission":"open","sourceUrl":"https://lms.s.isct.ac.jp/2026/mod/assign/view.php?id=5"},
+            {"id":"gone","courseId":"c","title":"Old","details":"","deletedAt":"x"}
+        ]
+    });
+    let request: WorkspaceQuery =
+        serde_json::from_value(json!({"kind":"assignmentDetail","assignmentId":"a"})).unwrap();
+    let WorkspaceQueryResult::AssignmentDetail(Some(view)) = query(&data, request).unwrap() else {
+        panic!("wrong result kind")
+    };
+    assert_eq!(
+        view.body_html,
+        concat!(
+            "<p>Write a parser &amp; test it.</p><br>",
+            r#"<a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf">Sheet</a>"#,
+            r#"<a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf">again</a>"#,
+            r#"<a href="https://example.com/pluginfile.php/2/x.pdf">elsewhere</a>"#,
+        )
+    );
+    // One entry per LMS file, named by its decoded file name.
+    assert_eq!(
+        view.attachments,
+        [AssignmentAttachment {
+            name: "sheet 1.pdf".into(),
+            url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf".into(),
+        }]
+    );
+    assert_eq!(
+        (view.section_number, view.section_title.as_deref()),
+        (Some(6), Some("第6回"))
+    );
+    assert_eq!(view.files.unwrap().course, "CSC.T273");
+    assert!(assignment_detail(&data, "gone").is_none());
+    // Names decode; a link to a folder falls back to its text; plain http,
+    // relative links and other hosts are not attachments.
+    let mut named = data.clone();
+    named["materials"][0]["bodyHtml"] = json!(concat!(
+        r#"<a href="https://lms.s.isct.ac.jp/pluginfile.php/1/%E8%AA%B2%E9%A1%8C.pdf">課題</a>"#,
+        r#"<a href="https://lms.s.isct.ac.jp/pluginfile.php/1/mod_assign/intro/">instructions</a>"#,
+        r#"<a href="http://lms.s.isct.ac.jp/pluginfile.php/1/x.zip">plain</a>"#,
+        r#"<a href="/pluginfile.php/relative.zip">relative</a>"#,
+    ));
+    let names: Vec<_> = assignment_detail(&named, "a")
+        .unwrap()
+        .attachments
+        .into_iter()
+        .map(|file| file.name)
+        .collect();
+    assert_eq!(names, ["課題.pdf", "instructions"]);
+    // Without a module row the page still shows the assignment's own fields.
+    let mut bare = data.clone();
+    bare["materials"] = json!([]);
+    let view = assignment_detail(&bare, "a").unwrap();
+    assert!(view.body_html.is_empty() && view.attachments.is_empty());
+    assert_eq!(view.title, "Report");
+}
+
+#[test]
+fn course_content_follows_the_desktop_lecture_desk() {
+    // The desktop rail's cases (lessons.ts), on the same titles.
+    for (title, number) in [
+        ("第2回", Some(2)),
+        ("第 12 回 クラス", Some(12)),
+        ("第３回", Some(3)),
+        ("Lecture 4", Some(4)),
+        ("Week 10: Graphs", Some(10)),
+        ("5. Recursion", Some(5)),
+        ("一般", None),
+        ("連絡先・オフィスアワー", None),
+        ("2026年度 講義資料", None),
+    ] {
+        assert_eq!(lesson_number(title), number, "{title}");
+    }
+
+    // Sections and their text come from the LMS record; section numbers and
+    // lesson numbers differ (section 6 is 第5回).
+    let data = json!({
+        "courses":[{"id":"c","termId":"2026-3Q","offeringId":"o"}],
+        "lmsCourses":[{"lmsId":8,"offeringId":"o","sections":[
+            {"id":100,"number":0,"title":"一般","bodyHtml":""},
+            {"id":105,"number":5,"title":"第4回","bodyHtml":"<div class=\"summarytext\"><div>授業計画：配列<br>課題：確認</div></div><ul data-for=\"cmlist\"></ul>"},
+            {"id":106,"number":6,"title":"第5回","bodyHtml":"<script>x()</script><p>授業計画：継承</p>"},
+            {"id":107,"number":7,"title":"第6回","bodyHtml":""},
+            {"id":108,"number":8,"title":"第7回","bodyHtml":"<p>hidden</p>","visible":false},
+            {"id":109,"number":9,"title":"第8回","bodyHtml":""}
+        ]}],
+        "materials":[
+            {"id":"g","courseId":"c","session":0,"sectionId":100,"module":"forum","title":"お知らせ","bodyHtml":"<article>Room changed</article>"},
+            {"id":"a","courseId":"c","session":5,"sectionId":105,"module":"resource","title":"slides","url":"https://lms.s.isct.ac.jp/mod/resource/view.php?id=1"},
+            {"id":"l","courseId":"c","session":5,"sectionId":105,"module":"label","title":"note","bodyHtml":"<p>Bring a laptop</p>"},
+            {"id":"b","courseId":"c","session":6,"sectionId":106,"module":"page","title":"Reading","bodyHtml":"<p>Read chapter 3</p>"},
+            {"id":"task","courseId":"c","session":7,"sectionId":107,"module":"assign","cmid":5,"title":"Report"},
+            {"id":"quiz","courseId":"c","session":7,"sectionId":107,"module":"quiz","title":"Quiz"}
+        ],
+        "assignments":[{"id":"r","courseId":"c","title":"Report","details":"","lmsCmid":5}]
+    });
+    let request: WorkspaceQuery = serde_json::from_value(
+        json!({"kind":"courseContent","courseId":"c","now":"2026-11-24T12:00:00+09:00"}),
+    )
+    .unwrap();
+    let WorkspaceQueryResult::CourseContent(Some(view)) = query(&data, request).unwrap() else {
+        panic!("wrong result kind")
+    };
+    let lessons: Vec<_> = view
+        .lessons
+        .iter()
+        .map(|lesson| (lesson.section, lesson.number, lesson.posted))
+        .collect();
+    // Hidden and empty sections drop out; a section holding only an
+    // assignment stays, unposted.
+    assert_eq!(
+        lessons,
+        [
+            (0, None, true),
+            (5, Some(4), true),
+            (6, Some(5), true),
+            (7, Some(6), false)
+        ]
+    );
+    assert_eq!(view.current_section, Some(6));
+    let fifth = &view.lessons[2];
+    assert_eq!(fifth.summary_html, "<p>授業計画：継承</p>");
+    assert_eq!(
+        view.lessons[1].summary_html,
+        "<div><div>授業計画：配列<br>課題：確認</div></div><ul></ul>"
+    );
+    let items: Vec<_> = view.lessons[1]
+        .items
+        .iter()
+        .map(|item| (item.kind, item.body_html.as_deref()))
+        .collect();
+    assert_eq!(
+        items,
+        [
+            (LessonItemKind::File, None),
+            (LessonItemKind::Label, Some("<p>Bring a laptop</p>"))
+        ]
+    );
+    assert_eq!(view.lessons[0].items[0].kind, LessonItemKind::Forum);
+    assert!(view.lessons[3].items.is_empty());
+    let now = DateTime::parse_from_rfc3339("2026-11-24T12:00:00+09:00").unwrap();
+    assert!(course_content(&data, "unknown", now).is_none());
+
+    // Without an LMS record, materials name the sections; one numbered
+    // section is not a lesson course.
+    let mut plain = data.clone();
+    plain["lmsCourses"] = json!([]);
+    plain["materials"] = json!([
+        {"id":"g","courseId":"c","session":0,"sectionTitle":"一般","title":"Syllabus"},
+        {"id":"a","courseId":"c","session":3,"sectionTitle":"第1回","title":"slides"},
+        {"id":"r","courseId":"c","session":4,"sectionTitle":"Reading","title":"paper"}
+    ]);
+    let view = course_content(&plain, "c", now).unwrap();
+    assert!(view.lessons.iter().all(|lesson| lesson.number.is_none()));
+    assert_eq!(view.current_section, Some(4));
+
+    // A mark for the class it is recorded against (the next one here, as
+    // the last was not today) wins over "last lesson with material"; once a
+    // later class has begun, the course is at the lesson after the mark.
+    let mut marked = multi_quarter_workspace();
+    marked["courses"][0]["offeringId"] = json!("202630001");
+    marked["lmsCourses"] = json!([{"lmsId":9,"offeringId":"202630001","sections":[
+        {"id":101,"number":1,"title":"第1回","bodyHtml":"<p>a</p>"},
+        {"id":102,"number":2,"title":"第2回","bodyHtml":"<p>b</p>"},
+        {"id":103,"number":3,"title":"第3回","bodyHtml":""}
+    ]}]);
+    marked["materials"] = json!([
+        {"id":"s3","courseId":"multi","session":3,"sectionId":103,"module":"resource","title":"slides"}
+    ]);
+    let view = course_content(&marked, "multi", now).unwrap();
+    assert_eq!(view.class_at.as_deref(), Some("2026-12-07T08:50:00+09:00"));
+    assert_eq!(view.current_section, Some(3));
+    assert_eq!(view.lessons[0].section_id, Some(101));
+    marked["courses"][0]["overrides"] = json!({"lessonLog":[
+        {"occurrence":"2026-12-07T08:50:00+09:00","sectionId":101}
+    ]});
+    assert_eq!(
+        course_content(&marked, "multi", now)
+            .unwrap()
+            .current_section,
+        Some(1)
+    );
+    marked["courses"][0]["overrides"]["lessonLog"][0]["occurrence"] =
+        json!("2026-11-16T08:50:00+09:00");
+    assert_eq!(
+        course_content(&marked, "multi", now)
+            .unwrap()
+            .current_section,
+        Some(2)
+    );
 }

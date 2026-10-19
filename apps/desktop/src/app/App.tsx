@@ -5,6 +5,7 @@ import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
+import { useAnimatedNavigate } from "./navigation";
 import { SchoolStatusLine } from "./SchoolStatusLine";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
@@ -26,7 +27,6 @@ import {
   useBlocker,
   useLocation,
   useMatch,
-  useNavigate,
   useParams,
   useSearchParams,
 } from "react-router";
@@ -50,7 +50,7 @@ import {
   official,
   saveExportFile,
 } from "./native";
-import { errorText, jstDate, type Page, type Section } from "./shared";
+import { jstDate, type Page, type Section } from "./shared";
 
 import { Today } from "../pages/today/TodayPage";
 import type { CourseEntry } from "../features/lms/LmsWorkspace";
@@ -267,7 +267,7 @@ export function WorkspaceApp() {
   // Today's "All assignments" asks Lecture Desk for the quarter's list.
   const [assignmentsRequest, setAssignmentsRequest] = useState<number>();
   const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
-  const navigate = useNavigate();
+  const navigate = useAnimatedNavigate();
   const location = useLocation();
   const params = useParams();
   const timetableMatch = useMatch(routePatterns.timetable);
@@ -513,14 +513,11 @@ export function WorkspaceApp() {
   const {
     lmsProgress,
     kyomuProgress,
-    setLmsProgress,
-    setKyomuProgress,
     lmsPhase,
-    setLmsPhase,
     loginSteps,
+    pulling,
     schoolStatus,
-  } = usePullState(schoolRecords?.lastRuns);
-  const pulling = lmsProgress !== null;
+  } = usePullState();
   const [forceRefreshing, setForceRefreshing] = useState(false);
   useCoreLifecycle();
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
@@ -866,34 +863,19 @@ export function WorkspaceApp() {
     currentOnly = false,
   ) => {
     if (!desktopBridge?.pullSchool) return false;
-    setLmsPhase(
-      lmsCourseId
-        ? "Refreshing the current LMS course"
-        : "Refreshing LMS assignments and materials",
-    );
-    setLmsProgress(5);
+    // Progress and failures show through Core's school status.
     try {
       const outcomes = await pullScienceLms({ lmsCourseId, currentOnly });
       const problem = pullProblem(outcomes);
-      setLmsPhase(problem ?? "Saving LMS changes");
-      setLmsProgress(90);
-
-      if (!problem) setLmsPhase("LMS updated");
       if (!quiet) notify.info(problem ?? "LMS updated");
       return !problem;
     } catch (error) {
-      setLmsPhase(
-        `${t("Update failed")} · ${t(errorText(error) ?? "unknown error")}`,
-      );
       if (!quiet) notify.error(error);
       return false;
-    } finally {
-      setLmsProgress(null);
     }
   };
   const refreshKyomu = async (quiet = false) => {
     if (!desktopBridge?.pullSchool) return;
-    setKyomuProgress(5);
     try {
       const outcomes = await workspaceActions.pullSchool("kyomu");
       const problem = pullProblem(outcomes);
@@ -902,8 +884,6 @@ export function WorkspaceApp() {
       if (!problem) await askClassGroup();
     } catch (error) {
       if (!quiet) notify.error(error);
-    } finally {
-      setKyomuProgress(null);
     }
   };
   const forceSchoolRefresh = async () => {

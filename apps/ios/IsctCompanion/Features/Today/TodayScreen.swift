@@ -5,17 +5,27 @@ import SwiftUI
 /// sections. The shell renders `TodayView` in order and never sorts or filters.
 struct TodayScreen: View {
     @Environment(AppModel.self) private var model
-    @State private var showsSettings = false
+    /// Core's upcoming exams for the next two weeks.
+    @State private var exams: [ExamView] = []
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     header
-                    if let problem = model.problem { ProblemBanner(text: problem) }
-                    if model.needsAccount { ConnectCard(showsSettings: $showsSettings) }
+                    if let problem = model.problem {
+                        ProblemBanner(text: problem)
+                    } else if case let .problem(site, problem)? = model.schoolStatus?.headline {
+                        SchoolProblemBanner(site: site, problem: problem)
+                    }
+                    if model.needsAccount { ConnectCard() }
+                    if let status = model.schoolStatus, status.headline.ringProgress(status) != nil,
+                        model.records.courses.isEmpty, model.records.assignments.isEmpty
+                    {
+                        FirstLoadCard(status: status)
+                    }
                     if let today = model.today {
-                        TodayContent(today: today, now: context.date)
+                        TodayContent(today: today, now: context.date, exams: exams)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -26,7 +36,10 @@ struct TodayScreen: View {
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) { UndoToast() }
-        .sheet(isPresented: $showsSettings) { SettingsSheet() }
+        .task(id: "\(model.contentRevision)-\(model.today?.date ?? "")") {
+            let loaded = await model.upcomingExams()
+            if !Task.isCancelled { exams = loaded }
+        }
     }
 
     private var header: some View {
@@ -40,12 +53,8 @@ struct TodayScreen: View {
                     .foregroundStyle(Theme.ink)
             }
             Spacer()
-            if model.isPulling {
-                ProgressView().padding(.trailing, 4)
-            }
-            Button {
-                showsSettings = true
-            } label: {
+            SyncRingButton()
+            NavigationLink(value: SettingsRoute.root) {
                 Image(systemName: "gearshape")
                     .font(.title3)
                     .foregroundStyle(Theme.ink)
@@ -72,6 +81,7 @@ struct TodayScreen: View {
 private struct TodayContent: View {
     let today: TodayView
     let now: Date
+    let exams: [ExamView]
 
     var body: some View {
         switch today.phase {
@@ -81,6 +91,7 @@ private struct TodayContent: View {
                 SectionLabel("このあと")
                 ClassList(items: today.later)
             }
+            UpcomingExams(exams: exams)
             DeadlineSection(title: "期限", items: today.deadlines, now: now)
         case .inClass:
             if let hero = today.hero { CurrentClassHero(item: hero, now: now) }
@@ -96,18 +107,22 @@ private struct TodayContent: View {
         case .afterClasses:
             if let hero = today.deadlineHero { TonightHero(item: hero, now: now) }
             if let next = today.nextClass {
-                SectionLabel(Format.civilDate(next.occurrence.date).map { Calendar.tokyo.isDateInTomorrow($0) } == true ? "明日の授業" : "次の授業")
+                let tomorrow = Format.civilDate(next.occurrence.date).map { Calendar.tokyo.isDateInTomorrow($0) } == true
+                let exam = next.occurrence.kind == .exam
+                SectionLabel(LocalizedStringKey((tomorrow ? "明日の" : "次の") + (exam ? "試験" : "授業")))
                 NextDayCard(item: next)
             }
+            UpcomingExams(exams: exams)
             DeadlineSection(title: "期限", items: today.deadlines, now: now)
         case .noClasses:
+            UpcomingExams(exams: exams)
             DeadlineSection(title: "期限", items: today.deadlines, now: now)
             if !today.recent.isEmpty {
                 SectionLabel("新着")
                 RecentCard(items: today.recent)
             }
             if let next = today.nextClass {
-                SectionLabel("次の授業")
+                SectionLabel(next.occurrence.kind == .exam ? "次の試験" : "次の授業")
                 NextDayCard(item: next)
             }
         }
@@ -123,14 +138,17 @@ private struct NextClassHero: View {
 
     var body: some View {
         let tint = Color(hex: item.occurrence.color)
+        let exam = item.occurrence.kind == .exam
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(["次の授業", Format.periods(item.periods)].compactMap { $0 }.joined(separator: " · "))
+                Text([exam ? "次の試験" : "次の授業", Format.periods(item.periods)].compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tint)
                 Spacer()
                 if let starts = Format.date(item.startsAt) {
-                    TagChip(text: "あと \(max(Format.minutes(until: starts, now: now), 0)) 分", ink: tint, fill: Theme.surface)
+                    let minutes = max(Format.minutes(until: starts, now: now), 0)
+                    TagChip(text: "あと \(minutes) 分", ink: exam ? Theme.warn : tint, fill: Theme.surface)
+                        .countingFigure(minutes)
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -142,11 +160,14 @@ private struct NextClassHero: View {
             .foregroundStyle(Theme.ink)
             .minimumScaleFactor(0.6)
             .lineLimit(1)
-            CourseLink(id: item.occurrence.courseId, title: item.occurrence.title)
+            Text(item.occurrence.title)
+                .font(.title3.weight(.semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(Theme.ink)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(Theme.tintSoft), in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
+        .heroCard(tint: tint)
+        .opensCourse(item.occurrence.courseId)
     }
 }
 
@@ -163,7 +184,7 @@ private struct CurrentClassHero: View {
         let progress = min(max(now.timeIntervalSince(starts) / total, 0), 1)
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text((["授業中", Format.periods(item.periods), item.occurrence.room] as [String?]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                Text(([item.occurrence.kind == .exam ? "試験中" : "授業中", Format.periods(item.periods), item.occurrence.room] as [String?]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tint)
                 Spacer()
@@ -173,18 +194,24 @@ private struct CurrentClassHero: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("あと").font(.title3.weight(.semibold))
-                Text("\(max(Format.minutes(until: ends, now: now), 0))")
+                let minutes = max(Format.minutes(until: ends, now: now), 0)
+                Text("\(minutes)")
                     .font(.system(size: 48, weight: .bold).monospacedDigit())
+                    .countingFigure(minutes)
                 Text("分").font(.title3.weight(.semibold))
             }
             .foregroundStyle(Theme.ink)
             ProgressView(value: progress)
                 .tint(tint)
-            CourseLink(id: item.occurrence.courseId, title: item.occurrence.title)
+                .animation(.smooth(duration: 0.8), value: progress)
+            Text(item.occurrence.title)
+                .font(.title3.weight(.semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(Theme.ink)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(Theme.tintSoft), in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
+        .heroCard(tint: tint)
+        .opensCourse(item.occurrence.courseId)
     }
 }
 
@@ -229,23 +256,24 @@ private struct TonightHero: View {
 
 // MARK: Sections
 
-private struct CourseLink: View {
+/// The whole hero card is the way into its course: it dips while pressed and
+/// the course page grows out of it.
+private struct OpensCourse: ViewModifier {
     let id: String?
-    let title: String
-    var body: some View {
+
+    func body(content: Content) -> some View {
         if let id {
-            NavigationLink(value: CourseRoute(id: id)) { label }
+            NavigationLink(value: CourseRoute(id: id, zoom: "hero")) { content }
+                .buttonStyle(PressableStyle())
+                .courseZoomSource("hero")
         } else {
-            label
+            content
         }
     }
-    private var label: some View {
-        HStack(spacing: 4) {
-            Text(title).font(.title3.weight(.semibold)).lineLimit(2)
-            if id != nil { Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted) }
-        }
-        .foregroundStyle(Theme.ink)
-    }
+}
+
+private extension View {
+    func opensCourse(_ id: String?) -> some View { modifier(OpensCourse(id: id)) }
 }
 
 /// Rows of classes: time, course square, title and periods, room.
@@ -272,8 +300,14 @@ private struct ClassList: View {
             CourseSquare(color: item.occurrence.color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.occurrence.title).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
-                if let detail = detail(item) {
-                    Text(detail).font(.subheadline).foregroundStyle(Theme.muted)
+                if item.occurrence.kind == .exam || detail(item) != nil {
+                    HStack(spacing: 6) {
+                        if item.occurrence.kind == .exam {
+                            Text("試験").fontWeight(.semibold).foregroundStyle(Theme.warn)
+                        }
+                        if let detail = detail(item) { Text(detail).foregroundStyle(Theme.muted) }
+                    }
+                    .font(.subheadline)
                 }
             }
             Spacer(minLength: 8)
@@ -286,7 +320,7 @@ private struct ClassList: View {
         .contentShape(Rectangle())
         return Group {
             if let id = item.occurrence.courseId {
-                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(.plain)
+                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(PressableStyle())
             } else {
                 content
             }
@@ -321,7 +355,8 @@ private struct DeadlineSection: View {
     }
 }
 
-/// Opens the assignment's submission page; long press offers quick actions.
+/// Opens the assignment's page, read from LMS by Core; long press offers
+/// quick actions, among them the LMS submission page.
 struct DeadlineLink<Content: View>: View {
     let item: DeadlineItem
     @ViewBuilder var label: Content
@@ -329,14 +364,19 @@ struct DeadlineLink<Content: View>: View {
     @Environment(Navigator.self) private var navigator
 
     var body: some View {
-        NavigationLink(value: WebRouter.PushedPage(site: .scienceLms, target: item.sourceUrl, title: item.title)) {
+        NavigationLink(value: AssignmentRoute(id: item.assignmentId)) {
             label
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .contextMenu {
             // A NavigationLink inside a menu does not push reliably.
             if let course = item.courseId {
                 Button("授業を開く", systemImage: "book") { navigator.push(CourseRoute(id: course)) }
+            }
+            if let url = item.sourceUrl {
+                Button("LMS で提出", systemImage: "arrow.up.forward.square") {
+                    navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
+                }
             }
             Button {
                 Task { await model.setPinned(item, !item.pinned) }
@@ -386,28 +426,27 @@ private struct ThisClassCard: View {
 
 struct MaterialRow: View {
     let item: MaterialItem
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Button {
-            if let raw = item.url, let url = URL(string: raw) { openURL(url) }
-        } label: {
+        MaterialOpener(title: item.title, source: item.url, files: nil, courseId: item.courseId) { opening in
             HStack(spacing: 12) {
                 Image(systemName: icon).foregroundStyle(Theme.muted).frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title).foregroundStyle(Theme.ink).lineLimit(2)
+                    Text(item.title).foregroundStyle(Theme.ink).lineLimit(2).multilineTextAlignment(.leading)
                     if let detail {
                         Text(detail).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 8)
-                if item.addedToday { TagChip(text: "今日追加") }
+                if opening {
+                    ProgressView().controlSize(.small)
+                } else if item.addedToday {
+                    TagChip(text: "今日追加")
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     private var icon: String {
@@ -451,16 +490,61 @@ private struct NextDayCard: View {
                 Text(item.occurrence.title).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
             }
             Spacer()
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
         }
         .padding(14)
         Card {
             if let id = item.occurrence.courseId {
-                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(.plain)
+                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(PressableStyle())
             } else {
                 content
             }
         }
+    }
+}
+
+/// Exams in the next two weeks, as Core lists them; a row opens its course.
+private struct UpcomingExams: View {
+    let exams: [ExamView]
+
+    var body: some View {
+        if !exams.isEmpty {
+            SectionLabel("試験")
+            Card {
+                ForEach(Array(exams.enumerated()), id: \.element.key) { index, exam in
+                    if index > 0 { RowDivider() }
+                    row(exam)
+                }
+            }
+        }
+    }
+
+    private func row(_ exam: ExamView) -> some View {
+        let content = HStack(spacing: 12) {
+            CourseSquare(color: exam.color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(exam.title.isEmpty ? exam.code : exam.title).foregroundStyle(Theme.ink).lineLimit(1)
+                Text(detail(exam)).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        return Group {
+            if let id = exam.courseId {
+                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(PressableStyle())
+            } else {
+                content
+            }
+        }
+    }
+
+    /// `10月26日（月） · 3–4限 · W531`, or the time when no period is given.
+    private func detail(_ exam: ExamView) -> String {
+        let time = Format.periods(exam.periods)
+            ?? exam.startTime.map { start in [start, exam.endTime].compactMap { $0 }.joined(separator: "–") }
+        return [Format.dayTitle(exam.date), time, exam.room].compactMap { $0 }.filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 }
 
@@ -499,7 +583,7 @@ private struct RecentCard: View {
         .contentShape(Rectangle())
         return Group {
             if let courseId {
-                NavigationLink(value: CourseRoute(id: courseId)) { content }.buttonStyle(.plain)
+                NavigationLink(value: CourseRoute(id: courseId)) { content }.buttonStyle(PressableStyle())
             } else {
                 content
             }
@@ -531,7 +615,6 @@ struct ProblemBanner: View {
 
 /// First launch: the real empty Today with one sign-in card.
 private struct ConnectCard: View {
-    @Binding var showsSettings: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -539,9 +622,7 @@ private struct ConnectCard: View {
             Text("時間割・課題・資料を学校のサイトから読み込みます。パスワードはキーチェーンに保存され、学校のサイトにだけ送られます。")
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
-            Button {
-                showsSettings = true
-            } label: {
+            NavigationLink(value: SettingsRoute.account(.science)) {
                 Text("Science Tokyo で接続")
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)

@@ -5,6 +5,8 @@ use serde_json::{json, Value};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
+use chrono::{Datelike, Duration, NaiveDate};
+
 use super::{add_days, array, parse_civil_date, text, visible, ScheduleError, Term};
 
 const QUARTERS: [&str; 4] = ["1Q", "2Q", "3Q", "4Q"];
@@ -71,6 +73,118 @@ pub struct AcademicYearCalendar {
     #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub important_dates: Vec<Value>,
     pub published: bool,
+}
+
+/// One week of an academic year as the timetable's time picker lists it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TimetableWeek {
+    /// The Monday that names the week.
+    pub monday: String,
+    /// The quarter this week belongs to (`2026-3Q`); absent between quarters.
+    pub term: Option<String>,
+    /// The quarter's calendar week, counted as Today counts it.
+    pub week: Option<u32>,
+    /// A weekday of this week falls in the quarter's exam period.
+    pub exams: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TimetableQuarter {
+    pub term: String,
+    /// The Monday of the first teaching week: where jumping to the quarter
+    /// lands, to show someone that quarter's courses.
+    pub first_week: String,
+}
+
+/// The weeks of one academic year (April to March) with their quarters, for
+/// a dated timetable that still says which quarter it is showing.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TimetableYear {
+    pub year: i32,
+    /// Quarters whose dates are known, in order.
+    pub quarters: Vec<TimetableQuarter>,
+    pub weeks: Vec<TimetableWeek>,
+}
+
+fn monday_of(date: NaiveDate) -> NaiveDate {
+    date - Duration::days(i64::from(date.weekday().num_days_from_monday()))
+}
+
+/// Calendar weeks of a quarter: the week holding its first day is week 1.
+pub(crate) fn teaching_week(range: &QuarterRange, date: NaiveDate) -> Option<u32> {
+    let from = parse_civil_date(&range.from).ok()?;
+    let to = parse_civil_date(&range.to).ok()?;
+    (from..=to)
+        .contains(&date)
+        .then(|| ((date - monday_of(from)).num_days() / 7 + 1) as u32)
+}
+
+pub fn timetable_year(workspace: &Value, year: i32) -> Result<TimetableYear, ScheduleError> {
+    if !(1900..=9998).contains(&year) {
+        return Err(ScheduleError::InvalidInput("Invalid academic year.".into()));
+    }
+    let mut quarters = Vec::new();
+    let mut ranges = Vec::new();
+    for quarter in 1..=4 {
+        let term = format!("{year}-{quarter}Q");
+        let Some(range) = quarter_range(workspace, &term)? else {
+            continue;
+        };
+        let first = range
+            .teaching_ranges
+            .as_ref()
+            .and_then(|rows| rows.first())
+            .map_or(range.from.as_str(), |row| row.start.as_str());
+        quarters.push(TimetableQuarter {
+            term: term.clone(),
+            first_week: monday_of(parse_civil_date(first)?).to_string(),
+        });
+        ranges.push((term, range));
+    }
+    let invalid = || ScheduleError::InvalidInput("Invalid academic year.".into());
+    let first = NaiveDate::from_ymd_opt(year, 4, 1).ok_or_else(invalid)?;
+    let last = NaiveDate::from_ymd_opt(year + 1, 3, 31).ok_or_else(invalid)?;
+    let mut weeks = Vec::new();
+    let mut monday = monday_of(first);
+    while monday <= last {
+        let weekdays: Vec<_> = (0..5)
+            .map(|offset| monday + Duration::days(offset))
+            .collect();
+        let found = ranges.iter().find_map(|(term, range)| {
+            weekdays
+                .iter()
+                .find_map(|day| teaching_week(range, *day))
+                .map(|week| (term, range, week))
+        });
+        let exams = found.is_some_and(|(_, range, _)| {
+            range.exam_ranges.iter().flatten().any(|exam| {
+                let (Ok(start), Ok(end)) =
+                    (parse_civil_date(&exam.start), parse_civil_date(&exam.end))
+                else {
+                    return false;
+                };
+                weekdays.iter().any(|day| (start..=end).contains(day))
+            })
+        });
+        weeks.push(TimetableWeek {
+            monday: monday.to_string(),
+            term: found.map(|(term, _, _)| term.clone()),
+            week: found.map(|(_, _, week)| week),
+            exams,
+        });
+        monday += Duration::days(7);
+    }
+    Ok(TimetableYear {
+        year,
+        quarters,
+        weeks,
+    })
 }
 
 pub fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
@@ -381,5 +495,3 @@ pub(crate) fn localized(value: Option<&Value>, locale: &str, fallback: &str) -> 
         .unwrap_or(fallback)
         .into()
 }
-
-use chrono::Datelike;

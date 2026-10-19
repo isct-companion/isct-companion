@@ -437,7 +437,8 @@ fn refuse_first_responder_while_hidden(web_view: &WKWebView) {
             class = superclass;
         }
         let selector = sel!(acceptsFirstResponder);
-        let Some(method) = <WKWebView as objc2::ClassType>::class().instance_method(selector) else {
+        let Some(method) = <WKWebView as objc2::ClassType>::class().instance_method(selector)
+        else {
             return;
         };
         let _ = WEBKIT_ACCEPTS_FIRST_RESPONDER.set(method.implementation());
