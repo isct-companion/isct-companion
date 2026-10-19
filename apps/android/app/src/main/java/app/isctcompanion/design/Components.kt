@@ -73,7 +73,7 @@ fun androidx.compose.ui.text.TextStyle.tabular() = merge(tabular)
 fun DeadlineChip(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label) {
     val (ink, fill) = toneColors(if (item.submitted) "done" else item.tone)
     Chip(
-        if (item.submitted) item.grade ?: "提出済" else Format.countdown(item.dueAt, now, overdueStyle),
+        if (item.submitted) item.grade ?: t("Submitted") else Format.countdown(item.dueAt, now, overdueStyle),
         ink, fill,
     )
 }
@@ -160,16 +160,16 @@ fun DeadlineLink(item: DeadlineItem, content: @Composable () -> Unit) {
         content()
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             item.courseId?.let { course ->
-                MenuItem("授業を開く", Icons.AutoMirrored.Outlined.MenuBook) {
+                MenuItem(t("Open course"), Icons.AutoMirrored.Outlined.MenuBook) {
                     menu = false
                     navigator.openCourse(course)
                 }
             }
-            MenuItem(if (item.pinned) "ピン留めを外す" else "ピン留め", Icons.Outlined.PushPin) {
+            MenuItem(if (item.pinned) t("Unpin") else t("Pin"), Icons.Outlined.PushPin) {
                 menu = false
                 scope.launch { model.setPinned(item, !item.pinned) }
             }
-            MenuItem("非表示", Icons.Outlined.VisibilityOff, Theme.colors.danger) {
+            MenuItem(t("Hide"), Icons.Outlined.VisibilityOff, Theme.colors.danger) {
                 menu = false
                 scope.launch { model.setHidden(item, true) }
             }
@@ -210,11 +210,11 @@ fun MaterialRow(item: MaterialItem) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             // LMS section titles usually carry their own number; fall back to it.
-            (item.sectionTitle ?: item.section?.let { "第${it}回" })?.let {
+            (item.sectionTitle ?: item.section?.let { t("Lesson {{number}}", "number" to it) })?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
             }
         }
-        if (item.addedToday) TagChip("今日追加")
+        if (item.addedToday) TagChip(t("Added today"))
     }
 }
 
@@ -252,7 +252,7 @@ fun ProblemBanner(text: String) {
             modifier = Modifier.weight(1f).padding(vertical = 10.dp),
         )
         IconButton(onClick = { model.dismissProblem() }) {
-            Icon(Icons.Outlined.Close, "閉じる", tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.Close, t("Close"), tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         }
     }
 }

@@ -21,7 +21,7 @@ struct SettingsDestination: View {
         case .root:
             SettingsScreen()
         case let .account(profile):
-            AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : "Tokyo Tech（旧）")
+            AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : t("Tokyo Tech (former)"))
         case .notifications:
             NotificationsScreen()
         case .assignmentLeads:
@@ -35,7 +35,7 @@ struct SettingsDestination: View {
 }
 
 /// 設定: the desktop settings sections that apply on a phone — school
-/// accounts, reminders, study profile, data updates and the ウェブ tab.
+/// accounts, reminders, study profile, data updates, language and the ウェブ tab.
 /// Planning, calendars, folders and developer settings stay on desktop.
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
@@ -45,42 +45,43 @@ struct SettingsScreen: View {
 
     var body: some View {
         List {
-            Section("学校アカウント") {
+            Section(t("School accounts")) {
                 NavigationLink(value: SettingsRoute.account(.science)) {
                     accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.source(.scienceLms)?.lastUpdated)
                 }
                 NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
-                    accountRow("Tokyo Tech（旧）", model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.source(.kyomu)?.lastUpdated)
+                    accountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.source(.kyomu)?.lastUpdated)
                 }
             }
             Section {
                 NavigationLink(value: SettingsRoute.notifications) {
-                    row("通知", notificationSummary, icon: "bell")
+                    row(t("Notifications"), notificationSummary, icon: "bell")
                 }
                 NavigationLink(value: SettingsRoute.studyProfile) {
-                    row("学習プロフィール", nil, icon: "graduationcap")
+                    row(t("Study profile"), nil, icon: "graduationcap")
                 }
                 NavigationLink(value: SettingsRoute.dataUpdates) {
-                    row("データ更新", dataSummary, icon: "arrow.triangle.2.circlepath")
+                    row(t("Data updates"), dataSummary, icon: "arrow.triangle.2.circlepath")
                 }
             }
-            Section("ウェブ") {
-                Picker("文字サイズ", selection: $textScale) {
+            LanguageSection()
+            Section(t("Web")) {
+                Picker(t("Text size"), selection: $textScale) {
                     ForEach(SchoolBrowserHost.textScales, id: \.self) { Text("\($0)%").tag($0) }
                 }
-                Picker("最初のサイト", selection: $firstSite) {
+                Picker(t("First site"), selection: $firstSite) {
                     ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
                 }
             }
             Section {
                 LabeledContent("IsctCompanion", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
             } header: {
-                Text("情報")
+                Text(t("About"))
             } footer: {
-                Text("学年暦の編集、コースフォルダ、開発者向け設定はデスクトップ版にあります。")
+                Text(t("Calendar editing, course folders and developer settings are in the desktop app."))
             }
         }
-        .navigationTitle("設定")
+        .navigationTitle(t("Settings"))
         .onChange(of: textScale) { _, percent in web.browser.setTextScale(percent) }
         .onChange(of: firstSite) { _, site in WebRouter.firstSite = site }
     }
@@ -100,21 +101,21 @@ struct SettingsScreen: View {
         let settings = model.records.settings["notifications"] as? [String: Any] ?? [:]
         var parts: [String] = []
         if settings["classes"] as? Bool == true {
-            parts.append("授業 \(ReminderLeads.label(ReminderLeads.classLead(settings)))")
+            parts.append(t("Classes {{lead}}", ["lead": ReminderLeads.label(ReminderLeads.classLead(settings))]))
         }
         if ReminderLeads.exams(settings) {
-            parts.append("試験 \(ReminderLeads.label(ReminderLeads.examLead(settings)))")
+            parts.append(t("Exams {{lead}}", ["lead": ReminderLeads.label(ReminderLeads.examLead(settings))]))
         }
         if settings["assignments"] as? Bool == true {
             let leads = ReminderLeads.assignmentLeads(settings)
-            parts.append("課題 \(leads.count) 回")
+            parts.append(t("Assignments ×{{count}}", ["count": leads.count]))
         }
-        return parts.isEmpty ? "オフ" : parts.joined(separator: " · ")
+        return parts.isEmpty ? t("Off") : parts.joined(separator: " · ")
     }
 
     private var dataSummary: String {
         let refresh = model.records.settings["subscriptionRefresh"] as? [String: Any] ?? [:]
-        return refresh["allowCellular"] as? Bool == true ? "モバイル通信でも更新" : "Wi-Fi のときだけ自動更新"
+        return refresh["allowCellular"] as? Bool == true ? t("Update on cellular data") : t("Updates automatically on Wi-Fi only")
     }
 
     private func accountRow(
@@ -122,14 +123,14 @@ struct SettingsScreen: View {
     ) -> some View {
         let connected = credential?.availability == .available || credential?.availability == .savedLocked
         let state: (String, Color) = {
-            guard connected else { return ("未接続", Theme.muted) }
+            guard connected else { return (t("Not connected"), Theme.muted) }
             switch session {
             case .active?:
-                if let lastRun { return ("接続済 · \(Format.due(lastRun)) 更新", Theme.ok) }
-                return ("接続済", Theme.ok)
-            case .failed?: return ("ログインに失敗しました", Theme.danger)
-            case .maintenance?: return ("メンテナンス中", Theme.warn)
-            default: return ("確認中", Theme.muted)
+                if let lastRun { return (t("Connected · updated {{time}}", ["time": Format.due(lastRun)]), Theme.ok) }
+                return (t("Connected"), Theme.ok)
+            case .failed?: return (t("Sign-in failed"), Theme.danger)
+            case .maintenance?: return (t("Under maintenance"), Theme.warn)
+            default: return (t("Checking"), Theme.muted)
             }
         }()
         return HStack(spacing: 12) {
@@ -163,21 +164,21 @@ private struct AccountScreen: View {
     var body: some View {
         Form {
             Section {
-                TextField("学籍番号", text: $username)
+                TextField(t("Student ID"), text: $username)
                     .textContentType(.username)
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                SecureField(summary?.saved == true ? "パスワード（変更する場合のみ）" : "パスワード", text: $password)
+                SecureField(summary?.saved == true ? t("Password (enter only to change)") : t("Password"), text: $password)
                     .textContentType(.password)
             } footer: {
-                Text("パスワードはこの端末のキーチェーンに保存され、iCloud キーチェーンでデスクトップ版と共有されます。")
+                Text(t("The password is saved in this device’s Keychain and shared with the desktop app through iCloud Keychain."))
             }
             // Pasted keys, not passwords: a second secure field makes AutoFill
             // read the form as a sign-up and offer new credentials instead of
             // the saved login. They stay out of screenshots and the app switcher.
             if profile == .science {
-                Section("ワンタイムパスワード") {
+                Section(t("One-time password")) {
                     OtpImportField(saved: summary?.hasOtp == true, setup: $otpSecret)
                 }
             } else {
@@ -190,13 +191,13 @@ private struct AccountScreen: View {
                 Button {
                     Task { await save() }
                 } label: {
-                    if saving { ProgressView() } else { Text("保存して接続") }
+                    if saving { ProgressView() } else { Text(t("Save and connect")) }
                 }
                 .disabled(saving || username.isEmpty || (password.isEmpty && summary?.saved != true))
             }
             if summary?.saved == true {
                 Section {
-                    Button("この端末からログイン情報を削除", role: .destructive) {
+                    Button(t("Remove sign-in details from this device"), role: .destructive) {
                         Task {
                             await model.deleteCredentials(profile)
                             dismiss()
@@ -222,5 +223,35 @@ private struct AccountScreen: View {
         } catch {
             self.error = AppModel.describe(error)
         }
+    }
+}
+
+/// The desktop's language rows: the UI language and the language of school
+/// text. Both are workspace settings, so they follow the person to desktop.
+private struct LanguageSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Section {
+            Picker(t("Language"), selection: binding("locale", default: "en")) {
+                Text(verbatim: "English").tag("en")
+                Text(verbatim: "日本語").tag("ja")
+                Text(verbatim: "中文").tag("zh")
+            }
+            Picker(t("School content language"), selection: binding("contentLanguage", default: "auto")) {
+                Text(t("Automatic")).tag("auto")
+                Text(verbatim: "English").tag("en")
+                Text(verbatim: "日本語").tag("ja")
+            }
+        } footer: {
+            Text(t("Course names, rooms and syllabus text. Automatic uses the menu language."))
+        }
+    }
+
+    private func binding(_ key: String, default fallback: String) -> Binding<String> {
+        Binding(
+            get: { model.records.settings.text(key) ?? fallback },
+            set: { value in Task { await model.updateSettings { $0[key] = value } } }
+        )
     }
 }

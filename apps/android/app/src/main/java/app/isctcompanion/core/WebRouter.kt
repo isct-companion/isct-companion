@@ -1,5 +1,6 @@
 package app.isctcompanion.core
 
+import app.isctcompanion.design.t
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.getValue
@@ -99,15 +100,15 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         )
 
         fun name(site: SchoolSite): String = when (site) {
-            SchoolSite.SCIENCE_PORTAL -> "ポータル"
+            SchoolSite.SCIENCE_PORTAL -> t("Portal")
             SchoolSite.SCIENCE_LMS -> "LMS"
-            SchoolSite.KYOMU -> "教務Web"
-            SchoolSite.TOKYO_MAIL -> "メール"
-            SchoolSite.LIBRARY -> "図書館"
-            SchoolSite.TOKYO_PORTAL -> "東工大ポータル"
+            SchoolSite.KYOMU -> t("Kyomu Web")
+            SchoolSite.TOKYO_MAIL -> t("Mail")
+            SchoolSite.LIBRARY -> t("Library")
+            SchoolSite.TOKYO_PORTAL -> t("Tokyo Tech Portal")
             SchoolSite.TSUBAME -> "TSUBAME"
-            SchoolSite.SYLLABUS -> "シラバス"
-            SchoolSite.STUDY_GUIDE -> "学修案内"
+            SchoolSite.SYLLABUS -> t("Syllabus")
+            SchoolSite.STUDY_GUIDE -> t("Study guide")
         }
 
         /** Core's wire names for sites (`SchoolSite` serde names). */

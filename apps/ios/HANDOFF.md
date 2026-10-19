@@ -96,8 +96,6 @@ these items only work in a signed build:
 These can be done anywhere:
 
 - Quick Look for downloaded course files. `AppModel` passes `downloads: nil` for now; implement `NativeDownloadSession` (background `URLSession`) first.
-- A String Catalog generated from `resources/locales`. The UI strings are
-  inline Japanese for now.
 - A row for intensive courses (集中講義) in 時間割.
 - ログを共有 in 設定 › 情報: Core keeps a log ring (`diagnostics.rs`) but the
   FFI exposes no export yet.

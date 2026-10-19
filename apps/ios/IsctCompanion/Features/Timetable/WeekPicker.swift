@@ -16,9 +16,9 @@ struct WeekPicker: View {
     /// when Core knows the quarters around it.
     static func label(_ week: TimetableWeek, in year: TimetableYear) -> String? {
         guard !year.quarters.isEmpty else { return nil }
-        guard let term = week.term else { return "休み" }
-        let name = [Format.quarter(term), week.week.map { "第 \($0) 週" }].compactMap { $0 }.joined(separator: " ")
-        return week.exams ? "\(name) · 試験" : name
+        guard let term = week.term else { return t("Break between quarters") }
+        let name = [Format.quarter(term), week.week.map { t("Week {{week}}", ["week": $0]) }].compactMap { $0 }.joined(separator: " ")
+        return week.exams ? "\(name) · \(t("Exams"))" : name
     }
 
     var body: some View {
@@ -51,15 +51,15 @@ struct WeekPicker: View {
                 }
                 .onAppear { proxy.scrollTo(AppModel.civil(monday), anchor: .center) }
             }
-            .navigationTitle(year.map { "\(String($0.year)) 年度" } ?? "週を選ぶ")
+            .navigationTitle(year.map { t("AY {{year}}", ["year": String($0.year)]) } ?? t("Choose a week"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
-                    Button("前の年度", systemImage: "chevron.left") { Task { await step(-1) } }
-                    Button("次の年度", systemImage: "chevron.right") { Task { await step(1) } }
+                    Button(t("Previous year"), systemImage: "chevron.left") { Task { await step(-1) } }
+                    Button(t("Next year"), systemImage: "chevron.right") { Task { await step(1) } }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("今日に戻る") { pick(TimetableScreen.monday(of: Date())) }
+                    Button(t("Back to today")) { pick(TimetableScreen.monday(of: Date())) }
                 }
             }
         }
@@ -116,7 +116,7 @@ struct WeekPicker: View {
         var months: [Month] = []
         for week in year?.weeks ?? [] {
             let parts = week.monday.split(separator: "-")
-            let title = parts.count == 3 ? "\(parts[0]) 年 \(Int(parts[1]) ?? 0) 月" : week.monday
+            let title = Format.civilDate(week.monday).map { Format.written($0, "yMMMM") } ?? week.monday
             if months.last?.title == title {
                 months[months.count - 1].weeks.append(week)
             } else {

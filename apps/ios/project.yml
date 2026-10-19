@@ -6,7 +6,7 @@ options:
   bundleIdPrefix: app.isctcompanion
   deploymentTarget:
     iOS: "18.0"
-  developmentLanguage: ja
+  developmentLanguage: en
   createIntermediateGroups: true
 packages:
   IsctCore:
@@ -22,6 +22,9 @@ targets:
     platform: iOS
     sources:
       - path: IsctCompanion
+      # The desktop's UI catalogs, read by `Localizer` (ja.json, zh.json).
+      - path: ../../resources/locales
+        buildPhase: resources
     dependencies:
       - package: IsctCore
       - package: Pow
@@ -29,7 +32,10 @@ targets:
       path: IsctCompanion/Info.plist
       properties:
         CFBundleDisplayName: IsctCompanion
-        CFBundleDevelopmentRegion: ja
+        CFBundleDevelopmentRegion: en
+        # System UI (share sheet, photo picker) follows these; the app's own
+        # text follows settings.locale.
+        CFBundleLocalizations: [en, ja, zh-Hans]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}

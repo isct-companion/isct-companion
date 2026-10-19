@@ -108,15 +108,15 @@ final class WebRouter {
 
     static func name(_ site: SchoolSite) -> String {
         switch site {
-        case .sciencePortal: return "ポータル"
+        case .sciencePortal: return t("Portal")
         case .scienceLms: return "LMS"
-        case .kyomu: return "教務Web"
-        case .tokyoMail: return "メール"
-        case .library: return "図書館"
-        case .tokyoPortal: return "東工大ポータル"
+        case .kyomu: return t("Kyomu Web")
+        case .tokyoMail: return t("Mail")
+        case .library: return t("Library")
+        case .tokyoPortal: return t("Tokyo Tech Portal")
         case .tsubame: return "TSUBAME"
-        case .syllabus: return "シラバス"
-        case .studyGuide: return "学修案内"
+        case .syllabus: return t("Syllabus")
+        case .studyGuide: return t("Study guide")
         }
     }
 

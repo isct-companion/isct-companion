@@ -966,25 +966,37 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         rows.iter().map(|row| row.assignment_id.clone()).collect()
     };
 
-    // Before the first class: the next class leads, its period comes from the table.
+    let stack = |view: &TodayView| -> Vec<(String, String)> {
+        view.upcoming
+            .iter()
+            .map(|item| {
+                (
+                    item.occurrence.date.clone(),
+                    item.occurrence.course_id.clone().unwrap_or_default(),
+                )
+            })
+            .collect()
+    };
+
+    // Before the first class: the stack leads with it, its period from the
+    // table, and runs on into the next class day for three classes.
     let morning = today("2026-04-13T08:00:00+09:00");
     assert_eq!(morning.phase, TodayPhase::BeforeClasses);
     assert_eq!(morning.teaching_week, Some(2));
-    let hero = morning.hero.as_ref().unwrap();
-    assert_eq!(hero.occurrence.course_id.as_deref(), Some("course"));
-    assert_eq!(hero.periods, Some([1, 2]));
+    assert!(morning.hero.is_none());
+    assert_eq!(morning.upcoming[0].periods, Some([1, 2]));
+    assert_eq!(
+        stack(&morning),
+        [
+            ("2026-04-13".into(), "course".into()),
+            ("2026-04-13".into(), "afternoon".into()),
+            ("2026-04-20".into(), "course".into()),
+        ]
+    );
     assert_eq!(
         morning.next_boundary.as_deref(),
         Some("2026-04-13T08:50:00+09:00")
     );
-    assert_eq!(
-        morning.later[0].occurrence.course_id.as_deref(),
-        Some("afternoon")
-    );
-    // Overdue for a week at most, hidden and submitted work never.
-    assert_eq!(ids(&morning.deadlines), ["late", "tonight", "soon"]);
-    assert_eq!(morning.deadlines[0].tone, "past");
-    assert_eq!(morning.deadlines[1].tone, "urgent");
 
     // In class: newest material and this course's open work, then today's other deadlines.
     let class = today("2026-04-13T09:00:00+09:00");
@@ -996,7 +1008,9 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         .iter()
         .all(|m| m.material_id != "quiz"));
     assert_eq!(ids(&class.class_assignments), ["soon"]);
-    assert_eq!(ids(&class.deadlines), ["tonight"]);
+    // The class in progress is the hero, never also the stack's first card.
+    assert_eq!(class.hero.as_ref().unwrap().occurrence.course_id.as_deref(), Some("course"));
+    assert_eq!(class.upcoming[0].occurrence.course_id.as_deref(), Some("afternoon"));
     assert_eq!(
         class.next_boundary.as_deref(),
         Some("2026-04-13T10:30:00+09:00")
@@ -1004,8 +1018,9 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
 
     let between = today("2026-04-13T11:00:00+09:00");
     assert_eq!(between.phase, TodayPhase::BetweenClasses);
+    assert!(between.hero.is_none());
     assert_eq!(
-        between.hero.unwrap().occurrence.course_id.as_deref(),
+        between.upcoming[0].occurrence.course_id.as_deref(),
         Some("afternoon")
     );
 
@@ -1013,8 +1028,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     let evening = today("2026-04-13T21:10:00+09:00");
     assert_eq!(evening.phase, TodayPhase::AfterClasses);
     assert_eq!(evening.deadline_hero.unwrap().assignment_id, "tonight");
-    assert_eq!(ids(&evening.deadlines), ["late", "soon", "next-week"]);
-    assert_eq!(evening.next_class.unwrap().occurrence.date, "2026-04-20");
+    assert_eq!(evening.upcoming[0].occurrence.date, "2026-04-20");
 
     // A day without classes shows deadlines, recent changes and the next class.
     let mut off = data.clone();
@@ -1044,7 +1058,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         })
         .collect();
     assert_eq!(recent, ["slides-2", "graded"]);
-    assert_eq!(holiday.next_class.unwrap().occurrence.date, "2026-04-20");
+    assert_eq!(holiday.upcoming[0].occurrence.date, "2026-04-20");
 
     // The board resolves the quarter's one task timeline: what is left to do,
     // then every assignment whatever its state.
@@ -1061,7 +1075,10 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     assert_eq!(ids(&board.today.pinned), ["pin"]);
     assert_eq!(ids(&board.today.due_this_week), ["tonight", "soon"]);
     assert_eq!(ids(&board.today.later), ["next-week"]);
+    // Overdue for a week at most, hidden and submitted work never.
     assert_eq!(ids(&board.today.past_recent), ["late"]);
+    assert_eq!(board.today.past_recent[0].tone, "past");
+    assert_eq!(board.today.due_this_week[0].tone, "urgent");
     assert!(board.today.undated.is_empty() && board.today.hidden.is_empty());
     assert_eq!(
         ids(&board.record.due_this_week),

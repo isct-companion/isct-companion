@@ -1480,13 +1480,14 @@ export type TodayView = {
   calendarNotice: string | null;
   phase: TodayPhase;
   /**
-   * The current class while in class, otherwise the next one today.
+   * The class in progress.
    */
   hero: TodayClass | null;
   /**
-   * Today's classes after the hero.
+   * The next classes after now and after the hero, today first and then
+   * the following class days, at most `UPCOMING_CLASSES`.
    */
-  later: Array<TodayClass>;
+  upcoming: Array<TodayClass>;
   /**
    * In class: the current course's newest materials and open work.
    */
@@ -1496,15 +1497,10 @@ export type TodayView = {
    * After classes: the nearest open deadline before midnight.
    */
   deadlineHero: DeadlineItem | null;
-  deadlines: Array<DeadlineItem>;
   /**
    * No classes: grades and materials that changed recently.
    */
   recent: Array<RecentItem>;
-  /**
-   * After classes or on a day without classes: the first class of the next class day.
-   */
-  nextClass: TodayClass | null;
   /**
    * When the phase or hero changes next; shells re-query then.
    */

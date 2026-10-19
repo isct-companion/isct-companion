@@ -2006,7 +2006,7 @@ checks:
           while it runs, with a warn-coloured countdown chip; 次の授業 on an
           exam means the kind is ignored.
       - action: |
-          Read the 試験 card above 期限.
+          Read the 試験 card above 課題.
         reason: |
           It lists Core's upcomingExams within 14 days (date · periods or
           time · room, course square) and is absent when there are none;
@@ -2028,9 +2028,9 @@ checks:
     title: iPhone assignment rows without chevrons, hide needs a tap
     persona: careless-multidevice
     preconditions: |
-      The iPhone app with open assignments in 課題.
+      The iPhone app with open assignments on 今日.
     steps:
-      - action: Read the rows in 課題 and すべての課題.
+      - action: Read the rows under 今日's 課題 and in すべての課題.
         reason: |
           No disclosure chevron at the trailing end; the countdown chip is the
           last thing on the row. A chevron means the row went back to a
@@ -2045,7 +2045,7 @@ checks:
         reason: |
           Tap opens the assignment page; long press offers open course,
           LMS で提出, pin and hide, as before.
-    observe: The 課題 tab and the すべての課題 page.
+    observe: 今日's 課題 sections and the すべての課題 page.
     expected: |
       Rows have no chevrons, pin is a full swipe, hide needs a tap, and the
       haptic fires once per action.
@@ -2053,7 +2053,7 @@ checks:
       Swipe feel and haptics need a phone; the hide and pin intents are
       covered by Core's assignment board tests.
     covers:
-      - apps/ios/IsctCompanion/Features/Assignments/AssignmentsScreen.swift
+      - apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift
     verified: null
 
   - id: IOS-WEB-TAB-PICKER
@@ -2150,6 +2150,139 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
       - apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift
       - apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift
+    verified: null
+
+  - id: IOS-TODAY-CLASS-STACK
+    area: native
+    title: iPhone Today stacks the next three classes and carries the assignments
+    persona: undergraduate-first-term
+    preconditions: |
+      The iPhone app on a teaching day with at least three classes left this
+      week and open assignments in the current quarter.
+    steps:
+      - action: Read the tab bar.
+        reason: |
+          Four tabs, 今日 · 時間割 · ウェブ · 設定, with 設定 last and no 課題 tab;
+          今日 has no gear button. An iPad adds 授業.
+      - action: |
+          Before the first class, read the card under the date, then swipe up
+          on it twice and down once.
+        reason: |
+          Core's upcoming list leads with the next class (次の授業, countdown
+          chip) and the two after it peek behind; each swipe turns one card,
+          the label above follows the front card's day and the counter reads
+          1 / 3 to 3 / 3. The stack never changes height, so nothing below
+          moves.
+      - action: |
+          On the first card swipe down, and on the last card swipe up.
+        reason: |
+          Past either end the swipe scrolls the page instead; a stuck page
+          means the stack claims gestures it cannot use.
+      - action: Tap the front card, then a card behind it after turning to it.
+        reason: |
+          The whole card opens that card's course; only the front card takes
+          the tap.
+      - action: |
+          Scroll to 課題: read the header and the groups, then tap すべて.
+        reason: |
+          The quarter's groups from Core's board (ピン留め, 今週, 来週以降,
+          期限切れ) follow the stack in the page's own scroll, not in a box;
+          すべて opens すべての課題.
+      - action: During a class, and after the last class, read 今日 again.
+        reason: |
+          In class the hero is the class in progress and the stack starts
+          with the next one; after classes tonight's deadline leads and the
+          stack starts with the next class day.
+    observe: The 今日 tab on the device.
+    expected: |
+      Four tabs with 設定 last, a three-card stack that turns by swiping and
+      hands the swipe to the page at its ends, and the assignment groups
+      flowing below it.
+    why_manual: |
+      The swipe hand-off between the stack and the list's scrolling exists
+      only in UIKit on a device; which classes are upcoming is Core's today
+      read model, covered by its test.
+    covers:
+      - apps/ios/IsctCompanion/Features/Today/TodayScreen.swift
+      - apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift
+      - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
+    verified: null
+
+  - id: ANDROID-TODAY-CLASS-STACK
+    area: native
+    title: Android Today stacks the next three classes and carries the assignments
+    persona: undergraduate-first-term
+    preconditions: |
+      The Android app on a teaching day with at least three classes left this
+      week and open assignments in the current quarter.
+    steps:
+      - action: Read the navigation bar.
+        reason: |
+          Four destinations, 今日 · 時間割 · ウェブ · 設定, with 設定 last; 設定
+          is a page in its own tab, no longer a sheet from 今日.
+      - action: |
+          Swipe up and down on the class card, and past either end of the
+          stack.
+        reason: |
+          Each swipe turns one card with a haptic and the counter follows;
+          past the ends the list scrolls instead.
+      - action: |
+          Swipe an assignment row right, another left, then tap すべて.
+        reason: |
+          Right pins and left hides, as before the 課題 tab moved onto 今日;
+          すべて opens すべての課題.
+    observe: The 今日 and 設定 tabs on the device or emulator.
+    expected: |
+      Four destinations with 設定 last, a turning three-card stack that
+      yields to the list at its ends, and swipeable assignment rows below.
+    why_manual: |
+      Gesture hand-off and haptics need a running Compose app; the data is
+      Core's today and board read models, covered by their tests.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/App.kt
+    verified: null
+
+  - id: MOBILE-UI-LANGUAGE
+    area: native
+    title: Phone language rows switch the whole app and follow the desktop
+    persona: careless-multidevice
+    preconditions: |
+      The iPhone or Android app and the desktop app on the same workspace
+      with cloud sync on.
+    steps:
+      - action: |
+          In 設定 set Language to English, then 中文, then 日本語, watching
+          the tab bar and 今日 after each.
+        reason: |
+          Every string, tab label, date (Thu 15 Oct, 10月15日(木)) and
+          countdown switches at once without a relaunch; a stray Japanese
+          string under English means a literal escaped the catalog.
+      - action: |
+          Set School content language to English with the UI in 日本語, then
+          back to Automatic.
+        reason: |
+          Course names, rooms and calendar labels follow the content language
+          independently of the menus; Automatic follows the UI language.
+      - action: Check the desktop's Appearance settings after sync.
+        reason: |
+          Both are workspace settings (locale, contentLanguage), so the
+          desktop shows the same choices.
+    observe: 設定, 今日 and 時間割 on the phone, and the desktop settings.
+    expected: |
+      The UI and school text switch independently and immediately, and the
+      desktop shows the same two choices.
+    why_manual: |
+      The live switch and how each screen reads in three languages is a
+      glance on a device; the catalog's coverage and placeholders are
+      checked by the text-and-locales suite.
+    covers:
+      - apps/ios/IsctCompanion/Design/Localization.swift
+      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
     verified: null
 
   - id: DESKTOP-CALENDAR-NOW-LINE
