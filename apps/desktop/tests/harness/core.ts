@@ -232,6 +232,17 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         return options.credentialStatus ?? emptyCredentialStatus();
       case "pull_state":
         return [];
+      case "school_status":
+        // Core folds pulls into this; a test drives it with `school-status`.
+        return {
+          headline: { kind: "idle" },
+          sources: (["science-lms", "kyomu"] as const).map((site) => ({
+            site,
+            activity: { kind: "idle" },
+            signIn: null,
+            lastUpdated: null,
+          })),
+        };
       case "catalog_offerings":
       case "catalog_sync_offerings":
       case "catalog_sync_department":

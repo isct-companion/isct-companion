@@ -213,8 +213,9 @@ same intent to core, and undo comes from the mutation result core returns.
 
 ## Sync feedback
 
-The pull state machine (`PullState`, 11 states) is mapped to three levels; the
-UI keeps no busy flags of its own.
+The pull state machine (`PullState`, 11 states) is mapped to three levels by
+Core's school status (`crates/isct-core/src/school_status.rs`), the read model
+the desktop footer also renders; the UI keeps no busy flags of its own.
 
 | Level | States | Display |
 |---|---|---|

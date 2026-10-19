@@ -25,8 +25,8 @@ final class AppModel {
     private(set) var records = WorkspaceRecords()
     private(set) var credentials: SchoolCredentialStatus?
     private(set) var sessions: SchoolSessionStates?
-    private(set) var pulls: [PullSnapshot] = []
-    private(set) var lastPull: Date?
+    /// What the school connection is doing, decided by Core (`school_status.rs`).
+    private(set) var schoolStatus: SchoolStatus?
     /// Undo for the last hide, built from the intent Core committed.
     private(set) var undo: UndoAction?
     /// One "needs you" banner (sync feedback level 3).
@@ -42,6 +42,7 @@ final class AppModel {
     private var revision = ""
     private var boundaryTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var settingsWrite: Task<Void, Never>?
     private let network = NWPathMonitor()
     private var networkState: PullNetwork = .unknown
     private var foreground = true
@@ -57,8 +58,8 @@ final class AppModel {
             && credentials.tokyoTech.availability == .notConfigured
     }
 
-    var isPulling: Bool {
-        pulls.contains { [.running, .applying, .yielding, .checking].contains($0.state) }
+    func source(_ site: SchoolSite) -> SchoolSourceStatus? {
+        schoolStatus?.sources.first { $0.site == site }
     }
 
     // MARK: Lifecycle
@@ -85,9 +86,11 @@ final class AppModel {
             Task { await self.listen(stream) }
             await refresh()
             await refreshAccounts()
+            await refreshSchoolStatus()
             status = .ready
             watchNetwork()
             report(foreground: true)
+            reportSchool(.launch)
         } catch {
             status = .failed(Self.describe(error))
         }
@@ -100,10 +103,12 @@ final class AppModel {
             foreground = true
             _ = try? session.resume()
             report(foreground: true)
+            reportSchool(.focus)
             Task { await refresh() }
         case .background:
             foreground = false
             report(foreground: false)
+            reportSchool(.focus)
             _ = try? session.suspend()
         default:
             break
@@ -114,8 +119,13 @@ final class AppModel {
         guard let session else { return }
         _ = try? session.lifecycle(
             foreground: foreground, network: networkState, schoolVisible: web.isVisible)
-        _ = try? session.schoolLifecycle(
-            event: SchoolSessionLifecycle(kind: foreground ? .focus : .launch, visible: foreground))
+    }
+
+    /// School sign-in hears what desktop sends (`school-session.ts`): `launch`
+    /// once when the session opens, then `focus` as the app enters or leaves the
+    /// front. Core only acts on a visible focus.
+    private func reportSchool(_ kind: SchoolSessionLifecycleKind) {
+        _ = try? session?.schoolLifecycle(event: SchoolSessionLifecycle(kind: kind, visible: foreground))
     }
 
     private func watchNetwork() {
@@ -139,8 +149,11 @@ final class AppModel {
                 switch try await stream.next() {
                 case let .event(event):
                     switch event.name {
+                    case "school-status":
+                        await refreshSchoolStatus()
                     case "pull-state-changed", "school-pull-progress":
-                        await refreshPulls()
+                        // Folded into `school-status` by Core.
+                        break
                     case "school-session", "school-login-status":
                         await refreshAccounts()
                     case "school-web-open":
@@ -159,6 +172,7 @@ final class AppModel {
                 case .snapshotRequired:
                     scheduleRefresh()
                     await refreshAccounts()
+                    await refreshSchoolStatus()
                 }
             } catch {
                 return
@@ -235,14 +249,10 @@ final class AppModel {
         }
     }
 
-    private func refreshPulls() async {
+    private func refreshSchoolStatus() async {
         guard let session else { return }
-        if case let .pulls(snapshots)? = try? await session.pullState().value() {
-            pulls = snapshots
-            if snapshots.contains(where: { $0.state == .succeeded }) { lastPull = Date() }
-            if let failed = snapshots.first(where: { [.failed, .blocked].contains($0.state) }) {
-                problem = failed.lastError
-            }
+        if case let .schoolStatus(status)? = try? await session.schoolStatus().value() {
+            schoolStatus = status
         }
     }
 
@@ -333,7 +343,6 @@ final class AppModel {
                 break
             }
         }
-        lastPull = Date()
         await refresh()
     }
 
@@ -345,8 +354,21 @@ final class AppModel {
         if profile == .science { refreshFromSchool() }
     }
 
-    /// Edits `settings.notifications` and replaces the settings object.
-    func setNotifications(_ edit: (inout [String: Any]) -> Void) async {
+    /// Edits `settings.notifications` and replaces the settings object. Like the
+    /// desktop store's `updateSettings`, edits run one at a time, each on the
+    /// settings the previous one committed, so two quick toggles cannot both
+    /// copy the same old object.
+    func setNotifications(_ edit: @escaping @MainActor (inout [String: Any]) -> Void) async {
+        let previous = settingsWrite
+        let write = Task {
+            await previous?.value
+            await replaceNotifications(edit)
+        }
+        settingsWrite = write
+        await write.value
+    }
+
+    private func replaceNotifications(_ edit: (inout [String: Any]) -> Void) async {
         guard let session else { return }
         var settings = records.settings
         var notifications = settings["notifications"] as? [String: Any] ?? [:]
@@ -357,7 +379,10 @@ final class AppModel {
         else { return }
         let mutation = WorkspaceMutation(expectedRevision: revision, intent: .replaceSettings(settings: json))
         do {
-            _ = try await session.mutate(mutation: mutation).value()
+            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
+                revision = snapshot.revision
+                records = WorkspaceRecords(json: snapshot.workspace)
+            }
         } catch {
             problem = Self.describe(error)
         }
@@ -405,8 +430,13 @@ final class AppModel {
         return formatter.string(from: date)
     }
 
+    /// Core writes both `…T10:00:00+09:00` and, for stored runs, `…T01:00:00.123456789+00:00`;
+    /// one formatter reads only one of the two.
     nonisolated static func date(_ raw: String) -> Date? {
-        ISO8601DateFormatter().date(from: raw)
+        if let date = ISO8601DateFormatter().date(from: raw) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: raw)
     }
 
     nonisolated static func civil(_ date: Date) -> String {

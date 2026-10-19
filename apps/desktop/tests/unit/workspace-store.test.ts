@@ -34,7 +34,6 @@ import {
 } from "@app/platform/core-query";
 import {
   createTauriDesktopBridge,
-  schoolPullForDisplay,
   type InvokeNative,
   type ListenNative,
   type PullSnapshot,
@@ -1143,16 +1142,6 @@ const pull = (
 });
 
 describe("Tauri bridge contract", () => {
-  it("shows the executing manual pull ahead of an older blocked full pull", () => {
-    const jobs = [pull("full", "blocked"), pull("detail", "running", 42)];
-
-    expect(schoolPullForDisplay(jobs, "science-lms")?.id).toBe("detail");
-
-    jobs[1].state = "succeeded";
-    expect(schoolPullForDisplay(jobs, "science-lms")?.id).toBe("full");
-    expect(schoolPullForDisplay(jobs, "kyomu")).toBeUndefined();
-  });
-
   it("passes an optional LMS course scope to the native pull", async () => {
     const { invoke, calls } = invokeSeam(() => []);
     const bridge = createTauriDesktopBridge(

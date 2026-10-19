@@ -1345,6 +1345,19 @@ A signed build, provisioning, and physical iOS and Android devices.
      scripts, which only a real identity provider and OTP exercise;
      reminders depend on the notification permission and alarm delivery
      of a real device.
+5. On iOS, pull down on 今日 and watch the ring beside the settings
+   button, then tap it.
+   - *Why:* The ring and the sheet render Core's school status
+     (`school_status.rs`), the same read model as the desktop footer. A
+     ring that never fills, or a sheet whose LMS and 教務Web rows disagree
+     with the desktop footer, means the shell stopped following Core.
+6. On each device, after a pull, turn two reminder switches on in quick
+   succession, force-quit the app, reopen it and open 設定.
+   - *Why:* Each account row's 更新 time comes from Core's school status; a time
+     that disappears after the restart means the shell went back to its
+     own clock. Both switches staying on shows settings edits are applied
+     one after another, as on desktop, instead of the second copying
+     stale settings.
 
 **Where to look**
 

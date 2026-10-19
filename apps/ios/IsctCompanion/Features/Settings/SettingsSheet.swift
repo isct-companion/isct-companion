@@ -18,10 +18,10 @@ struct SettingsSheet: View {
             List {
                 Section("学校アカウント") {
                     NavigationLink(value: SettingsRoute.account(.science)) {
-                        accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science)
+                        accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.source(.scienceLms)?.lastUpdated)
                     }
                     NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
-                        accountRow("Tokyo Tech（旧）", model.credentials?.tokyoTech, model.sessions?.tokyoTech)
+                        accountRow("Tokyo Tech（旧）", model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.source(.kyomu)?.lastUpdated)
                     }
                 }
                 Section {
@@ -71,13 +71,15 @@ struct SettingsSheet: View {
         return parts.isEmpty ? "オフ" : parts.joined(separator: " · ")
     }
 
-    private func accountRow(_ name: String, _ credential: CredentialSummary?, _ session: SchoolSessionState?) -> some View {
+    private func accountRow(
+        _ name: String, _ credential: CredentialSummary?, _ session: SchoolSessionState?, _ lastRun: String?
+    ) -> some View {
         let connected = credential?.availability == .available || credential?.availability == .savedLocked
         let state: (String, Color) = {
             guard connected else { return ("未接続", Theme.muted) }
             switch session {
             case .active?:
-                if let last = model.lastPull { return ("接続済 · \(Format.time(last)) 更新", Theme.ok) }
+                if let lastRun { return ("接続済 · \(Format.due(lastRun)) 更新", Theme.ok) }
                 return ("接続済", Theme.ok)
             case .failed?: return ("ログインに失敗しました", Theme.danger)
             case .maintenance?: return ("メンテナンス中", Theme.warn)

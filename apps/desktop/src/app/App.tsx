@@ -50,7 +50,7 @@ import {
   official,
   saveExportFile,
 } from "./native";
-import { errorText, jstDate, type Page, type Section } from "./shared";
+import { jstDate, type Page, type Section } from "./shared";
 
 import { Today } from "../pages/today/TodayPage";
 import type { CourseEntry } from "../features/lms/LmsWorkspace";
@@ -514,14 +514,11 @@ export function WorkspaceApp() {
   const {
     lmsProgress,
     kyomuProgress,
-    setLmsProgress,
-    setKyomuProgress,
     lmsPhase,
-    setLmsPhase,
     loginSteps,
+    pulling,
     schoolStatus,
-  } = usePullState(schoolRecords?.lastRuns);
-  const pulling = lmsProgress !== null;
+  } = usePullState();
   const [forceRefreshing, setForceRefreshing] = useState(false);
   useCoreLifecycle();
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
@@ -875,34 +872,19 @@ export function WorkspaceApp() {
     currentOnly = false,
   ) => {
     if (!desktopBridge?.pullSchool) return false;
-    setLmsPhase(
-      lmsCourseId
-        ? "Refreshing the current LMS course"
-        : "Refreshing LMS assignments and materials",
-    );
-    setLmsProgress(5);
+    // Progress and failures show through Core's school status.
     try {
       const outcomes = await pullScienceLms({ lmsCourseId, currentOnly });
       const problem = pullProblem(outcomes);
-      setLmsPhase(problem ?? "Saving LMS changes");
-      setLmsProgress(90);
-
-      if (!problem) setLmsPhase("LMS updated");
       if (!quiet) notify.info(problem ?? "LMS updated");
       return !problem;
     } catch (error) {
-      setLmsPhase(
-        `${t("Update failed")} · ${t(errorText(error) ?? "unknown error")}`,
-      );
       if (!quiet) notify.error(error);
       return false;
-    } finally {
-      setLmsProgress(null);
     }
   };
   const refreshKyomu = async (quiet = false) => {
     if (!desktopBridge?.pullSchool) return;
-    setKyomuProgress(5);
     try {
       const outcomes = await workspaceActions.pullSchool("kyomu");
       const problem = pullProblem(outcomes);
@@ -911,8 +893,6 @@ export function WorkspaceApp() {
       if (!problem) await askClassGroup();
     } catch (error) {
       if (!quiet) notify.error(error);
-    } finally {
-      setKyomuProgress(null);
     }
   };
   const forceSchoolRefresh = async () => {

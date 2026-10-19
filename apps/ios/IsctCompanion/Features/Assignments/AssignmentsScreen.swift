@@ -16,7 +16,9 @@ struct AssignmentsScreen: View {
                             Text("\(Format.quarter(model.board?.term ?? "")) · 未提出のみ")
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.muted)
-                            if model.isPulling { ProgressView().controlSize(.small) }
+                            if let status = model.schoolStatus, let progress = status.headline.ringProgress(status) {
+                                SyncRing(progress: progress, emphasized: status.headline.isBusy).scaleEffect(0.8)
+                            }
                         }
                         Text("課題").font(.largeTitle.bold()).foregroundStyle(Theme.ink)
                     }

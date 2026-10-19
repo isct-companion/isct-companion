@@ -9,6 +9,7 @@ use isct_core::{
         SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent, SchoolSessionState,
     },
     school_service::{IngestOutcome, IngestState},
+    school_status::{PullStep, PullStepKind, SchoolHeadline, SchoolStatus},
 };
 use serde_json::json;
 
@@ -25,6 +26,7 @@ fn sample(event: &CoreEvent) -> &'static str {
         CoreEvent::SchoolIngest(_) => "ingest",
         CoreEvent::SchoolDownload(_) => "download",
         CoreEvent::PullStateChanged(_) => "pull",
+        CoreEvent::SchoolStatusChanged(_) => "status",
         CoreEvent::CloudSyncState(_) => "cloud",
     }
 }
@@ -142,6 +144,27 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             json!([{"id":"job","target":{"type":"school","site":"science-lms","courseId":42},"priority":"manual","state":"retryWaiting","phase":null,"blockedBy":"background","attempt":2,"waiterCount":1,"lastError":null}]),
         ),
         (
+            CoreEvent::SchoolStatusChanged(SchoolStatus {
+                headline: SchoolHeadline::Busy {
+                    site: SchoolSite::ScienceLms,
+                    progress: 31,
+                    step: PullStep {
+                        kind: PullStepKind::Material,
+                        completed: 3,
+                        total: 9,
+                        term: "2026-3Q".into(),
+                        course_title: "Linear Algebra".into(),
+                        item_title: "Week 3".into(),
+                    },
+                    waiting: None,
+                    queued: Some(SchoolSite::Kyomu),
+                },
+                sources: Vec::new(),
+            }),
+            "school-status",
+            json!({"headline":{"kind":"busy","site":"science-lms","progress":31,"step":{"kind":"material","completed":3,"total":9,"term":"2026-3Q","courseTitle":"Linear Algebra","itemTitle":"Week 3"},"waiting":null,"queued":"kyomu"},"sources":[]}),
+        ),
+        (
             CoreEvent::CloudSyncState(SyncState::default()),
             "cloud-sync-state",
             json!({"syncing":false,"automatic":false,"localVersion":"","providers":[],"versions":[],"tasks":[],"recoveryPoints":[]}),
@@ -152,5 +175,5 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
         covered.insert(sample(&event));
         assert_eq!(wire(&event), (name, payload));
     }
-    assert_eq!(covered.len(), 11);
+    assert_eq!(covered.len(), 12);
 }

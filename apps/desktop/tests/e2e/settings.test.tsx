@@ -466,10 +466,10 @@ describe("School accounts", () => {
       for (const label of ["ID", "Password", "Code", "Signed in"])
         expect(steps.textContent).toContain(label);
 
-      // Every account card listens for its own profile: the host has the shell's
-      // status-bar listener plus one per card.
+      // Every account card listens for its own profile; the status bar reads
+      // sign-in from Core's school status instead.
       await wait(() =>
-        expect(mounted.core.listenerCount("school-login-status")).toBe(3),
+        expect(mounted.core.listenerCount("school-login-status")).toBe(2),
       );
       await act(async () =>
         emitNative(mounted.core, "school-login-status", {
@@ -602,7 +602,7 @@ describe("School accounts", () => {
 
       await clickButton(account(mounted, "science"), "Connect");
       await wait(() =>
-        expect(mounted.core.listenerCount("school-login-status")).toBe(3),
+        expect(mounted.core.listenerCount("school-login-status")).toBe(2),
       );
 
       // The other card never started a login, so its event must not pull anyone away.

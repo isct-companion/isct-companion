@@ -12,8 +12,17 @@ struct TodayScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     header
-                    if let problem = model.problem { ProblemBanner(text: problem) }
+                    if let problem = model.problem {
+                        ProblemBanner(text: problem)
+                    } else if case let .problem(site, problem)? = model.schoolStatus?.headline {
+                        SchoolProblemBanner(site: site, problem: problem)
+                    }
                     if model.needsAccount { ConnectCard(showsSettings: $showsSettings) }
+                    if let status = model.schoolStatus, status.headline.ringProgress(status) != nil,
+                        model.records.courses.isEmpty, model.records.assignments.isEmpty
+                    {
+                        FirstLoadCard(status: status)
+                    }
                     if let today = model.today {
                         TodayContent(today: today, now: context.date)
                     }
@@ -40,9 +49,7 @@ struct TodayScreen: View {
                     .foregroundStyle(Theme.ink)
             }
             Spacer()
-            if model.isPulling {
-                ProgressView().padding(.trailing, 4)
-            }
+            SyncRingButton()
             Button {
                 showsSettings = true
             } label: {

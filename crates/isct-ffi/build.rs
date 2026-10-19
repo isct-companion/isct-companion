@@ -89,6 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "course_query/contracts.rs",
         "school_auth.rs",
         "school_service.rs",
+        "school_status.rs",
         "school_browser/mod.rs",
         "school_browser/port.rs",
         "lifecycle.rs",

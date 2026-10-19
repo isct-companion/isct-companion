@@ -285,6 +285,7 @@ pub fn run() {
             commands::school::set_school_web_zoom,
             commands::school::pull_school,
             commands::school::pull_state,
+            commands::school::school_status,
             commands::school::cancel_pull,
             commands::school::refresh_reference_subscriptions,
             commands::school::set_kyomu_guide,

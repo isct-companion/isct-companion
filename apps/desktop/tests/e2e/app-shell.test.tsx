@@ -2384,7 +2384,7 @@ describe("workspace column sizing", () => {
   });
 });
 
-it("shows progress only for pulls the user started and the data age when idle", async () => {
+it("names each school status Core reports and keeps the data age when idle", async () => {
   app = await mountShell(
     shellOptions({
       workspace: workspaceFixture(),
@@ -2392,21 +2392,42 @@ it("shows progress only for pulls the user started and the data age when idle", 
         command === "pull_school" ? [] : baseHandle(command, args, core),
     }),
   );
-  await act(async () =>
-    app!.core.emit("pull-state-changed", [
-      {
-        id: "kyomu-active",
-        target: { type: "school", site: "kyomu", courseId: null },
-        state: "queued",
-        priority: "manual",
-        phase: null,
-        blockedBy: null,
-        attempt: 0,
-        waiterCount: 1,
-        lastError: null,
-      },
-    ]),
-  );
+  // Core decides what the footer shows (`school_status.rs` and its tests);
+  // the shell only names it.
+  const idle = (lastUpdated: string | null) => ({
+    headline: { kind: "idle" },
+    sources: ["science-lms", "kyomu"].map((site) => ({
+      site,
+      activity: { kind: "idle" },
+      signIn: null,
+      lastUpdated,
+    })),
+  });
+  const emitStatus = (headline: unknown) =>
+    act(async () =>
+      app!.core.emit(
+        "school-status",
+        headline && typeof headline === "object" && "sources" in headline
+          ? headline
+          : { headline, sources: [] },
+      ),
+    );
+  const step = (kind: string) => ({
+    kind,
+    completed: 0,
+    total: 0,
+    term: "",
+    courseTitle: "",
+    itemTitle: "",
+  });
+  await emitStatus({
+    kind: "busy",
+    site: "kyomu",
+    progress: 5,
+    step: step("kyomu"),
+    waiting: "queued",
+    queued: null,
+  });
   await until(() => {
     const status = app!.host.querySelector(".lmsStatus")!;
     expect(status.getAttribute("data-kind")).toBe("busy");
@@ -2416,83 +2437,33 @@ it("shows progress only for pulls the user started and the data age when idle", 
     // The percentage is an estimate; the bar carries it without a number.
     expect(status.textContent).not.toContain("%");
   });
-  // A manual request waiting for the school lane must show the automatic
-  // owner that is making progress, instead of appearing stuck at queued 5%.
-  const waitingKyomu = {
-    id: "kyomu-active",
-    target: { type: "school", site: "kyomu", courseId: null },
-    state: "queued",
-    priority: "manual",
-    phase: null,
-    blockedBy: null,
-    attempt: 0,
-    waiterCount: 1,
-    lastError: null,
-  };
-  await act(async () => {
-    app!.core.emit("pull-state-changed", [
-      waitingKyomu,
-      {
-        ...waitingKyomu,
-        id: "lms-automatic-running",
-        target: { type: "school", site: "science-lms", courseId: null },
-        state: "running",
-        priority: "automatic",
-        phase: "extracting",
-      },
-    ]);
-  });
-  await act(async () =>
-    app!.core.emit("school-pull-progress", {
-      site: "science-lms",
-      phase: "course",
+  await emitStatus({
+    kind: "busy",
+    site: "science-lms",
+    progress: 17,
+    step: {
+      ...step("course"),
       completed: 7,
       total: 62,
-      courseId: 1,
-      courseTitle: "First course",
       term: "2026-3Q",
-      itemTitle: "",
-    }),
-  );
+      courseTitle: "First &amp; course",
+    },
+    waiting: null,
+    queued: "kyomu",
+  });
   await until(() => {
     const status = app!.host.querySelector(".lmsStatus")!;
     expect(status.textContent).toContain("LMS");
-    expect(status.textContent).toContain("7/62");
+    expect(status.textContent).toContain("2026-3Q · First & course · 7/62");
     expect(status.textContent).toContain("教務Web refresh queued");
-    expect(status.querySelector("progress")!.value).toBeGreaterThan(8);
+    expect(status.querySelector("progress")!.value).toBe(17);
   });
-  await act(async () => app!.core.emit("pull-state-changed", [waitingKyomu]));
-  await act(async () =>
-    app!.core.emit("school-ingest", {
-      site: "kyomu",
-      state: "ok",
-      kind: "registrations",
-      message: "",
-      imported: 1,
-    }),
-  );
-  await until(() =>
-    expect(
-      app!.host.querySelector<HTMLProgressElement>(".lmsStatus progress")!
-        .value,
-    ).toBe(35),
-  );
   // A pull Core admitted on its own stays a quiet note without a bar.
-  await act(async () =>
-    app!.core.emit("pull-state-changed", [
-      {
-        id: "lms-automatic",
-        target: { type: "school", site: "science-lms", courseId: null },
-        state: "blocked",
-        priority: "automatic",
-        phase: null,
-        blockedBy: "schoolVisible",
-        attempt: 0,
-        waiterCount: 0,
-        lastError: null,
-      },
-    ]),
-  );
+  await emitStatus({
+    kind: "background",
+    site: "science-lms",
+    waiting: "schoolVisible",
+  });
   await until(() => {
     const status = app!.host.querySelector(".lmsStatus")!;
     expect(status.getAttribute("data-kind")).toBe("background");
@@ -2502,21 +2473,20 @@ it("shows progress only for pulls the user started and the data age when idle", 
     );
     expect(status.querySelector("progress")).toBeNull();
   });
-  await act(async () => app!.core.emit("pull-state-changed", []));
+  await emitStatus(idle(null));
   await until(() => {
     const status = app!.host.querySelector(".lmsStatus")!;
     expect(status.getAttribute("data-kind")).toBe("idle");
     expect(status.textContent).toContain("Never updated");
   });
-  await act(async () =>
-    app!.core.emit("school-ingest", {
-      site: "kyomu",
-      kind: "service",
-      state: "maintenance",
-      changed: 0,
-      message: "Official maintenance · 2031/01/02 10:00–12:30",
-    }),
-  );
+  await emitStatus({
+    kind: "problem",
+    site: "kyomu",
+    problem: {
+      kind: "maintenance",
+      detail: "Official maintenance · 2031/01/02 10:00–12:30",
+    },
+  });
   await until(() => {
     const status = app!.host.querySelector(".lmsStatus")!;
     expect(status.textContent).toContain("Under maintenance");
@@ -2524,50 +2494,18 @@ it("shows progress only for pulls the user started and the data age when idle", 
     expect(status.querySelector("progress")).toBeNull();
     expect(status.getAttribute("data-kind")).toBe("problem");
   });
-  await act(async () =>
-    app!.core.emit("school-ingest", {
-      site: "kyomu",
-      kind: "service",
-      state: "ok",
-      changed: 0,
-      message: "",
-    }),
-  );
-  await until(() =>
-    expect(
-      app!.host.querySelector(".lmsStatus")!.getAttribute("data-kind"),
-    ).toBe("idle"),
-  );
-  const terminal = {
-    id: "kyomu-partial",
-    target: { type: "school", site: "kyomu", courseId: null },
-    state: "failed",
-    priority: "automatic",
-    phase: "partial",
-    blockedBy: null,
-    attempt: 1,
-    waiterCount: 0,
-    lastError: "registrations unavailable",
-  };
-  await act(async () => app!.core.emit("pull-state-changed", [terminal]));
+  await emitStatus({
+    kind: "problem",
+    site: "kyomu",
+    problem: { kind: "partial", detail: "registrations unavailable" },
+  });
   await until(() => {
     const status = app!.host.querySelector(".lmsStatus")!;
     expect(status.textContent).toContain("Refresh incomplete");
     expect(status.textContent).toContain("registrations unavailable");
     expect(status.querySelector("progress")).toBeNull();
   });
-  await act(async () =>
-    app!.core.emit("pull-state-changed", [
-      terminal,
-      {
-        ...terminal,
-        id: "kyomu-recovered",
-        state: "succeeded",
-        phase: "complete",
-        lastError: null,
-      },
-    ]),
-  );
+  await emitStatus(idle(null));
   await until(() =>
     expect(app!.host.querySelector(".lmsStatus")!.textContent).not.toContain(
       "Refresh incomplete",
