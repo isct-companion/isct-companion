@@ -43,7 +43,6 @@ export function MatrixCamera({
           next.phase === "complete" &&
           next.cells.every((cell) => !cell.text)
         ) {
-          setProcessing(false);
           setError(
             t(
               "No readable letters found. Check for blur or covered cells and try again.",

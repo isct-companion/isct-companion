@@ -550,15 +550,12 @@ fn arbitrary_rotation_stretch_and_perspective_keep_cell_order() {
             );
             let cells = geometry::locate(&rotated)
                 .unwrap_or_else(|| panic!("grid lost at {degrees} degrees case {case}"));
-            if degrees == 17.5 || degrees == 359. {
-                let camera = geometry::locate_capture(&rotated)
-                    .unwrap_or_else(|| panic!("camera grid lost at {degrees} degrees case {case}"));
-                for (actual, original) in
-                    [(camera[0][0], (150., 210.)), (camera[69][2], (450., 420.))]
-                {
-                    let expected = transform * original;
-                    assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "camera crop changed cell identity at {degrees} degrees: {actual:?} vs {expected:?}");
-                }
+            let camera = geometry::locate_capture(&rotated)
+                .unwrap_or_else(|| panic!("camera grid lost at {degrees} degrees case {case}"));
+            for (actual, original) in [(camera[0][0], (150., 210.)), (camera[69][2], (450., 420.))]
+            {
+                let expected = transform * original;
+                assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "camera crop changed cell identity at {degrees} degrees: {actual:?} vs {expected:?}");
             }
             for (actual, original) in [(cells[0][0], (150., 210.)), (cells[69][2], (450., 420.))] {
                 let expected = transform * original;

@@ -209,7 +209,14 @@ export function openMatrixCamera(
           timer = setTimeout(() => void frame(), 0);
         } else {
           // The timeout is a lifecycle wakeup, not a fixed capture FPS budget.
+          let woken = false;
           const wake = () => {
+            // WebKit and WebView2 can queue the video callback at the same time
+            // as the fallback timer. Only one may start the next native frame;
+            // two concurrent captures can both seal the session and start two
+            // processing loops for the same Matrix.
+            if (woken || disposed) return;
+            woken = true;
             clearTimeout(timer);
             if (videoFrame !== undefined)
               video.cancelVideoFrameCallback(videoFrame);
