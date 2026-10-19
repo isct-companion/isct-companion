@@ -101,30 +101,6 @@ where
     .map_err(|_| "The native data command stopped unexpectedly.".to_string())?
 }
 
-/// Keeps a plugin's Rust API but drops its JavaScript side. The notification
-/// plugin's init script replaces `window.Notification` in every webview and
-/// calls `is_permission_granted`, which no capability grants; the app
-/// delivers notifications through its own `notify` command instead.
-struct RustOnlyPlugin<R: tauri::Runtime>(tauri::plugin::TauriPlugin<R>);
-
-impl<R: tauri::Runtime> tauri::plugin::Plugin<R> for RustOnlyPlugin<R> {
-    fn name(&self) -> &'static str {
-        self.0.name()
-    }
-
-    fn initialize(
-        &mut self,
-        app: &tauri::AppHandle<R>,
-        config: serde_json::Value,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.0.initialize(app, config)
-    }
-
-    fn on_event(&mut self, app: &tauri::AppHandle<R>, event: &tauri::RunEvent) {
-        self.0.on_event(app, event)
-    }
-}
-
 #[cfg(target_os = "macos")]
 fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem};
@@ -181,7 +157,6 @@ pub fn run() {
                 responder.respond(lms_protocol::handle(app, request).await);
             });
         })
-        .plugin(RustOnlyPlugin(tauri_plugin_notification::init()))
         // The plugin's default link script runs in every webview and turns a
         // `target="_blank"` click into an `open_url` IPC call, which no
         // capability grants: links in school pages silently did nothing.

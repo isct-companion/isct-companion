@@ -1,21 +1,20 @@
 //! macOS notifications through UNUserNotificationCenter.
 //!
-//! tauri-plugin-notification delivers through the deprecated
-//! NSUserNotificationCenter on macOS and reports every permission request as
-//! granted without asking. On current macOS that path can return success and
-//! show nothing, so the signed app talks to UserNotifications directly: it asks
-//! for authorization with the system prompt, reads the real status, and keeps
-//! banners visible while the app is in front.
+//! The signed app talks to UserNotifications directly: it asks for
+//! authorization with the system prompt, reads the real status, and requests
+//! banners while the app is in front.
 
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{Bool, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{define_class, msg_send, MainThreadMarker, MainThreadOnly};
+use objc2_app_kit::NSApplication;
 use objc2_foundation::{NSBundle, NSError, NSString};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification,
-    UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationSettings,
-    UNNotificationSound, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse,
+    UNNotificationSettings, UNNotificationSound, UNUserNotificationCenter,
+    UNUserNotificationCenterDelegate,
 };
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
@@ -41,6 +40,20 @@ define_class!(
             handler.call((UNNotificationPresentationOptions::Banner
                 | UNNotificationPresentationOptions::List
                 | UNNotificationPresentationOptions::Sound,));
+        }
+
+        // Clicking a banner should bring the app back even when its window was
+        // behind another app. The response handler must always be completed so
+        // macOS can finish processing the notification action.
+        #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
+        fn did_receive_response(
+            &self,
+            _center: &UNUserNotificationCenter,
+            _response: &UNNotificationResponse,
+            handler: &block2::DynBlock<dyn Fn()>,
+        ) {
+            NSApplication::sharedApplication(self.mtm()).activate();
+            handler.call(());
         }
     }
 );
