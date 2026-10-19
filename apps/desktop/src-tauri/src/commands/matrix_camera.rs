@@ -1,10 +1,11 @@
 //! Desktop camera transport. Core owns acquisition, its deadline and offline votes.
 use isct_core::matrix_scan::{
-    MatrixCameraPhase, MatrixCameraScanner, MatrixCameraSnapshot, MatrixCaptureMetrics,
-    MatrixScanError,
+    MatrixCameraScanner, MatrixCameraSnapshot, MatrixCaptureMetrics, MatrixScanError,
 };
 #[cfg(matrix_ocr)]
-use isct_core::matrix_scan::{MatrixCaptureFrame, MatrixCaptureGlyph, MatrixPoint, MatrixReading};
+use isct_core::matrix_scan::{
+    MatrixCameraPhase, MatrixCaptureFrame, MatrixCaptureGlyph, MatrixPoint, MatrixReading,
+};
 use std::{
     sync::{Arc, Mutex},
     time::Instant,
