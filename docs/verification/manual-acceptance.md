@@ -79,7 +79,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
-| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/usePullState.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
@@ -1132,7 +1132,13 @@ A course with a large cached PDF material.
 1. Open the PDF, scroll to the end and search for a term.
    - *Why:* Confirms rendering and search hold across the whole document rather
      than only the first page.
-2. Use the viewer's own save toolbar.
+2. In an installed Windows build, open a handout whose Japanese fonts
+   are not embedded (the 線形代数学第二 講義概要 PDF), then search for a
+   Japanese word in it.
+   - *Why:* Such text needs PDF.js CMaps fetched from the packaged bundle; when
+     they are missing the page keeps only digits and Latin text, and the
+     dev server cannot show whether the installer carries them.
+3. Use the viewer's own save toolbar.
    - *Why:* The toolbar was excluded from the last checkpoint's live coverage
      and depends on the platform save dialog.
 
@@ -1143,17 +1149,20 @@ writes.
 
 **Expected**
 
-The document renders, paging and search work throughout, and the save
-toolbar writes the file.
+The document renders, Japanese text in non-embedded fonts shows and is
+found by search, paging and search work throughout, and the save toolbar
+writes the file.
 
 **Why this is manual**
 
 The viewer's separate save toolbar depends on the platform save dialog
-and was never covered by a live run.
+and was never covered by a live run, and only an installed bundle shows
+whether the PDF.js data files ship with it.
 
 **Covers**
 
 - `apps/desktop/src/features/lms/PdfDocument.tsx`
+- `apps/desktop/vite.config.ts`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
 
 **Last recorded** never run
