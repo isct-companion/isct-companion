@@ -164,6 +164,7 @@ pub enum WorkspaceQuery {
     /// A course's LMS content lesson by lesson.
     CourseContent {
         course_id: String,
+        now: String,
     },
     /// One assignment with its LMS text and files, for an in-app page.
     AssignmentDetail {
@@ -447,9 +448,13 @@ pub fn query(
         WorkspaceQuery::CourseDetail { course_id } => Ok(WorkspaceQueryResult::CourseDetail(
             course_detail(workspace, &course_id),
         )),
-        WorkspaceQuery::CourseContent { course_id } => Ok(WorkspaceQueryResult::CourseContent(
-            course_content(workspace, &course_id),
-        )),
+        WorkspaceQuery::CourseContent { course_id, now } => {
+            Ok(WorkspaceQueryResult::CourseContent(course_content(
+                workspace,
+                &course_id,
+                parse_timestamp(&now)?,
+            )))
+        }
         WorkspaceQuery::AssignmentDetail { assignment_id } => Ok(
             WorkspaceQueryResult::AssignmentDetail(assignment_detail(workspace, &assignment_id)),
         ),

@@ -2200,8 +2200,10 @@ fn course_content_follows_the_desktop_lecture_desk() {
         ],
         "assignments":[{"id":"r","courseId":"c","title":"Report","details":"","lmsCmid":5}]
     });
-    let request: WorkspaceQuery =
-        serde_json::from_value(json!({"kind":"courseContent","courseId":"c"})).unwrap();
+    let request: WorkspaceQuery = serde_json::from_value(
+        json!({"kind":"courseContent","courseId":"c","now":"2026-11-24T12:00:00+09:00"}),
+    )
+    .unwrap();
     let WorkspaceQueryResult::CourseContent(Some(view)) = query(&data, request).unwrap() else {
         panic!("wrong result kind")
     };
@@ -2242,7 +2244,8 @@ fn course_content_follows_the_desktop_lecture_desk() {
     );
     assert_eq!(view.lessons[0].items[0].kind, LessonItemKind::Forum);
     assert!(view.lessons[3].items.is_empty());
-    assert!(course_content(&data, "unknown").is_none());
+    let now = DateTime::parse_from_rfc3339("2026-11-24T12:00:00+09:00").unwrap();
+    assert!(course_content(&data, "unknown", now).is_none());
 
     // Without an LMS record, materials name the sections; one numbered
     // section is not a lesson course.
@@ -2253,7 +2256,42 @@ fn course_content_follows_the_desktop_lecture_desk() {
         {"id":"a","courseId":"c","session":3,"sectionTitle":"第1回","title":"slides"},
         {"id":"r","courseId":"c","session":4,"sectionTitle":"Reading","title":"paper"}
     ]);
-    let view = course_content(&plain, "c").unwrap();
+    let view = course_content(&plain, "c", now).unwrap();
     assert!(view.lessons.iter().all(|lesson| lesson.number.is_none()));
     assert_eq!(view.current_section, Some(4));
+
+    // A mark for the class it is recorded against (the next one here, as
+    // the last was not today) wins over "last lesson with material"; once a
+    // later class has begun, the course is at the lesson after the mark.
+    let mut marked = multi_quarter_workspace();
+    marked["courses"][0]["offeringId"] = json!("202630001");
+    marked["lmsCourses"] = json!([{"lmsId":9,"offeringId":"202630001","sections":[
+        {"id":101,"number":1,"title":"第1回","bodyHtml":"<p>a</p>"},
+        {"id":102,"number":2,"title":"第2回","bodyHtml":"<p>b</p>"},
+        {"id":103,"number":3,"title":"第3回","bodyHtml":""}
+    ]}]);
+    marked["materials"] = json!([
+        {"id":"s3","courseId":"multi","session":3,"sectionId":103,"module":"resource","title":"slides"}
+    ]);
+    let view = course_content(&marked, "multi", now).unwrap();
+    assert_eq!(view.class_at.as_deref(), Some("2026-12-07T08:50:00+09:00"));
+    assert_eq!(view.current_section, Some(3));
+    assert_eq!(view.lessons[0].section_id, Some(101));
+    marked["courses"][0]["overrides"] = json!({"lessonLog":[
+        {"occurrence":"2026-12-07T08:50:00+09:00","sectionId":101}
+    ]});
+    assert_eq!(
+        course_content(&marked, "multi", now)
+            .unwrap()
+            .current_section,
+        Some(1)
+    );
+    marked["courses"][0]["overrides"]["lessonLog"][0]["occurrence"] =
+        json!("2026-11-16T08:50:00+09:00");
+    assert_eq!(
+        course_content(&marked, "multi", now)
+            .unwrap()
+            .current_section,
+        Some(2)
+    );
 }

@@ -338,7 +338,7 @@ final class AppModel {
     func courseContent(_ id: String) async -> CourseContent? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .courseContent(courseId: id)
+                .courseContent(courseId: id, now: Self.timestamp(Date()))
             ]).value(),
             case let .courseContent(content)? = result.values.first
         else { return nil }
@@ -624,5 +624,32 @@ extension AppModel {
             case let .scheduleView(view)? = result.values.first
         else { return [] }
         return view.upcomingExams.filter { $0.date <= last }
+    }
+}
+
+// MARK: Course page: lesson marks
+
+extension AppModel {
+    /// Records `sectionId` as the lesson of the class at `occurrence` (Core's
+    /// `CourseContent.classAt`), as a double click on the desktop rail does.
+    /// `false` when Core did not take it.
+    func recordLesson(courseId: String, occurrence: String, sectionId: UInt64) async -> Bool {
+        guard let session else { return false }
+        let mutation = WorkspaceMutation(
+            expectedRevision: revision,
+            intent: .recordLesson(courseId: courseId, occurrence: occurrence, sectionId: sectionId))
+        var recorded = false
+        do {
+            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
+                revision = snapshot.revision
+            }
+            recorded = true
+        } catch SdkError.Conflict {
+            // Another device changed the workspace: the re-read lets the person retry.
+        } catch {
+            problem = Self.describe(error)
+        }
+        await refresh()
+        return recorded
     }
 }
