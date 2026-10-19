@@ -1227,11 +1227,20 @@ export type CourseContent = {
    */
   lessons: Array<LessonContent>;
   /**
-   * The section to open first: the last numbered lesson with material
-   * (teachers post around class, so a cancelled class does not advance
-   * it); in a course without numbered lessons, the last section with any.
+   * Where the course is, as the desktop rail marks it (`markedLesson` in
+   * `lessons.ts`): the lesson the person last marked for a class, or the
+   * one after it once a later class has begun. Without a mark, the last
+   * numbered lesson with material (teachers post around class, so a
+   * cancelled class does not advance it); in a course without numbered
+   * lessons, the last section with any.
    */
   currentSection: number | null;
+  /**
+   * The class a "this class" mark is recorded against
+   * (`CourseTimeline.class_at`): the one in progress or held earlier
+   * today, else the next one. `None` when the course has no meetings.
+   */
+  classAt: string | null;
 };
 
 export type LessonContent = {
@@ -1239,6 +1248,10 @@ export type LessonContent = {
    * The LMS section number (0 is the course's general section).
    */
   section: number;
+  /**
+   * The LMS section id, which a lesson mark (`RecordLesson`) names.
+   */
+  sectionId: number | null;
   title: string | null;
   /**
    * The lesson number read from the title (第3回, Lecture 3, #3), when the
@@ -1577,7 +1590,7 @@ export type WorkspaceQuery =
   | { kind: "today"; now: string }
   | { kind: "assignmentBoard"; now: string }
   | { kind: "courseDetail"; courseId: string }
-  | { kind: "courseContent"; courseId: string }
+  | { kind: "courseContent"; courseId: string; now: string }
   | { kind: "assignmentDetail"; assignmentId: string }
   | { kind: "examAssociation"; examKey: string; courseId: string }
   | { kind: "lectureSearch"; term: string | null; query: string }
