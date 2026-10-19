@@ -15,6 +15,11 @@ import {
   classSlots,
   nowPercent,
 } from "@app/lib/timetable-layout";
+import {
+  agendaColumns,
+  planningColumns,
+} from "@app/components/timetable/workspace";
+import type { DatedAgenda, PlanningWeek } from "@app/platform/core-query";
 import { DEFAULT_TIMETABLE_AXIS } from "@tests/harness/fixtures";
 import { formatDay } from "@app/pages/settings/subscription-status";
 
@@ -204,6 +209,28 @@ describe("timetable axis placement", () => {
     expect(nowPercent(axis, 13 * 60 + 30)).toBe(36);
     expect(nowPercent(axis, 7 * 60)).toBeUndefined();
     expect(nowPercent(axis, 21 * 60)).toBeUndefined();
+  });
+
+  // The now line and today tint follow `isToday`; a column adapter that
+  // dropped it once left the calendar without a now line.
+  it("marks the Tokyo civil date's column as today, dated or recurring", () => {
+    const agendas = ["2026-10-19", "2026-10-20", "2026-10-21"].map(
+      (date) =>
+        ({ date, occurrences: [], noClasses: false }) as unknown as DatedAgenda,
+    );
+    expect(
+      agendaColumns(agendas, "2026-10-20").map((column) => column.isToday),
+    ).toEqual([false, true, false]);
+    const planning = {
+      days: [1, 2, 3].map((day) => ({ day, blocks: [] })),
+    } as unknown as PlanningWeek;
+    // 2026-10-21 is a Wednesday; a quarter not running marks no weekday.
+    expect(
+      planningColumns(planning, "2026-10-21").map((column) => column.isToday),
+    ).toEqual([false, false, true]);
+    expect(planningColumns(planning).some((column) => column.isToday)).toBe(
+      false,
+    );
   });
 
   it("asks Core to widen the axis around the week's earliest and latest class", () => {

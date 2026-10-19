@@ -10,7 +10,6 @@ import {
 } from "@mantine/hooks";
 
 import {
-  dayNames,
   WeekTimetable,
   type Block,
 } from "../../components/timetable/timetable";
@@ -146,16 +145,10 @@ export function Courses({
     defaultValue: "5",
   });
   // The quarter running now marks today's weekday, which shows the now line.
-  const today =
-    term === currentTerm
-      ? dayNames[
-          (new Date(`${tokyoDate(new Date())}T00:00:00Z`).getUTCDay() + 6) % 7
-        ]
-      : undefined;
-  const allColumns = planningColumns(planning).map((column) => ({
-    ...column,
-    isToday: column.label === today,
-  }));
+  const allColumns = planningColumns(
+    planning,
+    term === currentTerm ? tokyoDate(new Date()) : undefined,
+  );
   const columns =
     weekLength === "7"
       ? allColumns
