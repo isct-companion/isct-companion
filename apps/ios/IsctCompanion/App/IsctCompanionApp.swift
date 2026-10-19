@@ -96,6 +96,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(WebRouter.self) private var web
     @State private var navigator = Navigator()
+    @State private var sitePress = SitePickerPress()
     @Namespace private var zoom
 
     var body: some View {
@@ -120,23 +121,50 @@ struct RootView: View {
     }
 
     private var tabs: some View {
-        TabView(selection: selection) {
-            ForEach(Layout.tabs, id: \.self) { tab in
-                page(tab)
-                    .tabItem { Label(tab.title, systemImage: tab.symbol) }
-                    .tag(tab)
+        ZStack {
+            TabView(selection: selection) {
+                ForEach(Layout.tabs, id: \.self) { tab in
+                    page(tab)
+                        .tabItem { Label(tab.title, systemImage: tab.symbol) }
+                        .tag(tab)
+                }
             }
+            // Long-pressing the ウェブ item raises the site picker over it. The
+            // probe sits beside the TabView, so it works before ウェブ is opened.
+            .background {
+                TabBarLongPress(index: Layout.tabs.firstIndex(of: .web) ?? 0) { event in
+                    if let choice = sitePress.handle(event) { pickSite(choice) }
+                }
+                .frame(width: 0, height: 0)
+            }
+            SitePickerPanel(press: sitePress) { pickSite($0) }
         }
         // Turning an iPad upright from 設定 in the sidebar lands on a page the
         // tab bar has.
         .onAppear { if !Layout.tabs.contains(navigator.tab) { navigator.tab = .today } }
     }
 
+    /// A site picked from the ウェブ tab's panel or the sidebar row's menu
+    /// shows on the ウェブ page; the site already shown there stays on its
+    /// page instead of going home.
+    private func pickSite(_ choice: SitePick) {
+        if case let .site(site) = choice, navigator.tab != .web {
+            navigator.tab = .web
+            if site == web.tabSite { return }
+        }
+        web.perform(choice)
+    }
+
     /// iPad, wide: the desktop's sidebar and one page beside it.
     private var split: some View {
         NavigationSplitView {
             List(Layout.sidebar, id: \.self, selection: Binding(get: { navigator.tab }, set: { if let tab = $0 { navigator.tab = tab } })) { tab in
-                Label(tab.title, systemImage: tab.symbol)
+                if tab == .web {
+                    Label(tab.title, systemImage: tab.symbol)
+                        .contextMenu { SitePickerRows { pickSite($0) } }
+                } else {
+                    Label(tab.title, systemImage: tab.symbol)
+                }
             }
             .navigationTitle("IsctCompanion")
             .safeAreaInset(edge: .bottom) {

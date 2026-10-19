@@ -2,11 +2,15 @@ import IsctCore
 import SwiftUI
 
 /// Settings pages, pushed onto whichever page's stack opened them, as the
-/// desktop's settings sections are pages of their own.
+/// desktop's settings sections are pages of their own. A group with more than
+/// two controls gets a page; smaller ones stay on the root list.
 enum SettingsRoute: Hashable {
     case root
     case account(SchoolAuthProfile)
     case notifications
+    case assignmentLeads
+    case studyProfile
+    case dataUpdates
 }
 
 struct SettingsDestination: View {
@@ -20,15 +24,24 @@ struct SettingsDestination: View {
             AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : "Tokyo Tech（旧）")
         case .notifications:
             NotificationsScreen()
+        case .assignmentLeads:
+            AssignmentLeadsScreen()
+        case .studyProfile:
+            StudyProfileScreen()
+        case .dataUpdates:
+            DataUpdatesScreen()
         }
     }
 }
 
 /// 設定: the desktop settings sections that apply on a phone — school
-/// accounts and reminders. Planning, calendars, folders and developer
-/// settings stay on desktop.
+/// accounts, reminders, study profile, data updates and the ウェブ tab.
+/// Planning, calendars, folders and developer settings stay on desktop.
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(WebRouter.self) private var web
+    @AppStorage(SchoolBrowserHost.textScaleKey) private var textScale = 115
+    @State private var firstSite = WebRouter.firstSite
 
     var body: some View {
         List {
@@ -42,33 +55,66 @@ struct SettingsScreen: View {
             }
             Section {
                 NavigationLink(value: SettingsRoute.notifications) {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("通知")
-                            Text(notificationSummary).font(.subheadline).foregroundStyle(Theme.muted)
-                        }
-                    } icon: {
-                        Image(systemName: "bell")
-                    }
+                    row("通知", notificationSummary, icon: "bell")
                 }
-            } footer: {
-                Text("学年暦の編集、コースフォルダ、開発者向け設定はデスクトップ版にあります。")
+                NavigationLink(value: SettingsRoute.studyProfile) {
+                    row("学習プロフィール", nil, icon: "graduationcap")
+                }
+                NavigationLink(value: SettingsRoute.dataUpdates) {
+                    row("データ更新", dataSummary, icon: "arrow.triangle.2.circlepath")
+                }
+            }
+            Section("ウェブ") {
+                Picker("文字サイズ", selection: $textScale) {
+                    ForEach(SchoolBrowserHost.textScales, id: \.self) { Text("\($0)%").tag($0) }
+                }
+                Picker("最初のサイト", selection: $firstSite) {
+                    ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
+                }
             }
             Section {
                 LabeledContent("IsctCompanion", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+            } header: {
+                Text("情報")
+            } footer: {
+                Text("学年暦の編集、コースフォルダ、開発者向け設定はデスクトップ版にあります。")
             }
         }
         .navigationTitle("設定")
+        .onChange(of: textScale) { _, percent in web.browser.setTextScale(percent) }
+        .onChange(of: firstSite) { _, site in WebRouter.firstSite = site }
+    }
+
+    private func row(_ title: String, _ detail: String?, icon: String) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted) }
+            }
+        } icon: {
+            Image(systemName: icon)
+        }
     }
 
     private var notificationSummary: String {
         let settings = model.records.settings["notifications"] as? [String: Any] ?? [:]
         var parts: [String] = []
         if settings["classes"] as? Bool == true {
-            parts.append("授業 \((settings["classLeadMinutes"] as? NSNumber)?.intValue ?? 10) 分前")
+            parts.append("授業 \(ReminderLeads.label(ReminderLeads.classLead(settings)))")
         }
-        if settings["assignments"] as? Bool == true { parts.append("課題 当日") }
+        if ReminderLeads.exams(settings) {
+            parts.append("試験 \(ReminderLeads.label(ReminderLeads.examLead(settings)))")
+        }
+        if settings["assignments"] as? Bool == true {
+            let leads = ReminderLeads.assignmentLeads(settings)
+            parts.append("課題 \(leads.count) 回")
+        }
         return parts.isEmpty ? "オフ" : parts.joined(separator: " · ")
+    }
+
+    private var dataSummary: String {
+        let refresh = model.records.settings["subscriptionRefresh"] as? [String: Any] ?? [:]
+        return refresh["allowCellular"] as? Bool == true ? "モバイル通信でも更新" : "Wi-Fi のときだけ自動更新"
     }
 
     private func accountRow(
@@ -176,62 +222,5 @@ private struct AccountScreen: View {
         } catch {
             self.error = AppModel.describe(error)
         }
-    }
-}
-
-/// Reminder switches; the system permission is asked on the first switch-on.
-private struct NotificationsScreen: View {
-    @Environment(AppModel.self) private var model
-    @State private var denied = false
-
-    private var settings: [String: Any] {
-        model.records.settings["notifications"] as? [String: Any] ?? [:]
-    }
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("授業の前に通知", isOn: binding("classes"))
-                if settings["classes"] as? Bool == true {
-                    Picker("通知のタイミング", selection: leadBinding) {
-                        ForEach([5, 10, 15, 30], id: \.self) { Text("\($0) 分前").tag($0) }
-                    }
-                }
-                Toggle("課題の締切当日に通知", isOn: binding("assignments"))
-            } footer: {
-                if denied {
-                    Text("通知が許可されていません。設定アプリの「通知」から許可してください。")
-                        .foregroundStyle(Theme.danger)
-                }
-            }
-        }
-        .navigationTitle("通知")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func binding(_ key: String) -> Binding<Bool> {
-        Binding(
-            get: { settings[key] as? Bool ?? false },
-            set: { on in
-                Task {
-                    var permission = "default"
-                    if on {
-                        let granted = await NotificationScheduler.requestPermission()
-                        denied = !granted
-                        permission = granted ? "granted" : "denied"
-                        guard granted else { return }
-                    }
-                    await model.setNotifications {
-                        $0[key] = on
-                        if on { $0["localPermission"] = permission }
-                    }
-                }
-            })
-    }
-
-    private var leadBinding: Binding<Int> {
-        Binding(
-            get: { (settings["classLeadMinutes"] as? NSNumber)?.intValue ?? 10 },
-            set: { minutes in Task { await model.setNotifications { $0["classLeadMinutes"] = minutes } } })
     }
 }
