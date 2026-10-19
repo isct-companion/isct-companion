@@ -1,78 +1,64 @@
 import IsctCore
 import SwiftUI
 
-/// 課題: what is left to do this quarter, in the groups of Core's task
-/// timeline (`AssignmentBoard.today`). Swipe right pins, swipe left hides;
-/// every assignment, submitted and hidden included, sits behind one row.
-struct AssignmentsScreen: View {
+/// 今日's 課題: what is left to do this quarter, in the groups of Core's task
+/// timeline (`AssignmentBoard.today`), as sections of 今日's list so the rows
+/// keep the system swipes: right pins, left hides. Every assignment,
+/// submitted and hidden included, sits behind すべて.
+struct TodayAssignmentSections: View {
+    let now: Date
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            List {
-                Section {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text("\(Format.quarter(model.board?.term ?? "")) · 未提出のみ")
-                                .font(.subheadline)
-                                .foregroundStyle(Theme.muted)
-                            if let status = model.schoolStatus, let progress = status.headline.ringProgress(status) {
-                                SyncRing(progress: progress, emphasized: status.headline.isBusy).scaleEffect(0.8)
-                            }
-                        }
-                        Text("課題").font(.largeTitle.bold()).foregroundStyle(Theme.ink)
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 4, bottom: 0, trailing: 4))
-                }
-                if let problem = model.problem {
-                    Section { ProblemBanner(text: problem) }
+        if let board = model.board {
+            Section {
+                if board.today.isOpenEmpty {
+                    Text(t("No unsubmitted assignments"))
+                        .foregroundStyle(Theme.muted)
                         .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
                 }
-                if let today = model.board?.today {
-                    group("ピン留め", today.pinned, now: context.date)
-                    group("今週", today.dueThisWeek, now: context.date)
-                    group("来週以降", today.later, now: context.date)
-                    group("期限切れ", today.pastRecent, now: context.date)
-                    if today.isOpenEmpty {
-                        Section {
-                            ContentUnavailableView("未提出の課題はありません", systemImage: "checkmark.circle")
-                        }
-                        .listRowBackground(Color.clear)
-                    }
-                    Section {
-                        NavigationLink(value: AssignmentRecordRoute()) {
-                            Text("提出済・非表示を含むすべて").foregroundStyle(Theme.ink)
-                        }
+            } header: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(t("Assignments")).font(.title2.bold()).foregroundStyle(Theme.ink)
+                    Text(t("{{quarter}} · Unsubmitted only", ["quarter": Format.quarter(board.term)]))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.muted)
+                    Spacer()
+                    NavigationLink(value: AssignmentRecordRoute()) {
+                        Text(t("See all")).font(.subheadline.weight(.semibold))
                     }
                 }
+                .textCase(nil)
+                .padding(.top, 8)
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Theme.bg)
-            .refreshable { model.refreshFromSchool() }
+            group(t("Pinned"), board.today.pinned)
+            group(t("This week"), board.today.dueThisWeek)
+            group(t("Next week and later"), board.today.later)
+            group(t("Overdue"), board.today.pastRecent)
         }
-        .toolbar(.hidden, for: .navigationBar)
-        .safeAreaInset(edge: .bottom) { UndoToast() }
     }
 
     @ViewBuilder
-    private func group(_ title: LocalizedStringKey, _ items: [DeadlineItem], now: Date) -> some View {
+    private func group(_ title: String, _ items: [DeadlineItem]) -> some View {
         if !items.isEmpty {
-            Section(title) {
+            Section {
                 ForEach(items, id: \.assignmentId) { item in
                     AssignmentListRow(item: item) {
                         DeadlineRow(item: item, now: now, overdueStyle: .elapsed)
                     }
                 }
+            } header: {
+                Text(title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.muted)
+                    .textCase(nil)
             }
         }
     }
 }
 
 extension DeadlineGroups {
-    /// Nothing left to do among the groups the 課題 tab shows.
+    /// Nothing left to do among the groups 今日 shows.
     var isOpenEmpty: Bool {
         pinned.isEmpty && dueThisWeek.isEmpty && later.isEmpty && undated.isEmpty && pastRecent.isEmpty
     }
@@ -87,22 +73,22 @@ struct RecordScreen: View {
     var body: some View {
         List {
             if let record = model.board?.record {
-                group("ピン留め", record.pinned)
-                group("今週", record.dueThisWeek)
-                group("来週以降", record.later)
-                group("期限なし", record.undated)
-                group("過去", record.pastRecent)
+                group(t("Pinned"), record.pinned)
+                group(t("This week"), record.dueThisWeek)
+                group(t("Next week and later"), record.later)
+                group(t("No deadline"), record.undated)
+                group(t("Past"), record.pastRecent)
                 if !record.pastEarlier.isEmpty {
                     if unfolded {
-                        group("それ以前", record.pastEarlier)
+                        group(t("Earlier"), record.pastEarlier)
                     } else {
                         Section {
-                            Button("それ以前の \(record.pastEarlier.count) 件を表示") { unfolded = true }
+                            Button(t("Show {{count}} earlier", ["count": record.pastEarlier.count])) { unfolded = true }
                         }
                     }
                 }
                 if !record.hidden.isEmpty {
-                    Section("非表示") {
+                    Section(t("Hidden")) {
                         ForEach(record.hidden, id: \.assignmentId) { item in
                             AssignmentListRow(item: item, hidden: true) { DeadlineRow(item: item, now: Date()) }
                         }
@@ -113,13 +99,13 @@ struct RecordScreen: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
-        .navigationTitle("すべての課題")
+        .navigationTitle(t("All assignments"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
     }
 
     @ViewBuilder
-    private func group(_ title: LocalizedStringKey, _ items: [DeadlineItem]) -> some View {
+    private func group(_ title: String, _ items: [DeadlineItem]) -> some View {
         if !items.isEmpty {
             Section(title) {
                 ForEach(items, id: \.assignmentId) { item in
@@ -130,12 +116,12 @@ struct RecordScreen: View {
     }
 }
 
-/// One assignment in a 課題 list. A plain button rather than a NavigationLink,
+/// One assignment in a 課題 list (今日 or the record). A plain button rather than a NavigationLink,
 /// so List draws no disclosure chevron, and with the system row highlight
 /// rather than `PressableStyle`, whose dip on touch-down fights the swipe.
 /// Swipe right pins (full swipe allowed); swipe left hides, never by a long
 /// pull alone. A hidden row offers only 戻す.
-private struct AssignmentListRow<Content: View>: View {
+struct AssignmentListRow<Content: View>: View {
     let item: DeadlineItem
     var hidden = false
     @ViewBuilder var label: Content
@@ -153,18 +139,18 @@ private struct AssignmentListRow<Content: View>: View {
         .listRowInsets(EdgeInsets())
         .contextMenu {
             if let course = item.courseId {
-                Button("授業を開く", systemImage: "book") { navigator.push(CourseRoute(id: course)) }
+                Button(t("Open course"), systemImage: "book") { navigator.push(CourseRoute(id: course)) }
             }
             if let url = item.sourceUrl {
-                Button("LMS で提出", systemImage: "arrow.up.forward.square") {
+                Button(t("Submit in LMS"), systemImage: "arrow.up.forward.square") {
                     navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
                 }
             }
             if hidden {
-                Button("戻す", systemImage: "eye") { setHidden(false) }
+                Button(t("Restore"), systemImage: "eye") { setHidden(false) }
             } else {
-                Button(item.pinned ? "ピン留めを外す" : "ピン留め", systemImage: "pin") { togglePin() }
-                Button("非表示", systemImage: "eye.slash", role: .destructive) { setHidden(true) }
+                Button(item.pinned ? t("Unpin") : t("Pin"), systemImage: "pin") { togglePin() }
+                Button(t("Hide"), systemImage: "eye.slash", role: .destructive) { setHidden(true) }
             }
         }
         .swipeActions(edge: .leading) {
@@ -172,17 +158,17 @@ private struct AssignmentListRow<Content: View>: View {
                 Button {
                     togglePin()
                 } label: {
-                    Label(item.pinned ? "外す" : "ピン留め", systemImage: item.pinned ? "pin.slash" : "pin")
+                    Label(item.pinned ? t("Unpin") : t("Pin"), systemImage: item.pinned ? "pin.slash" : "pin")
                 }
                 .tint(Theme.accent)
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: hidden) {
             if hidden {
-                Button { setHidden(false) } label: { Label("戻す", systemImage: "eye") }
+                Button { setHidden(false) } label: { Label(t("Restore"), systemImage: "eye") }
                     .tint(Theme.accent)
             } else {
-                Button { setHidden(true) } label: { Label("非表示", systemImage: "eye.slash") }
+                Button { setHidden(true) } label: { Label(t("Hide"), systemImage: "eye.slash") }
                     .tint(Theme.muted)
             }
         }

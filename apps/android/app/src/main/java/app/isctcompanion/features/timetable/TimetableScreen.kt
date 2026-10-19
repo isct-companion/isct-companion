@@ -1,5 +1,6 @@
 package app.isctcompanion.features.timetable
 
+import app.isctcompanion.design.t
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -87,13 +88,13 @@ fun TimetableScreen() {
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
 
     TabPage(
-        "時間割",
+        t("Timetable"),
         actions = {
             IconButton(onClick = { monday = monday.minusWeeks(1) }) {
-                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "前の週")
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, t("Previous week"))
             }
             IconButton(onClick = { monday = monday.plusWeeks(1) }) {
-                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "次の週")
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, t("Next week"))
             }
         },
     ) {
@@ -139,7 +140,7 @@ private fun subtitle(monday: LocalDate, term: String?, teachingWeek: UInt?): Str
     val range = "${monday.monthValue}/${monday.dayOfMonth} – ${friday.monthValue}/${friday.dayOfMonth}"
     term ?: return range
     if (monday == monday(Format.today()) && teachingWeek != null) {
-        return "${Format.quarter(term)} 第${teachingWeek}週 · $range"
+        return "${t("{{quarter}} week {{week}}", "quarter" to Format.quarter(term), "week" to teachingWeek)} · $range"
     }
     return "${Format.quarter(term)} · $range"
 }
@@ -262,7 +263,7 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, peri
         )
         Spacer(Modifier.weight(1f))
         Text(
-            if (planned) "計画" else block.room, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+            if (planned) t("Planned") else block.room, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
             color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }

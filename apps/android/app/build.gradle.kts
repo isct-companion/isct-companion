@@ -38,6 +38,10 @@ android {
     buildFeatures {
         compose = true
     }
+    // The desktop's UI catalogs (ja.json, zh.json), read by `Localizer`.
+    sourceSets {
+        getByName("main") { assets.srcDir("../../../resources/locales") }
+    }
     packaging {
         jniLibs.useLegacyPackaging = false
     }

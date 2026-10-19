@@ -24,10 +24,10 @@ struct LecturesScreen: View {
                 if let term = overview?.term { Text(Format.quarter(term)) }
             }
         }
-        .navigationTitle("授業")
+        .navigationTitle(t("Courses"))
         .overlay {
             if overview?.termCourseIds.isEmpty == true {
-                ContentUnavailableView("この学期の授業はまだありません", systemImage: "books.vertical")
+                ContentUnavailableView(t("No courses this term yet"), systemImage: "books.vertical")
             }
         }
         .task(id: "\(model.today?.term ?? "")-\(model.contentRevision)") {
@@ -74,7 +74,7 @@ struct LecturesSplit: View {
                     if let id = navigator.lecture {
                         CourseDetailScreen(courseId: id).id(id)
                     } else {
-                        ContentUnavailableView("授業を選んでください", systemImage: "books.vertical")
+                        ContentUnavailableView(t("Choose a course"), systemImage: "books.vertical")
                     }
                 }
                 .appDestinations()

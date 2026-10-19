@@ -2,7 +2,7 @@ import IsctCore
 import SwiftUI
 
 /// The course page as the desktop Lecture Desk lays it out: the course, then
-/// its lessons ("一般", 1, 2, …) one at a time, each with its own text (授業
+/// its lessons (t("General"), 1, 2, …) one at a time, each with its own text (授業
 /// 計画), its files, the pages, labels and announcements shown in place, and
 /// the assignments set in it, which open in place. Content comes from Core's
 /// `CourseContent`; links and the files folder from `CourseDetail`.
@@ -44,7 +44,7 @@ struct CourseDetailScreen: View {
                         mark: mark)
                     pages
                 } else if detail != nil {
-                    ContentUnavailableView("資料はまだありません", systemImage: "doc.text")
+                    ContentUnavailableView(t("No materials yet"), systemImage: "doc.text")
                 }
             }
             .padding(.horizontal, 16)
@@ -192,9 +192,9 @@ struct CourseDetailScreen: View {
         }
     }
 
-    /// `CSC.T273 · 月 3–4限 · W5-101`
+    /// `CSC.T273 · 月 3–4限 · W5-101`, `CSC.T273 · Mon Periods 3–4 · W5-101`
     private func subtitle(_ course: [String: Any]) -> String {
-        let days = ["日", "月", "火", "水", "木", "金", "土"]
+        let days = Format.weekdays
         var parts = [course.text("code")].compactMap { $0 }
         if let meeting = meetings(course).first {
             let start = model.periods.first { $0.startTime == meeting.start }?.periods.first
@@ -227,7 +227,7 @@ struct CourseDetailScreen: View {
         } else if let start = exam.startTime, let end = exam.endTime {
             when += " \(start)–\(end)"
         }
-        return (["試験", when] + (exam.room.isEmpty ? [] : [exam.room])).joined(separator: " · ")
+        return ([t("Exam"), when] + (exam.room.isEmpty ? [] : [exam.room])).joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -240,7 +240,7 @@ struct CourseDetailScreen: View {
             }
             if let syllabus = detail?.syllabusUrl {
                 NavigationLink(value: WebRouter.PushedPage(site: .syllabus, target: syllabus, title: title)) {
-                    LinkChip(title: "シラバス", icon: "doc.text")
+                    LinkChip(title: t("Syllabus"), icon: "doc.text")
                 }
             }
         }
@@ -248,7 +248,7 @@ struct CourseDetailScreen: View {
     }
 }
 
-/// "一般", 1, 2, … as on the desktop lesson rail; the chosen one stays in
+/// t("General"), 1, 2, … as on the desktop lesson rail; the chosen one stays in
 /// view. A dot marks where the course is (Core's `currentSection`); a long
 /// press marks a lesson as the one for the coming (or today's) class.
 private struct LessonChips: View {
@@ -263,7 +263,7 @@ private struct LessonChips: View {
     /// form of the section title.
     private func label(_ lesson: LessonContent) -> String {
         if let number = lesson.number { return "\(number)" }
-        if lesson.section == 0 { return "一般" }
+        if lesson.section == 0 { return t("General") }
         let title = lesson.title ?? "\(lesson.section)"
         return title.count > 8 ? String(title.prefix(7)) + "…" : title
     }
@@ -308,7 +308,7 @@ private struct LessonChips: View {
             .buttonStyle(PressableStyle())
             .contextMenu {
                 if let classDay, lesson.sectionId != nil {
-                    Button("この回を \(classDay) の授業にする", systemImage: "checkmark.circle") { mark(lesson) }
+                    Button(t("Make this the {{day}} class", ["day": classDay]), systemImage: "checkmark.circle") { mark(lesson) }
                 }
             }
             Circle()
@@ -317,7 +317,7 @@ private struct LessonChips: View {
                 .accessibilityHidden(true)
         }
         .id(Int(lesson.section))
-        .accessibilityValue(Int(lesson.section) == current ? Text("今の回") : Text(""))
+        .accessibilityValue(Int(lesson.section) == current ? Text(t("Current lesson")) : Text(""))
     }
 }
 
@@ -357,7 +357,7 @@ private struct LessonPage: View {
             if !work.isEmpty {
                 // The stack's spacing is the only gap above it (SectionLabel
                 // would add its own top padding).
-                Text("課題")
+                Text(t("Assignments"))
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Theme.muted)
                     .padding(.horizontal, 16)
@@ -370,7 +370,7 @@ private struct LessonPage: View {
                 }
             }
             if lesson?.items.isEmpty != false && lesson?.summaryHtml.isEmpty != false && work.isEmpty {
-                ContentUnavailableView("この回の資料はありません", systemImage: "doc.text")
+                ContentUnavailableView(t("No materials for this lesson"), systemImage: "doc.text")
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)

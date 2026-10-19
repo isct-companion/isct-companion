@@ -1,5 +1,6 @@
 package app.isctcompanion.features.settings
 
+import app.isctcompanion.design.t
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
@@ -132,9 +133,9 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
             if (accounts.size == 1) choose(accounts.first()) else choices = accounts
         } catch (failure: OtpImportException) {
             error = when (failure) {
-                is OtpImportException.MultiplePages -> "学校のアカウントだけをエクスポートして、もう一度読み込んでください。"
-                is OtpImportException.Unsupported -> "このアカウントの認証コード形式には対応していません。"
-                is OtpImportException.Invalid -> "対応している認証アプリの QR コードではありません。"
+                is OtpImportException.MultiplePages -> t("Export only your school account, then load it again.")
+                is OtpImportException.Unsupported -> t("This account uses a code format that is not supported.")
+                is OtpImportException.Invalid -> t("This is not a QR code from a supported authenticator app.")
             }
         }
     }
@@ -143,13 +144,13 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
             val payload = qrPayload(context, uri)
-            if (payload == null) error = "QR コードが見つかりません。QR 全体が写った画像を選んでください。" else read(payload)
+            if (payload == null) error = t("No QR code found. Choose an image that shows the whole code.") else read(payload)
         }
     }
 
     OutlinedTextField(
         setup, { onSetup(it); label = null }, singleLine = true,
-        label = { Text(if (saved) "設定済み（変更する場合のみ）" else "TOTP シークレットまたは otpauth:// リンク") },
+        label = { Text(if (saved) t("Saved (enter only to change)") else t("TOTP secret or otpauth:// link")) },
         // Masked like a password, but not typed as one: Autofill must not offer
         // the school login here.
         visualTransformation = PasswordVisualTransformation(),
@@ -159,31 +160,31 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SourceChip("QR を読み取る", Icons.Outlined.QrCodeScanner) {
+        SourceChip(t("Scan QR"), Icons.Outlined.QrCodeScanner) {
             scope.launch {
                 when (val result = scanQr(context)) {
                     null -> Unit
-                    else -> result.fold(::read) { error = "スキャナーを開けませんでした。「写真から」を使ってください。" }
+                    else -> result.fold(::read) { error = t("Could not open the scanner. Use From photo instead.") }
                 }
             }
         }
-        SourceChip("写真から", Icons.Outlined.Image) {
+        SourceChip(t("From photo"), Icons.Outlined.Image) {
             photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         }
-        SourceChip("貼り付け", Icons.Outlined.ContentPaste) {
-            clipboardText(context)?.let(::read) ?: run { error = "クリップボードが空です。" }
+        SourceChip(t("Paste"), Icons.Outlined.ContentPaste) {
+            clipboardText(context)?.let(::read) ?: run { error = t("The clipboard is empty.") }
         }
     }
-    label?.let { Text("「$it」を読み取りました。保存すると使われます。", style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
+    label?.let { Text(t("Read “{{label}}”. Save to use it.", "label" to it), style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
     Text(
-        "Google Authenticator は「アカウントを移行 → エクスポート」で学校のアカウントだけを選び、表示された QR のスクリーンショットを「写真から」で読み込めます。",
+        t("In Google Authenticator, choose Transfer accounts → Export, select only your school account, and load a screenshot of the QR code with From photo."),
         style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
     )
     if (choices.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { choices = emptyList() },
-            title = { Text("どのアカウントを使いますか？") },
+            title = { Text(t("Which account should be used?")) },
             text = {
                 Column {
                     for (account in choices) {
@@ -195,7 +196,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { choices = emptyList() }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = { choices = emptyList() }) { Text(t("Cancel")) } },
         )
     }
 }
@@ -258,7 +259,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 val jpeg = withContext(Dispatchers.IO) { jpeg(context, uri) }
                 val result = model.scanMatrix(jpeg)
                 if (result.size != 70) {
-                    error = "表を見つけられませんでした。表全体が写るように撮り直してください。"
+                    error = t("Could not find the grid. Retake the photo with the whole grid in view.")
                 } else {
                     result.forEachIndexed { index, cell ->
                         cells[index] = cell.text
@@ -266,7 +267,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                     }
                     publish()
                     editing = true
-                    note = "色の付いたマスをカードと照らし合わせて確認してください。"
+                    note = t("Check the coloured cells against your card.")
                 }
             } catch (failure: Exception) {
                 error = AppModel.describe(failure)
@@ -288,19 +289,19 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     }
 
     if (!editing) {
-        Text(if (saved) "設定済み" else "未設定", color = if (saved) Theme.colors.ok else Theme.colors.muted)
+        Text(if (saved) t("Saved") else t("Not set"), color = if (saved) Theme.colors.ok else Theme.colors.muted)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (canScan) {
-            SourceChip("撮影", Icons.Outlined.PhotoCamera, enabled = !reading) { camera.launch(shotUri) }
-            SourceChip("写真から", Icons.Outlined.Image, enabled = !reading) {
+            SourceChip(t("Take photo"), Icons.Outlined.PhotoCamera, enabled = !reading) { camera.launch(shotUri) }
+            SourceChip(t("From photo"), Icons.Outlined.Image, enabled = !reading) {
                 photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
         }
-        SourceChip("貼り付け", Icons.Outlined.ContentPaste, enabled = !reading) {
+        SourceChip(t("Paste"), Icons.Outlined.ContentPaste, enabled = !reading) {
             val letters = clipboardText(context).orEmpty().uppercase().filterNot { it.isWhitespace() }
             if (letters.length != 70 || !letters.all { it in 'A'..'Z' }) {
-                error = "A1…J1、A2…J2 の順に 70 文字を貼り付けてください（空白と改行は無視されます）。"
+                error = t("Paste exactly 70 letters in row order (A1…J1, A2…J2, …). Spaces and line breaks are ignored.")
             } else {
                 error = null
                 letters.forEachIndexed { index, c ->
@@ -311,25 +312,25 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 editing = true
             }
         }
-        if (!editing) SourceChip("入力", Icons.Outlined.Keyboard) { editing = true }
+        if (!editing) SourceChip(t("Enter manually"), Icons.Outlined.Keyboard) { editing = true }
     }
     if (reading) {
-        Text("読み取り中 ${model.ocrProgress}/70", style = MaterialTheme.typography.bodySmall)
+        Text(t("Reading {{done}}/70", "done" to model.ocrProgress), style = MaterialTheme.typography.bodySmall)
         LinearProgressIndicator(progress = { model.ocrProgress / 70f }, modifier = Modifier.fillMaxWidth())
     }
     if (editing) {
         MatrixGrid(cells, confidence) { publish() }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Swatch(Theme.colors.okSoft, "確実")
-            Swatch(Theme.colors.warnSoft, "要確認")
-            Swatch(Theme.colors.dangerSoft, "読めない")
+            Swatch(Theme.colors.okSoft, t("Certain"))
+            Swatch(Theme.colors.warnSoft, t("Check"))
+            Swatch(Theme.colors.dangerSoft, t("Unreadable"))
         }
     }
     note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted) }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
     Text(
-        if (canScan) "カードを平らな場所に置き、表全体が写るように撮影してください。"
-        else "この端末では読み取りを使えません。デスクトップ版でコピーした 70 文字を貼り付けるか、入力してください。",
+        if (canScan) t("Lay the card flat and photograph the whole grid.")
+        else t("Reading is not available on this device. Paste the 70 letters copied from the desktop app, or type them."),
         style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
     )
 }

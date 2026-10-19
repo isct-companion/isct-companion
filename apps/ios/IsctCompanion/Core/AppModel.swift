@@ -22,7 +22,9 @@ final class AppModel {
     private(set) var periods: [TeachingPeriod] = []
     /// Course id → Core's display colour, identical on every surface.
     private(set) var colors: [String: String] = [:]
-    private(set) var records = WorkspaceRecords()
+    private(set) var records = WorkspaceRecords() {
+        didSet { Localizer.shared.use(records.settings.text("locale")) }
+    }
     private(set) var credentials: SchoolCredentialStatus?
     private(set) var sessions: SchoolSessionStates?
     /// What the school connection is doing, decided by Core (`school_status.rs`).
@@ -546,12 +548,12 @@ final class AppModel {
 
     nonisolated static func describe(_ error: Error) -> String {
         switch error {
-        case SdkError.Network: return "オフラインです。保存済みのデータを表示しています。"
-        case SdkError.Authentication: return "学校アカウントに再ログインが必要です。"
-        case SdkError.Maintenance: return "学校のサイトはメンテナンス中です。"
-        case SdkError.Timeout: return "学校サイトの応答がありません。"
-        case SdkError.Busy: return "前の処理がまだ終わっていません。"
-        case let SdkError.Unavailable(detail): return detail.isEmpty ? "この機能は今使えません。" : detail
+        case SdkError.Network: return t("You're offline. Showing saved data.")
+        case SdkError.Authentication: return t("Sign in to your school account again.")
+        case SdkError.Maintenance: return t("The school site is under maintenance.")
+        case SdkError.Timeout: return t("The school site is not responding.")
+        case SdkError.Busy: return t("The previous task has not finished yet.")
+        case let SdkError.Unavailable(detail): return detail.isEmpty ? t("This is not available right now.") : detail
         default: return error.localizedDescription
         }
     }

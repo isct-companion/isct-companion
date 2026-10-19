@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarToday
-import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -61,10 +61,12 @@ import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.design.IsctTheme
+import app.isctcompanion.design.Localizer
+import app.isctcompanion.design.t
 import app.isctcompanion.design.Theme
-import app.isctcompanion.features.assignments.AssignmentsScreen
 import app.isctcompanion.features.assignments.RecordScreen
 import app.isctcompanion.features.course.CourseDetailScreen
+import app.isctcompanion.features.settings.SettingsScreen
 import app.isctcompanion.features.timetable.TimetableScreen
 import app.isctcompanion.features.today.TodayScreen
 import app.isctcompanion.features.web.WebPageScreen
@@ -79,6 +81,7 @@ class IsctApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Localizer.attach(this)
         scope.launch { model.start() }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = model.foreground(true)
@@ -114,14 +117,22 @@ class Navigator(private val controller: NavHostController) {
 
     fun openRecord() = controller.navigate("record")
 
+    /** Switches to the 設定 tab, as tapping it would. */
+    fun openSettings() = controller.navigate("tab/settings") {
+        popUpTo(controller.graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+
     fun back() = controller.popBackStack()
 }
 
+/** Assignments live on 今日, and 設定 is the last tab. */
 private enum class AppTab(val route: String, val start: String, val label: String, val icon: ImageVector) {
-    Today("tab/today", "today", "今日", Icons.Outlined.CalendarToday),
-    Timetable("tab/timetable", "timetable", "時間割", Icons.Outlined.GridView),
-    Assignments("tab/assignments", "assignments", "課題", Icons.Outlined.Checklist),
-    Web("tab/web", "web", "ウェブ", Icons.Outlined.Language),
+    Today("tab/today", "today", "Today", Icons.Outlined.CalendarToday),
+    Timetable("tab/timetable", "timetable", "Timetable", Icons.Outlined.GridView),
+    Web("tab/web", "web", "Web", Icons.Outlined.Language),
+    Settings("tab/settings", "settings", "Settings", Icons.Outlined.Settings),
 }
 
 @Composable
@@ -137,7 +148,7 @@ private fun RootView() {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(Icons.Outlined.WarningAmber, null, tint = Theme.colors.muted)
-            Text("起動できませんでした", style = MaterialTheme.typography.titleLarge)
+            Text(t("Could not start"), style = MaterialTheme.typography.titleLarge)
             Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
         }
         AppModel.Status.Ready -> Tabs()
@@ -166,7 +177,7 @@ private fun Tabs() {
     LaunchedEffect(model.undo) {
         val undo = model.undo ?: return@LaunchedEffect
         val result = snackbar.showSnackbar(
-            "「${undo.title}」を非表示にしました", actionLabel = "取り消す", duration = SnackbarDuration.Short,
+            t("Hid “{{title}}”", "title" to undo.title), actionLabel = t("Undo"), duration = SnackbarDuration.Short,
         )
         // undoHide clears `undo`, which restarts this effect; run it outside so
         // the restart cannot cancel the mutation.
@@ -195,7 +206,7 @@ private fun Tabs() {
                                     }
                                 },
                                 icon = { Icon(tab.icon, null) },
-                                label = { Text(tab.label) },
+                                label = { Text(t(tab.label)) },
                             )
                         }
                     }
@@ -205,8 +216,8 @@ private fun Tabs() {
             NavHost(controller, startDestination = AppTab.Today.route, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
                 tab(AppTab.Today) { TodayScreen() }
                 tab(AppTab.Timetable) { TimetableScreen() }
-                tab(AppTab.Assignments) { AssignmentsScreen() }
                 tab(AppTab.Web) { WebTabScreen() }
+                tab(AppTab.Settings) { SettingsScreen() }
                 composable("course/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
                     CourseDetailScreen(it.arguments?.getString("id").orEmpty())
                 }

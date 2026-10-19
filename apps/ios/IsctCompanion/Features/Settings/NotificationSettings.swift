@@ -14,9 +14,11 @@ enum ReminderLeads {
     static let maxAssignment = 8
 
     static func label(_ minutes: Int) -> String {
-        if minutes % 1440 == 0 { return "\(minutes / 1440)日前" }
-        if minutes % 60 == 0 { return "\(minutes / 60)時間前" }
-        return "\(minutes)分前"
+        if minutes == 1440 { return t("1 day before") }
+        if minutes % 1440 == 0 { return t("{{days}} days before", ["days": minutes / 1440]) }
+        if minutes == 60 { return t("1 hour before") }
+        if minutes % 60 == 0 { return t("{{hours}} hours before", ["hours": minutes / 60]) }
+        return t("{{minutes}} minutes before", ["minutes": minutes])
     }
 
     static func classLead(_ settings: [String: Any]) -> Int {
@@ -52,18 +54,18 @@ struct NotificationsScreen: View {
     var body: some View {
         Form {
             Section {
-                Toggle("授業の前に通知", isOn: binding("classes", current: settings["classes"] as? Bool ?? false))
+                Toggle(t("Remind me before classes"), isOn: binding("classes", current: settings["classes"] as? Bool ?? false))
                 if settings["classes"] as? Bool == true {
-                    Picker("通知のタイミング", selection: leadBinding("classLeadMinutes", ReminderLeads.classLead(settings))) {
+                    Picker(t("Remind me"), selection: leadBinding("classLeadMinutes", ReminderLeads.classLead(settings))) {
                         ForEach(ReminderLeads.classChoices, id: \.self) { Text(ReminderLeads.label($0)).tag($0) }
                     }
                 }
             }
             Section {
-                Toggle("試験の前に通知", isOn: binding("exams", current: ReminderLeads.exams(settings)))
+                Toggle(t("Remind me before exams"), isOn: binding("exams", current: ReminderLeads.exams(settings)))
                 if ReminderLeads.exams(settings) {
                     let lead = ReminderLeads.examLead(settings)
-                    Picker("通知のタイミング", selection: leadBinding("examLeadMinutes", lead)) {
+                    Picker(t("Remind me"), selection: leadBinding("examLeadMinutes", lead)) {
                         ForEach(Array(Set(ReminderLeads.examChoices + [lead])).sorted(), id: \.self) {
                             Text(ReminderLeads.label($0)).tag($0)
                         }
@@ -71,10 +73,10 @@ struct NotificationsScreen: View {
                 }
             }
             Section {
-                Toggle("課題の締切前に通知", isOn: binding("assignments", current: settings["assignments"] as? Bool ?? false))
+                Toggle(t("Remind me before assignment deadlines"), isOn: binding("assignments", current: settings["assignments"] as? Bool ?? false))
                 if settings["assignments"] as? Bool == true {
                     NavigationLink(value: SettingsRoute.assignmentLeads) {
-                        LabeledContent("通知のタイミング") {
+                        LabeledContent(t("Remind me")) {
                             Text(ReminderLeads.assignmentLeads(settings).sorted(by: >).map(ReminderLeads.label).joined(separator: "、"))
                                 .lineLimit(2)
                         }
@@ -82,12 +84,12 @@ struct NotificationsScreen: View {
                 }
             } footer: {
                 if denied {
-                    Text("通知が許可されていません。設定アプリの「通知」から許可してください。")
+                    Text(t("Notifications are not allowed. Allow them in the Settings app under Notifications."))
                         .foregroundStyle(Theme.danger)
                 }
             }
         }
-        .navigationTitle("通知")
+        .navigationTitle(t("Notifications"))
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -145,11 +147,11 @@ struct AssignmentLeadsScreen: View {
                     .disabled(on ? chosen.count == 1 : chosen.count >= ReminderLeads.maxAssignment)
                 }
             } footer: {
-                Text("締切の前に、選んだすべてのタイミングで通知します（1〜\(ReminderLeads.maxAssignment)件）。")
+                Text(t("Reminds you at every time you choose before the deadline (1–{{max}}).", ["max": ReminderLeads.maxAssignment]))
             }
         }
         .sensoryFeedback(.selection, trigger: chosen)
-        .navigationTitle("課題の通知タイミング")
+        .navigationTitle(t("Assignment reminder times"))
         .navigationBarTitleDisplayMode(.inline)
     }
 

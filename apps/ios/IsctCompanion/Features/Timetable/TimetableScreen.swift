@@ -96,7 +96,7 @@ struct TimetableScreen: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityHint("週を選ぶ")
+            .accessibilityHint(t("Choose a week"))
             Spacer(minLength: 8)
             weekStepper
         }
@@ -109,11 +109,11 @@ struct TimetableScreen: View {
         return "\(short(monday)) – \(short(friday))"
     }
 
-    /// "2026 · 3Q 第 2 週", from Core's week list; between quarters, 休み.
+    /// "2026年度 · 3Q 第 2 週", from Core's week list; between quarters, 休み.
     private var subtitle: String {
-        guard let year else { return "時間割" }
+        guard let year else { return t("Timetable") }
         let label = year.weeks.first { $0.monday == AppModel.civil(monday) }.flatMap { WeekPicker.label($0, in: year) }
-        return [String(year.year) + " 年度", label].compactMap { $0 }.joined(separator: " · ")
+        return [t("AY {{year}}", ["year": String(year.year)]), label].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func short(_ date: Date) -> String {
@@ -126,17 +126,17 @@ struct TimetableScreen: View {
         let thisWeek = TimetableScreen.monday(of: Date())
         let atThisWeek = monday == thisWeek
         return HStack(spacing: 0) {
-            stepperSegment(label: "前の週") { shift(-1) } content: {
+            stepperSegment(label: t("Previous week")) { shift(-1) } content: {
                 Image(systemName: "chevron.left").font(.body.weight(.semibold)).frame(width: 40)
             }
-            stepperSegment(label: "今週に戻る") {
+            stepperSegment(label: t("Back to this week")) {
                 withAnimation(.snappy) { monday = thisWeek }
             } content: {
-                Text("今日").font(.subheadline.weight(.semibold)).padding(.horizontal, 6)
+                Text(t("Today")).font(.subheadline.weight(.semibold)).padding(.horizontal, 6)
             }
             .disabled(atThisWeek)
             .opacity(atThisWeek ? 0.35 : 1)
-            stepperSegment(label: "次の週") { shift(1) } content: {
+            stepperSegment(label: t("Next week")) { shift(1) } content: {
                 Image(systemName: "chevron.right").font(.body.weight(.semibold)).frame(width: 40)
             }
         }
@@ -206,7 +206,7 @@ struct TimetableScreen: View {
         let parts = Calendar.tokyo.dateComponents([.weekday, .day], from: day)
         let today = Calendar.tokyo.isDateInToday(day)
         return VStack(spacing: 2) {
-            Text(["日", "月", "火", "水", "木", "金", "土"][(parts.weekday ?? 1) - 1])
+            Text(Format.weekdays[(parts.weekday ?? 1) - 1])
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
             Text("\(parts.day ?? 0)")
@@ -338,11 +338,11 @@ struct TimetableScreen: View {
     private func bottomLine(_ block: Occurrence, planned: Bool, exam: Bool, cancelled: Bool) -> some View {
         let room = BlockText.firstRoom(block.room)
         if planned {
-            Text("計画")
+            Text(t("Planned"))
         } else if cancelled {
-            Text("休講")
+            Text(t("No class"))
         } else if exam {
-            Text("\(Text("試験").foregroundStyle(Theme.warn)) \(room)")
+            Text("\(Text(t("Exam")).foregroundStyle(Theme.warn)) \(room)")
         } else {
             Text(room)
         }
