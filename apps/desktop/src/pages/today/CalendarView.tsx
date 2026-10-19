@@ -14,7 +14,6 @@ import {
   formatCivilDate,
   tokyoDate,
 } from "../../lib/civil-date";
-import { resolvedTeachingPeriods } from "../../lib/timetable-layout";
 import type { Workspace } from "../../lib/model";
 import { t } from "../../i18n";
 
@@ -113,9 +112,6 @@ export function CalendarView({
         </header>
         <WeekTimetable
           days={agendaColumns(view.value?.agendas ?? [])}
-          teachingPeriods={resolvedTeachingPeriods(
-            data.academicProfile.teachingPeriods,
-          )}
           onSelect={open}
           actionsFor={actionsFor}
           showNow

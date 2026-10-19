@@ -94,6 +94,7 @@ final class Navigator {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(WebRouter.self) private var web
     @State private var navigator = Navigator()
     @Namespace private var zoom
 
@@ -167,12 +168,16 @@ struct RootView: View {
         }
     }
 
-    /// Tapping the current tab returns it to its root.
+    /// Tapping the current tab returns it to its root; for ウェブ, to the
+    /// shown site's start page.
     private var selection: Binding<AppTab> {
         Binding(
             get: { navigator.tab },
             set: { next in
-                if next == navigator.tab { navigator.paths[next] = NavigationPath() }
+                if next == navigator.tab {
+                    navigator.paths[next] = NavigationPath()
+                    if next == .web { web.goHome(web.tabSite) }
+                }
                 navigator.tab = next
             })
     }
@@ -194,6 +199,7 @@ extension View {
         }
         .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
         .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
+        .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }
         .navigationDestination(for: SettingsRoute.self) { SettingsDestination(route: $0) }
     }
 }

@@ -4689,3 +4689,43 @@ textarea.codeArea {
     -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI",
     "Meiryo", "Noto Sans CJK JP", system-ui, sans-serif;
 }
+
+/* Page changes (app/navigation.ts): the rail and the status bar stay put,
+   the page fades and rises into place. */
+.mantine-AppShell-navbar {
+  view-transition-name: app-rail;
+}
+.schoolStatusBar {
+  view-transition-name: app-status;
+}
+.mantine-AppShell-main {
+  view-transition-name: app-page;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+::view-transition-old(app-page) {
+  animation: 120ms ease-in both pageOut;
+}
+::view-transition-new(app-page) {
+  animation: 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both pageIn;
+}
+@keyframes pageOut {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

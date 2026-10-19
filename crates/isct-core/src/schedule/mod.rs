@@ -4,10 +4,12 @@ pub mod alternation;
 mod calendar;
 mod civil;
 mod colors;
+mod course_content;
 mod course_detail;
 mod credits;
 mod exams;
 mod ics;
+mod lms_html;
 mod occurrence;
 mod range;
 mod reminders;
@@ -42,7 +44,12 @@ pub use calendar::{
 pub(crate) use calendar::{content_language, localized};
 pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
-pub use course_detail::{course_detail, CourseDetail};
+pub use course_content::{
+    course_content, lesson_number, CourseContent, LessonContent, LessonItem, LessonItemKind,
+};
+pub use course_detail::{
+    assignment_detail, course_detail, AssignmentAttachment, AssignmentDetail, CourseDetail,
+};
 pub use credits::declared_term_credits;
 pub(crate) use exams::{
     corrected_exam_override, linked_exam_override, marked_session_override, ExamCorrection,
@@ -69,7 +76,8 @@ pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
 pub(crate) use timing::{clock_for_periods, validate_period_range};
 pub use timing::{
-    default_teaching_periods, teaching_periods, validate_teaching_periods, TeachingPeriod,
+    default_teaching_periods, teaching_periods, timetable_axis, validate_teaching_periods, AxisRow,
+    AxisStop, TeachingPeriod, TimetableAxis,
 };
 pub use today::{
     assignment_board, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem, MaterialItem,
@@ -109,6 +117,14 @@ pub struct AgendaRequestOptions {
 )]
 pub enum WorkspaceQuery {
     TeachingPeriods,
+    /// The equal-row axis timetables place times on, widened to the week's
+    /// earliest start and latest end when those leave the teaching day.
+    TimetableAxis {
+        #[serde(default)]
+        earliest: Option<String>,
+        #[serde(default)]
+        latest: Option<String>,
+    },
     WorkspaceOverview {
         term: String,
     },
@@ -144,6 +160,14 @@ pub enum WorkspaceQuery {
     },
     CourseDetail {
         course_id: String,
+    },
+    /// A course's LMS content lesson by lesson.
+    CourseContent {
+        course_id: String,
+    },
+    /// One assignment with its LMS text and files, for an in-app page.
+    AssignmentDetail {
+        assignment_id: String,
     },
     ExamAssociation {
         exam_key: String,
@@ -302,6 +326,7 @@ pub struct AcademicYearIndex {
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 pub enum WorkspaceQueryResult {
     TeachingPeriods(Vec<TeachingPeriod>),
+    TimetableAxis(TimetableAxis),
     WorkspaceOverview(WorkspaceOverview),
     SubscriptionViews(#[cfg_attr(feature = "ts", ts(type = "unknown"))] Value),
     PlanningWeek(PlanningWeek),
@@ -312,6 +337,8 @@ pub enum WorkspaceQueryResult {
     Today(TodayView),
     AssignmentBoard(AssignmentBoard),
     CourseDetail(CourseDetail),
+    AssignmentDetail(Option<AssignmentDetail>),
+    CourseContent(Option<CourseContent>),
     ExamAssociation(ExamAssociation),
     LectureSearch(LectureSearch),
     ScheduleView(ScheduleView),
@@ -365,6 +392,13 @@ pub fn query(
         WorkspaceQuery::TeachingPeriods => Ok(WorkspaceQueryResult::TeachingPeriods(
             teaching_periods(workspace)?,
         )),
+        WorkspaceQuery::TimetableAxis { earliest, latest } => {
+            Ok(WorkspaceQueryResult::TimetableAxis(timetable_axis(
+                &teaching_periods(workspace)?,
+                earliest.as_deref(),
+                latest.as_deref(),
+            )?))
+        }
         WorkspaceQuery::WorkspaceOverview { term } => Ok(WorkspaceQueryResult::WorkspaceOverview(
             workspace_overview(workspace, &term)?,
         )),
@@ -413,6 +447,12 @@ pub fn query(
         WorkspaceQuery::CourseDetail { course_id } => Ok(WorkspaceQueryResult::CourseDetail(
             course_detail(workspace, &course_id),
         )),
+        WorkspaceQuery::CourseContent { course_id } => Ok(WorkspaceQueryResult::CourseContent(
+            course_content(workspace, &course_id),
+        )),
+        WorkspaceQuery::AssignmentDetail { assignment_id } => Ok(
+            WorkspaceQueryResult::AssignmentDetail(assignment_detail(workspace, &assignment_id)),
+        ),
         WorkspaceQuery::PlanCivilStart { plan } => Ok(WorkspaceQueryResult::PlanCivilStart(
             plan_start(&request_value(plan)?)?,
         )),
@@ -745,6 +785,9 @@ pub(crate) fn visible(value: &Value) -> bool {
 pub fn declarations() -> Vec<String> {
     vec![
         TeachingPeriod::decl(),
+        TimetableAxis::decl(),
+        AxisStop::decl(),
+        AxisRow::decl(),
         Term::decl(),
         TeachingRange::decl(),
         QuarterRange::decl(),
@@ -781,6 +824,12 @@ pub fn declarations() -> Vec<String> {
         ColorCourse::decl(),
         ColorOverrides::decl(),
         CourseDetail::decl(),
+        AssignmentDetail::decl(),
+        CourseContent::decl(),
+        LessonContent::decl(),
+        LessonItem::decl(),
+        LessonItemKind::decl(),
+        AssignmentAttachment::decl(),
         <crate::course_materials::CourseKey as TS>::decl(),
         ExamView::decl(),
         ExamSchedule::decl(),

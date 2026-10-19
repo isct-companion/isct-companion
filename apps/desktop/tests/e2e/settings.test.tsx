@@ -9,6 +9,7 @@ import {
   courseFor,
   offering,
   flush,
+  DEFAULT_TIMETABLE_AXIS,
   mountApp,
   overviewFor,
   planningWeekFor,
@@ -20,6 +21,7 @@ import {
   type FakeCoreOptions,
   type MountedApp,
 } from "@tests/harness";
+import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
 import type {
   CloudSyncState,
   SchoolCredentialStatus,
@@ -1964,6 +1966,23 @@ describe("Academic calendar profile", () => {
           // profile so this case exercises the real form, mutation and view wiring.
           validateAcademicProfile: (query) =>
             (query as { profile: Workspace["academicProfile"] }).profile,
+          // The axis geometry is Core's (tested in Rust); this host answers
+          // with the stored periods so the saved times reach the view axis.
+          timetableAxis: (_query, core) => {
+            const periods =
+              core.workspace.academicProfile.teachingPeriods ??
+              DEFAULT_TEACHING_PERIODS;
+            return {
+              ...DEFAULT_TIMETABLE_AXIS,
+              rows: periods.map((period, index) => ({
+                periods: period.periods,
+                startTime: period.startTime,
+                endTime: period.endTime,
+                top: index * 2,
+                bottom: index * 2 + 2,
+              })),
+            };
+          },
           scheduleView: (_query, core) =>
             scheduleViewFor(core.workspace, {
               agendas: [

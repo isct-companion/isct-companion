@@ -11,12 +11,12 @@ import {
 } from "@app/lib/civil-date";
 import { seedWorkspace } from "@app/lib/model";
 import {
+  axisPosition,
+  axisSpan,
   classSlots,
-  timetableBounds,
-  blockPosition,
-  teachingRows,
-  timetablePosition,
+  nowPercent,
 } from "@app/lib/timetable-layout";
+import { DEFAULT_TIMETABLE_AXIS } from "@tests/harness/fixtures";
 import { formatDay } from "@app/pages/settings/subscription-status";
 
 /**
@@ -190,51 +190,39 @@ describe("timetable class slots", () => {
   });
 });
 
-describe("timetable bounds and position", () => {
-  it("spans the configured periods when a block stays inside them", () => {
-    expect(timetableBounds(DEFAULT_TEACHING_PERIODS)).toEqual({
-      start: 530,
-      end: 1245,
-    });
-    expect(
-      timetableBounds(DEFAULT_TEACHING_PERIODS, [
-        { startTime: "15:25", endTime: "17:05" },
-      ]),
-    ).toEqual({ start: 530, end: 1245 });
-  });
+// Where times land (one row per period, lunch half a row, short breaks
+// folded) is Core's `timetable_axis` and its tests; these cover the
+// shell's interpolation over Core's stops.
+describe("timetable axis placement", () => {
+  const axis = DEFAULT_TIMETABLE_AXIS;
 
-  it("expands around explicit custom course times instead of clipping them", () => {
-    const bounds = timetableBounds(DEFAULT_TEACHING_PERIODS, [
-      { startTime: "07:30", endTime: "22:00" },
-    ]);
-    expect(bounds).toEqual({ start: 450, end: 1320 });
-    expect(timetablePosition("07:30", "22:00", bounds)).toEqual({
+  it("fills a class's cell through the short break and keeps exact times", () => {
+    expect(axisPosition(axis, "08:50", "10:30")).toEqual({
       topPercent: 0,
-      heightPercent: 100,
+      heightPercent: 16,
     });
+    // An exam at 09:40–10:20 sits inside its cell.
+    expect(axisPosition(axis, "09:40", "10:20").topPercent).toBe(8);
+    // A few minutes still leave room for the title.
+    expect(axisPosition(axis, "09:00", "09:01").heightPercent).toBeCloseTo(3.2);
   });
 
-  it("fills a class's grid cell through the short break but keeps exact times off the rules", () => {
-    const bounds = timetableBounds(DEFAULT_TEACHING_PERIODS);
-    const rows = teachingRows(DEFAULT_TEACHING_PERIODS);
-    const cell = (start: string, end: string) =>
-      blockPosition(start, end, rows, bounds);
-    // 1-2 ends 10:30; its cell runs to the 3-4 rule at 10:45.
-    expect(cell("08:50", "10:30")).toEqual(
-      timetablePosition("08:50", "10:45", bounds),
-    );
-    // 3-4 ends where the lunch-break row begins.
-    expect(cell("10:45", "12:25")).toEqual(
-      timetablePosition("10:45", "12:25", bounds),
-    );
-    // The last period ends at the bottom of the day.
-    expect(cell("19:05", "20:45")).toEqual(
-      timetablePosition("19:05", "20:45", bounds),
-    );
-    // An announced exam time 25 minutes from a rule stays exact.
-    expect(cell("09:30", "10:20")).toEqual(
-      timetablePosition("09:30", "10:20", bounds),
-    );
+  it("draws the now line only inside the drawn day", () => {
+    expect(nowPercent(axis, 13 * 60 + 30)).toBe(36);
+    expect(nowPercent(axis, 7 * 60)).toBeUndefined();
+    expect(nowPercent(axis, 21 * 60)).toBeUndefined();
+  });
+
+  it("asks Core to widen the axis around the week's earliest and latest class", () => {
+    expect(
+      axisSpan([
+        { startTime: "10:45", endTime: "12:25" },
+        { startTime: "07:30", endTime: "09:00" },
+        { startTime: "19:05", endTime: "22:00" },
+        { startTime: "later", endTime: "never" },
+      ]),
+    ).toEqual({ earliest: "07:30", latest: "22:00" });
+    expect(axisSpan([])).toEqual({});
   });
 });
 

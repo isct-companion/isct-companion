@@ -240,6 +240,10 @@ final class AppModel {
             let changed = contentRevision != snapshot.contentRevision
             contentRevision = snapshot.contentRevision
             scheduleBoundary()
+            if changed || weeks.isEmpty {
+                weeks = [:]
+                Task { await prefetchTimetable() }
+            }
             if changed { await NotificationScheduler.sync(session) }
         } catch is CancellationError {
             // A newer change hint replaced this read; it is not a failure.
@@ -286,7 +290,21 @@ final class AppModel {
         guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
             case let .scheduleView(view)? = result.values.first
         else { return nil }
+        weeks[from] = view
         return view
+    }
+
+    /// Weeks already read this revision, by Monday, so the timetable draws
+    /// them at once; a new revision re-reads them.
+    private(set) var weeks: [String: ScheduleView] = [:]
+
+    /// Reads this week and its axis ahead of the timetable being opened.
+    private func prefetchTimetable() async {
+        guard let view = await week(starting: TimetableScreen.monday(of: Date())) else { return }
+        let blocks = view.agendas.flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
+        let earliest = blocks.map(\.startTime).min { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
+        let latest = blocks.map(\.endTime).max { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
+        _ = await timetableAxis(earliest: earliest, latest: latest)
     }
 
     /// The quarter's courses as Core lists them for the course list.
@@ -298,6 +316,44 @@ final class AppModel {
             case let .workspaceOverview(view)? = result.values.first
         else { return nil }
         return view
+    }
+
+    /// Core's equal-row timetable axis, widened to the week's earliest start
+    /// and latest end when those leave the teaching day.
+    func timetableAxis(earliest: String?, latest: String?) async -> TimetableAxis? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .timetableAxis(earliest: earliest, latest: latest)
+            ]).value(),
+            case let .timetableAxis(axis)? = result.values.first
+        else { return nil }
+        lastTimetableAxis = axis
+        return axis
+    }
+
+    /// The last axis Core gave, so a timetable draws its rows at once.
+    private(set) var lastTimetableAxis: TimetableAxis?
+
+    /// A course's LMS content lesson by lesson.
+    func courseContent(_ id: String) async -> CourseContent? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .courseContent(courseId: id)
+            ]).value(),
+            case let .courseContent(content)? = result.values.first
+        else { return nil }
+        return content
+    }
+
+    /// One assignment with its LMS text and files, for the in-app page.
+    func assignmentDetail(_ id: String) async -> AssignmentDetail? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .assignmentDetail(assignmentId: id)
+            ]).value(),
+            case let .assignmentDetail(detail)? = result.values.first
+        else { return nil }
+        return detail
     }
 
     /// The academic year (April–March) a date belongs to.

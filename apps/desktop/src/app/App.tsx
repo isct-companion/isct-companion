@@ -5,6 +5,7 @@ import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePullState } from "./usePullState";
+import { useAnimatedNavigate } from "./navigation";
 import { SchoolStatusLine } from "./SchoolStatusLine";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
@@ -26,7 +27,6 @@ import {
   useBlocker,
   useLocation,
   useMatch,
-  useNavigate,
   useParams,
   useSearchParams,
 } from "react-router";
@@ -268,7 +268,7 @@ export function WorkspaceApp() {
   // Today's "All assignments" asks Lecture Desk for the quarter's list.
   const [assignmentsRequest, setAssignmentsRequest] = useState<number>();
   const [previewTerm, setPreviewTerm] = useState<TermId | null>(null);
-  const navigate = useNavigate();
+  const navigate = useAnimatedNavigate();
   const location = useLocation();
   const params = useParams();
   const timetableMatch = useMatch(routePatterns.timetable);

@@ -4,6 +4,7 @@ import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { UiInput } from "../../components/mantine";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import type { CourseFolder } from "./files";
+import type { AssignmentAttachment } from "../../platform/core-query";
 import {
   createWorkspace,
   deleteWorkspace,
@@ -20,14 +21,15 @@ import {
 export function AssignmentWorkspaceFooter({
   context,
   assignment,
-  html,
+  attachments,
   brief,
   done,
   submit,
 }: {
   context: CourseFolder;
   assignment: { id: string; title: string; sourceUrl?: string };
-  html: string;
+  /** The LMS files the assignment links, from Core's `AssignmentDetail`. */
+  attachments: readonly AssignmentAttachment[];
   brief: (attachments: string[]) => string;
   done: boolean;
   /** Opens the assignment in the LMS; undefined when it has no LMS page. */
@@ -191,7 +193,12 @@ export function AssignmentWorkspaceFooter({
             onClick={() =>
               void run(async () =>
                 setWorkspace(
-                  await createWorkspace(context, assignment, html, brief),
+                  await createWorkspace(
+                    context,
+                    assignment,
+                    attachments,
+                    brief,
+                  ),
                 ),
               )
             }

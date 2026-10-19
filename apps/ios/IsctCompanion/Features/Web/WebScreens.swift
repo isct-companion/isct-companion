@@ -65,23 +65,24 @@ private struct ResidentWebView: UIViewRepresentable {
     }
 }
 
-/// ウェブ tab: one resident view per site, a site switcher on top.
+/// ウェブ tab: one resident view per site, nearly full screen. The site
+/// switcher is a floating button the person can drag to either edge, so it
+/// never sits on what they are reading.
 struct WebTabScreen: View {
     @Environment(WebRouter.self) private var web
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             // Ends at the tab bar: before iOS 26 the bar turns transparent over a
             // web page and the page's text would run under the tab labels.
             ResidentWebView(site: web.tabSite, host: web.browser, revision: web.attachRevision)
-                .padding(.top, 60)
             if web.loading == web.tabSite && web.browser.webView(for: web.tabSite) == nil {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let error = web.error {
-                ProblemNote(text: error).padding(.top, 70)
+                ProblemNote(text: error).padding(.top, 12).frame(maxHeight: .infinity, alignment: .top)
             }
-            siteBar
+            SiteSwitcher()
         }
         .background(Theme.bg)
         .onAppear {
@@ -90,53 +91,135 @@ struct WebTabScreen: View {
         }
         .onDisappear { web.setVisible(nil) }
     }
+}
 
-    private var siteBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                web.back(web.tabSite)
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
-            }
-            .accessibilityLabel("戻る")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(WebRouter.tabSites, id: \.self) { site in
-                        Button {
-                            web.showTab(site)
-                            web.setVisible(site)
-                        } label: {
-                            Text(WebRouter.name(site))
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .foregroundStyle(site == web.tabSite ? .white : Theme.ink)
-                                .background(site == web.tabSite ? Theme.accent : .clear, in: Capsule())
-                        }
-                    }
+/// The floating site button: tap for sites and page actions, drag to move;
+/// on release it settles against the nearer side.
+private struct SiteSwitcher: View {
+    @Environment(WebRouter.self) private var web
+    @State private var open = false
+    @State private var drag: CGSize = .zero
+    /// Starts on the left: school pages keep their own controls on the right.
+    @AppStorage("web.switcher.trailing") private var trailing = false
+    @AppStorage("web.switcher.height") private var height = 0.78
+
+    private static let size: CGFloat = 56
+    private static let margin: CGFloat = 14
+
+    var body: some View {
+        GeometryReader { proxy in
+            let bounds = proxy.size
+            let x = trailing ? bounds.width - Self.margin - Self.size / 2 : Self.margin + Self.size / 2
+            let y = min(max(height * bounds.height, Self.size), bounds.height - Self.size)
+            ZStack {
+                if open {
+                    Color.black.opacity(0.08)
+                        .ignoresSafeArea()
+                        .onTapGesture { withAnimation(.snappy) { open = false } }
+                    menu
+                        .position(x: trailing ? bounds.width - 120 : 120, y: y > bounds.height / 2 ? y - 170 : y + 170)
+                        .transition(.scale(scale: 0.85, anchor: trailing ? .bottomTrailing : .bottomLeading).combined(with: .opacity))
                 }
-                .padding(4)
-            }
-            .background(.regularMaterial, in: Capsule())
-            Menu {
-                Button("再読み込み", systemImage: "arrow.clockwise") { web.reload(web.tabSite) }
-                Button("進む", systemImage: "chevron.right") { web.forward(web.tabSite) }
-                if let url = web.browser.webView(for: web.tabSite)?.url {
-                    Link(destination: url) { Label("ブラウザで開く", systemImage: "safari") }
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
+                button
+                    .position(x: x + drag.width, y: y + drag.height)
+                    .gesture(
+                        DragGesture(minimumDistance: 6)
+                            .onChanged { drag = $0.translation }
+                            .onEnded { value in
+                                let endX = x + value.translation.width
+                                let endY = y + value.translation.height
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+                                    trailing = endX > bounds.width / 2
+                                    height = min(max(endY / bounds.height, 0.12), 0.9)
+                                    drag = .zero
+                                }
+                            })
             }
         }
-        .foregroundStyle(Theme.accent)
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
+        .sensoryFeedback(.selection, trigger: trailing)
+        .sensoryFeedback(.impact(weight: .light), trigger: open)
+    }
+
+    private var button: some View {
+        Button {
+            withAnimation(.snappy) { open.toggle() }
+        } label: {
+            Text(Self.short(web.tabSite))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: Self.size, height: Self.size)
+                .floatingGlass(in: Circle())
+                .overlay { Circle().strokeBorder(Theme.line, lineWidth: 0.5) }
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityLabel("サイトを切り替え · \(WebRouter.name(web.tabSite))")
+    }
+
+    private var menu: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(WebRouter.tabSites, id: \.self) { site in
+                menuRow(WebRouter.name(site), icon: site == web.tabSite ? "checkmark" : "globe", selected: site == web.tabSite) {
+                    web.choose(site)
+                }
+            }
+            Divider().padding(.vertical, 4)
+            HStack(spacing: 0) {
+                iconButton("chevron.left", "戻る") { web.back(web.tabSite) }
+                iconButton("chevron.right", "進む") { web.forward(web.tabSite) }
+                iconButton("arrow.clockwise", "再読み込み") { web.reload(web.tabSite) }
+                iconButton("house", "このサイトの最初へ") { web.goHome(web.tabSite) }
+                if let url = web.browser.webView(for: web.tabSite)?.url {
+                    Link(destination: url) {
+                        Image(systemName: "safari").frame(maxWidth: .infinity, minHeight: 40)
+                    }
+                    .accessibilityLabel("ブラウザで開く")
+                }
+            }
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Theme.accent)
+        }
+        .padding(8)
+        .frame(width: 220)
+        .floatingGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func menuRow(_ title: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            withAnimation(.snappy) { open = false }
+        } label: {
+            HStack {
+                Text(title).font(.body.weight(selected ? .semibold : .regular)).foregroundStyle(Theme.ink)
+                Spacer()
+                if selected { Image(systemName: icon).foregroundStyle(Theme.accent) }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+    }
+
+    private func iconButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            withAnimation(.snappy) { open = false }
+        } label: {
+            Image(systemName: symbol).frame(maxWidth: .infinity, minHeight: 40)
+        }
+        .accessibilityLabel(label)
+    }
+
+    /// The button's own label: short enough for a circle.
+    private static func short(_ site: SchoolSite) -> String {
+        switch site {
+        case .scienceLms: "LMS"
+        case .kyomu: "教務"
+        case .sciencePortal: "Portal"
+        case .tokyoMail: "Mail"
+        case .library: "図書館"
+        default: String(WebRouter.name(site).prefix(4))
+        }
     }
 }
 

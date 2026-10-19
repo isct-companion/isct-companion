@@ -2486,6 +2486,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "data-encoding",
+ "ego-tree",
  "futures-util",
  "log",
  "percent-encoding",

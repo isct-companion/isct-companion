@@ -63,6 +63,23 @@ final class WebRouter {
         }
     }
 
+    /// Back to the site's own start page (Core's `start_url`), as tapping the
+    /// tab or the site again does.
+    func goHome(_ site: SchoolSite) {
+        tabSite = site
+        open(site, target: try? schoolStartUrl(site: site))
+    }
+
+    /// Picks a site in the switcher; picking the shown one returns it home.
+    func choose(_ site: SchoolSite) {
+        if site == tabSite, opened.contains(site) {
+            goHome(site)
+        } else {
+            showTab(site)
+        }
+        setVisible(site)
+    }
+
     /// A web page appeared or disappeared on screen.
     func setVisible(_ site: SchoolSite?) {
         isVisible = site != nil

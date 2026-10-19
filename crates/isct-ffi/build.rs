@@ -75,6 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schedule/timing.rs",
         "schedule/requests.rs",
         "schedule/course_detail.rs",
+        "schedule/course_content.rs",
         "schedule/exams.rs",
         "schedule/search.rs",
         "schedule/calendar.rs",

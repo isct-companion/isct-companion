@@ -881,6 +881,41 @@ export type TeachingPeriod = {
   endTime: string;
 };
 
+export type TimetableAxis = {
+  /**
+   * Height of the whole axis in rows.
+   */
+  length: number;
+  /**
+   * Clock times and their offsets, ascending; a time between two stops
+   * interpolates linearly, one outside them clamps to the nearest end.
+   */
+  stops: Array<AxisStop>;
+  /**
+   * Teaching blocks and break bands, top to bottom.
+   */
+  rows: Array<AxisRow>;
+};
+
+export type AxisStop = {
+  /**
+   * Minutes since midnight.
+   */
+  minutes: number;
+  offset: number;
+};
+
+export type AxisRow = {
+  /**
+   * The block's periods; absent for a break band.
+   */
+  periods: [number, number] | null;
+  startTime: string;
+  endTime: string;
+  top: number;
+  bottom: number;
+};
+
 export type Term = { year: number; quarter: number };
 
 export type TeachingRange = { start: string; end: string };
@@ -1173,7 +1208,67 @@ export type CourseDetail = {
    * Where the course's downloaded files live, for opening its materials.
    */
   files: CourseKey | null;
+  /**
+   * Every section that holds something, in section order, as a lesson
+   * rail lists them.
+   */
+  lessons: Array<CourseLesson>;
+  /**
+   * The section to open first: the last numbered lesson with material
+   * (teachers post around class, so a cancelled class does not advance
+   * it); in a course without numbered lessons, the last section with any.
+   */
+  currentSection: number | null;
 };
+
+export type AssignmentDetail = {
+  assignmentId: string;
+  courseId: string;
+  title: string;
+  dueAt: string | null;
+  submission: string | null;
+  submissionStatus: string | null;
+  grade: string | null;
+  /**
+   * The LMS page, where the person reviews and submits.
+   */
+  sourceUrl: string | null;
+  /**
+   * The description as LMS shows it, without Moodle's own date lines,
+   * which the page states already.
+   */
+  bodyHtml: string;
+  /**
+   * Notes the assignment row carries besides the LMS text.
+   */
+  details: string;
+  attachments: Array<AssignmentAttachment>;
+  sectionNumber: number | null;
+  sectionTitle: string | null;
+  /**
+   * Where opened attachments are kept.
+   */
+  files: CourseKey | null;
+};
+
+export type CourseLesson = {
+  /**
+   * The LMS section number (0 is the course's general section).
+   */
+  section: number;
+  title: string | null;
+  /**
+   * The lesson number read from the title (第3回, Lecture 3, #3), when the
+   * course numbers at least two of its sections.
+   */
+  number: number | null;
+  /**
+   * Whether the section has material besides assignments.
+   */
+  posted: boolean;
+};
+
+export type AssignmentAttachment = { name: string; url: string };
 
 export type CourseKey = { term: string; course: string };
 
@@ -1454,6 +1549,7 @@ export type ScheduleIntensiveDay = { date: string; periods: [number, number] };
 
 export type WorkspaceQuery =
   | { kind: "teachingPeriods" }
+  | { kind: "timetableAxis"; earliest: string | null; latest: string | null }
   | { kind: "workspaceOverview"; term: string }
   | { kind: "subscriptionViews" }
   | { kind: "planningWeek"; term: string }
@@ -1470,6 +1566,7 @@ export type WorkspaceQuery =
   | { kind: "today"; now: string }
   | { kind: "assignmentBoard"; now: string }
   | { kind: "courseDetail"; courseId: string }
+  | { kind: "assignmentDetail"; assignmentId: string }
   | { kind: "examAssociation"; examKey: string; courseId: string }
   | { kind: "lectureSearch"; term: string | null; query: string }
   | {
@@ -1521,6 +1618,7 @@ export type WorkspaceQuery =
 
 export type WorkspaceQueryResult =
   | { kind: "teachingPeriods"; value: Array<TeachingPeriod> }
+  | { kind: "timetableAxis"; value: TimetableAxis }
   | { kind: "workspaceOverview"; value: WorkspaceOverview }
   | { kind: "subscriptionViews"; value: unknown }
   | { kind: "planningWeek"; value: PlanningWeek }
@@ -1531,6 +1629,7 @@ export type WorkspaceQueryResult =
   | { kind: "today"; value: TodayView }
   | { kind: "assignmentBoard"; value: AssignmentBoard }
   | { kind: "courseDetail"; value: CourseDetail }
+  | { kind: "assignmentDetail"; value: AssignmentDetail | null }
   | { kind: "examAssociation"; value: ExamAssociation }
   | { kind: "lectureSearch"; value: LectureSearch }
   | { kind: "scheduleView"; value: ScheduleView }

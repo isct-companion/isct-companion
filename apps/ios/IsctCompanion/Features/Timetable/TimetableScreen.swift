@@ -13,36 +13,49 @@ struct TimetableScreen: View {
     @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
 
+    /// Core's equal-row axis for the shown week.
+    @State private var axis: TimetableAxis?
+    @State private var gridHeight: CGFloat = 600
+
     /// Period rows share the height the screen leaves, so the week fits
     /// without scrolling (with a floor for very short windows).
-    @State private var rowHeight: CGFloat = 52
-    private static let minimumRow: CGFloat = 34
+    private var rowHeight: CGFloat {
+        max(Self.minimumRow, ((gridHeight - Self.dayHeaderHeight) / CGFloat(axis?.length ?? 12.5)).rounded(.down))
+    }
+    private static let minimumRow: CGFloat = 30
     /// Weekday letters and date circles above the columns, plus their gap.
     private static let dayHeaderHeight: CGFloat = 54
-    private static let periodCount = 10
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             grid
                 .frame(maxHeight: .infinity, alignment: .top)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                    let rows = (height - Self.dayHeaderHeight) / CGFloat(Self.periodCount)
-                    rowHeight = max(Self.minimumRow, rows.rounded(.down))
-                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { gridHeight = $0 }
                 .offset(x: dragOffset)
-                .gesture(swipe)
+                // Alongside taps, so a block answers the moment it is touched.
+                .simultaneousGesture(swipe)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            if axis == nil { axis = model.lastTimetableAxis }
+            if week == nil { week = model.weeks[AppModel.civil(monday)] }
+        }
         .task(id: "\(monday.timeIntervalSince1970)-\(model.contentRevision)") {
             // A newer revision cancels this read: its empty answer must not
             // replace what is shown.
             let loaded = await model.week(starting: monday)
             guard !Task.isCancelled else { return }
             week = loaded
+            let blocks = (loaded?.agendas ?? []).flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
+            let earliest = blocks.map(\.startTime).min { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
+            let latest = blocks.map(\.endTime).max { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
+            let shape = await model.timetableAxis(earliest: earliest, latest: latest)
+            guard !Task.isCancelled else { return }
+            if let shape { axis = shape }
             guard let number = await model.academicYear(of: monday),
                 year?.year != number || year?.quarters.isEmpty == true
             else { return }
@@ -146,14 +159,14 @@ struct TimetableScreen: View {
     }
 
     private var grid: some View {
-        let height = rowHeight * CGFloat(Self.periodCount)
+        let height = rowHeight * CGFloat(axis?.length ?? 12.5)
         return VStack(spacing: 6) {
             HStack(spacing: 4) {
                 Color.clear.frame(width: 30, height: 1)
                 ForEach(days, id: \.self) { day in dayHeader(day).frame(maxWidth: .infinity) }
             }
             HStack(alignment: .top, spacing: 4) {
-                periodColumn.frame(width: 30, height: height)
+                periodColumn.frame(width: 30, height: height, alignment: .top)
                 ForEach(days, id: \.self) { day in
                     dayColumn(day).frame(maxWidth: .infinity).frame(height: height)
                 }
@@ -176,16 +189,25 @@ struct TimetableScreen: View {
         }
     }
 
+    /// Period numbers at their rows; each block's start time under its first.
     private var periodColumn: some View {
-        VStack(spacing: 0) {
-            ForEach(1...Self.periodCount, id: \.self) { period in
-                VStack(spacing: 0) {
-                    Text("\(period)").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
-                    if let start = startTime(of: period) {
-                        Text(start).font(.system(size: 9).monospacedDigit()).foregroundStyle(Theme.muted)
+        ZStack(alignment: .top) {
+            ForEach(axis?.rows ?? [], id: \.top) { row in
+                if let periods = row.periods, periods.count == 2 {
+                    ForEach(Int(periods[0])...Int(max(periods[0], periods[1])), id: \.self) { period in
+                        VStack(spacing: 0) {
+                            Text("\(period)").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
+                            if period == Int(periods[0]) {
+                                Text(row.startTime.replacingOccurrences(of: "^0", with: "", options: .regularExpression))
+                                    .font(.system(size: 9).monospacedDigit())
+                                    .foregroundStyle(Theme.muted)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, (row.top + Double(period - Int(periods[0]))) * rowHeight)
+                        .frame(maxHeight: .infinity, alignment: .top)
                     }
                 }
-                .frame(height: rowHeight, alignment: .top)
             }
         }
     }
@@ -199,26 +221,32 @@ struct TimetableScreen: View {
         let agenda = agenda(day)
         let today = Calendar.tokyo.isDateInToday(day)
         let blocks = (agenda?.occurrences ?? []).filter { [.course, .exam].contains($0.kind) }
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return ZStack(alignment: .top) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Theme.surface)
-            PeriodLines(periods: model.periods, count: Self.periodCount, rowHeight: rowHeight)
+            shape.fill(Theme.surface)
+            if let axis { RowRules(axis: axis, rowHeight: rowHeight).clipShape(shape) }
             if agenda?.noClasses == true {
-                Hatch().clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Hatch().clipShape(shape)
             }
             if today {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Theme.accent.opacity(0.5), lineWidth: 1.5)
+                shape.stroke(Theme.accent.opacity(0.5), lineWidth: 1.5)
             }
-            ForEach(blocks, id: \.key) { block in
-                blockView(block, holiday: agenda?.noClasses == true)
+            if let axis {
+                ForEach(blocks, id: \.key) { block in
+                    let top = axis.offset(block.startTime) * rowHeight
+                    let bottom = axis.offset(block.endTime) * rowHeight
+                    blockView(block, height: max(bottom - top - 4, 24), holiday: agenda?.noClasses == true)
+                        // Placed by layout, not by offset, so where a block is
+                        // drawn is where it answers a tap.
+                        .padding(.top, top + 2)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+                if today { NowLine(axis: axis, rowHeight: rowHeight) }
             }
         }
     }
 
-    private func blockView(_ block: Occurrence, holiday: Bool) -> some View {
-        let top = slot(block.startTime) * rowHeight
-        let bottom = slot(block.endTime) * rowHeight
+    private func blockView(_ block: Occurrence, height: CGFloat, holiday: Bool) -> some View {
         let planned = block.courseId.map { !(week?.enrolledCourseIds.contains($0) ?? true) } ?? false
         let faded = holiday || block.cancelled == true
         let current = isCurrent(block)
@@ -234,7 +262,8 @@ struct TimetableScreen: View {
         }
         .foregroundStyle(faded ? Theme.muted : Theme.ink)
         .padding(5)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: height)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(planned ? Theme.surface : tint.opacity(faded ? 0.08 : Theme.tintFill))
@@ -243,55 +272,22 @@ struct TimetableScreen: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(current ? tint : planned ? Theme.line : .clear, lineWidth: current ? 2 : 1)
         }
-        .frame(height: max(bottom - top - 4, 24))
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.horizontal, 2)
-        .offset(y: top + 2)
         return Group {
             if let id = block.courseId {
                 NavigationLink(value: CourseRoute(id: id, zoom: block.key)) { content }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableStyle())
                     .courseZoomSource(block.key)
             } else {
                 content
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private func isCurrent(_ block: Occurrence) -> Bool {
         guard let today = model.today, today.phase == .inClass, let hero = today.hero else { return false }
         return hero.occurrence.key == block.key
-    }
-
-    // MARK: Period geometry
-
-    /// Fractional row (0-based) of a clock time, interpolated over the
-    /// teaching-period table so blocks line up with their periods.
-    private func slot(_ time: String) -> CGFloat {
-        let minutes = Self.minutes(time)
-        var row: CGFloat = 0
-        for period in model.periods {
-            let start = Self.minutes(period.startTime)
-            let end = Self.minutes(period.endTime)
-            let first = CGFloat(period.periods.first ?? 1) - 1
-            let span = CGFloat((period.periods.last ?? 1) - (period.periods.first ?? 1) + 1)
-            if minutes < start { return row }
-            if minutes <= end {
-                return first + span * CGFloat(minutes - start) / CGFloat(max(end - start, 1))
-            }
-            row = first + span
-        }
-        return min(row, CGFloat(Self.periodCount))
-    }
-
-    private func startTime(of period: Int) -> String? {
-        model.periods.first { Int($0.periods.first ?? 0) == period }?.startTime
-            .replacingOccurrences(of: "^0", with: "", options: .regularExpression)
-    }
-
-    private static func minutes(_ time: String) -> Int {
-        let parts = time.split(separator: ":").compactMap { Int($0) }
-        return parts.count == 2 ? parts[0] * 60 + parts[1] : 0
     }
 
     static func monday(of date: Date) -> Date {
@@ -304,24 +300,49 @@ struct TimetableScreen: View {
     }
 }
 
-/// One rule after each teaching slot (1–2, 3–4, …), never inside a slot, so
-/// a two-period class is not cut in half.
-private struct PeriodLines: View {
-    let periods: [TeachingPeriod]
-    let count: Int
+/// One rule after each teaching block (1–2, 3–4, …), never inside one, so a
+/// two-period class is not cut in half; the lunch band is shaded.
+private struct RowRules: View {
+    let axis: TimetableAxis
     let rowHeight: CGFloat
 
     var body: some View {
-        let ends = periods.compactMap { $0.periods.last.map(Int.init) }.filter { (1..<count).contains($0) }
         Canvas { context, size in
-            var path = Path()
-            for end in ends {
-                let y = CGFloat(end) * rowHeight
-                path.move(to: CGPoint(x: 0, y: y))
-                path.addLine(to: CGPoint(x: size.width, y: y))
+            var rules = Path()
+            for row in axis.rows {
+                let top = row.top * rowHeight
+                let bottom = row.bottom * rowHeight
+                if row.periods == nil {
+                    context.fill(Path(CGRect(x: 0, y: top, width: size.width, height: bottom - top)), with: .color(Theme.surface2))
+                } else if bottom < size.height - 1 {
+                    rules.move(to: CGPoint(x: 0, y: bottom))
+                    rules.addLine(to: CGPoint(x: size.width, y: bottom))
+                }
             }
-            context.stroke(path, with: .color(Theme.line), lineWidth: 1)
+            context.stroke(rules, with: .color(Theme.line), lineWidth: 1)
         }
+        .allowsHitTesting(false)
+    }
+}
+
+/// The current time across today's column, moving with the clock.
+private struct NowLine: View {
+    let axis: TimetableAxis
+    let rowHeight: CGFloat
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            if let offset = axis.now(context.date) {
+                HStack(spacing: 0) {
+                    Circle().fill(Theme.danger).frame(width: 8, height: 8)
+                    Rectangle().fill(Theme.danger).frame(height: 2)
+                }
+                .padding(.top, offset * rowHeight - 4)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .animation(.smooth, value: offset)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

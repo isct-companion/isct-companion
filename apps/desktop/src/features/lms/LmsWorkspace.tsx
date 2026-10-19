@@ -63,7 +63,9 @@ import {
   railLabels,
 } from "./lessons";
 import {
+  useScheduleQueries,
   useScheduleQuery,
+  type AssignmentDetail,
   type CourseDetail,
   type CourseTimeline,
   type TaskView,
@@ -176,23 +178,6 @@ function folderLinks(html: string) {
       : [];
   });
   return files.length ? files : undefined;
-}
-
-/** Moodle repeats an assignment's open/due dates in its body; the card already shows them. */
-const strippedBodies = new Map<string, string>();
-function withoutActivityDates(html: string) {
-  if (!/activity-dates|activity-information/.test(html)) return html;
-  const known = strippedBodies.get(html);
-  if (known != null) return known;
-  if (strippedBodies.size > 200) strippedBodies.clear();
-  const page = new DOMParser().parseFromString(html, "text/html");
-  page
-    .querySelectorAll(
-      '[data-region="activity-dates"], .activity-dates, [data-region="activity-information"]',
-    )
-    .forEach((node) => node.remove());
-  strippedBodies.set(html, page.body.innerHTML);
-  return page.body.innerHTML;
 }
 
 export function LmsWorkspace({
@@ -335,6 +320,20 @@ export function LmsWorkspace({
         (a) => a.courseId === course.id && !a.deletedAt && !a.hidden,
       ),
     [data.assignments, course.id],
+  );
+  // The LMS text and files of each assignment, as Core reads them.
+  const detailState = useScheduleQueries<(AssignmentDetail | null)[]>(
+    assignments.map((a) => ({ kind: "assignmentDetail", assignmentId: a.id })),
+    assignments.length > 0,
+  );
+  const details = useMemo(
+    () =>
+      new Map(
+        (detailState.value ?? []).flatMap((detail) =>
+          detail ? [[detail.assignmentId, detail] as const] : [],
+        ),
+      ),
+    [detailState.value],
   );
   const sections: LmsSection[] = useMemo(
     () =>
@@ -811,9 +810,7 @@ export function LmsWorkspace({
   };
   /** Assignment card: state and deadline first, the teacher's text on request. */
   const assignmentContent = (a: Assignment) => {
-    const source = data.materials.find(
-      (m) => a.lmsCmid != null && m.cmid === a.lmsCmid,
-    );
+    const detail = details.get(a.id);
     const done = submittedIds.has(a.id);
     const deadline = taskView?.deadlines?.[a.id];
     const due = deadline ? new Date(deadline.at) : undefined;
@@ -833,7 +830,7 @@ export function LmsWorkspace({
             tone: deadline.countdownTone,
           }
         : undefined;
-    const body = source?.bodyHtml ? withoutActivityDates(source.bodyHtml) : "";
+    const body = detail?.bodyHtml ?? "";
     const hasBody = Boolean(contentText(body).trim() || a.details?.trim());
     const showBody = openDetails.includes(a.id) || Boolean(query.trim());
     const submit = (preparedUrl?: string) =>
@@ -924,7 +921,7 @@ export function LmsWorkspace({
           <AssignmentWorkspaceFooter
             context={folder}
             assignment={a}
-            html={body}
+            attachments={detail?.attachments ?? []}
             done={done}
             brief={(attachments) =>
               assignmentBrief({

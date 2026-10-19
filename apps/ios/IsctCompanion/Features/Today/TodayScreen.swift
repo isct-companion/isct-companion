@@ -147,10 +147,14 @@ private struct NextClassHero: View {
             .foregroundStyle(Theme.ink)
             .minimumScaleFactor(0.6)
             .lineLimit(1)
-            CourseLink(id: item.occurrence.courseId, title: item.occurrence.title, zoom: "hero")
+            Text(item.occurrence.title)
+                .font(.title3.weight(.semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(Theme.ink)
         }
         .heroCard(tint: tint)
-        .courseZoomSource("hero")
+        .opensCourse(item.occurrence.courseId)
     }
 }
 
@@ -187,10 +191,14 @@ private struct CurrentClassHero: View {
             ProgressView(value: progress)
                 .tint(tint)
                 .animation(.smooth(duration: 0.8), value: progress)
-            CourseLink(id: item.occurrence.courseId, title: item.occurrence.title, zoom: "hero")
+            Text(item.occurrence.title)
+                .font(.title3.weight(.semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(Theme.ink)
         }
         .heroCard(tint: tint)
-        .courseZoomSource("hero")
+        .opensCourse(item.occurrence.courseId)
     }
 }
 
@@ -235,24 +243,24 @@ private struct TonightHero: View {
 
 // MARK: Sections
 
-private struct CourseLink: View {
+/// The whole hero card is the way into its course: it dips while pressed and
+/// the course page grows out of it.
+private struct OpensCourse: ViewModifier {
     let id: String?
-    let title: String
-    var zoom: String? = nil
-    var body: some View {
+
+    func body(content: Content) -> some View {
         if let id {
-            NavigationLink(value: CourseRoute(id: id, zoom: zoom)) { label }
+            NavigationLink(value: CourseRoute(id: id, zoom: "hero")) { content }
+                .buttonStyle(PressableStyle())
+                .courseZoomSource("hero")
         } else {
-            label
+            content
         }
     }
-    private var label: some View {
-        HStack(spacing: 4) {
-            Text(title).font(.title3.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
-            if id != nil { Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted) }
-        }
-        .foregroundStyle(Theme.ink)
-    }
+}
+
+private extension View {
+    func opensCourse(_ id: String?) -> some View { modifier(OpensCourse(id: id)) }
 }
 
 /// Rows of classes: time, course square, title and periods, room.
@@ -293,7 +301,7 @@ private struct ClassList: View {
         .contentShape(Rectangle())
         return Group {
             if let id = item.occurrence.courseId {
-                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(.plain)
+                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(PressableStyle())
             } else {
                 content
             }
@@ -328,7 +336,8 @@ private struct DeadlineSection: View {
     }
 }
 
-/// Opens the assignment's submission page; long press offers quick actions.
+/// Opens the assignment's page, read from LMS by Core; long press offers
+/// quick actions, among them the LMS submission page.
 struct DeadlineLink<Content: View>: View {
     let item: DeadlineItem
     @ViewBuilder var label: Content
@@ -336,14 +345,19 @@ struct DeadlineLink<Content: View>: View {
     @Environment(Navigator.self) private var navigator
 
     var body: some View {
-        NavigationLink(value: WebRouter.PushedPage(site: .scienceLms, target: item.sourceUrl, title: item.title)) {
+        NavigationLink(value: AssignmentRoute(id: item.assignmentId)) {
             label
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .contextMenu {
             // A NavigationLink inside a menu does not push reliably.
             if let course = item.courseId {
                 Button("授業を開く", systemImage: "book") { navigator.push(CourseRoute(id: course)) }
+            }
+            if let url = item.sourceUrl {
+                Button("LMS で提出", systemImage: "arrow.up.forward.square") {
+                    navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
+                }
             }
             Button {
                 Task { await model.setPinned(item, !item.pinned) }
@@ -393,28 +407,27 @@ private struct ThisClassCard: View {
 
 struct MaterialRow: View {
     let item: MaterialItem
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Button {
-            if let raw = item.url, let url = URL(string: raw) { openURL(url) }
-        } label: {
+        MaterialOpener(title: item.title, source: item.url, files: nil, courseId: item.courseId) { opening in
             HStack(spacing: 12) {
                 Image(systemName: icon).foregroundStyle(Theme.muted).frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title).foregroundStyle(Theme.ink).lineLimit(2)
+                    Text(item.title).foregroundStyle(Theme.ink).lineLimit(2).multilineTextAlignment(.leading)
                     if let detail {
                         Text(detail).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 8)
-                if item.addedToday { TagChip(text: "今日追加") }
+                if opening {
+                    ProgressView().controlSize(.small)
+                } else if item.addedToday {
+                    TagChip(text: "今日追加")
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     private var icon: String {
@@ -458,12 +471,11 @@ private struct NextDayCard: View {
                 Text(item.occurrence.title).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
             }
             Spacer()
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
         }
         .padding(14)
         Card {
             if let id = item.occurrence.courseId {
-                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(.plain)
+                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(PressableStyle())
             } else {
                 content
             }
@@ -506,7 +518,7 @@ private struct RecentCard: View {
         .contentShape(Rectangle())
         return Group {
             if let courseId {
-                NavigationLink(value: CourseRoute(id: courseId)) { content }.buttonStyle(.plain)
+                NavigationLink(value: CourseRoute(id: courseId)) { content }.buttonStyle(PressableStyle())
             } else {
                 content
             }

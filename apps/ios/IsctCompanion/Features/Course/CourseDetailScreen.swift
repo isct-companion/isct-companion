@@ -1,74 +1,145 @@
 import IsctCore
-import QuickLook
 import SwiftUI
 
-/// The course page, in the desktop course drawer's tabs: 概要 (room, links),
-/// 資料 (the LMS sections and their files, opened in Quick Look) and 課題.
-/// Ids and links come from Core's `CourseDetail`; rows are looked up in the
-/// snapshot to render them.
+/// The course page as the desktop Lecture Desk lays it out: the course, then
+/// its lessons ("一般", 1, 2, …) one at a time, each with its own text (授業
+/// 計画), its files, the pages, labels and announcements shown in place, and
+/// the assignments set in it, which open in place. Content comes from Core's
+/// `CourseContent`; links and the files folder from `CourseDetail`.
 struct CourseDetailScreen: View {
     let courseId: String
     @Environment(AppModel.self) private var model
     @State private var detail: CourseDetail?
-    @State private var tab: Tab = .overview
-
-    enum Tab: Hashable { case overview, materials, assignments }
+    @State private var content: CourseContent?
+    @State private var assignments: [AssignmentDetail] = []
+    @State private var lesson: Int?
+    @State private var opened: Set<String> = []
 
     var body: some View {
         let course = model.records.courses[courseId] ?? [:]
-        let tint = Color(hex: model.colors[courseId])
+        let title = course.text("title") ?? ""
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(course.text("title") ?? "")
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
                         .font(.largeTitle.bold())
                         .foregroundStyle(Theme.ink)
                     Text(subtitle(course))
                         .font(.subheadline)
                         .foregroundStyle(Theme.muted)
+                    links(title: title)
                 }
-                Picker("表示", selection: $tab) {
-                    Text("概要").tag(Tab.overview)
-                    Text("資料").tag(Tab.materials)
-                    Text("課題").tag(Tab.assignments)
-                }
-                .pickerStyle(.segmented)
-                .sensoryFeedback(.selection, trigger: tab)
-                switch tab {
-                case .overview:
-                    if let meeting = meetings(course).first {
-                        roomCard(meeting, tint: tint)
-                    }
-                    links(title: course.text("title") ?? "")
-                case .materials:
-                    CourseMaterials(sections: sections, files: detail?.files, title: course.text("title") ?? "")
-                case .assignments:
-                    if assignments.isEmpty {
-                        ContentUnavailableView("未提出の課題はありません", systemImage: "checkmark.circle")
-                    } else {
-                        Card {
-                            ForEach(Array(assignments.enumerated()), id: \.element.assignmentId) { index, item in
-                                if index > 0 { RowDivider() }
-                                DeadlineLink(item: item) {
-                                    DeadlineRow(item: item, now: Date(), showsCourse: false)
-                                }
-                            }
-                        }
-                    }
+                if !lessons.isEmpty {
+                    LessonChips(lessons: lessons, selection: $lesson)
+                    lessonBody(title: title)
+                        .id(lesson)
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+                } else if detail != nil {
+                    ContentUnavailableView("資料はまだありません", systemImage: "doc.text")
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
+            .animation(.snappy, value: lesson)
         }
         .background(Theme.bg)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .sensoryFeedback(.selection, trigger: lesson)
         .task(id: "\(courseId)-\(model.contentRevision)") {
-            detail = await model.courseDetail(courseId)
+            guard let loaded = await model.courseDetail(courseId), !Task.isCancelled else { return }
+            detail = loaded
+            let lessonsRead = await model.courseContent(courseId)
+            guard !Task.isCancelled else { return }
+            content = lessonsRead
+            // Core picks where to open: the last lesson with material.
+            if lesson == nil || !lessons.contains(where: { Int($0.section) == lesson }) {
+                lesson = lessonsRead?.currentSection.map(Int.init)
+            }
+            var found: [AssignmentDetail] = []
+            for id in loaded.assignmentIds {
+                if let assignment = await model.assignmentDetail(id) { found.append(assignment) }
+            }
+            guard !Task.isCancelled else { return }
+            assignments = found
         }
     }
 
-    // MARK: Rows
+    // MARK: Lessons
+
+    /// Core's lessons: sections in order, numbered from their titles as the
+    /// desktop rail numbers them.
+    private var lessons: [LessonContent] { content?.lessons ?? [] }
+
+    @ViewBuilder
+    private func lessonBody(title: String) -> some View {
+        let number = lesson ?? 0
+        let shown = lessons.first { Int($0.section) == number }
+        let work = assignments.filter { Int($0.sectionNumber ?? 0) == number }
+        if let heading = shown?.title, !heading.isEmpty {
+            Text(heading)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+        }
+        if let summary = shown?.summaryHtml, !summary.isEmpty {
+            HTMLText(html: summary)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
+        }
+        ForEach(groups(shown?.items ?? []), id: \.first?.materialId) { group in
+            if let item = group.first, group.count == 1, item.bodyHtml != nil {
+                InlineItem(item: item)
+            } else {
+                Card {
+                    ForEach(Array(group.enumerated()), id: \.element.materialId) { index, item in
+                        if index > 0 { RowDivider() }
+                        MaterialButton(title: item.title, kind: Self.kind(item.kind), source: item.source, files: detail?.files)
+                    }
+                }
+            }
+        }
+        if !work.isEmpty {
+            SectionLabel("課題")
+            ForEach(work, id: \.assignmentId) { assignment in
+                AssignmentCard(
+                    assignment: assignment,
+                    expanded: Binding(
+                        get: { opened.contains(assignment.assignmentId) },
+                        set: { if $0 { opened.insert(assignment.assignmentId) } else { opened.remove(assignment.assignmentId) } }))
+            }
+        }
+        if shown?.items.isEmpty != false && shown?.summaryHtml.isEmpty != false && work.isEmpty {
+            ContentUnavailableView("この回の資料はありません", systemImage: "doc.text")
+        }
+    }
+
+    /// Items in LMS order: text shown in place stands on its own; runs of
+    /// files and links share one card.
+    private func groups(_ items: [LessonItem]) -> [[LessonItem]] {
+        var groups: [[LessonItem]] = []
+        for item in items {
+            if item.bodyHtml != nil || groups.last?.last?.bodyHtml != nil || groups.isEmpty {
+                groups.append([item])
+            } else {
+                groups[groups.count - 1].append(item)
+            }
+        }
+        return groups
+    }
+
+    static func kind(_ kind: LessonItemKind) -> String {
+        switch kind {
+        case .file: "resource"
+        case .folder: "folder"
+        case .link, .other: "link"
+        case .page: "page"
+        case .label: "label"
+        case .forum: "forum"
+        }
+    }
+
+    // MARK: Header
 
     private struct Meeting {
         let day: Int
@@ -85,6 +156,7 @@ struct CourseDetailScreen: View {
         }
     }
 
+    /// `CSC.T273 · 月 3–4限 · W5-101`
     private func subtitle(_ course: [String: Any]) -> String {
         let days = ["日", "月", "火", "水", "木", "金", "土"]
         var parts = [course.text("code")].compactMap { $0 }
@@ -93,199 +165,103 @@ struct CourseDetailScreen: View {
             let end = model.periods.first { $0.endTime == meeting.end }?.periods.last
             let periods = start.flatMap { s in end.flatMap { Format.periods([s, $0]) } }
             parts.append([days[min(max(meeting.day, 0), 6)], periods ?? "\(meeting.start)–\(meeting.end)"].joined(separator: " "))
-        }
-        if let credits = course.number("credits"), credits > 0 {
-            parts.append("\(credits.formatted()) 単位")
+            if !meeting.room.isEmpty { parts.append(meeting.room) }
         }
         return parts.joined(separator: " · ")
     }
 
-    private func roomCard(_ meeting: Meeting, tint: Color) -> some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(meeting.room.isEmpty ? "教室未定" : meeting.room)
-                    .font(.title.bold())
-                    .foregroundStyle(Theme.ink)
-                Text("\(meeting.start) – \(meeting.end)")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(tint)
-            }
-            Spacer()
-        }
-        .padding(18)
-        .background(tint.opacity(Theme.tintSoft), in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-    }
-
-    /// This course's open work from Core's task timeline, in its order.
-    private var assignments: [DeadlineItem] {
-        guard let today = model.board?.today else { return [] }
-        return (today.pinned + today.dueThisWeek + today.later + today.pastRecent)
-            .filter { $0.courseId == courseId }
-    }
-
-    /// Every material in Core's section order, grouped by section as LMS
-    /// shows them; the newest section comes first.
-    private var sections: [MaterialSection] {
-        var sections: [MaterialSection] = []
-        for id in detail?.materialIds ?? [] {
-            guard let row = model.records.materials[id] else { continue }
-            let number = (row["sectionNumber"] as? NSNumber ?? row["session"] as? NSNumber)?.intValue
-            let title = row.text("sectionTitle") ?? number.map { "第\($0)回" } ?? "その他"
-            let item = MaterialSection.Item(
-                id: id, title: row.text("title") ?? "", kind: row.text("type") ?? "link",
-                source: row.text("url") ?? row.text("resourceUrl"))
-            if sections.last?.title == title {
-                sections[sections.count - 1].items.append(item)
-            } else {
-                sections.append(MaterialSection(title: title, items: [item]))
-            }
-        }
-        return sections.reversed()
-    }
-
     @ViewBuilder
     private func links(title: String) -> some View {
-        let lms = detail?.lmsUrl
-        let syllabus = detail?.syllabusUrl
-        if lms != nil || syllabus != nil {
-            Card {
-                if let lms {
-                    NavigationLink(value: WebRouter.PushedPage(site: .scienceLms, target: lms, title: title)) {
-                        linkRow("T2SCHOLA で開く", icon: "globe")
-                    }
-                    .buttonStyle(.plain)
-                }
-                if lms != nil, syllabus != nil { RowDivider() }
-                if let syllabus {
-                    NavigationLink(value: WebRouter.PushedPage(site: .syllabus, target: syllabus, title: title)) {
-                        linkRow("シラバス", icon: "doc.text")
-                    }
-                    .buttonStyle(.plain)
+        HStack(spacing: 8) {
+            if let lms = detail?.lmsUrl {
+                NavigationLink(value: WebRouter.PushedPage(site: .scienceLms, target: lms, title: title)) {
+                    LinkChip(title: "T2SCHOLA", icon: "globe")
                 }
             }
-            .padding(.top, 8)
+            if let syllabus = detail?.syllabusUrl {
+                NavigationLink(value: WebRouter.PushedPage(site: .syllabus, target: syllabus, title: title)) {
+                    LinkChip(title: "シラバス", icon: "doc.text")
+                }
+            }
         }
-    }
-
-    private func linkRow(_ title: LocalizedStringKey, icon: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).foregroundStyle(Theme.muted).frame(width: 16)
-            Text(title).foregroundStyle(Theme.ink)
-            Spacer()
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .contentShape(Rectangle())
+        .buttonStyle(PressableStyle())
     }
 }
 
-struct MaterialSection: Identifiable {
-    struct Item: Identifiable {
-        let id: String
-        let title: String
-        let kind: String
-        /// The LMS page or file URL Core resolves and downloads.
-        let source: String?
+/// "一般", 1, 2, … as on the desktop lesson rail; the chosen one stays in view.
+private struct LessonChips: View {
+    let lessons: [LessonContent]
+    @Binding var selection: Int?
+
+    /// The lesson number when the course numbers its lessons, else a short
+    /// form of the section title.
+    private func label(_ lesson: LessonContent) -> String {
+        if let number = lesson.number { return "\(number)" }
+        if lesson.section == 0 { return "一般" }
+        let title = lesson.title ?? "\(lesson.section)"
+        return title.count > 8 ? String(title.prefix(7)) + "…" : title
     }
-
-    let title: String
-    var items: [Item]
-    var id: String { title }
-}
-
-/// 資料: sections and files. Tapping a file asks Core for it (downloaded with
-/// the signed-in LMS session, or from the course folder) and shows it in
-/// Quick Look; what Core cannot fetch opens in the in-app LMS page.
-private struct CourseMaterials: View {
-    let sections: [MaterialSection]
-    let files: CourseKey?
-    let title: String
-    @Environment(AppModel.self) private var model
-    @Environment(Navigator.self) private var navigator
-    @State private var opening: String?
-    @State private var preview: URL?
-    @State private var notice: String?
-    @State private var opened = 0
 
     var body: some View {
-        if sections.isEmpty {
-            ContentUnavailableView("資料はまだありません", systemImage: "doc.text")
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(sections) { section in
-                    SectionLabel(LocalizedStringKey(section.title))
-                    Card {
-                        ForEach(Array(section.items.enumerated()), id: \.element.id) { index, item in
-                            if index > 0 { RowDivider() }
-                            row(item)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(lessons, id: \.section) { lesson in
+                        let selected = Int(lesson.section) == selection
+                        Button {
+                            selection = Int(lesson.section)
+                        } label: {
+                            Text(label(lesson))
+                                .font(.subheadline.weight(.semibold).monospacedDigit())
+                                .frame(minWidth: 34)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .foregroundStyle(selected ? .white : Theme.ink)
+                                .background(selected ? Theme.accent : Theme.surface, in: Capsule())
                         }
+                        .buttonStyle(PressableStyle())
+                        .id(Int(lesson.section))
                     }
                 }
             }
-            .quickLookPreview($preview)
-            .sensoryFeedback(.success, trigger: opened)
-            .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-                Button("OK", role: .cancel) {}
+            .onAppear { proxy.scrollTo(selection, anchor: .center) }
+            .onChange(of: selection) { withAnimation(.snappy) { proxy.scrollTo(selection, anchor: .center) } }
+        }
+    }
+}
+
+private struct LinkChip: View {
+    let title: String
+    let icon: String
+
+    var body: some View {
+        Label(title, systemImage: icon)
+            .font(.footnote.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .foregroundStyle(Theme.accent)
+            .background(Theme.accentSoft, in: Capsule())
+    }
+}
+
+/// A page, label or announcement shown in place, as on the desktop.
+private struct InlineItem: View {
+    let item: LessonItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            switch item.kind {
+            case .page:
+                Text(item.title).font(.headline).foregroundStyle(Theme.ink)
+            case .forum:
+                Label(item.title, systemImage: "megaphone").font(.headline).foregroundStyle(Theme.ink)
+            default:
+                EmptyView()
             }
+            if let html = item.bodyHtml { HTMLText(html: html) }
         }
-    }
-
-    private func row(_ item: MaterialSection.Item) -> some View {
-        Button {
-            Task { await open(item) }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: icon(item.kind)).foregroundStyle(Theme.muted).frame(width: 18)
-                Text(item.title).foregroundStyle(Theme.ink).lineLimit(2).multilineTextAlignment(.leading)
-                Spacer(minLength: 8)
-                if opening == item.id {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(opening != nil)
-    }
-
-    private func open(_ item: MaterialSection.Item) async {
-        guard let source = item.source else { return }
-        guard let files else {
-            push(source, item.title)
-            return
-        }
-        opening = item.id
-        defer { opening = nil }
-        switch await model.openMaterial(files, source: source) {
-        case let .ready(file)?:
-            preview = URL(fileURLWithPath: file.path)
-            opened += 1
-        case let .tooLarge(bytes)?:
-            notice = "このファイルは大きすぎます（\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))）。LMS で開いてください。"
-        case .failed(.login)?:
-            notice = "LMS に再ログインが必要です。設定から学校アカウントを確認してください。"
-        case let .external(url)?:
-            push(url, item.title)
-        default:
-            // Folders, pages and anything Core could not fetch: the LMS page itself.
-            push(source, item.title)
-        }
-    }
-
-    private func push(_ url: String, _ title: String) {
-        navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: title))
-    }
-
-    private func icon(_ kind: String) -> String {
-        switch kind {
-        case "pdf": "doc.richtext"
-        case "video": "play.rectangle"
-        case "folder": "folder"
-        case "page": "doc.text"
-        default: "link"
-        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
     }
 }
