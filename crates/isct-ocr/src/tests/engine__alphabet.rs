@@ -1,7 +1,8 @@
 use super::*;
 #[test]
 fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boundaries() {
-    let captured = capture_matrix_frame(include_bytes!("fixtures/matrix-card.jpg")).unwrap();
+    let fixture = include_bytes!("fixtures/matrix-card.jpg");
+    let captured = capture_matrix_frame(fixture).unwrap();
     assert_eq!(captured.glyphs.len(), 70);
     assert_eq!(captured.quads.len(), 70);
     assert!(captured.glyphs.iter().all(|g| g.gray.len() == 96 * 96
@@ -24,6 +25,43 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
             let expected = ((b'A' + ((start * 10 + offset) % 26) as u8) as char).to_string();
             assert_eq!(actual.text, expected, "cell {}", start * 10 + offset);
             assert!(actual.confidence >= 0.8, "{actual:?}");
+        }
+    }
+    let source = image::load_from_memory(fixture).unwrap().to_rgb8();
+    for (turn, rotated) in [
+        image::imageops::rotate90(&source),
+        image::imageops::rotate180(&source),
+        image::imageops::rotate270(&source),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        rotated
+            .write_to(&mut encoded, image::ImageFormat::Jpeg)
+            .unwrap();
+        let rotated = capture_matrix_frame(encoded.get_ref()).unwrap();
+        for (start, batch) in rotated
+            .glyphs
+            .chunks(10)
+            .map(|glyphs| glyphs.iter().map(|g| g.gray.clone()).collect::<Vec<_>>())
+            .enumerate()
+        {
+            for (offset, actual) in model.recognize(&batch).unwrap().iter().enumerate() {
+                let cell = start * 10 + offset;
+                let expected = ((b'A' + (cell % 26) as u8) as char).to_string();
+                assert_eq!(
+                    actual.text,
+                    expected,
+                    "quarter turn {} cell {cell}",
+                    turn + 1
+                );
+                assert!(
+                    actual.confidence >= 0.8,
+                    "quarter turn {} cell {cell}: {actual:?}",
+                    turn + 1
+                );
+            }
         }
     }
     assert!(matches!(

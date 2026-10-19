@@ -1,9 +1,7 @@
 use crate::require_local_main;
 use isct_core::notification::NotificationContent;
-#[cfg(not(target_os = "macos"))]
-use tauri::plugin::PermissionState;
-#[cfg(not(target_os = "macos"))]
-use tauri_plugin_notification::NotificationExt;
+#[cfg(target_os = "windows")]
+use tauri::Manager;
 
 pub(crate) struct DesktopNotifications(pub(crate) tauri::AppHandle);
 
@@ -34,14 +32,35 @@ async fn show(_app: &tauri::AppHandle, content: &NotificationContent) -> Result<
     crate::notifications_macos::show(content.title(), content.body()).await
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), String> {
-    app.notification()
-        .builder()
-        .title(content.title())
-        .body(content.body())
-        .show()
-        .map_err(|_| "notification could not be shown".to_string())
+    let app = app.clone();
+    let title = content.title().to_owned();
+    let body = content.body().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let activate = app.clone();
+        tauri_winrt_notification::Toast::new(&app.config().identifier)
+            .title(&title)
+            .text1(&body)
+            .sound(Some(tauri_winrt_notification::Sound::Default))
+            .on_activated(move |_| {
+                if let Some(window) = activate.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+                Ok(())
+            })
+            .show()
+            .map_err(|error| format!("notification could not be shown: {error}"))
+    })
+    .await
+    .map_err(|error| format!("notification task failed: {error}"))?
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+async fn show(_app: &tauri::AppHandle, _content: &NotificationContent) -> Result<(), String> {
+    Err("Native desktop notifications are available on macOS and Windows.".into())
 }
 
 #[tauri::command]
@@ -79,20 +98,23 @@ pub(crate) async fn request_notification_permission(
     crate::notifications_macos::request_permission().await
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 #[tauri::command]
 pub(crate) fn request_notification_permission(
     webview: tauri::Webview,
-    app: tauri::AppHandle,
 ) -> Result<&'static str, String> {
     require_local_main(&webview)?;
-    match app
-        .notification()
-        .request_permission()
-        .map_err(|_| "notification permission could not be requested".to_string())?
-    {
-        PermissionState::Granted => Ok("granted"),
-        PermissionState::Denied => Ok("denied"),
-        PermissionState::Prompt | PermissionState::PromptWithRationale => Ok("default"),
-    }
+    // Windows desktop has no per-call consent prompt. Native delivery below
+    // returns the actual WinRT error instead of reporting a detached attempt as
+    // success; global notification and Focus Assist policy remain user-owned.
+    Ok("granted")
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[tauri::command]
+pub(crate) fn request_notification_permission(
+    webview: tauri::Webview,
+) -> Result<&'static str, String> {
+    require_local_main(&webview)?;
+    Ok("denied")
 }

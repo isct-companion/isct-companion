@@ -1329,6 +1329,7 @@
   "I understand": "了解しました",
   "Test notification": "通知のテスト",
   "This is a test notification.": "これはテスト通知です。",
+  "The system accepted the test notification. If it is only in Notification Center, enable banners for IsctCompanion in system settings.": "システムはテスト通知を受け付けました。通知センターにだけ表示される場合は、システム設定で IsctCompanion のバナーを有効にしてください。",
   "Send": "送信",
   "Today {{time}}": "今日 {{time}}",
   "Tomorrow {{time}}": "明日 {{time}}",

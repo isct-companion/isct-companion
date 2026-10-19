@@ -678,7 +678,7 @@ const matrixStatus = (
 
 describe("Matrix scan and paste", () => {
   it(
-    "shows only the Matrix outline and automatically closes when all cells have a result",
+    "keeps an empty camera result retryable and closes after readable cells arrive",
     async () => {
       // Camera/decoder/canvas are hardware ports without a jsdom implementation.
       // The real modal, capture loop, native transport and editor stay mounted.
@@ -723,6 +723,8 @@ describe("Matrix scan and paste", () => {
       let finishCapture: (() => void) | undefined;
       let finishScan: (() => void) | undefined;
       let frames = 0;
+      let sessions = 0;
+      let processingAttempts = 0;
       const captured = {
         phase: "processing",
         readyCells: 70,
@@ -745,7 +747,10 @@ describe("Matrix scan and paste", () => {
             if (command === "school_credential_status")
               return { science: notConfigured(), tokyoTech: notConfigured() };
             if (command === "school_session_snapshot") return noSession;
-            if (command === "begin_matrix_camera") return "camera";
+            if (command === "begin_matrix_camera") {
+              frames = 0;
+              return `camera-${++sessions}`;
+            }
             if (command === "capture_matrix_camera_frame") {
               if (frames++ === 0)
                 return { ...captured, phase: "capturing", readyCells: 69 };
@@ -753,7 +758,8 @@ describe("Matrix scan and paste", () => {
                 finishCapture = () => resolve(captured);
               });
             }
-            if (command === "process_matrix_camera")
+            if (command === "process_matrix_camera") {
+              const attempt = processingAttempts++;
               return new Promise((resolve) => {
                 finishScan = () =>
                   resolve({
@@ -761,12 +767,13 @@ describe("Matrix scan and paste", () => {
                     phase: "complete",
                     completedSamples: 210,
                     cells: Array.from({ length: 70 }, (_, i) => ({
-                      text: "A",
-                      confidence: 0.98,
+                      text: attempt === 0 ? "" : "A",
+                      confidence: attempt === 0 ? 0 : 0.98,
                       stable: i !== 69,
                     })),
                   });
               });
+            }
             return undefined;
           },
         });
@@ -812,6 +819,39 @@ describe("Matrix scan and paste", () => {
         await wait(() => expect(finishScan).toBeDefined());
         await act(async () => finishScan?.());
         await wait(() =>
+          expect(document.body.textContent).toContain(
+            "No readable letters found. Check for blur or covered cells and try again.",
+          ),
+        );
+        expect(document.body.textContent).toContain(
+          "Processing Matrix… You can put your card down.",
+        );
+        expect(document.body.textContent).not.toContain(
+          "Capturing Matrix… 70/70 cells ready.",
+        );
+        expect(matrixInputs(card).every((input) => input.value === "")).toBe(
+          true,
+        );
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(1);
+
+        finishCapture = undefined;
+        finishScan = undefined;
+        await click(
+          document.querySelector<HTMLButtonElement>(
+            ".matrixCameraProcessing button",
+          )!,
+        );
+        await wait(() =>
+          expect(document.body.textContent).toContain(
+            "Capturing Matrix… 69/70 cells ready.",
+          ),
+        );
+        await wait(() => expect(finishCapture).toBeDefined());
+        await act(async () => finishCapture?.());
+        await wait(() => expect(finishScan).toBeDefined());
+        await act(async () => finishScan?.());
+        await wait(() =>
           expect(
             document.body.querySelector(".matrixCameraPreview"),
           ).toBeNull(),
@@ -821,8 +861,8 @@ describe("Matrix scan and paste", () => {
         );
         expect(matrixInputs(card)[0].dataset.confidence).toBe("high");
         expect(matrixInputs(card)[69].dataset.confidence).toBe("medium");
-        expect(stop).toHaveBeenCalledTimes(1);
-        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(1);
+        expect(stop).toHaveBeenCalledTimes(2);
+        expect(mounted.core.commands("stop_matrix_camera")).toHaveLength(2);
       } finally {
         await app?.unmount();
         app = undefined;
@@ -2039,11 +2079,13 @@ describe("Academic calendar profile", () => {
 describe("Notification preferences", () => {
   it("groups lead times under each reminder and persists both choices", async () => {
     const sent: unknown[] = [];
+    let notificationPermission: "granted" | "denied" = "denied";
     app = await mountSettings(paths.settings("notifications"), {
       capabilities: { notifications: true },
       handle: (command, args) => {
         // The system's real answer, which the stored permission must follow.
-        if (command === "request_notification_permission") return "denied";
+        if (command === "request_notification_permission")
+          return notificationPermission;
         if (command === "notify") return (sent.push(args), true);
       },
       apply: (intent, core) => {
@@ -2144,6 +2186,23 @@ describe("Notification preferences", () => {
       ),
     );
     expect(sent).toEqual([]);
+
+    notificationPermission = "granted";
+    await click(
+      pane.querySelector<HTMLButtonElement>(
+        '[data-setting="test-notification"] button',
+      )!,
+    );
+    await wait(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({
+      title: "IsctCompanion",
+      body: "This is a test notification.",
+    });
+    await wait(() =>
+      expect(document.body.textContent).toContain(
+        "The system accepted the test notification.",
+      ),
+    );
   });
 });
 

@@ -48,7 +48,10 @@ export function NotificationSettings({
 
   // Asking again returns the system's real answer (and prompts only the first
   // time), so the stored permission follows System Settings.
-  const requestPermission = async (body = t("Notifications are on.")) => {
+  const requestPermission = async (
+    body = t("Notifications are on."),
+    confirmDelivery = false,
+  ) => {
     if (!desktopBridge || !canAsk) return notify(capability.reason);
     try {
       const permission = await desktopBridge.requestNotificationPermission();
@@ -56,9 +59,15 @@ export function NotificationSettings({
         draft.settings.notifications.localPermission = permission;
         return draft;
       });
-      if (permission === "granted")
+      if (permission === "granted") {
         await desktopBridge.notify("IsctCompanion", body);
-      else notify(t("Notifications are blocked in system settings."));
+        if (confirmDelivery)
+          notify(
+            t(
+              "The system accepted the test notification. If it is only in Notification Center, enable banners for IsctCompanion in system settings.",
+            ),
+          );
+      } else notify(t("Notifications are blocked in system settings."));
     } catch (error) {
       notify(String(error));
     }
@@ -209,7 +218,7 @@ export function NotificationSettings({
             <UiButton
               className="button small"
               onClick={() =>
-                void requestPermission(t("This is a test notification."))
+                void requestPermission(t("This is a test notification."), true)
               }
             >
               {t("Send")}

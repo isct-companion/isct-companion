@@ -1329,6 +1329,7 @@
   "I understand": "我已了解",
   "Test notification": "测试通知",
   "This is a test notification.": "这是一条测试通知。",
+  "The system accepted the test notification. If it is only in Notification Center, enable banners for IsctCompanion in system settings.": "系统已接收测试通知。如果通知只出现在通知中心，请在系统设置中为 IsctCompanion 开启横幅通知。",
   "Send": "发送",
   "Today {{time}}": "今天 {{time}}",
   "Tomorrow {{time}}": "明天 {{time}}",

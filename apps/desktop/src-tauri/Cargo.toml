@@ -22,7 +22,6 @@ tokio = { version = "1", features = ["time", "sync", "fs", "io-util", "net"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.12", features = ["unstable", "protocol-asset"] }
-tauri-plugin-notification = "2.4"
 tauri-plugin-opener = "2.5"
 tauri-plugin-dialog = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
@@ -56,11 +55,15 @@ objc2-core-wlan = { version = "0.3.2", default-features = false, features = ["st
 if-addrs = "0.14"
 ipnet = "2"
 hickory-resolver = { version = "0.25", default-features = false, features = ["tokio"] }
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSResponder", "NSView"] }
-# Notifications (notifications_macos.rs): the plugin's NSUserNotification path
-# reports success without showing anything on current macOS.
-objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSResponder", "NSView"] }
+# Native notifications (notifications_macos.rs).
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 # School view WebKit hooks (school_webkit.rs). Same versions wry already uses.
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSBundle", "NSData", "NSError", "NSString", "NSURL", "NSURLRequest", "NSURLResponse"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKUIDelegate", "WKWebView"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Native Windows toast delivery returns the WinRT result synchronously so test
+# notifications and reminder claims reflect the native result.
+tauri-winrt-notification = "0.7.3"
