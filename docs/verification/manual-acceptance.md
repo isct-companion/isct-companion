@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 37 checks must be re-run before the next release.**
+**7 of 38 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**28 checks have never been run or could not be run:**
+**29 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -57,6 +57,7 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-SIGNIN-TOKYO-VISIBLE` — never verified
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
+- `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
 
 ## Status
 
@@ -99,6 +100,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
+| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/extraction.rs |
 
 ## Personas
 
@@ -2119,5 +2121,74 @@ have a window or WebKit.
 **Covers**
 
 - `apps/desktop/src-tauri/src/school_webkit.rs`
+
+**Last recorded** never run
+
+### Every school.db write reaches the window and the cloud on its own (`DESKTOP-WRITES-PUBLISH-THEMSELVES`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop app signed in to Science Tokyo, Google Drive backup
+enabled with automatic sync on, AI agent access enabled with a real MCP
+client connected, and a second device signed in to the same Drive.
+
+**Steps**
+
+1. Open the Web tab, browse to an LMS course page with an assignment
+   that is not yet in the app, then switch to the Assignments page
+   without pressing refresh.
+   - *Why:* A page opened by the person is ingested by Core, not by a pull. That
+     ingest used to commit without publishing, so the window kept the old
+     list until something else reloaded it.
+2. From the MCP client, create a plan event for tomorrow, then look at
+   the Calendar in the app window.
+   - *Why:* The desktop agent server no longer emits the change itself; Core's
+     commit path must publish it with source mcp.
+3. Edit a plan in the app, save a course note, then watch the cloud
+   sync status and open the other device about ten seconds later.
+   - *Why:* The shell no longer captures right after a mutation or note save.
+     Core brings the next capture forward and the one-second wake runs
+     it; a missing request would leave the edit unsynced for the whole
+     interval or until the next foreground.
+4. Import a local backup from Settings, then reset the workspace and
+   import it again.
+   - *Why:* Restore and reset replace many rows in one commit and used to rely
+     on the shell's capture; the window must show the result and the
+     cloud must receive it without a manual sync.
+
+**Where to look**
+
+The Assignments list, the Calendar, the Settings cloud sync status and
+the second device's copy of the edited plan and note.
+
+**Expected**
+
+The new assignment and the MCP event appear without a refresh, the
+edited plan and the note reach the second device within a few seconds,
+and both the import and the reset show in the window and upload without
+pressing Sync.
+
+**Why this is manual**
+
+The visible-page ingest needs a signed-in LMS page in the real WebView,
+the MCP step needs a real client, and the capture timing needs a real
+cloud provider and a second device. Core tests prove that each commit is
+published and brings capture forward; only the built app shows that the
+shell, which no longer does either, still gets there.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/commands/workspace.rs`
+- `apps/desktop/src-tauri/src/lms_files.rs`
+- `apps/desktop/src-tauri/src/agent_server.rs`
+- `crates/isct-core/src/data/mod.rs`
+- `crates/isct-core/src/facade.rs`
+- `crates/isct-core/src/runtime.rs`
+- `crates/isct-core/src/notes.rs`
+- `crates/isct-core/src/school_browser/engine/extraction.rs`
 
 **Last recorded** never run

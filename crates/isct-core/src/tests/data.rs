@@ -56,7 +56,6 @@ fn reference_poll_clock_preserves_other_device_preferences() {
                     "frequency":"daily", "allowCellular":true
                 }
             }),
-            "test",
         )
         .unwrap();
     store.record_reference_poll().unwrap();
@@ -82,7 +81,6 @@ fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
         .put_user_record(
             "plans",
             json!({"title":"Later","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
-            "test",
         )
         .unwrap();
     let old: Value = store.export_document(json!([])).unwrap();
@@ -90,8 +88,12 @@ fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
     restored["tables"]["plans"] = json!([]);
     restored["sync"] =
         json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"restore-a"}});
-    store.merge_cloud_data(&restored).unwrap();
-    store.merge_cloud_data(&old).unwrap();
+    store
+        .merge_cloud_data(&restored, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    store
+        .merge_cloud_data(&old, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
     assert!(store.user_rows("plans").unwrap().is_empty());
     let current: Value = store.export_document(json!([])).unwrap();
     assert_eq!(current["sync"], restored["sync"]);
@@ -101,35 +103,33 @@ fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
 fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes() {
     let a = store("cloud-a");
     let b = store("cloud-b");
-    a.put_workspace_setting("devicePreferences", json!({"density":"compact"}), "test")
+    a.put_workspace_setting("devicePreferences", json!({"density":"compact"}))
         .unwrap();
-    b.put_workspace_setting(
-        "devicePreferences",
-        json!({"density":"comfortable"}),
-        "test",
-    )
-    .unwrap();
+    b.put_workspace_setting("devicePreferences", json!({"density":"comfortable"}))
+        .unwrap();
     let row_a = a
         .put_user_record(
             "plans",
             json!({"title":"A","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
-            "desktop",
         )
         .unwrap();
     b.put_user_record(
         "plans",
         json!({"title":"B","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
-        "desktop",
     )
     .unwrap();
     let exported_a: Value = a.export_document(json!([])).unwrap();
     let exported_b: Value = b.export_document(json!([])).unwrap();
-    a.delete_user_record("plans", row_a["id"].as_str().unwrap(), "desktop")
+    a.delete_user_record("plans", row_a["id"].as_str().unwrap())
         .unwrap();
-    a.merge_cloud_data(&cloud_merge::merge(&exported_a, &exported_b))
-        .unwrap();
+    a.merge_cloud_data(
+        &cloud_merge::merge(&exported_a, &exported_b),
+        crate::data::WorkspaceChangeSource::CloudSync,
+    )
+    .unwrap();
     let latest: Value = a.export_document(json!([])).unwrap();
-    b.merge_cloud_data(&latest).unwrap();
+    b.merge_cloud_data(&latest, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
     assert_eq!(
         a.user_rows("plans")
             .unwrap()
@@ -256,9 +256,10 @@ fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
     assert_eq!(lms["enabled"], false);
 
     store
-        .delete_user_record("scheduled_tasks", "builtin:reference-subscriptions", "test")
+        .delete_user_record("scheduled_tasks", "builtin:reference-subscriptions")
         .unwrap();
-    store.ensure_defaults().unwrap();
+    // The next launch writes defaults again; a deleted built-in stays deleted.
+    let store = DataStore::initialize(store.path().to_path_buf()).unwrap().0;
     let workspace = store.load_workspace().unwrap();
     let tasks = workspace["scheduledTasks"].as_array().unwrap();
     assert_eq!(tasks.len(), 2);
@@ -277,25 +278,33 @@ fn checked_record_mutations_reject_stale_writers() {
         .put_user_record(
             "plans",
             json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
-            "test",
         )
         .unwrap();
     let untouched = store
         .put_user_record(
             "plans",
             json!({"title":"Two","start":"2026-10-07T10:00:00+09:00","duration":60,"exdates":[]}),
-            "test",
         )
         .unwrap();
     let mut first = row.clone();
     first["title"] = json!("First writer");
     store
-        .put_user_record_checked("plans", first, "first", Some(1))
+        .put_user_record_checked(
+            "plans",
+            first,
+            crate::data::WorkspaceChangeSource::UserIntent,
+            Some(1),
+        )
         .unwrap();
     let mut stale = row;
     stale["title"] = json!("Stale writer");
     let error = store
-        .put_user_record_checked("plans", stale, "stale", Some(1))
+        .put_user_record_checked(
+            "plans",
+            stale,
+            crate::data::WorkspaceChangeSource::UserIntent,
+            Some(1),
+        )
         .unwrap_err();
     assert!(error.to_string().contains("revision conflict"));
     // Rows are written one at a time: a write never deletes the rows it omits.
@@ -315,17 +324,26 @@ fn unchanged_checked_put_returns_the_stored_revision() {
         .put_user_record(
             "plans",
             json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
-            "test",
         )
         .unwrap();
     let mut edited = row.clone();
     edited["title"] = json!("Edited");
     let edited = store
-        .put_user_record_checked("plans", edited, "desktop", Some(1))
+        .put_user_record_checked(
+            "plans",
+            edited,
+            crate::data::WorkspaceChangeSource::UserIntent,
+            Some(1),
+        )
         .unwrap();
     assert_eq!(edited["rev"], 2);
     let same = store
-        .put_user_record_checked("plans", edited.clone(), "desktop", Some(2))
+        .put_user_record_checked(
+            "plans",
+            edited.clone(),
+            crate::data::WorkspaceChangeSource::UserIntent,
+            Some(2),
+        )
         .unwrap();
     let stored = store.user_rows("plans").unwrap()[0].clone();
     assert_eq!(same["rev"], stored["rev"]);
@@ -334,7 +352,12 @@ fn unchanged_checked_put_returns_the_stored_revision() {
     let mut next = same;
     next["title"] = json!("Edited again");
     let next = store
-        .put_user_record_checked("plans", next, "desktop", Some(2))
+        .put_user_record_checked(
+            "plans",
+            next,
+            crate::data::WorkspaceChangeSource::UserIntent,
+            Some(2),
+        )
         .unwrap();
     assert_eq!(next["rev"], 3);
     assert_eq!(
@@ -437,7 +460,6 @@ fn assignment_pin_round_trips_as_a_syncable_overlay() {
         .put_user_record(
             "assignment_marks",
             json!({"sourceKey":"lms:default:assignment:42","hidden":false,"pinned":true}),
-            "test",
         )
         .unwrap();
     assert_eq!(
@@ -450,7 +472,6 @@ fn assignment_pin_round_trips_as_a_syncable_overlay() {
         .put_user_record(
             "assignment_marks",
             json!({"sourceKey":"lms:default:assignment:42","hidden":false,"pinned":false}),
-            "test",
         )
         .unwrap();
     assert_eq!(
@@ -469,7 +490,6 @@ fn overlay_survives_school_disappearance_and_reappearance() {
             json!({
                 "sourceKey":"lms:default:assignment:42", "hidden":true
             }),
-            "test",
         )
         .unwrap();
     assert_eq!(
@@ -512,7 +532,6 @@ fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
             json!({
                 "title":"Study", "start":"2026-10-06T10:00:00+09:00", "duration":60, "exdates":[]
             }),
-            "test",
         )
         .unwrap();
     store
@@ -521,7 +540,6 @@ fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
             json!({
                 "sourceKey":"lms:default:assignment:42", "hidden":true
             }),
-            "test",
         )
         .unwrap();
     let document = store
@@ -555,7 +573,6 @@ fn invalid_study_history_rolls_back_restore_and_cloud_replacement() {
                 "title":"Keep me", "start":"2026-10-06T10:00:00+09:00",
                 "duration":60, "exdates":[]
             }),
-            "test",
         )
         .unwrap();
     let before = store.load_workspace().unwrap();
@@ -586,7 +603,7 @@ fn invalid_study_history_rolls_back_restore_and_cloud_replacement() {
             .unwrap();
         profile["value"]["studyEnrollments"] = invalid;
         assert!(matches!(
-            store.merge_cloud_data(&remote),
+            store.merge_cloud_data(&remote, crate::data::WorkspaceChangeSource::CloudSync),
             Err(DataError::InvalidInput(_))
         ));
         let after = store.load_workspace().unwrap();
@@ -603,7 +620,6 @@ fn legacy_backup_without_study_history_still_restores() {
         .put_workspace_setting(
             "academicProfile",
             json!({"name":"Legacy","admissionYear":2024,"gradePath":[],"years":[]}),
-            "test",
         )
         .unwrap();
     let mut document =
@@ -611,7 +627,9 @@ fn legacy_backup_without_study_history_still_restores() {
     document["sync"] =
         json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"restore"}});
     let target = store("legacy-study-target");
-    target.merge_cloud_data(&document).unwrap();
+    target
+        .merge_cloud_data(&document, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
     let restored = target.load_workspace().unwrap();
     assert_eq!(restored["academicProfile"]["name"], "Legacy");
     assert!(restored["academicProfile"]

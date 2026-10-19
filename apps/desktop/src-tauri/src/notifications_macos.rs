@@ -11,7 +11,7 @@ use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{Bool, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{define_class, msg_send, MainThreadMarker, MainThreadOnly};
-use objc2_foundation::{NSError, NSString};
+use objc2_foundation::{NSBundle, NSError, NSString};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification,
     UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationSettings,
@@ -45,13 +45,27 @@ define_class!(
     }
 );
 
+const UNBUNDLED: &str = "Notifications need the app bundle; this build runs unbundled.";
+
+/// The notification center, or None when the process was not launched from an
+/// app bundle (the bare `tauri dev` binary). There `currentNotificationCenter`
+/// raises an Objective-C exception, which unwinds into Rust and kills the
+/// process, so every call goes through here.
+fn center() -> Option<Retained<UNUserNotificationCenter>> {
+    let bundled = NSBundle::mainBundle()
+        .bundlePath()
+        .to_string()
+        .ends_with(".app");
+    bundled.then(UNUserNotificationCenter::currentNotificationCenter)
+}
+
 /// Install the foreground presenter once, on the main thread at startup. The
 /// center holds its delegate weakly, so the app keeps it for its lifetime.
 pub(crate) fn install(main: MainThreadMarker) {
+    let Some(center) = center() else { return };
     let delegate: Retained<ForegroundBanners> =
         unsafe { msg_send![ForegroundBanners::alloc(main), init] };
-    UNUserNotificationCenter::currentNotificationCenter()
-        .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+    center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     std::mem::forget(delegate);
 }
 
@@ -82,6 +96,10 @@ pub(crate) async fn permission() -> &'static str {
 
 fn permission_request() -> oneshot::Receiver<&'static str> {
     let (send, rx) = once::<&'static str>();
+    let Some(center) = center() else {
+        send("denied");
+        return rx;
+    };
     let callback = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
         let status = unsafe { settings.as_ref() }.authorizationStatus();
         send(match status {
@@ -92,8 +110,7 @@ fn permission_request() -> oneshot::Receiver<&'static str> {
             _ => "default",
         });
     });
-    UNUserNotificationCenter::currentNotificationCenter()
-        .getNotificationSettingsWithCompletionHandler(&callback);
+    center.getNotificationSettingsWithCompletionHandler(&callback);
     rx
 }
 
@@ -114,17 +131,20 @@ pub(crate) async fn request_permission() -> Result<&'static str, String> {
 
 fn authorization_request() -> oneshot::Receiver<Result<bool, String>> {
     let (send, rx) = once::<Result<bool, String>>();
+    let Some(center) = center() else {
+        send(Err(UNBUNDLED.into()));
+        return rx;
+    };
     let callback = RcBlock::new(move |granted: Bool, error: *mut NSError| {
         send(match unsafe { error_text(error) } {
             Some(message) => Err(message),
             None => Ok(granted.as_bool()),
         });
     });
-    UNUserNotificationCenter::currentNotificationCenter()
-        .requestAuthorizationWithOptions_completionHandler(
-            UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound,
-            &callback,
-        );
+    center.requestAuthorizationWithOptions_completionHandler(
+        UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound,
+        &callback,
+    );
     rx
 }
 
@@ -139,6 +159,11 @@ pub(crate) async fn show(title: &str, body: &str) -> Result<(), String> {
 }
 
 fn delivery_request(title: &str, body: &str) -> oneshot::Receiver<Option<String>> {
+    let (send, rx) = once::<Option<String>>();
+    let Some(center) = center() else {
+        send(Some(UNBUNDLED.into()));
+        return rx;
+    };
     let content = UNMutableNotificationContent::new();
     content.setTitle(&NSString::from_str(title));
     content.setBody(&NSString::from_str(body));
@@ -148,9 +173,7 @@ fn delivery_request(title: &str, body: &str) -> oneshot::Receiver<Option<String>
         &content,
         None,
     );
-    let (send, rx) = once::<Option<String>>();
     let callback = RcBlock::new(move |error: *mut NSError| send(unsafe { error_text(error) }));
-    UNUserNotificationCenter::currentNotificationCenter()
-        .addNotificationRequest_withCompletionHandler(&request, Some(&callback));
+    center.addNotificationRequest_withCompletionHandler(&request, Some(&callback));
     rx
 }

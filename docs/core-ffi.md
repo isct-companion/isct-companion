@@ -131,9 +131,9 @@ compatibility, task and native-delivery categories.
 
 Call `subscribe()` before reading initial snapshots, then consume queued
 `next()` updates. Events retain Core's existing event names and full payloads,
-with a per-session sequence. Workspace writes also emit `workspace-changed`
-with source `user-intent`, emitted by Core after a successful commit in every
-shell. Delivery failure does not turn that committed mutation into an operation
+with a per-session sequence. Every school.db commit that changes a row emits
+`workspace-changed` with its source (`user-intent` for mutations), published by
+Core's commit path after the commit in every shell. Delivery failure does not turn that committed mutation into an operation
 failure. Local `applyBackup` emits source `local-restore`; cloud recovery retains
 `cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
 Snapshots are authoritative; events are hints.

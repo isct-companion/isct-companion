@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ports::EventError, subscriptions::DateRange};
+use crate::subscriptions::DateRange;
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
@@ -10,16 +10,6 @@ use std::{
 use uuid::Uuid;
 
 const INDEX: &str = "https://example.test/index.json";
-
-#[derive(Default)]
-struct RecordingEvents(StdMutex<Vec<CoreEvent>>);
-
-impl EventSink for RecordingEvents {
-    fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
-        self.0.lock().unwrap().push(event);
-        Ok(())
-    }
-}
 
 struct FetchCall {
     kind: String,
@@ -109,13 +99,9 @@ fn store(name: &str) -> DataStore {
 }
 
 fn service(store: &DataStore, transport: Arc<dyn ReferenceTransport>) -> ReferenceService {
-    ReferenceService::new(
-        store.clone(),
-        PullCoordinator::default(),
-        Arc::new(RecordingEvents::default()),
-    )
-    .with_transport(transport)
-    .with_clock(Arc::new(|| "2026-10-13T03:15:00Z".parse().unwrap()))
+    ReferenceService::new(store.clone(), PullCoordinator::default())
+        .with_transport(transport)
+        .with_clock(Arc::new(|| "2026-10-13T03:15:00Z".parse().unwrap()))
 }
 
 fn not_modified_fetch() -> TransportFetch {
@@ -164,7 +150,7 @@ fn put_subscription(store: &DataStore, kind: &str, enabled: bool, extra: Value) 
     if let (Some(row), Some(extra)) = (row.as_object_mut(), extra.as_object()) {
         row.extend(extra.clone());
     }
-    store.put_user_record("subscriptions", row, "test").unwrap()
+    store.put_user_record("subscriptions", row).unwrap()
 }
 
 fn disable(store: &DataStore, kinds: &[&str]) {
@@ -193,7 +179,6 @@ async fn batch_probes_a_shared_index_once_and_skips_disabled_sources() {
         .put_workspace_setting(
             "academicProfile",
             json!({"name":"Test","gradePath":[],"years":[],"admissionYear":2026}),
-            "test",
         )
         .unwrap();
     put_subscription(&store, "calendar", true, json!({}));
@@ -229,7 +214,7 @@ async fn automatic_and_manual_runs_use_the_selected_term_year() {
         .apply_fetch(calendar_fetch(2026))
         .unwrap();
     store
-        .put_workspace_setting("selectedTerm", json!("2031-1Q"), "test")
+        .put_workspace_setting("selectedTerm", json!("2031-1Q"))
         .unwrap();
     let workspace = store.load_workspace().unwrap();
     assert!(workspace["currentTerm"]
@@ -335,20 +320,16 @@ async fn valid_cache_with_the_same_hash_skips_fetch_and_uses_completion_clock() 
         let times = times.clone();
         Arc::new(move || times.lock().unwrap().pop_front().unwrap())
     };
-    let result = ReferenceService::new(
-        store.clone(),
-        PullCoordinator::default(),
-        Arc::new(RecordingEvents::default()),
-    )
-    .with_transport(transport.clone())
-    .with_clock(clock)
-    .refresh_one(
-        request("calendar", 2026, false),
-        PullPriority::Automatic,
-        probes(),
-    )
-    .await
-    .unwrap();
+    let result = ReferenceService::new(store.clone(), PullCoordinator::default())
+        .with_transport(transport.clone())
+        .with_clock(clock)
+        .refresh_one(
+            request("calendar", 2026, false),
+            PullPriority::Automatic,
+            probes(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(result["notModified"], true);
     assert!(transport.calls().is_empty());
@@ -478,8 +459,12 @@ impl ReferenceTransport for EditingTransport {
             let mut row = self.store.user_rows("subscriptions")?.remove(0);
             let revision = row["rev"].as_u64().unwrap();
             row["url"] = json!("https://user.example/new-index.json");
-            self.store
-                .put_user_record_checked("subscriptions", row, "user", Some(revision))?;
+            self.store.put_user_record_checked(
+                "subscriptions",
+                row,
+                crate::data::WorkspaceChangeSource::UserIntent,
+                Some(revision),
+            )?;
             Ok(not_modified_fetch())
         })
     }
@@ -538,13 +523,9 @@ impl ReferenceTransport for CancellingTransport {
 async fn cancellation_before_applying_writes_no_data_or_metadata() {
     let store = store("cancel");
     let coordinator = PullCoordinator::default();
-    let service = ReferenceService::new(
-        store.clone(),
-        coordinator.clone(),
-        Arc::new(RecordingEvents::default()),
-    )
-    .with_transport(Arc::new(CancellingTransport { coordinator }))
-    .with_clock(Arc::new(|| "2026-10-13T03:15:00Z".parse().unwrap()));
+    let service = ReferenceService::new(store.clone(), coordinator.clone())
+        .with_transport(Arc::new(CancellingTransport { coordinator }))
+        .with_clock(Arc::new(|| "2026-10-13T03:15:00Z".parse().unwrap()));
     assert!(service
         .refresh_one(
             request("calendar", 2026, true),
@@ -677,7 +658,9 @@ fn restored_metadata_never_replaces_local_materialization_evidence() {
         .iter()
         .all(|row| !row["key"].as_str().unwrap().starts_with("referenceCache:")));
     let restored = store("restored-import");
-    restored.merge_cloud_data(&backup).unwrap();
+    restored
+        .merge_cloud_data(&backup, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
     assert!(restored
         .reference_cache_marker("exams", 2026)
         .unwrap()

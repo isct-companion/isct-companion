@@ -1,78 +1,8 @@
 use super::*;
-use crate::ports::{EventError, EventSink};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-struct MutationEvents {
-    count: AtomicUsize,
-    fail: bool,
-}
-
-impl EventSink for MutationEvents {
-    fn emit(&self, event: crate::events::CoreEvent) -> Result<(), EventError> {
-        assert!(matches!(
-            event,
-            crate::events::CoreEvent::WorkspaceChanged {
-                source: crate::events::WorkspaceChangeSource::UserIntent,
-                revision: Some(_),
-            }
-        ));
-        self.count.fetch_add(1, Ordering::Relaxed);
-        if self.fail {
-            Err(EventError::Delivery("synthetic delivery failure".into()))
-        } else {
-            Ok(())
-        }
-    }
-}
 
 fn service(name: &str) -> WorkspaceService {
     let path = std::env::temp_dir().join(format!("isct-workspace-{name}-{}.db", Uuid::new_v4()));
     WorkspaceService::new(DataStore::initialize(path).unwrap().0)
-}
-
-#[test]
-fn committed_mutations_emit_once_and_delivery_does_not_change_the_result() {
-    let path = std::env::temp_dir().join(format!("isct-workspace-events-{}.db", Uuid::new_v4()));
-    let store = DataStore::initialize(path).unwrap().0;
-    let events = Arc::new(MutationEvents {
-        count: AtomicUsize::new(0),
-        fail: false,
-    });
-    let service = WorkspaceService::with_events(store, events.clone());
-    let initial = service.snapshot().unwrap();
-    let committed = service
-        .mutate(WorkspaceMutation {
-            expected_revision: initial.revision,
-            intent: WorkspaceIntent::SetAdmissionYear {
-                admission_year: Some(2026),
-            },
-        })
-        .unwrap();
-    assert_eq!(events.count.load(Ordering::Relaxed), 1);
-
-    let failed = service.mutate(WorkspaceMutation {
-        expected_revision: "stale".into(),
-        intent: WorkspaceIntent::SetAdmissionYear {
-            admission_year: Some(2025),
-        },
-    });
-    assert!(matches!(failed, Err(WorkspaceError::Conflict(_))));
-    assert_eq!(events.count.load(Ordering::Relaxed), 1);
-
-    let failing_events = Arc::new(MutationEvents {
-        count: AtomicUsize::new(0),
-        fail: true,
-    });
-    let service = WorkspaceService::with_events(service.store.clone(), failing_events.clone());
-    assert!(service
-        .mutate(WorkspaceMutation {
-            expected_revision: committed.revision,
-            intent: WorkspaceIntent::SetAdmissionYear {
-                admission_year: Some(2027),
-            },
-        })
-        .is_ok());
-    assert_eq!(failing_events.count.load(Ordering::Relaxed), 1);
 }
 
 fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) -> Value {
@@ -211,7 +141,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
     assert!(matches!(
         service
             .store
-            .put_workspace_setting("devicePreferences", json!({"locale":"xx"}), "test"),
+            .put_workspace_setting("devicePreferences", json!({"locale":"xx"})),
         Err(DataError::InvalidInput(_))
     ));
     assert_eq!(service.snapshot().unwrap().revision, before.revision);
@@ -254,7 +184,7 @@ fn study_profile_and_calendar_edits_preserve_the_other_profile_fields() {
     });
     service
         .store
-        .put_workspace_setting("academicProfile", profile.clone(), "test")
+        .put_workspace_setting("academicProfile", profile.clone())
         .unwrap();
     let old = service.snapshot().unwrap();
     assert_eq!(
@@ -501,8 +431,10 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         url: "https://example.com/exams.json".into(),
         feed: validate_exam_feed(&raw.to_string(), 2026, "2q", ExamFeedKind::Exams).unwrap(),
     };
-    let mut connection = rusqlite::Connection::open(service.store.path()).unwrap();
-    apply_exam_feed(&mut connection, &published).unwrap();
+    service
+        .store
+        .write(None, |tx| apply_exam_feed(tx, &published))
+        .unwrap();
     let first = "reference:exams:2026:undergraduate:2q:first";
     let second = "reference:exams:2026:undergraduate:2q:second";
     let view = |snapshot: &WorkspaceSnapshot, key: &str| {
@@ -549,7 +481,10 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
 
     published.feed.entries[1].room =
         Some(serde_json::from_value(json!({"ja":"新教室","en":"Updated source room"})).unwrap());
-    apply_exam_feed(&mut connection, &published).unwrap();
+    service
+        .store
+        .write(None, |tx| apply_exam_feed(tx, &published))
+        .unwrap();
     assert_eq!(
         view(&service.snapshot().unwrap(), second).room,
         "Updated source room"
@@ -575,7 +510,10 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     assert_eq!(view(&edited, second).periods, Some([3, 4]));
 
     published.feed.entries[1].date = "2026-08-05".into();
-    apply_exam_feed(&mut connection, &published).unwrap();
+    service
+        .store
+        .write(None, |tx| apply_exam_feed(tx, &published))
+        .unwrap();
     let refreshed = view(&service.snapshot().unwrap(), second);
     assert_eq!(
         (
@@ -1099,7 +1037,12 @@ fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
     task["lastResult"] = json!("Done");
     service
         .store
-        .put_user_record_checked("scheduled_tasks", task, "scheduler", rev)
+        .put_user_record_checked(
+            "scheduled_tasks",
+            task,
+            crate::data::WorkspaceChangeSource::UserIntent,
+            rev,
+        )
         .unwrap();
     let ingested = service.snapshot().unwrap();
     assert_ne!(ingested.content_revision, before.content_revision);
@@ -1458,7 +1401,6 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
         .put_workspace_setting(
             "userPreferences",
             json!({"notifications":{"classes":false,"assignments":true,"classLeadMinutes":30}}),
-            "legacy",
         )
         .unwrap();
     let initial = service.snapshot().unwrap();

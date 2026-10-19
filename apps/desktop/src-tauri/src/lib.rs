@@ -319,10 +319,7 @@ pub fn run() {
                 .map_err(std::io::Error::other)?;
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
-            app.manage(
-                DesktopCloudService::new(vault.clone())
-                    .expect("failed to initialize the cloud transport"),
-            );
+            app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
                 vault,
                 app.path()

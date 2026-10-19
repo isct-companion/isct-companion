@@ -54,7 +54,6 @@ pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
 // service state. Completed coordinator jobs release their work closures too.
 pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
     core(app).services(
-        Arc::new(DesktopEvents(app.clone())),
         app.state::<SchoolWebController>().engine.clone(),
         Arc::new(DesktopExport(app.clone())),
     )

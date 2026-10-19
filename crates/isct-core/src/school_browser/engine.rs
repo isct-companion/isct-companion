@@ -7,7 +7,7 @@ use super::{
     SchoolSessionSnapshot, SchoolSessionState, SchoolSessionStates, SchoolWebResult,
 };
 use crate::{
-    data::DataStore,
+    data::{DataStore, WorkspaceChangeSource},
     events::CoreEvent,
     kyomu_ingest::{apply_kyomu_payload, record_kyomu_unavailable, KYOMU_EXTRACT_SCRIPT},
     lifecycle::SchoolSite,

@@ -1,5 +1,5 @@
 use super::{apply_lms_payload, IngestError, LMS_EXTRACT_SCRIPT};
-use crate::data::migrations;
+use crate::data::{commit_on, migrations};
 use crate::school_parser::lms::{LmsCourse, LmsPayload, LmsStructure};
 use rusqlite::Connection;
 use serde_json::json;
@@ -59,14 +59,16 @@ fn ingest_error_distinguishes_payload_rejection_from_storage_failure() {
     let payload = invalid_item_payload();
     let mut missing_schema = Connection::open_in_memory().unwrap();
     assert!(matches!(
-        apply_lms_payload(&mut missing_schema, &payload),
+        commit_on(&mut missing_schema, |tx| apply_lms_payload(tx, &payload))
+            .map(|(changed, _)| changed),
         Err(IngestError::Storage(_))
     ));
 
     let mut connection = Connection::open_in_memory().unwrap();
     migrations::migrate(&mut connection).unwrap();
     assert!(matches!(
-        apply_lms_payload(&mut connection, &payload),
+        commit_on(&mut connection, |tx| apply_lms_payload(tx, &payload))
+            .map(|(changed, _)| changed),
         Err(IngestError::InvalidPayload(_))
     ));
 }
@@ -91,7 +93,11 @@ fn page_state_survives_missing_page_then_accepts_reopened_state() {
             raw["assignStatus"] = json!([{"cmid":7,"submission":"open","acceptsSubmission":true}]);
         }
         let (_, payload) = crate::school_parser::lms::parse_payload(&raw.to_string()).unwrap();
-        apply_lms_payload(&mut connection, &payload.unwrap()).unwrap();
+        commit_on(&mut connection, |tx| {
+            apply_lms_payload(tx, &payload.unwrap())
+        })
+        .map(|(changed, _)| changed)
+        .unwrap();
         let value: String = connection
             .query_row(
                 "SELECT value FROM assignments WHERE lms_cmid=7",
@@ -116,23 +122,30 @@ fn page_state_survives_missing_page_then_accepts_reopened_state() {
 fn page_captures_do_not_make_the_full_refresh_look_fresh() {
     let path = std::env::temp_dir().join(format!("isct-lms-scope-{}.db", uuid::Uuid::new_v4()));
     let store = crate::data::DataStore::initialize(path).unwrap().0;
-    let mut connection = Connection::open(store.path()).unwrap();
     let raw = json!({"status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","coursesComplete":true,"courses":[]});
     let (_, payload) = crate::school_parser::lms::parse_payload(&raw.to_string()).unwrap();
     let mut payload = payload.unwrap();
-    apply_lms_payload(&mut connection, &payload).unwrap();
+    store
+        .write(None, |tx| apply_lms_payload(tx, &payload))
+        .unwrap();
     let runs = store.last_import_runs().unwrap();
     assert!(runs["lms:summary"].is_string());
     assert!(runs["lms:all"].is_null());
     payload.full_scan = true;
-    apply_lms_payload(&mut connection, &payload).unwrap();
+    store
+        .write(None, |tx| apply_lms_payload(tx, &payload))
+        .unwrap();
     let full = store.last_import_runs().unwrap()["lms:all"].clone();
     assert!(full.is_string());
     payload.full_scan = false;
-    apply_lms_payload(&mut connection, &payload).unwrap();
+    store
+        .write(None, |tx| apply_lms_payload(tx, &payload))
+        .unwrap();
     assert_eq!(store.last_import_runs().unwrap()["lms:all"], full);
     payload.full_scan = true;
     payload.courses_complete = false;
-    apply_lms_payload(&mut connection, &payload).unwrap();
+    store
+        .write(None, |tx| apply_lms_payload(tx, &payload))
+        .unwrap();
     assert_eq!(store.last_import_runs().unwrap()["lms:all"], full);
 }

@@ -1,36 +1,37 @@
 use super::*;
 
 impl DataStore {
+    /// Clears every table and settings row, then writes the defaults of a
+    /// new database in the same transaction.
     pub fn reset_workspace(&self) -> Result<Value, DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection.transaction().map_err(DataError::from)?;
-        let reset_tables = COLLECTIONS
-            .iter()
-            .map(|(_, table)| *table)
-            .chain(SCHOOL_CACHE_TABLES.iter().copied())
-            .chain(USER_BACKUP_TABLES.iter().copied())
-            .chain([
-                "offering_content",
-                "offerings_fts",
-                "catalog_search_items",
-                "manual_courses",
-                "manual_memberships",
-                "course_overrides",
-                "assignment_marks",
-                "course_identity_map",
-            ])
-            .collect::<HashSet<_>>();
-        for table in reset_tables {
+        self.write(Some(WorkspaceChangeSource::UserIntent), |transaction| {
+            let reset_tables = COLLECTIONS
+                .iter()
+                .map(|(_, table)| *table)
+                .chain(SCHOOL_CACHE_TABLES.iter().copied())
+                .chain(USER_BACKUP_TABLES.iter().copied())
+                .chain([
+                    "offering_content",
+                    "offerings_fts",
+                    "catalog_search_items",
+                    "manual_courses",
+                    "manual_memberships",
+                    "course_overrides",
+                    "assignment_marks",
+                    "course_identity_map",
+                ])
+                .collect::<HashSet<_>>();
+            for table in reset_tables {
+                transaction
+                    .execute(&format!("DELETE FROM {table}"), [])
+                    .map_err(DataError::from)?;
+            }
             transaction
-                .execute(&format!("DELETE FROM {table}"), [])
+                .execute("DELETE FROM settings", [])
                 .map_err(DataError::from)?;
-        }
-        transaction
-            .execute("DELETE FROM settings", [])
-            .map_err(DataError::from)?;
-        transaction.commit().map_err(DataError::from)?;
-        self.ensure_defaults()?;
-        self.load_workspace()
+            ensure_defaults_in(transaction)?;
+            Self::load_workspace_from(transaction)
+        })
     }
 
     /// Read every backup table from one SQLite snapshot.
@@ -67,12 +68,13 @@ impl DataStore {
 
     /// Merge under an IMMEDIATE transaction, including edits committed during
     /// the network round trip. Never replace the device's settings or identity.
-    pub fn merge_cloud_data(&self, remote: &Value) -> Result<(), DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)?;
-        let local_meta = json!({"sync":read_setting(&transaction, "cloudSyncMetadata")?});
+    pub fn merge_cloud_data(
+        &self,
+        remote: &Value,
+        source: WorkspaceChangeSource,
+    ) -> Result<(), DataError> {
+        self.write(Some(source), |transaction| {
+        let local_meta = json!({"sync":read_setting(transaction, "cloudSyncMetadata")?});
         if cloud_merge::generation(remote) < cloud_merge::generation(&local_meta) {
             return Ok(());
         }
@@ -89,16 +91,16 @@ impl DataStore {
             }
         }
         for table in USER_BACKUP_TABLES {
-            let local = read_rows(&transaction, table)?;
+            let local = read_rows(transaction, table)?;
             for incoming in remote["tables"][table].as_array().into_iter().flatten() {
                 validate_user_record(table, incoming)?;
                 let old = local.iter().find(|row| row["id"] == incoming["id"]);
                 if old.is_none_or(|old| cloud_merge::compare(incoming, old).is_gt()) {
-                    upsert_row(&transaction, table, incoming, true)?;
+                    upsert_row(transaction, table, incoming, true)?;
                 }
             }
         }
-        let local = read_settings_export(&transaction)?;
+        let local = read_settings_export(transaction)?;
         for incoming in remote["tables"]["settings"]
             .as_array()
             .into_iter()
@@ -116,13 +118,14 @@ impl DataStore {
                 .find(|row| row["key"] == key)
                 .is_none_or(|old| cloud_merge::compare(incoming, old).is_gt())
             {
-                import_setting(&transaction, incoming)?;
+                import_setting(transaction, incoming)?;
             }
         }
         if remote["sync"].is_object() {
             transaction.execute("INSERT INTO settings(key,value,hash,updated_at,updated_by,rev) VALUES('cloudSyncMetadata',?1,?3,?2,'sync',1) ON CONFLICT(key) DO UPDATE SET value=excluded.value,hash=excluded.hash,updated_at=excluded.updated_at",
                 params![remote["sync"].to_string(), now(), content_hash(&remote["sync"])?]).map_err(DataError::from)?;
         }
-        transaction.commit().map_err(DataError::from)
+        Ok(())
+        })
     }
 }
