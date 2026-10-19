@@ -657,39 +657,6 @@ const assignmentHtml = `<p>Implement the classes.</p><ul><li>Use Java 21</li><li
 <a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/intro/OOP-2026-1B-problem.zip">again</a>
 <a href="https://example.com/pluginfile.php/evil.zip">elsewhere</a>`;
 
-describe("assignment attachments", () => {
-  it("collects each LMS attachment once, named by the file it points at", () => {
-    expect(assignments.assignmentAttachments(assignmentHtml)).toEqual([
-      {
-        url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/intro/OOP-2026-1B-problem.zip",
-        name: "OOP-2026-1B-problem.zip",
-      },
-    ]);
-  });
-
-  it("keeps only https links on the school's LMS host", () => {
-    const other = `<a href="http://lms.s.isct.ac.jp/pluginfile.php/1/x.zip">plain</a>
-<a href="https://example.com/pluginfile.php/evil.zip">elsewhere</a>
-<a href="/pluginfile.php/relative.zip">relative</a>`;
-    expect(assignments.assignmentAttachments(other)).toEqual([]);
-  });
-
-  it("decodes the file name and falls back to the link text", () => {
-    const names = `<a href="https://lms.s.isct.ac.jp/pluginfile.php/1/%E8%AA%B2%E9%A1%8C.pdf">課題</a>
-<a href="https://lms.s.isct.ac.jp/pluginfile.php/1/mod_assign/intro/">instructions</a>`;
-    expect(assignments.assignmentAttachments(names)).toEqual([
-      {
-        url: "https://lms.s.isct.ac.jp/pluginfile.php/1/%E8%AA%B2%E9%A1%8C.pdf",
-        name: "課題.pdf",
-      },
-      {
-        url: "https://lms.s.isct.ac.jp/pluginfile.php/1/mod_assign/intro/",
-        name: "instructions",
-      },
-    ]);
-  });
-});
-
 describe("assignment brief", () => {
   it("writes the brief with the facts, the description and the attachments", () => {
     const brief = assignments.assignmentBrief({

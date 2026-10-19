@@ -47,6 +47,7 @@ pub mod school_browser;
 pub mod school_parser;
 pub mod school_refresh;
 pub mod school_service;
+pub mod school_status;
 pub mod storage;
 pub mod study_profile;
 pub mod subscriptions;

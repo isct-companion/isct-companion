@@ -215,6 +215,18 @@ async fn shutdown_releases_the_native_event_port() {
 }
 
 #[derive(Default)]
+struct RecordedEvents(Mutex<Vec<(&'static str, serde_json::Value)>>);
+impl EventSink for RecordedEvents {
+    fn emit(&self, event: crate::events::CoreEvent) -> Result<(), EventError> {
+        self.0
+            .lock()
+            .map_err(|_| EventError::Delivery("recorder unavailable".into()))?
+            .push((event.name(), event.payload()));
+        Ok(())
+    }
+}
+
+#[derive(Default)]
 struct WorkspaceEvents {
     changes: Mutex<Vec<(WorkspaceChangeSource, Option<String>)>>,
     fail: AtomicBool,
@@ -230,6 +242,82 @@ impl EventSink for WorkspaceEvents {
         }
         Ok(())
     }
+}
+
+#[tokio::test]
+async fn the_relay_sends_school_status_after_the_events_that_change_it() {
+    use crate::pull_coordinator::{PullPriority, PullSnapshot, PullState, PullTarget};
+    let store = store("school-status");
+    rusqlite::Connection::open(store.path())
+        .unwrap()
+        .execute(
+            "INSERT INTO import_runs(id,provider,scope,state,started_at,finished_at)
+             VALUES('run','lms','summary','complete','2026-10-19T02:46:12+00:00','2026-10-19T02:46:13+00:00')",
+            [],
+        )
+        .unwrap();
+    let recorded = Arc::new(RecordedEvents::default());
+    let core = Core::with_events(
+        store,
+        Arc::new(SchoolAuthService::new(MemoryVault::default())),
+        PullNetwork::Wifi,
+        recorded.clone(),
+    );
+    let relay = core.events.clone().unwrap();
+    let finished = CoreEvent::PullStateChanged(vec![PullSnapshot {
+        id: "pull".into(),
+        target: PullTarget::School {
+            site: crate::lifecycle::SchoolSite::ScienceLms,
+            course_id: None,
+        },
+        priority: PullPriority::Manual,
+        state: PullState::Succeeded,
+        phase: None,
+        blocked_by: None,
+        attempt: 1,
+        waiter_count: 0,
+        last_error: None,
+    }]);
+
+    relay.emit(finished.clone()).unwrap();
+    // Unchanged status and unrelated events send nothing more.
+    relay.emit(finished).unwrap();
+    relay
+        .emit(CoreEvent::WorkspaceChanged {
+            source: WorkspaceChangeSource::SchoolPull,
+            revision: None,
+        })
+        .unwrap();
+
+    let names: Vec<_> = recorded
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "pull-state-changed",
+            "school-status",
+            "pull-state-changed",
+            "workspace-changed"
+        ]
+    );
+    let sent = recorded.0.lock().unwrap()[1].1.clone();
+    assert_eq!(sent["headline"], serde_json::json!({"kind": "idle"}));
+    assert_eq!(sent["sources"][0]["site"], "science-lms");
+    assert_eq!(
+        sent["sources"][0]["lastUpdated"],
+        "2026-10-19T02:46:13+00:00"
+    );
+    // The query answers what the event said, for a shell that missed it.
+    assert_eq!(
+        serde_json::to_value(core.school_status().await.unwrap()).unwrap(),
+        sent
+    );
+    core.shutdown().await;
 }
 
 fn admission_year(

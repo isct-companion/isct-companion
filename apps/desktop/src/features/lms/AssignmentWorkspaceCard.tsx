@@ -5,6 +5,7 @@ import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { UiInput } from "../../components/mantine";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import type { CourseFolder } from "./files";
+import type { AssignmentAttachment } from "../../platform/core-query";
 import {
   createWorkspace,
   deleteWorkspace,
@@ -23,14 +24,15 @@ import {
 export function AssignmentWorkspaceFooter({
   context,
   assignment,
-  html,
+  attachments,
   brief,
   closed,
   submit,
 }: {
   context: CourseFolder;
   assignment: { id: string; title: string; sourceUrl?: string };
-  html: string;
+  /** The LMS files the assignment links, from Core's `AssignmentDetail`. */
+  attachments: readonly AssignmentAttachment[];
   brief: (attachments: string[]) => string;
   /** In `TaskView.closedIds`: submitted, or past a deadline LMS no longer extends. */
   closed: boolean;
@@ -238,7 +240,7 @@ export function AssignmentWorkspaceFooter({
             disabled={busy}
             onClick={() =>
               void run(async () => {
-                await createWorkspace(context, assignment, html, brief);
+                await createWorkspace(context, assignment, attachments, brief);
                 await load();
               })
             }

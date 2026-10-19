@@ -83,6 +83,9 @@ export type PlanCivilStart = Protocol.PlanCivilStart;
 export type CourseTimeline = Protocol.CourseTimeline;
 export type TaskView = Protocol.TaskView;
 export type CourseDetail = Protocol.CourseDetail;
+export type AssignmentDetail = Protocol.AssignmentDetail;
+export type AssignmentAttachment = Protocol.AssignmentAttachment;
+export type TimetableAxis = Protocol.TimetableAxis;
 export type CalendarOrigin = "official" | "own" | "changed" | "estimated";
 export type CalendarDayView = {
   date: string;

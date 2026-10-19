@@ -38,7 +38,7 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         }
     }
 
-    /** A page pushed from context (course → T2SCHOLA, assignment → submission). */
+    /** A page pushed from context (course → LMS, assignment → submission). */
     data class PushedPage(val site: SchoolSite, val target: String?, val title: String)
 
     /** The ウェブ tab shows `site`, restoring its last page. */
@@ -100,7 +100,7 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
 
         fun name(site: SchoolSite): String = when (site) {
             SchoolSite.SCIENCE_PORTAL -> "ポータル"
-            SchoolSite.SCIENCE_LMS -> "T2SCHOLA"
+            SchoolSite.SCIENCE_LMS -> "LMS"
             SchoolSite.KYOMU -> "教務Web"
             SchoolSite.TOKYO_MAIL -> "メール"
             SchoolSite.LIBRARY -> "図書館"

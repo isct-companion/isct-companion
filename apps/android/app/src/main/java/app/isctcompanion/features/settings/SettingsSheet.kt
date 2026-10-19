@@ -142,11 +142,11 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
     Page {
         SectionLabel("学校アカウント")
         Card {
-            AccountRow("Science Tokyo", model.credentials?.science, model.sessions?.science) {
+            AccountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.records.lastRun(SchoolAuthProfile.SCIENCE)) {
                 open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, "Science Tokyo"))
             }
             RowDivider(inset = 36.dp)
-            AccountRow("Tokyo Tech（旧）", model.credentials?.tokyoTech, model.sessions?.tokyoTech) {
+            AccountRow("Tokyo Tech（旧）", model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.records.lastRun(SchoolAuthProfile.TOKYO_TECH)) {
                 open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, "Tokyo Tech（旧）"))
             }
         }
@@ -190,13 +190,18 @@ private fun notificationSummary(): String {
 }
 
 @Composable
-private fun AccountRow(name: String, credential: CredentialSummary?, session: SchoolSessionState?, onClick: () -> Unit) {
-    val model = LocalModel.current
+private fun AccountRow(
+    name: String,
+    credential: CredentialSummary?,
+    session: SchoolSessionState?,
+    lastRun: String?,
+    onClick: () -> Unit,
+) {
     val connected = credential?.availability == CredentialAvailability.AVAILABLE ||
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
         !connected -> "未接続" to Theme.colors.muted
-        session == SchoolSessionState.ACTIVE -> (model.lastPull?.let { "接続済 · ${Format.time(it)} 更新" } ?: "接続済") to Theme.colors.ok
+        session == SchoolSessionState.ACTIVE -> (lastRun?.let { "接続済 · ${Format.due(it)} 更新" } ?: "接続済") to Theme.colors.ok
         session == SchoolSessionState.FAILED -> "ログインに失敗しました" to Theme.colors.danger
         session == SchoolSessionState.MAINTENANCE -> "メンテナンス中" to Theme.colors.warn
         else -> "確認中" to Theme.colors.muted

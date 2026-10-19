@@ -1,6 +1,7 @@
 import {
   DEFAULT_TEACHING_PERIODS,
   type TeachingPeriod,
+  type TimetableAxis,
 } from "../generated/persistence";
 
 export type ClassSlot = {
@@ -9,8 +10,6 @@ export type ClassSlot = {
   start: string;
   end: string;
 };
-
-export type TimetableBounds = { start: number; end: number };
 
 export const resolvedTeachingPeriods = (
   periods: readonly TeachingPeriod[] | null | undefined,
@@ -24,107 +23,84 @@ export const classSlots = (periods: readonly TeachingPeriod[]): ClassSlot[] =>
     end: period.endTime,
   }));
 
-/** Axis rows, including the long midday gap as layout-only information. */
-export const teachingRows = (periods: readonly TeachingPeriod[]) => {
-  const slots = classSlots(periods);
-  return slots.flatMap((slot, index) => {
-    const previous = slots[index - 1];
-    const gap = previous
-      ? clockMinutes(slot.start) - clockMinutes(previous.end)
-      : 0;
-    return gap >= 30
-      ? [
-          {
-            label: "Class break",
-            periods: [] as const,
-            start: previous.end,
-            end: slot.start,
-            isBreak: true,
-          },
-          { ...slot, isBreak: false },
-        ]
-      : [{ ...slot, isBreak: false }];
-  });
-};
-
 export function clockMinutes(value: string): number {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value);
   if (!match) throw new Error(`Invalid clock time: ${value}`);
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-export function timetableBounds(
-  periods: readonly TeachingPeriod[],
-  blocks: readonly { startTime: string; endTime: string }[] = [],
-): TimetableBounds {
-  const clocks = [
-    ...periods.flatMap((period) => [period.startTime, period.endTime]),
-    ...blocks.flatMap((block) => [block.startTime, block.endTime]),
-  ].flatMap((clock) => {
-    try {
-      return [clockMinutes(clock)];
-    } catch {
-      return [];
-    }
-  });
-  return { start: Math.min(...clocks), end: Math.max(...clocks) };
+/** Core's timetable axis (`timetable_axis`): every period one row, lunch
+ * half a row, short breaks folded into the rules. Shells only interpolate
+ * between its stops, so desktop and mobile place times identically. */
+export function axisOffset(axis: TimetableAxis, minutes: number): number {
+  const { stops } = axis;
+  if (!stops.length) return 0;
+  if (minutes <= stops[0].minutes) return stops[0].offset;
+  const last = stops[stops.length - 1];
+  if (minutes >= last.minutes) return last.offset;
+  const index = stops.findIndex((stop) => minutes <= stop.minutes);
+  const [from, to] = [stops[index - 1], stops[index]];
+  const span = Math.max(to.minutes - from.minutes, 1);
+  return (
+    from.offset + ((to.offset - from.offset) * (minutes - from.minutes)) / span
+  );
 }
 
-export function timetablePosition(
-  start: string,
-  end: string,
-  bounds: TimetableBounds,
-) {
-  const range = bounds.end - bounds.start;
-  const from = clockMinutes(start);
-  const to = clockMinutes(end);
+const percentOf = (axis: TimetableAxis, rows: number) =>
+  axis.length > 0 ? (rows / axis.length) * 100 : 0;
+
+/** A span of the day as top and height percentages of the grid. */
+export function axisPosition(axis: TimetableAxis, start: string, end: string) {
+  const top = axisOffset(axis, clockMinutes(start));
+  const bottom = axisOffset(axis, clockMinutes(end));
   return {
-    topPercent: ((from - bounds.start) / range) * 100,
-    heightPercent: (Math.max(20, to - from) / range) * 100,
+    topPercent: percentOf(axis, top),
+    // A block of a few minutes still shows its title.
+    heightPercent: percentOf(axis, Math.max(bottom - top, 0.4)),
   };
 }
 
-/** Grid cells run from one row rule to the next, so a class ending at its
- * period's end leaves the short break below it inside its own cell. A block
- * edge within that break snaps to the cell edge; exact times further from a
- * rule (an exam at 09:30–10:20) keep their place. */
-const CELL_SNAP_MINUTES = 15;
+/** The axis rows to draw: teaching blocks and the lunch band. */
+export const axisRows = (axis: TimetableAxis) =>
+  axis.rows.map((row) => ({
+    label: row.periods ? `${row.periods[0]}-${row.periods[1]}` : "Class break",
+    periods: row.periods ?? null,
+    start: row.startTime,
+    end: row.endTime,
+    isBreak: !row.periods,
+    topPercent: percentOf(axis, row.top),
+    heightPercent: percentOf(axis, row.bottom - row.top),
+  }));
 
-export function blockPosition(
-  start: string,
-  end: string,
-  rows: readonly { start: string; end: string }[],
-  bounds: TimetableBounds,
-) {
-  const edges = [
-    ...rows.map((row) => clockMinutes(row.start)),
-    ...rows.slice(-1).map((row) => clockMinutes(row.end)),
-    bounds.end,
-  ];
-  const from = clockMinutes(start);
-  const to = clockMinutes(end);
-  const top = Math.max(
-    ...edges.filter((edge) => edge <= from && from - edge <= CELL_SNAP_MINUTES),
-    -Infinity,
-  );
-  const bottom = Math.min(
-    ...edges.filter((edge) => edge >= to && edge - to <= CELL_SNAP_MINUTES),
-    Infinity,
-  );
-  const clock = (minutes: number) =>
-    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-  return timetablePosition(
-    Number.isFinite(top) ? clock(top) : start,
-    Number.isFinite(bottom) && bottom > from ? clock(bottom) : end,
-    bounds,
-  );
-}
-
-/** Percent offset of a clock time inside the rendered day. */
-export function timetableOffset(
+/** The now line's place, while now falls inside the drawn day. */
+export function nowPercent(
+  axis: TimetableAxis,
   minutes: number,
-  bounds: TimetableBounds,
 ): number | undefined {
-  if (minutes < bounds.start || minutes > bounds.end) return undefined;
-  return ((minutes - bounds.start) / (bounds.end - bounds.start)) * 100;
+  const first = axis.stops[0];
+  const last = axis.stops[axis.stops.length - 1];
+  if (!first || !last || minutes < first.minutes || minutes > last.minutes)
+    return undefined;
+  return percentOf(axis, axisOffset(axis, minutes));
 }
+
+/** The week's first start and last end, so the axis widens around classes
+ * outside the teaching day instead of cutting them off. */
+export function axisSpan(
+  blocks: readonly { startTime: string; endTime: string }[],
+): { earliest?: string; latest?: string } {
+  const clocks = blocks.filter(
+    (block) => CLOCK.test(block.startTime) && CLOCK.test(block.endTime),
+  );
+  if (!clocks.length) return {};
+  const byMinutes = (a: string, b: string) => clockMinutes(a) - clockMinutes(b);
+  return {
+    earliest: clocks.map((block) => block.startTime).sort(byMinutes)[0],
+    latest: clocks
+      .map((block) => block.endTime)
+      .sort(byMinutes)
+      .at(-1),
+  };
+}
+
+const CLOCK = /^\d{1,2}:\d{2}$/;

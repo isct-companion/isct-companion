@@ -1,4 +1,4 @@
-use chrono::NaiveTime;
+use chrono::{NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -86,6 +86,171 @@ pub fn teaching_periods(workspace: &Value) -> Result<Vec<TeachingPeriod>, Schedu
     })?;
     validate_teaching_periods(&periods)?;
     Ok(periods)
+}
+
+/// A gap this long between two blocks (lunch) keeps a band of its own; a
+/// shorter break folds into the rule between two rows.
+const BREAK_BAND_MINUTES: u32 = 30;
+/// The lunch band's height, in period rows.
+const BREAK_BAND_ROWS: f64 = 0.5;
+
+/// Where times sit on a timetable whose period rows all have one height, so
+/// desktop and mobile place classes, empty-slot selections and the now line
+/// the same way. Offsets are in period rows from the first period's start.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TimetableAxis {
+    /// Height of the whole axis in rows.
+    pub length: f64,
+    /// Clock times and their offsets, ascending; a time between two stops
+    /// interpolates linearly, one outside them clamps to the nearest end.
+    pub stops: Vec<AxisStop>,
+    /// Teaching blocks and break bands, top to bottom.
+    pub rows: Vec<AxisRow>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AxisStop {
+    /// Minutes since midnight.
+    pub minutes: u32,
+    pub offset: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AxisRow {
+    /// The block's periods; absent for a break band.
+    pub periods: Option<[u8; 2]>,
+    pub start_time: String,
+    pub end_time: String,
+    pub top: f64,
+    pub bottom: f64,
+}
+
+fn clock_minutes(raw: &str) -> Result<u32, ScheduleError> {
+    let time = NaiveTime::parse_from_str(raw, "%H:%M")
+        .map_err(|_| ScheduleError::InvalidInput(format!("Invalid clock time: {raw}")))?;
+    Ok(time.hour() * 60 + time.minute())
+}
+
+/// Every period is one row; a block of two periods is two rows. A class
+/// outside the teaching day (`earliest`, `latest`: the week's first start and
+/// last end) widens the axis at the first or last block's pace instead of
+/// being cut off.
+pub fn timetable_axis(
+    periods: &[TeachingPeriod],
+    earliest: Option<&str>,
+    latest: Option<&str>,
+) -> Result<TimetableAxis, ScheduleError> {
+    validate_teaching_periods(periods)?;
+    let mut stops = Vec::new();
+    let mut rows = Vec::new();
+    let mut offset = 0.0;
+    let mut previous: Option<(u32, &str)> = None;
+    for block in periods {
+        let start = clock_minutes(&block.start_time)?;
+        let end = clock_minutes(&block.end_time)?;
+        if let Some((previous_end, previous_clock)) = previous {
+            if start - previous_end >= BREAK_BAND_MINUTES {
+                rows.push(AxisRow {
+                    periods: None,
+                    start_time: previous_clock.into(),
+                    end_time: block.start_time.clone(),
+                    top: offset,
+                    bottom: offset + BREAK_BAND_ROWS,
+                });
+                offset += BREAK_BAND_ROWS;
+            }
+        }
+        let height = f64::from(block.periods[1].saturating_sub(block.periods[0]) + 1);
+        stops.push(AxisStop {
+            minutes: start,
+            offset,
+        });
+        stops.push(AxisStop {
+            minutes: end,
+            offset: offset + height,
+        });
+        rows.push(AxisRow {
+            periods: Some(block.periods),
+            start_time: block.start_time.clone(),
+            end_time: block.end_time.clone(),
+            top: offset,
+            bottom: offset + height,
+        });
+        offset += height;
+        previous = Some((end, &block.end_time));
+    }
+    let pace = |block: Option<&TeachingPeriod>| -> Result<f64, ScheduleError> {
+        let Some(block) = block else { return Ok(1.0) };
+        let minutes = clock_minutes(&block.end_time)? - clock_minutes(&block.start_time)?;
+        let rows = f64::from(block.periods[1].saturating_sub(block.periods[0]) + 1);
+        Ok(f64::from(minutes.max(1)) / rows)
+    };
+    if let (Some(raw), Some(first)) = (earliest, stops.first().map(|stop| stop.minutes)) {
+        let earliest = clock_minutes(raw)?;
+        if earliest < first {
+            let lead = f64::from(first - earliest) / pace(periods.first())?;
+            for stop in &mut stops {
+                stop.offset += lead;
+            }
+            for row in &mut rows {
+                row.top += lead;
+                row.bottom += lead;
+            }
+            stops.insert(
+                0,
+                AxisStop {
+                    minutes: earliest,
+                    offset: 0.0,
+                },
+            );
+            offset += lead;
+        }
+    }
+    if let (Some(raw), Some(last)) = (latest, stops.last().map(|stop| stop.minutes)) {
+        let latest = clock_minutes(raw)?;
+        if latest > last {
+            offset += f64::from(latest - last) / pace(periods.last())?;
+            stops.push(AxisStop {
+                minutes: latest,
+                offset,
+            });
+        }
+    }
+    Ok(TimetableAxis {
+        length: offset,
+        stops,
+        rows,
+    })
+}
+
+impl TimetableAxis {
+    /// The offset of a clock time (minutes since midnight).
+    pub fn offset(&self, minutes: u32) -> f64 {
+        let (Some(first), Some(last)) = (self.stops.first(), self.stops.last()) else {
+            return 0.0;
+        };
+        if minutes <= first.minutes {
+            return first.offset;
+        }
+        if minutes >= last.minutes {
+            return last.offset;
+        }
+        self.stops
+            .windows(2)
+            .find(|pair| minutes <= pair[1].minutes)
+            .map_or(last.offset, |pair| {
+                let span = f64::from(pair[1].minutes - pair[0].minutes).max(1.0);
+                pair[0].offset
+                    + (pair[1].offset - pair[0].offset) * f64::from(minutes - pair[0].minutes)
+                        / span
+            })
+    }
 }
 
 pub(crate) fn clock_for_periods(

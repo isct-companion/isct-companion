@@ -421,6 +421,13 @@ pub struct VaultItem {
     pub synchronized: bool,
 }
 
+/// The page a school site opens at, for "back to this site's start".
+#[uniffi::export]
+pub fn school_start_url(site: crate::types::SchoolSite) -> Result<String, SdkError> {
+    let site: isct_core::lifecycle::SchoolSite = project_input(site)?;
+    Ok(site.start_url().to_string())
+}
+
 #[uniffi::export]
 pub fn vault_item(account: String) -> Result<VaultItem, SdkError> {
     let item = core::vault_item(&account).map_err(|e| SdkError::InvalidInput {

@@ -66,7 +66,7 @@ private const val LATEST_MATERIALS = 3
 private data class Meeting(val day: Int, val start: String, val end: String, val room: String)
 
 /** Course detail: room card with map, open assignments, latest materials and
- * the course's T2SCHOLA and syllabus pages. Ids and links come from Core's
+ * the course's LMS and syllabus pages. Ids and links come from Core's
  * `CourseDetail`; rows are looked up in the snapshot to render them. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -201,7 +201,7 @@ private fun Links(detail: CourseDetail?, title: String) {
     if (lms == null && syllabus == null) return
     Card(Modifier.padding(top = 8.dp)) {
         if (lms != null) {
-            LinkRow("T2SCHOLA で開く", Icons.Outlined.Language) {
+            LinkRow("LMS で開く", Icons.Outlined.Language) {
                 navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, lms, title))
             }
         }

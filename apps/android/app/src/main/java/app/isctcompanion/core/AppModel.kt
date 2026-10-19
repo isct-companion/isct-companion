@@ -16,6 +16,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 /** The shell's one owner of the Core session. It renders Core read models,
@@ -48,8 +50,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         private set
     var pulls: List<PullSnapshot> by mutableStateOf(emptyList())
         private set
-    var lastPull: Instant? by mutableStateOf(null)
-        private set
     /** Undo for the last hide, built from the intent Core committed. */
     var undo: UndoAction? by mutableStateOf(null)
         private set
@@ -69,6 +69,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     private var revision = ""
     private var boundaryJob: Job? = null
     private var refreshJob: Job? = null
+    private val settingsWrite = Mutex()
     private var networkState = PullNetwork.UNKNOWN
     private var foreground = true
 
@@ -106,6 +107,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             status = Status.Ready
             watchNetwork()
             report(foreground = true)
+            reportSchool(SchoolSessionLifecycleKind.LAUNCH)
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }
@@ -117,9 +119,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (active) {
             runCatching { session.resume() }
             report(foreground = true)
+            reportSchool(SchoolSessionLifecycleKind.FOCUS)
             scope.launch { refresh() }
         } else {
             report(foreground = false)
+            reportSchool(SchoolSessionLifecycleKind.FOCUS)
             runCatching { session.suspend() }
         }
     }
@@ -127,14 +131,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     private fun report(foreground: Boolean) {
         val session = session ?: return
         runCatching { session.lifecycle(foreground, networkState, web.isVisible) }
-        runCatching {
-            session.schoolLifecycle(
-                SchoolSessionLifecycle(
-                    if (foreground) SchoolSessionLifecycleKind.FOCUS else SchoolSessionLifecycleKind.LAUNCH,
-                    foreground,
-                ),
-            )
-        }
+    }
+
+    /** School sign-in hears what desktop sends (`school-session.ts`): `launch`
+     * once when the session opens, then `focus` as the app enters or leaves the
+     * front. Core only acts on a visible focus. */
+    private fun reportSchool(kind: SchoolSessionLifecycleKind) {
+        val session = session ?: return
+        runCatching { session.schoolLifecycle(SchoolSessionLifecycle(kind, foreground)) }
     }
 
     private fun watchNetwork() {
@@ -207,7 +211,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val snapshot = (session.snapshot().value() as? OperationResult.Workspace)?.snapshot ?: return
             revision = snapshot.revision
             if (snapshot.contentRevision != contentRevision) {
-                records = WorkspaceRecords(snapshot.workspace)
+                records = WorkspaceRecords(snapshot.workspace, snapshot.schoolRecords)
             }
             val result = (
                 session.scheduleQuery(
@@ -261,7 +265,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val snapshots = runCatching { (session.pullState().value() as? OperationResult.Pulls)?.snapshots }
             .getOrNull() ?: return
         pulls = snapshots
-        if (snapshots.any { it.state == PullState.SUCCEEDED }) lastPull = Instant.now()
         snapshots.firstOrNull { it.state == PullState.FAILED || it.state == PullState.BLOCKED }?.let {
             problem = it.lastError
         }
@@ -351,7 +354,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 break
             }
         }
-        lastPull = Instant.now()
         refresh()
     }
 
@@ -363,16 +365,22 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (profile == SchoolAuthProfile.SCIENCE) refreshFromSchool()
     }
 
-    /** Edits `settings.notifications` and replaces the settings object. */
-    suspend fun setNotifications(edit: (JSONObject) -> Unit) {
-        val session = session ?: return
+    /** Edits `settings.notifications` and replaces the settings object. Like the
+     * desktop store's `updateSettings`, edits run one at a time, each on the
+     * settings the previous one committed, so two quick toggles cannot both
+     * copy the same old object. */
+    suspend fun setNotifications(edit: (JSONObject) -> Unit): Unit = settingsWrite.withLock {
+        val session = session ?: return@withLock
         val settings = JSONObject(records.settings.toString())
         val notifications = settings.optJSONObject("notifications") ?: JSONObject()
         edit(notifications)
         settings.put("notifications", notifications)
         val mutation = WorkspaceMutation(revision, WorkspaceIntent.ReplaceSettings(settings.toString()))
         try {
-            session.mutate(mutation).value()
+            (session.mutate(mutation).value() as? OperationResult.Workspace)?.snapshot?.let {
+                revision = it.revision
+                records = WorkspaceRecords(it.workspace, it.schoolRecords)
+            }
         } catch (error: Exception) {
             problem = describe(error)
         }

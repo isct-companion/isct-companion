@@ -762,10 +762,138 @@ export type SchoolPageAvailability = {
   message: string;
 };
 
+export type SchoolSource = "science-lms" | "kyomu";
+
+export type SchoolStatus = {
+  headline: SchoolHeadline;
+  sources: Array<SchoolSourceStatus>;
+};
+
+export type SchoolHeadline =
+  | { kind: "idle" }
+  | {
+      kind: "busy";
+      site: SchoolSource;
+      /**
+       * 0–100, never moving backwards within one pull.
+       */
+      progress: number;
+      step: PullStep;
+      /**
+       * Set while the shown pull is admitted but not running yet.
+       */
+      waiting: WaitReason | null;
+      /**
+       * The other source's manual pull, queued behind this one.
+       */
+      queued: SchoolSource | null;
+    }
+  | { kind: "background"; site: SchoolSource; waiting: WaitReason | null }
+  | { kind: "problem"; site: SchoolSource; problem: SchoolProblem };
+
+export type SchoolSourceStatus = {
+  site: SchoolSource;
+  activity: SourceActivity;
+  /**
+   * The latest sign-in report for the profile that reads this source.
+   */
+  signIn: SignInState | null;
+  /**
+   * When Core last finished reading this source (RFC 3339), from the
+   * stored import runs.
+   */
+  lastUpdated: string | null;
+};
+
+export type SourceActivity =
+  | { kind: "idle" }
+  | { kind: "waiting"; reason: WaitReason; manual: boolean }
+  | { kind: "running"; manual: boolean; progress: number; step: PullStep }
+  | { kind: "problem"; problem: SchoolProblem };
+
+export type WaitReason =
+  | "queued"
+  | "offline"
+  | "cellular"
+  | "background"
+  | "schoolVisible"
+  | "suspended"
+  | "other";
+
+export type PullStep = {
+  kind: PullStepKind;
+  /**
+   * Items done and expected in this step; both 0 before the first report.
+   */
+  completed: number;
+  total: number;
+  term: string;
+  courseTitle: string;
+  itemTitle: string;
+};
+
+export type PullStepKind =
+  | "catalog"
+  | "course"
+  | "material"
+  | "assignment"
+  | "timetable"
+  | "saving"
+  | "kyomu";
+
+export type SchoolProblem =
+  | { kind: "maintenance"; detail: string }
+  | { kind: "failed"; detail: string | null }
+  | { kind: "partial"; detail: string | null };
+
+export type SignInState =
+  | { kind: "connected" }
+  | { kind: "step"; step: SignInStep }
+  | { kind: "needsUser"; message: string }
+  | { kind: "failed"; message: string };
+
+export type SignInStep =
+  "agree" | "identifier" | "password" | "method" | "otp" | "matrix" | "other";
+
 export type TeachingPeriod = {
   periods: [number, number];
   startTime: string;
   endTime: string;
+};
+
+export type TimetableAxis = {
+  /**
+   * Height of the whole axis in rows.
+   */
+  length: number;
+  /**
+   * Clock times and their offsets, ascending; a time between two stops
+   * interpolates linearly, one outside them clamps to the nearest end.
+   */
+  stops: Array<AxisStop>;
+  /**
+   * Teaching blocks and break bands, top to bottom.
+   */
+  rows: Array<AxisRow>;
+};
+
+export type AxisStop = {
+  /**
+   * Minutes since midnight.
+   */
+  minutes: number;
+  offset: number;
+};
+
+export type AxisRow = {
+  /**
+   * The block's periods; absent for a break band.
+   */
+  periods: [number, number] | null;
+  startTime: string;
+  endTime: string;
+  top: number;
+  bottom: number;
 };
 
 export type Term = { year: number; quarter: number };
@@ -805,6 +933,43 @@ export type AcademicYearCalendar = {
   days: Array<CalendarDayView>;
   importantDates: unknown[];
   published: boolean;
+};
+
+export type TimetableWeek = {
+  /**
+   * The Monday that names the week.
+   */
+  monday: string;
+  /**
+   * The quarter this week belongs to (`2026-3Q`); absent between quarters.
+   */
+  term: string | null;
+  /**
+   * The quarter's calendar week, counted as Today counts it.
+   */
+  week: number | null;
+  /**
+   * A weekday of this week falls in the quarter's exam period.
+   */
+  exams: boolean;
+};
+
+export type TimetableQuarter = {
+  term: string;
+  /**
+   * The Monday of the first teaching week: where jumping to the quarter
+   * lands, to show someone that quarter's courses.
+   */
+  firstWeek: string;
+};
+
+export type TimetableYear = {
+  year: number;
+  /**
+   * Quarters whose dates are known, in order.
+   */
+  quarters: Array<TimetableQuarter>;
+  weeks: Array<TimetableWeek>;
 };
 
 export type CalendarExportScope = "courses" | "courses-and-plans";
@@ -1019,7 +1184,111 @@ export type CourseDetail = {
    */
   lmsUrl: string | null;
   syllabusUrl: string | null;
+  /**
+   * Where the course's downloaded files live, for opening its materials.
+   */
+  files: CourseKey | null;
 };
+
+export type AssignmentDetail = {
+  assignmentId: string;
+  courseId: string;
+  title: string;
+  dueAt: string | null;
+  submission: string | null;
+  submissionStatus: string | null;
+  grade: string | null;
+  /**
+   * The LMS page, where the person reviews and submits.
+   */
+  sourceUrl: string | null;
+  /**
+   * The description as LMS shows it, without Moodle's own date lines,
+   * which the page states already.
+   */
+  bodyHtml: string;
+  /**
+   * Notes the assignment row carries besides the LMS text.
+   */
+  details: string;
+  attachments: Array<AssignmentAttachment>;
+  sectionNumber: number | null;
+  sectionTitle: string | null;
+  /**
+   * Where opened attachments are kept.
+   */
+  files: CourseKey | null;
+};
+
+export type CourseContent = {
+  courseId: string;
+  /**
+   * Sections with anything in them, in section order.
+   */
+  lessons: Array<LessonContent>;
+  /**
+   * Where the course is, as the desktop rail marks it (`markedLesson` in
+   * `lessons.ts`): the lesson the person last marked for a class, or the
+   * one after it once a later class has begun. Without a mark, the last
+   * numbered lesson with material (teachers post around class, so a
+   * cancelled class does not advance it); in a course without numbered
+   * lessons, the last section with any.
+   */
+  currentSection: number | null;
+  /**
+   * The class a "this class" mark is recorded against
+   * (`CourseTimeline.class_at`): the one in progress or held earlier
+   * today, else the next one. `None` when the course has no meetings.
+   */
+  classAt: string | null;
+};
+
+export type LessonContent = {
+  /**
+   * The LMS section number (0 is the course's general section).
+   */
+  section: number;
+  /**
+   * The LMS section id, which a lesson mark (`RecordLesson`) names.
+   */
+  sectionId: number | null;
+  title: string | null;
+  /**
+   * The lesson number read from the title (第3回, Lecture 3, #3), when the
+   * course numbers at least two of its sections.
+   */
+  number: number | null;
+  /**
+   * The section's own text (授業計画 and the like), made safe to render.
+   */
+  summaryHtml: string;
+  items: Array<LessonItem>;
+  /**
+   * Whether the section has material besides assignments.
+   */
+  posted: boolean;
+};
+
+export type LessonItem = {
+  materialId: string;
+  kind: LessonItemKind;
+  title: string;
+  /**
+   * The text shown in place, for pages, labels and announcements.
+   */
+  bodyHtml: string | null;
+  /**
+   * The LMS page or file Core resolves and downloads.
+   */
+  source: string | null;
+};
+
+export type LessonItemKind =
+  "file" | "link" | "folder" | "page" | "label" | "forum" | "other";
+
+export type AssignmentAttachment = { name: string; url: string };
+
+export type CourseKey = { term: string; course: string };
 
 export type ExamView = {
   id: string;
@@ -1304,6 +1573,7 @@ export type ScheduleIntensiveDay = { date: string; periods: [number, number] };
 
 export type WorkspaceQuery =
   | { kind: "teachingPeriods" }
+  | { kind: "timetableAxis"; earliest: string | null; latest: string | null }
   | { kind: "workspaceOverview"; term: string }
   | { kind: "subscriptionViews" }
   | { kind: "planningWeek"; term: string }
@@ -1320,6 +1590,8 @@ export type WorkspaceQuery =
   | { kind: "today"; now: string }
   | { kind: "assignmentBoard"; now: string }
   | { kind: "courseDetail"; courseId: string }
+  | { kind: "courseContent"; courseId: string; now: string }
+  | { kind: "assignmentDetail"; assignmentId: string }
   | { kind: "examAssociation"; examKey: string; courseId: string }
   | { kind: "lectureSearch"; term: string | null; query: string }
   | {
@@ -1342,6 +1614,7 @@ export type WorkspaceQuery =
   | { kind: "quarterRange"; term: string }
   | { kind: "scheduledCourses"; term: string }
   | { kind: "academicYear"; year: number }
+  | { kind: "timetableYear"; year: number }
   | {
       kind: "quarterIcs";
       term: string;
@@ -1370,6 +1643,7 @@ export type WorkspaceQuery =
 
 export type WorkspaceQueryResult =
   | { kind: "teachingPeriods"; value: Array<TeachingPeriod> }
+  | { kind: "timetableAxis"; value: TimetableAxis }
   | { kind: "workspaceOverview"; value: WorkspaceOverview }
   | { kind: "subscriptionViews"; value: unknown }
   | { kind: "planningWeek"; value: PlanningWeek }
@@ -1380,6 +1654,8 @@ export type WorkspaceQueryResult =
   | { kind: "today"; value: TodayView }
   | { kind: "assignmentBoard"; value: AssignmentBoard }
   | { kind: "courseDetail"; value: CourseDetail }
+  | { kind: "assignmentDetail"; value: AssignmentDetail | null }
+  | { kind: "courseContent"; value: CourseContent | null }
   | { kind: "examAssociation"; value: ExamAssociation }
   | { kind: "lectureSearch"; value: LectureSearch }
   | { kind: "scheduleView"; value: ScheduleView }
@@ -1388,6 +1664,7 @@ export type WorkspaceQueryResult =
   | { kind: "quarterRange"; value: QuarterRange | null }
   | { kind: "scheduledCourses"; value: unknown[] }
   | { kind: "academicYear"; value: AcademicYearCalendar }
+  | { kind: "timetableYear"; value: TimetableYear }
   | { kind: "quarterIcs"; value: string }
   | { kind: "declaredCredits"; value: number | null }
   | { kind: "displayColor"; value: string }

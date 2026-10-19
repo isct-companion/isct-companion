@@ -17,8 +17,8 @@ import {
 import type { PersonalEvent, Plan, TermId, Workspace } from "../../lib/model";
 
 import { planningColumns } from "../../components/timetable/workspace";
+import { tokyoDate } from "../../lib/civil-date";
 import type { CalendarExportScope } from "../../generated/persistence";
-import { resolvedTeachingPeriods } from "../../lib/timetable-layout";
 import { UiButton } from "../../components/mantine";
 import { YearQuarterPicker } from "./YearQuarterPicker";
 import { PullRing } from "../../components/PullRing";
@@ -144,7 +144,11 @@ export function Courses({
     key: "isct-companion-courses-week-length",
     defaultValue: "5",
   });
-  const allColumns = planningColumns(planning);
+  // The quarter running now marks today's weekday, which shows the now line.
+  const allColumns = planningColumns(
+    planning,
+    term === currentTerm ? tokyoDate(new Date()) : undefined,
+  );
   const columns =
     weekLength === "7"
       ? allColumns
@@ -416,12 +420,9 @@ export function Courses({
               }
               <WeekTimetable
                 days={columns}
-                teachingPeriods={resolvedTeachingPeriods(
-                  data.academicProfile.teachingPeriods,
-                )}
                 onSelect={select}
                 emptyLabel={t("Nothing scheduled this day")}
-                showNow={false}
+                showNow
                 onSlot={canEdit ? onSlot : undefined}
                 activeSlots={editing ? activeSlots : undefined}
               />

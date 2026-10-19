@@ -31,6 +31,26 @@ pub struct LocalFile {
     pub text: Option<String>,
 }
 
+/// A safe folder name for a course or term, matching the folders desktop
+/// already created (`folderComponent` in `features/lms/files.ts`): every
+/// other UTF-16 unit becomes `_`, at most 120 characters.
+pub fn folder_name(value: &str) -> String {
+    let mut name = String::new();
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-') {
+            name.push(character);
+        } else {
+            name.extend(std::iter::repeat_n('_', character.len_utf16()));
+        }
+    }
+    name.truncate(120);
+    if name.is_empty() || name == "." || name == ".." {
+        "course".into()
+    } else {
+        name
+    }
+}
+
 pub fn component(value: &str) -> Result<&str, StorageError> {
     if value.is_empty()
         || value.len() > 120

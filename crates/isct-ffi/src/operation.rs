@@ -20,6 +20,7 @@ pub enum OperationResult {
     SchoolWeb { result: SchoolWebResult },
     SchoolPull { outcomes: Vec<IngestOutcome> },
     Pulls { snapshots: Vec<PullSnapshot> },
+    SchoolStatus { status: SchoolStatus },
     Cloud { state: SyncState },
     File { file: LocalFile },
     Files { files: Vec<LocalFile> },

@@ -1,6 +1,7 @@
 import { t } from "../../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { openMaterial, type CourseFolder } from "./files";
+import type { AssignmentAttachment } from "../../platform/core-query";
 
 /** A per-assignment folder (desktop only); see `apps/desktop/src-tauri/src/workspaces.rs`. */
 export type AssignmentWorkspace = {
@@ -11,36 +12,6 @@ export type AssignmentWorkspace = {
   zip: boolean;
   zipName: string;
 };
-
-/** LMS files linked from an assignment's description. */
-export function assignmentAttachments(
-  html: string,
-): { url: string; name: string }[] {
-  const page = new DOMParser().parseFromString(html, "text/html");
-  const seen = new Set<string>();
-  return [
-    ...page.querySelectorAll<HTMLAnchorElement>('a[href*="/pluginfile.php/"]'),
-  ].flatMap((link) => {
-    const url = link.getAttribute("href") ?? "";
-    if (seen.has(url)) return [];
-    try {
-      const parsed = new URL(url);
-      if (
-        parsed.protocol !== "https:" ||
-        parsed.hostname !== "lms.s.isct.ac.jp"
-      )
-        return [];
-      seen.add(url);
-      const name =
-        decodeURIComponent(parsed.pathname.split("/").pop() || "") ||
-        link.textContent?.trim() ||
-        "attachment";
-      return [{ url, name }];
-    } catch {
-      return [];
-    }
-  });
-}
 
 /** Description HTML as plain text that keeps its paragraphs and list items. */
 function plainText(html: string): string {
@@ -114,11 +85,11 @@ export const workspaceMissing = (error: unknown) =>
 export async function createWorkspace(
   context: CourseFolder,
   assignment: { id: string; title: string },
-  html: string,
+  files: readonly AssignmentAttachment[],
   brief: (attachments: string[]) => string,
 ): Promise<AssignmentWorkspace> {
   const attachments = [];
-  for (const file of assignmentAttachments(html)) {
+  for (const file of files) {
     const material = await openMaterial(context, file.url, { download: true });
     if (material.state !== "ready")
       throw new Error(

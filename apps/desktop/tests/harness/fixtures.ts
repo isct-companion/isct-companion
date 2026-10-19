@@ -1,6 +1,10 @@
 import { seedWorkspace } from "@app/lib/model";
 import type { Course, PlanItem, Workspace } from "@app/lib/model";
-import type { FinderCourse, LectureSearch } from "@app/generated/persistence";
+import type {
+  FinderCourse,
+  LectureSearch,
+  TimetableAxis,
+} from "@app/generated/persistence";
 import type { SchoolRecords } from "@app/platform/desktop-bridge";
 
 /**
@@ -243,3 +247,74 @@ export function lectureSearchFor(
     examKeys: [],
   };
 }
+
+/** Core's `timetable_axis` for the default teaching periods, as Core
+ * serializes it; regenerate it if the axis rules change. */
+export const DEFAULT_TIMETABLE_AXIS: TimetableAxis = {
+  length: 12.5,
+  stops: [
+    { minutes: 530, offset: 0.0 },
+    { minutes: 630, offset: 2.0 },
+    { minutes: 645, offset: 2.0 },
+    { minutes: 745, offset: 4.0 },
+    { minutes: 810, offset: 4.5 },
+    { minutes: 910, offset: 6.5 },
+    { minutes: 925, offset: 6.5 },
+    { minutes: 1025, offset: 8.5 },
+    { minutes: 1035, offset: 8.5 },
+    { minutes: 1135, offset: 10.5 },
+    { minutes: 1145, offset: 10.5 },
+    { minutes: 1245, offset: 12.5 },
+  ],
+  rows: [
+    {
+      periods: [1, 2],
+      startTime: "08:50",
+      endTime: "10:30",
+      top: 0.0,
+      bottom: 2.0,
+    },
+    {
+      periods: [3, 4],
+      startTime: "10:45",
+      endTime: "12:25",
+      top: 2.0,
+      bottom: 4.0,
+    },
+    {
+      periods: null,
+      startTime: "12:25",
+      endTime: "13:30",
+      top: 4.0,
+      bottom: 4.5,
+    },
+    {
+      periods: [5, 6],
+      startTime: "13:30",
+      endTime: "15:10",
+      top: 4.5,
+      bottom: 6.5,
+    },
+    {
+      periods: [7, 8],
+      startTime: "15:25",
+      endTime: "17:05",
+      top: 6.5,
+      bottom: 8.5,
+    },
+    {
+      periods: [9, 10],
+      startTime: "17:15",
+      endTime: "18:55",
+      top: 8.5,
+      bottom: 10.5,
+    },
+    {
+      periods: [11, 12],
+      startTime: "19:05",
+      endTime: "20:45",
+      top: 10.5,
+      bottom: 12.5,
+    },
+  ],
+};

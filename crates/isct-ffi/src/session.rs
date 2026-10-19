@@ -360,6 +360,14 @@ impl Session {
             })
         })
     }
+    /// What the school connection is doing; re-read on `school-status`.
+    pub fn school_status(&self) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, |i, _| async move {
+            Ok(OperationResult::SchoolStatus {
+                status: project(i.core.school_status().await?)?,
+            })
+        })
+    }
     pub fn cancel_pull(&self, id: String) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
             Ok(OperationResult::Flag {

@@ -4,13 +4,13 @@ import type { Alternation } from "../../lib/model";
 import { useState } from "react";
 import { Menu } from "@mantine/core";
 import {
-  blockPosition,
-  teachingRows,
-  timetableBounds,
-  timetableOffset,
-  timetablePosition,
+  axisPosition,
+  axisRows,
+  axisSpan,
+  nowPercent,
 } from "../../lib/timetable-layout";
-import type { TeachingPeriod } from "../../generated/persistence";
+import { useScheduleQuery } from "../../platform/core-query";
+import type { TimetableAxis } from "../../generated/persistence";
 
 export const dayNames = [
   "Monday",
@@ -68,7 +68,9 @@ export type DayColumn = {
  * A shared 演習・実験 block as its two courses, exercise on the left, so
  * each half names and opens its own course. Other blocks stay whole.
  */
-function blockHalves(block: Block): { block: Block; side?: "left" | "right" }[] {
+function blockHalves(
+  block: Block,
+): { block: Block; side?: "left" | "right" }[] {
   const pair = block.alternation?.pair;
   if (pair?.length !== 2) return [{ block }];
   return pair.map((course, index) => ({
@@ -110,7 +112,6 @@ export function WeekTimetable({
   emptyLabel = "Nothing scheduled",
   onSlot,
   activeSlots,
-  teachingPeriods,
   actionsFor,
 }: {
   days: DayColumn[];
@@ -123,7 +124,6 @@ export function WeekTimetable({
   onSlot?: (day: number, from: number, to: number, append: boolean) => void;
   /** Slots to highlight, as `${day}:${from}-${to}`. */
   activeSlots?: ReadonlySet<string>;
-  teachingPeriods: readonly TeachingPeriod[];
   /** Right-click entries for a block; none leaves the native menu alone. */
   actionsFor?: (block: Block) => BlockAction[];
 }) {
@@ -141,12 +141,17 @@ export function WeekTimetable({
   const [day, setDay] = useState(
     Math.min(Math.max(initialDay, 1), Math.max(days.length, 1)),
   );
-  const rows = teachingRows(teachingPeriods);
-  const bounds = timetableBounds(
-    teachingPeriods,
-    days.flatMap((column) => column.blocks),
-  );
-  const nowOffset = showNow ? timetableOffset(jstMinutes(), bounds) : undefined;
+  // Every period is one row; Core places times on that axis
+  // (`timetable_axis`), widened around classes outside the teaching day.
+  const span = axisSpan(days.flatMap((column) => column.blocks));
+  const axis = useScheduleQuery<TimetableAxis>({
+    kind: "timetableAxis",
+    earliest: span.earliest ?? null,
+    latest: span.latest ?? null,
+  }).value;
+  const rows = axis ? axisRows(axis) : [];
+  const nowOffset =
+    showNow && axis ? nowPercent(axis, jstMinutes()) : undefined;
   const agenda = days[day - 1]?.blocks ?? [];
   return (
     <div
@@ -173,11 +178,7 @@ export function WeekTimetable({
         ))}
         <div className="ttAxis">
           {rows.map((period) => {
-            const position = timetablePosition(
-              period.start,
-              period.end,
-              bounds,
-            );
+            const position = period;
             return (
               <div
                 className={period.isBreak ? "lunch" : ""}
@@ -203,11 +204,8 @@ export function WeekTimetable({
               rows
                 .filter((period) => !period.isBreak)
                 .map((period) => {
-                  const position = timetablePosition(
-                    period.start,
-                    period.end,
-                    bounds,
-                  );
+                  // The selection fills the same cell a class there fills.
+                  const position = period;
                   const [from, to] = period.periods as readonly [
                     number,
                     number,
@@ -239,11 +237,7 @@ export function WeekTimetable({
                   );
                 })}
             {rows.map((period) => {
-              const position = timetablePosition(
-                period.start,
-                period.end,
-                bounds,
-              );
+              const position = period;
               return (
                 <i
                   className={period.isBreak ? "ttLunch" : "ttRule"}
@@ -259,13 +253,16 @@ export function WeekTimetable({
             })}
             {column.blocks.flatMap(blockHalves).map(({ block, side }) => {
               // A block without readable times is left out rather than breaking the page.
-              if (!CLOCK.test(block.startTime) || !CLOCK.test(block.endTime))
+              if (
+                !axis ||
+                !CLOCK.test(block.startTime) ||
+                !CLOCK.test(block.endTime)
+              )
                 return null;
-              const position = blockPosition(
+              const position = axisPosition(
+                axis,
                 block.startTime,
                 block.endTime,
-                rows,
-                bounds,
               );
               return (
                 <UiButton

@@ -20,7 +20,7 @@ Verified in the iPhone 17 simulator (iOS 26) against a copy of a real desktop
   `today`'s groups and its bottom row opens the full `record`. The Swift side
   was rewritten for that shape and first checked on a device, not the
   simulator.
-- Course detail: the map, T2SCHOLA and syllabus links, which come from
+- Course detail: the map, LMS and syllabus links, which come from
   `CourseDetail.lmsUrl` / `syllabusUrl` in Core.
 - The ウェブ tab and pushed school pages load the SSO login page in the resident
   WKWebView.
@@ -49,7 +49,7 @@ exercised.
   fresh install, with no copied `school.db`.
 - Check that the SSO plus matrix second factor completes inside the resident
   WKWebView (`Core/SchoolBrowserHost.swift`).
-- Open question: once, the first tap on a course's T2SCHOLA link opened Safari
+- Open question: once, the first tap on a course's LMS link opened Safari
   instead of the in-app page, and it could not be reproduced. Watch the
   `app.isctcompanion` / `school-web` log category in Console while you test.
 
@@ -80,6 +80,17 @@ these items only work in a signed build:
 - **Widgets.** These need a widget extension target and an App Group shared
   with the app. The read model should be Core's `today` query, not a second copy.
 
+## Built, not yet checked on a device (2026-10-19)
+
+- ウェブ: sites are switched by long-pressing the tab (`TabBarLongPress`, a
+  recognizer on the `UITabBarController`'s bar) instead of the floating
+  button. On iOS 26 check that the press lands on the ウェブ item and that the
+  bar's own drag does not also switch tabs; if the recognizer cannot attach,
+  fall back to `tabViewBottomAccessory` opening the same `SitePickerRows`.
+- Settings: notifications (classes, exams, assignment lead times), study
+  profile, data updates (cellular switch, last read per site, 今すぐ更新) and
+  the ウェブ tab's text size and first site, on the desktop's settings keys.
+
 ## Not blocked, still open
 
 These can be done anywhere:
@@ -88,6 +99,8 @@ These can be done anywhere:
 - A String Catalog generated from `resources/locales`. The UI strings are
   inline Japanese for now.
 - A row for intensive courses (集中講義) in 時間割.
+- ログを共有 in 設定 › 情報: Core keeps a log ring (`diagnostics.rs`) but the
+  FFI exposes no export yet.
 
 Android (Compose) comes after iOS and uses the same Core queries. Its design
 tokens are already generated to `design/dist/android/`.

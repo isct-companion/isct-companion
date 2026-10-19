@@ -9,6 +9,7 @@ import {
   courseFor,
   offering,
   flush,
+  DEFAULT_TIMETABLE_AXIS,
   mountApp,
   overviewFor,
   planningWeekFor,
@@ -20,6 +21,7 @@ import {
   type FakeCoreOptions,
   type MountedApp,
 } from "@tests/harness";
+import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
 import type {
   CloudSyncState,
   SchoolCredentialStatus,
@@ -466,10 +468,10 @@ describe("School accounts", () => {
       for (const label of ["ID", "Password", "Code", "Signed in"])
         expect(steps.textContent).toContain(label);
 
-      // Every account card listens for its own profile: the host has the shell's
-      // status-bar listener plus one per card.
+      // Every account card listens for its own profile; the status bar reads
+      // sign-in from Core's school status instead.
       await wait(() =>
-        expect(mounted.core.listenerCount("school-login-status")).toBe(3),
+        expect(mounted.core.listenerCount("school-login-status")).toBe(2),
       );
       await act(async () =>
         emitNative(mounted.core, "school-login-status", {
@@ -602,7 +604,7 @@ describe("School accounts", () => {
 
       await clickButton(account(mounted, "science"), "Connect");
       await wait(() =>
-        expect(mounted.core.listenerCount("school-login-status")).toBe(3),
+        expect(mounted.core.listenerCount("school-login-status")).toBe(2),
       );
 
       // The other card never started a login, so its event must not pull anyone away.
@@ -1928,6 +1930,23 @@ describe("Academic calendar profile", () => {
           // profile so this case exercises the real form, mutation and view wiring.
           validateAcademicProfile: (query) =>
             (query as { profile: Workspace["academicProfile"] }).profile,
+          // The axis geometry is Core's (tested in Rust); this host answers
+          // with the stored periods so the saved times reach the view axis.
+          timetableAxis: (_query, core) => {
+            const periods =
+              core.workspace.academicProfile.teachingPeriods ??
+              DEFAULT_TEACHING_PERIODS;
+            return {
+              ...DEFAULT_TIMETABLE_AXIS,
+              rows: periods.map((period, index) => ({
+                periods: period.periods,
+                startTime: period.startTime,
+                endTime: period.endTime,
+                top: index * 2,
+                bottom: index * 2 + 2,
+              })),
+            };
+          },
           scheduleView: (_query, core) =>
             scheduleViewFor(core.workspace, {
               agendas: [

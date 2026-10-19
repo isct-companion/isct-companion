@@ -95,8 +95,16 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             .first
     }
 
+    /// The text scales offered for school pages, in percent.
+    static let textScales = [100, 115, 130]
+    /// Where the chosen scale is kept on this device (設定 › ウェブ).
+    static let textScaleKey = "web.textScale"
+
     /// Text scale for school pages, in percent; starts above 100 for readability.
-    @MainActor private(set) var textScale = 115
+    @MainActor private(set) var textScale: Int = {
+        let stored = UserDefaults.standard.integer(forKey: textScaleKey)
+        return textScales.contains(stored) ? stored : 115
+    }()
 
     private static let noScriptedFocus = "HTMLElement.prototype.focus = function () {};"
 
@@ -104,12 +112,18 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         "document.documentElement.style.webkitTextSizeAdjust = '\(percent)%';"
     }
 
-    /// Cycles 100 → 115 → 130 % on every resident page.
-    @MainActor func cycleTextScale() {
-        textScale = textScale >= 130 ? 100 : textScale + 15
+    /// Applies and keeps a text scale on every resident page.
+    @MainActor func setTextScale(_ percent: Int) {
+        textScale = percent
+        UserDefaults.standard.set(percent, forKey: Self.textScaleKey)
         for view in views.values {
             view.webView.evaluateJavaScript(Self.textScaleScript(textScale))
         }
+    }
+
+    /// Cycles 100 → 115 → 130 % on every resident page.
+    @MainActor func cycleTextScale() {
+        setTextScale(textScale >= 130 ? 100 : textScale + 15)
     }
 
     @MainActor private func create(_ id: BrowserId, _ initialUrl: String) {

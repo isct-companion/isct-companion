@@ -2,7 +2,7 @@ import { expect } from "vitest";
 import type { WorkspaceIntent } from "@app/lib/workspace-intents";
 import type { Workspace } from "@app/lib/model";
 import type { SchoolRecords } from "@app/platform/desktop-bridge";
-import { emptySchoolRecords } from "./fixtures";
+import { DEFAULT_TIMETABLE_AXIS, emptySchoolRecords } from "./fixtures";
 
 /**
  * A scripted stand-in for the Tauri host.
@@ -141,7 +141,10 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     if (!query || typeof query !== "object") return null;
     const kind = (query as { kind?: string }).kind;
     if (!kind) return null;
-    const entry = options.queries?.[kind];
+    const entry =
+      options.queries?.[kind] ??
+      // Every timetable asks for Core's axis; the default periods answer it.
+      (kind === "timetableAxis" ? DEFAULT_TIMETABLE_AXIS : undefined);
     if (entry === undefined) return null;
     return typeof entry === "function"
       ? (entry as (value: unknown, core: FakeCore) => unknown)(query, core)
@@ -232,6 +235,17 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         return options.credentialStatus ?? emptyCredentialStatus();
       case "pull_state":
         return [];
+      case "school_status":
+        // Core folds pulls into this; a test drives it with `school-status`.
+        return {
+          headline: { kind: "idle" },
+          sources: (["science-lms", "kyomu"] as const).map((site) => ({
+            site,
+            activity: { kind: "idle" },
+            signIn: null,
+            lastUpdated: null,
+          })),
+        };
       case "catalog_offerings":
       case "catalog_sync_offerings":
       case "catalog_sync_department":

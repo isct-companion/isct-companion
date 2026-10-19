@@ -8,7 +8,10 @@ import type { Localized } from "../lib/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type { SyllabusCourse } from "../lib/syllabus";
-import type { SchoolPageAvailability } from "../generated/persistence";
+import type {
+  SchoolPageAvailability,
+  SchoolStatus,
+} from "../generated/persistence";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop";
@@ -134,16 +137,6 @@ export type SchoolIngestOutcome = {
   state: "ok" | "unavailable" | "maintenance" | "reconnect-required" | "error";
   changed: number;
   message: string;
-};
-export type SchoolPullProgress = {
-  site: "science-lms" | "kyomu";
-  phase: "catalog" | "course" | "material" | "assignment" | "timetable";
-  completed: number;
-  total: number;
-  courseId: number;
-  courseTitle: string;
-  term: string;
-  itemTitle: string;
 };
 export type SchoolPullOptions = {
   currentOnly?: boolean;
@@ -320,25 +313,6 @@ export type PullSnapshot = {
 };
 
 /** Prefer executing work when an older automatic request is blocked. */
-export function schoolPullForDisplay(
-  states: PullSnapshot[],
-  site: "science-lms" | "kyomu",
-) {
-  const active = states.filter(
-    (pull) =>
-      pull.target.type === "school" &&
-      pull.target.site === site &&
-      !["succeeded", "failed", "cancelled"].includes(pull.state),
-  );
-  return (
-    active.find((pull) =>
-      ["running", "applying", "cancelling"].includes(pull.state),
-    ) ??
-    active.find((pull) => pull.state !== "blocked") ??
-    active[0]
-  );
-}
-
 export type InvokeNative = (
   command: string,
   payload?: Record<string, unknown>,
@@ -495,10 +469,9 @@ export interface DesktopBridge {
   setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
   /** An extractor finished while the person browsed LMS / 教務Web. */
   onSchoolIngest?(callback: (outcome: SchoolIngestOutcome) => void): () => void;
-  /** Fine-grained progress from a running hidden LMS extraction. */
-  onSchoolPullProgress?(
-    callback: (progress: SchoolPullProgress) => void,
-  ): () => void;
+  /** Core's school status (`school_status.rs`): the current value, then
+   * every change. */
+  onSchoolStatus?(callback: (status: SchoolStatus) => void): () => void;
   /** Saves a validated workspace export under app-owned local storage. */
   /** Asks where to save an exported file; false when the person cancels. */
   saveFile(name: string, contents: string): Promise<boolean>;
@@ -912,32 +885,35 @@ export function createTauriDesktopBridge(
         }
       };
     },
-    onSchoolPullProgress: (callback) => {
+    onSchoolStatus: (callback) => {
       let disposed = false;
       let unlisten: (() => void) | undefined;
-      void listen<SchoolPullProgress>("school-pull-progress", (payload) => {
-        if (
-          !disposed &&
-          payload?.site === "science-lms" &&
-          typeof payload.completed === "number" &&
-          typeof payload.total === "number"
-        )
+      let version = 0;
+      void listen<SchoolStatus>("school-status", (payload) => {
+        if (!disposed && payload?.headline) {
+          version++;
           callback(payload);
-      }).then((fn) => {
-        if (disposed) {
-          try {
-            void Promise.resolve(fn() as unknown).catch(() => undefined);
-          } catch {
-            // The runtime is already gone (window closing, tests).
+        }
+      })
+        .then(async (fn) => {
+          if (disposed) {
+            fn();
+            return;
           }
-        } else unlisten = fn;
-      });
+          unlisten = fn;
+          // Listen first, then read, as for pull state.
+          const currentVersion = version;
+          const value = (await invokeCommand("school_status")) as SchoolStatus;
+          if (!disposed && currentVersion === version && value?.headline)
+            callback(value);
+        })
+        .catch(() => undefined);
       return () => {
         disposed = true;
         try {
-          void Promise.resolve(unlisten?.() as unknown).catch(() => undefined);
+          void Promise.resolve(unlisten?.()).catch(() => undefined);
         } catch {
-          // The runtime is already gone (window closing, tests).
+          /* Closing runtime. */
         }
       };
     },

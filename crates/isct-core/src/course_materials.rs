@@ -24,7 +24,9 @@ const MAX_RETENTION_DAYS: u64 = 3650;
 /// long without writes; an active download keeps touching its file.
 const STALE_PARTIAL_AGE: Duration = Duration::from_secs(6 * 60 * 60);
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+/// A course's download folder: `<term>/<course>` under the files directory.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CourseKey {
     pub term: String,
     pub course: String,
