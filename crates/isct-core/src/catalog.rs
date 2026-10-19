@@ -396,7 +396,7 @@ pub async fn kyomu_query(
         || filters
             .period_starts
             .as_ref()
-            .is_some_and(|values| values.iter().any(|period| *period == 0))
+            .is_some_and(|values| values.contains(&0))
         || filters
             .language
             .as_ref()

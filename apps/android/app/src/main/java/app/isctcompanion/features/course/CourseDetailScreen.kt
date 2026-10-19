@@ -45,13 +45,11 @@ import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.number
-import app.isctcompanion.core.roomMapQuery
 import app.isctcompanion.core.text
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.DeadlineLink
 import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.Format
-import app.isctcompanion.design.MapButton
 import app.isctcompanion.design.MaterialRow
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.PageSubtitle
@@ -168,7 +166,6 @@ private fun RoomCard(meeting: Meeting, tint: Color) {
             )
             Text("${meeting.start} – ${meeting.end}", style = MaterialTheme.typography.bodyMedium.tabular(), color = tint)
         }
-        roomMapQuery(meeting.room)?.let { MapButton(it, "地図", tint) }
     }
 }
 

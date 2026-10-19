@@ -763,6 +763,28 @@ describe("Tokyo Tech sign-in", () => {
     expect(page.relays.at(-1)?.state).toBe("invalid-matrix");
   });
 
+  it("hands the post-sign-in password change form to the person", async () => {
+    const page = loadLoginPage(
+      `<form name="pwchange" method="POST" action="${GETACCESS}">
+        <p>パスワード変更</p>
+        <input type="password" name="old_password">
+        <input type="password" name="new_password">
+        <input type="password" name="confirm_password">
+        <input type="submit" value="変更"></form>`,
+      afterPassword,
+    );
+    page.start();
+    await settle();
+    expect(page.submitted).toHaveLength(0);
+    expect(page.relays.at(-1)).toMatchObject({
+      state: "needs-user",
+      message: expect.stringContaining("change your password"),
+    });
+    expect((page.$('[name="new_password"]') as HTMLInputElement).value).toBe(
+      "",
+    );
+  });
+
   it("reports a rejected password from the fail redirect", async () => {
     const page = loadLoginPage(`<p>portal</p>`, {
       url: "https://portal.nap.gsic.titech.ac.jp/?Message=fail&GAURI=x",

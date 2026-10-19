@@ -63,7 +63,9 @@ fn official_delivery_facts_survive_syllabus_enrichment_in_both_arrival_orders() 
         for row in rows {
             store.catalog_upsert_offerings(&[row]).unwrap();
         }
-        store.catalog_upsert_offerings(&[syllabus.clone()]).unwrap();
+        store
+            .catalog_upsert_offerings(std::slice::from_ref(&syllabus))
+            .unwrap();
         let merged = store.catalog_offering("202602431").unwrap().unwrap();
         assert_eq!(merged["schedule"], official["schedule"]);
         assert_eq!(merged["credits"], official["credits"]);

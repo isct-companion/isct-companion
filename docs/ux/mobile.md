@@ -82,7 +82,7 @@ All local; no push server.
 
 | Kind | Body | Long-press actions |
 |---|---|---|
-| Class reminder (5/10/15/30 min lead) | `10:45 機械学習基礎` / `W9-202 · starts in 15 min` | Open map · Open course |
+| Class reminder (5/10/15/30 min lead) | `10:45 機械学習基礎` / `W9-202 · starts in 15 min` | Open course |
 | Deadline | `演習 3 提出 · 今日 23:59` / course · status · countdown | Open submission page · Hide |
 | New grade, material or announcement | What changed and where | Open course |
 
@@ -91,10 +91,12 @@ local "mark done": submission state comes from the LMS.
 
 ### Maps
 
-- Now: room → building → Apple Maps / Google Maps link with coordinates.
-- Later: building table in core (code → campus, coordinates) covering
-  Ookayama, Suzukakedai, Tamachi and Yushima; then MapKit or a navigation API
-  for walking directions.
+- Not shipped yet. A text search for the building code (`東京科学大学 M`)
+  rarely lands on the right building, so the map button is held back until
+  Core has a building table (code → campus, coordinates) covering Ookayama,
+  Suzukakedai, Tamachi and Yushima. Shells then open the coordinates in
+  Apple Maps / Google Maps; MapKit or a navigation API for walking
+  directions comes after that.
 
 ### Deferred
 
@@ -115,7 +117,7 @@ sense. Everything else is pushed or presented from them.
 
 | Pushed / presented | From | Content |
 |---|---|---|
-| Course detail (push) | Any class or assignment row, timetable block | Room card with map, open assignments, latest materials, T2SCHOLA and syllabus links |
+| Course detail (push) | Any class or assignment row, timetable block | Room card, open assignments, latest materials, T2SCHOLA and syllabus links |
 | School web (push, full screen) | Course detail, assignment, notification | The page fills the screen; back returns to where it was opened from |
 | Settings (sheet) | Gear button on the Today title | School accounts, notifications, study profile, matrix card import, iCloud sync |
 
@@ -130,7 +132,7 @@ order and never sorts, filters or decides what is due.
 
 | Phase | Hero card | Then |
 |---|---|---|
-| Before first class / between classes | Next class: start time and room in large figures, course, countdown chip, map button. Course tint. | Rest of today (time, course, room) · Nearest deadlines |
+| Before first class / between classes | Next class: start time and room in large figures, course, countdown chip. Course tint. | Rest of today (time, course, room) · Nearest deadlines |
 | In class | Current class: minutes left, progress bar, end time, room. Course tint. | This class: newest material, open assignment · Next class · Deadlines due today |
 | After classes | Nearest deadline tonight: time, title, course, countdown, "open submission page". Danger tint. | Tomorrow's first class · Other deadlines |
 | No classes | — | Deadlines · New (grades, materials since last open) · Next class card |
@@ -196,7 +198,7 @@ used.
 | Gesture | Meaning |
 |---|---|
 | Tap | Open |
-| Long press | Quick actions (at most 4): map, open course, pin, hide |
+| Long press | Quick actions (at most 4): open course, pin, hide |
 | Horizontal swipe on content | Change week (timetable) |
 | Row swipe | Row actions (assignment: right pin, left hide) |
 | Pull down | Manual pull |
@@ -297,7 +299,7 @@ deep links from phone items to the same item on desktop.
 | Today | `today(now)`: phase, hero, sections, day status | Manual pull, hide assignment, open course, open web target |
 | Timetable | Week plane (classes, intensive courses, exams, plans) | Change week, open course |
 | Assignments | Open assignments grouped by deadline; hidden and submitted lists | Hide, unhide, open submission page |
-| Course detail | Course header, room, open assignments, latest materials, links | Open file, open web target, open map |
+| Course detail | Course header, room, open assignments, latest materials, links | Open file, open web target |
 | School web | Current site, safe restorable URL, opener | Switch site, navigate |
 | Settings | Account cards, credential state, last pull, sync state | Sign in, forget credentials, import matrix card, connect cloud |
 | Widgets | `glance(now)`: next class, rest of today, nearest deadlines | — |
@@ -309,7 +311,6 @@ deep links from phone items to the same item on desktop.
 | Notifications | `notification_plan(now, horizon)` | Schedule with UNUserNotificationCenter / AlarmManager, apply the platform limit (iOS: 64 pending), permission prompts |
 | Today phase | `today(now)` decides the phase and its content | Render in order; re-request on wake and at the phase boundaries core reports |
 | Course colour | `display_color(course)` | Render |
-| Map link | Room → building → URL (building table later) | Open the URL |
 | Background refresh | `Core::tick` / `refresh_once` | BGAppRefreshTask / WorkManager; report foreground, network and cellular facts |
 | Campus Wi-Fi | Policy | `CampusWifi` port; the row does not exist where there is no port |
 | Matrix card OCR | `OcrProgress`, raw bytes in | HEIC → JPEG before OCR |

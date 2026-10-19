@@ -120,25 +120,28 @@ impl SchoolBrowserEngine {
                 return Err(SchoolBrowserError::Preempted);
             }
             let lane = self.acquire_pull_lane(context).await?;
-            let result = self
-                .capture_page(
-                    SchoolSite::Kyomu,
-                    Some(page.clone()),
-                    url,
-                    None,
-                    LmsScope::Summary,
-                    PAGE_TIMEOUT,
-                    context,
-                )
-                .await;
+            let result = match self.enter_kyomu(context).await {
+                Ok(HiddenLoad::Ready(_)) => {
+                    self.capture_page(
+                        SchoolSite::Kyomu,
+                        Some(page.clone()),
+                        url,
+                        None,
+                        LmsScope::Summary,
+                        PAGE_TIMEOUT,
+                        context,
+                    )
+                    .await
+                }
+                Ok(HiddenLoad::SignInRequired) => Ok(HiddenLoad::SignInRequired),
+                Err(error) => Err(error),
+            };
             drop(lane);
             match result {
-                Err(error) => return Err(error),
-                Ok(HiddenLoad::SignInRequired) => {
-                    return Err(SchoolBrowserError::Auth(
-                        "Sign in to 教務Web in Settings to search courses.".into(),
-                    ))
-                }
+                Err(error) => Err(error),
+                Ok(HiddenLoad::SignInRequired) => Err(SchoolBrowserError::Auth(
+                    "Sign in to 教務Web in Settings to search courses.".into(),
+                )),
                 Ok(HiddenLoad::Ready(raw)) => {
                     let (stage, payload) = parse_kyomu_payload(&raw)
                         .map_err(|e| SchoolBrowserError::InvalidInput(e.to_string()))?;
@@ -152,14 +155,14 @@ impl SchoolBrowserEngine {
                             "Reconnect 教務Web to search courses.".into(),
                         ));
                     }
-                    return payload
+                    payload
                         .filter(|p| p.kind == "catalog")
                         .map(|p| p.data)
                         .ok_or_else(|| {
                             SchoolBrowserError::InvalidInput(
                                 "The official course result is incomplete.".into(),
                             )
-                        });
+                        })
                 }
             }
         })
@@ -212,16 +215,7 @@ impl SchoolBrowserEngine {
                 Ok(vec![outcome])
             }
             SchoolSite::Kyomu => {
-                let landing = self
-                    .navigate_and_wait(
-                        site,
-                        &format!("{KYOMU_ROOT}Default.aspx"),
-                        Some(&format!("{KYOMU_ROOT}Student/")),
-                        OPEN_TIMEOUT,
-                        context,
-                    )
-                    .await?;
-                if let HiddenLoad::SignInRequired = landing {
+                if let HiddenLoad::SignInRequired = self.enter_kyomu(context).await? {
                     let outcome = sign_in_required(site, "session");
                     let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
                     return Ok(vec![outcome]);
@@ -283,6 +277,22 @@ impl SchoolBrowserEngine {
                 "Only LMS and 教務Web can be pulled.".into(),
             )),
         }
+    }
+
+    /// 教務Web starts its ASP.NET session only from its entry page. A student
+    /// page opened directly without one lands on the GetAccess resource list.
+    pub(super) async fn enter_kyomu(
+        &self,
+        context: &PullContext,
+    ) -> Result<HiddenLoad<PageLoaded>, SchoolBrowserError> {
+        self.navigate_and_wait(
+            SchoolSite::Kyomu,
+            &format!("{KYOMU_ROOT}Default.aspx"),
+            Some(&format!("{KYOMU_ROOT}Student/")),
+            OPEN_TIMEOUT,
+            context,
+        )
+        .await
     }
 
     pub(super) async fn navigate_and_wait(
@@ -443,7 +453,7 @@ impl SchoolBrowserEngine {
         };
         let started = Instant::now();
         log::info!(target: "isct_core::school_browser", "capture start site={site:?} run={run} scope={scope:?} course={course_id:?} path={} timeout_s={}", parsed.path(), timeout.as_secs());
-        self.dispatch(browser, BrowserAction::Navigate(parsed))?;
+        self.dispatch(browser, BrowserAction::Navigate(parsed.clone()))?;
         let mut signing_in = None;
         let raw = tokio::time::timeout(timeout, async {
             loop {
@@ -463,6 +473,7 @@ impl SchoolBrowserEngine {
                         return Ok(HiddenLoad::Ready(raw))
                     }
                     Ok(Trace::Loaded(event)) if event.page.browser == browser => {
+                        log::info!(target: "isct_core::school_browser", "capture loaded run={run} path={} target={}", event.url.path(), event.url == parsed);
                         if self.sign_in_landing(&event.url, &mut signing_in) {
                             return Ok(HiddenLoad::SignInRequired);
                         }

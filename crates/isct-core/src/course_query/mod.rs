@@ -1171,7 +1171,7 @@ pub fn suggest(
             || ctx
                 .official_options
                 .iter()
-                .any(|o| o.family == "level" && o.label == literal.values[0].to_string()))
+                .any(|o| o.family == "level" && o.label == literal.values[0]))
         && !scored
             .iter()
             .any(|(score, key)| *key == literal.key || *score == 3)

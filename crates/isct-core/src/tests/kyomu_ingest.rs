@@ -325,6 +325,14 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     assert_eq!(first[0]["meetings"][0]["room"], "");
     assert_eq!(first[0]["meetings"][0]["days"], json!([1]));
     assert!(crate::schedule::scheduled_courses(&upgraded, "2026-2Q").is_empty());
+    // Without a syllabus room, the official room of the same slot fills it.
+    apply_kyomu_payload(&mut connection,&registration(json!(["1Q","2Q"]),json!([{
+        "offeringId":"202600041","code":"CSC.T101","title":"Official earlier","instructor":"Teacher",
+        "schedule":[{"quarter":"1Q","day":"月","periods":[3,4],"room":"Official room"}]
+    }]))).unwrap();
+    let first = crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q");
+    assert_eq!(first[0]["meetings"][0]["room"], "Official room");
+    assert_eq!(first[0]["meetings"][0]["startTime"], "10:45");
     // Maintenance/unavailable extraction does not manufacture authoritative emptiness.
     let mut unavailable = registration(json!(["1Q", "2Q"]), json!([]));
     unavailable.status = "unavailable".into();

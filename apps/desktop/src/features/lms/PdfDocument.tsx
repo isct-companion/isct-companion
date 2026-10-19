@@ -7,6 +7,13 @@ import "pdfjs-dist/web/pdf_viewer.css";
 import { t } from "../../i18n";
 import { LmsIcon } from "./LmsIcon";
 GlobalWorkerOptions.workerSrc = workerUrl;
+// Copied beside the bundle by vite.config.ts. Without CMaps, text in
+// non-embedded Japanese fonts (common in LMS handouts) silently disappears.
+const pdfjsData = (folder: string) => new URL(`pdfjs/${folder}/`, document.baseURI).href;
+const pdfjsAssets = {
+  cMapUrl: pdfjsData("cmaps"), cMapPacked: true, standardFontDataUrl: pdfjsData("standard_fonts"),
+  wasmUrl: pdfjsData("wasm"), iccUrl: pdfjsData("iccs"),
+};
 // Canvas budget per page: sharp on Retina without unbounded memory.
 const MAX_DPR = 2;
 const MAX_PIXELS = 4_000_000;
@@ -89,7 +96,7 @@ export function PdfDocument({ src, title, fileToolbar }: { src: string; title: s
   useEffect(() => () => { searchTask.current++; }, [src]);
   useEffect(() => {
     let disposed = false;
-    const task = getDocument({ url: src, disableAutoFetch: true });
+    const task = getDocument({ url: src, disableAutoFetch: true, ...pdfjsAssets });
     void task.promise.then(async doc => {
       const ratioOf = async (number: number) => { const size = (await doc.getPage(number)).getViewport({ scale: 1 }); return size.height / size.width; };
       const first = await ratioOf(1);

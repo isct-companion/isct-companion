@@ -406,11 +406,7 @@ impl Inner {
             let Some(inner) = weak.upgrade() else { return };
             let owned = inner.state.with(|state| {
                 owns_sign_in(state, profile, page.browser)
-                    && state.views.get(&page.browser.site).is_some_and(|view| {
-                        view.id == page.browser
-                            && view.last_page == page.sequence
-                            && view.url == expected_url
-                    })
+                    && still_on_login_page(state, page, &expected_url)
             });
             if !owned {
                 return;
@@ -434,11 +430,7 @@ impl Inner {
             let accepted = inner.state.with(|state| {
                 if state.login.is_none()
                     && owns_sign_in(state, profile, page.browser)
-                    && state.views.get(&page.browser.site).is_some_and(|view| {
-                        view.id == page.browser
-                            && view.last_page == page.sequence
-                            && view.url == expected_url
-                    })
+                    && still_on_login_page(state, page, &expected_url)
                 {
                     state.login = Some(login.clone());
                     true
@@ -598,6 +590,18 @@ pub(super) fn login_script(raw: &str, login: &ActiveLogin, relay: &str) -> Optio
     .replace('<', "\\u003c")
     .replace('>', "\\u003e");
     Some(SCHOOL_LOGIN.replace("__ISCT_COMPANION_LOGIN_CONFIG__", &config))
+}
+
+/// Whether the view still shows the sign-in page that armed a saved login. A
+/// visible view records the full browsing URL, a hidden one the sanitized URL,
+/// so both sides are compared in sanitized form: the GetAccess agreement page
+/// (`portal.pl?GASF=...`) loses its whole query when sanitized.
+fn still_on_login_page(state: &State, page: PageId, expected_url: &str) -> bool {
+    state.views.get(&page.browser.site).is_some_and(|view| {
+        view.id == page.browser
+            && view.last_page == page.sequence
+            && sanitize_school_url(&view.url).as_deref() == Some(expected_url)
+    })
 }
 
 /// Automatic sign-in belongs to the session check, the visible page or the

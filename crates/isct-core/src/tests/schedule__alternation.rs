@@ -1,5 +1,8 @@
 use super::*;
-use crate::schedule::{occurrences_on_date, AgendaOptions, Occurrence};
+use crate::schedule::{
+    course_timeline, occurrences_on_date, planning_week, resolve_day_agenda, AgendaOptions,
+    Occurrence,
+};
 use serde_json::json;
 
 fn workspace() -> Value {
@@ -57,11 +60,51 @@ fn published_sessions_show_only_the_chosen_group() {
 }
 
 #[test]
-fn an_unpublished_class_stays_weekly_and_is_marked() {
+fn exercise_and_lab_share_their_slot_without_a_schedule() {
     let mut data = workspace();
     data["classSchedules"] = json!([]);
-    let weekly = &blocks(&data, "2026-3Q", "2026-10-30")[0];
-    assert!(!alternation(weekly).scheduled && alternation(weekly).turn.is_none());
+    data["courses"].as_array_mut().unwrap().extend([
+        json!({"id":"lab","termId":"2026-3Q","title":"Physics Experiment II","code":"LAS.P108","color":"#8a5a44",
+            "meetings":[{"days":[5],"periods":[7,8],"startTime":"15:25","endTime":"17:05","room":"S-B101"}]}),
+        json!({"id":"other","termId":"2026-3Q","title":"Seminar","code":"LAH.S101","color":"#445566",
+            "meetings":[{"days":[5],"periods":[7,8],"startTime":"15:25","endTime":"17:05","room":""}]}),
+    ]);
+    data["memberships"].as_array_mut().unwrap().extend([
+        json!({"id":"m5","termId":"2026-3Q","courseId":"lab","status":"lms-member"}),
+        json!({"id":"m6","termId":"2026-3Q","courseId":"other","status":"lms-member"}),
+    ]);
+    let check = |blocks: &[Occurrence]| {
+        let shared = blocks
+            .iter()
+            .find(|row| row.course_id.as_deref() == Some("ex"))
+            .unwrap();
+        assert_eq!(blocks.len(), 2, "the lab folds into the exercise block");
+        assert_eq!(
+            shared.title,
+            "Exercises in Physics II English Class / Physics Experiment II"
+        );
+        assert_eq!(shared.room, "M-B107 / S-B101");
+        // Without a published schedule the shared block stays weekly.
+        assert!(!alternation(shared).scheduled && alternation(shared).turn.is_none());
+        let pair = alternation(shared).pair.as_ref().unwrap();
+        assert_eq!(
+            (pair[0].course_id.as_str(), pair[1].course_id.as_str()),
+            ("ex", "lab")
+        );
+        // The pair is not a clash, but another course in the slot still is.
+        assert_eq!(
+            shared.conflict_with.as_deref(),
+            Some(&["Seminar".to_owned()][..])
+        );
+    };
+    check(&resolve_day_agenda(&data, "2026-3Q", "2026-10-30", AgendaOptions::default()).unwrap());
+    let week = planning_week(&data, "2026-3Q").unwrap();
+    check(&week.days[4].blocks);
+    assert_eq!(week.conflict_count, 1);
+    // The lab's own timeline still finds the shared block.
+    let now = chrono::DateTime::parse_from_rfc3339("2026-10-30T12:00:00+09:00").unwrap();
+    let timeline = course_timeline(&data, "lab", now, 0, 0).unwrap();
+    assert_eq!(timeline.next.as_deref(), Some("2026-10-30T15:25:00+09:00"));
 }
 
 #[test]

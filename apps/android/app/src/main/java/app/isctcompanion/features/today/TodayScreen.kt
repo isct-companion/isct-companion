@@ -66,7 +66,6 @@ import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.PageSubtitle
 import app.isctcompanion.design.TabPage
-import app.isctcompanion.design.MapButton
 import app.isctcompanion.design.MaterialRow
 import app.isctcompanion.design.PillButton
 import app.isctcompanion.design.ProblemBanner
@@ -236,9 +235,6 @@ private fun NextClassHero(item: TodayClass, now: Instant) {
             )
         }
         CourseLink(item.occurrence.courseId, item.occurrence.title)
-        item.mapQuery?.let {
-            MapButton(it, "${item.occurrence.room.split("-").first()} 棟への地図", tint)
-        }
     }
 }
 

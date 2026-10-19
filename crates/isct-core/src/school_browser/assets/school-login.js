@@ -334,6 +334,18 @@
       });
     }
 
+    // Accounts the portal flags after sign-in get a "パスワード変更" form with
+    // current/new/confirm password fields. Choosing a new password is the
+    // person's decision, so say so instead of idling on the form.
+    const passwords = [
+      ...document.querySelectorAll('input[type="password"]'),
+    ].filter(visible);
+    if (passwords.length >= 2)
+      return report(
+        "needs-user",
+        "The portal asks you to change your password. Change it on this page, then save the new password in Settings.",
+      );
+
     // Accounts with OTP and Matrix land on the OTP page first; its "Move to
     // Other Authentication" select offers GridAuthOption (Matrix). Accounts
     // with one method go straight to that method's page.

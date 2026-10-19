@@ -143,9 +143,6 @@ private struct NextClassHero: View {
             .minimumScaleFactor(0.6)
             .lineLimit(1)
             CourseLink(id: item.occurrence.courseId, title: item.occurrence.title)
-            if let query = item.mapQuery {
-                MapButton(query: query, title: "\(item.occurrence.room.split(separator: "-").first ?? "") 棟への地図", tint: tint)
-            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -248,28 +245,6 @@ private struct CourseLink: View {
             if id != nil { Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted) }
         }
         .foregroundStyle(Theme.ink)
-    }
-}
-
-struct MapButton: View {
-    let query: String
-    let title: String
-    let tint: Color
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        Button {
-            var components = URLComponents(string: "maps://")
-            components?.queryItems = [URLQueryItem(name: "q", value: query)]
-            if let url = components?.url { openURL(url) }
-        } label: {
-            Label(title, systemImage: "mappin.and.ellipse")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(tint, in: Capsule())
-        }
     }
 }
 

@@ -8,6 +8,51 @@ import VisionKit
 // links and transfers) and recognition (Matrix OCR) are Core's; the shell only
 // turns the camera or a photo into text or image bytes.
 
+/// One row of equal tiles, icon over a short label, one per source. A bordered
+/// HStack sized each button to its label, so they wrapped unevenly.
+private struct SourceTiles<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 8) { content }
+            .buttonStyle(SourceTile())
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct SourceTile: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .labelStyle(TileLabel())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 10)
+            .foregroundStyle(enabled ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+
+private struct TileLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View { Tile(configuration: configuration) }
+
+    private struct Tile: View {
+        let configuration: LabelStyleConfiguration
+        // Symbols differ in height; a fixed slot keeps the labels on one line.
+        @ScaledMetric(relativeTo: .title3) private var icon: CGFloat = 26
+
+        var body: some View {
+            VStack(spacing: 4) {
+                configuration.icon.font(.title3).frame(height: icon)
+                configuration.title.font(.caption).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+}
+
 // MARK: OTP
 
 /// The OTP setup field with three sources: the camera, a screenshot (the
@@ -29,20 +74,17 @@ struct OtpImportField: View {
             .autocorrectionDisabled()
             .privacySensitive()
             .onChange(of: setup) { _, _ in label = nil }
-        HStack(spacing: 10) {
+        SourceTiles {
             if DataScannerViewController.isSupported {
                 Button("QR を読み取る", systemImage: "qrcode.viewfinder") { scanning = true }
             }
             PhotosPicker(selection: $photo, matching: .images) {
                 Label("写真から", systemImage: "photo")
             }
-            PasteButton(payloadType: String.self) { strings in
-                if let text = strings.first { Task { @MainActor in read(text) } }
+            Button("貼り付け", systemImage: "doc.on.clipboard") {
+                if let text = UIPasteboard.general.string { read(text) } else { error = "クリップボードが空です。" }
             }
-            .labelStyle(.iconOnly)
         }
-        .buttonStyle(.bordered)
-        .font(.subheadline)
         if let label {
             Text("「\(label)」を読み取りました。保存すると使われます。")
                 .font(.footnote)
@@ -191,7 +233,7 @@ struct MatrixImportSection: View {
                 Text(saved ? "設定済み" : "未設定")
                     .foregroundStyle(saved ? Theme.ok : Theme.muted)
             }
-            HStack(spacing: 10) {
+            SourceTiles {
                 if model.canScanMatrix {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
                         Button("撮影", systemImage: "camera") { camera = true }
@@ -200,16 +242,11 @@ struct MatrixImportSection: View {
                         Label("写真から", systemImage: "photo")
                     }
                 }
-                PasteButton(payloadType: String.self) { strings in
-                    if let text = strings.first { Task { @MainActor in paste(text) } }
-                }
-                .labelStyle(.iconOnly)
+                Button("貼り付け", systemImage: "doc.on.clipboard") { paste(UIPasteboard.general.string ?? "") }
                 if !editing {
                     Button("入力", systemImage: "keyboard") { editing = true }
                 }
             }
-            .buttonStyle(.bordered)
-            .font(.subheadline)
             .disabled(reading)
             // Presentation lives on one row: modifiers on a Section repeat on
             // every row, and several covers presenting at once tear down the
