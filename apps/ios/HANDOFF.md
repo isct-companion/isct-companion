@@ -68,7 +68,7 @@ these items only work in a signed build:
 - **Notifications on a device.** `Core/NotificationScheduler.swift` registers
   Core's `notificationPlan`, up to 64 pending. Check permission, delivery
   times and re-planning after a pull.
-- **iCloud backup.** Built; see below. The App ID needs the iCloud
+- **iCloud backup.** Built; see below and `docs/mobile-backup-handoff.md`. The App ID needs the iCloud
   capability with the `iCloud.app.isctcompanion` container, which the Mac app
   already uses, so a signed build with the team can read the Mac's record.
 - **Widgets.** These need a widget extension target and an App Group shared
