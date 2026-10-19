@@ -16,8 +16,8 @@ in `package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.to
 commit and push the changes, then push a matching version tag:
 
 ```sh
-git tag -a v1.1.2 -m "IsctCompanion 1.1.2"
-git push origin v1.1.2
+git tag -a v1.1.3 -m "IsctCompanion 1.1.3"
+git push origin v1.1.3
 ```
 
 Any maintainer with permission to push that tag can start a release. Actions uses

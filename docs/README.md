@@ -2,7 +2,7 @@
 
 - [Download and features](../README.md) · [日本語](../README.ja.md)
 - [Contributing](../CONTRIBUTING.md) · [Development and repository map](development.md)
-- [Screenshots](screenshots/README.md) · [Release notes](releases/1.1.2.md)
+- [Screenshots](screenshots/README.md) · [Release notes](releases/1.1.3.md)
 
 ## Implemented contracts
 
